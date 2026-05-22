@@ -1,0 +1,42 @@
+name: Mobile Frontend CI
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - "mobile_frontend/**"
+      - ".github/workflows/mobile-frontend-ci.yml"
+
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "mobile_frontend/**"
+      - ".github/workflows/mobile-frontend-ci.yml"
+
+jobs:
+  mobile-frontend-ci:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mobile_frontend
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile_frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Check Expo project
+        run: npx expo-doctor
