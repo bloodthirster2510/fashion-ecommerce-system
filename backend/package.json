@@ -22,14 +22,17 @@
     "mongoose": "9.6.2"
   },
   "devDependencies": {
-    "nodemon": "3.1.14",
-    "typescript": "5.5.4",
-    "ts-node-dev": "2.0.0",
-    "@types/node": "25.9.1",
-    "@types/express": "5.0.6",
-    "@types/cors": "2.8.18",
-    "@types/jsonwebtoken": "9.0.2",
     "@types/bcryptjs": "2.4.2",
-    "@types/cookie-parser": "1.4.3"
+    "@types/cookie-parser": "1.4.3",
+    "@types/cors": "2.8.18",
+    "@types/express": "5.0.6",
+    "@types/jsonwebtoken": "9.0.2",
+    "@types/node": "25.9.1",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "eslint": "^10.4.0",
+    "nodemon": "3.1.14",
+    "ts-node-dev": "2.0.0",
+    "typescript": "5.5.4"
   }
 }
