@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { BrandServiceError, brandService } from './brand.service';
 import type { CreateBrandInput, UpdateBrandInput } from './brand.types';
+import { created, error as errorResponse, ok } from '../../../utils/response';
 
 const getErrorResponse = (e: unknown) => {
   if (e instanceof BrandServiceError) {
@@ -21,15 +22,15 @@ const createBrand = async (req: Request, res: Response) => {
     const { name, image } = req.body as CreateBrandInput;
 
     if (!name || !image) {
-      return res.status(400).json({ message: 'Name and image are required' });
+      return errorResponse(res, 'Name and image are required', 400);
     }
 
     const brand = await brandService.createBrand({ name, image });
 
-    return res.status(201).json({ status: 'OK', data: brand });
+    return created(res, brand);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -45,15 +46,15 @@ const updateBrand = async (req: Request, res: Response) => {
     if (isActive !== undefined) updateData.isActive = isActive;
 
     if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ message: 'No data to update' });
+      return errorResponse(res, 'No data to update', 400);
     }
 
     const brand = await brandService.updateBrand(id, updateData);
 
-    return res.status(200).json({ status: 'OK', data: brand });
+    return ok(res, brand);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -63,10 +64,10 @@ const deleteBrand = async (req: Request, res: Response) => {
 
     const brand = await brandService.deleteBrand(brandId);
 
-    return res.status(200).json({ status: 'OK', data: brand });
+    return ok(res, brand);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -74,10 +75,10 @@ const getBrands = async (_req: Request, res: Response) => {
   try {
     const brands = await brandService.getBrands();
 
-    return res.status(200).json({ status: 'OK', data: brands });
+    return ok(res, brands);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 

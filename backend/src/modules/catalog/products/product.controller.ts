@@ -1,15 +1,26 @@
 import type { Request, Response } from 'express';
 import { ProductServiceError, productService } from './product.service';
-import type { CreateProductInput, ProductVersionInput, UpdateProductInput } from './product.types';
+import type {
+  CreateProductInput,
+  ProductGenderFilter,
+  ProductListQueryInput,
+  ProductSortOption,
+  ProductVariantInput,
+  UpdateProductInput,
+} from './product.types';
 import { uploadToCloudinary, deleteFromCloudinary, extractPublicIdFromUrl } from '../../../utils/cloudinary.util';
 import { handleMulterError, type MulterRequest } from '../../../middlewares/upload.middleware';
-import type { IProductVersion } from '../../../database/models/product.model';
+import type { IProductVariant } from '../../../database/models/product.model';
+import { created, error as errorResponse, ok } from '../../../utils/response';
 
 const getErrorResponse = (e: unknown) => {
-  if (e instanceof ProductServiceError) {
+  if (
+    e instanceof ProductServiceError ||
+    (typeof e === 'object' && e !== null && 'statusCode' in e && typeof (e as any).statusCode === 'number')
+  ) {
     return {
-      statusCode: e.statusCode,
-      message: e.message,
+      statusCode: (e as { statusCode: number }).statusCode,
+      message: e instanceof Error ? e.message : 'An error occurred',
     };
   }
 
@@ -27,26 +38,163 @@ const getUploadedFiles = (req: Request, fieldName: string) => {
   return req.files[fieldName] ?? [];
 };
 
-const parseVersions = (value: unknown): ProductVersionInput[] | undefined => {
+const parseVariants = (value: unknown): ProductVariantInput[] | undefined => {
   if (value === undefined) {
     return undefined;
   }
 
   if (Array.isArray(value)) {
-    return value as ProductVersionInput[];
+    return value as ProductVariantInput[];
   }
 
   if (typeof value === 'string') {
     const parsed = JSON.parse(value) as unknown;
 
     if (!Array.isArray(parsed)) {
-      throw new ProductServiceError('Version must be an array', 400);
+      throw new ProductServiceError('Variant must be an array', 400);
     }
 
-    return parsed as ProductVersionInput[];
+    return parsed as ProductVariantInput[];
   }
 
-  throw new ProductServiceError('Version must be an array or JSON string', 400);
+  throw new ProductServiceError('Variant must be an array or JSON string', 400);
+};
+
+const parseString = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return parseString(value[0]);
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue || undefined;
+};
+
+const parseStringList = (value: unknown) => {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+
+  return values
+    .flatMap((item) => String(item).split(','))
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const parsePositiveNumber = (value: unknown, fieldName: string) => {
+  const stringValue = parseString(value);
+
+  if (!stringValue) {
+    return undefined;
+  }
+
+  const numericValue = Number(stringValue);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    throw new ProductServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  return numericValue;
+};
+
+const parsePositiveInteger = (value: unknown, fieldName: string) => {
+  const numericValue = parsePositiveNumber(value, fieldName);
+
+  if (numericValue === undefined) {
+    return undefined;
+  }
+
+  if (!Number.isInteger(numericValue)) {
+    throw new ProductServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  return numericValue;
+};
+
+const parseBoolean = (value: unknown, fieldName: string) => {
+  const stringValue = parseString(value);
+
+  if (!stringValue) {
+    return undefined;
+  }
+
+  if (stringValue === 'true') {
+    return true;
+  }
+
+  if (stringValue === 'false') {
+    return false;
+  }
+
+  throw new ProductServiceError(`Invalid ${fieldName}`, 400);
+};
+
+const parseGender = (value: unknown) => {
+  const gender = parseString(value);
+
+  if (!gender) {
+    return undefined;
+  }
+
+  if (gender !== 'male' && gender !== 'female') {
+    throw new ProductServiceError('Invalid gender', 400);
+  }
+
+  return gender as ProductGenderFilter;
+};
+
+const parseSort = (value: unknown) => {
+  const sort = parseString(value);
+
+  if (!sort) {
+    return undefined;
+  }
+
+  const allowedSorts: ProductSortOption[] = [
+    'name_asc',
+    'name_desc',
+    'price_asc',
+    'price_desc',
+    'newest',
+    'best_seller',
+    'rating_desc',
+  ];
+
+  if (!allowedSorts.includes(sort as ProductSortOption)) {
+    throw new ProductServiceError('Invalid sort', 400);
+  }
+
+  return sort as ProductSortOption;
+};
+
+const parseProductListQuery = (req: Request): ProductListQueryInput => {
+  const color = parseStringList(req.query.color);
+  const fitType = parseStringList(req.query.fitType);
+  const size = parseStringList(req.query.size);
+  const minPrice = parsePositiveNumber(req.query.minPrice, 'minPrice');
+  const maxPrice = parsePositiveNumber(req.query.maxPrice, 'maxPrice');
+
+  if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
+    throw new ProductServiceError('minPrice cannot be greater than maxPrice', 400);
+  }
+
+  return {
+    keyword: parseString(req.query.keyword),
+    gender: parseGender(req.query.gender),
+    categoryId: parseString(req.query.categoryId),
+    brandId: parseString(req.query.brandId),
+    ...(color.length ? { color } : {}),
+    ...(fitType.length ? { fitType } : {}),
+    ...(size.length ? { size } : {}),
+    minPrice,
+    maxPrice,
+    isSale: parseBoolean(req.query.isSale, 'isSale'),
+    isNew: parseBoolean(req.query.isNew, 'isNew'),
+    sort: parseSort(req.query.sort),
+    page: parsePositiveInteger(req.query.page, 'page'),
+    limit: parsePositiveInteger(req.query.limit, 'limit'),
+  };
 };
 
 const uploadProductImage = async (file: Express.Multer.File) => {
@@ -59,38 +207,22 @@ const uploadProductImage = async (file: Express.Multer.File) => {
   return uploadResult.secure_url;
 };
 
-const uploadVersionImages = async (
-  versions: ProductVersionInput[] | undefined,
-  versionImageFiles: Express.Multer.File[],
+const uploadVariantImages = async (
+  variants: ProductVariantInput[] | undefined,
+  variantImageFiles: Express.Multer.File[],
 ) => {
-  if (!versionImageFiles.length) {
-    return versions;
+  if (!variantImageFiles.length) {
+    return variants;
   }
 
-  if (!versions?.length) {
-    throw new ProductServiceError('Version data is required when uploading version images', 400);
+  if (!variants?.length) {
+    throw new ProductServiceError('Variant data is required when uploading variant images', 400);
   }
 
-  if (versionImageFiles.length > versions.length) {
-    throw new ProductServiceError('Version image count cannot exceed version count', 400);
-  }
-
-  const nextVersions = [...versions];
-
-  for (const [index, file] of versionImageFiles.entries()) {
-    const uploadResult = await uploadToCloudinary(
-      file.buffer,
-      file.originalname,
-      'fashion-ecommerce/products/versions',
-    );
-
-    nextVersions[index] = {
-      ...nextVersions[index],
-      version_image: uploadResult.secure_url,
-    };
-  }
-
-  return nextVersions;
+  throw new ProductServiceError(
+    'Uploading variant images is not supported in the current catalog design. Provide color image URLs inside each variant color object.',
+    400,
+  );
 };
 
 const deleteCloudinaryImage = async (imageUrl?: string | null) => {
@@ -110,7 +242,9 @@ const deleteProductImages = async (product: Awaited<ReturnType<typeof productSer
   await deleteCloudinaryImage(product.product_image);
 
   await Promise.all(
-    product.version.map((version: IProductVersion) => deleteCloudinaryImage(version.version_image)),
+    product.variant.flatMap((variant: IProductVariant) =>
+      variant.colors.map((color) => deleteCloudinaryImage(color.image)),
+    ),
   );
 };
 
@@ -122,15 +256,13 @@ const createProduct = async (req: Request, res: Response) => {
 
     const input = {
       ...(req.body as CreateProductInput),
-      version: parseVersions(req.body.version),
+      variant: parseVariants(req.body.variant ?? req.body.version),
     };
     const productImageFile = getUploadedFiles(req, 'product_image')[0];
-    const versionImageFiles = getUploadedFiles(req, 'version_images');
+    const variantImageFiles = getUploadedFiles(req, 'version_images');
 
     if (!input.category_id || !input.name || !input.brand_id || !input.description) {
-      return res.status(400).json({
-        message: 'Category, name, brand, and description are required',
-      });
+      return errorResponse(res, 'Category, name, brand, and description are required', 400);
     }
 
     let productImageUrl: string;
@@ -139,25 +271,24 @@ const createProduct = async (req: Request, res: Response) => {
     } else if (input.product_image) {
       productImageUrl = input.product_image;
     } else {
-      return res.status(400).json({
-        message: 'Product image is required (upload file or provide image URL)',
-      });
+      return errorResponse(res, 'Product image is required (upload file or provide image URL)', 400);
     }
 
-    const versions = await uploadVersionImages(input.version, versionImageFiles);
+    if (variantImageFiles.length > 0) {
+      await uploadVariantImages(input.variant, variantImageFiles);
+    }
 
     const productInput: CreateProductInput = {
       ...input,
       product_image: productImageUrl,
-      version: versions,
     };
 
     const product = await productService.createProduct(productInput);
 
-    return res.status(201).json({ status: 'OK', data: product });
+    return created(res, product);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -170,10 +301,10 @@ const updateProduct = async (req: Request, res: Response) => {
     const productId = req.params.id as string;
     const input = {
       ...(req.body as UpdateProductInput),
-      version: parseVersions(req.body.version),
+      variant: parseVariants(req.body.variant ?? req.body.version),
     };
     const productImageFile = getUploadedFiles(req, 'product_image')[0];
-    const versionImageFiles = getUploadedFiles(req, 'version_images');
+    const variantImageFiles = getUploadedFiles(req, 'version_images');
     const updateData: UpdateProductInput = {};
 
     if (input.category_id !== undefined) updateData.category_id = input.category_id;
@@ -186,9 +317,9 @@ const updateProduct = async (req: Request, res: Response) => {
     if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
 
     const shouldReplaceProductImage = Boolean(productImageFile);
-    const shouldReplaceVersions = input.version !== undefined || versionImageFiles.length > 0;
+    const shouldReplaceVariants = input.variant !== undefined || variantImageFiles.length > 0;
     const currentProduct =
-      shouldReplaceProductImage || shouldReplaceVersions
+      shouldReplaceProductImage || shouldReplaceVariants
         ? await productService.getProductById(productId)
         : null;
 
@@ -199,29 +330,24 @@ const updateProduct = async (req: Request, res: Response) => {
       updateData.product_image = input.product_image;
     }
 
-    if (shouldReplaceVersions) {
-      const versions = await uploadVersionImages(input.version, versionImageFiles);
+    if (variantImageFiles.length > 0) {
+      await uploadVariantImages(input.variant, variantImageFiles);
+    }
 
-      if (versions !== undefined) {
-        await Promise.all(
-          currentProduct?.version.map((version: IProductVersion) =>
-            deleteCloudinaryImage(version.version_image),
-          ) ?? [],
-        );
-        updateData.version = versions;
-      }
+    if (input.variant !== undefined) {
+      updateData.variant = input.variant;
     }
 
     if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ message: 'No data to update' });
+      return errorResponse(res, 'No data to update', 400);
     }
 
     const product = await productService.updateProduct(productId, updateData);
 
-    return res.status(200).json({ status: 'OK', data: product });
+    return ok(res, product);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -234,10 +360,10 @@ const deleteProduct = async (req: Request, res: Response) => {
 
     const updatedProduct = await productService.deleteProduct(productId);
 
-    return res.status(200).json({ status: 'OK', data: updatedProduct });
+    return ok(res, updatedProduct);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -245,10 +371,22 @@ const getProducts = async (_req: Request, res: Response) => {
   try {
     const products = await productService.getProducts();
 
-    return res.status(200).json({ status: 'OK', data: products });
+    return ok(res, products);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getProductList = async (req: Request, res: Response) => {
+  try {
+    const query = parseProductListQuery(req);
+    const products = await productService.getProductList(query);
+
+    return ok(res, products);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -257,11 +395,11 @@ const getProductById = async (req: Request, res: Response) => {
     const productId = req.params.id as string;
     const product = await productService.getProductById(productId);
 
-    return res.status(200).json({ status: 'OK', data: product });
+    return ok(res, product);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
-export { createProduct, updateProduct, deleteProduct, getProducts, getProductById };
+export { createProduct, updateProduct, deleteProduct, getProducts, getProductList, getProductById };

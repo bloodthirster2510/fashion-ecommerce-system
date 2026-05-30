@@ -41,16 +41,26 @@ jest.mock('../categories/categories.service', () => ({
   },
 }));
 
-jest.mock('../products/product.service', () => ({
-  productService: {
-    createProduct: jest.fn(),
-    updateProduct: jest.fn(),
-    deleteProduct: jest.fn(),
-    getProducts: jest.fn(),
-    getActiveProducts: jest.fn(),
-    getProductById: jest.fn(),
-  },
-}));
+jest.mock('../products/product.service', () => {
+  class ProductServiceError extends Error {
+    constructor(message: string, public readonly statusCode: number) {
+      super(message);
+      this.name = 'ProductServiceError';
+    }
+  }
+
+  return {
+    ProductServiceError,
+    productService: {
+      createProduct: jest.fn(),
+      updateProduct: jest.fn(),
+      deleteProduct: jest.fn(),
+      getProducts: jest.fn(),
+      getActiveProducts: jest.fn(),
+      getProductById: jest.fn(),
+    },
+  };
+});
 
 jest.mock('../../../utils/cloudinary.util', () => ({
   uploadToCloudinary: jest.fn(),
@@ -113,7 +123,7 @@ describe('catalog controllers', () => {
         image: 'https://example.com/nike.png',
       });
       expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith({ status: 'OK', data: brand });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Created', data: brand });
     });
 
     it('returns 400 when update brand payload is empty', async () => {
@@ -165,7 +175,7 @@ describe('catalog controllers', () => {
 
       expect(mockedCategoryService.getCategoryById).toHaveBeenCalledWith('category-id');
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ status: 'OK', data: category });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Success', data: category });
     });
   });
 
@@ -197,46 +207,111 @@ describe('catalog controllers', () => {
         isActive: true,
       });
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ status: 'OK', data: product });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Success', data: product });
     });
 
-    it('uploads product and version images before creating a product', async () => {
+    it('uploads product image and creates a product with variant payload', async () => {
       const product = { _id: 'product-id', name: 'T-shirt' };
       mockedProductService.createProduct.mockResolvedValue(product as never);
-      mockedUploadToCloudinary
-        .mockResolvedValueOnce({
-          secure_url: 'https://res.cloudinary.com/demo/products/product.png',
-        } as never)
-        .mockResolvedValueOnce({
-          secure_url: 'https://res.cloudinary.com/demo/products/versions/black.png',
-        } as never);
+      mockedUploadToCloudinary.mockResolvedValueOnce({
+        secure_url: 'https://res.cloudinary.com/demo/products/product.png',
+      } as never);
 
-      const version = [
+      const variant = [
         {
-          sku: 'TSHIRT-BLACK-M',
-          color: 'Black',
-          fitType: 'Regular',
-          size_spec: [
-            {
-              size: 'M',
-              shoulder: 42,
-              chest: 96,
-              length: 68,
-              weight: 0.4,
-            },
-          ],
-          version_image: 'https://example.com/fallback.png',
+          fitTypeId: '665000000000000000000010',
           price: 199000,
           discount: 0,
+          sizeMeasurements: [
+            {
+              size: 'M',
+              measurements: [
+                { key: 'shoulder', value: 42 },
+                { key: 'chest', value: 96 },
+                { key: 'length', value: 68 },
+              ],
+            },
+          ],
+          colors: [
+            {
+              color: 'Black',
+              colorCode: '#000000',
+              image: 'https://example.com/black.png',
+            },
+          ],
         },
       ];
+
       const req = createRequest(
         {
           category_id: '665000000000000000000001',
           name: 'T-shirt',
           brand_id: '665000000000000000000002',
           description: 'Basic product',
-          version: JSON.stringify(version),
+          variant: JSON.stringify(variant),
+        },
+        {},
+        {
+          product_image: [
+            {
+              buffer: Buffer.from('product-image'),
+              originalname: 'product.png',
+            } as Express.Multer.File,
+          ],
+        },
+      );
+      const res = createResponse();
+
+      await createProduct(req, res);
+
+      expect(mockedUploadToCloudinary).toHaveBeenCalledWith(
+        Buffer.from('product-image'),
+        'product.png',
+        'fashion-ecommerce/products',
+      );
+      expect(mockedProductService.createProduct).toHaveBeenCalledWith(
+        expect.objectContaining({
+          product_image: 'https://res.cloudinary.com/demo/products/product.png',
+          variant: expect.arrayContaining([
+            expect.objectContaining({
+              fitTypeId: '665000000000000000000010',
+              price: 199000,
+            }),
+          ]),
+        }),
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith({ message: 'Created', data: product });
+    });
+
+    it('returns 400 when variant image uploads are provided in the new catalog design', async () => {
+      const req = createRequest(
+        {
+          category_id: '665000000000000000000001',
+          name: 'T-shirt',
+          brand_id: '665000000000000000000002',
+          description: 'Basic product',
+          variant: JSON.stringify([
+            {
+              fitTypeId: '665000000000000000000010',
+              price: 199000,
+              discount: 0,
+              sizeMeasurements: [
+                {
+                  size: 'M',
+                  measurements: [
+                    { key: 'shoulder', value: 42 },
+                  ],
+                },
+              ],
+              colors: [
+                {
+                  color: 'Black',
+                  image: 'https://example.com/black.png',
+                },
+              ],
+            },
+          ]),
         },
         {},
         {
@@ -255,34 +330,18 @@ describe('catalog controllers', () => {
         },
       );
       const res = createResponse();
+      mockedUploadToCloudinary.mockResolvedValueOnce({
+        secure_url: 'https://res.cloudinary.com/demo/products/product.png',
+      } as never);
 
       await createProduct(req, res);
 
-      expect(mockedUploadToCloudinary).toHaveBeenNthCalledWith(
-        1,
-        Buffer.from('product-image'),
-        'product.png',
-        'fashion-ecommerce/products',
-      );
-      expect(mockedUploadToCloudinary).toHaveBeenNthCalledWith(
-        2,
-        Buffer.from('version-image'),
-        'black.png',
-        'fashion-ecommerce/products/versions',
-      );
-      expect(mockedProductService.createProduct).toHaveBeenCalledWith(
-        expect.objectContaining({
-          product_image: 'https://res.cloudinary.com/demo/products/product.png',
-          version: [
-            expect.objectContaining({
-              sku: 'TSHIRT-BLACK-M',
-              version_image: 'https://res.cloudinary.com/demo/products/versions/black.png',
-            }),
-          ],
-        }),
-      );
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith({ status: 'OK', data: product });
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message:
+          'Uploading variant images is not supported in the current catalog design. Provide color image URLs inside each variant color object.',
+      });
+      expect(mockedProductService.createProduct).not.toHaveBeenCalled();
     });
   });
 });

@@ -45,6 +45,24 @@ const seed = async () => {
         image: imageUrl,
         bannerImage: imageUrl,
         description: 'Seed category used to initialize the collection.',
+        isLeaf: true,
+        isSizeTemplateSource: true,
+        sizeTemplateSourceId: null,
+        sizes: ['S', 'M', 'L', 'XL'],
+        measurementFields: [
+          { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
+          { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
+          { key: 'length', label: 'Dài áo', unit: 'cm', required: true, sortOrder: 3 },
+        ],
+        fitTypes: [
+          {
+            _id: new Types.ObjectId('665000000000000000000010'),
+            key: 'regular',
+            label: 'Regular',
+            sortOrder: 1,
+            isActive: true,
+          },
+        ],
         isActive: true,
       },
     },
@@ -59,27 +77,29 @@ const seed = async () => {
         category_id: categoryId,
         name: 'Seed Product',
         brand_id: brandId,
-        version: [
+        variant: [
           {
-            sku: 'SEED-PRODUCT-001',
-            color: 'Black',
-            fitType: 'Regular',
-            size_spec: [
-              {
-                size: 'M',
-                shoulder: 42,
-                chest: 96,
-                length: 68,
-                weight: 0.4,
-                stock_quantity: 1,
-              },
-            ],
-            version_image: imageUrl,
-            image_embedding: [],
+            fitTypeId: new Types.ObjectId('665000000000000000000010'),
             price: 199000,
             discount: 0,
-            isAvailable: true,
-            import: [],
+            sizeMeasurements: [
+              {
+                size: 'M',
+                measurements: [
+                  { key: 'shoulder', value: 42 },
+                  { key: 'chest', value: 96 },
+                  { key: 'length', value: 68 },
+                ],
+              },
+            ],
+            colors: [
+              {
+                color: 'Black',
+                colorCode: '#000000',
+                image: imageUrl,
+              },
+            ],
+            isActive: true,
           },
         ],
         description: 'Seed product used to initialize the collection.',

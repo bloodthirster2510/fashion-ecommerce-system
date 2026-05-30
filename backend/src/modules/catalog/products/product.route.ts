@@ -3,6 +3,7 @@ import { upload } from '../../../middlewares/upload.middleware';
 import {
   createProduct,
   deleteProduct,
+  getProductList,
   getProductById,
   getProducts,
   updateProduct,
@@ -17,6 +18,7 @@ const productImageUpload = upload.fields([
 
 router.post('/create', productImageUpload, createProduct);
 router.put('/update/:id', productImageUpload, updateProduct);
+router.get('/', getProductList);
 router.get('/getAll', getProducts);
 router.get('/:id', getProductById);
 router.delete('/delete/:id', deleteProduct);

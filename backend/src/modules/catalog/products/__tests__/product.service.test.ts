@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { Brand, Category, Product } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput } from '../product.types';
@@ -30,24 +31,28 @@ const createProductInput: CreateProductInput = {
   category_id: categoryId,
   name: ' Basic T-shirt ',
   brand_id: brandId,
-  version: [
+  variant: [
     {
-      sku: ' TSHIRT-BLACK-M ',
-      color: ' Black ',
-      fitType: ' Regular ',
-      size_spec: [
-        {
-          size: 'M',
-          shoulder: 42,
-          chest: 96,
-          length: 68,
-          weight: 0.4,
-          stock_quantity: 10,
-        },
-      ],
-      version_image: ' https://example.com/version.png ',
+      fitTypeId: '665000000000000000000010',
       price: 199000,
       discount: 0,
+      sizeMeasurements: [
+        {
+          size: 'M',
+          measurements: [
+            { key: 'shoulder', value: 42 },
+            { key: 'chest', value: 96 },
+            { key: 'length', value: 68 },
+          ],
+        },
+      ],
+      colors: [
+        {
+          color: ' Black ',
+          colorCode: '#000000',
+          image: ' https://example.com/color.png ',
+        },
+      ],
     },
   ],
   description: ' A basic t-shirt for daily wear ',
@@ -58,7 +63,25 @@ describe('productService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedBrand.findById.mockResolvedValue({ _id: brandId } as never);
-    mockedCategory.findById.mockResolvedValue({ _id: categoryId } as never);
+    mockedCategory.findById.mockResolvedValue({
+      _id: categoryId,
+      isSizeTemplateSource: true,
+      sizes: ['M'],
+      measurementFields: [
+        { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
+        { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
+        { key: 'length', label: 'Dài áo', unit: 'cm', required: true, sortOrder: 3 },
+      ],
+      fitTypes: [
+        {
+          _id: new Types.ObjectId('665000000000000000000010'),
+          key: 'regular',
+          label: 'Regular',
+          sortOrder: 1,
+          isActive: true,
+        },
+      ],
+    } as never);
     mockedProduct.findOne.mockResolvedValue(null);
   });
 
@@ -70,25 +93,25 @@ describe('productService', () => {
 
     expect(mockedBrand.findById).toHaveBeenCalledWith(brandId);
     expect(mockedCategory.findById).toHaveBeenCalledWith(categoryId);
-    expect(mockedProduct.findOne).toHaveBeenCalledWith({
-      _id: { $exists: true },
-      'version.sku': { $in: ['TSHIRT-BLACK-M'] },
-    });
     expect(mockedProduct.create).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'Basic T-shirt',
         description: 'A basic t-shirt for daily wear',
         product_image: 'https://example.com/product.png',
         isActive: true,
-        version: [
+        variant: [
           expect.objectContaining({
-            sku: 'TSHIRT-BLACK-M',
-            color: 'Black',
-            fitType: 'Regular',
-            version_image: 'https://example.com/version.png',
-            image_embedding: [],
-            isAvailable: true,
-            import: [],
+            fitTypeId: expect.any(Object),
+            price: 199000,
+            discount: 0,
+            isActive: true,
+            colors: [
+              expect.objectContaining({
+                color: 'Black',
+                colorCode: '#000000',
+                image: 'https://example.com/color.png',
+              }),
+            ],
           }),
         ],
       }),
@@ -121,34 +144,51 @@ describe('productService', () => {
     });
   });
 
-  it('throws 400 when version payload contains duplicate SKUs', async () => {
+  it('throws 400 when variant payload contains duplicate fitTypeId', async () => {
     await expect(
       productService.createProduct({
         ...createProductInput,
-        version: [
-          createProductInput.version![0],
+        variant: [
+          createProductInput.variant![0],
           {
-            ...createProductInput.version![0],
-            sku: 'tshirt-black-m',
+            ...createProductInput.variant![0],
+            fitTypeId: '665000000000000000000010',
           },
         ],
       }),
     ).rejects.toMatchObject({
-      message: 'Duplicate SKU in product versions',
+      message: 'Duplicate fitTypeId in product variants',
       statusCode: 400,
     });
   });
 
-  it('throws 409 when SKU already exists in another product', async () => {
-    mockedProduct.findOne.mockResolvedValue({ _id: 'other-product-id' } as never);
-
-    await expect(productService.createProduct(createProductInput)).rejects.toMatchObject({
-      message: 'SKU already exists',
-      statusCode: 409,
+  it('throws 400 when variant fitTypeId is not valid for the category', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        variant: [
+          {
+            ...createProductInput.variant![0],
+            fitTypeId: '665000000000000000000011',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Variant fitTypeId is not valid for this category',
+      statusCode: 400,
     });
   });
 
-  it('updates a product after checking references and SKU uniqueness', async () => {
+  it('creates a product when payload is valid and no duplicate variants exist', async () => {
+    const product = { _id: productId, name: 'Basic T-shirt' };
+    mockedProduct.create.mockResolvedValue(product as never);
+
+    const result = await productService.createProduct(createProductInput);
+
+    expect(result).toBe(product);
+  });
+
+  it('updates a product after checking references and variant payload', async () => {
     const product = { _id: productId, name: 'Old product' };
     const updatedProduct = { _id: productId, name: 'Updated product' };
     mockedProduct.findById.mockResolvedValue(product as never);
@@ -158,13 +198,9 @@ describe('productService', () => {
       name: ' Updated product ',
       brand_id: brandId,
       category_id: categoryId,
-      version: createProductInput.version,
+      variant: createProductInput.variant,
     });
 
-    expect(mockedProduct.findOne).toHaveBeenCalledWith({
-      _id: { $ne: productId },
-      'version.sku': { $in: ['TSHIRT-BLACK-M'] },
-    });
     expect(mockedProduct.findByIdAndUpdate).toHaveBeenCalledWith(
       productId,
       expect.objectContaining({

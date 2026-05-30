@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { CategoryServiceError, categoryService } from './categories.service';
-import type { CreateCategoryInput, UpdateCategoryInput } from './categories.type';
+import type { CategoryListQueryInput, CreateCategoryInput, UpdateCategoryInput } from './categories.type';
+import { created, error as errorResponse, ok } from '../../../utils/response';
 
 const getErrorResponse = (e: unknown) => {
   if (e instanceof CategoryServiceError) {
@@ -16,22 +17,65 @@ const getErrorResponse = (e: unknown) => {
   };
 };
 
+const parseString = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return parseString(value[0]);
+  }
+
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue || undefined;
+};
+
+const parseBoolean = (value: unknown, fieldName: string) => {
+  const stringValue = parseString(value);
+
+  if (!stringValue) {
+    return undefined;
+  }
+
+  if (stringValue === 'true') {
+    return true;
+  }
+
+  if (stringValue === 'false') {
+    return false;
+  }
+
+  throw new CategoryServiceError(`Invalid ${fieldName}`, 400);
+};
+
+const parseCategoryListQuery = (req: Request): CategoryListQueryInput => {
+  const gender = parseString(req.query.gender);
+
+  if (gender && gender !== 'male' && gender !== 'female' && gender !== 'unisex') {
+    throw new CategoryServiceError('Invalid gender', 400);
+  }
+
+  return {
+    gender: gender as CategoryListQueryInput['gender'],
+    parentId: parseString(req.query.parentId),
+    activeOnly: parseBoolean(req.query.activeOnly, 'activeOnly'),
+  };
+};
+
 const createCategory = async (req: Request, res: Response) => {
   try {
     const input = req.body as CreateCategoryInput;
 
     if (!input.name || input.level === undefined || !input.gender || !input.image || !input.description) {
-      return res.status(400).json({
-        message: 'Name, level, gender, image, and description are required',
-      });
+      return errorResponse(res, 'Name, level, gender, image, and description are required', 400);
     }
 
     const category = await categoryService.createCategory(input);
 
-    return res.status(201).json({ status: 'OK', data: category });
+    return created(res, category);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -48,18 +92,35 @@ const updateCategory = async (req: Request, res: Response) => {
     if (input.image !== undefined) updateData.image = input.image;
     if (input.bannerImage !== undefined) updateData.bannerImage = input.bannerImage;
     if (input.description !== undefined) updateData.description = input.description;
+    if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
+    if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;
+    if (input.sizeTemplateSourceId !== undefined) updateData.sizeTemplateSourceId = input.sizeTemplateSourceId;
+    if (input.sizes !== undefined) updateData.sizes = input.sizes;
+    if (input.measurementFields !== undefined) updateData.measurementFields = input.measurementFields;
+    if (input.fitTypes !== undefined) updateData.fitTypes = input.fitTypes;
     if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
     if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ message: 'No data to update' });
+      return errorResponse(res, 'No data to update', 400);
     }
 
     const category = await categoryService.updateCategory(id, updateData);
 
-    return res.status(200).json({ status: 'OK', data: category });
+    return ok(res, category);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getCategoryTemplate = async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const template = await categoryService.getCategoryTemplateById(id);
+    return ok(res, template);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -68,10 +129,10 @@ const deleteCategory = async (req: Request, res: Response) => {
     const categoryId = req.params.id as string;
     const category = await categoryService.deleteCategory(categoryId);
 
-    return res.status(200).json({ status: 'OK', data: category });
+    return ok(res, category);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -79,10 +140,21 @@ const getCategories = async (_req: Request, res: Response) => {
   try {
     const categories = await categoryService.getCategories();
 
-    return res.status(200).json({ status: 'OK', data: categories });
+    return ok(res, categories);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const listCategories = async (req: Request, res: Response) => {
+  try {
+    const categories = await categoryService.listCategories(parseCategoryListQuery(req));
+
+    return ok(res, categories);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
   }
 };
 
@@ -91,11 +163,11 @@ const getCategoryById = async (req: Request, res: Response) => {
     const categoryId = req.params.id as string;
     const category = await categoryService.getCategoryById(categoryId);
 
-    return res.status(200).json({ status: 'OK', data: category });
+    return ok(res, category);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
-    return res.status(statusCode).json({ message });
+    return errorResponse(res, message, statusCode);
   }
 };
 
-export { createCategory, updateCategory, deleteCategory, getCategories, getCategoryById };
+export { createCategory, updateCategory, deleteCategory, getCategories, listCategories, getCategoryById, getCategoryTemplate };

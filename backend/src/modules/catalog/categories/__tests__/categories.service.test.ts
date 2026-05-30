@@ -42,8 +42,68 @@ describe('categoryService', () => {
       image: 'https://example.com/category.png',
       bannerImage: 'https://example.com/banner.png',
       description: 'Men shirts category',
+      isLeaf: false,
+      isSizeTemplateSource: false,
+      sizeTemplateSourceId: null,
+      sizes: [],
+      measurementFields: [],
+      fitTypes: [],
       isActive: true,
     });
+    expect(result).toBe(category);
+  });
+
+  it('creates a size template category with sizes and fit types', async () => {
+    const category = { _id: 'category-id', name: 'Shirts' };
+    mockedCategory.findOne.mockResolvedValue(null);
+    mockedCategory.create.mockResolvedValue(category as never);
+
+    const result = await categoryService.createCategory({
+      name: ' Shirts ',
+      parent_id: null,
+      level: 1,
+      gender: 'male',
+      image: ' https://example.com/category.png ',
+      bannerImage: ' https://example.com/banner.png ',
+      description: ' Men shirts category ',
+      isSizeTemplateSource: true,
+      sizes: ['S', 'M', 'L'],
+      measurementFields: [
+        { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
+        { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
+      ],
+      fitTypes: [
+        { key: 'regular', label: 'Regular', sortOrder: 1, isActive: true },
+        { key: 'oversize', label: 'Oversize', sortOrder: 2, isActive: true },
+      ],
+    });
+
+    expect(mockedCategory.findOne).toHaveBeenCalled();
+    expect(mockedCategory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Shirts',
+        isSizeTemplateSource: true,
+        sizes: ['S', 'M', 'L'],
+        measurementFields: [
+          { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
+          { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
+        ],
+        fitTypes: expect.arrayContaining([
+          expect.objectContaining({
+            key: 'regular',
+            label: 'Regular',
+            sortOrder: 1,
+            isActive: true,
+          }),
+          expect.objectContaining({
+            key: 'oversize',
+            label: 'Oversize',
+            sortOrder: 2,
+            isActive: true,
+          }),
+        ]),
+      }),
+    );
     expect(result).toBe(category);
   });
 

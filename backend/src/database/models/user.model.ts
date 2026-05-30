@@ -5,6 +5,7 @@ export type UserGender = 'male' | 'female';
 export type AuthProviderName = 'google' | 'facebook' | 'apple';
 
 export interface IUserAddress {
+  _id?: Types.ObjectId;
   customerName: string;
   province: string;
   district: string;
@@ -36,6 +37,7 @@ export interface IUser extends Document {
   resetPasswordToken?: string | null;
   resetPasswordExpires?: Date | null;
   avatarImage?: string | null;
+  avatarPublicId?: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -53,7 +55,6 @@ const userAddressSchema = new Schema<IUserAddress>(
     phoneNumber: { type: String, required: true, trim: true, match: vietnamPhoneRegex },
     isDefault: { type: Boolean, default: false },
   },
-  { _id: false },
 );
 
 const authProviderSchema = new Schema<IUserAuthProvider>(
@@ -96,7 +97,8 @@ const userSchema = new Schema<IUser>(
     authProviders: { type: [authProviderSchema], default: [] },
     resetPasswordToken: { type: String, default: null },
     resetPasswordExpires: { type: Date, default: null },
-    avatarImage: { type: String, default: null, maxlength: 500 },
+    avatarImage: { type: String, default: null, maxlength: 1000 },
+    avatarPublicId: { type: String, default: null, maxlength: 255 },
     isActive: { type: Boolean, default: false },
   },
   { timestamps: true },
