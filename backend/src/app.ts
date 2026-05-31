@@ -18,6 +18,11 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/membership-rankings', membershipRoutes);
+app.use('/api/locations', locationRoutes);
+app.use('/api', routes);
 
 app.get('/', (_req, res) => {
   res.status(200).json({ status: 'ok' });

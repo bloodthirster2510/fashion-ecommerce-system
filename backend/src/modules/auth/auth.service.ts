@@ -16,6 +16,48 @@ const comparePassword = async (password: string, hash: string): Promise<boolean>
   return bcrypt.compare(password, hash);
 };
 
+const isProfileCompleted = (user: IUser) =>
+  Boolean(user.phone && user.gender && user.dateOfBirth && Array.isArray(user.address) && user.address.length > 0);
+
+const toSessionUser = (user: IUser) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone ?? '',
+  role: user.role,
+  avatarImage: user.avatarImage ?? null,
+  profileCompleted: isProfileCompleted(user),
+});
+
+const createSocialUser = async (data: {
+  provider: AuthProviderName;
+  providerId: string;
+  name: string;
+  email: string;
+}) => {
+  return User.create({
+    name: data.name,
+    email: data.email.toLowerCase(),
+    password: await hashPassword(crypto.randomBytes(32).toString('hex')),
+    role: 'user',
+    isActive: true,
+    profileCompleted: false,
+    authProviders: [{ provider: data.provider, providerId: data.providerId }],
+    address: [],
+  });
+};
+
+const linkAuthProvider = async (user: IUser, provider: AuthProviderName, providerId: string) => {
+  const alreadyLinked = user.authProviders.some(
+    (item) => item.provider === provider && item.providerId === providerId,
+  );
+
+  if (!alreadyLinked) {
+    user.authProviders.push({ provider, providerId });
+    await user.save();
+  }
+};
+
 export const sendOtp = async (phone: string) => {
   const existingUser = await User.findOne({ phone });
   if (existingUser) {
@@ -100,14 +142,7 @@ export const registerUser = async (data: {
   return {
     accessToken,
     refreshToken,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      avatarImage: user.avatarImage ?? null,
-    },
+    user: toSessionUser(user),
   };
 };
 
@@ -140,14 +175,7 @@ export const loginUser = async (identifier: string, password: string) => {
   return {
     accessToken,
     refreshToken,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      avatarImage: user.avatarImage ?? null,
-    },
+    user: toSessionUser(user),
   };
 };
 
@@ -277,14 +305,7 @@ const generateUserTokens = async (user: IUser) => {
   return {
     accessToken,
     refreshToken,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      avatarImage: user.avatarImage ?? null,
-    },
+    user: toSessionUser(user),
   };
 };
 
@@ -325,20 +346,13 @@ const googleLogin = async (idToken: string) => {
     user = await User.findOne({ email: email.toLowerCase() });
 
     if (user) {
-      user.authProviders.push({ provider: 'google', providerId: googleId! });
-      await user.save();
+      await linkAuthProvider(user, 'google', googleId!);
     } else {
-      user = await User.create({
+      user = await createSocialUser({
+        provider: 'google',
+        providerId: googleId!,
         name: name || email.split('@')[0],
         email: email.toLowerCase(),
-        password: await hashPassword(crypto.randomBytes(32).toString('hex')),
-        phone: '',
-        gender: 'male',
-        dateOfBirth: new Date('2000-01-01'),
-        role: 'user',
-        isActive: true,
-        authProviders: [{ provider: 'google', providerId: googleId! }],
-        address: [],
       });
     }
   }
@@ -384,20 +398,13 @@ const facebookLogin = async (accessToken: string) => {
     }
 
     if (user) {
-      user.authProviders.push({ provider: 'facebook', providerId: facebookId });
-      await user.save();
+      await linkAuthProvider(user, 'facebook', facebookId);
     } else {
-      user = await User.create({
+      user = await createSocialUser({
+        provider: 'facebook',
+        providerId: facebookId,
         name: name || `Facebook User`,
         email: userEmail.toLowerCase(),
-        password: await hashPassword(crypto.randomBytes(32).toString('hex')),
-        phone: '',
-        gender: 'male',
-        dateOfBirth: new Date('2000-01-01'),
-        role: 'user',
-        isActive: true,
-        authProviders: [{ provider: 'facebook', providerId: facebookId }],
-        address: [],
       });
     }
   }

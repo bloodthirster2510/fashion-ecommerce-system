@@ -34,6 +34,7 @@ export interface IUser extends Document {
   membershipUpdatedAt?: Date | null;
   refreshToken?: string | null;
   authProviders: IUserAuthProvider[];
+  profileCompleted: boolean;
   resetPasswordToken?: string | null;
   resetPasswordExpires?: Date | null;
   avatarImage?: string | null;
@@ -44,6 +45,10 @@ export interface IUser extends Document {
 }
 
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
+
+const requiresCompletedProfile = function (this: IUser) {
+  return this.profileCompleted !== false;
+};
 
 const userAddressSchema = new Schema<IUserAddress>(
   {
@@ -79,14 +84,17 @@ const userSchema = new Schema<IUser>(
     },
     password: { type: String, required: true, minlength: 8 },
     role: { type: String, enum: ['admin', 'staff', 'user'], required: true, default: 'user' },
-    phone: { type: String, required: true, trim: true, match: vietnamPhoneRegex },
-    gender: { type: String, enum: ['male', 'female'], required: true },
-    dateOfBirth: { type: Date, required: true },
+    phone: { type: String, required: requiresCompletedProfile, trim: true, match: vietnamPhoneRegex },
+    gender: { type: String, enum: ['male', 'female'], required: requiresCompletedProfile },
+    dateOfBirth: { type: Date, required: requiresCompletedProfile },
     address: {
       type: [userAddressSchema],
-      required: true,
+      required: requiresCompletedProfile,
       validate: {
-        validator: (value: IUserAddress[]) => value.length > 0,
+        validator(this: unknown, value: IUserAddress[]) {
+          const context = this as { profileCompleted?: boolean };
+          return context.profileCompleted === false || value.length > 0;
+        },
         message: 'User must have at least one address',
       },
     },
@@ -95,6 +103,7 @@ const userSchema = new Schema<IUser>(
     membershipUpdatedAt: { type: Date, default: null },
     refreshToken: { type: String, default: null },
     authProviders: { type: [authProviderSchema], default: [] },
+    profileCompleted: { type: Boolean, default: true },
     resetPasswordToken: { type: String, default: null },
     resetPasswordExpires: { type: Date, default: null },
     avatarImage: { type: String, default: null, maxlength: 1000 },

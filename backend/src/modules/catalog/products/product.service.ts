@@ -1,7 +1,19 @@
 import { SortOrder, Types } from 'mongoose';
-import { Brand, Category, Product, type ICategory, type IProductVariant } from '../../../database/models';
+import {
+  Brand,
+  Category,
+  Product,
+  type ICategory,
+  type ICategoryFitType,
+  type IMeasurementField,
+  type IProductVariant,
+} from '../../../database/models';
 import type {
   CreateProductInput,
+  ProductCategoryBreadcrumbItem,
+  ProductDetailColor,
+  ProductDetailResponse,
+  ProductDetailVariant,
   ProductGenderFilter,
   ProductListQueryInput,
   ProductListResponse,
@@ -244,6 +256,11 @@ type PopulatedCategory = {
   level?: number;
   image?: string;
   bannerImage?: string | null;
+  isSizeTemplateSource?: boolean;
+  sizeTemplateSourceId?: Types.ObjectId | null;
+  sizes?: string[];
+  measurementFields?: IMeasurementField[];
+  fitTypes?: ICategoryFitType[];
 };
 
 type ProductListDocument = {
@@ -470,8 +487,17 @@ const getCategoryIdsByGender = async (gender: ProductGenderFilter) => {
 };
 
 const resolveCategoryFilter = async (query: ProductListQueryInput) => {
-  if (query.categoryId) {
-    return getDescendantCategoryIds(query.categoryId, query.gender);
+  if (query.categoryId?.length) {
+    const categoryIdGroups = await Promise.all(
+      query.categoryId.map((categoryId) => getDescendantCategoryIds(categoryId, query.gender)),
+    );
+    const categoryIdsByString = new Map<string, Types.ObjectId>();
+
+    categoryIdGroups.flat().forEach((categoryId) => {
+      categoryIdsByString.set(categoryId.toString(), categoryId);
+    });
+
+    return Array.from(categoryIdsByString.values());
   }
 
   if (query.gender) {
@@ -515,9 +541,9 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
     filter.category_id = { $in: categoryIds };
   }
 
-  if (query.brandId) {
-    assertValidObjectId(query.brandId, 'brand id');
-    filter.brand_id = new Types.ObjectId(query.brandId);
+  if (query.brandId?.length) {
+    query.brandId.forEach((brandId) => assertValidObjectId(brandId, 'brand id'));
+    filter.brand_id = { $in: query.brandId.map((brandId) => new Types.ObjectId(brandId)) };
   }
 
   if (query.isNew) {
@@ -532,16 +558,20 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
   return filter;
 };
 
+const toIdString = (value: Types.ObjectId | string | { toString(): string } | null | undefined) => {
+  return value?.toString() ?? '';
+};
+
 const getRelationId = (relation: Types.ObjectId | { _id: Types.ObjectId } | null | undefined) => {
   if (!relation) {
     return '';
   }
 
   if (relation instanceof Types.ObjectId) {
-    return relation.toString();
+    return toIdString(relation);
   }
 
-  return relation._id.toString();
+  return toIdString(relation._id);
 };
 
 const isPopulatedBrand = (relation: ProductListDocument['brand_id']): relation is PopulatedBrand => {
@@ -619,7 +649,7 @@ const mapFilterCategory = (category: {
 });
 
 const getProductListFilters = async (filter: ProductListFilter, query: ProductListQueryInput) => {
-  const [brands, categories, colors, fitTypes] = await Promise.all([
+  const [brands, categories, colors, fitTypes, sizes] = await Promise.all([
     Brand.find({ isActive: true }).select('_id name image').sort({ name: 1 }).lean(),
     Category.find({ isActive: true, ...(query.gender ? { gender: query.gender } : {}) })
       .select('_id name gender parent_id level image bannerImage')
@@ -627,13 +657,392 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
       .lean(),
     Product.distinct('variant.colors.color', filter),
     Product.distinct('variant.fitTypeId', filter),
+    Product.distinct('variant.sizeMeasurements.size', filter),
   ]);
 
   return {
     brands: brands.map(mapFilterBrand),
     colors: colors.filter(Boolean).sort(),
     fitTypes: fitTypes.filter(Boolean).map((fitTypeId) => String(fitTypeId)).sort(),
+    sizes: sizes.filter(Boolean).sort(),
     categories: categories.map(mapFilterCategory),
+  };
+};
+
+const PRODUCT_DETAIL_CATEGORY_PROJECTION =
+  '_id name gender parent_id level image bannerImage isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes';
+
+const DEFAULT_PRODUCT_POLICIES = [
+  {
+    icon: 'rotate-ccw',
+    title: 'Doi tra 7 ngay',
+    description: 'Ho tro doi tra theo chinh sach cua shop.',
+  },
+  {
+    icon: 'shield-check',
+    title: 'Kiem tra hang khi nhan',
+    description: 'Khach hang co the kiem tra san pham truoc khi thanh toan.',
+  },
+  {
+    icon: 'truck',
+    title: 'Giao hang tieu chuan',
+    description: 'Phi van chuyen duoc tinh tai buoc thanh toan.',
+  },
+];
+
+const SOURCE_COLOR_HEX_MAP: Record<string, string> = {
+  BEE: '#F5F5DC',
+  BSA: '#F5F5DC',
+  CAM: '#F36B26',
+  CBA: '#1790C8',
+  CHI: '#A0A0A0',
+  CVT: '#7BBA3C',
+  DDL: '#000000',
+  DDO: '#E7352B',
+  DEN: '#111111',
+  DET: '#111111',
+  DGH: '#111111',
+  DKT: '#E7352B',
+  DN1: '#1C1C1C',
+  DOD: '#E7352B',
+  GAH: '#E7352B',
+  GHD: '#CCCCCC',
+  GHI: '#CCCCCC',
+  HG1: '#F0728F',
+  HOG: '#F0728F',
+  IDC: '#000000',
+  IDG: '#000000',
+  IDX: '#000000',
+  ITC: '#FFFFFF',
+  ITG: '#FFFFFF',
+  ITX: '#FFFFFF',
+  KEM: '#F5F5DC',
+  NAD: '#825D41',
+  NAN: '#825D41',
+  NAU: '#825D41',
+  NAV: '#000080',
+  NKT: '#000080',
+  NSU: '#825D41',
+  REU: '#636B2F',
+  TAN: '#CCCCCC',
+  TGD: '#FFFFFF',
+  THX: '#000080',
+  TIK: '#000080',
+  TIT: '#000080',
+  TKA: '#FFFFFF',
+  TKC: '#FFFFFF',
+  TKD: '#FFFFFF',
+  TKE: '#FFFFFF',
+  TKG: '#CCCCCC',
+  TKH: '#FFFFFF',
+  TKN: '#FFFFFF',
+  TKX: '#FFFFFF',
+  TMT: '#FFFFFF',
+  TNY: '#FFFFFF',
+  TRA: '#FFFFFF',
+  TRD: '#FFFFFF',
+  TRG: '#FFFFFF',
+  TTM: '#FFFFFF',
+  VAG: '#FED533',
+  XAH: '#1790C8',
+  XAM: '#CCCCCC',
+  XAR: '#7BBA3C',
+  XBD: '#1790C8',
+  XBI: '#1790C8',
+  XCV: '#7BBA3C',
+  XDE: '#111111',
+  XH1: '#1790C8',
+  XLA: '#7BBA3C',
+  XLO: '#1790C8',
+  XMN: '#67F0E5',
+  XN1: '#1790C8',
+  XNA: '#CCCCCC',
+  XNG: '#67F0E5',
+  XTI: '#1790C8',
+};
+
+const COLOR_NAME_HEX_MAP: Array<{ pattern: RegExp; value: string }> = [
+  { pattern: /đen|black/i, value: '#111111' },
+  { pattern: /trắng|trang|white/i, value: '#FFFFFF' },
+  { pattern: /be|beige|kem|cream/i, value: '#E8D8BE' },
+  { pattern: /nâu|nau|brown/i, value: '#7A5137' },
+  { pattern: /xám|xam|ghi|gray|grey/i, value: '#9EA4AA' },
+  { pattern: /xanh navy|navy/i, value: '#1F2A44' },
+  { pattern: /xanh jean|xanh dương|xanh biển|blue/i, value: '#4F7EA8' },
+  { pattern: /xanh rêu|rêu|reu|olive/i, value: '#66724A' },
+  { pattern: /xanh/i, value: '#5E8FB4' },
+  { pattern: /đỏ|do|red/i, value: '#C62828' },
+  { pattern: /hồng|hong|pink/i, value: '#E89AB5' },
+  { pattern: /vàng|vang|yellow/i, value: '#F2CF62' },
+  { pattern: /cam|orange/i, value: '#F2994A' },
+  { pattern: /tím|tim|purple/i, value: '#7B5FA7' },
+];
+
+const isHexColor = (value?: string) => Boolean(value && /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value.trim()));
+
+const resolveDisplayColorCode = (sourceColorCode?: string, colorName?: string) => {
+  const normalizedCode = sourceColorCode?.trim();
+
+  if (isHexColor(normalizedCode)) {
+    return normalizedCode;
+  }
+
+  if (normalizedCode) {
+    const mappedCode = SOURCE_COLOR_HEX_MAP[normalizedCode.toUpperCase()];
+    if (mappedCode) {
+      return mappedCode;
+    }
+  }
+
+  const mappedName = COLOR_NAME_HEX_MAP.find((item) => item.pattern.test(colorName ?? ''));
+  return mappedName?.value;
+};
+
+const getEmptyRatingDistribution = () => {
+  return ([5, 4, 3, 2, 1] as const).map((rating) => ({
+    rating,
+    count: 0,
+    percent: 0,
+  }));
+};
+
+const getDetailCategoryById = async (categoryId?: Types.ObjectId | null) => {
+  if (!categoryId) {
+    return null;
+  }
+
+  return Category.findById(categoryId)
+    .select(PRODUCT_DETAIL_CATEGORY_PROJECTION)
+    .lean<PopulatedCategory | null>();
+};
+
+const resolveDetailCategoryTemplate = async (category: PopulatedCategory | null) => {
+  if (!category) {
+    return null;
+  }
+
+  if (category.isSizeTemplateSource) {
+    return category;
+  }
+
+  if (category.sizeTemplateSourceId) {
+    const sourceCategory = await getDetailCategoryById(category.sizeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.fitTypes?.length || category.measurementFields?.length || category.sizes?.length) {
+    return category;
+  }
+
+  if (category.parent_id) {
+    const parentCategory = await getDetailCategoryById(category.parent_id);
+    if (parentCategory) {
+      return parentCategory;
+    }
+  }
+
+  return category;
+};
+
+const mapDetailBrand = (relation: ProductListDocument['brand_id']) => {
+  if (!isPopulatedBrand(relation)) {
+    return null;
+  }
+
+  return {
+    _id: getRelationId(relation),
+    name: relation.name,
+    image: relation.image,
+  };
+};
+
+const mapDetailCategory = (relation: ProductListDocument['category_id']) => {
+  if (!isPopulatedCategory(relation)) {
+    return null;
+  }
+
+  return {
+    _id: getRelationId(relation),
+    name: relation.name,
+    gender: relation.gender,
+    image: relation.image,
+    bannerImage: relation.bannerImage ?? null,
+  };
+};
+
+const mapCategoryBreadcrumbItem = (category: PopulatedCategory): ProductCategoryBreadcrumbItem => ({
+  _id: category._id.toString(),
+  name: category.name,
+  gender: category.gender,
+  parent_id: category.parent_id?.toString() ?? null,
+  level: category.level,
+});
+
+const getCategoryBreadcrumb = async (category: PopulatedCategory | null) => {
+  if (!category) {
+    return [];
+  }
+
+  const categories: PopulatedCategory[] = [category];
+  const visitedIds = new Set([category._id.toString()]);
+  let parentId = category.parent_id;
+
+  while (parentId) {
+    const parentCategory = await getDetailCategoryById(parentId);
+    if (!parentCategory) {
+      break;
+    }
+
+    const parentIdString = parentCategory._id.toString();
+    if (visitedIds.has(parentIdString)) {
+      break;
+    }
+
+    categories.unshift(parentCategory);
+    visitedIds.add(parentIdString);
+    parentId = parentCategory.parent_id;
+  }
+
+  return categories.map(mapCategoryBreadcrumbItem);
+};
+
+const getFitTypeMap = (category: PopulatedCategory | null) => {
+  const fitTypes = category?.fitTypes ?? [];
+
+  return new Map(
+    fitTypes.map((fitType) => [
+      toIdString(fitType._id),
+      {
+        _id: toIdString(fitType._id),
+        key: fitType.key,
+        label: fitType.label,
+      },
+    ]),
+  );
+};
+
+const getMeasurementFieldMap = (category: PopulatedCategory | null) => {
+  const measurementFields = category?.measurementFields ?? [];
+
+  return new Map(
+    measurementFields.map((field) => [field.key.trim().toLowerCase(), field]),
+  );
+};
+
+const mapDetailColor = (color: IProductVariant['colors'][number]): ProductDetailColor => ({
+  _id: toIdString(color._id),
+  color: color.color,
+  colorCode: resolveDisplayColorCode(color.colorCode, color.color),
+  image: color.image,
+});
+
+const mapDetailVariant = (
+  variant: IProductVariant,
+  fitTypeMap: ReturnType<typeof getFitTypeMap>,
+  measurementFieldMap: ReturnType<typeof getMeasurementFieldMap>,
+): ProductDetailVariant => {
+  const originalPrice = variant.price;
+  const discount = variant.discount;
+
+  return {
+    _id: toIdString(variant._id),
+    fitTypeId: toIdString(variant.fitTypeId),
+    fitType: fitTypeMap.get(toIdString(variant.fitTypeId)) ?? null,
+    price: originalPrice,
+    originalPrice,
+    discount,
+    finalPrice: getFinalPrice(originalPrice, discount),
+    isSale: discount > 0,
+    isActive: variant.isActive,
+    colors: variant.colors.map(mapDetailColor),
+    sizes: variant.sizeMeasurements.map((sizeMeasurement) => ({
+      size: sizeMeasurement.size,
+      isAvailable: variant.isActive,
+      measurements: sizeMeasurement.measurements.map((measurement) => {
+        const field = measurementFieldMap.get(measurement.key.trim().toLowerCase());
+
+        return {
+          key: measurement.key,
+          label: field?.label,
+          unit: field?.unit,
+          value: measurement.value,
+        };
+      }),
+    })),
+  };
+};
+
+const uniqueStrings = (values: string[]) => {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+};
+
+const getDetailColors = (variants: ProductDetailVariant[]) => {
+  const colorsByKey = new Map<string, ProductDetailColor>();
+
+  variants.forEach((variant) => {
+    variant.colors.forEach((color) => {
+      const key = `${color.color.trim().toLowerCase()}|${color.colorCode ?? ''}`;
+      if (!colorsByKey.has(key)) {
+        colorsByKey.set(key, color);
+      }
+    });
+  });
+
+  return Array.from(colorsByKey.values());
+};
+
+const mapProductDetail = async (product: ProductListDocument): Promise<ProductDetailResponse> => {
+  const category = isPopulatedCategory(product.category_id) ? product.category_id : null;
+  const [templateCategory, categoryBreadcrumb] = await Promise.all([
+    resolveDetailCategoryTemplate(category),
+    getCategoryBreadcrumb(category),
+  ]);
+  const fitTypeMap = getFitTypeMap(templateCategory);
+  const measurementFieldMap = getMeasurementFieldMap(templateCategory);
+  const variants = product.variant.map((variant) => mapDetailVariant(variant, fitTypeMap, measurementFieldMap));
+  const displayVariant = variants.find((variant) => variant.isActive && variant.sizes.length > 0) ?? variants[0];
+  const originalPrice = displayVariant?.originalPrice ?? 0;
+  const discount = displayVariant?.discount ?? 0;
+  const selectableVariants = variants.some((variant) => variant.isActive)
+    ? variants.filter((variant) => variant.isActive)
+    : variants;
+
+  return {
+    _id: product._id.toString(),
+    name: product.name,
+    description: product.description,
+    productImage: product.product_image,
+    gallery: uniqueStrings([
+      product.product_image,
+      ...variants.flatMap((variant) => variant.colors.map((color) => color.image)),
+    ]),
+    price: originalPrice,
+    originalPrice,
+    discount,
+    finalPrice: getFinalPrice(originalPrice, discount),
+    isSale: discount > 0,
+    isNew: isNewProduct(product.createdAt),
+    isAvailable: selectableVariants.some((variant) =>
+      variant.sizes.some((size) => size.isAvailable),
+    ),
+    soldQuantity: product.sold_quantity,
+    averageRating: product.averageRating,
+    reviewCount: product.reviewCount,
+    brand: mapDetailBrand(product.brand_id),
+    category: mapDetailCategory(product.category_id),
+    categoryBreadcrumb,
+    variants,
+    selectedVariantId: displayVariant?._id,
+    colors: getDetailColors(selectableVariants),
+    sizes: uniqueStrings(selectableVariants.flatMap((variant) => variant.sizes.map((size) => size.size))),
+    ratingSummary: {
+      averageRating: product.averageRating,
+      reviewCount: product.reviewCount,
+      distribution: getEmptyRatingDistribution(),
+    },
+    policies: DEFAULT_PRODUCT_POLICIES,
   };
 };
 
@@ -772,6 +1181,21 @@ const getProductById = async (id: string) => {
   return product;
 };
 
+const getProductDetailById = async (id: string): Promise<ProductDetailResponse> => {
+  assertValidObjectId(id, 'product id');
+
+  const product = await Product.findOne({ _id: id, isActive: true })
+    .populate('brand_id', '_id name image')
+    .populate('category_id', PRODUCT_DETAIL_CATEGORY_PROJECTION)
+    .lean<ProductListDocument | null>();
+
+  if (!product) {
+    throw new ProductServiceError('Product not found', 404);
+  }
+
+  return mapProductDetail(product);
+};
+
 export const productService = {
   createProduct,
   updateProduct,
@@ -780,4 +1204,5 @@ export const productService = {
   getActiveProducts,
   getProductList,
   getProductById,
+  getProductDetailById,
 };

@@ -18,7 +18,8 @@ This backend uses Cloudinary to store product images uploaded through the catalo
   - Applies upload middleware to product create/update routes.
 - `src/modules/catalog/products/product.controller.ts`
   - Uploads files to Cloudinary.
-  - Saves Cloudinary URLs into `product_image` and `version[].version_image`.
+  - Saves the uploaded main image URL into `product_image`.
+  - Uses image URLs provided in `variant[].colors[].image` for color images.
   - Deletes old Cloudinary images when replacing or deleting product images.
 
 ## Environment Variables
@@ -47,16 +48,9 @@ upload.fields([
 Accepted form-data fields:
 
 - `product_image`: one main product image file.
-- `version_images`: zero or more version image files.
+- `version_images`: kept for backward compatibility with old clients, but rejected by the current catalog design.
 
-The version image files are mapped by array index:
-
-```text
-version_images[0] -> version[0].version_image
-version_images[1] -> version[1].version_image
-```
-
-If no version image file is uploaded, the API uses the `version_image` URL already provided in the `version` JSON payload.
+Color images are not uploaded by index anymore. Provide image URLs in each `variant[].colors[].image`.
 
 ## Create Product Request
 
@@ -79,32 +73,36 @@ Required image source:
 - upload `product_image`, or
 - send `product_image` as an existing URL.
 
-Optional versions field:
+Optional `variant` field:
 
 ```json
 [
   {
-    "sku": "TSHIRT-BLACK-M",
-    "color": "Black",
-    "fitType": "Regular",
-    "size_spec": [
+    "fitTypeId": "665000000000000000000010",
+    "price": 199000,
+    "discount": 0,
+    "sizeMeasurements": [
       {
         "size": "M",
-        "shoulder": 42,
-        "chest": 96,
-        "length": 68,
-        "weight": 0.4,
-        "stock_quantity": 10
+        "measurements": [
+          { "key": "shoulder", "value": 42 },
+          { "key": "chest", "value": 96 },
+          { "key": "length", "value": 68 }
+        ]
       }
     ],
-    "version_image": "https://existing-image-url.example/black.png",
-    "price": 199000,
-    "discount": 0
+    "colors": [
+      {
+        "color": "Black",
+        "colorCode": "#000000",
+        "image": "https://existing-image-url.example/black.png"
+      }
+    ]
   }
 ]
 ```
 
-When using `multipart/form-data`, send `version` as a JSON string.
+When using `multipart/form-data`, send `variant` as a JSON string.
 
 Example form-data:
 
@@ -113,9 +111,8 @@ category_id: 665000000000000000000001
 name: Basic T-shirt
 brand_id: 665000000000000000000002
 description: A basic t-shirt for daily wear
-version: [{"sku":"TSHIRT-BLACK-M","color":"Black","fitType":"Regular","size_spec":[{"size":"M","shoulder":42,"chest":96,"length":68,"weight":0.4}],"version_image":"https://fallback.example/black.png","price":199000,"discount":0}]
+variant: [{"fitTypeId":"665000000000000000000010","price":199000,"discount":0,"sizeMeasurements":[{"size":"M","measurements":[{"key":"shoulder","value":42},{"key":"chest","value":96},{"key":"length","value":68}]}],"colors":[{"color":"Black","colorCode":"#000000","image":"https://fallback.example/black.png"}]}]
 product_image: <file>
-version_images: <file for version[0]>
 ```
 
 ## Update Product Request
@@ -130,11 +127,9 @@ Content-Type: multipart/form-data
 Supported behavior:
 
 - Uploading `product_image` replaces the old main image.
-- Sending `version` replaces the product `version` array.
-- Uploading `version_images` replaces `version[index].version_image` by index.
-- When replacing versions, old version images are deleted from Cloudinary.
-
-If you upload `version_images`, you must also send `version` data so the backend can map files to the correct version records.
+- Sending `variant` replaces the product `variant` array.
+- Sending old `version` JSON is accepted as a compatibility alias for `variant`.
+- Uploading `version_images` returns `400`; provide color image URLs in `variant[].colors[].image`.
 
 ## Delete Product Behavior
 
@@ -147,7 +142,7 @@ DELETE /products/delete/:id
 The controller deletes these Cloudinary assets before soft-deleting the product:
 
 - `product_image`
-- every `version[].version_image`
+- every `variant[].colors[].image`
 
 The product document is not removed from MongoDB. The service sets:
 
@@ -163,11 +158,9 @@ Current folders:
 
 ```text
 fashion-ecommerce/products
-fashion-ecommerce/products/versions
 ```
 
 Main product images are uploaded to `fashion-ecommerce/products`.
-Version images are uploaded to `fashion-ecommerce/products/versions`.
 
 ## Notes
 

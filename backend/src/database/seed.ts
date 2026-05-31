@@ -51,8 +51,8 @@ const seed = async () => {
         sizes: ['S', 'M', 'L', 'XL'],
         measurementFields: [
           { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
-          { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
-          { key: 'length', label: 'Dài áo', unit: 'cm', required: true, sortOrder: 3 },
+          { key: 'chest', label: 'Ng?c', unit: 'cm', required: true, sortOrder: 2 },
+          { key: 'length', label: 'D?i ?o', unit: 'cm', required: true, sortOrder: 3 },
         ],
         fitTypes: [
           {

@@ -69,8 +69,8 @@ describe('productService', () => {
       sizes: ['M'],
       measurementFields: [
         { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
-        { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
-        { key: 'length', label: 'Dài áo', unit: 'cm', required: true, sortOrder: 3 },
+        { key: 'chest', label: 'Ng?c', unit: 'cm', required: true, sortOrder: 2 },
+        { key: 'length', label: 'D?i ?o', unit: 'cm', required: true, sortOrder: 3 },
       ],
       fitTypes: [
         {
@@ -85,7 +85,7 @@ describe('productService', () => {
     mockedProduct.findOne.mockResolvedValue(null);
   });
 
-  it('creates a product with normalized object ids and version data', async () => {
+  it('creates a product with normalized object ids and variant data', async () => {
     const product = { _id: productId, name: 'Basic T-shirt' };
     mockedProduct.create.mockResolvedValue(product as never);
 
@@ -229,6 +229,172 @@ describe('productService', () => {
       },
     );
     expect(result).toBe(product);
+  });
+
+  it('maps product detail into a public catalog DTO', async () => {
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const variantId = new Types.ObjectId('665000000000000000000011');
+    const colorId = new Types.ObjectId('665000000000000000000012');
+    const purpleColorId = new Types.ObjectId('665000000000000000000013');
+    const productImage = 'https://example.com/product.png';
+    const colorImage = 'https://example.com/black.png';
+    const purpleImage = 'https://example.com/purple.png';
+    const productDetailQuery = {
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue({
+        _id: new Types.ObjectId(productId),
+        category_id: {
+          _id: new Types.ObjectId(categoryId),
+          name: 'T-shirts',
+          gender: 'male',
+          parent_id: null,
+          level: 2,
+          image: 'https://example.com/category.png',
+          bannerImage: null,
+          isSizeTemplateSource: true,
+          sizeTemplateSourceId: null,
+          sizes: ['M'],
+          measurementFields: [
+            { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
+            { key: 'chest', label: 'Nguc', unit: 'cm', required: true, sortOrder: 2 },
+          ],
+          fitTypes: [
+            {
+              _id: fitTypeId,
+              key: 'regular',
+              label: 'Regular',
+              sortOrder: 1,
+              isActive: true,
+            },
+          ],
+        },
+        name: 'Basic T-shirt',
+        brand_id: {
+          _id: new Types.ObjectId(brandId),
+          name: 'YODY',
+          image: 'https://example.com/brand.png',
+        },
+        variant: [
+          {
+            _id: variantId,
+            fitTypeId,
+            price: 200000,
+            discount: 10,
+            sizeMeasurements: [
+              {
+                size: 'M',
+                measurements: [
+                  { key: 'shoulder', value: 42 },
+                  { key: 'chest', value: 96 },
+                ],
+              },
+            ],
+            colors: [
+              {
+                _id: colorId,
+                color: 'Black',
+                colorCode: 'DEN',
+                image: colorImage,
+              },
+              {
+                _id: purpleColorId,
+                color: 'Tím than',
+                colorCode: 'TIT',
+                image: purpleImage,
+              },
+            ],
+            isActive: true,
+          },
+        ],
+        description: 'A basic t-shirt for daily wear',
+        product_image: productImage,
+        isActive: true,
+        sold_quantity: 12,
+        averageRating: 5,
+        reviewCount: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    };
+    mockedProduct.findOne.mockReturnValue(productDetailQuery as never);
+
+    const result = await productService.getProductDetailById(productId);
+
+    expect(mockedProduct.findOne).toHaveBeenCalledWith({ _id: productId, isActive: true });
+    expect(productDetailQuery.populate).toHaveBeenCalledWith('brand_id', '_id name image');
+    expect(productDetailQuery.populate).toHaveBeenCalledWith(
+      'category_id',
+      '_id name gender parent_id level image bannerImage isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes',
+    );
+    expect(result).toMatchObject({
+      _id: productId,
+      name: 'Basic T-shirt',
+      productImage,
+      gallery: [productImage, colorImage, purpleImage],
+      originalPrice: 200000,
+      discount: 10,
+      finalPrice: 180000,
+      isSale: true,
+      isAvailable: true,
+      soldQuantity: 12,
+      averageRating: 5,
+      reviewCount: 3,
+      brand: {
+        _id: brandId,
+        name: 'YODY',
+      },
+      category: {
+        _id: categoryId,
+        name: 'T-shirts',
+        gender: 'male',
+      },
+      categoryBreadcrumb: [
+        {
+          _id: categoryId,
+          name: 'T-shirts',
+          gender: 'male',
+          parent_id: null,
+          level: 2,
+        },
+      ],
+      selectedVariantId: variantId.toString(),
+      colors: [
+        {
+          _id: colorId.toString(),
+          color: 'Black',
+          colorCode: '#111111',
+          image: colorImage,
+        },
+        {
+          _id: purpleColorId.toString(),
+          color: 'Tím than',
+          colorCode: '#000080',
+          image: purpleImage,
+        },
+      ],
+      sizes: ['M'],
+    });
+    expect(result.variants[0]).toMatchObject({
+      _id: variantId.toString(),
+      fitTypeId: fitTypeId.toString(),
+      fitType: {
+        _id: fitTypeId.toString(),
+        key: 'regular',
+        label: 'Regular',
+      },
+      sizes: [
+        {
+          size: 'M',
+          isAvailable: true,
+          measurements: [
+            { key: 'shoulder', label: 'Vai', unit: 'cm', value: 42 },
+            { key: 'chest', label: 'Nguc', unit: 'cm', value: 96 },
+          ],
+        },
+      ],
+    });
+    expect(result.ratingSummary.distribution).toHaveLength(5);
+    expect(result.policies).toHaveLength(3);
   });
 
   it('uses a typed service error for product failures', async () => {

@@ -13,13 +13,19 @@ import { handleMulterError, type MulterRequest } from '../../../middlewares/uplo
 import type { IProductVariant } from '../../../database/models/product.model';
 import { created, error as errorResponse, ok } from '../../../utils/response';
 
+const hasStatusCode = (value: unknown): value is { statusCode: number } => {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'statusCode' in value &&
+    typeof value.statusCode === 'number'
+  );
+};
+
 const getErrorResponse = (e: unknown) => {
-  if (
-    e instanceof ProductServiceError ||
-    (typeof e === 'object' && e !== null && 'statusCode' in e && typeof (e as any).statusCode === 'number')
-  ) {
+  if (e instanceof ProductServiceError || hasStatusCode(e)) {
     return {
-      statusCode: (e as { statusCode: number }).statusCode,
+      statusCode: e.statusCode,
       message: e instanceof Error ? e.message : 'An error occurred',
     };
   }
@@ -137,7 +143,7 @@ const parseGender = (value: unknown) => {
     return undefined;
   }
 
-  if (gender !== 'male' && gender !== 'female') {
+  if (gender !== 'male' && gender !== 'female' && gender !== 'unisex') {
     throw new ProductServiceError('Invalid gender', 400);
   }
 
@@ -169,8 +175,13 @@ const parseSort = (value: unknown) => {
 };
 
 const parseProductListQuery = (req: Request): ProductListQueryInput => {
+  const categoryId = parseStringList(req.query.categoryId);
+  const brandId = parseStringList(req.query.brandId);
   const color = parseStringList(req.query.color);
-  const fitType = parseStringList(req.query.fitType);
+  const fitType = Array.from(new Set([
+    ...parseStringList(req.query.fitTypeId),
+    ...parseStringList(req.query.fitType),
+  ]));
   const size = parseStringList(req.query.size);
   const minPrice = parsePositiveNumber(req.query.minPrice, 'minPrice');
   const maxPrice = parsePositiveNumber(req.query.maxPrice, 'maxPrice');
@@ -182,8 +193,8 @@ const parseProductListQuery = (req: Request): ProductListQueryInput => {
   return {
     keyword: parseString(req.query.keyword),
     gender: parseGender(req.query.gender),
-    categoryId: parseString(req.query.categoryId),
-    brandId: parseString(req.query.brandId),
+    ...(categoryId.length ? { categoryId } : {}),
+    ...(brandId.length ? { brandId } : {}),
     ...(color.length ? { color } : {}),
     ...(fitType.length ? { fitType } : {}),
     ...(size.length ? { size } : {}),
@@ -393,7 +404,7 @@ const getProductList = async (req: Request, res: Response) => {
 const getProductById = async (req: Request, res: Response) => {
   try {
     const productId = req.params.id as string;
-    const product = await productService.getProductById(productId);
+    const product = await productService.getProductDetailById(productId);
 
     return ok(res, product);
   } catch (e: unknown) {

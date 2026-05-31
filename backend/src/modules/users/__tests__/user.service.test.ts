@@ -38,7 +38,16 @@ describe('User Service', () => {
 
   describe('updateMe', () => {
     it('should update user profile', async () => {
-      const mockUser = { _id: 'user123', name: 'Updated' };
+      const mockUser = {
+        _id: 'user123',
+        name: 'Updated',
+        phone: '0900000000',
+        gender: 'male',
+        dateOfBirth: new Date('1990-01-01'),
+        address: [{ customerName: 'Test' }],
+        profileCompleted: true,
+        save: jest.fn(),
+      };
       (User.findByIdAndUpdate as jest.Mock).mockReturnValue({
         select: jest.fn().mockResolvedValue(mockUser),
       });

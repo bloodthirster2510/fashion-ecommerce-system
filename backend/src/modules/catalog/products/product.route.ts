@@ -16,11 +16,14 @@ const productImageUpload = upload.fields([
   { name: 'version_images', maxCount: 20 },
 ]);
 
+router.post('/', productImageUpload, createProduct);
 router.post('/create', productImageUpload, createProduct);
+router.put('/:id', productImageUpload, updateProduct);
 router.put('/update/:id', productImageUpload, updateProduct);
 router.get('/', getProductList);
 router.get('/getAll', getProducts);
 router.get('/:id', getProductById);
+router.delete('/:id', deleteProduct);
 router.delete('/delete/:id', deleteProduct);
 
 export default router;

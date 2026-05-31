@@ -141,3 +141,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local planning and generated catalog data
+.kilo/
+backend/test-db.js
+docs/
+local-scraped-catalog/

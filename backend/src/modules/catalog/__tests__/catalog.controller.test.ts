@@ -3,7 +3,7 @@ import { createBrand, deleteBrand, updateBrand } from '../brands/brand.controlle
 import { BrandServiceError, brandService } from '../brands/brand.service';
 import { createCategory, getCategoryById } from '../categories/categories.controller';
 import { categoryService } from '../categories/categories.service';
-import { createProduct, updateProduct } from '../products/product.controller';
+import { createProduct, getProductList, updateProduct } from '../products/product.controller';
 import { productService } from '../products/product.service';
 import { uploadToCloudinary } from '../../../utils/cloudinary.util';
 
@@ -57,7 +57,9 @@ jest.mock('../products/product.service', () => {
       deleteProduct: jest.fn(),
       getProducts: jest.fn(),
       getActiveProducts: jest.fn(),
+      getProductList: jest.fn(),
       getProductById: jest.fn(),
+      getProductDetailById: jest.fn(),
     },
   };
 });
@@ -77,11 +79,13 @@ const createRequest = (
   body: unknown = {},
   params: Record<string, string> = {},
   files?: Record<string, Express.Multer.File[]>,
+  query: Record<string, unknown> = {},
 ) => {
   return {
     body,
     params,
     files,
+    query,
   } as Request;
 };
 
@@ -180,6 +184,51 @@ describe('catalog controllers', () => {
   });
 
   describe('products', () => {
+    it('parses public product list query into backend filter contract', async () => {
+      const response = {
+        items: [],
+        pagination: { page: 1, limit: 10, totalItems: 0, totalPages: 0 },
+        filters: {
+          brands: [],
+          colors: [],
+          fitTypes: [],
+          sizes: [],
+          categories: [],
+        },
+      };
+      mockedProductService.getProductList.mockResolvedValue(response as never);
+
+      const req = createRequest(
+        {},
+        {},
+        undefined,
+        {
+          categoryId: ['665000000000000000000001', '665000000000000000000002'],
+          brandId: '665000000000000000000003,665000000000000000000004',
+          color: 'Đen,Trắng',
+          fitTypeId: ['665000000000000000000005', '665000000000000000000006'],
+          size: ['M', 'L'],
+          gender: 'female',
+          sort: 'newest',
+        },
+      );
+      const res = createResponse();
+
+      await getProductList(req, res);
+
+      expect(mockedProductService.getProductList).toHaveBeenCalledWith({
+        categoryId: ['665000000000000000000001', '665000000000000000000002'],
+        brandId: ['665000000000000000000003', '665000000000000000000004'],
+        color: ['Đen', 'Trắng'],
+        fitType: ['665000000000000000000005', '665000000000000000000006'],
+        size: ['M', 'L'],
+        gender: 'female',
+        sort: 'newest',
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ message: 'Success', data: response });
+    });
+
     it('returns 400 when create product payload is missing required fields', async () => {
       const req = createRequest({ name: 'T-shirt' });
       const res = createResponse();

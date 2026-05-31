@@ -70,7 +70,7 @@ describe('categoryService', () => {
       sizes: ['S', 'M', 'L'],
       measurementFields: [
         { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
-        { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
+        { key: 'chest', label: 'Ng?c', unit: 'cm', required: true, sortOrder: 2 },
       ],
       fitTypes: [
         { key: 'regular', label: 'Regular', sortOrder: 1, isActive: true },
@@ -86,7 +86,7 @@ describe('categoryService', () => {
         sizes: ['S', 'M', 'L'],
         measurementFields: [
           { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
-          { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
+          { key: 'chest', label: 'Ng?c', unit: 'cm', required: true, sortOrder: 2 },
         ],
         fitTypes: expect.arrayContaining([
           expect.objectContaining({

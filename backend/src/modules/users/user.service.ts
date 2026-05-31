@@ -1,7 +1,14 @@
-import { User, type IUserAddress } from '../../database/models/user.model';
+import { User, type IUser, type IUserAddress } from '../../database/models/user.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
+
+const hasCompletedProfile = (user: IUser) =>
+  Boolean(user.phone && user.gender && user.dateOfBirth && Array.isArray(user.address) && user.address.length > 0);
+
+const syncProfileCompleted = (user: IUser) => {
+  user.profileCompleted = hasCompletedProfile(user);
+};
 
 const normalizeBase64Image = (imageBase64: string, fallbackMimeType?: string) => {
   const dataUriMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
@@ -66,6 +73,8 @@ export const updateMe = async (userId: string, data: {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
+  syncProfileCompleted(user);
+  await user.save();
   return user;
 };
 
@@ -167,6 +176,7 @@ export const addAddress = async (userId: string, address: {
     isDefault: shouldSetDefault,
   });
 
+  syncProfileCompleted(user);
   await user.save();
   return user.address;
 };
@@ -205,6 +215,7 @@ export const updateAddress = async (userId: string, addressId: string, data: {
   if (data.phoneNumber !== undefined) address.phoneNumber = data.phoneNumber;
   if (data.isDefault !== undefined) address.isDefault = data.isDefault;
 
+  syncProfileCompleted(user);
   await user.save();
   return user.address;
 };
@@ -222,6 +233,7 @@ export const deleteAddress = async (userId: string, addressId: string) => {
   }
 
   address.deleteOne();
+  syncProfileCompleted(user);
   await user.save();
 };
 

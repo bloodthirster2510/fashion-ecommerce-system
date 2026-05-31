@@ -41,6 +41,7 @@ export type AuthSession = {
     phone: string;
     role: string;
     avatarImage?: string | null;
+    profileCompleted: boolean;
   };
 };
 

@@ -1,4 +1,4 @@
-  import { Schema, model, models, type Document, type Types } from 'mongoose';
+import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export interface IMeasurementValue {
   key: string;
