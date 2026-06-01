@@ -67,7 +67,7 @@ const StorefrontHeader = ({
             accessibilityLabel="Giỏ hàng"
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="cart-outline" size={23} color={colors.white} />
+            <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconButton, isAuthenticated && styles.profileButton]}

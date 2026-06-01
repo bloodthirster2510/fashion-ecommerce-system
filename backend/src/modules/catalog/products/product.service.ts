@@ -2,9 +2,11 @@ import { SortOrder, Types } from 'mongoose';
 import {
   Brand,
   Category,
+  Inventory,
   Product,
   type ICategory,
   type ICategoryFitType,
+  type IInventory,
   type IMeasurementField,
   type IProductVariant,
 } from '../../../database/models';
@@ -12,6 +14,7 @@ import type {
   CreateProductInput,
   ProductCategoryBreadcrumbItem,
   ProductDetailColor,
+  ProductDetailInventoryItem,
   ProductDetailResponse,
   ProductDetailVariant,
   ProductGenderFilter,
@@ -279,6 +282,11 @@ type ProductListDocument = {
   updatedAt: Date;
 };
 
+type InventoryStockDocument = Pick<
+  IInventory,
+  'productId' | 'variantId' | 'colorVariantId' | 'size' | 'sku' | 'quantity' | 'reservedQuantity' | 'availableQuantity'
+>;
+
 const escapeRegex = (value: string) => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
@@ -332,6 +340,45 @@ const hasVariantSize = (variant: IProductVariant, selectedSizes?: string[]) => {
   });
 };
 
+const matchesInventorySize = (inventory: InventoryStockDocument, selectedSizes?: string[]) => {
+  if (!selectedSizes?.length) {
+    return true;
+  }
+
+  const inventorySize = inventory.size.trim().toLowerCase();
+  return selectedSizes.some((size) => size.trim().toLowerCase() === inventorySize);
+};
+
+const getAvailableQuantityForVariant = (
+  variant: IProductVariant,
+  inventoryItems: InventoryStockDocument[],
+  selectedSizes?: string[],
+) => {
+  const variantId = toIdString(variant._id);
+
+  return inventoryItems
+    .filter((inventory) => {
+      return (
+        toIdString(inventory.variantId) === variantId &&
+        inventory.availableQuantity > 0 &&
+        matchesInventorySize(inventory, selectedSizes)
+      );
+    })
+    .reduce((sum, inventory) => sum + inventory.availableQuantity, 0);
+};
+
+const hasAvailableInventoryForVariant = (
+  variant: IProductVariant,
+  inventoryItems?: InventoryStockDocument[],
+  selectedSizes?: string[],
+) => {
+  if (!inventoryItems) {
+    return true;
+  }
+
+  return getAvailableQuantityForVariant(variant, inventoryItems, selectedSizes) > 0;
+};
+
 const matchesTextList = (value: string, selectedValues?: string[]) => {
   if (!selectedValues?.length) {
     return true;
@@ -350,8 +397,16 @@ const matchesObjectIdList = (value: Types.ObjectId, selectedValues?: string[]) =
   return selectedValues.some((selectedValue) => selectedValue.trim() === normalizedValue);
 };
 
-const matchesVariantQuery = (variant: IProductVariant, query: ProductListQueryInput) => {
+const matchesVariantQuery = (
+  variant: IProductVariant,
+  query: ProductListQueryInput,
+  inventoryItems?: InventoryStockDocument[],
+) => {
   if (!variant.isActive || !hasVariantSize(variant, query.size)) {
+    return false;
+  }
+
+  if (!hasAvailableInventoryForVariant(variant, inventoryItems, query.size)) {
     return false;
   }
 
@@ -378,10 +433,18 @@ const matchesVariantQuery = (variant: IProductVariant, query: ProductListQueryIn
   return true;
 };
 
-const selectDisplayVariant = (variants: IProductVariant[], query: ProductListQueryInput) => {
+const selectDisplayVariant = (
+  variants: IProductVariant[],
+  query: ProductListQueryInput,
+  inventoryItems?: InventoryStockDocument[],
+) => {
   return (
-    variants.find((variant) => matchesVariantQuery(variant, query)) ??
-    variants.find((variant) => variant.isActive && hasVariantSize(variant)) ??
+    variants.find((variant) => matchesVariantQuery(variant, query, inventoryItems)) ??
+    variants.find((variant) =>
+      variant.isActive &&
+      hasVariantSize(variant) &&
+      hasAvailableInventoryForVariant(variant, inventoryItems)
+    ) ??
     variants[0]
   );
 };
@@ -584,8 +647,26 @@ const isPopulatedCategory = (
   return Boolean(relation && !(relation instanceof Types.ObjectId) && 'name' in relation);
 };
 
-const mapProductListItem = (product: ProductListDocument, query: ProductListQueryInput) => {
-  const displayVariant = selectDisplayVariant(product.variant, query);
+const groupInventoryByProductId = (inventoryItems: InventoryStockDocument[]) => {
+  const inventoryByProductId = new Map<string, InventoryStockDocument[]>();
+
+  inventoryItems.forEach((inventory) => {
+    const productId = toIdString(inventory.productId);
+    const existingItems = inventoryByProductId.get(productId) ?? [];
+    existingItems.push(inventory);
+    inventoryByProductId.set(productId, existingItems);
+  });
+
+  return inventoryByProductId;
+};
+
+const mapProductListItem = (
+  product: ProductListDocument,
+  query: ProductListQueryInput,
+  inventoryByProductId: Map<string, InventoryStockDocument[]>,
+) => {
+  const productInventory = inventoryByProductId.get(product._id.toString()) ?? [];
+  const displayVariant = selectDisplayVariant(product.variant, query, productInventory);
   const originalPrice = displayVariant?.price ?? 0;
   const discount = displayVariant?.discount ?? 0;
   const brand = isPopulatedBrand(product.brand_id)
@@ -615,7 +696,11 @@ const mapProductListItem = (product: ProductListDocument, query: ProductListQuer
     finalPrice: getFinalPrice(originalPrice, discount),
     isSale: discount > 0,
     isNew: isNewProduct(product.createdAt),
-    isAvailable: Boolean(displayVariant?.isActive && hasVariantSize(displayVariant)),
+    isAvailable: Boolean(
+      displayVariant?.isActive &&
+      hasVariantSize(displayVariant, query.size) &&
+      hasAvailableInventoryForVariant(displayVariant, productInventory, query.size),
+    ),
     soldQuantity: product.sold_quantity,
     averageRating: product.averageRating,
     reviewCount: product.reviewCount,
@@ -938,13 +1023,51 @@ const mapDetailColor = (color: IProductVariant['colors'][number]): ProductDetail
   image: color.image,
 });
 
+const getVariantInventoryItems = (
+  variant: IProductVariant,
+  inventoryItems: InventoryStockDocument[],
+) => {
+  const variantId = toIdString(variant._id);
+  const colorIds = new Set(variant.colors.map((color) => toIdString(color._id)));
+  const sizes = new Set(variant.sizeMeasurements.map((sizeMeasurement) => sizeMeasurement.size.trim().toLowerCase()));
+
+  return inventoryItems.filter((inventory) => {
+    return (
+      toIdString(inventory.variantId) === variantId &&
+      colorIds.has(toIdString(inventory.colorVariantId)) &&
+      sizes.has(inventory.size.trim().toLowerCase())
+    );
+  });
+};
+
+const getAvailableQuantityForSize = (
+  size: string,
+  inventoryItems: InventoryStockDocument[],
+) => {
+  const normalizedSize = size.trim().toLowerCase();
+
+  return inventoryItems
+    .filter((inventory) => inventory.size.trim().toLowerCase() === normalizedSize)
+    .reduce((sum, inventory) => sum + Math.max(0, inventory.availableQuantity), 0);
+};
+
+const mapDetailInventoryItem = (inventory: InventoryStockDocument): ProductDetailInventoryItem => ({
+  colorVariantId: toIdString(inventory.colorVariantId),
+  size: inventory.size,
+  sku: inventory.sku,
+  availableQuantity: Math.max(0, inventory.availableQuantity),
+  isAvailable: inventory.availableQuantity > 0,
+});
+
 const mapDetailVariant = (
   variant: IProductVariant,
   fitTypeMap: ReturnType<typeof getFitTypeMap>,
   measurementFieldMap: ReturnType<typeof getMeasurementFieldMap>,
+  inventoryItems: InventoryStockDocument[],
 ): ProductDetailVariant => {
   const originalPrice = variant.price;
   const discount = variant.discount;
+  const variantInventory = getVariantInventoryItems(variant, inventoryItems);
 
   return {
     _id: toIdString(variant._id),
@@ -959,7 +1082,10 @@ const mapDetailVariant = (
     colors: variant.colors.map(mapDetailColor),
     sizes: variant.sizeMeasurements.map((sizeMeasurement) => ({
       size: sizeMeasurement.size,
-      isAvailable: variant.isActive,
+      availableQuantity: getAvailableQuantityForSize(sizeMeasurement.size, variantInventory),
+      isAvailable:
+        variant.isActive &&
+        getAvailableQuantityForSize(sizeMeasurement.size, variantInventory) > 0,
       measurements: sizeMeasurement.measurements.map((measurement) => {
         const field = measurementFieldMap.get(measurement.key.trim().toLowerCase());
 
@@ -971,6 +1097,7 @@ const mapDetailVariant = (
         };
       }),
     })),
+    inventory: variantInventory.map(mapDetailInventoryItem),
   };
 };
 
@@ -995,14 +1122,20 @@ const getDetailColors = (variants: ProductDetailVariant[]) => {
 
 const mapProductDetail = async (product: ProductListDocument): Promise<ProductDetailResponse> => {
   const category = isPopulatedCategory(product.category_id) ? product.category_id : null;
-  const [templateCategory, categoryBreadcrumb] = await Promise.all([
+  const [templateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
     resolveDetailCategoryTemplate(category),
     getCategoryBreadcrumb(category),
+    Inventory.find({ productId: product._id }).lean<InventoryStockDocument[]>(),
   ]);
   const fitTypeMap = getFitTypeMap(templateCategory);
   const measurementFieldMap = getMeasurementFieldMap(templateCategory);
-  const variants = product.variant.map((variant) => mapDetailVariant(variant, fitTypeMap, measurementFieldMap));
-  const displayVariant = variants.find((variant) => variant.isActive && variant.sizes.length > 0) ?? variants[0];
+  const variants = product.variant.map((variant) =>
+    mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems),
+  );
+  const displayVariant =
+    variants.find((variant) => variant.isActive && variant.inventory.some((inventory) => inventory.isAvailable)) ??
+    variants.find((variant) => variant.isActive && variant.sizes.length > 0) ??
+    variants[0];
   const originalPrice = displayVariant?.originalPrice ?? 0;
   const discount = displayVariant?.discount ?? 0;
   const selectableVariants = variants.some((variant) => variant.isActive)
@@ -1025,7 +1158,7 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
     isSale: discount > 0,
     isNew: isNewProduct(product.createdAt),
     isAvailable: selectableVariants.some((variant) =>
-      variant.sizes.some((size) => size.isAvailable),
+      variant.inventory.some((inventory) => inventory.isAvailable),
     ),
     soldQuantity: product.sold_quantity,
     averageRating: product.averageRating,
@@ -1156,9 +1289,16 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
     Product.countDocuments(filter),
     getProductListFilters(filter, query),
   ]);
+  const inventoryItems = products.length
+    ? await Inventory.find({
+        productId: { $in: products.map((product) => product._id) },
+        availableQuantity: { $gt: 0 },
+      }).lean<InventoryStockDocument[]>()
+    : [];
+  const inventoryByProductId = groupInventoryByProductId(inventoryItems);
 
   return {
-    items: products.map((product) => mapProductListItem(product, query)),
+    items: products.map((product) => mapProductListItem(product, query, inventoryByProductId)),
     pagination: {
       page,
       limit,

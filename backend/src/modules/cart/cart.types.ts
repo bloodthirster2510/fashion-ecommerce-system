@@ -1,0 +1,20 @@
+export interface AddCartItemInput {
+  productId: string;
+  variantId: string;
+  colorVariantId: string;
+  size: string;
+  quantity: number;
+}
+
+export interface UpdateCartItemInput {
+  size?: string;
+  quantity?: number;
+}
+
+export interface SelectCartItemInput {
+  isSelected: boolean;
+}
+
+export interface SelectAllCartItemsInput {
+  isSelected: boolean;
+}

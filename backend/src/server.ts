@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import app from './app';
 import { connectDB } from './config/database';
-import { seedMembershipRankings, seedAdmin } from './database/seeders';
+import { seedMembershipRankings, seedAdmin, seedInventoryForExistingProducts } from './database/seeders';
 
 dotenv.config();
 
@@ -13,6 +13,7 @@ const startServer = async () => {
   if (process.env.SEED_DB === 'true') {
     await seedMembershipRankings();
     await seedAdmin();
+    await seedInventoryForExistingProducts();
   }
 
   app.listen(PORT, () => {

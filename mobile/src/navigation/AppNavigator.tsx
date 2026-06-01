@@ -9,6 +9,7 @@ import ForgotPasswordScreen from '../features/auth/screens/ForgotPasswordScreen'
 import MembershipScreen from '../features/account/MembershipScreen';
 import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
+import CartScreen from '../features/cart/CartScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -30,6 +31,7 @@ export type RootStackParamList = {
   ProductDetail: {
     productId: string;
   };
+  Cart: undefined;
   Profile: undefined;
   EditProfile: undefined;
   Membership: undefined;
@@ -49,6 +51,7 @@ const AppNavigator = () => {
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="ProductList" component={ProductListScreen} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+      <Stack.Screen name="Cart" component={CartScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Membership" component={MembershipScreen} />

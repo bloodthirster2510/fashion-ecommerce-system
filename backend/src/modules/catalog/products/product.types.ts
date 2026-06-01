@@ -162,6 +162,14 @@ export interface ProductDetailFitType {
   label: string;
 }
 
+export interface ProductDetailInventoryItem {
+  colorVariantId: string;
+  size: string;
+  sku: string;
+  availableQuantity: number;
+  isAvailable: boolean;
+}
+
 export interface ProductDetailVariant {
   _id: string;
   fitTypeId: string;
@@ -174,6 +182,7 @@ export interface ProductDetailVariant {
   isActive: boolean;
   colors: ProductDetailColor[];
   sizes: ProductDetailSize[];
+  inventory: ProductDetailInventoryItem[];
 }
 
 export interface ProductDetailResponse {

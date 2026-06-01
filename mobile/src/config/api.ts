@@ -50,6 +50,7 @@ const fallbackApiUrls = compactUnique([
 
 export const API_BASE_URLS = fallbackApiUrls;
 export const API_BASE_URL = API_BASE_URLS[0];
+let preferredApiBaseUrl: string | undefined;
 
 if (__DEV__) {
   console.log('[API] Base URLs', API_BASE_URLS);
@@ -88,18 +89,31 @@ const fetchWithTimeout = async (url: string, init?: ApiFetchInit) => {
   }
 };
 
+const getOrderedApiBaseUrls = () => {
+  if (!preferredApiBaseUrl || !API_BASE_URLS.includes(preferredApiBaseUrl)) {
+    return API_BASE_URLS;
+  }
+
+  return [
+    preferredApiBaseUrl,
+    ...API_BASE_URLS.filter((baseUrl) => baseUrl !== preferredApiBaseUrl),
+  ];
+};
+
 export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const retryOnTimeout = init?.retryOnTimeout ?? true;
   let lastNetworkError: unknown;
   const attemptedUrls: string[] = [];
 
-  for (const baseUrl of API_BASE_URLS) {
+  for (const baseUrl of getOrderedApiBaseUrls()) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
     attemptedUrls.push(requestUrl);
 
     try {
-      return await fetchWithTimeout(requestUrl, init);
+      const response = await fetchWithTimeout(requestUrl, init);
+      preferredApiBaseUrl = baseUrl;
+      return response;
     } catch (error) {
       if (!isNetworkError(error)) {
         throw error;

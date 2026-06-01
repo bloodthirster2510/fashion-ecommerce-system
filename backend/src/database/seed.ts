@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import mongoose, { Types } from 'mongoose';
 import { Brand, Category, Product, User } from './models';
+import { seedInventoryForExistingProducts } from './seeders';
 
 dotenv.config();
 
@@ -149,6 +150,8 @@ const seed = async () => {
     },
     { upsert: true },
   );
+
+  await seedInventoryForExistingProducts();
 
   console.log('Seed completed: brand, category, product, and user collections are initialized.');
 };

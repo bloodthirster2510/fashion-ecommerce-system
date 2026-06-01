@@ -18,6 +18,8 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../auth/AuthContext';
+import { cartApi } from '../cart/cartApi';
 import {
   catalogApi,
   CatalogProduct,
@@ -32,7 +34,7 @@ type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
-const quantityLimit = 99;
+const fallbackQuantityLimit = 99;
 
 const formatCurrency = (value: number) => {
   return `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -48,8 +50,45 @@ const getInitialVariant = (product: CatalogProductDetail) =>
   product.variants.find((variant) => variant.isActive) ??
   product.variants[0];
 
-const getFirstAvailableSize = (variant?: ProductDetailVariant) =>
-  variant?.sizes.find((item) => item.isAvailable)?.size ?? variant?.sizes[0]?.size;
+const getInventoryForSelection = (
+  variant?: ProductDetailVariant,
+  colorVariantId?: string,
+  size?: string,
+) => {
+  if (!variant || !colorVariantId || !size) {
+    return undefined;
+  }
+
+  return variant.inventory?.find((item) => {
+    return item.colorVariantId === colorVariantId && item.size.trim().toLowerCase() === size.trim().toLowerCase();
+  });
+};
+
+const getAvailableQuantityForSize = (
+  variant: ProductDetailVariant | undefined,
+  colorVariantId: string | undefined,
+  sizeOption: ProductDetailVariant['sizes'][number],
+) => {
+  const inventory = getInventoryForSelection(variant, colorVariantId, sizeOption.size);
+
+  if (variant && Array.isArray(variant.inventory) && colorVariantId) {
+    return Math.max(0, inventory?.availableQuantity ?? 0);
+  }
+
+  return Math.max(0, sizeOption.availableQuantity ?? (sizeOption.isAvailable ? fallbackQuantityLimit : 0));
+};
+
+const isSizeAvailableForColor = (
+  variant: ProductDetailVariant | undefined,
+  colorVariantId: string | undefined,
+  sizeOption: ProductDetailVariant['sizes'][number],
+) => {
+  return getAvailableQuantityForSize(variant, colorVariantId, sizeOption) > 0;
+};
+
+const getFirstAvailableSize = (variant?: ProductDetailVariant, colorVariantId?: string) =>
+  variant?.sizes.find((item) => isSizeAvailableForColor(variant, colorVariantId, item))?.size ??
+  variant?.sizes[0]?.size;
 
 const getImageOptions = (product: CatalogProductDetail) =>
   uniqueStrings([
@@ -211,11 +250,13 @@ const ProductDetailScreen = () => {
   const navigation = useNavigation<ProductDetailNavigationProp>();
   const route = useRoute<ProductDetailRouteProp>();
   const insets = useSafeAreaInsets();
+  const { isAuthenticated, session, runWithAuth } = useAuth();
   const { productId } = route.params;
   const [product, setProduct] = React.useState<CatalogProductDetail | null>(null);
   const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRecommendationLoading, setIsRecommendationLoading] = React.useState(false);
+  const [isAddingToCart, setIsAddingToCart] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
@@ -230,7 +271,7 @@ const ProductDetailScreen = () => {
 
     setSelectedVariantId(initialVariant?._id);
     setSelectedColorId(initialColor?._id);
-    setSelectedSize(getFirstAvailableSize(initialVariant));
+    setSelectedSize(getFirstAvailableSize(initialVariant, initialColor?._id));
     setSelectedImage(initialColor?.image || detail.gallery[0] || detail.productImage);
     setQuantity(1);
   }, []);
@@ -293,9 +334,33 @@ const ProductDetailScreen = () => {
   const selectedVariant = product?.variants.find((variant) => variant._id === selectedVariantId);
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);
   const selectedSizeOption = selectedVariant?.sizes.find((item) => item.size === selectedSize);
-  const canCheckout = Boolean(product && selectedVariant?.isActive && selectedColor && selectedSizeOption?.isAvailable);
+  const selectedInventory = getInventoryForSelection(selectedVariant, selectedColorId, selectedSize);
+  const selectedAvailableQuantity =
+    selectedColorId
+      ? selectedInventory?.availableQuantity ?? 0
+      : selectedSizeOption?.availableQuantity ?? (selectedSizeOption?.isAvailable ? fallbackQuantityLimit : 0);
+  const maxPurchasableQuantity = Math.max(0, selectedAvailableQuantity);
+  const canCheckout = Boolean(
+    product &&
+    selectedVariant?.isActive &&
+    selectedColor &&
+    selectedSizeOption &&
+    isSizeAvailableForColor(selectedVariant, selectedColorId, selectedSizeOption) &&
+    maxPurchasableQuantity > 0,
+  );
+  const isQuantityAtLimit = !canCheckout || quantity >= maxPurchasableQuantity;
   const imageOptions = product ? getImageOptions(product) : [];
   const ratingDistribution = product ? getRatingDistribution(product) : [];
+
+  React.useEffect(() => {
+    setQuantity((current) => {
+      if (maxPurchasableQuantity <= 0) {
+        return 1;
+      }
+
+      return Math.max(1, Math.min(maxPurchasableQuantity, current));
+    });
+  }, [maxPurchasableQuantity]);
 
   const handleSearchSubmit = () => {
     const keyword = searchTerm.trim();
@@ -321,7 +386,7 @@ const ProductDetailScreen = () => {
 
     setSelectedVariantId(variant._id);
     setSelectedColorId(firstColor?._id);
-    setSelectedSize(getFirstAvailableSize(variant));
+    setSelectedSize(getFirstAvailableSize(variant, firstColor?._id));
     setSelectedImage(firstColor?.image || product?.productImage);
     setQuantity(1);
   };
@@ -329,13 +394,29 @@ const ProductDetailScreen = () => {
   const handleColorPress = (color: ProductDetailColor) => {
     setSelectedColorId(color._id);
     setSelectedImage(color.image);
+    setSelectedSize((currentSize) => {
+      const currentSizeOption = selectedVariant?.sizes.find((item) => item.size === currentSize);
+
+      if (currentSizeOption && isSizeAvailableForColor(selectedVariant, color._id, currentSizeOption)) {
+        return currentSize;
+      }
+
+      return getFirstAvailableSize(selectedVariant, color._id);
+    });
+    setQuantity(1);
   };
 
   const handleQuantityChange = (delta: number) => {
-    setQuantity((current) => Math.max(1, Math.min(quantityLimit, current + delta)));
+    setQuantity((current) => {
+      if (maxPurchasableQuantity <= 0) {
+        return 1;
+      }
+
+      return Math.max(1, Math.min(maxPurchasableQuantity, current + delta));
+    });
   };
 
-  const handleSelectionAction = (action: 'cart' | 'buy') => {
+  const handleSelectionAction = async (action: 'cart' | 'buy') => {
     if (!product || !selectedVariant || !selectedColor || !selectedSizeOption) {
       Alert.alert('Chọn sản phẩm', 'Bạn chọn đủ màu, size và số lượng trước nha.');
       return;
@@ -346,10 +427,44 @@ const ProductDetailScreen = () => {
       return;
     }
 
-    Alert.alert(
-      action === 'cart' ? 'Đã chọn để thêm giỏ' : 'Đã chọn để mua ngay',
-      `${product.name}\nMàu: ${selectedColor.color}\nSize: ${selectedSizeOption.size}\nSố lượng: ${quantity}\n\nCart module thật sẽ nối ở bước kế tiếp.`,
-    );
+    if (!isAuthenticated || !session?.accessToken) {
+      Alert.alert('Cần đăng nhập', 'Bạn đăng nhập để thêm sản phẩm vào giỏ nha.', [
+        { text: 'Để sau', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => navigation.navigate('Login') },
+      ]);
+      return;
+    }
+
+    try {
+      setIsAddingToCart(true);
+      await runWithAuth((accessToken) => cartApi.addItem(accessToken, {
+        productId: product._id,
+        variantId: selectedVariant._id,
+        colorVariantId: selectedColor._id,
+        size: selectedSizeOption.size,
+        quantity,
+      }));
+
+      if (action === 'buy') {
+        navigation.navigate('Cart');
+        return;
+      }
+
+      Alert.alert('Đã thêm vào giỏ', `${product.name}\nMàu: ${selectedColor.color}\nSize: ${selectedSizeOption.size}\nSố lượng: ${quantity}`, [
+        { text: 'Mua tiếp', style: 'cancel' },
+        { text: 'Xem giỏ', onPress: () => navigation.navigate('Cart') },
+      ]);
+      return;
+    } catch (error) {
+      Alert.alert(
+        'Chưa thêm được giỏ hàng',
+        error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
+      );
+      return;
+    } finally {
+      setIsAddingToCart(false);
+    }
+
   };
 
   const renderStars = (rating: number, size = 14) => (
@@ -383,8 +498,21 @@ const ProductDetailScreen = () => {
           <TouchableOpacity style={styles.headerIcon} activeOpacity={0.82} accessibilityLabel="Yêu thích">
             <MaterialCommunityIcons name="heart-outline" size={22} color={colors.white} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIcon} activeOpacity={0.82} accessibilityLabel="Giỏ hàng">
-            <MaterialCommunityIcons name="cart-outline" size={22} color={colors.white} />
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => navigation.navigate('Cart')}
+            activeOpacity={0.82}
+            accessibilityLabel="Giỏ hàng"
+          >
+            <MaterialCommunityIcons name="shopping-outline" size={22} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
+            activeOpacity={0.82}
+            accessibilityLabel="Tài khoản"
+          >
+            <MaterialCommunityIcons name="account-outline" size={22} color={colors.white} />
           </TouchableOpacity>
         </View>
       </View>
@@ -611,6 +739,8 @@ const ProductDetailScreen = () => {
             <View style={styles.sizeGrid}>
               {selectedVariant?.sizes.map((sizeOption) => {
                 const isActive = sizeOption.size === selectedSize;
+                const sizeAvailableQuantity = getAvailableQuantityForSize(selectedVariant, selectedColorId, sizeOption);
+                const isAvailable = sizeAvailableQuantity > 0;
 
                 return (
                   <TouchableOpacity
@@ -618,14 +748,16 @@ const ProductDetailScreen = () => {
                     style={[
                       styles.sizeButton,
                       isActive && styles.sizeButtonActive,
-                      !sizeOption.isAvailable && styles.disabledChip,
+                      !isAvailable && styles.disabledChip,
                     ]}
                     onPress={() => setSelectedSize(sizeOption.size)}
-                    disabled={!sizeOption.isAvailable}
                     activeOpacity={0.82}
                   >
                     <Text style={[styles.sizeButtonText, isActive && styles.sizeButtonTextActive]}>
                       {sizeOption.size}
+                    </Text>
+                    <Text style={[styles.sizeStockText, isActive && styles.sizeStockTextActive]} numberOfLines={1}>
+                      {isAvailable ? `Còn ${sizeAvailableQuantity}` : 'Hết hàng'}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -665,14 +797,20 @@ const ProductDetailScreen = () => {
               </TouchableOpacity>
               <Text style={styles.quantityText}>{quantity}</Text>
               <TouchableOpacity
-                style={styles.stepperButton}
+                style={[styles.stepperButton, isQuantityAtLimit && styles.stepperButtonDisabled]}
                 onPress={() => handleQuantityChange(1)}
+                disabled={isQuantityAtLimit}
                 activeOpacity={0.82}
               >
-                <MaterialCommunityIcons name="plus" size={18} color={colors.text} />
+                <MaterialCommunityIcons name="plus" size={18} color={isQuantityAtLimit ? colors.textSubtle : colors.text} />
               </TouchableOpacity>
             </View>
           </View>
+          <Text style={styles.stockHint}>
+            {canCheckout
+              ? `Size ${selectedSizeOption?.size}: còn ${maxPurchasableQuantity} sản phẩm`
+              : 'Tạm hết hàng cho màu/size này'}
+          </Text>
         </View>
 
         <View style={styles.policyPanel}>
@@ -764,20 +902,22 @@ const ProductDetailScreen = () => {
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
         <Pressable
-          style={[styles.bottomButton, styles.cartCta, !canCheckout && styles.bottomButtonDisabled]}
+          style={[styles.bottomButton, styles.cartCta, (!canCheckout || isAddingToCart) && styles.bottomButtonDisabled]}
           onPress={() => handleSelectionAction('cart')}
-          disabled={!canCheckout}
+          disabled={!canCheckout || isAddingToCart}
         >
-          <MaterialCommunityIcons name="cart-plus" size={19} color={canCheckout ? colors.brand : colors.textSubtle} />
-          <Text style={[styles.cartCtaText, !canCheckout && styles.bottomButtonTextDisabled]}>Thêm vào giỏ</Text>
+          <MaterialCommunityIcons name="cart-plus" size={19} color={canCheckout && !isAddingToCart ? colors.brand : colors.textSubtle} />
+          <Text style={[styles.cartCtaText, (!canCheckout || isAddingToCart) && styles.bottomButtonTextDisabled]}>
+            {isAddingToCart ? 'Đang thêm...' : 'Thêm vào giỏ'}
+          </Text>
         </Pressable>
 
         <Pressable
-          style={[styles.bottomButton, styles.buyCta, !canCheckout && styles.bottomButtonDisabled]}
+          style={[styles.bottomButton, styles.buyCta, (!canCheckout || isAddingToCart) && styles.bottomButtonDisabled]}
           onPress={() => handleSelectionAction('buy')}
-          disabled={!canCheckout}
+          disabled={!canCheckout || isAddingToCart}
         >
-          <Text style={[styles.buyCtaText, !canCheckout && styles.bottomButtonTextDisabled]}>Mua ngay</Text>
+          <Text style={[styles.buyCtaText, (!canCheckout || isAddingToCart) && styles.bottomButtonTextDisabled]}>Mua ngay</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -816,7 +956,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerActions: {
-    minWidth: 64,
+    minWidth: 96,
     flexDirection: 'row',
     justifyContent: 'flex-end',
   },
@@ -1146,15 +1286,16 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   sizeButton: {
-    minWidth: 54,
-    height: 38,
+    minWidth: 66,
+    minHeight: 48,
     borderRadius: radii.xs,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.field,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
   },
   sizeButtonActive: {
     backgroundColor: colors.brand,
@@ -1167,6 +1308,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   sizeButtonTextActive: {
+    color: colors.white,
+  },
+  sizeStockText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  sizeStockTextActive: {
     color: colors.white,
   },
   measurementPanel: {
@@ -1239,6 +1390,13 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  stockHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    textAlign: 'right',
   },
   policyPanel: {
     marginTop: spacing.sm,

@@ -67,6 +67,14 @@ export type ProductDetailSize = {
   availableQuantity?: number;
 };
 
+export type ProductDetailInventoryItem = {
+  colorVariantId: string;
+  size: string;
+  sku: string;
+  availableQuantity: number;
+  isAvailable: boolean;
+};
+
 export type ProductDetailVariant = {
   _id: string;
   fitTypeId: string;
@@ -83,6 +91,7 @@ export type ProductDetailVariant = {
   isActive: boolean;
   colors: ProductDetailColor[];
   sizes: ProductDetailSize[];
+  inventory: ProductDetailInventoryItem[];
 };
 
 export type CatalogProductDetail = {

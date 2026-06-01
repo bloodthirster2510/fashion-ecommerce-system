@@ -1,26 +1,34 @@
 import { Types } from 'mongoose';
-import { Brand, Category, Product } from '../../../../database/models';
+import { Brand, Category, Inventory, Product } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput } from '../product.types';
 
 jest.mock('../../../../database/models', () => ({
   Brand: {
+    find: jest.fn(),
     findById: jest.fn(),
   },
   Category: {
+    find: jest.fn(),
     findById: jest.fn(),
   },
   Product: {
+    countDocuments: jest.fn(),
     create: jest.fn(),
+    distinct: jest.fn(),
     findById: jest.fn(),
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
+    find: jest.fn(),
+  },
+  Inventory: {
     find: jest.fn(),
   },
 }));
 
 const mockedBrand = Brand as jest.Mocked<typeof Brand>;
 const mockedCategory = Category as jest.Mocked<typeof Category>;
+const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 
 const brandId = '665000000000000000000001';
@@ -83,6 +91,21 @@ describe('productService', () => {
       ],
     } as never);
     mockedProduct.findOne.mockResolvedValue(null);
+    mockedBrand.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    } as never);
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(0);
+    mockedProduct.distinct.mockResolvedValue([]);
+    mockedInventory.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    } as never);
   });
 
   it('creates a product with normalized object ids and variant data', async () => {
@@ -317,6 +340,20 @@ describe('productService', () => {
       }),
     };
     mockedProduct.findOne.mockReturnValue(productDetailQuery as never);
+    mockedInventory.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          productId: new Types.ObjectId(productId),
+          variantId,
+          colorVariantId: colorId,
+          size: 'M',
+          sku: 'INV-000003-000011-000012-M',
+          quantity: 12,
+          reservedQuantity: 0,
+          availableQuantity: 12,
+        },
+      ]),
+    } as never);
 
     const result = await productService.getProductDetailById(productId);
 
@@ -386,15 +423,103 @@ describe('productService', () => {
         {
           size: 'M',
           isAvailable: true,
+          availableQuantity: 12,
           measurements: [
             { key: 'shoulder', label: 'Vai', unit: 'cm', value: 42 },
             { key: 'chest', label: 'Nguc', unit: 'cm', value: 96 },
           ],
         },
       ],
+      inventory: [
+        {
+          colorVariantId: colorId.toString(),
+          size: 'M',
+          sku: 'INV-000003-000011-000012-M',
+          availableQuantity: 12,
+          isAvailable: true,
+        },
+      ],
     });
     expect(result.ratingSummary.distribution).toHaveLength(5);
     expect(result.policies).toHaveLength(3);
+  });
+
+  it('keeps active products visible in the public list even when inventory is empty', async () => {
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const variantId = new Types.ObjectId('665000000000000000000011');
+    const colorId = new Types.ObjectId('665000000000000000000012');
+    const productDocument = {
+      _id: new Types.ObjectId(productId),
+      category_id: {
+        _id: new Types.ObjectId(categoryId),
+        name: 'T-shirts',
+        gender: 'male',
+        image: null,
+        bannerImage: null,
+      },
+      name: 'Basic T-shirt',
+      brand_id: {
+        _id: new Types.ObjectId(brandId),
+        name: 'YODY',
+        image: null,
+      },
+      variant: [
+        {
+          _id: variantId,
+          fitTypeId,
+          price: 200000,
+          discount: 0,
+          sizeMeasurements: [{ size: 'M', measurements: [] }],
+          colors: [
+            {
+              _id: colorId,
+              color: 'Black',
+              colorCode: 'DEN',
+              image: 'https://example.com/black.png',
+            },
+          ],
+          isActive: true,
+        },
+      ],
+      product_image: 'https://example.com/product.png',
+      isActive: true,
+      sold_quantity: 12,
+      averageRating: 5,
+      reviewCount: 3,
+      createdAt: new Date(),
+    };
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([productDocument]),
+    };
+
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+    mockedProduct.countDocuments.mockResolvedValue(1);
+    mockedInventory.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    } as never);
+
+    const result = await productService.getProductList({ page: 1, limit: 10 });
+    const productFilter = mockedProduct.find.mock.calls[0][0] as unknown as Record<string, unknown>;
+
+    expect(productFilter).not.toHaveProperty('_id');
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      _id: productId,
+      name: 'Basic T-shirt',
+      isAvailable: false,
+      brand: {
+        _id: brandId,
+        name: 'YODY',
+      },
+      category: {
+        _id: categoryId,
+        name: 'T-shirts',
+      },
+    });
   });
 
   it('uses a typed service error for product failures', async () => {
