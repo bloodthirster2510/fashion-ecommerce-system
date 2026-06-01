@@ -53,7 +53,7 @@ const getTierConfig = (tierName: string) => {
 
 const MembershipScreen = () => {
   const navigation = useNavigation();
-  const { session } = useAuth();
+  const { session, runWithAuth } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MembershipResponse | null>(null);
   const membershipCardCarouselRef = useRef<ScrollView>(null);
@@ -64,9 +64,13 @@ const MembershipScreen = () => {
 
   useEffect(() => {
     const fetchMembership = async () => {
-      if (!session?.accessToken) return;
+      if (!session?.accessToken) {
+        setData(null);
+        setLoading(false);
+        return;
+      }
       try {
-        const response = await accountApi.getMembership(session.accessToken);
+        const response = await runWithAuth((accessToken) => accountApi.getMembership(accessToken));
         setData(response);
       } catch (error) {
         console.error('Lỗi khi tải thông tin hạng thẻ', error);
@@ -75,7 +79,7 @@ const MembershipScreen = () => {
       }
     };
     fetchMembership();
-  }, [session?.accessToken]);
+  }, [runWithAuth, session?.accessToken]);
 
   if (loading || !data) {
     return (

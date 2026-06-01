@@ -20,9 +20,8 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, shadows, spacing, sharedStyles } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
-import { authApi } from '../auth/authApi';
 import { locationApi, type ProvinceApiItem, type WardApiItem } from '../auth/locationApi';
-import { accountApi, AccountApiError, type Gender, type UserAddress } from './accountApi';
+import { accountApi, type Gender, type UserAddress } from './accountApi';
 
 type EditProfileNavigationProp = StackNavigationProp<RootStackParamList, 'EditProfile'>;
 type ProfileTab = 'profile' | 'addresses' | 'security';
@@ -122,9 +121,15 @@ const getInitial = (name: string) => {
 
 const isPreviewableImage = (value: string) => /^https?:\/\//i.test(value.trim());
 
+const isUnauthorizedError = (error: unknown) =>
+  typeof error === 'object' &&
+  error !== null &&
+  'status' in error &&
+  (error as { status?: number }).status === 401;
+
 const EditProfileScreen = () => {
   const navigation = useNavigation<EditProfileNavigationProp>();
-  const { session, login, updateSessionUser, logout } = useAuth();
+  const { session, updateSessionUser, logout, runWithAuth: runAuthAction } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('profile');
   const [activeSelect, setActiveSelect] = useState<SelectConfig | null>(null);
@@ -226,25 +231,13 @@ const EditProfileScreen = () => {
     }
 
     try {
-      return await action(session.accessToken);
+      return await runAuthAction(action);
     } catch (error) {
-      if (!(error instanceof AccountApiError) || error.status !== 401) {
-        throw error;
+      if (isUnauthorizedError(error)) {
+        redirectToLogin();
       }
 
-      try {
-        const nextTokens = await authApi.refreshToken(session.refreshToken);
-        const nextSession = {
-          ...session,
-          accessToken: nextTokens.accessToken,
-          refreshToken: nextTokens.refreshToken,
-        };
-        login(nextSession);
-        return await action(nextTokens.accessToken);
-      } catch {
-        redirectToLogin();
-        throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
-      }
+      throw error;
     }
   };
 

@@ -37,7 +37,7 @@ type AccountStat = {
 
 const profileMenuItems: ProfileMenuItem[] = [
   { id: 'personal-info', icon: 'account-outline', label: 'Thông tin cá nhân' },
-  { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng', badge: '3' },
+  { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng' },
   { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi', badge: '2' },
   { id: 'favorites', icon: 'heart-outline', label: 'Sản phẩm yêu thích' },
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
@@ -46,6 +46,12 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'payment', icon: 'credit-card-outline', label: 'Phương thức thanh toán' },
   { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ' },
 ];
+
+const isUnauthorizedError = (error: unknown) =>
+  typeof error === 'object' &&
+  error !== null &&
+  'status' in error &&
+  (error as { status?: number }).status === 401;
 
 const getInitial = (name?: string) => {
   const trimmedName = name?.trim();
@@ -57,7 +63,7 @@ const getInitial = (name?: string) => {
 const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i.test(value.trim());
 
 const ProfileScreen = () => {
-  const { logout, session } = useAuth();
+  const { logout, session, runWithAuth } = useAuth();
   const navigation = useNavigation<ProfileNavigationProp>();
   const user = session?.user;
   const displayName = user?.name || 'Khách hàng FASHIONISTA';
@@ -69,17 +75,36 @@ const ProfileScreen = () => {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (session?.accessToken) {
-        accountApi.getMembership(session.accessToken)
-          .then(setMembershipData)
-          .catch(console.error);
+      if (!session?.accessToken) {
+        setMembershipData(null);
+        return;
       }
-    }, [session?.accessToken])
+
+      runWithAuth((accessToken) => accountApi.getMembership(accessToken))
+        .then(setMembershipData)
+        .catch((error: unknown) => {
+          if (isUnauthorizedError(error)) {
+            setMembershipData(null);
+            logout();
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
+            return;
+          }
+
+          console.error(error);
+        });
+    }, [logout, navigation, runWithAuth, session?.accessToken])
   );
 
   const handleMenuPress = (item: ProfileMenuItem) => {
     if (item.id === 'personal-info') {
       navigation.navigate('EditProfile');
+      return;
+    }
+    if (item.id === 'cart') {
+      navigation.navigate('Cart');
       return;
     }
     if (item.id === 'membership') {
