@@ -28,6 +28,17 @@ const HomeScreen = () => {
   const [bestSellerError, setBestSellerError] = React.useState<string | null>(null);
   const [recommendationError, setRecommendationError] = React.useState<string | null>(null);
 
+  const availableCategoryGenders = React.useMemo(
+    () => new Set(categories.map((category) => category.gender)),
+    [categories],
+  );
+
+  const shouldShowGenderShortcut = React.useCallback(
+    (gender: CatalogGender) =>
+      categories.length ? availableCategoryGenders.has(gender) : gender !== 'unisex',
+    [availableCategoryGenders, categories.length],
+  );
+
   const loadCategories = React.useCallback(() => {
     let isCurrentRequest = true;
 
@@ -114,6 +125,7 @@ const HomeScreen = () => {
   const handleCategorySelect = (category: CatalogCategory) => {
     navigateToProductList({
       title: category.name,
+      gender: category.gender,
       categoryId: category._id,
     });
   };
@@ -139,12 +151,16 @@ const HomeScreen = () => {
         icon: 'gender-female',
         onPress: () => handleGenderSelect('female'),
       },
-      {
-        id: 'unisex',
-        label: 'Unisex',
-        icon: 'gender-male-female',
-        onPress: () => handleGenderSelect('unisex'),
-      },
+      ...(shouldShowGenderShortcut('unisex')
+        ? [
+            {
+              id: 'unisex',
+              label: 'Unisex',
+              icon: 'gender-male-female' as const,
+              onPress: () => handleGenderSelect('unisex'),
+            },
+          ]
+        : []),
       {
         id: 'new',
         label: 'Hàng mới',
@@ -182,7 +198,7 @@ const HomeScreen = () => {
         onPress: () => navigateToProductList({ title: 'Đồ thể thao', keyword: 'thể thao' }),
       },
     ],
-    [navigation],
+    [navigation, shouldShowGenderShortcut],
   );
 
   const handleSearchSubmit = (keyword: string) => {
@@ -205,7 +221,12 @@ const HomeScreen = () => {
   };
 
   const handleCartPress = (product: CatalogProduct) => {
-    Alert.alert('Giỏ hàng', `${product.name} sẽ được thêm vào giỏ khi module giỏ hàng hoàn thiện.`);
+    if (product._id) {
+      navigation.navigate('ProductDetail', { productId: product._id });
+      return;
+    }
+
+    Alert.alert('Giỏ hàng', 'Bạn mở chi tiết sản phẩm để chọn màu, size và số lượng trước nha.');
   };
 
   return (
@@ -214,7 +235,7 @@ const HomeScreen = () => {
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => handleComingSoon('Sản phẩm yêu thích')}
-        onCartPress={() => handleComingSoon('Giỏ hàng')}
+        onCartPress={() => navigation.navigate('Cart')}
         onSearchSubmit={handleSearchSubmit}
         onImageSearchPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
         isAuthenticated={isAuthenticated}

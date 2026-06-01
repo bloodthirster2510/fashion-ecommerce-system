@@ -16,6 +16,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../auth/AuthContext';
 import {
   catalogApi,
   CatalogCategory,
@@ -294,6 +295,7 @@ const getCategorySelectionGroups = (
 const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
+  const { isAuthenticated } = useAuth();
   const params = route.params;
   const insets = useSafeAreaInsets();
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
@@ -360,6 +362,26 @@ const ProductListScreen = () => {
       ),
     [availableFilters.categories, draftFilters.gender],
   );
+
+  const visibleGenderOptions = React.useMemo(() => {
+    const availableGenders = new Set(availableFilters.categories.map((category) => category.gender));
+    const selectedGenders = new Set<CatalogGender>();
+
+    if (appliedFilters.gender) selectedGenders.add(appliedFilters.gender);
+    if (draftFilters.gender) selectedGenders.add(draftFilters.gender);
+
+    return genderOptions.filter((option) => {
+      if (selectedGenders.has(option.value)) {
+        return true;
+      }
+
+      if (!availableFilters.categories.length) {
+        return option.value !== 'unisex';
+      }
+
+      return availableGenders.has(option.value);
+    });
+  }, [appliedFilters.gender, availableFilters.categories, draftFilters.gender]);
 
   const updateAppliedFilters = React.useCallback((updater: (current: ProductListFilters) => ProductListFilters) => {
     setAppliedFilters((current) => normalizeFilters(updater(current)));
@@ -562,7 +584,12 @@ const ProductListScreen = () => {
   };
 
   const handleCartPress = (product: CatalogProduct) => {
-    Alert.alert('Giỏ hàng', `${product.name} sẽ được thêm vào giỏ khi module giỏ hàng hoàn thiện.`);
+    if (product._id) {
+      navigation.navigate('ProductDetail', { productId: product._id });
+      return;
+    }
+
+    Alert.alert('Giỏ hàng', 'Bạn mở chi tiết sản phẩm để chọn màu, size và số lượng trước nha.');
   };
 
   const renderChoice = (
@@ -620,7 +647,14 @@ const ProductListScreen = () => {
           </Text>
         </View>
 
-        <View style={styles.headerAction} />
+        <TouchableOpacity
+          style={styles.headerAction}
+          onPress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
+          accessibilityLabel="Tài khoản"
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="account-outline" size={23} color={colors.white} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -811,7 +845,7 @@ const ProductListScreen = () => {
               {renderGroup(
                 'Đối tượng',
                 <View style={styles.choiceWrap}>
-                  {genderOptions.map((option) =>
+                  {visibleGenderOptions.map((option) =>
                     renderChoice(option.label, draftFilters.gender === option.value, () =>
                       setDraftFilters((current) => {
                         const nextGender = current.gender === option.value ? undefined : option.value;

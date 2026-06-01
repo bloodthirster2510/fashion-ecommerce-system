@@ -64,6 +64,17 @@ const CategoryDrawer = ({
 }: CategoryDrawerProps) => {
   const [expandedGender, setExpandedGender] = React.useState<CatalogGender | null>(null);
   const insets = useSafeAreaInsets();
+  const visibleGenders = React.useMemo<CatalogGender[]>(() => {
+    const availableGenders = new Set(categories.map((category) => category.gender));
+    const defaultGenders: CatalogGender[] = ['male', 'female'];
+    const allGenders: CatalogGender[] = ['male', 'female', 'unisex'];
+
+    if (!categories.length) {
+      return defaultGenders;
+    }
+
+    return allGenders.filter((gender) => availableGenders.has(gender));
+  }, [categories]);
 
   React.useEffect(() => {
     if (!visible) {
@@ -73,13 +84,17 @@ const CategoryDrawer = ({
 
   const renderGenderRow = (gender: CatalogGender) => {
     const isExpanded = expandedGender === gender;
-    const rootCategory = categories.find((category) => category.gender === gender && category.level === 1);
+    const rootCategoryIds = new Set(
+      categories
+        .filter((category) => category.gender === gender && category.level === 1)
+        .map((category) => category._id),
+    );
     const groupCategories = sortCategories(
       categories.filter(
         (category) =>
           category.gender === gender &&
           category.level === 2 &&
-          (!rootCategory || category.parent_id === rootCategory._id),
+          (!rootCategoryIds.size || (category.parent_id ? rootCategoryIds.has(category.parent_id) : false)),
       ),
     );
     const getChildCategories = (parentId: string) =>
@@ -183,9 +198,7 @@ const CategoryDrawer = ({
             </TouchableOpacity>
 
             <Text style={styles.sectionLabel}>Danh mục theo đối tượng</Text>
-            {renderGenderRow('male')}
-            {renderGenderRow('female')}
-            {renderGenderRow('unisex')}
+            {visibleGenders.map(renderGenderRow)}
           </ScrollView>
         </View>
       </View>
