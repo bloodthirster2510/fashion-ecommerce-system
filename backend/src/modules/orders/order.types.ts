@@ -17,6 +17,12 @@ export interface CreateOrderInput {
   orderNote?: string;
 }
 
+export interface PreviewCheckoutInput {
+  cartItemIds: string[];
+  paymentMethod?: OrderPaymentMethod;
+  couponCode?: string;
+}
+
 export interface OrderListQueryInput {
   status?: OrderStatus;
   paymentMethod?: OrderPaymentMethod;

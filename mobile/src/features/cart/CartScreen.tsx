@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import StorefrontHeader from '../../components/layout/StorefrontHeader';
@@ -22,9 +23,10 @@ import { colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
-import { cartApi, CartApiError, CartItem, CartResponse } from './cartApi';
+import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
+type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
 type PaymentMethod = 'COD' | 'VNPAY' | 'MOMO';
 
 const COD_SHIPPING_FEE = 25000;
@@ -93,6 +95,7 @@ const toShippingAddress = (address: UserAddress) => ({
 
 const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
+  const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
   const [cart, setCart] = React.useState<CartResponse | null>(null);
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
@@ -103,6 +106,11 @@ const CartScreen = () => {
   const [pendingItemId, setPendingItemId] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('COD');
+  const [couponCode, setCouponCode] = React.useState('');
+  const [appliedCouponCode, setAppliedCouponCode] = React.useState<string | null>(null);
+  const [checkoutPreview, setCheckoutPreview] = React.useState<CheckoutPreviewResponse | null>(null);
+  const [isApplyingCoupon, setIsApplyingCoupon] = React.useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
   const [form, setForm] = React.useState({
     fullName: session?.user.name ?? '',
     phone: session?.user.phone ?? '',
@@ -220,25 +228,108 @@ const CartScreen = () => {
     () => cart?.product_list.filter((item) => item.isSelected) ?? [],
     [cart?.product_list],
   );
-  const selectedCheckoutItems = selectedItems.filter((item) => item.isAvailable !== false);
+  const selectedCheckoutItems = React.useMemo(
+    () => selectedItems.filter((item) => item.isAvailable !== false),
+    [selectedItems],
+  );
+  const selectedCheckoutItemKey = React.useMemo(
+    () =>
+      selectedCheckoutItems
+        .map((item) => `${item._id}:${item.quantity}:${item.priceAtAddedTime}:${item.isAvailable}`)
+        .join('|'),
+    [selectedCheckoutItems],
+  );
   const unavailableSelectedItems = selectedItems.filter((item) => item.isAvailable === false);
   const allItemsSelected = Boolean(
     cart?.product_list.length && cart.product_list.every((item) => item.isSelected),
   );
-  const subTotal = selectedCheckoutItems.reduce(
+  const localSubTotal = selectedCheckoutItems.reduce(
     (sum, item) => sum + item.quantity * item.priceAtAddedTime,
     0,
   );
-  const shippingDiscountAmount =
-    selectedCheckoutItems.length && subTotal >= FREE_SHIPPING_MINIMUM ? COD_SHIPPING_FEE : 0;
-  const shippingPayable = selectedCheckoutItems.length ? COD_SHIPPING_FEE - shippingDiscountAmount : 0;
-  const totalAmount = subTotal + shippingPayable;
+  const localShippingDiscountAmount =
+    selectedCheckoutItems.length && localSubTotal >= FREE_SHIPPING_MINIMUM ? COD_SHIPPING_FEE : 0;
+  const checkoutSummary = checkoutPreview?.summary ?? {
+    subTotal: localSubTotal,
+    shippingFee: COD_SHIPPING_FEE,
+    couponDiscountAmount: 0,
+    shippingDiscountAmount: localShippingDiscountAmount,
+    membershipDiscountAmount: 0,
+    taxAmount: 0,
+    totalAmount: localSubTotal + (selectedCheckoutItems.length ? COD_SHIPPING_FEE - localShippingDiscountAmount : 0),
+  };
+  const {
+    subTotal,
+    shippingFee,
+    couponDiscountAmount,
+    shippingDiscountAmount,
+    membershipDiscountAmount,
+    totalAmount,
+  } = checkoutSummary;
+  const appliedMembership = checkoutPreview?.appliedMembership ?? null;
+  const appliedCoupon = checkoutPreview?.coupon ?? null;
+  const shippingPayable = selectedCheckoutItems.length ? shippingFee - shippingDiscountAmount : 0;
   const canSubmit =
     selectedCheckoutItems.length > 0 &&
     unavailableSelectedItems.length === 0 &&
     Boolean(selectedAddress) &&
     !isSubmitting &&
     paymentMethod === 'COD';
+
+  React.useEffect(() => {
+    const nextCouponCode = route.params?.couponCode?.trim().toUpperCase();
+    if (!nextCouponCode || nextCouponCode === appliedCouponCode) {
+      return;
+    }
+
+    setCouponCode(nextCouponCode);
+    setAppliedCouponCode(nextCouponCode);
+  }, [appliedCouponCode, route.params?.couponCode]);
+
+  React.useEffect(() => {
+    if (!session?.accessToken || !selectedCheckoutItems.length) {
+      setCheckoutPreview(null);
+      return;
+    }
+
+    let isActive = true;
+    setIsPreviewLoading(true);
+
+    runWithAuth((accessToken) =>
+      cartApi.previewCheckout(accessToken, {
+        cartItemIds: selectedCheckoutItems.map((item) => item._id),
+        couponCode: appliedCouponCode ?? undefined,
+        paymentMethod,
+      }),
+    )
+      .then((preview) => {
+        if (!isActive) return;
+
+        setCheckoutPreview(preview);
+        if (preview.coupon) {
+          setCouponCode(preview.coupon.code);
+          setAppliedCouponCode(preview.coupon.code);
+        }
+      })
+      .catch((error) => {
+        if (!isActive) return;
+
+        setCheckoutPreview(null);
+        if (appliedCouponCode) {
+          setAppliedCouponCode(null);
+          Alert.alert('Voucher không còn phù hợp', getErrorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [appliedCouponCode, paymentMethod, runWithAuth, selectedCheckoutItemKey, selectedCheckoutItems, session?.accessToken]);
 
   const handleSearchSubmit = (keyword: string) => {
     navigation.navigate('ProductList', {
@@ -337,6 +428,68 @@ const CartScreen = () => {
     ]);
   };
 
+  const handleApplyCoupon = async () => {
+    const code = couponCode.trim();
+
+    if (!session?.accessToken) {
+      navigation.navigate('Login');
+      return;
+    }
+
+    if (!code) {
+      Alert.alert('Thiếu mã giảm giá', 'Bạn nhập mã voucher trước nha.');
+      return;
+    }
+
+    if (!selectedCheckoutItems.length) {
+      Alert.alert('Giỏ hàng trống', 'Bạn chọn ít nhất một sản phẩm để áp dụng voucher.');
+      return;
+    }
+
+    try {
+      setIsApplyingCoupon(true);
+      const preview = await runWithAuth((accessToken) =>
+        cartApi.previewCheckout(accessToken, {
+          couponCode: code,
+          cartItemIds: selectedCheckoutItems.map((item) => item._id),
+          paymentMethod: 'COD',
+        }),
+      );
+
+      if (!preview.coupon) {
+        throw new CartApiError('Voucher chưa được áp dụng cho đơn hàng này.');
+      }
+
+      setCheckoutPreview(preview);
+      setAppliedCouponCode(preview.coupon.code);
+      setCouponCode(preview.coupon.code);
+      Alert.alert('Đã áp dụng voucher', `${preview.coupon.code} đã được tính vào đơn hàng.`);
+    } catch (error) {
+      setCheckoutPreview(null);
+      setAppliedCouponCode(null);
+      Alert.alert('Chưa áp dụng được voucher', getErrorMessage(error));
+    } finally {
+      setIsApplyingCoupon(false);
+    }
+  };
+
+  const handleClearCoupon = () => {
+    setAppliedCouponCode(null);
+    setCouponCode('');
+  };
+
+  const handleOpenCoupons = () => {
+    if (!session?.accessToken) {
+      navigation.navigate('Login');
+      return;
+    }
+
+    navigation.navigate('Coupons', {
+      cartItemIds: selectedCheckoutItems.map((item) => item._id),
+      selectedCouponCode: appliedCouponCode,
+    });
+  };
+
   const validateCheckout = () => {
     if (!form.fullName.trim()) {
       Alert.alert('Thiếu thông tin', 'Bạn nhập họ tên người nhận trước nha.');
@@ -390,6 +543,7 @@ const CartScreen = () => {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         paymentMethod: 'COD',
         shippingAddress: toShippingAddress(selectedAddress),
+        couponCode: appliedCouponCode ?? undefined,
         orderNote: form.note.trim() || undefined,
       }));
 
@@ -398,6 +552,7 @@ const CartScreen = () => {
         `Mã đơn: ${order.orderCode}\nTổng thanh toán: ${formatCurrency(order.totalAmount)}`,
       );
       setForm((current) => ({ ...current, note: '' }));
+      handleClearCoupon();
       await loadCart(true);
       await loadAddresses(true);
     } catch (error) {
@@ -687,14 +842,6 @@ const CartScreen = () => {
       <>
         <View style={styles.sectionHeaderRow}>
           <View style={styles.titleWithIcon}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
-              accessibilityLabel="Trở về"
-              activeOpacity={0.82}
-            >
-              <MaterialCommunityIcons name="arrow-left" size={21} color={colors.text} />
-            </TouchableOpacity>
             <MaterialCommunityIcons name="cart-outline" size={25} color={colors.black} />
             <Text style={styles.screenTitle}>Giỏ hàng</Text>
           </View>
@@ -753,14 +900,64 @@ const CartScreen = () => {
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Ưu đãi dành cho bạn</Text>
           <View style={styles.promoStack}>
-            <View style={[styles.promoCard, styles.promoOrange]}>
-              <View style={[styles.promoBadge, styles.promoBadgeOrange]}>
-                <Text style={styles.promoBadgeText}>GIẢM 15%</Text>
+            <View style={styles.couponCard}>
+              <View style={styles.couponInputRow}>
+                <TextInput
+                  style={styles.couponInput}
+                  value={couponCode}
+                  onChangeText={(value) => {
+                    setCouponCode(value.toUpperCase());
+                    if (appliedCouponCode && value.trim().toUpperCase() !== appliedCouponCode) {
+                      setAppliedCouponCode(null);
+                    }
+                  }}
+                  placeholder="Nhập mã voucher"
+                  placeholderTextColor={colors.textSubtle}
+                  autoCapitalize="characters"
+                  editable={!isApplyingCoupon}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.couponApplyButton,
+                    (!couponCode.trim() || isApplyingCoupon || !selectedCheckoutItems.length) &&
+                      styles.couponApplyButtonDisabled,
+                  ]}
+                  onPress={handleApplyCoupon}
+                  disabled={!couponCode.trim() || isApplyingCoupon || !selectedCheckoutItems.length}
+                  activeOpacity={0.82}
+                >
+                  {isApplyingCoupon ? (
+                    <ActivityIndicator color={colors.white} size="small" />
+                  ) : (
+                    <Text style={styles.couponApplyText}>Áp dụng</Text>
+                  )}
+                </TouchableOpacity>
               </View>
-              <View style={styles.promoBody}>
-                <Text style={styles.promoTitle}>Giảm 15% cho đơn hàng từ 500K</Text>
-                <Text style={styles.promoMeta}>Mã: SUMMER15 - voucher sẽ nối ở bước sau</Text>
-              </View>
+              <TouchableOpacity
+                style={styles.couponListButton}
+                onPress={handleOpenCoupons}
+                activeOpacity={0.82}
+                disabled={!selectedCheckoutItems.length}
+              >
+                <MaterialCommunityIcons name="ticket-percent-outline" size={18} color={colors.brand} />
+                <Text style={styles.couponListText}>Chọn voucher khả dụng</Text>
+                <MaterialCommunityIcons name="chevron-right" size={20} color={colors.brand} />
+              </TouchableOpacity>
+              {appliedCoupon ? (
+                <View style={styles.couponAppliedRow}>
+                  <View style={styles.couponAppliedCopy}>
+                    <Text style={styles.couponAppliedTitle}>{appliedCoupon.name}</Text>
+                    <Text style={styles.couponAppliedMeta}>
+                      Mã {appliedCoupon.code} đang được tính vào đơn hàng
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={handleClearCoupon} activeOpacity={0.82}>
+                    <Text style={styles.couponClearText}>Bỏ</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={styles.couponHint}>Backend sẽ kiểm tra điều kiện và tính lại tổng tiền khi áp mã.</Text>
+              )}
             </View>
             <View style={[styles.promoCard, styles.promoBlue]}>
               <View style={[styles.promoBadge, styles.promoBadgeBlue]}>
@@ -775,13 +972,33 @@ const CartScreen = () => {
             </View>
             <View style={styles.memberCard}>
               <View style={styles.memberBadge}>
-                <Text style={styles.memberBadgeText}>V</Text>
+                <Text style={styles.memberBadgeText}>
+                  {appliedMembership?.name?.charAt(0).toUpperCase() ?? 'M'}
+                </Text>
               </View>
               <View style={styles.memberInfo}>
-                <Text style={styles.memberTitle}>Hạng thẻ: Vàng</Text>
-                <Text style={styles.memberMeta}>Ưu đãi thành viên sẽ tính ở bước khuyến mãi.</Text>
+                <Text style={styles.memberTitle}>
+                  {appliedMembership
+                    ? `Hạng thẻ: ${appliedMembership.name}`
+                    : 'Ưu đãi thành viên'}
+                </Text>
+                <Text style={styles.memberMeta}>
+                  {isPreviewLoading
+                    ? 'Đang tính ưu đãi theo hạng...'
+                    : membershipDiscountAmount
+                    ? `Đã giảm ${formatCurrency(membershipDiscountAmount)} theo hạng hiện tại.`
+                    : appliedMembership
+                    ? 'Hạng hiện tại chưa có giảm giá trực tiếp.'
+                    : 'Đăng nhập và tích điểm để nhận ưu đãi theo hạng.'}
+                </Text>
               </View>
-              <Text style={styles.memberDiscount}>-5%</Text>
+              <Text style={styles.memberDiscount}>
+                {appliedMembership
+                  ? appliedMembership.discountPercent > 0
+                    ? `-${appliedMembership.discountPercent}%`
+                    : '0%'
+                  : '-'}
+              </Text>
             </View>
           </View>
         </View>
@@ -809,6 +1026,18 @@ const CartScreen = () => {
             <Text style={styles.summaryLabel}>Giảm phí vận chuyển:</Text>
             <Text style={styles.summaryDiscount}>-{formatCurrency(shippingDiscountAmount)}</Text>
           </View>
+          {couponDiscountAmount > 0 ? (
+            <View style={styles.summaryLine}>
+              <Text style={styles.summaryLabel}>Voucher{appliedCouponCode ? ` (${appliedCouponCode})` : ''}:</Text>
+              <Text style={styles.summaryDiscount}>-{formatCurrency(couponDiscountAmount)}</Text>
+            </View>
+          ) : null}
+          {membershipDiscountAmount > 0 ? (
+            <View style={styles.summaryLine}>
+              <Text style={styles.summaryLabel}>Khách hàng thân thiết:</Text>
+              <Text style={styles.summaryDiscount}>-{formatCurrency(membershipDiscountAmount)}</Text>
+            </View>
+          ) : null}
           <View style={styles.totalLine}>
             <Text style={styles.totalLabel}>Tổng:</Text>
             <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>
@@ -833,7 +1062,9 @@ const CartScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StorefrontHeader
-        onMenuPress={() => navigation.navigate('ProductList', { title: 'Tất cả sản phẩm' })}
+        menuIcon="arrow-left"
+        menuAccessibilityLabel="Trở về"
+        onMenuPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => Alert.alert('Yêu thích', 'Danh sách yêu thích sẽ được nối ở bước sau.')}
         onCartPress={() => loadCart(true)}
@@ -884,17 +1115,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  backButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 2,
   },
   screenTitle: {
     color: colors.black,
@@ -1289,6 +1509,103 @@ const styles = StyleSheet.create({
   },
   promoStack: {
     gap: spacing.md,
+  },
+  couponCard: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  couponInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  couponInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 42,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing.md,
+    color: colors.black,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  couponApplyButton: {
+    minWidth: 88,
+    height: 42,
+    borderRadius: radii.sm,
+    backgroundColor: colors.black,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  couponApplyButtonDisabled: {
+    opacity: 0.45,
+  },
+  couponApplyText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  couponHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  couponListButton: {
+    minHeight: 38,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  couponListText: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.brand,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  couponAppliedRow: {
+    borderRadius: radii.sm,
+    backgroundColor: colors.successSoft,
+    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  couponAppliedCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  couponAppliedTitle: {
+    color: colors.black,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  couponAppliedMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  couponClearText: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
   },
   promoCard: {
     minHeight: 62,

@@ -7,6 +7,7 @@ import {
   getMyOrders,
   getOrderById,
   getOrders,
+  previewCheckout,
   updateOrderShipping,
   updateOrderStatus,
 } from './order.controller';
@@ -15,6 +16,7 @@ const router = Router();
 
 router.use(authenticate);
 
+router.post('/preview', previewCheckout);
 router.post('/', createOrder);
 router.get('/me', getMyOrders);
 router.get('/', authorize('admin', 'staff'), getOrders);

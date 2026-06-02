@@ -23,6 +23,7 @@ export const colors = {
   danger: '#CC0000',
   dangerSoft: '#FCE4E4',
   success: '#198754',
+  successSoft: '#ECFDF3',
   facebook: '#1877F2',
   coral: '#D8755B',
   gold: '#F6C76B',

@@ -54,6 +54,8 @@ export type CartResponse = {
   };
 };
 
+export type CartPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
+
 export type CreateOrderPayload = {
   cartItemIds: string[];
   shippingAddress: {
@@ -64,9 +66,82 @@ export type CreateOrderPayload = {
     streetName: string;
     phoneNumber: string;
   };
-  paymentMethod: 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
+  paymentMethod: CartPaymentMethod;
   couponCode?: string;
   orderNote?: string;
+};
+
+export type CheckoutSummary = {
+  subTotal: number;
+  shippingFee: number;
+  couponDiscountAmount: number;
+  shippingDiscountAmount: number;
+  membershipDiscountAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+};
+
+export type ValidateCouponPayload = {
+  couponCode: string;
+  cartItemIds: string[];
+  paymentMethod?: CartPaymentMethod;
+};
+
+export type CustomerCoupon = {
+  _id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  discountType: 'percent' | 'fixed' | 'free_shipping';
+  discountValue: number;
+  maxDiscountAmount?: number | null;
+  minOrderAmount: number;
+  endAt: string;
+};
+
+export type AppliedCheckoutCoupon = CustomerCoupon & {
+  discountAmount: number;
+  shippingDiscountAmount: number;
+  eligibleSubTotal: number;
+};
+
+export type AppliedMembership = {
+  tierId?: string;
+  name: string;
+  discountPercent: number;
+  discountAmount: number;
+};
+
+export type ValidateCouponResponse = {
+  coupon: CustomerCoupon;
+  summary: CheckoutSummary;
+  appliedMembership?: AppliedMembership | null;
+};
+
+export type CheckoutPreviewPayload = {
+  cartItemIds: string[];
+  couponCode?: string;
+  paymentMethod?: CartPaymentMethod;
+};
+
+export type CheckoutPreviewResponse = {
+  items: Array<{
+    productId: string;
+    variantId: string;
+    colorVariantId: string;
+    size: string;
+    sku: string;
+    name: string;
+    fitType: string;
+    color: string;
+    image: string;
+    quantity: number;
+    priceAtPurchased: number;
+    categoryId: string;
+  }>;
+  summary: CheckoutSummary;
+  coupon?: AppliedCheckoutCoupon | null;
+  appliedMembership?: AppliedMembership | null;
 };
 
 export type OrderResponse = {
@@ -165,6 +240,16 @@ export const cartApi = {
     request<CartResponse>('/cart/select-all', token, { method: 'PATCH', body: { isSelected } }),
   deleteItem: (token: string, itemId: string) =>
     request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}`, token, { method: 'DELETE' }),
+  validateCoupon: (token: string, payload: ValidateCouponPayload) =>
+    request<ValidateCouponResponse>('/coupons/validate', token, {
+      method: 'POST',
+      body: payload,
+    }),
+  previewCheckout: (token: string, payload: CheckoutPreviewPayload) =>
+    request<CheckoutPreviewResponse>('/orders/preview', token, {
+      method: 'POST',
+      body: payload,
+    }),
   createOrder: (token: string, payload: CreateOrderPayload) =>
     request<OrderResponse>('/orders', token, { method: 'POST', body: payload }),
 };

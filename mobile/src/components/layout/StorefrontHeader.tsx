@@ -3,8 +3,12 @@ import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'reac
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
 
+type HeaderIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
 type StorefrontHeaderProps = {
   onMenuPress?: () => void;
+  menuIcon?: HeaderIconName;
+  menuAccessibilityLabel?: string;
   onProfilePress?: () => void;
   onFavoritesPress?: () => void;
   onCartPress?: () => void;
@@ -17,6 +21,8 @@ type StorefrontHeaderProps = {
 
 const StorefrontHeader = ({
   onMenuPress,
+  menuIcon = 'menu',
+  menuAccessibilityLabel = 'Mở menu',
   onProfilePress,
   onFavoritesPress,
   onCartPress,
@@ -44,10 +50,10 @@ const StorefrontHeader = ({
         <TouchableOpacity
           style={styles.iconButton}
           onPress={onMenuPress}
-          accessibilityLabel="Mở menu"
+          accessibilityLabel={menuAccessibilityLabel}
           activeOpacity={0.8}
         >
-          <MaterialCommunityIcons name="menu" size={24} color={colors.white} />
+          <MaterialCommunityIcons name={menuIcon} size={24} color={colors.white} />
         </TouchableOpacity>
 
         <Text style={styles.brand}>FASHIONISTA</Text>

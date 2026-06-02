@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { authenticate } from '../../../middlewares/auth.middleware';
+import { authorize } from '../../../middlewares/role.middleware';
 import {
   createCategory,
   deleteCategory,
@@ -10,17 +12,18 @@ import {
 } from './categories.controller';
 
 const router = Router();
+const adminOnly = [authenticate, authorize('admin')];
 
-router.post('/', createCategory);
-router.post('/create', createCategory);
-router.put('/:id', updateCategory);
-router.put('/update/:id', updateCategory);
+router.post('/', adminOnly, createCategory);
+router.post('/create', adminOnly, createCategory);
+router.put('/:id', adminOnly, updateCategory);
+router.put('/update/:id', adminOnly, updateCategory);
 router.get('/', listCategories);
 router.get('/getAll', getCategories);
 router.get('/:id/product-template', getCategoryTemplate);
 router.get('/template/:id', getCategoryTemplate);
 router.get('/:id', getCategoryById);
-router.delete('/:id', deleteCategory);
-router.delete('/delete/:id', deleteCategory);
+router.delete('/:id', adminOnly, deleteCategory);
+router.delete('/delete/:id', adminOnly, deleteCategory);
 
 export default router;

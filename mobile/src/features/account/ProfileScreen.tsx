@@ -15,6 +15,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../auth/AuthContext';
 import { authApi } from '../auth/authApi';
 import { accountApi, MembershipResponse } from './accountApi';
+import { couponApi } from '../coupons/couponApi';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 
@@ -42,7 +43,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'favorites', icon: 'heart-outline', label: 'Sản phẩm yêu thích' },
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
-  { id: 'vouchers', icon: 'ticket-percent-outline', label: 'Voucher & Ưu đãi', badge: '5' },
+  { id: 'vouchers', icon: 'ticket-percent-outline', label: 'Voucher & Ưu đãi' },
   { id: 'payment', icon: 'credit-card-outline', label: 'Phương thức thanh toán' },
   { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ' },
 ];
@@ -72,11 +73,13 @@ const ProfileScreen = () => {
   const avatarUri = typeof avatarImage === 'string' && isPreviewableImage(avatarImage) ? avatarImage.trim() : '';
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
+  const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
       if (!session?.accessToken) {
         setMembershipData(null);
+        setVoucherCount(null);
         return;
       }
 
@@ -95,6 +98,9 @@ const ProfileScreen = () => {
 
           console.error(error);
         });
+      runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
+        .then((response) => setVoucherCount(response.items.length))
+        .catch(() => setVoucherCount(null));
     }, [logout, navigation, runWithAuth, session?.accessToken])
   );
 
@@ -109,6 +115,10 @@ const ProfileScreen = () => {
     }
     if (item.id === 'membership') {
       navigation.navigate('Membership');
+      return;
+    }
+    if (item.id === 'vouchers') {
+      navigation.navigate('Coupons');
       return;
     }
 
@@ -235,7 +245,7 @@ const ProfileScreen = () => {
           </View>
           <View style={styles.statCard}>
             <View style={[styles.statDot, styles.coralDot]} />
-            <Text style={styles.statValue}>5</Text>
+            <Text style={styles.statValue}>{voucherCount ?? '-'}</Text>
             <Text style={styles.statLabel}>Voucher</Text>
           </View>
           <View style={styles.statCard}>

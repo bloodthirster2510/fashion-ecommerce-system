@@ -6,6 +6,7 @@ import { orderService } from './order.service';
 import type {
   CreateOrderInput,
   OrderListQueryInput,
+  PreviewCheckoutInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -145,6 +146,22 @@ const createOrder = async (req: Request, res: Response) => {
   }
 };
 
+const previewCheckout = async (req: Request, res: Response) => {
+  try {
+    const input = req.body as PreviewCheckoutInput;
+
+    if (!input.cartItemIds?.length) {
+      return errorResponse(res, 'cartItemIds are required', 400);
+    }
+
+    const preview = await orderService.previewCheckout(getUserId(req), input);
+    return ok(res, preview);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const getMyOrders = async (req: Request, res: Response) => {
   try {
     const orders = await orderService.getMyOrders(getUserId(req), parseOrderListQuery(req));
@@ -226,6 +243,7 @@ export {
   getMyOrders,
   getOrderById,
   getOrders,
+  previewCheckout,
   updateOrderShipping,
   updateOrderStatus,
 };
