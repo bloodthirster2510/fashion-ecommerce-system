@@ -146,4 +146,5 @@ vite.config.ts.timestamp-*
 .kilo/
 backend/test-db.js
 docs/
+*.zip
 local-scraped-catalog/

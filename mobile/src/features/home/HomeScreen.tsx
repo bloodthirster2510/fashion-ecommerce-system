@@ -234,7 +234,7 @@ const HomeScreen = () => {
       <StorefrontHeader
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-        onFavoritesPress={() => handleComingSoon('Sản phẩm yêu thích')}
+        onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => navigation.navigate('Cart')}
         onSearchSubmit={handleSearchSubmit}
         onImageSearchPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}

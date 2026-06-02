@@ -113,6 +113,10 @@ const ProfileScreen = () => {
       navigation.navigate('Cart');
       return;
     }
+    if (item.id === 'favorites') {
+      navigation.navigate('Favorites');
+      return;
+    }
     if (item.id === 'membership') {
       navigation.navigate('Membership');
       return;

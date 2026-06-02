@@ -11,6 +11,7 @@ import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
 import CartScreen from '../features/cart/CartScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
+import FavoritesScreen from '../features/favorites/FavoritesScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -39,6 +40,7 @@ export type RootStackParamList = {
     cartItemIds?: string[];
     selectedCouponCode?: string | null;
   } | undefined;
+  Favorites: undefined;
   Profile: undefined;
   EditProfile: undefined;
   Membership: undefined;
@@ -60,6 +62,7 @@ const AppNavigator = () => {
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
       <Stack.Screen name="Cart" component={CartScreen} />
       <Stack.Screen name="Coupons" component={CouponsScreen} />
+      <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Membership" component={MembershipScreen} />

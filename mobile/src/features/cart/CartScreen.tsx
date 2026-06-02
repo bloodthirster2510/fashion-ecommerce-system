@@ -1066,7 +1066,7 @@ const CartScreen = () => {
         menuAccessibilityLabel="Trở về"
         onMenuPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-        onFavoritesPress={() => Alert.alert('Yêu thích', 'Danh sách yêu thích sẽ được nối ở bước sau.')}
+        onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => loadCart(true)}
         onSearchSubmit={handleSearchSubmit}
         onImageSearchPress={() => Alert.alert('Tìm kiếm ảnh', 'Tính năng này sẽ được bổ sung ở bước sau.')}

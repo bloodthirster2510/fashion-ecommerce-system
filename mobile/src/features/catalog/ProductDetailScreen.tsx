@@ -20,6 +20,7 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi } from '../cart/cartApi';
+import { favoritesApi } from '../favorites/favoritesApi';
 import {
   catalogApi,
   CatalogProduct,
@@ -257,6 +258,8 @@ const ProductDetailScreen = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRecommendationLoading, setIsRecommendationLoading] = React.useState(false);
   const [isAddingToCart, setIsAddingToCart] = React.useState(false);
+  const [isFavorited, setIsFavorited] = React.useState(false);
+  const [isFavoriteLoading, setIsFavoriteLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
@@ -330,6 +333,40 @@ const ProductDetailScreen = () => {
   }, [initializeSelection, productId]);
 
   React.useEffect(() => loadProduct(), [loadProduct]);
+
+  React.useEffect(() => {
+    let isCurrentRequest = true;
+
+    if (!isAuthenticated || !session?.accessToken) {
+      setIsFavorited(false);
+      setIsFavoriteLoading(false);
+      return () => {
+        isCurrentRequest = false;
+      };
+    }
+
+    setIsFavoriteLoading(true);
+    runWithAuth((accessToken) => favoritesApi.getStatus(accessToken, productId))
+      .then((status) => {
+        if (isCurrentRequest) {
+          setIsFavorited(status.isFavorited);
+        }
+      })
+      .catch(() => {
+        if (isCurrentRequest) {
+          setIsFavorited(false);
+        }
+      })
+      .finally(() => {
+        if (isCurrentRequest) {
+          setIsFavoriteLoading(false);
+        }
+      });
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [isAuthenticated, productId, runWithAuth, session?.accessToken]);
 
   const selectedVariant = product?.variants.find((variant) => variant._id === selectedVariantId);
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);
@@ -467,6 +504,41 @@ const ProductDetailScreen = () => {
 
   };
 
+  const handleFavoritePress = async () => {
+    if (!isAuthenticated || !session?.accessToken) {
+      Alert.alert('Cần đăng nhập', 'Bạn đăng nhập để lưu sản phẩm yêu thích nha.', [
+        { text: 'Để sau', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => navigation.navigate('Login') },
+      ]);
+      return;
+    }
+
+    if (isFavoriteLoading) {
+      return;
+    }
+
+    const nextIsFavorited = !isFavorited;
+
+    try {
+      setIsFavoriteLoading(true);
+      setIsFavorited(nextIsFavorited);
+
+      if (nextIsFavorited) {
+        await runWithAuth((accessToken) => favoritesApi.addFavorite(accessToken, productId));
+      } else {
+        await runWithAuth((accessToken) => favoritesApi.removeFavorite(accessToken, productId));
+      }
+    } catch (favoriteError) {
+      setIsFavorited(!nextIsFavorited);
+      Alert.alert(
+        'Chưa cập nhật yêu thích',
+        favoriteError instanceof Error ? favoriteError.message : 'Bạn thử lại sau nha.',
+      );
+    } finally {
+      setIsFavoriteLoading(false);
+    }
+  };
+
   const renderStars = (rating: number, size = 14) => (
     <View style={styles.starRow}>
       {[1, 2, 3, 4, 5].map((star) => (
@@ -495,8 +567,18 @@ const ProductDetailScreen = () => {
         <Text style={styles.headerBrand}>FASHIONISTA</Text>
 
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerIcon} activeOpacity={0.82} accessibilityLabel="Yêu thích">
-            <MaterialCommunityIcons name="heart-outline" size={22} color={colors.white} />
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={handleFavoritePress}
+            disabled={isFavoriteLoading}
+            activeOpacity={0.82}
+            accessibilityLabel={isFavorited ? 'Bỏ yêu thích' : 'Yêu thích'}
+          >
+            {isFavoriteLoading ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <MaterialCommunityIcons name={isFavorited ? 'heart' : 'heart-outline'} size={22} color={colors.white} />
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}
@@ -611,8 +693,22 @@ const ProductDetailScreen = () => {
               </View>
             )}
 
-            <TouchableOpacity style={styles.favoriteButton} activeOpacity={0.82} accessibilityLabel="Yêu thích">
-              <MaterialCommunityIcons name="heart-outline" size={21} color={colors.brand} />
+            <TouchableOpacity
+              style={styles.favoriteButton}
+              onPress={handleFavoritePress}
+              disabled={isFavoriteLoading}
+              activeOpacity={0.82}
+              accessibilityLabel={isFavorited ? 'Bỏ yêu thích' : 'Yêu thích'}
+            >
+              {isFavoriteLoading ? (
+                <ActivityIndicator size="small" color={colors.coral} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={isFavorited ? 'heart' : 'heart-outline'}
+                  size={21}
+                  color={isFavorited ? colors.coral : colors.brand}
+                />
+              )}
             </TouchableOpacity>
           </View>
 
