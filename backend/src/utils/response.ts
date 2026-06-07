@@ -12,8 +12,20 @@ export const noContent = (res: Response) => {
   return res.status(204).send();
 };
 
-export const error = (res: Response, message: string, statusCode = 400) => {
-  return res.status(statusCode).json({ message });
+export const error = (
+  res: Response,
+  message: string,
+  statusCode = 400,
+  options?: {
+    errorCode?: string;
+    data?: unknown;
+  },
+) => {
+  return res.status(statusCode).json({
+    message,
+    ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...(options && 'data' in options ? { data: options.data } : {}),
+  });
 };
 
 export const serverError = (res: Response, message = 'Internal Server Error') => {

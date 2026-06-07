@@ -12,12 +12,21 @@ import {
 } from '../../database/models';
 
 export class SalesServiceError extends Error {
+  public readonly errorCode?: string;
+  public readonly data?: Record<string, unknown>;
+
   constructor(
     message: string,
     public readonly statusCode: number,
+    options?: {
+      errorCode?: string;
+      data?: Record<string, unknown>;
+    },
   ) {
     super(message);
     this.name = 'SalesServiceError';
+    this.errorCode = options?.errorCode;
+    this.data = options?.data;
   }
 }
 

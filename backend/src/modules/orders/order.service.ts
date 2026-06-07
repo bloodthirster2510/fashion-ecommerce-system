@@ -3,7 +3,9 @@ import {
   Inventory,
   Order,
   Product,
+  User,
   type IOrder,
+  type IUserAddress,
   type OrderPaymentMethod,
   type OrderStatus,
 } from '../../database/models';
@@ -18,9 +20,15 @@ import { promotionPricingService } from '../promotions/pricing/promotion-pricing
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
 import { couponService } from '../promotions/coupons/coupon.service';
 import type {
+  ShippingComparisonResult,
+  ShippingQuoteResult,
+} from '../shipping/shipping.types';
+import { shippingAreaMappingService } from '../shipping/shipping-area-mapping.service';
+import type {
   CreateOrderInput,
   OrderListQueryInput,
   PreviewCheckoutInput,
+  ShippingAddressInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -136,6 +144,127 @@ const toOrderItem = (item: CheckoutOrderItem) => ({
   priceAtPurchased: item.priceAtPurchased,
 });
 
+const toOrderShippingSnapshot = (shippingQuote: ShippingQuoteResult) => ({
+  provider: shippingQuote.provider,
+  serviceId: shippingQuote.serviceId,
+  serviceTypeId: shippingQuote.serviceTypeId,
+  customerFee: shippingQuote.fee,
+  quotedProviderCost: shippingQuote.fee,
+  actualProviderCost: null,
+  status: shippingQuote.status,
+  trackingCode: null,
+  labelUrl: null,
+  estimatedDeliveryDate: shippingQuote.estimatedDeliveryDate,
+  rawQuote: shippingQuote.rawQuote,
+  rawShipment: null,
+});
+
+const toShippingComparisonSnapshot = (comparison: ShippingComparisonResult) => ({
+  comparisonStatus: comparison.comparisonStatus,
+  pricingMode: comparison.pricingMode,
+  recommendedOptionKey: comparison.recommendedOptionKey,
+  selectedOptionKey: comparison.selectedOptionKey,
+  quoteVersion: comparison.quoteVersion,
+  options: comparison.options.map((option) => ({
+    key: option.key,
+    provider: option.provider,
+    serviceId: option.serviceId,
+    serviceTypeId: option.serviceTypeId,
+    serviceName: option.serviceName,
+    providerCost: option.providerCost,
+    customerFee: option.customerFee,
+    estimatedDeliveryDate: option.estimatedDeliveryDate,
+    availability: option.availability,
+    isRecommended: option.isRecommended,
+    reason: option.reason,
+  })),
+});
+
+const toNullablePositiveInteger = (value: unknown) => {
+  const numericValue = Number(value);
+  return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : null;
+};
+
+const trimOptional = (value: unknown) => (
+  typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+);
+
+const toShippingAddressSnapshot = (address: ShippingAddressInput): ShippingAddressInput => {
+  const provinceId = toNullablePositiveInteger(address.provinceId);
+  const districtId = toNullablePositiveInteger(address.districtId);
+  const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields(address);
+
+  return {
+    customerName: address.customerName.trim(),
+    province: address.province.trim(),
+    provinceCode: trimOptional(address.provinceCode) ?? (provinceId ? String(provinceId) : null),
+    provinceId,
+    district: trimOptional(address.district),
+    districtId,
+    ward: address.ward.trim(),
+    wardCode: address.wardCode.trim(),
+    streetName: address.streetName.trim(),
+    phoneNumber: address.phoneNumber.trim(),
+    ghnProvinceId: resolvedGhnFields.ghnProvinceId,
+    ghnDistrictId: resolvedGhnFields.ghnDistrictId,
+    ghnWardCode: resolvedGhnFields.ghnWardCode,
+    ghnMappingStatus: resolvedGhnFields.ghnMappingStatus,
+  };
+};
+
+const getUserShippingAddressSnapshot = async (userId: string, addressId?: string) => {
+  const user = await User.findById(userId).select('address');
+  if (!user) {
+    throw new SalesServiceError('User not found', 404);
+  }
+
+  const addresses = user.address as IUserAddress[];
+  const address = addressId
+    ? addresses.find((item) => toIdString(item._id) === addressId)
+    : addresses.find((item) => item.isDefault) ?? addresses[0];
+
+  if (!address) {
+    throw new SalesServiceError(
+      addressId ? 'Address not found' : 'Shipping address is required',
+      addressId ? 404 : 400,
+    );
+  }
+
+  return toShippingAddressSnapshot(address);
+};
+
+const resolveCheckoutShippingAddress = async (
+  userId: string,
+  input: { addressId?: string; shippingAddress?: ShippingAddressInput },
+  options: { required: boolean },
+) => {
+  if (input.addressId || !input.shippingAddress) {
+    try {
+      return await getUserShippingAddressSnapshot(userId, input.addressId);
+    } catch (error) {
+      const canSkipMissingDefaultAddress =
+        !options.required &&
+        !input.addressId &&
+        error instanceof SalesServiceError &&
+        error.statusCode === 400;
+
+      if (!canSkipMissingDefaultAddress) {
+        throw error;
+      }
+    }
+  }
+
+  if (input.shippingAddress) {
+    return toShippingAddressSnapshot(input.shippingAddress);
+  }
+
+  if (options.required) {
+    throw new SalesServiceError('Shipping address is required', 400);
+  }
+
+  return undefined;
+};
+
 const mapAppliedCouponForCustomer = (
   appliedCoupon: Awaited<ReturnType<typeof promotionPricingService.calculateCheckout>>['appliedCoupon'],
 ) => {
@@ -162,17 +291,22 @@ const mapAppliedCouponForCustomer = (
 
 const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
   assertSupportedPaymentMethod(input.paymentMethod ?? 'COD');
+  const shippingAddress = await resolveCheckoutShippingAddress(userId, input, { required: false });
 
   const pricing = await promotionPricingService.calculateCheckout({
     userId,
     cartItemIds: input.cartItemIds,
     couponCode: input.couponCode,
     paymentMethod: input.paymentMethod ?? 'COD',
+    shippingAddress,
   });
 
   return {
     items: pricing.items,
+    quoteVersion: pricing.shippingComparison.quoteVersion,
     summary: pricing.summary,
+    shippingQuote: pricing.shippingQuote,
+    shippingComparison: pricing.shippingComparison,
     coupon: mapAppliedCouponForCustomer(pricing.appliedCoupon),
     appliedMembership: pricing.appliedMembership,
   };
@@ -180,17 +314,24 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
 
 const createOrder = async (userId: string, input: CreateOrderInput) => {
   assertSupportedPaymentMethod(input.paymentMethod);
-
-  if (!input.shippingAddress) {
-    throw new SalesServiceError('shippingAddress is required', 400);
-  }
+  const shippingAddress = await resolveCheckoutShippingAddress(userId, input, { required: true });
 
   const pricing = await promotionPricingService.calculateCheckout({
     userId,
     cartItemIds: input.cartItemIds,
     couponCode: input.couponCode,
     paymentMethod: input.paymentMethod,
+    shippingAddress,
   });
+  const normalizedQuoteVersion = input.quoteVersion?.trim();
+  if (normalizedQuoteVersion && pricing.shippingComparison.quoteVersion !== normalizedQuoteVersion) {
+    throw new SalesServiceError('Shipping quote has changed. Please preview again.', 409, {
+      errorCode: 'QUOTE_CHANGED',
+      data: {
+        latestQuoteVersion: pricing.shippingComparison.quoteVersion,
+      },
+    });
+  }
   const orderItems = pricing.items.map(toOrderItem);
   const {
     subTotal,
@@ -248,8 +389,11 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
       status: 'confirmed',
       paymentMethod: input.paymentMethod,
       paymentStatus: 'pending',
-      shipping: {},
-      shippingAddress: input.shippingAddress,
+      shipping: {
+        ...toOrderShippingSnapshot(pricing.shippingQuote),
+        ...toShippingComparisonSnapshot(pricing.shippingComparison),
+      },
+      shippingAddress,
       orderNote: input.orderNote?.trim() || null,
     });
     createdOrder = order;
@@ -420,9 +564,23 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
 
   order.shipping = {
     provider: input.provider ?? order.shipping?.provider ?? null,
+    serviceId: input.serviceId ?? order.shipping?.serviceId ?? null,
+    serviceTypeId: input.serviceTypeId ?? order.shipping?.serviceTypeId ?? null,
+    customerFee: input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null,
+    quotedProviderCost: input.quotedProviderCost ?? order.shipping?.quotedProviderCost ?? null,
+    actualProviderCost: input.actualProviderCost ?? input.fee ?? order.shipping?.actualProviderCost ?? null,
+    comparisonStatus: input.comparisonStatus ?? order.shipping?.comparisonStatus ?? null,
+    pricingMode: input.pricingMode ?? order.shipping?.pricingMode ?? null,
+    recommendedOptionKey: input.recommendedOptionKey ?? order.shipping?.recommendedOptionKey ?? null,
+    selectedOptionKey: input.selectedOptionKey ?? order.shipping?.selectedOptionKey ?? null,
+    quoteVersion: input.quoteVersion ?? order.shipping?.quoteVersion ?? null,
+    options: input.options ?? order.shipping?.options ?? [],
+    status: input.status ?? order.shipping?.status ?? null,
     trackingCode: input.trackingCode ?? order.shipping?.trackingCode ?? null,
     labelUrl: input.labelUrl ?? order.shipping?.labelUrl ?? null,
     estimatedDeliveryDate: input.estimatedDeliveryDate ?? order.shipping?.estimatedDeliveryDate ?? null,
+    rawQuote: input.rawQuote ?? order.shipping?.rawQuote ?? null,
+    rawShipment: input.rawShipment ?? order.shipping?.rawShipment ?? null,
   };
 
   return order.save();

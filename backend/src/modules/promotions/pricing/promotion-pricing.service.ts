@@ -16,6 +16,7 @@ import {
   toIdString,
   toObjectId,
 } from '../../sales/sales.helpers';
+import { shippingQuoteService } from '../../shipping/shipping-quote.service';
 import type {
   AppliedCoupon,
   CalculateCheckoutInput,
@@ -33,7 +34,6 @@ export class PromotionPricingError extends Error {
   }
 }
 
-export const COD_SHIPPING_FEE = 25000;
 export const FREE_SHIPPING_MINIMUM = 399000;
 
 const normalizeCouponCode = (value?: string) => value?.trim().toUpperCase() || undefined;
@@ -314,7 +314,16 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
   const cartItems = await getCartItemsForCheckout(input.userId, input.cartItemIds);
   const selections = await buildCheckoutSelections(cartItems);
   const subTotal = selections.reduce((sum, item) => sum + item.lineTotal, 0);
-  const shippingFee = COD_SHIPPING_FEE;
+  const shippingComparison = input.shippingComparison ?? await shippingQuoteService.compareCheckout({
+    shippingAddress: input.shippingAddress,
+    items: selections.map((selection) => ({
+      name: selection.orderItem.name,
+      quantity: selection.orderItem.quantity,
+      price: selection.orderItem.priceAtPurchased,
+    })),
+  });
+  const shippingQuote = shippingComparison.shippingQuote;
+  const shippingFee = shippingQuote.fee;
   const automaticShippingDiscount = subTotal >= FREE_SHIPPING_MINIMUM ? shippingFee : 0;
   const user = await getUserOrThrow(input.userId);
   const currentTier = await getCurrentMembershipTier(user.loyaltyPoint ?? 0);
@@ -366,6 +375,8 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
       taxAmount,
       totalAmount,
     },
+    shippingQuote,
+    shippingComparison,
     appliedCoupon,
     appliedMembership,
   };

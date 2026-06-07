@@ -30,17 +30,39 @@ export interface IOrderItem {
 export interface IOrderShippingAddress {
   customerName: string;
   province: string;
-  district: string;
+  provinceCode?: string | null;
+  provinceId?: number | null;
+  district?: string | null;
+  districtId?: number | null;
   ward: string;
+  wardCode: string;
   streetName: string;
   phoneNumber: string;
+  ghnProvinceId?: number | null;
+  ghnDistrictId?: number | null;
+  ghnWardCode?: string | null;
+  ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
 }
 
 export interface IOrderShipping {
   provider?: string | null;
+  serviceId?: number | null;
+  serviceTypeId?: number | null;
+  customerFee?: number | null;
+  quotedProviderCost?: number | null;
+  actualProviderCost?: number | null;
+  comparisonStatus?: 'live' | 'partial' | 'fallback' | null;
+  pricingMode?: 'CHEAPEST' | 'RECOMMENDED' | 'FIXED_FALLBACK' | null;
+  recommendedOptionKey?: string | null;
+  selectedOptionKey?: string | null;
+  quoteVersion?: string | null;
+  options?: Array<Record<string, unknown>>;
+  status?: string | null;
   trackingCode?: string | null;
   labelUrl?: string | null;
   estimatedDeliveryDate?: Date | null;
+  rawQuote?: Record<string, unknown> | null;
+  rawShipment?: Record<string, unknown> | null;
 }
 
 export interface IOrder extends Document {
@@ -98,10 +120,18 @@ const shippingAddressSchema = new Schema<IOrderShippingAddress>(
   {
     customerName: { type: String, required: true, trim: true, minlength: 2, maxlength: 60 },
     province: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
-    district: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
+    provinceCode: { type: String, default: null, trim: true, maxlength: 20 },
+    provinceId: { type: Number, default: null, min: 1 },
+    district: { type: String, default: null, trim: true, maxlength: 80 },
+    districtId: { type: Number, default: null, min: 1 },
     ward: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
+    wardCode: { type: String, required: true, trim: true, maxlength: 20 },
     streetName: { type: String, required: true, trim: true, minlength: 5, maxlength: 150 },
     phoneNumber: { type: String, required: true, trim: true, minlength: 8, maxlength: 20 },
+    ghnProvinceId: { type: Number, default: null, min: 1 },
+    ghnDistrictId: { type: Number, default: null, min: 1 },
+    ghnWardCode: { type: String, default: null, trim: true, maxlength: 20 },
+    ghnMappingStatus: { type: String, enum: ['mapped', 'missing', 'manual'], default: 'missing' },
   },
   { _id: false },
 );
@@ -109,9 +139,23 @@ const shippingAddressSchema = new Schema<IOrderShippingAddress>(
 const orderShippingSchema = new Schema<IOrderShipping>(
   {
     provider: { type: String, trim: true, default: null, maxlength: 80 },
+    serviceId: { type: Number, default: null, min: 1 },
+    serviceTypeId: { type: Number, default: null, min: 1 },
+    customerFee: { type: Number, default: null, min: 0 },
+    quotedProviderCost: { type: Number, default: null, min: 0 },
+    actualProviderCost: { type: Number, default: null, min: 0 },
+    comparisonStatus: { type: String, enum: ['live', 'partial', 'fallback'], default: null },
+    pricingMode: { type: String, enum: ['CHEAPEST', 'RECOMMENDED', 'FIXED_FALLBACK'], default: null },
+    recommendedOptionKey: { type: String, trim: true, default: null, maxlength: 120 },
+    selectedOptionKey: { type: String, trim: true, default: null, maxlength: 120 },
+    quoteVersion: { type: String, trim: true, default: null, maxlength: 80 },
+    options: { type: [Schema.Types.Mixed], default: [] },
+    status: { type: String, trim: true, default: null, maxlength: 40 },
     trackingCode: { type: String, trim: true, default: null, maxlength: 100 },
     labelUrl: { type: String, trim: true, default: null, maxlength: 500 },
     estimatedDeliveryDate: { type: Date, default: null },
+    rawQuote: { type: Schema.Types.Mixed, default: null },
+    rawShipment: { type: Schema.Types.Mixed, default: null },
   },
   { _id: false },
 );

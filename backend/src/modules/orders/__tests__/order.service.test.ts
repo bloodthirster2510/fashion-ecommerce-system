@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Inventory, Order, Product } from '../../../database/models';
+import { Inventory, Order, Product, User } from '../../../database/models';
 import { inventoryService } from '../../inventory/inventory.service';
 import { cartService } from '../../cart/cart.service';
 import { promotionPricingService } from '../../promotions/pricing/promotion-pricing.service';
@@ -19,6 +19,9 @@ jest.mock('../../../database/models', () => ({
   },
   Inventory: {
     updateOne: jest.fn(),
+  },
+  User: {
+    findById: jest.fn(),
   },
 }));
 
@@ -54,6 +57,7 @@ jest.mock('../../promotions/coupons/coupon.service', () => ({
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
+const mockedUser = User as jest.Mocked<typeof User>;
 const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryService>;
 const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
@@ -66,6 +70,33 @@ const variantId = new Types.ObjectId('665000000000000000000011');
 const colorVariantId = new Types.ObjectId('665000000000000000000012');
 const cartItemId = new Types.ObjectId('665000000000000000000030');
 const reservationId = new Types.ObjectId('665000000000000000000040');
+const addressId = new Types.ObjectId('665000000000000000000060');
+const shippingAddress = {
+  customerName: 'Nguyen Van A',
+  province: 'Can Tho',
+  provinceId: 92,
+  district: 'Ninh Kieu',
+  districtId: 1574,
+  ward: 'An Khanh',
+  wardCode: '550101',
+  streetName: '123 Duong 3/2',
+  phoneNumber: '0912345678',
+};
+
+const normalizedShippingAddress = {
+  ...shippingAddress,
+  provinceCode: '92',
+  ghnProvinceId: 92,
+  ghnDistrictId: 1574,
+  ghnWardCode: '550101',
+  ghnMappingStatus: 'manual' as const,
+};
+
+const mockUserAddressLookup = (addresses: Array<typeof shippingAddress & { _id: Types.ObjectId; isDefault: boolean }>) => {
+  mockedUser.findById.mockReturnValue({
+    select: jest.fn().mockResolvedValue({ address: addresses }),
+  } as never);
+};
 
 const buildPricingResult = (): CheckoutPricingResult => ({
   items: [
@@ -93,6 +124,49 @@ const buildPricingResult = (): CheckoutPricingResult => ({
     membershipDiscountAmount: 0,
     taxAmount: 0,
     totalAmount: 385000,
+  },
+  shippingQuote: {
+    provider: 'FIXED',
+    serviceId: null,
+    serviceTypeId: null,
+    fee: 25000,
+    status: 'fallback',
+    estimatedDeliveryDate: null,
+    rawQuote: null,
+  },
+  shippingComparison: {
+    comparisonStatus: 'fallback',
+    pricingMode: 'FIXED_FALLBACK',
+    customerFee: 25000,
+    recommendedOptionKey: 'FIXED:STANDARD',
+    selectedOptionKey: 'FIXED:STANDARD',
+    quoteVersion: 'shipq_test_1234',
+    note: 'fallback',
+    options: [
+      {
+        key: 'FIXED:STANDARD',
+        provider: 'FIXED',
+        serviceId: null,
+        serviceTypeId: null,
+        serviceName: 'Tam tinh',
+        providerCost: 25000,
+        customerFee: 25000,
+        estimatedDeliveryDate: null,
+        availability: 'fallback',
+        isRecommended: true,
+        reason: 'fallback',
+        rawQuote: null,
+      },
+    ],
+    shippingQuote: {
+      provider: 'FIXED',
+      serviceId: null,
+      serviceTypeId: null,
+      fee: 25000,
+      status: 'fallback',
+      estimatedDeliveryDate: null,
+      rawQuote: null,
+    },
   },
   appliedCoupon: null,
   appliedMembership: null,
@@ -128,14 +202,8 @@ describe('orderService', () => {
     const result = await orderService.createOrder(userId, {
       cartItemIds: [cartItemId.toString()],
       paymentMethod: 'COD',
-      shippingAddress: {
-        customerName: 'Nguyen Van A',
-        province: 'Can Tho',
-        district: 'Ninh Kieu',
-        ward: 'An Khanh',
-        streetName: '123 Duong 3/2',
-        phoneNumber: '0912345678',
-      },
+      quoteVersion: 'shipq_test_1234',
+      shippingAddress,
     });
 
     expect(mockedPromotionPricingService.calculateCheckout).toHaveBeenCalledWith({
@@ -143,6 +211,7 @@ describe('orderService', () => {
       cartItemIds: [cartItemId.toString()],
       couponCode: undefined,
       paymentMethod: 'COD',
+      shippingAddress: normalizedShippingAddress,
     });
     expect(mockedCouponService.reserveCouponUsage).toHaveBeenCalledWith(userId, null);
     expect(mockedInventoryService.reserveInventory).toHaveBeenCalledWith(
@@ -191,6 +260,16 @@ describe('orderService', () => {
         status: 'confirmed',
         paymentMethod: 'COD',
         paymentStatus: 'pending',
+        shipping: expect.objectContaining({
+          provider: 'FIXED',
+          customerFee: 25000,
+          quotedProviderCost: 25000,
+          recommendedOptionKey: 'FIXED:STANDARD',
+          selectedOptionKey: 'FIXED:STANDARD',
+          quoteVersion: 'shipq_test_1234',
+          status: 'fallback',
+        }),
+        shippingAddress: normalizedShippingAddress,
       }),
     );
     expect(mockedOrder.create.mock.calls[0][0].order_list[0]).not.toHaveProperty('categoryId');
@@ -199,6 +278,94 @@ describe('orderService', () => {
     });
     expect(mockedCartService.deleteCartItems).toHaveBeenCalledWith(userId, [cartItemId.toString()]);
     expect(result).toBe(order);
+  });
+
+  it('creates a COD order from a saved user address id', async () => {
+    const order = {
+      _id: new Types.ObjectId(),
+      orderCode: 'FSORDER',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      status: 'confirmed',
+    };
+
+    mockUserAddressLookup([{ ...shippingAddress, _id: addressId, isDefault: true }]);
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    mockedInventoryService.reserveInventory.mockResolvedValue([
+      { _id: reservationId },
+    ] as never);
+    mockedInventoryService.commitReservations.mockResolvedValue([] as never);
+    mockedOrder.create.mockResolvedValue(order as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+    mockedCartService.deleteCartItems.mockResolvedValue({} as never);
+
+    const result = await orderService.createOrder(userId, {
+      cartItemIds: [cartItemId.toString()],
+      paymentMethod: 'COD',
+      quoteVersion: 'shipq_test_1234',
+      addressId: addressId.toString(),
+    });
+
+    expect(mockedUser.findById).toHaveBeenCalledWith(userId);
+    expect(mockedPromotionPricingService.calculateCheckout).toHaveBeenCalledWith({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCode: undefined,
+      paymentMethod: 'COD',
+      shippingAddress: normalizedShippingAddress,
+    });
+    expect(mockedOrder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shippingAddress: normalizedShippingAddress,
+      }),
+    );
+    expect(result).toBe(order);
+  });
+
+  it('still creates a COD order when legacy client does not send quoteVersion', async () => {
+    const order = {
+      _id: new Types.ObjectId(),
+      orderCode: 'FSORDER',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      status: 'confirmed',
+    };
+
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    mockedInventoryService.reserveInventory.mockResolvedValue([
+      { _id: reservationId },
+    ] as never);
+    mockedInventoryService.commitReservations.mockResolvedValue([] as never);
+    mockedOrder.create.mockResolvedValue(order as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+    mockedCartService.deleteCartItems.mockResolvedValue({} as never);
+
+    const result = await orderService.createOrder(userId, {
+      cartItemIds: [cartItemId.toString()],
+      paymentMethod: 'COD',
+      shippingAddress,
+    });
+
+    expect(mockedOrder.create).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('previews checkout with the default saved address when no address payload is sent', async () => {
+    mockUserAddressLookup([{ ...shippingAddress, _id: addressId, isDefault: true }]);
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+
+    await orderService.previewCheckout(userId, {
+      cartItemIds: [cartItemId.toString()],
+      paymentMethod: 'COD',
+    });
+
+    expect(mockedPromotionPricingService.calculateCheckout).toHaveBeenCalledWith({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCode: undefined,
+      paymentMethod: 'COD',
+      shippingAddress: normalizedShippingAddress,
+    });
   });
 
   it('returns the order when post-commit cart cleanup fails', async () => {
@@ -222,14 +389,8 @@ describe('orderService', () => {
     const result = await orderService.createOrder(userId, {
       cartItemIds: [cartItemId.toString()],
       paymentMethod: 'COD',
-      shippingAddress: {
-        customerName: 'Nguyen Van A',
-        province: 'Can Tho',
-        district: 'Ninh Kieu',
-        ward: 'An Khanh',
-        streetName: '123 Duong 3/2',
-        phoneNumber: '0912345678',
-      },
+      quoteVersion: 'shipq_test_1234',
+      shippingAddress,
     });
 
     expect(result).toBe(order);
@@ -250,14 +411,8 @@ describe('orderService', () => {
       orderService.createOrder(userId, {
         cartItemIds: [cartItemId.toString()],
         paymentMethod: 'COD',
-        shippingAddress: {
-          customerName: 'Nguyen Van A',
-          province: 'Can Tho',
-          district: 'Ninh Kieu',
-          ward: 'An Khanh',
-          streetName: '123 Duong 3/2',
-          phoneNumber: '0912345678',
-        },
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
       }),
     ).rejects.toThrow('create failed');
 
@@ -267,6 +422,26 @@ describe('orderService', () => {
     expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith('');
     expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
     expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
+  });
+
+  it('rejects create order when quoteVersion is stale', async () => {
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'COD',
+        quoteVersion: 'shipq_stale',
+        shippingAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Shipping quote has changed. Please preview again.',
+      statusCode: 409,
+      errorCode: 'QUOTE_CHANGED',
+    });
+
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
+    expect(mockedOrder.create).not.toHaveBeenCalled();
   });
 
   it('restocks inventory and refunds paid COD orders when cancelled', async () => {

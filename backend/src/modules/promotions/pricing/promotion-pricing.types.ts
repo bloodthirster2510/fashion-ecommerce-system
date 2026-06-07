@@ -5,12 +5,20 @@ import type {
   ICartItem,
   OrderPaymentMethod,
 } from '../../../database/models';
+import type {
+  ShippingAddressForQuote,
+  ShippingComparisonResult,
+  ShippingQuoteResult,
+} from '../../shipping/shipping.types';
 
 export interface CalculateCheckoutInput {
   userId: string;
   cartItemIds: string[];
   couponCode?: string;
   paymentMethod?: OrderPaymentMethod;
+  shippingAddress?: ShippingAddressForQuote;
+  shippingQuote?: ShippingQuoteResult;
+  shippingComparison?: ShippingComparisonResult;
 }
 
 export interface CheckoutOrderItem {
@@ -64,6 +72,8 @@ export interface CheckoutPricingResult {
   items: CheckoutOrderItem[];
   selectedCartItems: CheckoutCartItemSelection[];
   summary: CheckoutPricingSummary;
+  shippingQuote: ShippingQuoteResult;
+  shippingComparison: ShippingComparisonResult;
   appliedCoupon: AppliedCoupon | null;
   appliedMembership: AppliedMembership | null;
 }
