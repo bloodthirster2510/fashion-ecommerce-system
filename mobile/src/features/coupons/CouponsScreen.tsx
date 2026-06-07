@@ -64,8 +64,10 @@ const CouponsScreen = () => {
   const [items, setItems] = React.useState<AvailableCouponItem[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const hasLoadedOnceRef = React.useRef(false);
 
-  const cartItemIds = route.params?.cartItemIds ?? [];
+  const routeCartItemIds = route.params?.cartItemIds;
+  const cartItemIds = React.useMemo(() => routeCartItemIds ?? [], [routeCartItemIds]);
   const hasCartContext = cartItemIds.length > 0;
 
   const loadCoupons = React.useCallback(
@@ -76,7 +78,7 @@ const CouponsScreen = () => {
         return;
       }
 
-      if (silent) {
+      if (silent || hasLoadedOnceRef.current) {
         setIsRefreshing(true);
       } else {
         setIsLoading(true);
@@ -96,6 +98,7 @@ const CouponsScreen = () => {
           error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
         );
       } finally {
+        hasLoadedOnceRef.current = true;
         setIsLoading(false);
         setIsRefreshing(false);
       }
