@@ -40,6 +40,12 @@ export type MembershipResponse = {
   tiers: MembershipTier[];
 };
 
+export type OrderListSummaryResponse = {
+  pagination?: {
+    totalItems?: number;
+  };
+};
+
 export type UpdateProfilePayload = {
   name?: string;
   phone?: string;
@@ -130,4 +136,12 @@ export const accountApi = {
       body: { currentPassword, newPassword, confirmPassword },
     }),
   getMembership: (token: string) => request<MembershipResponse>('/users/me/membership', token),
+  getMyOrderSummary: (token: string, status?: string) => {
+    const query = new URLSearchParams({ page: '1', limit: '1' });
+    if (status) {
+      query.set('status', status);
+    }
+
+    return request<OrderListSummaryResponse>(`/orders/me?${query.toString()}`, token);
+  },
 };

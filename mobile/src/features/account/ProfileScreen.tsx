@@ -27,7 +27,6 @@ type ProfileMenuItem = {
   id: string;
   icon: IconName;
   label: string;
-  badge?: string;
 };
 
 type AccountStat = {
@@ -39,7 +38,7 @@ type AccountStat = {
 const profileMenuItems: ProfileMenuItem[] = [
   { id: 'personal-info', icon: 'account-outline', label: 'Thông tin cá nhân' },
   { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng' },
-  { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi', badge: '2' },
+  { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi' },
   { id: 'favorites', icon: 'heart-outline', label: 'Sản phẩm yêu thích' },
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
@@ -74,12 +73,16 @@ const ProfileScreen = () => {
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
   const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
+  const [orderCount, setOrderCount] = React.useState<number | null>(null);
+  const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
       if (!session?.accessToken) {
         setMembershipData(null);
         setVoucherCount(null);
+        setOrderCount(null);
+        setShippingOrderCount(null);
         return;
       }
 
@@ -101,6 +104,25 @@ const ProfileScreen = () => {
       runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
         .then((response) => setVoucherCount(response.items.length))
         .catch(() => setVoucherCount(null));
+      runWithAuth(async (accessToken) => {
+        const [allOrders, shippingOrders] = await Promise.all([
+          accountApi.getMyOrderSummary(accessToken),
+          accountApi.getMyOrderSummary(accessToken, 'shipping'),
+        ]);
+
+        return {
+          orderCount: allOrders.pagination?.totalItems ?? 0,
+          shippingOrderCount: shippingOrders.pagination?.totalItems ?? 0,
+        };
+      })
+        .then((summary) => {
+          setOrderCount(summary.orderCount);
+          setShippingOrderCount(summary.shippingOrderCount);
+        })
+        .catch(() => {
+          setOrderCount(null);
+          setShippingOrderCount(null);
+        });
     }, [logout, navigation, runWithAuth, session?.accessToken])
   );
 
@@ -244,7 +266,7 @@ const ProfileScreen = () => {
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <View style={[styles.statDot, styles.blueDot]} />
-            <Text style={styles.statValue}>2</Text>
+            <Text style={styles.statValue}>{shippingOrderCount ?? '-'}</Text>
             <Text style={styles.statLabel}>Đơn đang giao</Text>
           </View>
           <View style={styles.statCard}>
@@ -273,9 +295,9 @@ const ProfileScreen = () => {
             >
               <View style={styles.iconWrap}>
                 <MaterialCommunityIcons name={item.icon} size={26} color={colors.brand} />
-                {item.badge ? (
+                {item.id === 'orders' && orderCount ? (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.badge}</Text>
+                    <Text style={styles.badgeText}>{orderCount}</Text>
                   </View>
                 ) : null}
               </View>
