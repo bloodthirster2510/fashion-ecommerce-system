@@ -12,10 +12,18 @@ export type ApiResponse<T> = {
 export type UserAddressPayload = {
   customerName: string;
   province: string;
-  district: string;
+  provinceCode?: string | null;
+  provinceId?: number | null;
+  district?: string | null;
+  districtId?: number | null;
   ward: string;
+  wardCode: string;
   streetName: string;
   phoneNumber: string;
+  ghnProvinceId?: number | null;
+  ghnDistrictId?: number | null;
+  ghnWardCode?: string | null;
+  ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   isDefault: boolean;
 };
 

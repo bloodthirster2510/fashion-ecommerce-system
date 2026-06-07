@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  FlatList,
+  ScrollView,
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -16,6 +17,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../../navigation/AppNavigator';
 import { authApi } from '../authApi';
 import { locationApi, type ProvinceApiItem, type WardApiItem } from '../locationApi';
+import { LocationPicker } from '../../../components/ui/LocationPicker';
 import { colors, sharedStyles } from '../../../theme';
 
 type AuthNavigationProp = StackNavigationProp<RootStackParamList>;
@@ -76,6 +78,9 @@ const yearOptions: SelectOption[] = Array.from({ length: 88 }, (_, index) => {
   return { label: value, value };
 });
 
+const isInlineSelectId = (id?: string) =>
+  id === 'gender' || id === 'birthDay' || id === 'birthMonth' || id === 'birthYear';
+
 const getDayOptions = (month: string, year: string): SelectOption[] => {
   const numericMonth = Number(month);
   const numericYear = Number(year) || currentYear;
@@ -86,6 +91,9 @@ const getDayOptions = (month: string, year: string): SelectOption[] => {
     return { label: value, value };
   });
 };
+
+const buildManualWardCode = (provinceCode: string, wardName: string) =>
+  `manual-${provinceCode || 'unknown'}-${wardName.trim().replace(/\s+/g, '-').toLowerCase()}`;
 
 const RegisterScreen = () => {
   const [name, setName] = useState('');
@@ -106,7 +114,9 @@ const RegisterScreen = () => {
   const [wards, setWards] = useState<WardApiItem[]>([]);
   const [provinceLoading, setProvinceLoading] = useState(false);
   const [wardLoading, setWardLoading] = useState(false);
+  const [manualWardEntryAllowed, setManualWardEntryAllowed] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [wardLocationError, setWardLocationError] = useState('');
   const [otp, setOtp] = useState('');
   const [otpToken, setOtpToken] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
@@ -194,13 +204,16 @@ const RegisterScreen = () => {
     setWardCode('');
     setWard('');
     setWards([]);
+    setManualWardEntryAllowed(false);
+    setWardLocationError('');
 
     try {
       setWardLoading(true);
-      const result = await locationApi.getWards(Number(value));
-      setWards(result);
-    } catch {
-      setGeneralError('Không tải được danh sách phường/xã');
+      const result = await locationApi.getWardList(value);
+      setWards(result.wards);
+      setManualWardEntryAllowed(result.manualEntryAllowed);
+    } catch (error) {
+      setWardLocationError(error instanceof Error ? error.message : 'Không tải được danh sách phường/xã');
     } finally {
       setWardLoading(false);
     }
@@ -210,6 +223,16 @@ const RegisterScreen = () => {
     const selectedWard = wards.find((item) => String(item.code) === value);
     setWardCode(value);
     setWard(selectedWard?.name ?? '');
+  };
+
+  const handleManualWardSubmit = () => {
+    const nextWard = ward.trim();
+    if (!nextWard) return;
+
+    setWard(nextWard);
+    setWardCode(buildManualWardCode(provinceCode, nextWard));
+    markTouched('ward');
+    setActiveSelect(null);
   };
 
   const resetOtpState = () => {
@@ -253,31 +276,58 @@ const RegisterScreen = () => {
     const dateOfBirth = buildDateOfBirth();
     const receiverName = customerName.trim() || name.trim();
     const receiverPhone = addressPhone.trim() || phone.trim();
+    const requiredFieldErrors: Partial<Record<RegisterField, string>> = {
+      name: 'Vui lòng nhập họ tên',
+      phone: 'Vui lòng nhập số điện thoại',
+      email: 'Vui lòng nhập email',
+      gender: 'Vui lòng chọn giới tính',
+      birthYear: 'Vui lòng chọn đủ ngày/tháng/năm sinh',
+      province: 'Vui lòng chọn tỉnh/thành phố',
+      ward: 'Vui lòng chọn phường/xã',
+      streetName: 'Vui lòng nhập địa chỉ chi tiết',
+      password: 'Vui lòng nhập mật khẩu',
+      confirmPassword: 'Vui lòng xác nhận mật khẩu',
+    };
+    const requiredFieldValues: Partial<Record<RegisterField, string>> = {
+      name: name.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      gender: gender ?? '',
+      birthYear: birthDay && birthMonth && birthYear ? birthYear : '',
+      province: province.trim() && provinceCode.trim() ? province : '',
+      ward: ward.trim() && wardCode.trim() ? ward : '',
+      streetName: streetName.trim(),
+      password,
+      confirmPassword,
+    };
+
+    if (requiredFieldErrors[field] && !requiredFieldValues[field]) {
+      return requiredFieldErrors[field] ?? '';
+    }
 
     switch (field) {
       case 'name':
-        if (!name.trim()) return '';
+        if (!name.trim()) return 'Vui lòng nhập họ tên';
         if (!nameRegex.test(name.trim())) return 'Họ tên chỉ được chứa chữ cái';
         if (name.trim().length < 2 || name.trim().length > 60) return 'Họ tên cần từ 2 đến 60 ký tự';
         return '';
       case 'phone':
-        if (!phone.trim()) return '';
+        if (!phone.trim()) return 'Vui lòng nhập số điện thoại';
         if (!vietnamPhoneRegex.test(phone.trim())) return 'Sai định dạng. VD: 0912345678';
         return '';
       case 'otp':
         if (!otpToken) return otp.trim() ? 'Vui lòng bấm xác thực OTP' : 'Vui lòng nhập và xác thực OTP';
         return '';
       case 'email':
-        if (!email.trim()) return '';
+        if (!email.trim()) return 'Vui lòng nhập email';
         if (!emailRegex.test(email.trim())) return 'Email chưa đúng. VD: ten@email.com';
         return '';
       case 'gender':
-        if (!gender) return '';
+        if (!gender) return 'Vui lòng chọn giới tính';
         return '';
       case 'birthDay':
       case 'birthMonth':
       case 'birthYear':
-        if (!birthDay && !birthMonth && !birthYear) return '';
         if (!birthDay || !birthMonth || !birthYear) return 'Vui lòng chọn đủ ngày/tháng/năm sinh';
         if (!dateOfBirth) return 'Ngày sinh không hợp lệ hoặc độ tuổi không phù hợp';
         return '';
@@ -291,10 +341,10 @@ const RegisterScreen = () => {
         if (!vietnamPhoneRegex.test(receiverPhone)) return 'Sai định dạng. VD: 0912345678';
         return '';
       case 'province':
-        if (!province.trim()) return '';
+        if (!province.trim()) return 'Vui lòng chọn tỉnh/thành phố';
         return '';
       case 'ward':
-        if (!ward.trim()) return '';
+        if (!ward.trim()) return 'Vui lòng chọn phường/xã';
         return '';
       case 'streetName':
         if (!streetName.trim()) return '';
@@ -469,7 +519,9 @@ const RegisterScreen = () => {
       !birthMonth.trim() ||
       !birthYear.trim() ||
       !province.trim() ||
+      !provinceCode.trim() ||
       !ward.trim() ||
+      !wardCode.trim() ||
       !streetName.trim() ||
       !password ||
       !confirmPassword
@@ -534,8 +586,9 @@ const RegisterScreen = () => {
         address: {
           customerName: capitalizeWords(receiverName),
           province: province.trim(),
-          district: 'Không áp dụng',
+          provinceCode: provinceCode.trim(),
           ward: ward.trim(),
+          wardCode: wardCode.trim(),
           streetName: streetName.trim(),
           phoneNumber: receiverPhone,
           isDefault: true,
@@ -564,7 +617,8 @@ const RegisterScreen = () => {
     compact = false,
     field?: RegisterField,
   ) => {
-    const isOpen = activeSelect?.id === id;
+    const isInlineDropdown = isInlineSelectId(id);
+    const isExpanded = activeSelect?.id === id;
 
     return (
       <View style={compact ? styles.dateSelectWrapper : undefined}>
@@ -582,35 +636,40 @@ const RegisterScreen = () => {
           </Text>
           <Text style={styles.selectChevron}>⌄</Text>
         </TouchableOpacity>
-        {isOpen ? (
+        {isInlineDropdown && isExpanded ? (
           <View style={[styles.dropdownPanel, compact ? styles.compactDropdownPanel : undefined]}>
-            <ScrollView nestedScrollEnabled style={styles.dropdownList}>
-              {activeSelect.options.length > 0 ? (
-                activeSelect.options.map((option) => {
-                  const selected = option.value === activeSelect.selectedValue;
+            {options.length ? (
+              <ScrollView
+                style={styles.dropdownList}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {options.map((option) => {
+                  const selected = option.value === selectedValue;
 
                   return (
                     <TouchableOpacity
                       key={option.value}
                       style={[styles.dropdownItem, selected && styles.selectedDropdownItem]}
                       onPress={() => {
-                        void activeSelect.onSelect(option.value);
-                        if (activeSelect.field) markTouched(activeSelect.field);
+                        void onSelect(option.value);
+                        if (field) markTouched(field);
                         setActiveSelect(null);
                       }}
+                      activeOpacity={0.82}
                     >
                       <Text style={[styles.dropdownItemText, selected && styles.selectedDropdownItemText]}>
                         {option.label}
                       </Text>
                     </TouchableOpacity>
                   );
-                })
-              ) : (
-                <View style={styles.dropdownEmptyItem}>
-                  <Text style={styles.dropdownEmptyText}>Không có dữ liệu</Text>
-                </View>
-              )}
-            </ScrollView>
+                })}
+              </ScrollView>
+            ) : (
+              <View style={styles.dropdownEmptyItem}>
+                <Text style={styles.dropdownEmptyText}>KhÃ´ng cÃ³ dá»¯ liá»‡u</Text>
+              </View>
+            )}
           </View>
         ) : null}
       </View>
@@ -655,7 +714,55 @@ const RegisterScreen = () => {
           <Text style={styles.headerTitle}>ĐĂNG KÍ TÀI KHOẢN</Text>
           <View style={styles.headerSpacer} />
         </View>
-        <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+        <LocationPicker
+          visible={Boolean(activeSelect && !isInlineSelectId(activeSelect.id))}
+          title={activeSelect?.title ?? ''}
+          options={activeSelect?.options ?? []}
+          selectedValue={activeSelect?.selectedValue}
+          loading={
+            activeSelect?.id === 'province'
+              ? provinceLoading
+              : activeSelect?.id === 'ward'
+              ? wardLoading
+              : false
+          }
+          error={
+            activeSelect?.id === 'province'
+              ? locationError
+              : activeSelect?.id === 'ward'
+              ? wardLocationError
+              : ''
+          }
+          emptyText={activeSelect?.id === 'ward' ? 'Chưa có dữ liệu phường/xã' : 'Không có dữ liệu'}
+          onRetry={() => {
+            if (activeSelect?.id === 'province') {
+              void loadProvinces();
+            }
+            if (activeSelect?.id === 'ward' && provinceCode) {
+              void handleProvinceSelect(provinceCode);
+            }
+          }}
+          onClose={() => setActiveSelect(null)}
+          onSelect={(value) => {
+            void activeSelect?.onSelect(value);
+            if (activeSelect?.field) markTouched(activeSelect.field);
+          }}
+          manualEntryAllowed={activeSelect?.id === 'ward' && manualWardEntryAllowed}
+          manualValue={activeSelect?.id === 'ward' ? ward : ''}
+          onManualChange={(value) => {
+            setWard(value);
+            setWardCode('');
+          }}
+          onManualSubmit={handleManualWardSubmit}
+        />
+        <FlatList
+          style={styles.flex}
+          data={[]}
+          renderItem={() => null}
+          contentContainerStyle={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={(
         <View style={styles.form}>
           {generalError ? (
             <Text style={styles.errorBanner}>{generalError}</Text>
@@ -777,7 +884,7 @@ const RegisterScreen = () => {
             provinceLoading ? 'Đang tải tỉnh/thành phố...' : 'Chọn tỉnh/thành phố',
             provinceOptions,
             handleProvinceSelect,
-            provinceLoading || !!locationError,
+            provinceLoading,
             'province',
           )}
 
@@ -848,6 +955,10 @@ const RegisterScreen = () => {
             </Text>
           </View>
 
+          {submitted && !acceptedTerms ? (
+            <Text style={styles.termsError}>Vui lòng đồng ý với điều khoản sử dụng</Text>
+          ) : null}
+
           <TouchableOpacity
             style={[styles.registerButton, loading && styles.disabledButton]}
             onPress={handleRegister}
@@ -865,7 +976,8 @@ const RegisterScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
-        </ScrollView>
+          )}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -960,6 +1072,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.surface,
     overflow: 'hidden',
+    maxHeight: 240,
   },
   compactDropdownPanel: {
     maxHeight: 180,
@@ -1046,6 +1159,8 @@ const styles = StyleSheet.create({
   },
   dateSelectWrapper: {
     flex: 1,
+    position: 'relative',
+    zIndex: 20,
   },
   dateSelectInput: {
     paddingHorizontal: 10,
@@ -1072,6 +1187,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 20,
+  },
+  termsError: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: -12,
+    marginBottom: 16,
+    textAlign: 'right',
   },
   checkbox: {
     marginRight: 10,

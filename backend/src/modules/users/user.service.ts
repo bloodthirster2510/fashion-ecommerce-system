@@ -1,5 +1,6 @@
 import { User, type IUser, type IUserAddress } from '../../database/models/user.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
+import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
 
@@ -8,6 +9,24 @@ const hasCompletedProfile = (user: IUser) =>
 
 const syncProfileCompleted = (user: IUser) => {
   user.profileCompleted = hasCompletedProfile(user);
+};
+
+const toPlainAddress = (address: IUserAddress) => (
+  typeof (address as unknown as { toObject?: () => IUserAddress }).toObject === 'function'
+    ? (address as unknown as { toObject: () => IUserAddress }).toObject()
+    : address
+);
+
+const normalizeSavedAddressesForCurrentSchema = (user: IUser) => {
+  user.address.forEach((address, index) => {
+    const currentAddress = toPlainAddress(address);
+
+    Object.assign(address, normalizeUserAddressInput({
+      ...currentAddress,
+      wardCode: currentAddress.wardCode ?? currentAddress.ghnWardCode ?? `legacy-${index + 1}`,
+      isDefault: currentAddress.isDefault,
+    }));
+  });
 };
 
 const normalizeBase64Image = (imageBase64: string, fallbackMimeType?: string) => {
@@ -141,15 +160,7 @@ export const getAddresses = async (userId: string) => {
   return user.address;
 };
 
-export const addAddress = async (userId: string, address: {
-  customerName: string;
-  province: string;
-  district: string;
-  ward: string;
-  streetName: string;
-  phoneNumber: string;
-  isDefault?: boolean;
-}) => {
+export const addAddress = async (userId: string, address: UserAddressInput) => {
   const user = await User.findById(userId);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -166,30 +177,19 @@ export const addAddress = async (userId: string, address: {
     });
   }
 
-  user.address.push({
-    customerName: address.customerName,
-    province: address.province,
-    district: address.district,
-    ward: address.ward,
-    streetName: address.streetName,
-    phoneNumber: address.phoneNumber,
+  normalizeSavedAddressesForCurrentSchema(user);
+
+  user.address.push(normalizeUserAddressInput({
+    ...address,
     isDefault: shouldSetDefault,
-  });
+  }));
 
   syncProfileCompleted(user);
   await user.save();
   return user.address;
 };
 
-export const updateAddress = async (userId: string, addressId: string, data: {
-  customerName?: string;
-  province?: string;
-  district?: string;
-  ward?: string;
-  streetName?: string;
-  phoneNumber?: string;
-  isDefault?: boolean;
-}) => {
+export const updateAddress = async (userId: string, addressId: string, data: Partial<UserAddressInput>) => {
   const user = await User.findById(userId);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -207,13 +207,14 @@ export const updateAddress = async (userId: string, addressId: string, data: {
     });
   }
 
-  if (data.customerName !== undefined) address.customerName = data.customerName;
-  if (data.province !== undefined) address.province = data.province;
-  if (data.district !== undefined) address.district = data.district;
-  if (data.ward !== undefined) address.ward = data.ward;
-  if (data.streetName !== undefined) address.streetName = data.streetName;
-  if (data.phoneNumber !== undefined) address.phoneNumber = data.phoneNumber;
-  if (data.isDefault !== undefined) address.isDefault = data.isDefault;
+  normalizeSavedAddressesForCurrentSchema(user);
+
+  const currentAddress = toPlainAddress(address);
+  Object.assign(address, normalizeUserAddressInput({
+    ...currentAddress,
+    ...data,
+    isDefault: data.isDefault ?? currentAddress.isDefault,
+  }));
 
   syncProfileCompleted(user);
   await user.save();

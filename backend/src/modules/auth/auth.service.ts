@@ -5,6 +5,7 @@ import { User, type AuthProviderName, type IUser } from '../../database/models/u
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken, JwtPayload } from '../../utils/jwt';
 import { sendResetPasswordEmail } from '../../utils/email';
 import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
+import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 
 const SALT_ROUNDS = 10;
 
@@ -14,6 +15,10 @@ const hashPassword = async (password: string): Promise<string> => {
 
 const comparePassword = async (password: string, hash: string): Promise<boolean> => {
   return bcrypt.compare(password, hash);
+};
+
+const updateAuthFields = async (user: IUser, fields: Record<string, unknown>) => {
+  await User.updateOne({ _id: user._id }, { $set: fields });
 };
 
 const isProfileCompleted = (user: IUser) =>
@@ -54,7 +59,10 @@ const linkAuthProvider = async (user: IUser, provider: AuthProviderName, provide
 
   if (!alreadyLinked) {
     user.authProviders.push({ provider, providerId });
-    await user.save();
+    await User.updateOne(
+      { _id: user._id },
+      { $addToSet: { authProviders: { provider, providerId } } },
+    );
   }
 };
 
@@ -82,15 +90,7 @@ export const registerUser = async (data: {
   phone: string;
   gender: string;
   dateOfBirth: string;
-  address: {
-    customerName: string;
-    province: string;
-    district: string;
-    ward: string;
-    streetName: string;
-    phoneNumber: string;
-    isDefault: boolean;
-  };
+  address: UserAddressInput;
   otpToken: string;
 }) => {
   if (!verifyOtpToken(data.phone, data.otpToken)) {
@@ -109,6 +109,10 @@ export const registerUser = async (data: {
   }
 
   const hashedPassword = await hashPassword(data.password);
+  const address = normalizeUserAddressInput({
+    ...data.address,
+    isDefault: true,
+  });
 
   const user = await User.create({
     name: data.name,
@@ -119,25 +123,14 @@ export const registerUser = async (data: {
     dateOfBirth: new Date(data.dateOfBirth),
     role: 'user',
     isActive: true,
-    address: [
-      {
-        customerName: data.address.customerName,
-        province: data.address.province,
-        district: data.address.district,
-        ward: data.address.ward,
-        streetName: data.address.streetName,
-        phoneNumber: data.address.phoneNumber,
-        isDefault: true,
-      },
-    ],
+    address: [address],
   });
 
   const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  user.refreshToken = refreshToken;
-  await user.save();
+  await updateAuthFields(user, { refreshToken });
 
   return {
     accessToken,
@@ -169,8 +162,7 @@ export const loginUser = async (identifier: string, password: string) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  user.refreshToken = refreshToken;
-  await user.save();
+  await updateAuthFields(user, { refreshToken });
 
   return {
     accessToken,
@@ -180,11 +172,7 @@ export const loginUser = async (identifier: string, password: string) => {
 };
 
 export const logoutUser = async (userId: string) => {
-  const user = await User.findById(userId);
-  if (user) {
-    user.refreshToken = null;
-    await user.save();
-  }
+  await User.updateOne({ _id: userId }, { $set: { refreshToken: null } });
 };
 
 export const refreshAccessToken = async (token: string) => {
@@ -204,8 +192,7 @@ export const refreshAccessToken = async (token: string) => {
   const newAccessToken = generateAccessToken(newPayload);
   const newRefreshToken = generateRefreshToken(newPayload);
 
-  user.refreshToken = newRefreshToken;
-  await user.save();
+  await updateAuthFields(user, { refreshToken: newRefreshToken });
 
   return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
@@ -223,9 +210,10 @@ export const forgotPassword = async (identifier: string) => {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
-    await user.save();
+    await updateAuthFields(user, {
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: new Date(Date.now() + 15 * 60 * 1000),
+    });
 
     await sendResetPasswordEmail(user.email, resetToken);
   } else {
@@ -262,11 +250,12 @@ export const resetPassword = async (identifier: string, token: string, newPasswo
     throw { status: 400, message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại' };
   }
 
-  user.password = await hashPassword(newPassword);
-  user.resetPasswordToken = null;
-  user.resetPasswordExpires = null;
-  user.refreshToken = null;
-  await user.save();
+  await updateAuthFields(user, {
+    password: await hashPassword(newPassword),
+    resetPasswordToken: null,
+    resetPasswordExpires: null,
+    refreshToken: null,
+  });
 };
 
 export const changePassword = async (userId: string, currentPassword: string, newPassword: string) => {
@@ -285,9 +274,10 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     throw { status: 400, message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại' };
   }
 
-  user.password = await hashPassword(newPassword);
-  user.refreshToken = null;
-  await user.save();
+  await updateAuthFields(user, {
+    password: await hashPassword(newPassword),
+    refreshToken: null,
+  });
 };
 
 const googleClient = process.env.GOOGLE_CLIENT_ID
@@ -299,8 +289,7 @@ const generateUserTokens = async (user: IUser) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  user.refreshToken = refreshToken;
-  await user.save();
+  await updateAuthFields(user, { refreshToken });
 
   return {
     accessToken,

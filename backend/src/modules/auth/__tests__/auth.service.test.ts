@@ -64,8 +64,11 @@ describe('Auth Service', () => {
         address: {
           customerName: 'Test',
           province: 'Cần Thơ',
+          provinceId: 92,
           district: 'Ninh Kiều',
+          districtId: 789,
           ward: 'An Khánh',
+          wardCode: '00123',
           streetName: '123 Đường 3/2',
           phoneNumber: '0900000000',
           isDefault: true,
@@ -87,8 +90,11 @@ describe('Auth Service', () => {
         address: {
           customerName: 'Test',
           province: 'Cần Thơ',
+          provinceId: 92,
           district: 'Ninh Kiều',
+          districtId: 789,
           ward: 'An Khánh',
+          wardCode: '00123',
           streetName: '123 Đường 3/2',
           phoneNumber: '0900000000',
           isDefault: true,
@@ -123,8 +129,11 @@ describe('Auth Service', () => {
         address: {
           customerName: 'Test',
           province: 'Cần Thơ',
+          provinceId: 92,
           district: 'Ninh Kiều',
+          districtId: 789,
           ward: 'An Khánh',
+          wardCode: '00123',
           streetName: '123 Đường 3/2',
           phoneNumber: '0900000000',
           isDefault: true,
@@ -135,6 +144,59 @@ describe('Auth Service', () => {
       expect(result.refreshToken).toBe('refresh_token');
       expect(result.user.name).toBe('Test');
       expect(result.user.role).toBe('user');
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: mockUser._id },
+        { $set: { refreshToken: 'refresh_token' } },
+      );
+      expect(mockUser.save).not.toHaveBeenCalled();
+    });
+
+    it('should backfill GHN fields for 2025 addresses during registration', async () => {
+      (verifyOtpToken as jest.Mock).mockReturnValue(true);
+      (User.findOne as jest.Mock).mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+      (jwt.sign as jest.Mock).mockReturnValueOnce('access_token').mockReturnValueOnce('refresh_token');
+      const mockUser = {
+        _id: { toString: () => 'user123' },
+        name: 'Test',
+        email: 'test@test.com',
+        phone: '0900000000',
+        role: 'user',
+        save: jest.fn(),
+        refreshToken: '',
+      };
+      (User.create as jest.Mock).mockResolvedValue(mockUser);
+
+      await registerUser({
+        name: 'Test',
+        email: 'test@test.com',
+        password: 'password123',
+        phone: '0900000000',
+        gender: 'male',
+        dateOfBirth: '1990-01-01',
+        otpToken: 'valid_token',
+        address: {
+          customerName: 'Test',
+          province: 'Thanh pho Can Tho',
+          provinceCode: '92',
+          ward: 'Phuong Ninh Kieu',
+          wardCode: '31135',
+          streetName: '365 Tran Minh Son',
+          phoneNumber: '0900000000',
+          isDefault: true,
+        },
+      });
+
+      expect(User.create).toHaveBeenCalledWith(expect.objectContaining({
+        address: [expect.objectContaining({
+          provinceCode: '92',
+          wardCode: '31135',
+          ghnProvinceId: 220,
+          ghnDistrictId: 1572,
+          ghnWardCode: '550108',
+          ghnMappingStatus: 'mapped',
+        })],
+      }));
     });
   });
 
@@ -184,6 +246,11 @@ describe('Auth Service', () => {
       expect(result.accessToken).toBe('access_token');
       expect(result.refreshToken).toBe('refresh_token');
       expect(result.user.email).toBe('test@test.com');
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: mockUser._id },
+        { $set: { refreshToken: 'refresh_token' } },
+      );
+      expect(mockUser.save).not.toHaveBeenCalled();
     });
   });
 
@@ -192,8 +259,11 @@ describe('Auth Service', () => {
       const mockUser = { refreshToken: 'token', save: jest.fn() };
       (User.findById as jest.Mock).mockResolvedValue(mockUser);
       await logoutUser('user123');
-      expect(mockUser.refreshToken).toBeNull();
-      expect(mockUser.save).toHaveBeenCalled();
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: 'user123' },
+        { $set: { refreshToken: null } },
+      );
+      expect(mockUser.save).not.toHaveBeenCalled();
     });
   });
 
@@ -213,6 +283,10 @@ describe('Auth Service', () => {
       const result = await refreshAccessToken('old_token');
       expect(result.accessToken).toBe('new_access');
       expect(result.refreshToken).toBe('new_refresh');
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: mockUser._id },
+        { $set: { refreshToken: 'new_refresh' } },
+      );
     });
   });
 
@@ -226,6 +300,7 @@ describe('Auth Service', () => {
   describe('resetPassword', () => {
     it('should reset password with valid token', async () => {
       const mockUser = {
+        _id: { toString: () => 'user123' },
         password: 'old',
         save: jest.fn(),
         resetPasswordToken: '',
@@ -237,14 +312,25 @@ describe('Auth Service', () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue('new_hash');
 
       await resetPassword('test@test.com', 'valid_token', 'new_password');
-      expect(mockUser.password).toBe('new_hash');
-      expect(mockUser.resetPasswordToken).toBeNull();
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: mockUser._id },
+        {
+          $set: {
+            password: 'new_hash',
+            resetPasswordToken: null,
+            resetPasswordExpires: null,
+            refreshToken: null,
+          },
+        },
+      );
+      expect(mockUser.save).not.toHaveBeenCalled();
     });
   });
 
   describe('changePassword', () => {
     it('should change password successfully', async () => {
       const mockUser = {
+        _id: { toString: () => 'user123' },
         password: 'current_pass',
         save: jest.fn(),
         refreshToken: '',
@@ -254,8 +340,16 @@ describe('Auth Service', () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue('new_hash');
 
       await changePassword('user123', 'current_pass', 'new_pass');
-      expect(mockUser.password).toBe('new_hash');
-      expect(mockUser.refreshToken).toBeNull();
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: mockUser._id },
+        {
+          $set: {
+            password: 'new_hash',
+            refreshToken: null,
+          },
+        },
+      );
+      expect(mockUser.save).not.toHaveBeenCalled();
     });
   });
 });

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -19,6 +20,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, shadows, spacing, sharedStyles } from '../../theme';
+import { LocationPicker } from '../../components/ui/LocationPicker';
 import { useAuth } from '../auth/AuthContext';
 import { locationApi, type ProvinceApiItem, type WardApiItem } from '../auth/locationApi';
 import { accountApi, type Gender, type UserAddress } from './accountApi';
@@ -71,6 +73,9 @@ const yearOptions: SelectOption[] = Array.from({ length: 88 }, (_, index) => {
   return { label: value, value };
 });
 
+const isInlineSelectId = (id?: string) =>
+  id === 'gender' || id === 'birthDay' || id === 'birthMonth' || id === 'birthYear';
+
 const tabItems: Array<{ id: ProfileTab; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
   { id: 'profile', label: 'Hồ sơ', icon: 'account-outline' },
   { id: 'addresses', label: 'Địa chỉ', icon: 'map-marker-outline' },
@@ -87,6 +92,9 @@ const getDayOptions = (month: string, year: string): SelectOption[] => {
     return { label: value, value };
   });
 };
+
+const buildManualWardCode = (provinceCode: string, wardName: string) =>
+  `manual-${provinceCode || 'unknown'}-${wardName.trim().replace(/\s+/g, '-').toLowerCase()}`;
 
 const splitDateOfBirth = (value?: string) => {
   if (!value) return { day: '', month: '', year: '' };
@@ -106,7 +114,6 @@ const formatAddress = (address: UserAddress) =>
   [
     address.streetName,
     address.ward,
-    address.district && address.district !== 'Không áp dụng' ? address.district : '',
     address.province,
   ]
     .filter(Boolean)
@@ -160,6 +167,10 @@ const EditProfileScreen = () => {
   const [addressDefault, setAddressDefault] = useState(true);
   const [provinces, setProvinces] = useState<ProvinceApiItem[]>([]);
   const [wards, setWards] = useState<WardApiItem[]>([]);
+  const [manualWardEntryAllowed, setManualWardEntryAllowed] = useState(false);
+  const [wardLoading, setWardLoading] = useState(false);
+  const [provinceLocationError, setProvinceLocationError] = useState('');
+  const [wardLocationError, setWardLocationError] = useState('');
   const [addressSaving, setAddressSaving] = useState(false);
   const [addressMessage, setAddressMessage] = useState('');
   const [addressTouched, setAddressTouched] = useState<Record<string, boolean>>({});
@@ -169,7 +180,13 @@ const EditProfileScreen = () => {
   };
 
   const touchAllAddressFields = () => {
-    setAddressTouched({ customerName: true, addressPhone: true, province: true, ward: true, streetName: true });
+    setAddressTouched({
+      customerName: true,
+      addressPhone: true,
+      province: true,
+      ward: true,
+      streetName: true,
+    });
   };
 
   const getAddressFieldError = (field: string, normalizedPhone: string) => {
@@ -182,10 +199,10 @@ const EditProfileScreen = () => {
         if (!vietnamPhoneRegex.test(normalizedPhone)) return 'Số điện thoại nhận hàng không đúng định dạng';
         return '';
       case 'province':
-        if (!province.trim()) return 'Vui lòng chọn tỉnh/thành phố';
+        if (!province.trim() || !provinceCode.trim()) return 'Vui lòng chọn tỉnh/thành phố';
         return '';
       case 'ward':
-        if (!ward.trim()) return 'Vui lòng chọn phường/xã';
+        if (!ward.trim() || !wardCode.trim()) return 'Vui lòng chọn phường/xã';
         return '';
       case 'streetName':
         if (streetName.trim().length < 5 || streetName.trim().length > 150) return 'Địa chỉ chi tiết cần từ 5 đến 150 ký tự';
@@ -273,8 +290,8 @@ const EditProfileScreen = () => {
 
   const clearAddressForm = () => {
     setSelectedAddressId(newAddressId);
-    setCustomerName('');
-    setAddressPhone('');
+    setCustomerName(name.trim() ? capitalizeWords(name) : '');
+    setAddressPhone(phone.trim());
     setProvinceCode('');
     setProvince('');
     setWardCode('');
@@ -282,19 +299,41 @@ const EditProfileScreen = () => {
     setStreetName('');
     setAddressDefault(addresses.length === 0);
     setWards([]);
+    setManualWardEntryAllowed(false);
+    setWardLocationError('');
     setAddressMessage('');
     setAddressTouched({});
   };
 
+  useEffect(() => {
+    if (selectedAddressId !== newAddressId) return;
+
+    if (!customerName.trim() && name.trim()) {
+      setCustomerName(capitalizeWords(name));
+    }
+
+    if (!addressPhone.trim() && phone.trim()) {
+      setAddressPhone(phone.trim());
+    }
+  }, [addressPhone, customerName, name, phone, selectedAddressId]);
+
   const loadWards = async (code: string) => {
     if (!code) {
       setWards([]);
+      setManualWardEntryAllowed(false);
       return [];
     }
 
-    const result = await locationApi.getWards(Number(code));
-    setWards(result);
-    return result;
+    try {
+      setWardLoading(true);
+      const result = await locationApi.getWardList(code);
+      setWards(result.wards);
+      setManualWardEntryAllowed(result.manualEntryAllowed);
+      setWardLocationError('');
+      return result.wards;
+    } finally {
+      setWardLoading(false);
+    }
   };
 
   const fillAddressForm = async (address: UserAddress | null, provinceSource = provinces) => {
@@ -303,21 +342,33 @@ const EditProfileScreen = () => {
       return;
     }
 
-    const matchedProvince = provinceSource.find((item) => item.name === address.province);
+    const matchedProvince = provinceSource.find((item) => (
+      item.code === (address.provinceCode ?? String(address.provinceId ?? '')) || item.name === address.province
+    ));
     setSelectedAddressId(address._id ?? newAddressId);
     setCustomerName(address.customerName ?? '');
     setAddressPhone(address.phoneNumber ?? '');
     setProvinceCode(matchedProvince ? String(matchedProvince.code) : '');
     setProvince(address.province ?? '');
-    setWardCode('');
+    setWardCode(address.wardCode ?? '');
     setWard(address.ward ?? '');
     setStreetName(address.streetName ?? '');
     setAddressDefault(address.isDefault);
 
     if (matchedProvince) {
-      const loadedWards = await loadWards(String(matchedProvince.code));
-      const matchedWard = loadedWards.find((item) => item.name === address.ward);
-      setWardCode(matchedWard ? String(matchedWard.code) : '');
+      let loadedWards: WardApiItem[] = [];
+      try {
+        loadedWards = await loadWards(String(matchedProvince.code));
+      } catch (error) {
+        setWards([]);
+        setAddressMessage(error instanceof Error ? error.message : 'Không tải được danh sách phường/xã');
+        return;
+      }
+
+      const matchedWard = loadedWards.find((item) => (
+        item.code === address.wardCode || item.name === address.ward
+      ));
+      setWardCode(matchedWard ? String(matchedWard.code) : address.wardCode ?? '');
     } else {
       setWards([]);
     }
@@ -327,15 +378,24 @@ const EditProfileScreen = () => {
     try {
       setLoading(true);
       setGeneralError('');
-      const [profile, addressList, provinceList] = await runWithAuth((accessToken) => Promise.all([
+      const [profile, addressList] = await runWithAuth((accessToken) => Promise.all([
         accountApi.getMe(accessToken),
         accountApi.getAddresses(accessToken),
-        locationApi.getProvinces(),
       ]));
 
       const birthParts = splitDateOfBirth(profile.dateOfBirth);
       const nextAddresses = addressList.length > 0 ? addressList : profile.address ?? [];
       const defaultAddress = nextAddresses.find((item) => item.isDefault) ?? nextAddresses[0] ?? null;
+      let provinceList: ProvinceApiItem[] = [];
+      let locationMessage = '';
+
+      try {
+        provinceList = await locationApi.getProvinces();
+        setProvinceLocationError('');
+      } catch (error) {
+        locationMessage = error instanceof Error ? error.message : 'Không tải được dữ liệu tỉnh/phường xã';
+        setProvinceLocationError(locationMessage);
+      }
 
       setName(profile.name ?? '');
       setPhone(profile.phone ?? '');
@@ -348,6 +408,10 @@ const EditProfileScreen = () => {
       setAddresses(nextAddresses);
       setProvinces(provinceList);
       await fillAddressForm(defaultAddress, provinceList);
+
+      if (locationMessage) {
+        setAddressMessage(locationMessage);
+      }
     } catch (error) {
       setGeneralError(error instanceof Error ? error.message : 'Không thể tải thông tin tài khoản');
     } finally {
@@ -381,11 +445,14 @@ const EditProfileScreen = () => {
     setProvince(selectedProvince?.name ?? '');
     setWardCode('');
     setWard('');
+    setWards([]);
+    setManualWardEntryAllowed(false);
+    setWardLocationError('');
 
     try {
       await loadWards(value);
-    } catch {
-      setAddressMessage('Không tải được danh sách phường/xã');
+    } catch (error) {
+      setWardLocationError(error instanceof Error ? error.message : 'Không tải được danh sách phường/xã');
     }
   };
 
@@ -393,6 +460,16 @@ const EditProfileScreen = () => {
     const selectedWard = wards.find((item) => String(item.code) === value);
     setWardCode(value);
     setWard(selectedWard?.name ?? '');
+  };
+
+  const handleManualWardSubmit = () => {
+    const nextWard = ward.trim();
+    if (!nextWard) return;
+
+    setWard(nextWard);
+    setWardCode(buildManualWardCode(provinceCode, nextWard));
+    markAddressTouched('ward');
+    setActiveSelect(null);
   };
 
   const handlePickAvatar = async () => {
@@ -459,7 +536,7 @@ const EditProfileScreen = () => {
     }
 
     if (!vietnamPhoneRegex.test(phone.trim())) {
-      setProfileMessage('Sá»‘ Ä‘iá»‡n thoáº¡i khÃ´ng Ä‘Ãºng Ä‘á»‹nh dáº¡ng');
+      setProfileMessage('Số điện thoại không đúng định dạng');
       return;
     }
 
@@ -498,6 +575,7 @@ const EditProfileScreen = () => {
   };
 
   const handleSaveAddress = async () => {
+    const normalizedName = customerName.trim() || name.trim();
     const normalizedPhone = addressPhone.trim() || phone.trim();
     const isNewAddress = selectedAddressId === newAddressId;
 
@@ -515,10 +593,11 @@ const EditProfileScreen = () => {
     if (getAddressFieldError('streetName', normalizedPhone)) return;
 
     const payload = {
-      customerName: capitalizeWords(customerName),
+      customerName: capitalizeWords(normalizedName),
       province: province.trim(),
-      district: selectedAddress?.district || 'Không áp dụng',
+      provinceCode: provinceCode.trim(),
       ward: ward.trim(),
+      wardCode: wardCode.trim(),
       streetName: streetName.trim(),
       phoneNumber: normalizedPhone,
       isDefault: addressDefault || addresses.length === 0,
@@ -701,6 +780,7 @@ const EditProfileScreen = () => {
           secureTextEntry={options.secureTextEntry}
           editable={options.editable ?? true}
           multiline={options.multiline}
+          scrollEnabled={options.multiline}
           textAlignVertical={options.multiline ? 'top' : 'center'}
           onBlur={options.onBlur}
         />
@@ -723,40 +803,11 @@ const EditProfileScreen = () => {
     field?: EditField,
     anchor: 'bottom' | 'top' = 'bottom',
   ) => {
-    const isOpen = activeSelect?.id === id;
+    const isInlineDropdown = isInlineSelectId(id);
+    const isExpanded = activeSelect?.id === id;
 
     return (
       <View style={[compact ? styles.compactSelectWrapper : undefined, { position: 'relative' }]}>
-        {isOpen && anchor === 'top' ? (
-          <View style={styles.dropdownAbove}>
-            <ScrollView nestedScrollEnabled style={styles.dropdownList}>
-              {activeSelect?.options.length > 0 ? (
-                activeSelect.options.map((option) => {
-                  const selected = option.value === activeSelect.selectedValue;
-
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[styles.dropdownItem, selected && styles.dropdownItemSelected]}
-                      onPress={() => {
-                        void activeSelect.onSelect(option.value);
-                        setActiveSelect(null);
-                      }}
-                    >
-                      <Text style={[styles.dropdownItemText, selected && styles.dropdownItemTextSelected]}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })
-              ) : (
-                <View style={styles.dropdownEmpty}>
-                  <Text style={styles.dropdownEmptyText}>Không có dữ liệu</Text>
-                </View>
-              )}
-            </ScrollView>
-          </View>
-        ) : null}
         <TouchableOpacity
           style={[
             styles.selectInput,
@@ -770,36 +821,46 @@ const EditProfileScreen = () => {
           <Text style={[styles.selectText, !displayValue && styles.placeholderText]} numberOfLines={1}>
             {displayValue || placeholder}
           </Text>
-          <MaterialCommunityIcons name={isOpen ? 'chevron-up' : 'chevron-down'} size={20} color={colors.textMuted} />
+          <MaterialCommunityIcons name="chevron-down" size={20} color={colors.textMuted} />
         </TouchableOpacity>
-        {isOpen && anchor !== 'top' ? (
-          <View style={[styles.dropdownPanel, compact ? styles.compactDropdownPanel : undefined]}>
-            <ScrollView nestedScrollEnabled style={styles.dropdownList}>
-              {activeSelect?.options.length > 0 ? (
-                activeSelect.options.map((option) => {
-                  const selected = option.value === activeSelect.selectedValue;
+        {isInlineDropdown && isExpanded ? (
+          <View
+            style={[
+              anchor === 'top' ? styles.dropdownAbove : styles.dropdownPanel,
+              compact ? styles.compactDropdownPanel : undefined,
+            ]}
+          >
+            {options.length ? (
+              <ScrollView
+                style={styles.dropdownList}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {options.map((option) => {
+                  const selected = option.value === selectedValue;
 
                   return (
                     <TouchableOpacity
                       key={option.value}
                       style={[styles.dropdownItem, selected && styles.dropdownItemSelected]}
                       onPress={() => {
-                        void activeSelect.onSelect(option.value);
+                        void onSelect(option.value);
                         setActiveSelect(null);
                       }}
+                      activeOpacity={0.82}
                     >
                       <Text style={[styles.dropdownItemText, selected && styles.dropdownItemTextSelected]}>
                         {option.label}
                       </Text>
                     </TouchableOpacity>
                   );
-                })
-              ) : (
-                <View style={styles.dropdownEmpty}>
-                  <Text style={styles.dropdownEmptyText}>Không có dữ liệu</Text>
-                </View>
-              )}
-            </ScrollView>
+                })}
+              </ScrollView>
+            ) : (
+              <View style={styles.dropdownEmpty}>
+                <Text style={styles.dropdownEmptyText}>Không có dữ liệu</Text>
+              </View>
+            )}
           </View>
         ) : null}
       </View>
@@ -1188,8 +1249,52 @@ const EditProfileScreen = () => {
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          {loading ? (
+        <LocationPicker
+          visible={Boolean(activeSelect && !isInlineSelectId(activeSelect.id))}
+          title={activeSelect?.title ?? ''}
+          options={activeSelect?.options ?? []}
+          selectedValue={activeSelect?.selectedValue}
+          loading={activeSelect?.id === 'ward' ? wardLoading : false}
+          error={
+            activeSelect?.id === 'province'
+              ? provinceLocationError
+              : activeSelect?.id === 'ward'
+              ? wardLocationError
+              : ''
+          }
+          emptyText={activeSelect?.id === 'ward' ? 'Chưa có dữ liệu phường/xã' : 'Không có dữ liệu'}
+          onRetry={() => {
+            if (activeSelect?.id === 'province') {
+              void loadAccount();
+            }
+            if (activeSelect?.id === 'ward' && provinceCode) {
+              void handleProvinceSelect(provinceCode);
+            }
+          }}
+          onClose={() => setActiveSelect(null)}
+          onSelect={(value) => {
+            void activeSelect?.onSelect(value);
+            if (activeSelect?.field === 'province' || activeSelect?.field === 'ward') {
+              markAddressTouched(activeSelect.field);
+            }
+          }}
+          manualEntryAllowed={activeSelect?.id === 'ward' && manualWardEntryAllowed}
+          manualValue={activeSelect?.id === 'ward' ? ward : ''}
+          onManualChange={(value) => {
+            setWard(value);
+            setWardCode('');
+          }}
+          onManualSubmit={handleManualWardSubmit}
+        />
+
+        <FlatList
+          style={styles.content}
+          data={[]}
+          renderItem={() => null}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={loading ? (
             <View style={styles.loadingPanel}>
               <ActivityIndicator color={colors.brand} />
               <Text style={styles.loadingText}>Đang tải tài khoản...</Text>
@@ -1241,7 +1346,7 @@ const EditProfileScreen = () => {
               {renderActiveTab()}
             </>
           )}
-        </ScrollView>
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1502,7 +1607,8 @@ const styles = StyleSheet.create({
     paddingRight: 48,
   },
   textArea: {
-    minHeight: 88,
+    minHeight: 104,
+    maxHeight: 150,
     paddingTop: 12,
   },
   rightAccessory: {
@@ -1554,6 +1660,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     zIndex: 20,
     elevation: 5,
+    maxHeight: 240,
   },
   compactDropdownPanel: {
     maxHeight: 180,

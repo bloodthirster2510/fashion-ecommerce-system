@@ -7,6 +7,28 @@ const getParam = (value: unknown): string => {
   return typeof value === 'string' ? value : '';
 };
 
+const handleAddressError = (res: Response, err: unknown) => {
+  if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
+    return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
+  }
+
+  if (err && typeof err === 'object' && 'name' in err && (err as { name?: string }).name === 'ValidationError') {
+    const validationErrors = Object.values(
+      (err as { errors?: Record<string, { path?: string; message?: string }> }).errors ?? {},
+    ).map((error) => ({
+      field: error.path ?? 'address',
+      message: error.message ?? 'Dữ liệu không hợp lệ',
+    }));
+
+    return res.status(400).json({
+      message: 'Dữ liệu không hợp lệ',
+      ...(validationErrors.length > 0 ? { errors: validationErrors } : {}),
+    });
+  }
+
+  return res.status(500).json({ message: 'Lỗi server' });
+};
+
 export const getMe = async (req: Request, res: Response) => {
   try {
     const user = await userService.getMe(req.user!.userId);
@@ -70,22 +92,21 @@ export const addAddress = async (req: Request, res: Response) => {
     const addresses = await userService.addAddress(req.user!.userId, req.body);
     return created(res, addresses, 'Thêm địa chỉ thành công');
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
-      return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
-    }
-    return res.status(500).json({ message: 'Lỗi server' });
+    return handleAddressError(res, err);
   }
 };
 
 export const updateAddress = async (req: Request, res: Response) => {
+  const errors = validateAddress(req.body);
+  if (errors.length > 0) {
+    return res.status(400).json({ message: 'Dữ liệu không hợp lệ', errors });
+  }
+
   try {
     const addresses = await userService.updateAddress(req.user!.userId, getParam(req.params.addressId), req.body);
     return ok(res, addresses, 'Cập nhật địa chỉ thành công');
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
-      return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
-    }
-    return res.status(500).json({ message: 'Lỗi server' });
+    return handleAddressError(res, err);
   }
 };
 

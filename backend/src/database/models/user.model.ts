@@ -8,10 +8,18 @@ export interface IUserAddress {
   _id?: Types.ObjectId;
   customerName: string;
   province: string;
-  district: string;
+  provinceCode?: string | null;
+  provinceId?: number | null;
+  district?: string | null;
+  districtId?: number | null;
   ward: string;
+  wardCode: string;
   streetName: string;
   phoneNumber: string;
+  ghnProvinceId?: number | null;
+  ghnDistrictId?: number | null;
+  ghnWardCode?: string | null;
+  ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   isDefault: boolean;
 }
 
@@ -54,10 +62,18 @@ const userAddressSchema = new Schema<IUserAddress>(
   {
     customerName: { type: String, required: true, trim: true, minlength: 2, maxlength: 60 },
     province: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
-    district: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
+    provinceCode: { type: String, default: null, trim: true, maxlength: 20 },
+    provinceId: { type: Number, default: null, min: 1 },
+    district: { type: String, default: null, trim: true, maxlength: 80 },
+    districtId: { type: Number, default: null, min: 1 },
     ward: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
+    wardCode: { type: String, required: true, trim: true, maxlength: 20 },
     streetName: { type: String, required: true, trim: true, minlength: 5, maxlength: 150 },
     phoneNumber: { type: String, required: true, trim: true, match: vietnamPhoneRegex },
+    ghnProvinceId: { type: Number, default: null, min: 1 },
+    ghnDistrictId: { type: Number, default: null, min: 1 },
+    ghnWardCode: { type: String, default: null, trim: true, maxlength: 20 },
+    ghnMappingStatus: { type: String, enum: ['mapped', 'missing', 'manual'], default: 'missing' },
     isDefault: { type: Boolean, default: false },
   },
 );

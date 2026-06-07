@@ -87,8 +87,11 @@ describe('User Service', () => {
       const result = await addAddress('user123', {
         customerName: 'Test',
         province: 'Cần Thơ',
+        provinceId: 92,
         district: 'Ninh Kiều',
+        districtId: 789,
         ward: 'An Khánh',
+        wardCode: '00123',
         streetName: '123 Đường 3/2',
         phoneNumber: '0900000000',
         isDefault: true,
@@ -96,6 +99,44 @@ describe('User Service', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].customerName).toBe('Test');
+      expect(user.save).toHaveBeenCalled();
+    });
+
+    it('should normalize legacy saved addresses before adding a new one', async () => {
+      const legacyAddress = {
+        customerName: 'Old',
+        province: 'Thành phố Cần Thơ',
+        ward: 'Phường Ninh Kiều',
+        streetName: 'Old street',
+        phoneNumber: '0900000000',
+        isDefault: true,
+      };
+      const user = {
+        address: [legacyAddress],
+        save: jest.fn(),
+      };
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      const result = await addAddress('user123', {
+        customerName: 'Test',
+        province: 'Thành phố Cần Thơ',
+        provinceCode: '92',
+        ward: 'Phường Ninh Kiều',
+        wardCode: '31135',
+        streetName: '365 Tran Minh Son',
+        phoneNumber: '0343149695',
+        isDefault: true,
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result[0].wardCode).toBe('legacy-1');
+      expect(result[0].isDefault).toBe(false);
+      expect(result[1].wardCode).toBe('31135');
+      expect(result[1].ghnProvinceId).toBe(220);
+      expect(result[1].ghnDistrictId).toBe(1572);
+      expect(result[1].ghnWardCode).toBe('550108');
+      expect(result[1].ghnMappingStatus).toBe('mapped');
+      expect(result[1].isDefault).toBe(true);
       expect(user.save).toHaveBeenCalled();
     });
 
@@ -114,8 +155,11 @@ describe('User Service', () => {
       await expect(addAddress('user123', {
         customerName: 'Test',
         province: 'Cần Thơ',
+        provinceId: 92,
         district: 'Ninh Kiều',
+        districtId: 789,
         ward: 'An Khánh',
+        wardCode: '00123',
         streetName: '123 Đường 3/2',
         phoneNumber: '0900000000',
       })).rejects.toEqual({ status: 400, message: 'Tối đa 5 địa chỉ' });
