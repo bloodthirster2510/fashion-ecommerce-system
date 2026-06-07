@@ -1,6 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 
-const DEFAULT_DEV_API_PORT = '5000';
+const DEFAULT_DEV_API_PORT = '3000';
 const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
 
 type ApiFetchInit = Parameters<typeof fetch>[1] & {

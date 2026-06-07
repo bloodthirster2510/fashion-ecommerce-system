@@ -6,7 +6,7 @@ param(
 
 $ANDROID_HOME = "C:\Users\granji\AppData\Local\Android\Sdk"
 $JAVA_HOME = "C:\Program Files\Java\jdk-17"
-$API_PORT = "5000"
+$API_PORT = "3000"
 $AVD_NAME = "Pixel_6"
 
 $env:ANDROID_HOME = $ANDROID_HOME
@@ -146,9 +146,9 @@ if ($Android) {
   Write-Output "[3.5] Wait for Android device..."
   $androidReady = (Wait-AndroidDevice -TimeoutSeconds 90) -and (Wait-AndroidBoot -TimeoutSeconds 90)
   if ($androidReady) {
-    & $ADB reverse tcp:5000 tcp:5000 | Out-Null
+    & $ADB reverse tcp:3000 tcp:3000 | Out-Null
     & $ADB reverse tcp:8081 tcp:8081 | Out-Null
-    Write-Output "ADB reverse configured: localhost:5000 -> computer, localhost:8081 -> computer"
+    Write-Output "ADB reverse configured: localhost:3000 -> computer, localhost:8081 -> computer"
     if ($ResetExpoGo) {
       & $ADB shell pm clear host.exp.exponent | Out-Null
       Write-Output "Expo Go app data cleared."
