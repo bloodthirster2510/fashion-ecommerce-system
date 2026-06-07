@@ -71,16 +71,10 @@ export const seedInventoryForExistingProducts = async () => {
           continue;
         }
 
-        await InventoryImport.create({
-          productId: product._id,
-          variantId: variant._id,
-          colorVariantId: color._id,
-          detail: missingDetails,
-        });
-
-        await Promise.all(
-          missingDetails.map((detail) =>
-            Inventory.findOneAndUpdate(
+        const insertedDetails = (
+          await Promise.all(
+            missingDetails.map(async (detail) => {
+              const result = await Inventory.updateOne(
               {
                 productId: product._id,
                 variantId: variant._id,
@@ -94,25 +88,34 @@ export const seedInventoryForExistingProducts = async () => {
                   colorVariantId: color._id,
                   size: detail.size,
                   sku: buildSku(product._id, variant._id, color._id, detail.size),
-                  reservedQuantity: 0,
-                },
-                $inc: {
                   quantity: detail.quantity,
+                  reservedQuantity: 0,
                   availableQuantity: detail.quantity,
                 },
               },
               {
-                new: true,
                 upsert: true,
               },
-            ),
-          ),
-        );
+              );
+
+              return result.upsertedCount > 0 ? detail : null;
+            }),
+          )
+        ).filter((detail): detail is typeof missingDetails[number] => detail !== null);
+
+        if (insertedDetails.length > 0) {
+          await InventoryImport.create({
+            productId: product._id,
+            variantId: variant._id,
+            colorVariantId: color._id,
+            detail: insertedDetails,
+          });
+        }
 
         missingDetails.forEach((detail) => {
           existingKeys.add(getInventoryKey(variant._id, color._id, detail.size));
         });
-        createdRows += missingDetails.length;
+        createdRows += insertedDetails.length;
       }
     }
   }
