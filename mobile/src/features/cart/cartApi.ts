@@ -58,14 +58,24 @@ export type CartPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
 
 export type CreateOrderPayload = {
   cartItemIds: string[];
-  shippingAddress: {
+  addressId?: string;
+  shippingAddress?: {
     customerName: string;
     province: string;
-    district: string;
+    provinceCode?: string | null;
+    provinceId?: number | null;
+    district?: string | null;
+    districtId?: number | null;
     ward: string;
+    wardCode: string;
     streetName: string;
     phoneNumber: string;
+    ghnProvinceId?: number | null;
+    ghnDistrictId?: number | null;
+    ghnWardCode?: string | null;
+    ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   };
+  quoteVersion: string;
   paymentMethod: CartPaymentMethod;
   couponCode?: string;
   orderNote?: string;
@@ -120,8 +130,45 @@ export type ValidateCouponResponse = {
 
 export type CheckoutPreviewPayload = {
   cartItemIds: string[];
+  addressId?: string;
+  shippingAddress?: CreateOrderPayload['shippingAddress'];
   couponCode?: string;
   paymentMethod?: CartPaymentMethod;
+};
+
+export type ShippingQuote = {
+  provider: 'GHN' | 'FIXED' | string;
+  serviceId: number | null;
+  serviceTypeId: number | null;
+  fee: number;
+  status: 'quoted' | 'fallback' | string;
+  estimatedDeliveryDate?: string | null;
+  rawQuote?: Record<string, unknown> | null;
+};
+
+export type ShippingComparisonOption = {
+  key: string;
+  provider: 'GHN' | 'FIXED' | string;
+  serviceId: number | null;
+  serviceTypeId: number | null;
+  serviceName?: string | null;
+  providerCost: number;
+  customerFee: number;
+  estimatedDeliveryDate?: string | null;
+  availability: 'available' | 'fallback' | 'unavailable' | string;
+  isRecommended: boolean;
+  reason?: string | null;
+};
+
+export type ShippingComparison = {
+  comparisonStatus: 'live' | 'partial' | 'fallback' | string;
+  pricingMode: 'CHEAPEST' | 'RECOMMENDED' | 'FIXED_FALLBACK' | string;
+  customerFee: number;
+  recommendedOptionKey: string | null;
+  selectedOptionKey: string | null;
+  quoteVersion: string;
+  note?: string | null;
+  options: ShippingComparisonOption[];
 };
 
 export type CheckoutPreviewResponse = {
@@ -139,7 +186,10 @@ export type CheckoutPreviewResponse = {
     priceAtPurchased: number;
     categoryId: string;
   }>;
+  quoteVersion: string;
   summary: CheckoutSummary;
+  shippingQuote?: ShippingQuote;
+  shippingComparison?: ShippingComparison;
   coupon?: AppliedCheckoutCoupon | null;
   appliedMembership?: AppliedMembership | null;
 };
@@ -162,12 +212,22 @@ export type OrderResponse = {
 export class CartApiError extends Error {
   errors?: ApiValidationError[];
   status?: number;
+  errorCode?: string;
+  data?: unknown;
 
-  constructor(message: string, errors?: ApiValidationError[], status?: number) {
+  constructor(
+    message: string,
+    errors?: ApiValidationError[],
+    status?: number,
+    errorCode?: string,
+    data?: unknown,
+  ) {
     super(message);
     this.name = 'CartApiError';
     this.errors = errors;
     this.status = status;
+    this.errorCode = errorCode;
+    this.data = data;
   }
 }
 
@@ -219,6 +279,8 @@ const request = async <T>(
       validationMessage || payload.message || 'Khong the cap nhat gio hang',
       payload.errors,
       response.status,
+      payload.errorCode,
+      payload.data,
     );
   }
 

@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   RefreshControl,
@@ -28,6 +27,16 @@ import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutP
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
 type PaymentMethod = 'COD' | 'VNPAY' | 'MOMO';
+type NoticeTone = 'success' | 'error' | 'warning' | 'info';
+
+type CartNotice = {
+  id: number;
+  tone: NoticeTone;
+  title: string;
+  message?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+};
 
 const COD_SHIPPING_FEE = 25000;
 const FREE_SHIPPING_MINIMUM = 399000;
@@ -38,6 +47,10 @@ const formatCurrency = (value: number) =>
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const getErrorMessage = (error: unknown) => {
+  if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
+    return 'Phi giao hang vua thay doi. Minh can cap nhat lai tong tien truoc khi dat hang.';
+  }
+
   if (error instanceof CartApiError && error.status === 409) {
     return 'Số lượng vừa chọn đã vượt tồn kho hiện có. Mình đã giữ giỏ hàng ở mức an toàn.';
   }
@@ -73,7 +86,6 @@ const compactAddressParts = (address: UserAddress) =>
   [
     address.streetName,
     address.ward,
-    address.district && address.district !== 'Không áp dụng' ? address.district : '',
     address.province,
   ]
     .map((item) => item?.trim())
@@ -87,11 +99,22 @@ const getAddressKey = (address: UserAddress, index: number) =>
 const toShippingAddress = (address: UserAddress) => ({
   customerName: (address.customerName || '').trim(),
   province: (address.province || '').trim(),
-  district: (address.district || 'Không áp dụng').trim(),
+  provinceCode: address.provinceCode ?? null,
+  provinceId: address.provinceId ?? null,
+  district: address.district?.trim() || null,
+  districtId: address.districtId ?? null,
   ward: (address.ward || '').trim(),
+  wardCode: address.wardCode ?? '',
   streetName: (address.streetName || '').trim(),
   phoneNumber: (address.phoneNumber || '').trim(),
+  ghnProvinceId: address.ghnProvinceId ?? null,
+  ghnDistrictId: address.ghnDistrictId ?? null,
+  ghnWardCode: address.ghnWardCode ?? null,
+  ghnMappingStatus: address.ghnMappingStatus ?? 'missing',
 });
+
+const hasShippingAreaCode = (address: UserAddress | null) =>
+  Boolean((address?.ghnDistrictId && address?.ghnWardCode) || (address?.districtId && address?.wardCode));
 
 const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
@@ -111,6 +134,8 @@ const CartScreen = () => {
   const [checkoutPreview, setCheckoutPreview] = React.useState<CheckoutPreviewResponse | null>(null);
   const [isApplyingCoupon, setIsApplyingCoupon] = React.useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
+  const [notice, setNotice] = React.useState<CartNotice | null>(null);
+  const [confirmingRemoveItemId, setConfirmingRemoveItemId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState({
     fullName: session?.user.name ?? '',
     phone: session?.user.phone ?? '',
@@ -119,6 +144,7 @@ const CartScreen = () => {
     note: '',
   });
   const selectedAddressIdRef = React.useRef<string | null>(null);
+  const noticeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedAddress = React.useMemo(
     () =>
@@ -127,6 +153,57 @@ const CartScreen = () => {
       addresses[0] ??
       null,
     [addresses, selectedAddressId],
+  );
+  const selectedShippingAddress = React.useMemo(
+    () => (selectedAddress ? toShippingAddress(selectedAddress) : undefined),
+    [selectedAddress],
+  );
+  const selectedAddressKey = selectedAddress
+    ? [
+        selectedAddress._id,
+        selectedAddress.provinceCode ?? selectedAddress.provinceId,
+        selectedAddress.ghnDistrictId ?? selectedAddress.districtId,
+        selectedAddress.ghnWardCode,
+        selectedAddress.wardCode,
+        selectedAddress.streetName,
+      ].join(':')
+    : '';
+
+  const clearNoticeTimer = React.useCallback(() => {
+    if (noticeTimeoutRef.current) {
+      clearTimeout(noticeTimeoutRef.current);
+      noticeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const dismissNotice = React.useCallback(() => {
+    clearNoticeTimer();
+    setNotice(null);
+  }, [clearNoticeTimer]);
+
+  const showNotice = React.useCallback(
+    (nextNotice: Omit<CartNotice, 'id'>, durationMs = 4500) => {
+      clearNoticeTimer();
+      setNotice({ ...nextNotice, id: Date.now() });
+
+      if (durationMs > 0) {
+        noticeTimeoutRef.current = setTimeout(() => {
+          setNotice(null);
+          noticeTimeoutRef.current = null;
+        }, durationMs);
+      }
+    },
+    [clearNoticeTimer],
+  );
+
+  React.useEffect(() => clearNoticeTimer, [clearNoticeTimer]);
+
+  const getCheckoutAddressPayload = React.useCallback(
+    () => ({
+      addressId: selectedAddress?._id,
+      shippingAddress: selectedAddress?._id ? undefined : selectedShippingAddress,
+    }),
+    [selectedAddress?._id, selectedShippingAddress],
   );
 
   const applyAddressToForm = React.useCallback((address: UserAddress | null) => {
@@ -171,13 +248,17 @@ const CartScreen = () => {
         const nextCart = await runWithAuth((accessToken) => cartApi.getCart(accessToken));
         setCart(nextCart);
       } catch (error) {
-        Alert.alert('Chưa tải được giỏ hàng', getErrorMessage(error));
+        showNotice({
+          tone: 'error',
+          title: 'Chưa tải được giỏ hàng',
+          message: getErrorMessage(error),
+        });
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
       }
     },
-    [runWithAuth, session?.accessToken],
+    [runWithAuth, session?.accessToken, showNotice],
   );
 
   const loadAddresses = React.useCallback(
@@ -208,13 +289,17 @@ const CartScreen = () => {
         setAddresses([]);
         setSelectedAddressId(null);
         if (!silent) {
-          Alert.alert('Chưa tải được địa chỉ', getErrorMessage(error));
+          showNotice({
+            tone: 'error',
+            title: 'Chưa tải được địa chỉ',
+            message: getErrorMessage(error),
+          });
         }
       } finally {
         setIsAddressLoading(false);
       }
     },
-    [applyAddressToForm, runWithAuth, session?.accessToken],
+    [applyAddressToForm, runWithAuth, session?.accessToken, showNotice],
   );
 
   useFocusEffect(
@@ -268,11 +353,46 @@ const CartScreen = () => {
   } = checkoutSummary;
   const appliedMembership = checkoutPreview?.appliedMembership ?? null;
   const appliedCoupon = checkoutPreview?.coupon ?? null;
-  const shippingPayable = selectedCheckoutItems.length ? shippingFee - shippingDiscountAmount : 0;
+  const shippingQuote = checkoutPreview?.shippingQuote ?? null;
+  const shippingComparison = checkoutPreview?.shippingComparison ?? null;
+  const shippingPayable = selectedCheckoutItems.length ? Math.max(0, shippingFee - shippingDiscountAmount) : 0;
+  const isShippingFreeForUser = selectedCheckoutItems.length > 0 && shippingPayable === 0;
+  const addressHasShippingCodes = hasShippingAreaCode(selectedAddress);
+  const shippingQuoteIsLive =
+    shippingQuote?.provider === 'GHN' &&
+    shippingQuote.status === 'quoted' &&
+    shippingComparison?.comparisonStatus !== 'fallback';
+  const shippingNeedsAddressMapping = Boolean(
+    selectedAddress &&
+    !shippingQuoteIsLive &&
+    !addressHasShippingCodes,
+  );
+  const shippingProviderLabel = shippingQuote?.provider === 'GHN'
+    ? 'GHN toi uu'
+    : shippingComparison?.comparisonStatus === 'fallback'
+      ? 'Phi tam tinh'
+      : 'Gia toi uu';
+  const shippingStatusText = isPreviewLoading
+    ? 'Đang tính phí giao hàng...'
+    : !selectedCheckoutItems.length
+    ? 'Chọn sản phẩm để tính phí giao hàng.'
+    : !selectedAddress
+    ? 'Chọn địa chỉ nhận hàng để tính phí giao hàng.'
+    : shippingComparison?.note
+    ? shippingComparison.note
+    : shippingNeedsAddressMapping
+    ? 'Địa chỉ này chưa có dữ liệu tính phí tự động, hệ thống đang dùng phí tạm tính.'
+    : shippingComparison?.comparisonStatus === 'live' || shippingComparison?.comparisonStatus === 'partial'
+    ? 'Hệ thống đã chọn giải pháp giao hàng tối ưu cho địa chỉ này.'
+    : shippingQuote?.status === 'quoted'
+    ? 'Đã tính phí theo địa chỉ nhận hàng.'
+    : 'Đang dùng phí tạm tính, shop sẽ đối soát lại khi xử lý đơn.';
   const canSubmit =
     selectedCheckoutItems.length > 0 &&
     unavailableSelectedItems.length === 0 &&
     Boolean(selectedAddress) &&
+    Boolean(checkoutPreview?.quoteVersion) &&
+    !isPreviewLoading &&
     !isSubmitting &&
     paymentMethod === 'COD';
 
@@ -298,6 +418,7 @@ const CartScreen = () => {
     runWithAuth((accessToken) =>
       cartApi.previewCheckout(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
+        ...getCheckoutAddressPayload(),
         couponCode: appliedCouponCode ?? undefined,
         paymentMethod,
       }),
@@ -317,7 +438,11 @@ const CartScreen = () => {
         setCheckoutPreview(null);
         if (appliedCouponCode) {
           setAppliedCouponCode(null);
-          Alert.alert('Voucher không còn phù hợp', getErrorMessage(error));
+          showNotice({
+            tone: 'warning',
+            title: 'Voucher không còn phù hợp',
+            message: getErrorMessage(error),
+          });
         }
       })
       .finally(() => {
@@ -329,7 +454,17 @@ const CartScreen = () => {
     return () => {
       isActive = false;
     };
-  }, [appliedCouponCode, paymentMethod, runWithAuth, selectedCheckoutItemKey, selectedCheckoutItems, session?.accessToken]);
+  }, [
+    appliedCouponCode,
+    paymentMethod,
+    getCheckoutAddressPayload,
+    runWithAuth,
+    selectedAddressKey,
+    selectedCheckoutItemKey,
+    selectedCheckoutItems,
+    session?.accessToken,
+    showNotice,
+  ]);
 
   const handleSearchSubmit = (keyword: string) => {
     navigation.navigate('ProductList', {
@@ -357,7 +492,11 @@ const CartScreen = () => {
       const nextCart = await runWithAuth((accessToken) => cartApi.selectItem(accessToken, item._id, !item.isSelected));
       updateCartState(nextCart);
     } catch (error) {
-      Alert.alert('Chưa cập nhật được lựa chọn', getErrorMessage(error));
+      showNotice({
+        tone: 'error',
+        title: 'Chưa cập nhật được lựa chọn',
+        message: getErrorMessage(error),
+      });
     } finally {
       setPendingItemId(null);
     }
@@ -373,7 +512,11 @@ const CartScreen = () => {
       const nextCart = await runWithAuth((accessToken) => cartApi.selectAll(accessToken, !allItemsSelected));
       updateCartState(nextCart);
     } catch (error) {
-      Alert.alert('Chưa cập nhật được giỏ hàng', getErrorMessage(error));
+      showNotice({
+        tone: 'error',
+        title: 'Chưa cập nhật được giỏ hàng',
+        message: getErrorMessage(error),
+      });
     } finally {
       setPendingItemId(null);
     }
@@ -385,7 +528,11 @@ const CartScreen = () => {
     }
 
     if (item.availableQuantity !== undefined && nextQuantity > item.availableQuantity) {
-      Alert.alert('Không đủ tồn kho', `Sản phẩm này hiện chỉ còn ${item.availableQuantity}.`);
+      showNotice({
+        tone: 'warning',
+        title: 'Không đủ tồn kho',
+        message: `Sản phẩm này hiện chỉ còn ${item.availableQuantity}.`,
+      });
       return;
     }
 
@@ -394,7 +541,11 @@ const CartScreen = () => {
       const nextCart = await runWithAuth((accessToken) => cartApi.updateItem(accessToken, item._id, { quantity: nextQuantity }));
       updateCartState(nextCart);
     } catch (error) {
-      Alert.alert('Chưa cập nhật được số lượng', getErrorMessage(error));
+      showNotice({
+        tone: 'error',
+        title: 'Chưa cập nhật được số lượng',
+        message: getErrorMessage(error),
+      });
       void loadCart(true);
     } finally {
       setPendingItemId(null);
@@ -406,26 +557,33 @@ const CartScreen = () => {
       return;
     }
 
-    Alert.alert('Xóa sản phẩm', `Xóa ${getItemTitle(item)} khỏi giỏ hàng?`, [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xóa',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            try {
-              setPendingItemId(item._id);
-              const nextCart = await runWithAuth((accessToken) => cartApi.deleteItem(accessToken, item._id));
-              updateCartState(nextCart);
-            } catch (error) {
-              Alert.alert('Chưa xóa được sản phẩm', getErrorMessage(error));
-            } finally {
-              setPendingItemId(null);
-            }
-          })();
-        },
-      },
-    ]);
+    setConfirmingRemoveItemId((current) => (current === item._id ? null : item._id));
+  };
+
+  const confirmRemoveItem = async (item: CartItem) => {
+    if (!session?.accessToken || pendingItemId) {
+      return;
+    }
+
+    try {
+      setPendingItemId(item._id);
+      setConfirmingRemoveItemId(null);
+      const nextCart = await runWithAuth((accessToken) => cartApi.deleteItem(accessToken, item._id));
+      updateCartState(nextCart);
+      showNotice({
+        tone: 'success',
+        title: 'Đã xóa sản phẩm',
+        message: `${getItemTitle(item)} đã được bỏ khỏi giỏ hàng.`,
+      }, 3000);
+    } catch (error) {
+      showNotice({
+        tone: 'error',
+        title: 'Chưa xóa được sản phẩm',
+        message: getErrorMessage(error),
+      });
+    } finally {
+      setPendingItemId(null);
+    }
   };
 
   const handleApplyCoupon = async () => {
@@ -437,12 +595,20 @@ const CartScreen = () => {
     }
 
     if (!code) {
-      Alert.alert('Thiếu mã giảm giá', 'Bạn nhập mã voucher trước nha.');
+      showNotice({
+        tone: 'warning',
+        title: 'Thiếu mã giảm giá',
+        message: 'Bạn nhập mã voucher trước nha.',
+      });
       return;
     }
 
     if (!selectedCheckoutItems.length) {
-      Alert.alert('Giỏ hàng trống', 'Bạn chọn ít nhất một sản phẩm để áp dụng voucher.');
+      showNotice({
+        tone: 'warning',
+        title: 'Giỏ hàng trống',
+        message: 'Bạn chọn ít nhất một sản phẩm để áp dụng voucher.',
+      });
       return;
     }
 
@@ -452,6 +618,7 @@ const CartScreen = () => {
         cartApi.previewCheckout(accessToken, {
           couponCode: code,
           cartItemIds: selectedCheckoutItems.map((item) => item._id),
+          ...getCheckoutAddressPayload(),
           paymentMethod: 'COD',
         }),
       );
@@ -463,11 +630,19 @@ const CartScreen = () => {
       setCheckoutPreview(preview);
       setAppliedCouponCode(preview.coupon.code);
       setCouponCode(preview.coupon.code);
-      Alert.alert('Đã áp dụng voucher', `${preview.coupon.code} đã được tính vào đơn hàng.`);
+      showNotice({
+        tone: 'success',
+        title: 'Đã áp dụng voucher',
+        message: `${preview.coupon.code} đã được tính vào đơn hàng.`,
+      }, 3200);
     } catch (error) {
       setCheckoutPreview(null);
       setAppliedCouponCode(null);
-      Alert.alert('Chưa áp dụng được voucher', getErrorMessage(error));
+      showNotice({
+        tone: 'error',
+        title: 'Chưa áp dụng được voucher',
+        message: getErrorMessage(error),
+      });
     } finally {
       setIsApplyingCoupon(false);
     }
@@ -491,23 +666,14 @@ const CartScreen = () => {
   };
 
   const validateCheckout = () => {
-    if (!form.fullName.trim()) {
-      Alert.alert('Thiếu thông tin', 'Bạn nhập họ tên người nhận trước nha.');
-      return false;
-    }
-
-    if (!form.phone.trim()) {
-      Alert.alert('Thiếu thông tin', 'Bạn nhập số điện thoại để shop giao hàng.');
-      return false;
-    }
-
-    if (!form.address.trim()) {
-      Alert.alert('Thiếu thông tin', 'Bạn nhập địa chỉ giao hàng trước nha.');
-      return false;
-    }
-
     if (!selectedAddress) {
-      Alert.alert('Thiếu địa chỉ', 'Bạn chọn hoặc thêm địa chỉ nhận hàng trong hồ sơ trước nha.');
+      showNotice({
+        tone: 'warning',
+        title: 'Thiếu địa chỉ nhận hàng',
+        message: 'Bạn chọn hoặc thêm địa chỉ trong hồ sơ trước khi đặt hàng.',
+        actionLabel: 'Mở hồ sơ',
+        onAction: () => navigation.navigate('EditProfile'),
+      });
       return false;
     }
 
@@ -516,7 +682,11 @@ const CartScreen = () => {
     });
 
     if (overStockItem) {
-      Alert.alert('Không đủ tồn kho', `${getItemTitle(overStockItem)} chỉ còn ${overStockItem.availableQuantity}.`);
+      showNotice({
+        tone: 'warning',
+        title: 'Không đủ tồn kho',
+        message: `${getItemTitle(overStockItem)} chỉ còn ${overStockItem.availableQuantity}.`,
+      });
       return false;
     }
 
@@ -537,26 +707,71 @@ const CartScreen = () => {
       return;
     }
 
+    if (!checkoutPreview?.quoteVersion) {
+      showNotice({
+        tone: 'warning',
+        title: 'Dang cap nhat tong tien',
+        message: 'He thong can tinh lai phi giao hang truoc khi dat hang.',
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         paymentMethod: 'COD',
-        shippingAddress: toShippingAddress(selectedAddress),
+        quoteVersion: checkoutPreview.quoteVersion,
+        ...getCheckoutAddressPayload(),
         couponCode: appliedCouponCode ?? undefined,
         orderNote: form.note.trim() || undefined,
       }));
 
-      Alert.alert(
-        'Đặt hàng thành công',
-        `Mã đơn: ${order.orderCode}\nTổng thanh toán: ${formatCurrency(order.totalAmount)}`,
-      );
+      showNotice({
+        tone: 'success',
+        title: 'Đặt hàng thành công',
+        message: `Mã đơn ${order.orderCode} · Tổng thanh toán ${formatCurrency(order.totalAmount)}`,
+      }, 8000);
       setForm((current) => ({ ...current, note: '' }));
       handleClearCoupon();
       await loadCart(true);
       await loadAddresses(true);
     } catch (error) {
-      Alert.alert('Chưa đặt được đơn', getErrorMessage(error));
+      if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
+        try {
+          const refreshedPreview = await runWithAuth((accessToken) =>
+            cartApi.previewCheckout(accessToken, {
+              cartItemIds: selectedCheckoutItems.map((item) => item._id),
+              ...getCheckoutAddressPayload(),
+              couponCode: appliedCouponCode ?? undefined,
+              paymentMethod,
+            }),
+          );
+
+          setCheckoutPreview(refreshedPreview);
+          showNotice({
+            tone: 'warning',
+            title: 'Phi giao hang vua thay doi',
+            message: 'Tong tien da duoc cap nhat. Ban vui long kiem tra lai truoc khi dat hang.',
+          });
+          return;
+        } catch (refreshError) {
+          setCheckoutPreview(null);
+          showNotice({
+            tone: 'warning',
+            title: 'Can cap nhat lai phi giao hang',
+            message: getErrorMessage(refreshError),
+          });
+          void loadCart(true);
+          return;
+        }
+      }
+
+      showNotice({
+        tone: 'error',
+        title: 'Chưa đặt được đơn',
+        message: getErrorMessage(error),
+      });
       void loadCart(true);
     } finally {
       setIsSubmitting(false);
@@ -658,6 +873,27 @@ const CartScreen = () => {
               {stockText}
             </Text>
           ) : null}
+          {confirmingRemoveItemId === item._id ? (
+            <View style={styles.removeConfirmRow}>
+              <Text style={styles.removeConfirmText} numberOfLines={1}>
+                Xóa sản phẩm này?
+              </Text>
+              <TouchableOpacity
+                style={styles.removeConfirmCancel}
+                onPress={() => setConfirmingRemoveItemId(null)}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.removeConfirmCancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.removeConfirmDelete}
+                onPress={() => confirmRemoveItem(item)}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.removeConfirmDeleteText}>Xóa</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </View>
     );
@@ -678,6 +914,8 @@ const CartScreen = () => {
       placeholderTextColor={colors.textSubtle}
       keyboardType={keyboardType}
       multiline={multiline}
+      scrollEnabled={multiline}
+      textAlignVertical={multiline ? 'top' : 'center'}
     />
   );
 
@@ -706,6 +944,76 @@ const CartScreen = () => {
           {subtitle ? <Text style={styles.paymentSubtitle}>{subtitle}</Text> : null}
         </View>
       </TouchableOpacity>
+    );
+  };
+
+  const renderNotice = () => {
+    if (!notice) {
+      return null;
+    }
+
+    const toneStyle =
+      notice.tone === 'success'
+        ? styles.noticeSuccess
+        : notice.tone === 'warning'
+        ? styles.noticeWarning
+        : notice.tone === 'error'
+        ? styles.noticeError
+        : styles.noticeInfo;
+    const iconColor =
+      notice.tone === 'success'
+        ? colors.success
+        : notice.tone === 'warning'
+        ? colors.goldText
+        : notice.tone === 'error'
+        ? colors.danger
+        : colors.brand;
+    const iconName: keyof typeof MaterialCommunityIcons.glyphMap =
+      notice.tone === 'success'
+        ? 'check-circle-outline'
+        : notice.tone === 'warning'
+        ? 'alert-circle-outline'
+        : notice.tone === 'error'
+        ? 'close-circle-outline'
+        : 'information-outline';
+
+    return (
+      <View style={[styles.noticeCard, toneStyle]}>
+        <View style={styles.noticeIcon}>
+          <MaterialCommunityIcons name={iconName} size={20} color={iconColor} />
+        </View>
+        <View style={styles.noticeCopy}>
+          <Text style={styles.noticeTitle} numberOfLines={1}>
+            {notice.title}
+          </Text>
+          {notice.message ? (
+            <Text style={styles.noticeMessage} numberOfLines={2}>
+              {notice.message}
+            </Text>
+          ) : null}
+          {notice.actionLabel ? (
+            <TouchableOpacity
+              style={styles.noticeAction}
+              onPress={() => {
+                notice.onAction?.();
+                dismissNotice();
+              }}
+              activeOpacity={0.82}
+            >
+              <Text style={styles.noticeActionText}>{notice.actionLabel}</Text>
+              <MaterialCommunityIcons name="chevron-right" size={15} color={colors.brand} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <TouchableOpacity
+          style={styles.noticeClose}
+          onPress={dismissNotice}
+          accessibilityLabel="Đóng thông báo"
+          activeOpacity={0.82}
+        >
+          <MaterialCommunityIcons name="close" size={17} color={colors.textMuted} />
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -792,11 +1100,54 @@ const CartScreen = () => {
                 <MaterialCommunityIcons name="pencil-outline" size={17} color={colors.brand} />
               </TouchableOpacity>
             </View>
+            <View style={[styles.addressQuoteRow, shippingNeedsAddressMapping && styles.addressQuoteRowWarning]}>
+              <MaterialCommunityIcons
+                name={shippingNeedsAddressMapping ? 'alert-circle-outline' : 'check-circle-outline'}
+                size={15}
+                color={shippingNeedsAddressMapping ? colors.goldText : colors.success}
+              />
+              <Text style={[styles.addressQuoteText, shippingNeedsAddressMapping && styles.addressQuoteTextWarning]}>
+                {!shippingNeedsAddressMapping
+                  ? 'Địa chỉ đã sẵn sàng để tính phí giao hàng.'
+                  : 'Đang dùng địa chỉ đã chọn; phí giao hàng tạm tính vì chưa có dữ liệu tính phí tự động.'}
+              </Text>
+            </View>
           </View>
         ) : null}
       </View>
     );
   };
+
+  const renderShippingQuoteCard = () => (
+    <View style={styles.shippingQuoteCard}>
+      <View style={styles.shippingQuoteIcon}>
+        {isPreviewLoading ? (
+          <ActivityIndicator color={colors.brand} size="small" />
+        ) : (
+          <MaterialCommunityIcons name="truck-fast-outline" size={21} color={colors.brand} />
+        )}
+      </View>
+      <View style={styles.shippingQuoteCopy}>
+        <View style={styles.shippingQuoteTopRow}>
+          <Text style={styles.shippingQuoteTitle}>Giao hàng tiêu chuẩn</Text>
+          <Text style={styles.shippingQuoteFee}>
+            {selectedCheckoutItems.length ? formatCurrency(shippingFee) : '--'}
+          </Text>
+        </View>
+        <Text style={styles.shippingQuoteMeta}>{shippingProviderLabel} · {shippingStatusText}</Text>
+        {shippingNeedsAddressMapping ? (
+          <TouchableOpacity
+            style={styles.shippingQuoteAction}
+            onPress={() => navigation.navigate('EditProfile')}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.shippingQuoteActionText}>Quan ly dia chi</Text>
+            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brand} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
 
   const renderContent = () => {
     if (!isAuthenticated || !session?.accessToken) {
@@ -871,6 +1222,7 @@ const CartScreen = () => {
           <Text style={styles.sectionTitle}>Thông tin đơn hàng</Text>
           <View style={styles.formStack}>
             {renderAddressSection()}
+            {renderShippingQuoteCard()}
             {renderInput('Email', form.email, (value) => setForm((current) => ({ ...current, email: value })), 'email-address')}
             {renderInput(
               'Ghi chú thêm (Ví dụ: giao hàng giờ hành chính)',
@@ -956,7 +1308,11 @@ const CartScreen = () => {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <Text style={styles.couponHint}>Backend sẽ kiểm tra điều kiện và tính lại tổng tiền khi áp mã.</Text>
+                <Text style={styles.couponHint}>
+                  {isPreviewLoading
+                    ? 'Đang tính lại voucher, phí ship và tổng tiền...'
+                    : 'Voucher sẽ được kiểm tra theo sản phẩm, địa chỉ giao hàng và hạng thành viên.'}
+                </Text>
               )}
             </View>
             <View style={[styles.promoCard, styles.promoBlue]}>
@@ -1018,14 +1374,16 @@ const CartScreen = () => {
           </View>
           <View style={styles.summaryLine}>
             <Text style={styles.summaryLabel}>Phí giao hàng:</Text>
-            <Text style={[styles.summaryValue, Boolean(shippingDiscountAmount) && styles.freeText]}>
-              {shippingDiscountAmount ? 'Miễn phí' : formatCurrency(shippingPayable)}
+            <Text style={[styles.summaryValue, isShippingFreeForUser && styles.freeText]}>
+              {isShippingFreeForUser ? 'Miễn phí' : formatCurrency(shippingPayable)}
             </Text>
           </View>
-          <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Giảm phí vận chuyển:</Text>
-            <Text style={styles.summaryDiscount}>-{formatCurrency(shippingDiscountAmount)}</Text>
-          </View>
+          {shippingDiscountAmount > 0 ? (
+            <View style={styles.summaryLine}>
+              <Text style={styles.summaryLabel}>Giảm phí vận chuyển:</Text>
+              <Text style={styles.summaryDiscount}>-{formatCurrency(shippingDiscountAmount)}</Text>
+            </View>
+          ) : null}
           {couponDiscountAmount > 0 ? (
             <View style={styles.summaryLine}>
               <Text style={styles.summaryLabel}>Voucher{appliedCouponCode ? ` (${appliedCouponCode})` : ''}:</Text>
@@ -1069,7 +1427,11 @@ const CartScreen = () => {
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => loadCart(true)}
         onSearchSubmit={handleSearchSubmit}
-        onImageSearchPress={() => Alert.alert('Tìm kiếm ảnh', 'Tính năng này sẽ được bổ sung ở bước sau.')}
+        onImageSearchPress={() => showNotice({
+          tone: 'info',
+          title: 'Tìm kiếm ảnh',
+          message: 'Tính năng này sẽ được bổ sung ở bước sau.',
+        })}
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
@@ -1078,11 +1440,14 @@ const CartScreen = () => {
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart(true)} tintColor={colors.brand} />
         }
       >
+        {renderNotice()}
         {renderContent()}
         <View style={styles.footerGap}>
           <StorefrontFooter />
@@ -1103,6 +1468,79 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 0,
+  },
+  noticeCard: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  noticeSuccess: {
+    borderColor: colors.success,
+    backgroundColor: colors.successSoft,
+  },
+  noticeWarning: {
+    borderColor: colors.goldDark,
+    backgroundColor: colors.goldSoft,
+  },
+  noticeError: {
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerSoft,
+  },
+  noticeInfo: {
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
+  },
+  noticeIcon: {
+    width: 24,
+    minHeight: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noticeCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  noticeTitle: {
+    color: colors.black,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  noticeMessage: {
+    color: colors.textBody,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  noticeAction: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    marginTop: spacing.sm,
+    borderRadius: radii.xs,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  noticeActionText: {
+    color: colors.brand,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  noticeClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionHeaderRow: {
     minHeight: 52,
@@ -1285,6 +1723,54 @@ const styles = StyleSheet.create({
   stockTextDanger: {
     color: colors.danger,
   },
+  removeConfirmRow: {
+    minHeight: 36,
+    borderRadius: radii.xs,
+    backgroundColor: colors.dangerSoft,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  removeConfirmText: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.danger,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  removeConfirmCancel: {
+    minWidth: 44,
+    height: 26,
+    borderRadius: radii.xs,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  removeConfirmCancelText: {
+    color: colors.text,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  removeConfirmDelete: {
+    minWidth: 44,
+    height: 26,
+    borderRadius: radii.xs,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  removeConfirmDeleteText: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
   sectionBlock: {
     paddingHorizontal: spacing.md,
     marginTop: spacing.xxl,
@@ -1426,6 +1912,31 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 3,
   },
+  addressQuoteRow: {
+    minHeight: 32,
+    borderRadius: radii.xs,
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.sm,
+  },
+  addressQuoteRowWarning: {
+    backgroundColor: colors.goldSoft,
+  },
+  addressQuoteText: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.success,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
+  },
+  addressQuoteTextWarning: {
+    color: colors.goldText,
+  },
   addressSmallButton: {
     width: 34,
     height: 34,
@@ -1433,6 +1944,73 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  shippingQuoteCard: {
+    minHeight: 86,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  shippingQuoteIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shippingQuoteCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  shippingQuoteTopRow: {
+    minHeight: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  shippingQuoteTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.black,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  shippingQuoteFee: {
+    color: colors.black,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  shippingQuoteMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+  shippingQuoteAction: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    marginTop: spacing.sm,
+    borderRadius: radii.xs,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  shippingQuoteActionText: {
+    color: colors.brand,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
   },
   input: {
     minHeight: 46,
@@ -1445,7 +2023,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   inputMultiline: {
-    minHeight: 50,
+    minHeight: 104,
+    maxHeight: 150,
     paddingTop: 13,
     paddingBottom: 13,
   },
