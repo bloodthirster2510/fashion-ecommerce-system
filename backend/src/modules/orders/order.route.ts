@@ -12,17 +12,24 @@ import {
   updateOrderStatus,
 } from './order.controller';
 
-const router = Router();
+const customerOrderRouter = Router();
+const adminOrderRouter = Router();
 
-router.use(authenticate);
+customerOrderRouter.use(authenticate);
+customerOrderRouter.use(authorize('user'));
+customerOrderRouter.post('/preview', previewCheckout);
+customerOrderRouter.post('/', createOrder);
+customerOrderRouter.get('/me', getMyOrders);
+customerOrderRouter.get('/:id', getOrderById);
+customerOrderRouter.patch('/:id/cancel', cancelOrder);
 
-router.post('/preview', previewCheckout);
-router.post('/', createOrder);
-router.get('/me', getMyOrders);
-router.get('/', authorize('admin', 'staff'), getOrders);
-router.get('/:id', getOrderById);
-router.patch('/:id/cancel', cancelOrder);
-router.patch('/:id/status', authorize('admin', 'staff'), updateOrderStatus);
-router.patch('/:id/shipping', authorize('admin', 'staff'), updateOrderShipping);
+adminOrderRouter.use(authenticate);
+adminOrderRouter.use(authorize('admin', 'staff'));
+adminOrderRouter.get('/', getOrders);
+adminOrderRouter.get('/:id', getOrderById);
+adminOrderRouter.patch('/:id/cancel', cancelOrder);
+adminOrderRouter.patch('/:id/status', updateOrderStatus);
+adminOrderRouter.patch('/:id/shipping', updateOrderShipping);
 
-export default router;
+export { adminOrderRouter, customerOrderRouter };
+export default customerOrderRouter;

@@ -11,19 +11,27 @@ import {
   updateCategory,
 } from './categories.controller';
 
-const router = Router();
+const customerCategoryRouter = Router();
+const adminCategoryRouter = Router();
 const adminOnly = [authenticate, authorize('admin')];
 
-router.post('/', adminOnly, createCategory);
-router.post('/create', adminOnly, createCategory);
-router.put('/:id', adminOnly, updateCategory);
-router.put('/update/:id', adminOnly, updateCategory);
-router.get('/', listCategories);
-router.get('/getAll', getCategories);
-router.get('/:id/product-template', getCategoryTemplate);
-router.get('/template/:id', getCategoryTemplate);
-router.get('/:id', getCategoryById);
-router.delete('/:id', adminOnly, deleteCategory);
-router.delete('/delete/:id', adminOnly, deleteCategory);
+customerCategoryRouter.get('/', listCategories);
+customerCategoryRouter.get('/:id/product-template', getCategoryTemplate);
+customerCategoryRouter.get('/template/:id', getCategoryTemplate);
+customerCategoryRouter.get('/:id', getCategoryById);
 
-export default router;
+adminCategoryRouter.get('/', authenticate, authorize('admin', 'staff'), getCategories);
+adminCategoryRouter.get('/list', authenticate, authorize('admin', 'staff'), listCategories);
+adminCategoryRouter.get('/getAll', authenticate, authorize('admin', 'staff'), getCategories);
+adminCategoryRouter.get('/:id/product-template', authenticate, authorize('admin', 'staff'), getCategoryTemplate);
+adminCategoryRouter.get('/template/:id', authenticate, authorize('admin', 'staff'), getCategoryTemplate);
+adminCategoryRouter.get('/:id', authenticate, authorize('admin', 'staff'), getCategoryById);
+adminCategoryRouter.post('/', adminOnly, createCategory);
+adminCategoryRouter.post('/create', adminOnly, createCategory);
+adminCategoryRouter.put('/:id', adminOnly, updateCategory);
+adminCategoryRouter.put('/update/:id', adminOnly, updateCategory);
+adminCategoryRouter.delete('/:id', adminOnly, deleteCategory);
+adminCategoryRouter.delete('/delete/:id', adminOnly, deleteCategory);
+
+export { adminCategoryRouter, customerCategoryRouter };
+export default customerCategoryRouter;
