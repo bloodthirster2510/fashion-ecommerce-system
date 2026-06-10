@@ -12,6 +12,10 @@ import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
 import CartScreen from '../features/cart/CartScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
+import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
+import OrderListScreen from '../features/orders/OrderListScreen';
+import OrderDetailScreen from '../features/orders/OrderDetailScreen';
+import type { OrderTabKey } from '../features/orders/orderPresentation';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -44,9 +48,23 @@ export type RootStackParamList = {
   Profile: undefined;
   EditProfile: undefined;
   Membership: undefined;
+  Orders: {
+    status?: OrderTabKey;
+  } | undefined;
+  OrderDetail: {
+    orderId: string;
+  };
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
+  OrderSuccess: {
+    orderId: string;
+    orderCode: string;
+    totalAmount: number;
+    paymentMethod: string;
+    paymentStatus: 'pending' | 'awaiting' | 'paid' | 'failed';
+    isProcessingPayment?: boolean;
+  };
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -66,9 +84,12 @@ const AppNavigator = () => {
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Membership" component={MembershipScreen} />
+      <Stack.Screen name="Orders" component={OrderListScreen} />
+      <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} />
     </Stack.Navigator>
   );
 };

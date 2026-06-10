@@ -23,6 +23,8 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
+import { paymentApi, PaymentApiError } from './paymentApi';
+import * as WebBrowser from 'expo-web-browser';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
@@ -39,7 +41,6 @@ type CartNotice = {
 };
 
 const COD_SHIPPING_FEE = 25000;
-const FREE_SHIPPING_MINIMUM = 399000;
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -332,8 +333,7 @@ const CartScreen = () => {
     (sum, item) => sum + item.quantity * item.priceAtAddedTime,
     0,
   );
-  const localShippingDiscountAmount =
-    selectedCheckoutItems.length && localSubTotal >= FREE_SHIPPING_MINIMUM ? COD_SHIPPING_FEE : 0;
+  const localShippingDiscountAmount = 0;
   const checkoutSummary = checkoutPreview?.summary ?? {
     subTotal: localSubTotal,
     shippingFee: COD_SHIPPING_FEE,
@@ -394,7 +394,7 @@ const CartScreen = () => {
     Boolean(checkoutPreview?.quoteVersion) &&
     !isPreviewLoading &&
     !isSubmitting &&
-    paymentMethod === 'COD';
+    (paymentMethod === 'COD' || paymentMethod === 'VNPAY');
 
   React.useEffect(() => {
     const nextCouponCode = route.params?.couponCode?.trim().toUpperCase();
@@ -619,7 +619,7 @@ const CartScreen = () => {
           couponCode: code,
           cartItemIds: selectedCheckoutItems.map((item) => item._id),
           ...getCheckoutAddressPayload(),
-          paymentMethod: 'COD',
+          paymentMethod,
         }),
       );
 
@@ -720,22 +720,68 @@ const CartScreen = () => {
       setIsSubmitting(true);
       const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
-        paymentMethod: 'COD',
+        paymentMethod,
         quoteVersion: checkoutPreview.quoteVersion,
         ...getCheckoutAddressPayload(),
         couponCode: appliedCouponCode ?? undefined,
         orderNote: form.note.trim() || undefined,
       }));
 
-      showNotice({
-        tone: 'success',
-        title: 'Đặt hàng thành công',
-        message: `Mã đơn ${order.orderCode} · Tổng thanh toán ${formatCurrency(order.totalAmount)}`,
-      }, 8000);
+      // Dọn dẹp form ngay sau khi tạo đơn thành công
       setForm((current) => ({ ...current, note: '' }));
       handleClearCoupon();
+
+      if (paymentMethod === 'VNPAY') {
+        // Luồng VNPay: lấy link thanh toán rồi mở WebBrowser
+        try {
+          const paymentData = await runWithAuth((accessToken) =>
+            paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
+          );
+
+          await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          });
+
+          navigation.replace('OrderSuccess', {
+            orderId: order._id,
+            orderCode: order.orderCode,
+            totalAmount: order.totalAmount,
+            paymentMethod: 'VNPAY',
+            paymentStatus: 'pending',
+            isProcessingPayment: true,
+          });
+        } catch (paymentError) {
+          const paymentMsg =
+            paymentError instanceof PaymentApiError || paymentError instanceof Error
+              ? paymentError.message
+              : 'Không lấy được link thanh toán.';
+
+          navigation.replace('OrderSuccess', {
+            orderId: order._id,
+            orderCode: order.orderCode,
+            totalAmount: order.totalAmount,
+            paymentMethod: 'VNPAY',
+            paymentStatus: 'pending',
+          });
+
+          showNotice({
+            tone: 'warning',
+            title: 'Đơn đã đặt, chưa lấy được link thanh toán',
+            message: paymentMsg,
+          }, 0);
+        }
+      } else {
+        // Luồng COD: điều hướng thẳng đến màn hình thành công
+        navigation.replace('OrderSuccess', {
+          orderId: order._id,
+          orderCode: order.orderCode,
+          totalAmount: order.totalAmount,
+          paymentMethod: 'COD',
+          paymentStatus: 'pending',
+        });
+      }
+
       await loadCart(true);
-      await loadAddresses(true);
     } catch (error) {
       if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
         try {
@@ -1244,8 +1290,8 @@ const CartScreen = () => {
               false,
               'Khách hàng được kiểm tra hàng trước khi nhận.',
             )}
-            {renderPaymentOption('VNPAY', 'Ví điện tử VNPAY', 'credit-card-outline', true, 'Sắp kết nối payment gateway.')}
-            {renderPaymentOption('MOMO', 'Thanh toán MoMo', 'wallet-outline', true, 'Sắp kết nối payment gateway.')}
+            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.')}
+            {renderPaymentOption('MOMO', 'Thanh toán MoMo', 'wallet-outline', true, 'Sắp kết nối — MoMo chưa được tích hợp.')}
           </View>
         </View>
 
@@ -1315,17 +1361,7 @@ const CartScreen = () => {
                 </Text>
               )}
             </View>
-            <View style={[styles.promoCard, styles.promoBlue]}>
-              <View style={[styles.promoBadge, styles.promoBadgeBlue]}>
-                <Text style={styles.promoBadgeText}>FREESHIP</Text>
-              </View>
-              <View style={styles.promoBody}>
-                <Text style={styles.promoTitle}>Miễn phí vận chuyển đơn từ 399K</Text>
-                <Text style={styles.promoMeta}>
-                  {shippingDiscountAmount ? 'Đã áp dụng cho đơn hàng này' : 'Tự áp dụng khi đủ điều kiện'}
-                </Text>
-              </View>
-            </View>
+
             <View style={styles.memberCard}>
               <View style={styles.memberBadge}>
                 <Text style={styles.memberBadgeText}>
@@ -1374,28 +1410,28 @@ const CartScreen = () => {
           </View>
           <View style={styles.summaryLine}>
             <Text style={styles.summaryLabel}>Phí giao hàng:</Text>
-            <Text style={[styles.summaryValue, isShippingFreeForUser && styles.freeText]}>
-              {isShippingFreeForUser ? 'Miễn phí' : formatCurrency(shippingPayable)}
+            <Text style={styles.summaryValue}>
+              {selectedCheckoutItems.length ? formatCurrency(shippingFee) : '--'}
             </Text>
           </View>
-          {shippingDiscountAmount > 0 ? (
-            <View style={styles.summaryLine}>
-              <Text style={styles.summaryLabel}>Giảm phí vận chuyển:</Text>
-              <Text style={styles.summaryDiscount}>-{formatCurrency(shippingDiscountAmount)}</Text>
-            </View>
-          ) : null}
-          {couponDiscountAmount > 0 ? (
-            <View style={styles.summaryLine}>
-              <Text style={styles.summaryLabel}>Voucher{appliedCouponCode ? ` (${appliedCouponCode})` : ''}:</Text>
-              <Text style={styles.summaryDiscount}>-{formatCurrency(couponDiscountAmount)}</Text>
-            </View>
-          ) : null}
-          {membershipDiscountAmount > 0 ? (
-            <View style={styles.summaryLine}>
-              <Text style={styles.summaryLabel}>Khách hàng thân thiết:</Text>
-              <Text style={styles.summaryDiscount}>-{formatCurrency(membershipDiscountAmount)}</Text>
-            </View>
-          ) : null}
+          <View style={styles.summaryLine}>
+            <Text style={styles.summaryLabel}>Giảm phí vận chuyển:</Text>
+            <Text style={shippingDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
+              {shippingDiscountAmount > 0 ? `-${formatCurrency(shippingDiscountAmount)}` : '0đ'}
+            </Text>
+          </View>
+          <View style={styles.summaryLine}>
+            <Text style={styles.summaryLabel}>Voucher{appliedCouponCode ? ` (${appliedCouponCode})` : ''}:</Text>
+            <Text style={couponDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
+              {couponDiscountAmount > 0 ? `-${formatCurrency(couponDiscountAmount)}` : '0đ'}
+            </Text>
+          </View>
+          <View style={styles.summaryLine}>
+            <Text style={styles.summaryLabel}>Khách hàng thân thiết:</Text>
+            <Text style={membershipDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
+              {membershipDiscountAmount > 0 ? `-${formatCurrency(membershipDiscountAmount)}` : '0đ'}
+            </Text>
+          </View>
           <View style={styles.totalLine}>
             <Text style={styles.totalLabel}>Tổng:</Text>
             <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>

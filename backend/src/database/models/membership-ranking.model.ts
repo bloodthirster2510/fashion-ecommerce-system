@@ -1,4 +1,5 @@
 import { Schema, model, models, type Document } from 'mongoose';
+import { hexColorRegex, iconNameRegex } from '../membership-visual';
 
 export interface IMembershipRanking extends Document {
   name: string;
@@ -7,6 +8,10 @@ export interface IMembershipRanking extends Document {
   maxPoint: number | null;
   discountPercent: number;
   benefitDescription: string;
+  cardColor: string;
+  textColor: string;
+  badgeColor: string;
+  iconName: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -20,6 +25,10 @@ const membershipRankingSchema = new Schema<IMembershipRanking>(
     maxPoint: { type: Number, default: null },
     discountPercent: { type: Number, required: true, min: 0, max: 100 },
     benefitDescription: { type: String, trim: true, minlength: 2, maxlength: 200 },
+    cardColor: { type: String, default: '#5b788a', trim: true, match: hexColorRegex },
+    textColor: { type: String, default: '#ffffff', trim: true, match: hexColorRegex },
+    badgeColor: { type: String, default: '#5b788a', trim: true, match: hexColorRegex },
+    iconName: { type: String, default: 'star', trim: true, lowercase: true, match: iconNameRegex },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true },

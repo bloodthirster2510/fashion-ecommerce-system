@@ -2,6 +2,8 @@ import { Types } from 'mongoose';
 import {
   Coupon,
   CouponUsage,
+  type CouponDiscountType,
+  type CouponEligibleUserType,
   type ICoupon,
 } from '../../../database/models';
 import {
@@ -30,6 +32,8 @@ export class CouponServiceError extends Error {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const COUPON_DISCOUNT_TYPES = new Set<CouponDiscountType>(['percent', 'fixed', 'free_shipping']);
+const ELIGIBLE_USER_TYPES = new Set<CouponEligibleUserType>(['all', 'new_user', 'member']);
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -69,6 +73,24 @@ const toNullableNumber = (value: unknown) => {
   return numericValue;
 };
 
+const toRequiredNumber = (value: unknown, fieldName: string) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    throw new CouponServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  return numericValue;
+};
+
+const toPositiveInteger = (value: unknown, fieldName: string) => {
+  const numericValue = toRequiredNumber(value, fieldName);
+  if (!Number.isInteger(numericValue) || numericValue < 1) {
+    throw new CouponServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  return numericValue;
+};
+
 const toDate = (value: string | Date, fieldName: string) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -76,6 +98,66 @@ const toDate = (value: string | Date, fieldName: string) => {
   }
 
   return date;
+};
+
+const normalizeEligibleUserTypes = (values?: CouponEligibleUserType[]) => {
+  if (values === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new CouponServiceError('eligibleUserTypes must include at least one value', 400);
+  }
+
+  const normalized = Array.from(new Set(values));
+  normalized.forEach((value) => {
+    if (!ELIGIBLE_USER_TYPES.has(value)) {
+      throw new CouponServiceError('Invalid eligibleUserTypes', 400);
+    }
+  });
+
+  return normalized.includes('all') ? ['all'] : normalized;
+};
+
+const assertDiscountValue = (discountType: CouponDiscountType, discountValue: number) => {
+  if (discountType === 'free_shipping') {
+    if (discountValue !== 0) {
+      throw new CouponServiceError('discountValue must be 0 for free shipping coupons', 400);
+    }
+
+    return;
+  }
+
+  if (discountType === 'percent') {
+    if (discountValue <= 0 || discountValue > 100) {
+      throw new CouponServiceError('discountValue must be between 0 and 100 for percent coupons', 400);
+    }
+
+    return;
+  }
+
+  if (discountValue <= 0) {
+    throw new CouponServiceError('discountValue must be greater than 0 for fixed coupons', 400);
+  }
+};
+
+const assertCouponPatchIsConsistent = (data: Record<string, unknown>, currentCoupon?: ICoupon) => {
+  const discountType = (data.discountType ?? currentCoupon?.discountType) as CouponDiscountType | undefined;
+  const discountValue = data.discountValue ?? currentCoupon?.discountValue;
+  const startAt = data.startAt ?? currentCoupon?.startAt;
+  const endAt = data.endAt ?? currentCoupon?.endAt;
+
+  if (discountType !== undefined && !COUPON_DISCOUNT_TYPES.has(discountType)) {
+    throw new CouponServiceError('Invalid discountType', 400);
+  }
+
+  if (discountType !== undefined && discountValue !== undefined) {
+    assertDiscountValue(discountType, Number(discountValue));
+  }
+
+  if (startAt instanceof Date && endAt instanceof Date && endAt <= startAt) {
+    throw new CouponServiceError('endAt must be after startAt', 400);
+  }
 };
 
 const clampPagination = (query: CouponListQueryInput) => {
@@ -120,13 +202,13 @@ const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCr
   if (input.name !== undefined) data.name = input.name.trim();
   if (input.description !== undefined) data.description = input.description?.trim() || null;
   if (input.discountType !== undefined) data.discountType = input.discountType;
-  if (input.discountValue !== undefined) data.discountValue = Number(input.discountValue);
+  if (input.discountValue !== undefined) data.discountValue = toRequiredNumber(input.discountValue, 'discountValue');
   if (input.maxDiscountAmount !== undefined) data.maxDiscountAmount = toNullableNumber(input.maxDiscountAmount);
-  if (input.minOrderAmount !== undefined) data.minOrderAmount = Number(input.minOrderAmount);
+  if (input.minOrderAmount !== undefined) data.minOrderAmount = toRequiredNumber(input.minOrderAmount, 'minOrderAmount');
   if (input.usageLimit !== undefined) data.usageLimit = toNullableNumber(input.usageLimit);
-  if (input.perUserLimit !== undefined) data.perUserLimit = Number(input.perUserLimit);
+  if (input.perUserLimit !== undefined) data.perUserLimit = toPositiveInteger(input.perUserLimit, 'perUserLimit');
   if (input.isPublic !== undefined) data.isPublic = Boolean(input.isPublic);
-  if (input.eligibleUserTypes !== undefined) data.eligibleUserTypes = input.eligibleUserTypes;
+  if (input.eligibleUserTypes !== undefined) data.eligibleUserTypes = normalizeEligibleUserTypes(input.eligibleUserTypes);
   if (input.eligibleMembershipRanks !== undefined) {
     data.eligibleMembershipRanks = toObjectIdList(input.eligibleMembershipRanks);
   }
@@ -144,6 +226,8 @@ const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCr
       }
     });
   }
+
+  assertCouponPatchIsConsistent(data);
 
   return data;
 };
@@ -208,11 +292,19 @@ const createCoupon = async (input: CreateCouponInput, actorId?: string) => {
 
 const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: string) => {
   assertValidObjectId(id, 'coupon id');
+  const currentCoupon = await Coupon.findOne({ _id: id, deletedAt: null });
+
+  if (!currentCoupon) {
+    throw new CouponServiceError('Coupon not found', 404);
+  }
+
   const data = normalizeCouponInput(input, false);
 
   if (Object.keys(data).length === 0) {
     throw new CouponServiceError('No data to update', 400);
   }
+
+  assertCouponPatchIsConsistent(data, currentCoupon);
 
   if (actorId) {
     assertValidObjectId(actorId, 'actor id');
@@ -220,7 +312,7 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
   }
 
   const coupon = await Coupon.findOneAndUpdate(
-    { _id: id, deletedAt: null },
+    { _id: currentCoupon._id, deletedAt: null },
     { $set: data },
     { new: true, runValidators: true },
   );

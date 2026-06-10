@@ -14,6 +14,8 @@ export type StaffPermission =
   | 'inventory.write'
   | 'promotions.read'
   | 'promotions.write'
+  | 'loyalty.read'
+  | 'loyalty.write'
   | 'customers.read'
   | 'customers.manage'
   | 'reviews.moderate'

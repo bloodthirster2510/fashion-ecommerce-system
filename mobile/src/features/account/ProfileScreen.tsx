@@ -18,6 +18,7 @@ import { accountApi, MembershipResponse } from './accountApi';
 import { couponApi } from '../coupons/couponApi';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { getMembershipTierVisualConfig } from './membershipVisual';
 
 type ProfileNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -73,7 +74,6 @@ const ProfileScreen = () => {
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
   const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
-  const [orderCount, setOrderCount] = React.useState<number | null>(null);
   const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
 
   useFocusEffect(
@@ -81,7 +81,6 @@ const ProfileScreen = () => {
       if (!session?.accessToken) {
         setMembershipData(null);
         setVoucherCount(null);
-        setOrderCount(null);
         setShippingOrderCount(null);
         return;
       }
@@ -105,22 +104,16 @@ const ProfileScreen = () => {
         .then((response) => setVoucherCount(response.items.length))
         .catch(() => setVoucherCount(null));
       runWithAuth(async (accessToken) => {
-        const [allOrders, shippingOrders] = await Promise.all([
-          accountApi.getMyOrderSummary(accessToken),
-          accountApi.getMyOrderSummary(accessToken, 'shipping'),
-        ]);
+        const shippingOrders = await accountApi.getMyOrderSummary(accessToken, 'shipping');
 
         return {
-          orderCount: allOrders.pagination?.totalItems ?? 0,
           shippingOrderCount: shippingOrders.pagination?.totalItems ?? 0,
         };
       })
         .then((summary) => {
-          setOrderCount(summary.orderCount);
           setShippingOrderCount(summary.shippingOrderCount);
         })
         .catch(() => {
-          setOrderCount(null);
           setShippingOrderCount(null);
         });
     }, [logout, navigation, runWithAuth, session?.accessToken])
@@ -133,6 +126,10 @@ const ProfileScreen = () => {
     }
     if (item.id === 'cart') {
       navigation.navigate('Cart');
+      return;
+    }
+    if (item.id === 'orders') {
+      navigation.navigate('Orders');
       return;
     }
     if (item.id === 'favorites') {
@@ -184,6 +181,8 @@ const ProfileScreen = () => {
     );
   };
 
+  const memberVisual = getMembershipTierVisualConfig(membershipData?.currentTier);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
@@ -232,9 +231,11 @@ const ProfileScreen = () => {
             <Text style={styles.profileContact} numberOfLines={1}>
               {contact}
             </Text>
-            <View style={styles.memberPill}>
-              <MaterialCommunityIcons name="crown-outline" size={15} color={colors.goldText} />
-              <Text style={styles.memberText}>Thành viên {membershipData?.currentTier?.name || '...'}</Text>
+            <View style={[styles.memberPill, { backgroundColor: memberVisual.badgeColor }]}>
+              <MaterialCommunityIcons name={memberVisual.icon} size={15} color={memberVisual.textColor} />
+              <Text style={[styles.memberText, { color: memberVisual.textColor }]}>
+                Thành viên {membershipData?.currentTier?.name || '...'}
+              </Text>
             </View>
           </View>
 
@@ -295,9 +296,9 @@ const ProfileScreen = () => {
             >
               <View style={styles.iconWrap}>
                 <MaterialCommunityIcons name={item.icon} size={26} color={colors.brand} />
-                {item.id === 'orders' && orderCount ? (
+                {item.id === 'orders' && shippingOrderCount ? (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{orderCount}</Text>
+                    <Text style={styles.badgeText}>{shippingOrderCount}</Text>
                   </View>
                 ) : null}
               </View>
@@ -554,7 +555,7 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     paddingHorizontal: 5,
-    backgroundColor: colors.coral,
+    backgroundColor: colors.action,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,

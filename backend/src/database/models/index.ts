@@ -7,5 +7,6 @@ export * from './inventory.model';
 export * from './membership-ranking.model';
 export * from './order.model';
 export * from './product.model';
+export * from './transaction.model';
 export * from './user.model';
 

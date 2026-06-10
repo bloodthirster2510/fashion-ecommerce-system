@@ -14,42 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import { colors, radii, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, MembershipResponse, MembershipTier } from './accountApi';
-
-
-const getTierConfig = (tierName: string) => {
-  const normalized = tierName.toLowerCase();
-  if (normalized.includes('platinum')) {
-    return {
-      bgColor: '#1c1c1c', // Premium Dark
-      icon: 'diamond-stone' as const,
-      badgeColor: '#1c1c1c',
-      textColor: '#e5e4e2',
-    };
-  }
-  if (normalized.includes('gold')) {
-    return {
-      bgColor: '#cf9f2e', // Elegant Gold
-      icon: 'crown' as const,
-      badgeColor: '#cf9f2e',
-      textColor: '#ffffff',
-    };
-  }
-  if (normalized.includes('silver')) {
-    return {
-      bgColor: '#8fa3ad', // Cool Silver
-      icon: 'shield-star' as const,
-      badgeColor: '#8fa3ad',
-      textColor: '#ffffff',
-    };
-  }
-  // Default (Member)
-  return {
-    bgColor: '#5b788a', // Blue Gray
-    icon: 'star' as const,
-    badgeColor: '#5b788a',
-    textColor: '#ffffff',
-  };
-};
+import { getMembershipTierVisualConfig } from './membershipVisual';
 
 const MembershipScreen = () => {
   const navigation = useNavigation();
@@ -99,7 +64,7 @@ const MembershipScreen = () => {
   }
 
   const { currentTier, nextTier, loyaltyPoint, pointToNextTier, progressPercent, tiers } = data;
-  const tierConfig = getTierConfig(currentTier.name);
+  const tierConfig = getMembershipTierVisualConfig(currentTier);
 
   const formatPoints = (points: number) => {
     return points.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -172,7 +137,7 @@ const MembershipScreen = () => {
             )}
             scrollEventThrottle={16}
             renderItem={({ item: tier }) => {
-              const tierConfig = getTierConfig(tier.name);
+              const tierConfig = getMembershipTierVisualConfig(tier);
               const isCurrent = data.currentTier._id === tier._id;
               const hasPassed = data.loyaltyPoint >= tier.minPoint && !isCurrent;
               const pointsNeeded = tier.minPoint - data.loyaltyPoint;
@@ -249,7 +214,7 @@ const MembershipScreen = () => {
 
           {tiers.map((tier) => {
             const isCurrent = currentTier._id === tier._id;
-            const rowConfig = getTierConfig(tier.name);
+            const rowConfig = getMembershipTierVisualConfig(tier);
             return (
               <View key={tier._id || tier.name} style={[styles.tableRow, isCurrent && styles.tableRowCurrent]}>
                 <View style={[styles.tableCell, { flex: 1.4, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start' }]}>

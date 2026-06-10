@@ -16,6 +16,7 @@ import {
   toObjectId,
 } from '../sales/sales.helpers';
 import { cartService } from '../cart/cart.service';
+import { transactionService } from '../payments/transaction.service';
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
 import { couponService } from '../promotions/coupons/coupon.service';
@@ -36,7 +37,17 @@ import type {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD'];
+const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO'];
+const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
+const ORDER_STATUSES: OrderStatus[] = [
+  'confirmed',
+  'packed',
+  'shipping',
+  'delivered',
+  'cancelled',
+  'return_requested',
+  'returned',
+];
 const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   confirmed: ['packed', 'cancelled'],
   packed: ['shipping', 'cancelled'],
@@ -89,6 +100,34 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
   return filter;
 };
 
+const buildStatusSummary = async (filter: Record<string, unknown>) => {
+  const summaryFilter = { ...filter };
+  delete summaryFilter.status;
+
+  const rows = await Order.aggregate<{ _id: OrderStatus; count: number }>([
+    { $match: summaryFilter },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+  const summary = ORDER_STATUSES.reduce(
+    (result, status) => ({
+      ...result,
+      [status]: 0,
+    }),
+    {} as Record<OrderStatus, number>,
+  );
+
+  rows.forEach((row) => {
+    if (ORDER_STATUSES.includes(row._id)) {
+      summary[row._id] = row.count;
+    }
+  });
+
+  return {
+    ...summary,
+    all: ORDER_STATUSES.reduce((total, status) => total + summary[status], 0),
+  };
+};
+
 const getOrderByIdOrThrow = async (id: string) => {
   if (!Types.ObjectId.isValid(id)) {
     throw new SalesServiceError('Invalid order id', 400);
@@ -112,8 +151,20 @@ const assertCanReadOrder = (order: IOrder, userId: string, role?: string) => {
 
 const assertSupportedPaymentMethod = (paymentMethod: OrderPaymentMethod) => {
   if (!SUPPORTED_MVP_PAYMENT_METHODS.includes(paymentMethod)) {
-    throw new SalesServiceError('Only COD payment is supported in this phase', 400);
+    throw new SalesServiceError(
+      `Payment method ${paymentMethod} is not supported in this phase. Supported: ${SUPPORTED_MVP_PAYMENT_METHODS.join(', ')}`,
+      400,
+    );
   }
+};
+
+const isOnlinePaymentMethod = (paymentMethod: OrderPaymentMethod) =>
+  ONLINE_PAYMENT_METHODS.includes(paymentMethod);
+
+const getGatewayProvider = (paymentMethod: OrderPaymentMethod) => {
+  if (paymentMethod === 'VNPAY') return 'vnpay' as const;
+  if (paymentMethod === 'MOMO') return 'momo' as const;
+  return null;
 };
 
 const assertOrderStatusTransition = (from: OrderStatus, to: OrderStatus) => {
@@ -401,6 +452,20 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     await inventoryService.commitReservations({ reservationIds });
     inventoryCommitted = true;
 
+    // Tạo Transaction pending cho phương thức thanh toán online.
+    // COD không cần transaction ngay; sẽ được xử lý khi giao hàng thành công.
+    if (isOnlinePaymentMethod(input.paymentMethod)) {
+      await runBestEffort(
+        transactionService.createPendingTransaction({
+          userId,
+          orderId: orderId.toString(),
+          amount: totalAmount,
+          paymentMethod: input.paymentMethod,
+          gatewayProvider: getGatewayProvider(input.paymentMethod),
+        }),
+      );
+    }
+
     await runBestEffort(Promise.all(
       orderItems.map((item) =>
         Product.updateOne(
@@ -436,17 +501,19 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
     user_id: toObjectId(userId, 'userId'),
   };
 
-  const [items, totalItems] = await Promise.all([
+  const [items, totalItems, statusSummary] = await Promise.all([
     Order.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
     Order.countDocuments(filter),
+    buildStatusSummary(filter),
   ]);
 
   return {
     items,
+    statusSummary,
     pagination: {
       page,
       limit,
@@ -460,17 +527,19 @@ const getOrders = async (query: OrderListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildOrderFilter(query);
 
-  const [items, totalItems] = await Promise.all([
+  const [items, totalItems, statusSummary] = await Promise.all([
     Order.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
     Order.countDocuments(filter),
+    buildStatusSummary(filter),
   ]);
 
   return {
     items,
+    statusSummary,
     pagination: {
       page,
       limit,

@@ -34,7 +34,7 @@ export class PromotionPricingError extends Error {
   }
 }
 
-export const FREE_SHIPPING_MINIMUM = 399000;
+// export const FREE_SHIPPING_MINIMUM = 399000;
 
 const normalizeCouponCode = (value?: string) => value?.trim().toUpperCase() || undefined;
 
@@ -307,8 +307,16 @@ const applyCoupon = async (input: {
 };
 
 const calculateCheckout = async (input: CalculateCheckoutInput): Promise<CheckoutPricingResult> => {
-  if (input.paymentMethod && input.paymentMethod !== 'COD') {
-    throw new SalesServiceError('Only COD payment is supported in this phase', 400);
+  if (
+    input.paymentMethod &&
+    input.paymentMethod !== 'COD' &&
+    input.paymentMethod !== 'VNPAY' &&
+    input.paymentMethod !== 'MOMO'
+  ) {
+    throw new SalesServiceError(
+      `Payment method ${input.paymentMethod} is not supported in this phase. Supported: COD, VNPAY, MOMO`,
+      400,
+    );
   }
 
   const cartItems = await getCartItemsForCheckout(input.userId, input.cartItemIds);
@@ -324,7 +332,7 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
   });
   const shippingQuote = shippingComparison.shippingQuote;
   const shippingFee = shippingQuote.fee;
-  const automaticShippingDiscount = subTotal >= FREE_SHIPPING_MINIMUM ? shippingFee : 0;
+  const automaticShippingDiscount = 0;
   const user = await getUserOrThrow(input.userId);
   const currentTier = await getCurrentMembershipTier(user.loyaltyPoint ?? 0);
   const appliedCoupon = await applyCoupon({

@@ -6,6 +6,8 @@ import inventoryRouter from '../modules/inventory/inventory.route';
 import { adminOrderRouter } from '../modules/orders/order.route';
 import { adminCouponRouter } from '../modules/promotions/coupons/coupon.route';
 import { adminUserRouter } from '../modules/users/user.routes';
+import accountRouter from '../modules/admin/accounts/account.routes';
+import membershipRankingAdminRouter from '../modules/admin/loyalty/membership-ranking.routes';
 
 const adminRouter = Router();
 
@@ -16,5 +18,7 @@ adminRouter.use('/inventory', inventoryRouter);
 adminRouter.use('/orders', adminOrderRouter);
 adminRouter.use('/coupons', adminCouponRouter);
 adminRouter.use('/users', adminUserRouter);
+adminRouter.use('/accounts', accountRouter);
+adminRouter.use('/membership-rankings', membershipRankingAdminRouter);
 
 export default adminRouter;

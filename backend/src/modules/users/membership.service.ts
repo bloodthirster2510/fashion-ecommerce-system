@@ -1,8 +1,37 @@
 import { MembershipRanking } from '../../database/models';
+import { resolveMembershipVisualConfig } from '../../database/membership-visual';
 
 export const getMembershipRankings = async () => {
-  return MembershipRanking.find({ isActive: true }).sort({ level: 1 });
+  const tiers = await MembershipRanking.find({ isActive: true }).sort({ level: 1 }).lean();
+
+  return tiers.map((tier) => ({
+    ...tier,
+    ...resolveMembershipVisualConfig(tier),
+  }));
 };
+
+const toMembershipTierResponse = (tier: {
+  _id?: unknown;
+  name: string;
+  level: number;
+  minPoint: number;
+  maxPoint: number | null;
+  discountPercent: number;
+  benefitDescription: string;
+  cardColor?: string | null;
+  textColor?: string | null;
+  badgeColor?: string | null;
+  iconName?: string | null;
+}) => ({
+  _id: tier._id,
+  name: tier.name,
+  level: tier.level,
+  minPoint: tier.minPoint,
+  maxPoint: tier.maxPoint,
+  discountPercent: tier.discountPercent,
+  benefitDescription: tier.benefitDescription,
+  ...resolveMembershipVisualConfig(tier),
+});
 
 export const getUserMembership = async (userId: string, loyaltyPoint: number) => {
   const tiers = await getMembershipRankings();
@@ -29,34 +58,13 @@ export const getUserMembership = async (userId: string, loyaltyPoint: number) =>
   }
 
   return {
-    currentTier: {
-      _id: currentTier._id,
-      name: currentTier.name,
-      level: currentTier.level,
-      minPoint: currentTier.minPoint,
-      maxPoint: currentTier.maxPoint,
-      discountPercent: currentTier.discountPercent,
-      benefitDescription: currentTier.benefitDescription,
-    },
+    currentTier: toMembershipTierResponse(currentTier),
     nextTier: nextTier
-      ? {
-          name: nextTier.name,
-          level: nextTier.level,
-          minPoint: nextTier.minPoint,
-          discountPercent: nextTier.discountPercent,
-          benefitDescription: nextTier.benefitDescription,
-        }
+      ? toMembershipTierResponse(nextTier)
       : null,
     loyaltyPoint,
     pointToNextTier,
     progressPercent,
-    tiers: tiers.map((t) => ({
-      name: t.name,
-      level: t.level,
-      minPoint: t.minPoint,
-      maxPoint: t.maxPoint,
-      discountPercent: t.discountPercent,
-      benefitDescription: t.benefitDescription,
-    })),
+    tiers: tiers.map(toMembershipTierResponse),
   };
 };

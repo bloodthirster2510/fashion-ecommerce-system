@@ -29,6 +29,10 @@ export type MembershipTier = {
   maxPoint: number | null;
   discountPercent: number;
   benefitDescription: string;
+  cardColor?: string;
+  textColor?: string;
+  badgeColor?: string;
+  iconName?: string;
 };
 
 export type MembershipResponse = {

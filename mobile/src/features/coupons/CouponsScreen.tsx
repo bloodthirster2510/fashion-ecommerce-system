@@ -21,6 +21,13 @@ import { AvailableCouponItem, couponApi } from './couponApi';
 
 type CouponsNavigationProp = StackNavigationProp<RootStackParamList, 'Coupons'>;
 type CouponsRouteProp = RouteProp<RootStackParamList, 'Coupons'>;
+type CouponCategory = 'all' | 'discount' | 'freeship';
+
+const couponCategories: Array<{ key: CouponCategory; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
+  { key: 'all', label: 'Tất cả', icon: 'ticket-confirmation-outline' },
+  { key: 'discount', label: 'Mã giảm giá', icon: 'ticket-percent-outline' },
+  { key: 'freeship', label: 'Freeship', icon: 'truck-fast-outline' },
+];
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -48,6 +55,15 @@ const getCouponValueText = (item: AvailableCouponItem) => {
   return formatCurrency(item.coupon.discountValue);
 };
 
+const getCouponCategory = (item: AvailableCouponItem): Exclude<CouponCategory, 'all'> =>
+  item.coupon.discountType === 'free_shipping' ? 'freeship' : 'discount';
+
+const getCouponTypeLabel = (item: AvailableCouponItem) =>
+  getCouponCategory(item) === 'freeship' ? 'Mã freeship' : 'Mã giảm giá';
+
+const getCouponTypeIcon = (item: AvailableCouponItem): keyof typeof MaterialCommunityIcons.glyphMap =>
+  getCouponCategory(item) === 'freeship' ? 'truck-fast-outline' : 'ticket-percent-outline';
+
 const getEstimateText = (item: AvailableCouponItem) => {
   const totalDiscount = item.estimatedDiscountAmount + item.estimatedShippingDiscountAmount;
   if (item.isApplicable !== true || totalDiscount <= 0) {
@@ -62,6 +78,7 @@ const CouponsScreen = () => {
   const route = useRoute<CouponsRouteProp>();
   const { session, runWithAuth } = useAuth();
   const [items, setItems] = React.useState<AvailableCouponItem[]>([]);
+  const [activeCategory, setActiveCategory] = React.useState<CouponCategory>('all');
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const hasLoadedOnceRef = React.useRef(false);
@@ -110,6 +127,16 @@ const CouponsScreen = () => {
     void loadCoupons();
   }, [loadCoupons]);
 
+  const filteredItems = React.useMemo(
+    () => items.filter((item) => activeCategory === 'all' || getCouponCategory(item) === activeCategory),
+    [activeCategory, items],
+  );
+
+  const getCategoryCount = (category: CouponCategory) =>
+    category === 'all'
+      ? items.length
+      : items.filter((item) => getCouponCategory(item) === category).length;
+
   const handleUseCoupon = (item: AvailableCouponItem) => {
     if (item.isApplicable === false) {
       Alert.alert('Voucher chưa dùng được', item.reason || 'Voucher chưa phù hợp với đơn hàng này.');
@@ -123,6 +150,9 @@ const CouponsScreen = () => {
     const estimateText = getEstimateText(item);
     const isDisabled = item.isApplicable === false;
     const isSelected = route.params?.selectedCouponCode === item.coupon.code;
+    const couponCategory = getCouponCategory(item);
+    const typeColor = couponCategory === 'freeship' ? colors.success : colors.brand;
+    const typeBackground = couponCategory === 'freeship' ? colors.successSoft : colors.brandSoft;
 
     return (
       <View
@@ -135,7 +165,7 @@ const CouponsScreen = () => {
       >
         <View style={styles.couponTop}>
           <View style={styles.codeRow}>
-            <MaterialCommunityIcons name="ticket-percent-outline" size={22} color={colors.brand} />
+            <MaterialCommunityIcons name={getCouponTypeIcon(item)} size={22} color={typeColor} />
             <Text style={styles.codeText} numberOfLines={1}>
               {item.coupon.code}
             </Text>
@@ -147,6 +177,11 @@ const CouponsScreen = () => {
           >
             <Text style={styles.useButtonText}>{isSelected ? 'Đang dùng' : 'Sử dụng'}</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={[styles.typePill, { backgroundColor: typeBackground }]}>
+          <MaterialCommunityIcons name={getCouponTypeIcon(item)} size={15} color={typeColor} />
+          <Text style={[styles.typePillText, { color: typeColor }]}>{getCouponTypeLabel(item)}</Text>
         </View>
 
         <Text style={styles.valueText}>{getCouponValueText(item)}</Text>
@@ -180,7 +215,34 @@ const CouponsScreen = () => {
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadCoupons(true)} />}
           showsVerticalScrollIndicator={false}
         >
-          {items.length ? items.map(renderCoupon) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryTabs}>
+            {couponCategories.map((category) => {
+              const isActive = activeCategory === category.key;
+
+              return (
+                <TouchableOpacity
+                  key={category.key}
+                  style={[styles.categoryTab, isActive && styles.categoryTabActive]}
+                  onPress={() => setActiveCategory(category.key)}
+                  activeOpacity={0.84}
+                >
+                  <MaterialCommunityIcons
+                    name={category.icon}
+                    size={17}
+                    color={isActive ? colors.brandDark : colors.textMuted}
+                  />
+                  <Text style={[styles.categoryTabText, isActive && styles.categoryTabTextActive]}>
+                    {category.label}
+                  </Text>
+                  <Text style={[styles.categoryCount, isActive && styles.categoryCountActive]}>
+                    {getCategoryCount(category.key)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {filteredItems.length ? filteredItems.map(renderCoupon) : (
             <View style={styles.emptyState}>
               <MaterialCommunityIcons name="ticket-confirmation-outline" size={36} color={colors.textSubtle} />
               <Text style={styles.emptyTitle}>Chưa có voucher khả dụng</Text>
@@ -232,6 +294,49 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     paddingBottom: spacing.xxl,
   },
+  categoryTabs: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  categoryTab: {
+    minHeight: 40,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  categoryTabActive: {
+    borderColor: colors.brand,
+    backgroundColor: colors.brandSoft,
+  },
+  categoryTabText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  categoryTabTextActive: {
+    color: colors.brandDark,
+  },
+  categoryCount: {
+    minWidth: 22,
+    borderRadius: radii.pill,
+    overflow: 'hidden',
+    color: colors.textMuted,
+    backgroundColor: colors.background,
+    fontSize: 11,
+    lineHeight: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  categoryCountActive: {
+    color: colors.white,
+    backgroundColor: colors.brand,
+  },
   couponCard: {
     borderRadius: radii.sm,
     borderWidth: 2,
@@ -281,6 +386,19 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 15,
     lineHeight: 20,
+    fontWeight: '900',
+  },
+  typePill: {
+    alignSelf: 'flex-start',
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  typePillText: {
+    fontSize: 12,
     fontWeight: '900',
   },
   valueText: {
