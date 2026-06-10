@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../../middlewares/auth.middleware';
-import { authorize } from '../../../middlewares/role.middleware';
+import { authorize, requirePermission } from '../../../middlewares/role.middleware';
 import { upload } from '../../../middlewares/upload.middleware';
 import {
   createProduct,
@@ -13,8 +13,8 @@ import {
 
 const customerProductRouter = Router();
 const adminProductRouter = Router();
-const adminOnly = [authenticate, authorize('admin')];
-const catalogEditors = [authenticate, authorize('admin', 'staff')];
+const productReaders = [authenticate, authorize('admin', 'staff'), requirePermission('products.read')];
+const productWriters = [authenticate, authorize('admin', 'staff'), requirePermission('products.write')];
 
 const productImageUpload = upload.fields([
   { name: 'product_image', maxCount: 1 },
@@ -24,16 +24,16 @@ const productImageUpload = upload.fields([
 customerProductRouter.get('/', getProductList);
 customerProductRouter.get('/:id', getProductById);
 
-adminProductRouter.get('/', catalogEditors, getProducts);
-adminProductRouter.get('/list', catalogEditors, getProductList);
-adminProductRouter.get('/getAll', catalogEditors, getProducts);
-adminProductRouter.get('/:id', catalogEditors, getProductById);
-adminProductRouter.post('/', adminOnly, productImageUpload, createProduct);
-adminProductRouter.post('/create', adminOnly, productImageUpload, createProduct);
-adminProductRouter.put('/:id', catalogEditors, productImageUpload, updateProduct);
-adminProductRouter.put('/update/:id', catalogEditors, productImageUpload, updateProduct);
-adminProductRouter.delete('/:id', adminOnly, deleteProduct);
-adminProductRouter.delete('/delete/:id', adminOnly, deleteProduct);
+adminProductRouter.get('/', productReaders, getProducts);
+adminProductRouter.get('/list', productReaders, getProductList);
+adminProductRouter.get('/getAll', productReaders, getProducts);
+adminProductRouter.get('/:id', productReaders, getProductById);
+adminProductRouter.post('/', productWriters, productImageUpload, createProduct);
+adminProductRouter.post('/create', productWriters, productImageUpload, createProduct);
+adminProductRouter.put('/:id', productWriters, productImageUpload, updateProduct);
+adminProductRouter.put('/update/:id', productWriters, productImageUpload, updateProduct);
+adminProductRouter.delete('/:id', productWriters, deleteProduct);
+adminProductRouter.delete('/delete/:id', productWriters, deleteProduct);
 
 export { adminProductRouter, customerProductRouter };
 export default customerProductRouter;

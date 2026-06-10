@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import * as userController from './user.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
-import { authorize } from '../../middlewares/role.middleware';
+import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import { getUserMembership } from './membership.service';
 import { User } from '../../database/models/user.model';
 import { ok } from '../../utils/response';
@@ -10,6 +10,8 @@ const customerUserRouter = Router();
 const adminUserRouter = Router();
 const canManageUsers = [authenticate, authorize('admin', 'staff')];
 const adminOnly = [authenticate, authorize('admin')];
+const canReadCustomers = [...canManageUsers, requirePermission('customers.read')];
+const canManageCustomerStatus = [...canManageUsers, requirePermission('customers.manage')];
 
 customerUserRouter.get('/me', authenticate, userController.getMe);
 customerUserRouter.put('/me', authenticate, userController.updateMe);
@@ -31,11 +33,11 @@ customerUserRouter.get('/me/membership', authenticate, async (req: Request, res:
   return ok(res, result);
 });
 
-adminUserRouter.get('/', canManageUsers, userController.getUsers);
-adminUserRouter.get('/:id', canManageUsers, userController.getUserById);
-adminUserRouter.patch('/:id/status', adminOnly, userController.updateUserStatus);
+adminUserRouter.get('/', canReadCustomers, userController.getUsers);
+adminUserRouter.get('/:id', canReadCustomers, userController.getUserById);
+adminUserRouter.patch('/:id/status', canManageCustomerStatus, userController.updateUserStatus);
 adminUserRouter.patch('/:id/role', adminOnly, userController.updateUserRole);
-adminUserRouter.post('/:id/force-password-reset', adminOnly, userController.forcePasswordReset);
+adminUserRouter.post('/:id/force-password-reset', canManageCustomerStatus, userController.forcePasswordReset);
 
 export { adminUserRouter, customerUserRouter };
 export default customerUserRouter;

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../../middlewares/auth.middleware';
-import { authorize } from '../../../middlewares/role.middleware';
+import { authorize, requirePermission } from '../../../middlewares/role.middleware';
 import {
   createCoupon,
   deleteCoupon,
@@ -22,12 +22,12 @@ customerCouponRouter.post('/validate', validateCoupon);
 
 adminCouponRouter.use(authenticate);
 adminCouponRouter.use(authorize('admin', 'staff'));
-adminCouponRouter.get('/', listCoupons);
-adminCouponRouter.get('/:id', getCouponById);
+adminCouponRouter.get('/', requirePermission('promotions.read'), listCoupons);
+adminCouponRouter.get('/:id', requirePermission('promotions.read'), getCouponById);
 
-adminCouponRouter.post('/', authorize('admin'), createCoupon);
-adminCouponRouter.put('/:id', authorize('admin'), updateCoupon);
-adminCouponRouter.patch('/:id/status', authorize('admin'), updateCouponStatus);
-adminCouponRouter.delete('/:id', authorize('admin'), deleteCoupon);
+adminCouponRouter.post('/', requirePermission('promotions.write'), createCoupon);
+adminCouponRouter.put('/:id', requirePermission('promotions.write'), updateCoupon);
+adminCouponRouter.patch('/:id/status', requirePermission('promotions.write'), updateCouponStatus);
+adminCouponRouter.delete('/:id', requirePermission('promotions.write'), deleteCoupon);
 
 export { adminCouponRouter, customerCouponRouter };

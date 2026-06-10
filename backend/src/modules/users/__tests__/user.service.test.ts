@@ -206,12 +206,17 @@ describe('User Service', () => {
   describe('updateUserStatus', () => {
     it('should toggle user active status', async () => {
       const mockUser = { _id: 'u1', isActive: false };
-      (User.findByIdAndUpdate as jest.Mock).mockReturnValue({
+      (User.findOneAndUpdate as jest.Mock).mockReturnValue({
         select: jest.fn().mockResolvedValue(mockUser),
       });
 
       const result = await updateUserStatus('u1', false);
       expect(result).toEqual(mockUser);
+      expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'u1', role: 'user' },
+        { isActive: false },
+        { new: true },
+      );
     });
   });
 

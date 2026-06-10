@@ -160,7 +160,7 @@ export const getUserById = async (req: Request, res: Response) => {
 
 export const updateUserStatus = async (req: Request, res: Response) => {
   try {
-    const user = await userService.updateUserStatus(getParam(req.params.id), req.body.isActive);
+    const user = await userService.updateUserStatus(getParam(req.params.id), req.body.isActive, req.user!.userId);
     return ok(res, user, 'Cập nhật trạng thái thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
@@ -172,7 +172,7 @@ export const updateUserStatus = async (req: Request, res: Response) => {
 
 export const updateUserRole = async (req: Request, res: Response) => {
   try {
-    const user = await userService.updateUserRole(getParam(req.params.id), req.body.role);
+    const user = await userService.updateUserRole(getParam(req.params.id), req.body.role, req.user!.userId);
     return ok(res, user, 'Cập nhật quyền thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {

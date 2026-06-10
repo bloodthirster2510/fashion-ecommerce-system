@@ -1,8 +1,51 @@
-import { User, type IUser, type IUserAddress } from '../../database/models/user.model';
+import { User, type IUser, type IUserAddress, type UserRole } from '../../database/models/user.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
+const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
+const adminUserRoleSet = new Set<string>(adminUserRoles);
+
+const firstString = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return firstString(value[0]);
+  }
+
+  return typeof value === 'string' ? value.trim() : undefined;
+};
+
+const parsePositiveInteger = (value: unknown, fallback: number, max: number) => {
+  const rawValue = firstString(value);
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return Math.min(max, parsedValue);
+};
+
+const parseStatusFilter = (value: unknown) => {
+  const rawValue = firstString(value);
+  if (!rawValue) {
+    return undefined;
+  }
+
+  if (rawValue === 'true' || rawValue === 'active') {
+    return true;
+  }
+
+  if (rawValue === 'false' || rawValue === 'blocked') {
+    return false;
+  }
+
+  throw { status: 400, message: 'Trang thai tai khoan khong hop le' };
+};
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const hasCompletedProfile = (user: IUser) =>
   Boolean(user.phone && user.gender && user.dateOfBirth && Array.isArray(user.address) && user.address.length > 0);
@@ -264,27 +307,38 @@ export const setDefaultAddress = async (userId: string, addressId: string) => {
 };
 
 export const getUsers = async (query: {
-  role?: string;
-  isActive?: string;
-  keyword?: string;
-  page?: string;
-  limit?: string;
+  role?: unknown;
+  isActive?: unknown;
+  keyword?: unknown;
+  page?: unknown;
+  limit?: unknown;
 }) => {
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { role: 'user' };
+  const role = firstString(query.role);
+  const keyword = firstString(query.keyword);
+  const isActive = parseStatusFilter(query.isActive);
 
-  if (query.role) filter.role = query.role;
-  if (query.isActive !== undefined) filter.isActive = query.isActive === 'true';
+  if (role) {
+    if (role !== 'user') {
+      throw { status: 400, message: 'Role khong hop le' };
+    }
+  }
 
-  if (query.keyword) {
+  if (isActive !== undefined) {
+    filter.isActive = isActive;
+  }
+
+  if (keyword) {
+    const escapedKeyword = escapeRegExp(keyword.slice(0, 80));
     filter.$or = [
-      { name: { $regex: query.keyword, $options: 'i' } },
-      { email: { $regex: query.keyword, $options: 'i' } },
-      { phone: { $regex: query.keyword, $options: 'i' } },
+      { name: { $regex: escapedKeyword, $options: 'i' } },
+      { email: { $regex: escapedKeyword, $options: 'i' } },
+      { phone: { $regex: escapedKeyword, $options: 'i' } },
     ];
   }
 
-  const page = Math.max(1, parseInt(query.page || '1'));
-  const limit = Math.min(100, Math.max(1, parseInt(query.limit || '10')));
+  const page = parsePositiveInteger(query.page, 1, 10000);
+  const limit = parsePositiveInteger(query.limit, 10, 100);
   const skip = (page - 1) * limit;
 
   const [users, total] = await Promise.all([
@@ -306,7 +360,7 @@ export const getUsers = async (query: {
 };
 
 export const getUserById = async (id: string) => {
-  const user = await User.findById(id)
+  const user = await User.findOne({ _id: id, role: 'user' })
     .select(safeUserSelect);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -314,8 +368,16 @@ export const getUserById = async (id: string) => {
   return user;
 };
 
-export const updateUserStatus = async (id: string, isActive: boolean) => {
-  const user = await User.findByIdAndUpdate(id, { isActive }, { new: true })
+export const updateUserStatus = async (id: string, isActive: boolean, actorUserId?: string) => {
+  if (typeof isActive !== 'boolean') {
+    throw { status: 400, message: 'Trang thai tai khoan khong hop le' };
+  }
+
+  if (actorUserId && actorUserId === id && !isActive) {
+    throw { status: 400, message: 'Khong the khoa tai khoan dang dang nhap' };
+  }
+
+  const user = await User.findOneAndUpdate({ _id: id, role: 'user' }, { isActive }, { new: true })
     .select(safeUserSelect);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -323,9 +385,13 @@ export const updateUserStatus = async (id: string, isActive: boolean) => {
   return user;
 };
 
-export const updateUserRole = async (id: string, role: string) => {
-  if (!['admin', 'staff', 'user'].includes(role)) {
+export const updateUserRole = async (id: string, role: string, actorUserId?: string) => {
+  if (!adminUserRoleSet.has(role)) {
     throw { status: 400, message: 'Role không hợp lệ' };
+  }
+
+  if (actorUserId && actorUserId === id && role !== 'admin') {
+    throw { status: 400, message: 'Khong the tu ha quyen tai khoan dang dang nhap' };
   }
 
   const user = await User.findByIdAndUpdate(id, { role }, { new: true })
@@ -337,7 +403,7 @@ export const updateUserRole = async (id: string, role: string) => {
 };
 
 export const forcePasswordReset = async (id: string) => {
-  const user = await User.findById(id);
+  const user = await User.findOne({ _id: id, role: 'user' });
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }

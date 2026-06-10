@@ -3,6 +3,22 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 export type UserRole = 'admin' | 'staff' | 'user';
 export type UserGender = 'male' | 'female';
 export type AuthProviderName = 'google' | 'facebook' | 'apple';
+export type StaffPermission =
+  | 'products.read'
+  | 'products.write'
+  | 'catalog.read'
+  | 'catalog.write'
+  | 'orders.read'
+  | 'orders.update'
+  | 'inventory.read'
+  | 'inventory.write'
+  | 'promotions.read'
+  | 'promotions.write'
+  | 'customers.read'
+  | 'customers.manage'
+  | 'reviews.moderate'
+  | 'support.reply'
+  | 'reports.read';
 
 export interface IUserAddress {
   _id?: Types.ObjectId;
@@ -42,6 +58,11 @@ export interface IUser extends Document {
   membershipUpdatedAt?: Date | null;
   refreshToken?: string | null;
   authProviders: IUserAuthProvider[];
+  permissions: StaffPermission[];
+  mustChangePassword: boolean;
+  createdBy?: Types.ObjectId | null;
+  passwordChangedAt?: Date | null;
+  lastLoginAt?: Date | null;
   profileCompleted: boolean;
   resetPasswordToken?: string | null;
   resetPasswordExpires?: Date | null;
@@ -119,6 +140,11 @@ const userSchema = new Schema<IUser>(
     membershipUpdatedAt: { type: Date, default: null },
     refreshToken: { type: String, default: null },
     authProviders: { type: [authProviderSchema], default: [] },
+    permissions: { type: [String], default: [] },
+    mustChangePassword: { type: Boolean, default: false },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    passwordChangedAt: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null },
     profileCompleted: { type: Boolean, default: true },
     resetPasswordToken: { type: String, default: null },
     resetPasswordExpires: { type: Date, default: null },
@@ -132,6 +158,7 @@ const userSchema = new Schema<IUser>(
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ phone: 1 });
 userSchema.index({ membership: 1 });
+userSchema.index({ role: 1, isActive: 1 });
 
 export const User = models.User || model<IUser>('User', userSchema);
 

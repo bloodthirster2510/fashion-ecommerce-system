@@ -146,7 +146,7 @@ describe('Auth Service', () => {
       expect(result.user.role).toBe('user');
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
-        { $set: { refreshToken: 'refresh_token' } },
+        { $set: expect.objectContaining({ refreshToken: 'refresh_token', lastLoginAt: expect.any(Date) }) },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
     });
@@ -248,7 +248,7 @@ describe('Auth Service', () => {
       expect(result.user.email).toBe('test@test.com');
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
-        { $set: { refreshToken: 'refresh_token' } },
+        { $set: expect.objectContaining({ refreshToken: 'refresh_token', lastLoginAt: expect.any(Date) }) },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
     });
@@ -315,12 +315,14 @@ describe('Auth Service', () => {
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
         {
-          $set: {
+          $set: expect.objectContaining({
             password: 'new_hash',
             resetPasswordToken: null,
             resetPasswordExpires: null,
             refreshToken: null,
-          },
+            mustChangePassword: false,
+            passwordChangedAt: expect.any(Date),
+          }),
         },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
@@ -343,10 +345,12 @@ describe('Auth Service', () => {
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
         {
-          $set: {
+          $set: expect.objectContaining({
             password: 'new_hash',
             refreshToken: null,
-          },
+            mustChangePassword: false,
+            passwordChangedAt: expect.any(Date),
+          }),
         },
       );
       expect(mockUser.save).not.toHaveBeenCalled();

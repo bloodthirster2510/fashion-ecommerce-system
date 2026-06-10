@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middlewares/auth.middleware';
-import { authorize } from '../../middlewares/role.middleware';
+import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   cancelOrder,
   createOrder,
@@ -25,11 +25,11 @@ customerOrderRouter.patch('/:id/cancel', cancelOrder);
 
 adminOrderRouter.use(authenticate);
 adminOrderRouter.use(authorize('admin', 'staff'));
-adminOrderRouter.get('/', getOrders);
-adminOrderRouter.get('/:id', getOrderById);
-adminOrderRouter.patch('/:id/cancel', cancelOrder);
-adminOrderRouter.patch('/:id/status', updateOrderStatus);
-adminOrderRouter.patch('/:id/shipping', updateOrderShipping);
+adminOrderRouter.get('/', requirePermission('orders.read'), getOrders);
+adminOrderRouter.get('/:id', requirePermission('orders.read'), getOrderById);
+adminOrderRouter.patch('/:id/cancel', requirePermission('orders.update'), cancelOrder);
+adminOrderRouter.patch('/:id/status', requirePermission('orders.update'), updateOrderStatus);
+adminOrderRouter.patch('/:id/shipping', requirePermission('orders.update'), updateOrderShipping);
 
 export { adminOrderRouter, customerOrderRouter };
 export default customerOrderRouter;

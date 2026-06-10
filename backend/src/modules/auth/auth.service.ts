@@ -30,6 +30,8 @@ const toSessionUser = (user: IUser) => ({
   email: user.email,
   phone: user.phone ?? '',
   role: user.role,
+  permissions: user.permissions ?? [],
+  mustChangePassword: user.mustChangePassword ?? false,
   avatarImage: user.avatarImage ?? null,
   profileCompleted: isProfileCompleted(user),
 });
@@ -130,7 +132,7 @@ export const registerUser = async (data: {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken });
+  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -162,7 +164,7 @@ export const loginUser = async (identifier: string, password: string) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken });
+  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -255,6 +257,8 @@ export const resetPassword = async (identifier: string, token: string, newPasswo
     resetPasswordToken: null,
     resetPasswordExpires: null,
     refreshToken: null,
+    mustChangePassword: false,
+    passwordChangedAt: new Date(),
   });
 };
 
@@ -277,6 +281,8 @@ export const changePassword = async (userId: string, currentPassword: string, ne
   await updateAuthFields(user, {
     password: await hashPassword(newPassword),
     refreshToken: null,
+    mustChangePassword: false,
+    passwordChangedAt: new Date(),
   });
 };
 
@@ -289,7 +295,7 @@ const generateUserTokens = async (user: IUser) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken });
+  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
 
   return {
     accessToken,
