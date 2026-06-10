@@ -161,23 +161,21 @@ const assertCouponUserEligibility = async (
 ) => {
   const eligibleUserTypes = coupon.eligibleUserTypes?.length ? coupon.eligibleUserTypes : ['all'];
 
-  if (eligibleUserTypes.includes('all')) {
-    return;
-  }
-
   const checks: Promise<boolean>[] = [];
 
-  if (eligibleUserTypes.includes('new_user')) {
-    checks.push(getUserOrderCount(userId).then((count) => count === 0));
-  }
+  if (!eligibleUserTypes.includes('all')) {
+    if (eligibleUserTypes.includes('new_user')) {
+      checks.push(getUserOrderCount(userId).then((count) => count === 0));
+    }
 
-  if (eligibleUserTypes.includes('member')) {
-    checks.push(Promise.resolve(Boolean(currentTier && currentTier.discountPercent > 0)));
-  }
+    if (eligibleUserTypes.includes('member')) {
+      checks.push(Promise.resolve(Boolean(currentTier && currentTier.discountPercent > 0)));
+    }
 
-  const allowed = (await Promise.all(checks)).some(Boolean);
-  if (!allowed) {
-    throw new PromotionPricingError('Coupon is not available for this user', 400);
+    const allowed = (await Promise.all(checks)).some(Boolean);
+    if (!allowed) {
+      throw new PromotionPricingError('Coupon is not available for this user', 400);
+    }
   }
 
   if (coupon.eligibleMembershipRanks.length) {
