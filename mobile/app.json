@@ -49,7 +49,8 @@
           "photosPermission": "Ứng dụng cần truy cập thư viện ảnh để cập nhật ảnh đại diện."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font"
     ]
   }
 }
