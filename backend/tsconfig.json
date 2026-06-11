@@ -8,7 +8,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["jest", "node", "multer"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

@@ -1,0 +1,152 @@
+.account-page {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 40px 24px 58px;
+}
+
+.account-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.account-sidebar,
+.account-content {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(23, 38, 50, 0.08);
+}
+
+.account-sidebar {
+  overflow: hidden;
+  min-height: 560px;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 112px;
+  padding: 20px 22px;
+  color: #fff;
+  background: var(--accent);
+}
+
+.user-card .ant-avatar {
+  flex: 0 0 auto;
+  color: var(--accent);
+  background: var(--color-light);
+}
+
+.user-card strong,
+.user-card span {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.user-card strong {
+  font-size: 18px;
+}
+
+.account-menu.ant-menu {
+  border-inline-end: 0;
+  padding: 8px 0 14px;
+  background: var(--surface);
+}
+
+.account-menu .ant-menu-item {
+  width: 100%;
+  height: 48px;
+  line-height: 48px;
+  margin: 0;
+  padding-inline: 24px !important;
+  border-radius: 0;
+  color: var(--ink);
+}
+
+.account-menu .ant-menu-item .ant-menu-item-icon {
+  min-width: 18px;
+  font-size: 18px;
+}
+
+.account-menu .ant-menu-title-content {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.account-menu .ant-menu-item-selected {
+  background: #b2c2c7;
+  color: var(--ink);
+}
+
+.account-menu .ant-menu-item-selected::after {
+  display: none;
+}
+
+.account-content {
+  min-height: 680px;
+  padding: 32px;
+}
+
+.profile-panel {
+  width: 100%;
+}
+
+.account-content h1,
+.account-content h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.account-content h2 {
+  font-size: 22px;
+}
+
+.account-form {
+  margin-top: 22px;
+}
+
+.account-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+
+.account-form .ant-input,
+.account-form .ant-select-selector {
+  min-height: 38px;
+}
+
+.account-form textarea.ant-input {
+  min-height: 76px;
+}
+
+.field-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.password-note {
+  margin-bottom: 16px;
+  background: #eaf3ff;
+  border-color: #b8d5ff;
+  color: #1f5bbf;
+}
+
+@media (max-width: 820px) {
+  .account-page {
+    padding: 24px 16px 32px;
+  }
+
+  .account-shell,
+  .account-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,33 +1,37 @@
 import { Schema, model, models, type Document, type Types } from 'mongoose';
 
-export interface IProductSizeSpec {
-  size: string;
-  shoulder: number;
-  chest: number;
-  length: number;
-  weight: number;
-  stock_quantity: number;
+export interface IMeasurementValue {
+  key: string;
+  value: number;
 }
 
-export interface IProductVersion {
+export interface IProductSizeMeasurement {
+  size: string;
+  measurements: IMeasurementValue[];
+}
+
+export interface IColorVariant {
   _id: Types.ObjectId;
-  sku: string;
   color: string;
-  fitType: string;
-  size_spec: IProductSizeSpec[];
-  version_image: string;
-  image_embedding: number[];
+  colorCode?: string;
+  image: string;
+}
+
+export interface IProductVariant {
+  _id: Types.ObjectId;
+  fitTypeId: Types.ObjectId;
   price: number;
   discount: number;
-  isAvailable: boolean;
-  import: Types.ObjectId[];
+  sizeMeasurements: IProductSizeMeasurement[];
+  colors: IColorVariant[];
+  isActive: boolean;
 }
 
 export interface IProduct extends Document {
   category_id: Types.ObjectId;
   name: string;
   brand_id: Types.ObjectId;
-  version: IProductVersion[];
+  variant: IProductVariant[];
   description: string;
   product_image: string;
   isActive: boolean;
@@ -38,37 +42,60 @@ export interface IProduct extends Document {
   updatedAt: Date;
 }
 
-const sizeSpecSchema = new Schema<IProductSizeSpec>(
+const measurementValueSchema = new Schema<IMeasurementValue>(
   {
-    size: { type: String, required: true, trim: true, minlength: 1, maxlength: 10 },
-    shoulder: { type: Number, required: true, min: 0 },
-    chest: { type: Number, required: true, min: 0 },
-    length: { type: Number, required: true, min: 0 },
-    weight: { type: Number, required: true, min: 0 },
-    stock_quantity: { type: Number, default: 0, min: 0 },
+    key: { type: String, required: true, trim: true, minlength: 1, maxlength: 80 },
+    value: { type: Number, required: true, min: 0 },
   },
   { _id: false },
 );
 
-const productVersionSchema = new Schema<IProductVersion>(
+const sizeMeasurementSchema = new Schema<IProductSizeMeasurement>(
   {
-    sku: { type: String, required: true, unique: true, trim: true, maxlength: 40 },
-    color: { type: String, required: true, trim: true, minlength: 2, maxlength: 40 },
-    fitType: { type: String, required: true, trim: true, minlength: 2, maxlength: 40 },
-    size_spec: {
-      type: [sizeSpecSchema],
+    size: { type: String, required: true, trim: true, minlength: 1, maxlength: 10 },
+    measurements: {
+      type: [measurementValueSchema],
       required: true,
       validate: {
-        validator: (value: IProductSizeSpec[]) => value.length > 0,
-        message: 'Product version must have at least one size specification',
+        validator: (value: IMeasurementValue[]) => value.length > 0,
+        message: 'Size measurement must have at least one measurement value',
       },
     },
-    version_image: { type: String, required: true, trim: true, maxlength: 500 },
-    image_embedding: { type: [Number], default: [] },
+  },
+  { _id: false },
+);
+
+const colorVariantSchema = new Schema<IColorVariant>(
+  {
+    color: { type: String, required: true, trim: true, minlength: 2, maxlength: 40 },
+    colorCode: { type: String, trim: true, maxlength: 30 },
+    image: { type: String, required: true, trim: true, maxlength: 500 },
+  },
+  { _id: true },
+);
+
+const productVariantSchema = new Schema<IProductVariant>(
+  {
+    fitTypeId: { type: Schema.Types.ObjectId, required: true },
     price: { type: Number, required: true, min: 1000, max: 100000000 },
     discount: { type: Number, required: true, min: 0, max: 100 },
-    isAvailable: { type: Boolean, default: true },
-    import: [{ type: Schema.Types.ObjectId, ref: 'Import' }],
+    sizeMeasurements: {
+      type: [sizeMeasurementSchema],
+      required: true,
+      validate: {
+        validator: (value: IProductSizeMeasurement[]) => value.length > 0,
+        message: 'Product variant must have at least one size measurement',
+      },
+    },
+    colors: {
+      type: [colorVariantSchema],
+      required: true,
+      validate: {
+        validator: (value: IColorVariant[]) => value.length > 0,
+        message: 'Product variant must have at least one color option',
+      },
+    },
+    isActive: { type: Boolean, default: true },
   },
   { _id: true },
 );
@@ -78,8 +105,8 @@ const productSchema = new Schema<IProduct>(
     category_id: { type: Schema.Types.ObjectId, ref: 'Category', required: true },
     name: { type: String, required: true, trim: true, minlength: 3, maxlength: 150 },
     brand_id: { type: Schema.Types.ObjectId, ref: 'Brand', required: true },
-    version: {
-      type: [productVersionSchema],
+    variant: {
+      type: [productVariantSchema],
       default: [],
     },
     description: { type: String, required: true, trim: true, minlength: 10, maxlength: 3000 },
@@ -95,7 +122,8 @@ const productSchema = new Schema<IProduct>(
 productSchema.index({ category_id: 1, isActive: 1 });
 productSchema.index({ brand_id: 1, isActive: 1 });
 productSchema.index({ name: 'text', description: 'text' });
-productSchema.index({ 'version.sku': 1 }, { unique: true });
+productSchema.index({ 'variant.fitTypeId': 1 });
+productSchema.index({ 'variant.colors.color': 1 });
 
 export const Product = models.Product || model<IProduct>('Product', productSchema);
 
