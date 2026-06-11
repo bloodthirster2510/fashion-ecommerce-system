@@ -1,10 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import authRoutes from './modules/auth/auth.routes';
-import userRoutes from './modules/users/user.routes';
-import membershipRoutes from './modules/users/membership.routes';
-import locationRoutes from './modules/locations/location.routes';
 import routes from './routes';
 
 const app = express();
@@ -14,15 +10,11 @@ app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true, limit: '8mb' }));
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 
+app.use('/api', routes);
+
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' });
 });
-
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/membership-rankings', membershipRoutes);
-app.use('/api/locations', locationRoutes);
-app.use('/api', routes);
 
 app.get('/', (_req, res) => {
   res.status(200).json({ status: 'ok' });

@@ -1,28 +1,36 @@
-import { useEffect, useState } from 'react'
-import { AdminLogin } from '../admin/AdminLogin'
+import { useState } from 'react'
+import { AdminLogin } from '../features/admin/auth/AdminLogin'
+import '../features/admin/styles/admin.css'
 import {
   clearAdminSession,
   getAdminSession,
-  updateStoredAdminUser,
   type AdminSession,
-} from '../admin/adminSession'
-import { ADMIN_DEFAULT_PATH, ADMIN_LOGIN_PATH } from '../admin/adminRoutes'
-import { ForcePasswordChange } from '../admin/ForcePasswordChange'
-import { AdminLayout } from '../layouts/AdminLayout'
+} from '../features/admin/auth/adminSession'
+import {
+  ADMIN_DEFAULT_PATH,
+  ADMIN_LOGIN_PATH,
+} from '../features/admin/config/adminRoutes'
+import { AdminLayout } from '../features/admin/layouts/AdminLayout'
+import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
+import { ProductListPage } from '../features/catalog/pages/ProductListPage'
+import { ProfilePage } from '../features/profile/pages/ProfilePage'
 
 export function Router() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>
     getAdminSession(),
   )
-  const isAdminPath = window.location.pathname.startsWith('/admin')
-  const path = isAdminPath
-    ? window.location.pathname
-    : adminSession
-      ? ADMIN_DEFAULT_PATH
-      : ADMIN_LOGIN_PATH
+  const path = window.location.pathname
 
-  if (!isAdminPath) {
-    window.history.replaceState(null, '', path)
+  if (!path.startsWith('/admin')) {
+    if (path === '/account') {
+      return <ProfilePage />
+    }
+
+    if (/^\/products\/[^/]+\/?$/.test(path)) {
+      return <ProductDetailPage />
+    }
+
+    return <ProductListPage showSlider={path === '/'} />
   }
 
   const isLoginRoute = path === ADMIN_LOGIN_PATH
@@ -36,29 +44,6 @@ export function Router() {
     window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
   }
 
-  useEffect(() => {
-    window.addEventListener('admin-session-expired', handleLogout)
-
-    return () => window.removeEventListener('admin-session-expired', handleLogout)
-  }, [])
-  const handlePasswordChanged = () => {
-    if (!adminSession) {
-      return
-    }
-
-    const nextSession = {
-      ...adminSession,
-      user: {
-        ...adminSession.user,
-        mustChangePassword: false,
-      },
-    }
-
-    updateStoredAdminUser(nextSession.user)
-    setAdminSession(nextSession)
-    window.history.replaceState(null, '', ADMIN_DEFAULT_PATH)
-  }
-
   if (!adminSession) {
     if (!isLoginRoute) {
       window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
@@ -69,16 +54,6 @@ export function Router() {
 
   if (isLoginRoute || path === '/admin' || path === '/admin/') {
     window.history.replaceState(null, '', ADMIN_DEFAULT_PATH)
-  }
-
-  if (adminSession.user.mustChangePassword) {
-    return (
-      <ForcePasswordChange
-        session={adminSession}
-        onPasswordChanged={handlePasswordChanged}
-        onLogout={handleLogout}
-      />
-    )
   }
 
   return <AdminLayout currentUser={adminSession.user} onLogout={handleLogout} />

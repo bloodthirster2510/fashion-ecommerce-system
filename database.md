@@ -81,10 +81,6 @@ Lưu hạng thành viên, ngưỡng điểm tích lũy và mức giảm giá tư
 | `maxPoint` | Number | Default: `null`, điểm tối đa của hạng; `null` nghĩa là không giới hạn |
 | `discountPercent` | Number | Required |
 | `benefitDescription` | String | Mô tả quyền lợi, ví dụ giảm giá hoặc đổi voucher |
-| `cardColor` | String | Default: `#5b788a`, màu nền thẻ hạng trên app khách hàng |
-| `textColor` | String | Default: `#ffffff`, màu chữ hiển thị trên thẻ hạng |
-| `badgeColor` | String | Default: `#5b788a`, màu badge/nhãn hạng |
-| `iconName` | String | Default: `star`, tên icon MaterialCommunityIcons dùng cho hạng |
 | `isActive` | Boolean | Default: `true` |
 | `createdAt` | Date | Ngày tạo |
 | `updatedAt` | Date | Ngày cập nhật |
@@ -372,8 +368,8 @@ Lưu mã giảm giá dùng trong giỏ hàng và thanh toán.
 | `usedCount` | Number | Default: `0` |
 | `perUserLimit` | Number | Default: `1`, số lần một người dùng được dùng coupon |
 | `isPublic` | Boolean | Default: `true`, voucher có tự hiển thị cho mọi người dùng phù hợp hay không |
-| `eligibleUserTypes` | Array\<String\> | Default: `['all']`, enum: `all`, `new_user`, `member` |
-| `eligibleMembershipRanks` | Array\<ObjectId\> | Reference: `Membership Ranking`, default: `[]`, neu co gia tri thi duoc kiem tra doc lap voi `eligibleUserTypes` |
+| `eligibleUserTypes` | Array\<String\> | Default: `[]`, ví dụ `all`, `new_user`, `member` |
+| `eligibleMembershipRanks` | Array\<ObjectId\> | Reference: `Membership Ranking`, default: `[]` |
 | `applicableProducts` | Array\<ObjectId\> | Reference: `Product`, default: `[]` |
 | `applicableCategories` | Array\<ObjectId\> | Reference: `Category`, default: `[]` |
 | `startAt` | Date | Ngày bắt đầu hiệu lực |
@@ -747,20 +743,16 @@ Các quy định sau dùng để triển khai Mongoose schema, giúp dữ liệu
 | `maxPoint` | Number nguyên hoặc null; nếu có giá trị thì phải lớn hơn `minPoint` |
 | `discountPercent` | Number, min: `0`, max: `100` |
 | `benefitDescription` | String, trim, minLength: `2`, maxLength: `200` |
-| `cardColor` | String, mã màu hex `#RRGGBB`, default: `#5b788a` |
-| `textColor` | String, mã màu hex `#RRGGBB`, default: `#ffffff` |
-| `badgeColor` | String, mã màu hex `#RRGGBB`, default: `#5b788a` |
-| `iconName` | String, lowercase/kebab-case, default: `star` |
 | `isActive` | Boolean, default: `true` |
 
 Gợi ý dữ liệu ban đầu:
 
-| Hạng | level | minPoint | maxPoint | discountPercent | cardColor | iconName | benefitDescription |
-|---|---:|---:|---:|---:|---|---|---|
-| Member | 1 | 0 | 1999 | 0 | `#5b788a` | `star` | Tích điểm đổi quà/voucher |
-| Silver | 2 | 2000 | 4999 | 5 | `#8fa3ad` | `shield-star` | Giảm 5% trên mỗi hóa đơn |
-| Gold | 3 | 5000 | 9999 | 7 | `#cf9f2e` | `crown` | Giảm 7% trên mỗi hóa đơn |
-| Platinum | 4 | 10000 | null | 10 | `#1c1c1c` | `diamond-stone` | Giảm 10% trên mỗi hóa đơn |
+| Hạng | level | minPoint | maxPoint | discountPercent | benefitDescription |
+|---|---:|---:|---:|---:|---|
+| Member | 1 | 0 | 1999 | 0 | Tích điểm đổi quà/voucher |
+| Silver | 2 | 2000 | 4999 | 5 | Giảm 5% trên mỗi hóa đơn |
+| Gold | 3 | 5000 | 9999 | 7 | Giảm 7% trên mỗi hóa đơn |
+| Platinum | 4 | 10000 | null | 10 | Giảm 10% trên mỗi hóa đơn |
 
 ### 28.4 Category
 
@@ -1002,8 +994,10 @@ Nên kiểm tra số lượng `productId` và `versionId` tương ứng nhau đ�
 | `usedCount` | Number nguyên, min: `0`, không lớn hơn `usageLimit` nếu có |
 | `perUserLimit` | Number nguyên, min: `1`, max: `100`, default: `1` |
 | `isPublic` | Boolean, default: `true` |
-| `eligibleUserTypes` | Array, enum item: `all`, `new_user`, `member`, default: `['all']`; neu co `all` thi normalize ve `['all']` |
-| `eligibleMembershipRanks` | Array\<ObjectId\>, tham chiếu `Membership Ranking`, có thể rỗng; neu co gia tri thi coupon chi ap dung cho cac hang duoc chon |
+| `eligibleUserTypes` | Array, enum item: `all`, `new_user`, `member`, `first_order`, max `10` |
+
+Ghi chú `first_order`: backend kiểm tra người dùng chưa có đơn hàng nào ở trạng thái `delivered` hoặc `confirmed` trước khi cho áp dụng coupon loại này.
+| `eligibleMembershipRanks` | Array\<ObjectId\>, tham chiếu `Membership Ranking`, có thể rỗng |
 | `applicableProducts` | Array\<ObjectId\>, tham chiếu `Product`, có thể rỗng |
 | `applicableCategories` | Array\<ObjectId\>, tham chiếu `Category`, có thể rỗng |
 | `startAt` | Date, required |
