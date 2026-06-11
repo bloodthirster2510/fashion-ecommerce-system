@@ -2,23 +2,48 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon server.js"
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "seed": "ts-node-dev --transpile-only src/database/seed.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "eslint . --ext .ts",
+    "test": "jest --passWithNoTests"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.6.2"
+    "axios": "^1.17.0",
+    "bcryptjs": "3.0.3",
+    "cloudinary": "^2.10.0",
+    "cors": "2.8.6",
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
+    "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "9.0.3",
+    "mongoose": "9.6.2",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.7"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@types/bcryptjs": "2.4.2",
+    "@types/cookie-parser": "1.4.3",
+    "@types/cors": "2.8.18",
+    "@types/express": "5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "9.0.2",
+    "@types/multer": "^2.1.0",
+    "@types/node": "25.9.1",
+    "@types/nodemailer": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "eslint": "^10.4.0",
+    "jest": "^30.4.2",
+    "nodemon": "3.1.14",
+    "ts-jest": "^29.4.11",
+    "ts-node-dev": "2.0.0",
+    "typescript": "5.5.4"
   }
 }
