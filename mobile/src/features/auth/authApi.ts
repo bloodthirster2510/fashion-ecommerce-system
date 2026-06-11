@@ -14,6 +14,10 @@ export { AuthApiError };
 const parseApiResponse = <T>(text: string): ApiResponse<T> => {
   if (!text) return {};
 
+  if (/^\s*<!doctype html/i.test(text) || /^\s*<html[\s>]/i.test(text)) {
+    return { message: 'May chu dang chay chua dung API dang nhap. Vui long khoi dong lai backend.' };
+  }
+
   try {
     return JSON.parse(text) as ApiResponse<T>;
   } catch {
