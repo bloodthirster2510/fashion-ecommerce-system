@@ -76,7 +76,9 @@ const generateOrderCode = () => {
 const buildOrderFilter = (query: OrderListQueryInput) => {
   const filter: Record<string, unknown> = {};
 
-  if (query.status) {
+  if (query.statuses?.length) {
+    filter.status = { $in: query.statuses };
+  } else if (query.status) {
     filter.status = query.status;
   }
 
@@ -625,6 +627,51 @@ const cancelOrder = async (userId: string, role: string | undefined, id: string)
   return order.save();
 };
 
+const confirmOrderReceived = async (userId: string, id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  assertCanReadOrder(order, userId);
+
+  if (order.status === 'delivered') {
+    return order;
+  }
+
+  if (order.status !== 'shipping') {
+    throw new SalesServiceError('Order can only be confirmed received while it is shipping', 400);
+  }
+
+  assertOrderStatusTransition(order.status, 'delivered');
+  order.status = 'delivered';
+
+  if (order.paymentMethod === 'COD') {
+    order.paymentStatus = 'paid';
+  }
+
+  order.shipping = {
+    ...(order.shipping ?? {}),
+    status: 'delivered',
+  };
+
+  return order.save();
+};
+
+const requestReturn = async (userId: string, id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  assertCanReadOrder(order, userId);
+
+  if (order.status === 'return_requested') {
+    return order;
+  }
+
+  if (order.status !== 'delivered') {
+    throw new SalesServiceError('Order can only request return after it is delivered', 400);
+  }
+
+  assertOrderStatusTransition(order.status, 'return_requested');
+  order.status = 'return_requested';
+
+  return order.save();
+};
+
 const updateOrderStatus = async (
   id: string,
   input: UpdateOrderStatusInput,
@@ -685,6 +732,8 @@ export const orderService = {
   getOrderById,
   getOrderTransactions,
   cancelOrder,
+  confirmOrderReceived,
+  requestReturn,
   updateOrderStatus,
   updateOrderShipping,
 };

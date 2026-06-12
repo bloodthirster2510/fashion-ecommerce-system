@@ -38,6 +38,7 @@ export interface PreviewCheckoutInput {
 
 export interface OrderListQueryInput {
   status?: OrderStatus;
+  statuses?: OrderStatus[];
   paymentMethod?: OrderPaymentMethod;
   paymentStatus?: OrderPaymentStatus;
   keyword?: string;

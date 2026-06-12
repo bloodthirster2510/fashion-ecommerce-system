@@ -301,6 +301,14 @@
   background: #4b9a68;
 }
 
+.admin-order-stats .is-refund {
+  background: #fff0f6;
+}
+
+.admin-order-stats .is-refund::before {
+  background: #9a3c64;
+}
+
 .admin-order-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -309,6 +317,9 @@
 }
 
 .admin-order-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--admin-line);
@@ -326,6 +337,34 @@
     box-shadow 160ms ease;
 }
 
+.admin-order-tabs button strong {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--order-tab-color);
+  background: var(--order-tab-soft);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.admin-order-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-order-approval-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #d93025;
+  box-shadow: 0 0 0 2px rgba(217, 48, 37, 0.14);
+}
+
 .admin-order-tab {
   --order-tab-color: #315f83;
   --order-tab-soft: #eef6fb;
@@ -336,17 +375,29 @@
   --order-tab-soft: #f2f1ff;
 }
 
+.admin-order-tab.is-packed {
+  --order-tab-color: #8b6425;
+  --order-tab-soft: #fff7e4;
+}
+
 .admin-order-tab.is-shipping {
   --order-tab-color: #285d80;
   --order-tab-soft: #eef6fb;
 }
 
-.admin-order-tab.is-done {
+.admin-order-tab.is-done,
+.admin-order-tab.is-delivered {
   --order-tab-color: #276140;
   --order-tab-soft: #e8f6ee;
 }
 
-.admin-order-tab.is-exceptions {
+.admin-order-tab.is-returns {
+  --order-tab-color: #9a3c64;
+  --order-tab-soft: #fff0f6;
+}
+
+.admin-order-tab.is-exceptions,
+.admin-order-tab.is-closed {
   --order-tab-color: #9b351e;
   --order-tab-soft: #fff2ee;
 }
@@ -362,6 +413,11 @@
   color: #fff;
   background: var(--order-tab-color);
   box-shadow: 0 10px 20px rgba(31, 45, 61, 0.12);
+}
+
+.admin-order-tabs button.is-active strong {
+  color: var(--order-tab-color);
+  background: #fff;
 }
 
 .admin-order-legend {
@@ -392,8 +448,16 @@
   background: #4e94bd;
 }
 
+.admin-order-legend .is-progress::before {
+  background: #8b6425;
+}
+
 .admin-order-legend .is-active::before {
   background: #4b9a68;
+}
+
+.admin-order-legend .is-refund::before {
+  background: #9a3c64;
 }
 
 .admin-order-legend .is-attention::before {

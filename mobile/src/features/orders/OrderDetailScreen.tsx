@@ -24,6 +24,7 @@ import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import { orderApi, OrderApiError, type CustomerOrder, type OrderItem } from './orderApi';
 import {
   canCancelOrder,
+  canConfirmReceived,
   canRequestReturn,
   formatAddress,
   formatCurrency,
@@ -46,8 +47,8 @@ type TimelineStep = {
 
 const timelineSteps: TimelineStep[] = [
   { key: 'confirmed', label: 'Đã xác nhận', helper: 'Đã ghi nhận đơn' },
-  { key: 'packed', label: 'Đã rời kho', helper: 'Đóng gói xong' },
-  { key: 'shipping', label: 'Đang giao', helper: 'Đơn trên đường tới bạn' },
+  { key: 'packed', label: 'Đã đóng gói', helper: 'Chờ bàn giao vận chuyển' },
+  { key: 'shipping', label: 'Đã rời kho', helper: 'Đang giao tới bạn' },
   { key: 'delivered', label: 'Đã giao', helper: 'Hoàn tất' },
 ];
 
@@ -92,6 +93,8 @@ const OrderDetailScreen = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isCancelling, setIsCancelling] = React.useState(false);
+  const [isConfirmingReceived, setIsConfirmingReceived] = React.useState(false);
+  const [isRequestingReturn, setIsRequestingReturn] = React.useState(false);
   const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [isInvoiceVisible, setIsInvoiceVisible] = React.useState(false);
@@ -172,6 +175,80 @@ const OrderDetailScreen = () => {
     }
   };
 
+  const handleConfirmReceived = () => {
+    if (!order) return;
+
+    Alert.alert(
+      'Xác nhận đã nhận hàng?',
+      'Khi xác nhận, đơn sẽ chuyển sang hoàn thành. Nếu thanh toán COD, hệ thống sẽ ghi nhận đơn đã thanh toán.',
+      [
+        { text: 'Để sau', style: 'cancel' },
+        {
+          text: 'Đã nhận hàng',
+          onPress: () => {
+            void confirmReceived();
+          },
+        },
+      ],
+    );
+  };
+
+  const confirmReceived = async () => {
+    if (!order) return;
+
+    try {
+      setIsConfirmingReceived(true);
+      const nextOrder = await runWithAuth((accessToken) => orderApi.confirmReceived(accessToken, order._id));
+      setOrder(nextOrder);
+      Alert.alert('Đã xác nhận nhận hàng', 'Đơn hàng đã được chuyển sang trạng thái hoàn thành.');
+    } catch (error) {
+      Alert.alert('Không thể xác nhận', getErrorMessage(error));
+    } finally {
+      setIsConfirmingReceived(false);
+    }
+  };
+
+  const handleRequestReturn = () => {
+    if (!order) return;
+
+    if (!canRequestReturn(order.status)) {
+      Alert.alert(
+        'Chưa thể trả hàng',
+        'Luồng trả hàng chỉ mở sau khi đơn được giao thành công. Nếu có vấn đề khẩn cấp, bạn liên hệ hỗ trợ đơn hàng để shop kiểm tra.',
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Gửi yêu cầu trả hàng?',
+      'Shop sẽ ghi nhận yêu cầu và liên hệ bạn để kiểm tra điều kiện trả hàng. Sản phẩm cần còn tem mác, chưa qua sử dụng và có hóa đơn.',
+      [
+        { text: 'Để sau', style: 'cancel' },
+        {
+          text: 'Gửi yêu cầu',
+          onPress: () => {
+            void requestReturn();
+          },
+        },
+      ],
+    );
+  };
+
+  const requestReturn = async () => {
+    if (!order) return;
+
+    try {
+      setIsRequestingReturn(true);
+      const nextOrder = await runWithAuth((accessToken) => orderApi.requestReturn(accessToken, order._id));
+      setOrder(nextOrder);
+      Alert.alert('Đã gửi yêu cầu trả hàng', 'Shop đã ghi nhận yêu cầu và sẽ phản hồi trong thời gian sớm nhất.');
+    } catch (error) {
+      Alert.alert('Không thể gửi yêu cầu', getErrorMessage(error));
+    } finally {
+      setIsRequestingReturn(false);
+    }
+  };
+
   const refreshOrderAfterPayment = async () => {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (attempt > 0) {
@@ -211,24 +288,24 @@ const OrderDetailScreen = () => {
       const latestOrder = await refreshOrderAfterPayment();
 
       if (latestOrder?.paymentStatus === 'paid') {
-        Alert.alert('Da ghi nhan thanh toan', 'Don hang cua ban da duoc cap nhat thanh da thanh toan.');
+        Alert.alert('Đã ghi nhận thanh toán', 'Đơn hàng của bạn đã được cập nhật thành đã thanh toán.');
         return;
       }
 
       Alert.alert(
-        'Chua ghi nhan thanh toan',
-        'Ban co the thu lai hoac doi he thong cap nhat trong vai phut.',
+        'Chưa ghi nhận thanh toán',
+        'Bạn có thể thử lại hoặc đợi hệ thống cập nhật trong vài phút.',
       );
     } catch (error) {
       if (error instanceof PaymentApiError && error.status === 409) {
         await loadOrder('refresh');
-        Alert.alert('Don hang da thanh toan', 'He thong vua cap nhat lai trang thai don hang.');
+        Alert.alert('Đơn hàng đã thanh toán', 'Hệ thống vừa cập nhật lại trạng thái đơn hàng.');
         return;
       }
 
       Alert.alert(
-        'Khong the mo thanh toan',
-        error instanceof Error ? error.message : 'Ban thu lai sau nha.',
+        'Không thể mở thanh toán',
+        error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
       );
     } finally {
       setIsRetryingPayment(false);
@@ -251,12 +328,7 @@ const OrderDetailScreen = () => {
     }
 
     if (type === 'return') {
-      Alert.alert(
-        canRequestReturn(order.status) ? 'Chính sách trả hàng' : 'Chưa thể trả hàng',
-        canRequestReturn(order.status)
-          ? 'Bạn có thể gửi yêu cầu trả hàng trong 7 ngày từ khi nhận hàng. Sản phẩm cần còn tem mác, chưa qua sử dụng và có hóa đơn.'
-          : 'Luồng trả hàng chỉ mở sau khi đơn được giao thành công. Nếu có vấn đề khẩn cấp, bạn liên hệ hỗ trợ đơn hàng để shop kiểm tra.',
-      );
+      handleRequestReturn();
       return;
     }
 
@@ -451,6 +523,7 @@ const OrderDetailScreen = () => {
   const shippingPayable = Math.max(0, order.shippingFee - order.shippingDiscountAmount);
   const paymentStatusColor = getPaymentStatusColor(order.paymentStatus);
   const canCancel = canCancelOrder(order.status);
+  const canConfirmDelivery = canConfirmReceived(order.status);
   const canReturn = canRequestReturn(order.status);
   const canRetryVNPayPayment =
     order.paymentMethod === 'VNPAY' &&
@@ -566,7 +639,7 @@ const OrderDetailScreen = () => {
                   <MaterialCommunityIcons name="credit-card-refresh-outline" size={18} color={colors.white} />
                 )}
                 <Text style={styles.paymentRetryButtonText}>
-                  {order.paymentStatus === 'failed' ? 'Thanh toan lai' : 'Thanh toan ngay'}
+                  {order.paymentStatus === 'failed' ? 'Thanh toán lại' : 'Thanh toán ngay'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -607,7 +680,7 @@ const OrderDetailScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {canCancel || canReturn ? (
+        {canCancel || canConfirmDelivery || canReturn ? (
           <View style={styles.bottomActions}>
             {canCancel ? (
               <TouchableOpacity
@@ -625,9 +698,34 @@ const OrderDetailScreen = () => {
               </TouchableOpacity>
             ) : null}
 
+            {canConfirmDelivery ? (
+              <TouchableOpacity
+                style={styles.confirmReceivedButton}
+                onPress={handleConfirmReceived}
+                activeOpacity={0.84}
+                disabled={isConfirmingReceived}
+              >
+                {isConfirmingReceived ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <MaterialCommunityIcons name="package-variant-closed-check" size={20} color={colors.white} />
+                )}
+                <Text style={styles.confirmReceivedButtonText}>Đã nhận hàng</Text>
+              </TouchableOpacity>
+            ) : null}
+
             {canReturn ? (
-              <TouchableOpacity style={styles.returnButton} onPress={() => handleSupportAction('return')} activeOpacity={0.84}>
-                <MaterialCommunityIcons name="archive-refresh-outline" size={20} color={colors.brand} />
+              <TouchableOpacity
+                style={styles.returnButton}
+                onPress={handleRequestReturn}
+                activeOpacity={0.84}
+                disabled={isRequestingReturn}
+              >
+                {isRequestingReturn ? (
+                  <ActivityIndicator size="small" color={colors.brand} />
+                ) : (
+                  <MaterialCommunityIcons name="archive-refresh-outline" size={20} color={colors.brand} />
+                )}
                 <Text style={styles.returnButtonText}>Yêu cầu trả hàng</Text>
               </TouchableOpacity>
             ) : null}
@@ -1094,6 +1192,20 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     color: colors.danger,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  confirmReceivedButton: {
+    minHeight: 50,
+    borderRadius: radii.sm,
+    backgroundColor: colors.success,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  confirmReceivedButtonText: {
+    color: colors.white,
     fontSize: 15,
     fontWeight: '900',
   },

@@ -9,6 +9,7 @@ import { orderService } from '../order.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
+    aggregate: jest.fn(),
     create: jest.fn(),
     findById: jest.fn(),
     find: jest.fn(),
@@ -492,6 +493,98 @@ describe('orderService', () => {
     expect(order.paymentStatus).toBe('refunded');
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('lets the owning customer confirm a shipping order as delivered', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000052');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        status: 'delivering',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.confirmOrderReceived(userId, orderId.toString());
+
+    expect(order.status).toBe('delivered');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.shipping.status).toBe('delivered');
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('lets the owning customer request return after delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000053');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'delivered',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.requestReturn(userId, orderId.toString());
+
+    expect(order.status).toBe('return_requested');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('lists orders with grouped statuses and keeps status summary outside the selected group', async () => {
+    const orderItems = [{ _id: new Types.ObjectId(), status: 'cancelled' }];
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(orderItems),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(2 as never);
+    mockedOrder.aggregate.mockResolvedValue([
+      { _id: 'confirmed', count: 3 },
+      { _id: 'cancelled', count: 1 },
+      { _id: 'returned', count: 1 },
+    ] as never);
+
+    const result = await orderService.getOrders({
+      statuses: ['cancelled', 'returned'],
+      paymentStatus: 'refunded',
+      page: 2,
+      limit: 5,
+    });
+
+    expect(mockedOrder.find).toHaveBeenCalledWith({
+      status: { $in: ['cancelled', 'returned'] },
+      paymentStatus: 'refunded',
+    });
+    expect(mockedOrder.countDocuments).toHaveBeenCalledWith({
+      status: { $in: ['cancelled', 'returned'] },
+      paymentStatus: 'refunded',
+    });
+    expect(mockedOrder.aggregate).toHaveBeenCalledWith([
+      { $match: { paymentStatus: 'refunded' } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+    expect(findQuery.skip).toHaveBeenCalledWith(5);
+    expect(result.items).toBe(orderItems);
+    expect(result.statusSummary.confirmed).toBe(3);
+    expect(result.statusSummary.cancelled).toBe(1);
+    expect(result.statusSummary.returned).toBe(1);
+    expect(result.statusSummary.all).toBe(5);
   });
 
   it('rejects invalid order status transitions', async () => {

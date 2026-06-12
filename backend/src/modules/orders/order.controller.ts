@@ -68,6 +68,21 @@ const parseString = (value: unknown) => {
   return trimmedValue || undefined;
 };
 
+const parseStringList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap(parseStringList);
+  }
+
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
 const parsePositiveInteger = (value: unknown, fieldName: string) => {
   const stringValue = parseString(value);
 
@@ -113,6 +128,23 @@ const parseStatus = (value: unknown) => {
   return status as OrderStatus;
 };
 
+const parseStatuses = (value: unknown) => {
+  const statuses = parseStringList(value);
+
+  if (statuses.length === 0) {
+    return undefined;
+  }
+
+  const uniqueStatuses = Array.from(new Set(statuses));
+  uniqueStatuses.forEach((status) => {
+    if (!ORDER_STATUSES.includes(status as OrderStatus)) {
+      throw new SalesServiceError('Invalid order status', 400);
+    }
+  });
+
+  return uniqueStatuses as OrderStatus[];
+};
+
 const parsePaymentMethod = (value: unknown) => {
   const paymentMethod = parseString(value);
 
@@ -143,6 +175,7 @@ const parsePaymentStatus = (value: unknown) => {
 
 const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   status: parseStatus(req.query.status),
+  statuses: parseStatuses(req.query.statuses),
   paymentMethod: parsePaymentMethod(req.query.paymentMethod),
   paymentStatus: parsePaymentStatus(req.query.paymentStatus),
   keyword: parseString(req.query.keyword),
@@ -241,6 +274,72 @@ const cancelOrder = async (req: Request, res: Response) => {
   }
 };
 
+const confirmOrderReceived = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.confirmOrderReceived(getUserId(req), req.params.id as string);
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: 'user',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: 'Customer confirmed order received',
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+        shippingStatus: beforeOrder.shipping?.status ?? null,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        shippingStatus: order.shipping?.status ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const requestReturn = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.requestReturn(getUserId(req), req.params.id as string);
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: 'user',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: typeof req.body?.reason === 'string' ? req.body.reason : 'Customer requested return',
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
 const updateOrderStatus = async (req: Request, res: Response) => {
   try {
     const input = req.body as UpdateOrderStatusInput;
@@ -332,12 +431,14 @@ const updateOrderShipping = async (req: Request, res: Response) => {
 
 export {
   cancelOrder,
+  confirmOrderReceived,
   createOrder,
   getMyOrders,
   getOrderById,
   getOrderTransactions,
   getOrders,
   previewCheckout,
+  requestReturn,
   updateOrderShipping,
   updateOrderStatus,
 };

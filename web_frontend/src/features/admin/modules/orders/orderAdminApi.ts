@@ -107,6 +107,7 @@ export type AdminCustomerPaymentMethod = {
 
 export type OrderListFilters = {
   status?: AdminOrderStatus | 'all'
+  statuses?: AdminOrderStatus[]
   paymentMethod?: AdminOrderPaymentMethod | 'all'
   paymentStatus?: AdminOrderPaymentStatus | 'all'
   keyword?: string
@@ -141,7 +142,7 @@ export type ExpireStalePaymentsResponse = {
 export type AdminAuditLog = {
   _id: string
   actorId?: string | null
-  actorRole: 'admin' | 'staff' | 'system'
+  actorRole: 'admin' | 'staff' | 'system' | 'user'
   action:
     | 'order.status_update'
     | 'order.shipping_update'
@@ -185,7 +186,11 @@ const buildOrderListQuery = (filters: OrderListFilters) => {
     params.set('keyword', keyword)
   }
 
-  if (filters.status && filters.status !== 'all') {
+  const statuses = filters.statuses?.filter(Boolean)
+
+  if (statuses?.length) {
+    params.set('statuses', statuses.join(','))
+  } else if (filters.status && filters.status !== 'all') {
     params.set('status', filters.status)
   }
 

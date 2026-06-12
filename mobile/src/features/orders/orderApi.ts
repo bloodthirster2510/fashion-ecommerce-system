@@ -208,4 +208,8 @@ export const orderApi = {
     request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}`, token),
   cancelOrder: (token: string, orderId: string) =>
     request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/cancel`, token, { method: 'PATCH' }),
+  confirmReceived: (token: string, orderId: string) =>
+    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/confirm-received`, token, { method: 'PATCH' }),
+  requestReturn: (token: string, orderId: string) =>
+    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/request-return`, token, { method: 'PATCH' }),
 };

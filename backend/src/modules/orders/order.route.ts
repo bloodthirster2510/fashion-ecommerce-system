@@ -3,12 +3,14 @@ import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   cancelOrder,
+  confirmOrderReceived,
   createOrder,
   getMyOrders,
   getOrderById,
   getOrderTransactions,
   getOrders,
   previewCheckout,
+  requestReturn,
   updateOrderShipping,
   updateOrderStatus,
 } from './order.controller';
@@ -23,6 +25,8 @@ customerOrderRouter.post('/', createOrder);
 customerOrderRouter.get('/me', getMyOrders);
 customerOrderRouter.get('/:id', getOrderById);
 customerOrderRouter.patch('/:id/cancel', cancelOrder);
+customerOrderRouter.patch('/:id/confirm-received', confirmOrderReceived);
+customerOrderRouter.patch('/:id/request-return', requestReturn);
 
 adminOrderRouter.use(authenticate);
 adminOrderRouter.use(authorize('admin', 'staff'));

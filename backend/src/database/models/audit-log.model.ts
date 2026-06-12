@@ -9,7 +9,7 @@ export type AuditLogAction =
 
 export interface IAuditLog extends Document {
   actorId?: Types.ObjectId | null;
-  actorRole: 'admin' | 'staff' | 'system';
+  actorRole: 'admin' | 'staff' | 'system' | 'user';
   action: AuditLogAction;
   targetType: string;
   targetId: Types.ObjectId | string;
@@ -26,7 +26,7 @@ const auditLogSchema = new Schema<IAuditLog>(
     actorId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     actorRole: {
       type: String,
-      enum: ['admin', 'staff', 'system'],
+      enum: ['admin', 'staff', 'system', 'user'],
       required: true,
     },
     action: {

@@ -202,6 +202,9 @@ export const canCancelOrder = (status: OrderStatus) =>
 export const canRequestReturn = (status: OrderStatus) =>
   status === 'delivered';
 
+export const canConfirmReceived = (status: OrderStatus) =>
+  status === 'shipping';
+
 export const getOrderItemCount = (order: CustomerOrder) =>
   order.order_list.reduce((total, item) => total + item.quantity, 0);
 

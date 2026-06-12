@@ -29,7 +29,8 @@ type OrdersPageProps = {
 type OrderTab = {
   key: string
   label: string
-  status?: AdminOrderStatus | 'all'
+  statuses?: AdminOrderStatus[]
+  requiresApproval?: boolean
 }
 
 type Notice = {
@@ -39,12 +40,25 @@ type Notice = {
 
 const pageSize = 10
 
+const emptyStatusSummary: Record<AdminOrderStatus | 'all', number> = {
+  all: 0,
+  confirmed: 0,
+  packed: 0,
+  shipping: 0,
+  delivered: 0,
+  cancelled: 0,
+  return_requested: 0,
+  returned: 0,
+}
+
 const orderTabs: OrderTab[] = [
-  { key: 'all', label: 'Tất cả', status: 'all' },
-  { key: 'confirmed', label: 'Chờ xử lý', status: 'confirmed' },
-  { key: 'shipping', label: 'Đang giao', status: 'shipping' },
-  { key: 'done', label: 'Hoàn thành', status: 'delivered' },
-  { key: 'exceptions', label: 'Hủy / trả', status: 'cancelled' },
+  { key: 'all', label: 'Tất cả' },
+  { key: 'confirmed', label: 'Chờ xử lý', statuses: ['confirmed'], requiresApproval: true },
+  { key: 'packed', label: 'Đã đóng gói', statuses: ['packed'] },
+  { key: 'shipping', label: 'Đang giao', statuses: ['shipping'] },
+  { key: 'delivered', label: 'Đã giao', statuses: ['delivered'] },
+  { key: 'returns', label: 'Yêu cầu trả', statuses: ['return_requested'], requiresApproval: true },
+  { key: 'closed', label: 'Đã đóng', statuses: ['cancelled', 'returned'] },
 ]
 
 const statusLabels: Record<AdminOrderStatus, string> = {
@@ -98,6 +112,7 @@ const actorRoleLabels: Record<AdminAuditLog['actorRole'], string> = {
   admin: 'Quản trị viên',
   staff: 'Nhân viên',
   system: 'Hệ thống',
+  user: 'Khách hàng',
 }
 
 const auditTargetTypeLabels: Record<string, string> = {
@@ -209,6 +224,14 @@ const getTabClass = (tab: OrderTab, activeTabKey: string) =>
     .filter(Boolean)
     .join(' ')
 
+const getTabCount = (tab: OrderTab, summary: Record<AdminOrderStatus | 'all', number>) =>
+  tab.statuses?.length
+    ? tab.statuses.reduce((total, status) => total + (summary[status] ?? 0), 0)
+    : summary.all
+
+const shouldShowApprovalDot = (tab: OrderTab, summary: Record<AdminOrderStatus | 'all', number>) =>
+  Boolean(tab.requiresApproval && getTabCount(tab, summary) > 0)
+
 const orderFlowSteps = ['confirmed', 'packed', 'shipping', 'delivered'] as const
 
 const orderFlowLabels: Record<(typeof orderFlowSteps)[number], string> = {
@@ -299,6 +322,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [page, setPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [statusSummary, setStatusSummary] = useState<Record<AdminOrderStatus | 'all', number>>(emptyStatusSummary)
   const [isLoading, setIsLoading] = useState(false)
   const [isDrawerLoading, setIsDrawerLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -314,22 +338,13 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
 
   const orderStats = useMemo(() => {
-    const pendingPayment = orders.filter(
-      (order) => order.paymentMethod !== 'COD' && order.paymentStatus === 'pending',
-    ).length
-    const paid = orders.filter((order) => order.paymentStatus === 'paid').length
-    const active = orders.filter(
-      (order) => !['cancelled', 'returned'].includes(order.status),
-    ).length
-    const attention = orders.filter(
-      (order) =>
-        shouldWarnPaymentBeforeShipping(order) ||
-        order.paymentStatus === 'failed' ||
-        ['cancelled', 'return_requested', 'returned'].includes(order.status),
-    ).length
-
-    return { pendingPayment, paid, active, attention }
-  }, [orders])
+    return {
+      confirmed: statusSummary.confirmed,
+      packed: statusSummary.packed,
+      shipping: statusSummary.shipping,
+      returns: statusSummary.return_requested,
+    }
+  }, [statusSummary])
 
   const loadOrders = useCallback(async () => {
     setIsLoading(true)
@@ -338,7 +353,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     try {
       const result = await listOrders({
         keyword,
-        status: activeTab.status ?? 'all',
+        statuses: activeTab.statuses,
         paymentStatus,
         paymentMethod,
         page,
@@ -348,12 +363,13 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
       setOrders(result.items)
       setTotalItems(result.pagination?.totalItems ?? result.items.length)
       setTotalPages(Math.max(1, result.pagination?.totalPages ?? 1))
+      setStatusSummary({ ...emptyStatusSummary, ...result.statusSummary })
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     } finally {
       setIsLoading(false)
     }
-  }, [activeTab.status, keyword, page, paymentMethod, paymentStatus])
+  }, [activeTab.statuses, keyword, page, paymentMethod, paymentStatus])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -582,24 +598,24 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
 
       <div className="admin-user-stats admin-order-stats" aria-label="Thống kê đơn hàng">
         <div className="is-total">
-          <span>Tổng theo bộ lọc</span>
+          <span>Kết quả hiện tại</span>
           <strong>{totalItems}</strong>
         </div>
         <div className="is-attention">
-          <span>Cần chú ý</span>
-          <strong>{orderStats.attention}</strong>
+          <span>Chờ xử lý</span>
+          <strong>{orderStats.confirmed}</strong>
         </div>
         <div className="is-warning">
-          <span>Online chờ thanh toán</span>
-          <strong>{orderStats.pendingPayment}</strong>
+          <span>Đã đóng gói</span>
+          <strong>{orderStats.packed}</strong>
         </div>
         <div className="is-active">
-          <span>Đang vận hành</span>
-          <strong>{orderStats.active}</strong>
+          <span>Đang giao</span>
+          <strong>{orderStats.shipping}</strong>
         </div>
-        <div className="is-success">
-          <span>Đã thanh toán</span>
-          <strong>{orderStats.paid}</strong>
+        <div className="is-refund">
+          <span>Yêu cầu trả</span>
+          <strong>{orderStats.returns}</strong>
         </div>
       </div>
 
@@ -616,15 +632,23 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
               setPage(1)
             }}
           >
-            {tab.label}
+            <span className="admin-order-tab-label">
+              {shouldShowApprovalDot(tab, statusSummary) ? (
+                <span className="admin-order-approval-dot" title="Có mục cần duyệt" aria-label="Có mục cần duyệt" />
+              ) : null}
+              <span>{tab.label}</span>
+            </span>
+            <strong>{getTabCount(tab, statusSummary)}</strong>
           </button>
         ))}
       </div>
 
       <div className="admin-order-legend" aria-label="Chú giải màu trạng thái">
         <span className="is-warning">Chờ xử lý</span>
+        <span className="is-progress">Đã đóng gói</span>
         <span className="is-info">Đang giao</span>
         <span className="is-active">Hoàn tất</span>
+        <span className="is-refund">Yêu cầu trả</span>
         <span className="is-attention">Cần chú ý</span>
       </div>
 

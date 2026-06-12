@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { AuditLog, type AuditLogAction } from '../../database/models';
 
-type AuditActorRole = 'admin' | 'staff' | 'system';
+type AuditActorRole = 'admin' | 'staff' | 'system' | 'user';
 
 type RecordAuditLogInput = {
   actorId?: string | null;
