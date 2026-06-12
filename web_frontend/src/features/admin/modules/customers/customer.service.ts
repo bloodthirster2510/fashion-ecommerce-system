@@ -1,54 +1,14 @@
-import { requestAdmin } from '../services/adminHttp'
-
-export type ManagedUserRole = 'admin' | 'staff' | 'user'
-
-export type ManagedUserAddress = {
-  _id?: string
-  customerName?: string
-  province?: string
-  district?: string | null
-  ward?: string
-  streetName?: string
-  phoneNumber?: string
-  isDefault?: boolean
-}
-
-export type ManagedUser = {
-  _id: string
-  name: string
-  email: string
-  phone?: string
-  role: ManagedUserRole
-  gender?: 'male' | 'female'
-  dateOfBirth?: string
-  address?: ManagedUserAddress[]
-  loyaltyPoint?: number
-  profileCompleted?: boolean
-  avatarImage?: string | null
-  isActive: boolean
-  createdAt?: string
-  updatedAt?: string
-}
+import { requestAdmin } from '../../services/adminHttp'
+import type {
+  ManagedUser,
+  ManagedUserFilters,
+  ManagedUserList,
+  ManagedUserRole,
+} from './customer.types'
 
 type ManagedUserApiResponse = Omit<ManagedUser, 'isActive'> & {
   isActive?: boolean | string
   status?: string
-}
-
-export type ManagedUserList = {
-  items: ManagedUser[]
-  totalItems: number
-  page: number
-  limit: number
-  totalPages: number
-}
-
-export type ManagedUserFilters = {
-  keyword?: string
-  role?: ManagedUserRole | 'all'
-  status?: 'all' | 'active' | 'blocked'
-  page?: number
-  limit?: number
 }
 
 const normalizeManagedUserStatus = (user: ManagedUserApiResponse): ManagedUser => {

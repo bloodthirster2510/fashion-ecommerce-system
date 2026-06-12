@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { AdminUser } from '../auth/adminSession'
+import type { AdminUser } from '../modules/auth/adminSession'
 import {
   adminRouteGroups,
   adminRoutes,
@@ -7,10 +7,11 @@ import {
   type AdminRoute,
   type AdminRouteId,
 } from '../config/adminRoutes'
-import { AccountListPage } from '../accounts/AccountListPage'
-import { LoyaltyPage } from '../loyalty/LoyaltyPage'
-import { PromotionsPage } from '../promotions/PromotionsPage'
-import { UserListPage } from '../users/UserListPage'
+import { ManagerListPage } from '../modules/managers/ManagerListPage'
+import { CatalogManagementPage } from '../modules/catalog/CatalogManagementPage'
+import { CustomerListPage } from '../modules/customers/CustomerListPage'
+import { LoyaltyPage } from '../modules/loyalty/LoyaltyPage'
+import { PromotionsPage } from '../modules/promotions/PromotionsPage'
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -126,11 +127,11 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
   const renderContent = () => {
     if (renderedSection === 'accounts') {
-      return <AccountListPage />
+      return <ManagerListPage />
     }
 
     if (renderedSection === 'customers') {
-      return <UserListPage currentUser={currentUser} />
+      return <CustomerListPage currentUser={currentUser} />
     }
 
     if (renderedSection === 'loyalty') {
@@ -139,6 +140,10 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'promotions') {
       return <PromotionsPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'catalog') {
+      return <CatalogManagementPage currentUser={currentUser} />
     }
 
     return (

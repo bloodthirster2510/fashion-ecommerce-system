@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { AdminUser } from '../auth/adminSession'
-import {
-  listMembershipRankings,
-  type MembershipRanking,
-} from '../loyalty/loyaltyAdminApi'
+import { listMembershipRankings } from '../loyalty/loyalty.service'
+import type { MembershipRanking } from '../loyalty/loyalty.types'
 import {
   createCoupon,
   deleteCoupon,
@@ -12,13 +10,17 @@ import {
   listCoupons,
   updateCoupon,
   updateCouponStatus,
-  type AdminCoupon,
-  type CategoryOption,
-  type CouponDiscountType,
-  type CouponEligibleUserType,
-  type CouponPayload,
-  type ProductOption,
-} from './couponAdminApi'
+} from './promotion.service'
+import type {
+  AdminCoupon,
+  CategoryOption,
+  CouponDiscountType,
+  CouponEligibleUserType,
+  CouponPayload,
+  ProductOption,
+} from './promotion.types'
+import { OptionPicker, type PickerOption } from './components/OptionPicker'
+import './promotion.css'
 
 type PromotionsPageProps = {
   currentUser: AdminUser
@@ -59,12 +61,6 @@ type DialogState =
   | null
 
 type CouponSelectionField = 'eligibleMembershipRanks' | 'applicableProducts' | 'applicableCategories'
-
-type PickerOption = {
-  value: string
-  label: string
-  meta?: string
-}
 
 const pageSize = 10
 
@@ -200,9 +196,6 @@ const buildCouponCode = (name: string) => {
   return baseCode || `VOUCHER${Math.floor(1000 + Math.random() * 9000)}`
 }
 
-const formatPickerCount = (count: number, emptyLabel: string) =>
-  count > 0 ? `${count} đã chọn` : emptyLabel
-
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
 
@@ -325,110 +318,6 @@ const toCouponPayload = (form: CouponFormState): CouponPayload => {
     endAt: endAt.toISOString(),
     isActive: form.isActive,
   }
-}
-
-type OptionPickerProps = {
-  title: string
-  emptyLabel: string
-  searchPlaceholder: string
-  options: PickerOption[]
-  selectedValues: string[]
-  onChange: (values: string[]) => void
-}
-
-function OptionPicker({
-  title,
-  emptyLabel,
-  searchPlaceholder,
-  options,
-  selectedValues,
-  onChange,
-}: OptionPickerProps) {
-  const [query, setQuery] = useState('')
-  const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues])
-  const normalizedQuery = normalizeSearchText(query.trim())
-  const filteredOptions = useMemo(
-    () =>
-      normalizedQuery
-        ? options.filter((option) =>
-            normalizeSearchText(`${option.label} ${option.meta ?? ''}`).includes(normalizedQuery),
-          )
-        : options,
-    [normalizedQuery, options],
-  )
-  const selectedOptions = useMemo(
-    () => options.filter((option) => selectedSet.has(option.value)),
-    [options, selectedSet],
-  )
-
-  const toggleValue = (value: string) => {
-    if (selectedSet.has(value)) {
-      onChange(selectedValues.filter((selectedValue) => selectedValue !== value))
-      return
-    }
-
-    onChange([...selectedValues, value])
-  }
-
-  return (
-    <section className="admin-option-picker">
-      <header className="admin-option-picker-header">
-        <div>
-          <strong>{title}</strong>
-          <span>{formatPickerCount(selectedValues.length, emptyLabel)}</span>
-        </div>
-        {selectedValues.length ? (
-          <button className="admin-link-button" type="button" onClick={() => onChange([])}>
-            Bỏ chọn
-          </button>
-        ) : null}
-      </header>
-
-      {options.length > 8 ? (
-        <input
-          className="admin-option-picker-search"
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={searchPlaceholder}
-        />
-      ) : null}
-
-      <div className="admin-option-list">
-        {filteredOptions.length ? (
-          filteredOptions.map((option) => (
-            <label key={option.value} className="admin-option-item">
-              <input
-                type="checkbox"
-                checked={selectedSet.has(option.value)}
-                onChange={() => toggleValue(option.value)}
-              />
-              <span>
-                <strong>{option.label}</strong>
-                {option.meta ? <small>{option.meta}</small> : null}
-              </span>
-            </label>
-          ))
-        ) : (
-          <div className="admin-option-empty">Không có mục phù hợp</div>
-        )}
-      </div>
-
-      {selectedOptions.length ? (
-        <div className="admin-option-chips">
-          {selectedOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => toggleValue(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  )
 }
 
 export function PromotionsPage({ currentUser }: PromotionsPageProps) {

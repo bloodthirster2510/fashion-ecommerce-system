@@ -1,0 +1,266 @@
+#root:has(.admin-login-page) {
+  width: 100%;
+  max-width: none;
+  min-height: 100svh;
+  margin: 0;
+  border: 0;
+  display: block;
+  text-align: left;
+}
+
+.admin-login-page {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  text-align: left;
+}
+
+.admin-login-page {
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: minmax(410px, 0.92fr) minmax(420px, 1.08fr);
+  color: var(--admin-text);
+  background: var(--admin-bg);
+}
+
+.admin-login-panel {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 48px clamp(30px, 7vw, 92px);
+  background: #fff;
+  box-shadow: 12px 0 30px rgba(39, 48, 43, 0.08);
+}
+
+.admin-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 46px;
+}
+
+.admin-login-mark {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: #1f2d3d;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.admin-login-brand div,
+.admin-login-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-login-brand strong {
+  color: #1f2d3d;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.admin-login-brand span:not(.admin-login-mark) {
+  color: #718293;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-login-heading {
+  margin-bottom: 28px;
+}
+
+.admin-login-heading p,
+.admin-login-kicker {
+  margin: 0;
+  color: var(--admin-accent);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-login-heading h1 {
+  margin: 0;
+  color: #1f2d3d;
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.12;
+}
+
+.admin-login-form {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-login-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-login-form label span {
+  color: #34433d;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-login-form input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid #d8e0e7;
+  border-radius: 8px;
+  color: #1f2d3d;
+  background: #f9fbfc;
+  outline: 0;
+  font-size: 15px;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.admin-login-form input:focus {
+  border-color: var(--admin-accent);
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(95, 134, 162, 0.16);
+}
+
+.admin-login-error {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #efb5a7;
+  border-radius: 8px;
+  color: var(--admin-danger);
+  background: var(--admin-danger-bg);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.admin-login-submit,
+.admin-login-secondary {
+  height: 48px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 900;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.admin-login-submit {
+  margin-top: 4px;
+  border: 0;
+  color: #fff;
+  background: #1f2d3d;
+}
+
+.admin-login-submit:hover:not(:disabled) {
+  background: #31465d;
+  box-shadow: 0 10px 22px rgba(31, 45, 61, 0.18);
+  transform: translateY(-1px);
+}
+
+.admin-login-submit:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.admin-login-secondary {
+  border: 1px solid #d4dde5;
+  color: #233445;
+  background: #fff;
+}
+
+.admin-login-secondary:hover {
+  border-color: #b8c5d0;
+  background: #f7f9fb;
+  box-shadow: 0 8px 18px rgba(31, 45, 61, 0.1);
+  transform: translateY(-1px);
+}
+
+.admin-login-footnote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 22px;
+  color: #718293;
+  font-size: 13px;
+}
+
+.admin-login-footnote a {
+  color: var(--admin-accent-dark);
+  font-weight: 900;
+}
+
+.admin-login-aside {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 70px clamp(32px, 7vw, 96px);
+  color: #fff;
+  background:
+    linear-gradient(145deg, rgba(31, 45, 61, 0.92), rgba(84, 119, 146, 0.82)),
+    url('../../../../assets/hero.png') center 54% / min(390px, 54vw) auto no-repeat,
+    #1f2d3d;
+}
+
+.admin-login-aside h2 {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: #fff;
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.18;
+}
+
+.admin-login-kicker {
+  color: #d9f0e6;
+}
+
+@media (max-width: 980px) {
+  .admin-login-page {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-login-panel {
+    min-height: auto;
+    padding: 42px 28px;
+  }
+
+  .admin-login-aside {
+    min-height: 330px;
+    padding: 42px 28px;
+  }
+
+  .admin-login-aside h2 {
+    font-size: 28px;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-login-aside {
+    display: none;
+  }
+
+  .admin-login-brand {
+    margin-bottom: 34px;
+  }
+
+  .admin-login-heading h1 {
+    font-size: 30px;
+  }
+
+  .admin-login-footnote {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

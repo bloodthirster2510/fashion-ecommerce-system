@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AdminUser } from '../auth/adminSession'
-import { UserDetailDrawer, formatDate } from './UserDetailDrawer'
+import { CustomerDetailDrawer } from './components/CustomerDetailDrawer'
+import { formatDate } from './customer.utils'
 import {
   forceManagedUserPasswordReset,
   getManagedUser,
   listManagedUsers,
   updateManagedUserStatus,
-  type ManagedUser,
-} from './userAdminApi'
+} from './customer.service'
+import type { ManagedUser } from './customer.types'
 
-type UserListPageProps = {
+type CustomerListPageProps = {
   currentUser: AdminUser
 }
 
@@ -44,7 +45,7 @@ const getUserTitle = (user: ManagedUser) => user.name || user.email
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
 
-export function UserListPage({ currentUser }: UserListPageProps) {
+export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null)
   const [keywordInput, setKeywordInput] = useState('')
@@ -377,7 +378,7 @@ export function UserListPage({ currentUser }: UserListPageProps) {
         </div>
       </footer>
 
-      <UserDetailDrawer
+      <CustomerDetailDrawer
         user={selectedUser}
         currentUser={currentUser}
         isLoading={isDrawerLoading}

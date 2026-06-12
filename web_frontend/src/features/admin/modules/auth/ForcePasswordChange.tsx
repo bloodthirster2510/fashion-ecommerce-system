@@ -1,21 +1,13 @@
 import { useState, type FormEvent } from 'react'
-import type { AdminSession } from './adminSession'
+import { changeAdminPassword } from './auth.service'
+import type { AdminSession } from './auth.types'
+import './auth.css'
 
 type ForcePasswordChangeProps = {
   session: AdminSession
   onPasswordChanged: () => void
   onLogout: () => void
 }
-
-type ApiResponse<T> = {
-  message?: string
-  data?: T
-}
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  import.meta.env.VITE_API_URL ??
-  'http://localhost:3000/api'
 
 export function ForcePasswordChange({
   session,
@@ -45,23 +37,11 @@ export function ForcePasswordChange({
     setIsSubmitting(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      await changeAdminPassword(session.accessToken, {
           currentPassword,
           newPassword,
           confirmPassword,
-        }),
       })
-      const result = (await response.json().catch(() => ({}))) as ApiResponse<null>
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Không thể đổi mật khẩu')
-      }
 
       onPasswordChanged()
     } catch (error) {

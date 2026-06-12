@@ -1,7 +1,9 @@
-import type { AdminUser } from '../auth/adminSession'
-import type { ManagedUser } from './userAdminApi'
+import type { AdminUser } from '../../auth/adminSession'
+import type { ManagedUser } from '../customer.types'
+import { formatDate } from '../customer.utils'
+import '../customer.css'
 
-type UserDetailDrawerProps = {
+type CustomerDetailDrawerProps = {
   user: ManagedUser | null
   currentUser: AdminUser
   isLoading: boolean
@@ -15,33 +17,16 @@ const genderLabels = {
   female: 'Nữ',
 } as const
 
-const formatDate = (value?: string) => {
-  if (!value) {
-    return 'Chưa có'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return 'Chưa có'
-  }
-
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(date)
-}
-
 const getDisplayName = (user: ManagedUser) => user.name || user.email
 
-export function UserDetailDrawer({
+export function CustomerDetailDrawer({
   user,
   currentUser,
   isLoading,
   onClose,
   onRequestStatusChange,
   onRequestPasswordReset,
-}: UserDetailDrawerProps) {
+}: CustomerDetailDrawerProps) {
   if (!user) {
     return null
   }
@@ -162,4 +147,3 @@ export function UserDetailDrawer({
   )
 }
 
-export { formatDate }

@@ -1,22 +1,6 @@
-export type AdminRole = 'admin' | 'staff'
+import type { AdminRole, AdminSession, AdminUser } from './auth.types'
 
-export type AdminUser = {
-  _id: string
-  name: string
-  email: string
-  phone?: string
-  role: string
-  permissions?: string[]
-  mustChangePassword?: boolean
-  avatarImage?: string | null
-  profileCompleted?: boolean
-}
-
-export type AdminSession = {
-  accessToken: string
-  refreshToken: string
-  user: AdminUser
-}
+export type { AdminRole, AdminSession, AdminUser } from './auth.types'
 
 const ACCESS_TOKEN_KEY = 'admin_access_token'
 const REFRESH_TOKEN_KEY = 'admin_refresh_token'

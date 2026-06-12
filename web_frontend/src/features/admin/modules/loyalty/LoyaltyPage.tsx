@@ -6,9 +6,9 @@ import {
   listMembershipRankings,
   updateMembershipRanking,
   updateMembershipRankingStatus,
-  type MembershipRanking,
-  type MembershipRankingPayload,
-} from './loyaltyAdminApi'
+} from './loyalty.service'
+import type { MembershipRanking, MembershipRankingPayload } from './loyalty.types'
+import './loyalty.css'
 
 type LoyaltyPageProps = {
   currentUser: AdminUser

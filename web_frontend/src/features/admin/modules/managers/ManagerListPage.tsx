@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { formatDate } from '../users/UserDetailDrawer'
+import { formatDate } from '../customers/customer.utils'
 import {
   createStaffAccount,
   listInternalAccounts,
   resetStaffTemporaryPassword,
   updateStaffPermissions,
   updateStaffStatus,
-  type CreateStaffPayload,
-  type InternalAccount,
-  type InternalAccountRole,
-  type StaffPermission,
-} from './accountAdminApi'
+} from './manager.service'
+import type {
+  CreateStaffPayload,
+  InternalAccount,
+  InternalAccountRole,
+  StaffPermission,
+} from './manager.types'
+import { PermissionEditor } from './components/PermissionEditor'
+import './manager.css'
 
 type RoleFilter = InternalAccountRole | 'all'
 type StatusFilter = 'all' | 'active' | 'blocked'
@@ -26,15 +30,6 @@ type DialogState =
   | { type: 'reset'; account: InternalAccount }
   | null
 
-type PermissionGroup = {
-  title: string
-  helper: string
-  items: {
-    value: StaffPermission
-    label: string
-  }[]
-}
-
 const pageSize = 10
 
 const roleFilterLabels: Record<RoleFilter, string> = {
@@ -48,74 +43,6 @@ const statusFilterLabels: Record<StatusFilter, string> = {
   active: 'Hoạt động',
   blocked: 'Bị khóa',
 }
-
-const permissionGroups: PermissionGroup[] = [
-  {
-    title: 'Sản phẩm',
-    helper: 'Danh sách sản phẩm và biến thể',
-    items: [
-      { value: 'products.read', label: 'Xem' },
-      { value: 'products.write', label: 'Tạo, sửa, ẩn hiện' },
-    ],
-  },
-  {
-    title: 'Danh mục',
-    helper: 'Danh mục và thương hiệu',
-    items: [
-      { value: 'catalog.read', label: 'Xem' },
-      { value: 'catalog.write', label: 'Tạo, sửa, xóa' },
-    ],
-  },
-  {
-    title: 'Đơn hàng',
-    helper: 'Theo dõi và cập nhật vận hành',
-    items: [
-      { value: 'orders.read', label: 'Xem' },
-      { value: 'orders.update', label: 'Cập nhật trạng thái' },
-    ],
-  },
-  {
-    title: 'Kho hàng',
-    helper: 'Tồn kho, nhập kho, điều chỉnh',
-    items: [
-      { value: 'inventory.read', label: 'Xem' },
-      { value: 'inventory.write', label: 'Nhập và điều chỉnh' },
-    ],
-  },
-  {
-    title: 'Khuyến mãi',
-    helper: 'Coupon và chiến dịch',
-    items: [
-      { value: 'promotions.read', label: 'Xem' },
-      { value: 'promotions.write', label: 'Tạo, sửa, bật tắt' },
-    ],
-  },
-  {
-    title: 'Chương trình thành viên',
-    helper: 'Hạng, điểm tích lũy và quyền lợi',
-    items: [
-      { value: 'loyalty.read', label: 'Xem' },
-      { value: 'loyalty.write', label: 'Tạo, sửa, bật tắt' },
-    ],
-  },
-  {
-    title: 'Khách hàng',
-    helper: 'Tài khoản người mua hàng',
-    items: [
-      { value: 'customers.read', label: 'Xem' },
-      { value: 'customers.manage', label: 'Khóa, mở, reset' },
-    ],
-  },
-  {
-    title: 'Vận hành khác',
-    helper: 'Kiểm duyệt, hỗ trợ, báo cáo',
-    items: [
-      { value: 'reviews.moderate', label: 'Đánh giá' },
-      { value: 'support.reply', label: 'Hỗ trợ' },
-      { value: 'reports.read', label: 'Báo cáo' },
-    ],
-  },
-]
 
 const impliedPermissions: Partial<Record<StaffPermission, StaffPermission>> = {
   'products.write': 'products.read',
@@ -160,7 +87,7 @@ const expandImpliedPermissions = (permissions: StaffPermission[]) => {
   return Array.from(nextPermissions)
 }
 
-export function AccountListPage() {
+export function ManagerListPage() {
   const [accounts, setAccounts] = useState<InternalAccount[]>([])
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -687,39 +614,6 @@ function togglePermission(
   }
 
   return [...permissions, permission]
-}
-
-function PermissionEditor({
-  selectedPermissions,
-  onToggle,
-}: {
-  selectedPermissions: StaffPermission[]
-  onToggle: (permission: StaffPermission) => void
-}) {
-  return (
-    <div className="admin-permission-grid">
-      {permissionGroups.map((group) => (
-        <section className="admin-permission-group" key={group.title}>
-          <div>
-            <strong>{group.title}</strong>
-            <span>{group.helper}</span>
-          </div>
-          <div className="admin-permission-options">
-            {group.items.map((item) => (
-              <label className="admin-permission-option" key={item.value}>
-                <input
-                  type="checkbox"
-                  checked={selectedPermissions.includes(item.value)}
-                  onChange={() => onToggle(item.value)}
-                />
-                <span>{item.label}</span>
-              </label>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  )
 }
 
 function DialogActions({

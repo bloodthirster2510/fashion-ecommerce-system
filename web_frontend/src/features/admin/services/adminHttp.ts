@@ -3,7 +3,7 @@ import {
   getAdminSession,
   saveAdminSession,
   type AdminSession,
-} from '../auth/adminSession'
+} from '../modules/auth/adminSession'
 
 type ApiResponse<T> = {
   message?: string
@@ -18,7 +18,7 @@ type RefreshTokenResponse = {
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
   import.meta.env.VITE_API_URL ??
-  'http://localhost:3000/api'
+  'http://localhost:5000/api'
 
 const getAccessToken = () => {
   const session = getAdminSession()
@@ -66,7 +66,7 @@ const fetchWithToken = async (path: string, init?: RequestInit, accessToken = ge
   const headers = new Headers(init?.headers)
   headers.set('Authorization', `Bearer ${accessToken}`)
 
-  if (init?.body) {
+  if (init?.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
 

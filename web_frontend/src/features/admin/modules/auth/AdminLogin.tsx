@@ -2,29 +2,14 @@ import { useState, type FormEvent } from 'react'
 import {
   isAdminRole,
   saveAdminSession,
-  type AdminSession,
-  type AdminUser,
 } from './adminSession'
-
-type LoginPayload = {
-  accessToken: string
-  refreshToken: string
-  user: AdminUser
-}
-
-type LoginResponse = {
-  message?: string
-  data?: LoginPayload
-}
+import { loginAdmin } from './auth.service'
+import type { AdminSession } from './auth.types'
+import './auth.css'
 
 type AdminLoginProps = {
   onLoginSuccess: (session: AdminSession) => void
 }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  import.meta.env.VITE_API_URL ??
-  'http://localhost:5000/api'
 
 export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   const [identifier, setIdentifier] = useState('')
@@ -54,30 +39,13 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          identifier: identifier.trim(),
-          password,
-        }),
+      const session = await loginAdmin({
+        identifier: identifier.trim(),
+        password,
       })
-      const result = (await response.json().catch(() => ({}))) as LoginResponse
 
-      if (!response.ok || !result.data) {
-        throw new Error(result.message || 'Không thể đăng nhập')
-      }
-
-      if (!isAdminRole(result.data.user.role)) {
+      if (!isAdminRole(session.user.role)) {
         throw new Error('Tài khoản không có quyền truy cập trang quản trị')
-      }
-
-      const session: AdminSession = {
-        accessToken: result.data.accessToken,
-        refreshToken: result.data.refreshToken,
-        user: result.data.user,
       }
 
       saveAdminSession(session)
