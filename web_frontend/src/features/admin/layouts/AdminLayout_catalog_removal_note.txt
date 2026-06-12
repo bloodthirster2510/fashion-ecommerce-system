@@ -1,0 +1,12 @@
+Removed CatalogManagementPage import and render block from AdminLayout.tsx.
+
+Replaced catalog section with a placeholder and TODO.
+
+TODO: restore CatalogManagementPage import and render inside AdminLayout when admin catalog module is ready.
+
+Original removed code:
+import { CatalogManagementPage } from '../modules/catalog/CatalogManagementPage'
+
+if (renderedSection === 'catalog') {
+  return <CatalogManagementPage currentUser={currentUser} />
+}
