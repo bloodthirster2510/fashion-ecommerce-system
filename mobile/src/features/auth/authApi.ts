@@ -15,7 +15,7 @@ const parseApiResponse = <T>(text: string): ApiResponse<T> => {
   if (!text) return {};
 
   if (/^\s*<!doctype html/i.test(text) || /^\s*<html[\s>]/i.test(text)) {
-    return { message: 'May chu dang chay chua dung API dang nhap. Vui long khoi dong lai backend.' };
+    return { message: 'Máy chủ đang chạy chưa đúng API đăng nhập. Vui lòng khởi động lại backend.' };
   }
 
   try {

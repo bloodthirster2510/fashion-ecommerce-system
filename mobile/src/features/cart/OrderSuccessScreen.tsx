@@ -114,14 +114,14 @@ const OrderSuccessScreen = () => {
         setCanPayNow(result.canPayNow);
         setPaymentMessage(
           result.paymentStatus === 'paid'
-            ? 'He thong da ghi nhan thanh toan.'
-            : 'Chua ghi nhan thanh toan. Ban co the thu lai hoac doi he thong cap nhat.',
+            ? 'Hệ thống đã ghi nhận thanh toán.'
+            : 'Chưa ghi nhận thanh toán. Bạn có thể thử lại hoặc đợi hệ thống cập nhật.',
         );
 
         return result.paymentStatus;
       } catch (error) {
         if (!silent) {
-          setPaymentMessage(error instanceof Error ? error.message : 'Chua kiem tra duoc trang thai thanh toan.');
+          setPaymentMessage(error instanceof Error ? error.message : 'Chưa kiểm tra được trạng thái thanh toán.');
         }
 
         return latestPaymentStatus;
@@ -233,7 +233,7 @@ const OrderSuccessScreen = () => {
       const message =
         error instanceof PaymentApiError || error instanceof Error
           ? error.message
-          : 'Khong lay duoc link thanh toan.';
+          : 'Không lấy được link thanh toán.';
       setPaymentMessage(message);
     } finally {
       setIsRetryingPayment(false);
@@ -329,7 +329,7 @@ const OrderSuccessScreen = () => {
                 ) : (
                   <MaterialCommunityIcons name="sync" size={20} color={colors.brand} />
                 )}
-                <Text style={styles.secondaryButtonText}>Kiem tra trang thai</Text>
+                <Text style={styles.secondaryButtonText}>Kiểm tra trạng thái</Text>
               </Pressable>
               <Pressable
                 style={[styles.secondaryButton, (!canPayNow || isRetryingPayment) && styles.buttonDisabled]}
@@ -341,7 +341,7 @@ const OrderSuccessScreen = () => {
                 ) : (
                   <MaterialCommunityIcons name="credit-card-refresh-outline" size={20} color={colors.brand} />
                 )}
-                <Text style={styles.secondaryButtonText}>Thanh toan lai</Text>
+                <Text style={styles.secondaryButtonText}>Thanh toán lại</Text>
               </Pressable>
             </>
           ) : null}

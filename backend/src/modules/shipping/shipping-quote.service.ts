@@ -373,7 +373,7 @@ const compareCheckout = async (input: {
     selectedOptionKey: recommendedOption.key,
     quoteVersion,
     note: comparisonStatus === 'fallback'
-      ? 'Khu vuc nay chua co mapping van chuyen, he thong dang dung phi tam tinh.'
+      ? 'Khu vực này chưa có mapping vận chuyển, hệ thống đang dùng phí tạm tính.'
       : null,
     options: allOptions,
     shippingQuote: toShippingQuote(recommendedOption),

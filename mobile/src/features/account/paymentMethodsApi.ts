@@ -80,7 +80,7 @@ const request = async <T>(
   if (!response.ok) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new PaymentMethodsApiError(
-      validationMessage || payload.message || 'Khong the cap nhat phuong thuc thanh toan',
+      validationMessage || payload.message || 'Không thể cập nhật phương thức thanh toán',
       payload.errors,
       response.status,
     );

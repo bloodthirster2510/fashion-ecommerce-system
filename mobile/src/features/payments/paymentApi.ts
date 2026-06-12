@@ -76,8 +76,8 @@ const request = async <T>(
 
     throw new PaymentApiError(
       isTimeout
-        ? 'Ket noi tao link thanh toan bi timeout. Kiem tra backend dang chay roi thu lai.'
-        : 'Khong ket noi duoc toi may chu. Kiem tra lai mang noi bo.',
+        ? 'Kết nối tạo link thanh toán bị timeout. Kiểm tra backend đang chạy rồi thử lại.'
+        : 'Không kết nối được tới máy chủ. Kiểm tra lại mạng nội bộ.',
     );
   });
 
@@ -85,7 +85,7 @@ const request = async <T>(
 
   if (!response.ok) {
     throw new PaymentApiError(
-      payload.message || 'Khong the tao link thanh toan',
+      payload.message || 'Không thể tạo link thanh toán',
       response.status,
       payload.errorCode,
     );

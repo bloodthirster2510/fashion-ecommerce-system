@@ -42,7 +42,7 @@ const parseStatusFilter = (value: unknown) => {
     return false;
   }
 
-  throw { status: 400, message: 'Trang thai tai khoan khong hop le' };
+  throw { status: 400, message: 'Trạng thái tài khoản không hợp lệ' };
 };
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -320,7 +320,7 @@ export const getUsers = async (query: {
 
   if (role) {
     if (role !== 'user') {
-      throw { status: 400, message: 'Role khong hop le' };
+      throw { status: 400, message: 'Role không hợp lệ' };
     }
   }
 
@@ -370,11 +370,11 @@ export const getUserById = async (id: string) => {
 
 export const updateUserStatus = async (id: string, isActive: boolean, actorUserId?: string) => {
   if (typeof isActive !== 'boolean') {
-    throw { status: 400, message: 'Trang thai tai khoan khong hop le' };
+    throw { status: 400, message: 'Trạng thái tài khoản không hợp lệ' };
   }
 
   if (actorUserId && actorUserId === id && !isActive) {
-    throw { status: 400, message: 'Khong the khoa tai khoan dang dang nhap' };
+    throw { status: 400, message: 'Không thể khoá tài khoản đang đăng nhập' };
   }
 
   const user = await User.findOneAndUpdate({ _id: id, role: 'user' }, { isActive }, { new: true })
@@ -391,7 +391,7 @@ export const updateUserRole = async (id: string, role: string, actorUserId?: str
   }
 
   if (actorUserId && actorUserId === id && role !== 'admin') {
-    throw { status: 400, message: 'Khong the tu ha quyen tai khoan dang dang nhap' };
+    throw { status: 400, message: 'Không thể tự hạ quyền tài khoản đang đăng nhập' };
   }
 
   const user = await User.findByIdAndUpdate(id, { role }, { new: true })

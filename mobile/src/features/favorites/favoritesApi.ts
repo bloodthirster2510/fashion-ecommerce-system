@@ -106,7 +106,7 @@ const request = async <T>(
   if (!response.ok) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new FavoriteApiError(
-      validationMessage || payload.message || 'Khong the cap nhat san pham yeu thich',
+      validationMessage || payload.message || 'Không thể cập nhật sản phẩm yêu thích',
       payload.errors,
       response.status,
     );

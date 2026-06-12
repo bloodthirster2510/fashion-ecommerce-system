@@ -73,7 +73,7 @@ const request = async <T>(
   if (!response.ok) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new CouponApiError(
-      validationMessage || payload.message || 'Khong the tai voucher',
+      validationMessage || payload.message || 'Không thể tải voucher',
       payload.errors,
       response.status,
     );

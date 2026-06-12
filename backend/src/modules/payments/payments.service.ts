@@ -42,7 +42,7 @@ export const createVNPayPaymentUrl = ({
     vnp_Locale: locale === 'en' ? 'en' : 'vn',
     vnp_CurrCode: 'VND',
     vnp_TxnRef: orderId,
-    vnp_OrderInfo: sanitizeVNPayOrderInfo(`Thanh toan don hang ${orderId}`),
+    vnp_OrderInfo: sanitizeVNPayOrderInfo(`Thanh toán đơn hàng ${orderId}`),
     vnp_OrderType: 'other',
     // VNPay yêu cầu số tiền ở đơn vị nhỏ nhất, nên tiền VND phải nhân 100 trước khi ký.
     vnp_Amount: String(Math.round(amount * 100)),

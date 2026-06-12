@@ -760,18 +760,18 @@ const PRODUCT_DETAIL_CATEGORY_PROJECTION =
 const DEFAULT_PRODUCT_POLICIES = [
   {
     icon: 'rotate-ccw',
-    title: 'Doi tra 7 ngay',
-    description: 'Ho tro doi tra theo chinh sach cua shop.',
+    title: 'Đổi trả 7 ngày',
+    description: 'Hỗ trợ đổi trả theo chính sách của shop.',
   },
   {
     icon: 'shield-check',
-    title: 'Kiem tra hang khi nhan',
-    description: 'Khach hang co the kiem tra san pham truoc khi thanh toan.',
+    title: 'Kiểm tra hàng khi nhận',
+    description: 'Khách hàng có thể kiểm tra sản phẩm trước khi thanh toán.',
   },
   {
     icon: 'truck',
-    title: 'Giao hang tieu chuan',
-    description: 'Phi van chuyen duoc tinh tai buoc thanh toan.',
+    title: 'Giao hàng tiêu chuẩn',
+    description: 'Phí vận chuyển được tính tại bước thanh toán.',
   },
 ];
 

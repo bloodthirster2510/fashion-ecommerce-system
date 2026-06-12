@@ -278,7 +278,7 @@ const request = async <T>(
   if (!response.ok) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new CartApiError(
-      validationMessage || payload.message || 'Khong the cap nhat gio hang',
+      validationMessage || payload.message || 'Không thể cập nhật giỏ hàng',
       payload.errors,
       response.status,
       payload.errorCode,

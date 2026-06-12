@@ -23,7 +23,7 @@ type CloudinaryDestroyResponse = {
 const getRequiredEnv = (key: string): string => {
   const value = process.env[key]?.trim();
   if (!value) {
-    throw { status: 500, message: `${key} chua duoc cau hinh` };
+    throw { status: 500, message: `${key} chưa được cấu hình` };
   }
   return value;
 };
@@ -76,7 +76,7 @@ const postCloudinaryForm = async <T>(
   if (!response.ok) {
     throw {
       status: 502,
-      message: result.error?.message || 'Khong the ket noi Cloudinary',
+      message: result.error?.message || 'Không thể kết nối Cloudinary',
     };
   }
 
@@ -98,7 +98,7 @@ export const uploadImageToCloudinary = async (options: {
   }, options.fileDataUri);
 
   if (!result.public_id || !result.secure_url) {
-    throw { status: 502, message: 'Cloudinary khong tra ve URL anh' };
+    throw { status: 502, message: 'Cloudinary không trả về URL ảnh' };
   }
 
   return {
@@ -116,6 +116,6 @@ export const deleteImageFromCloudinary = async (publicId?: string | null) => {
   });
 
   if (result.error) {
-    throw { status: 502, message: result.error.message || 'Khong the xoa anh tren Cloudinary' };
+    throw { status: 502, message: result.error.message || 'Không thể xoá ảnh trên Cloudinary' };
   }
 };

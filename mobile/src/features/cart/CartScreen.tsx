@@ -53,7 +53,7 @@ const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
-    return 'Phi giao hang vua thay doi. Minh can cap nhat lai tong tien truoc khi dat hang.';
+    return 'Phí giao hàng vừa thay đổi. Mình cần cập nhật lại tổng tiền trước khi đặt hàng.';
   }
 
   if (error instanceof CartApiError && error.status === 409) {
@@ -374,7 +374,7 @@ const CartScreen = () => {
         if (!silent) {
           showNotice({
             tone: 'warning',
-            title: 'Chua tai duoc phuong thuc thanh toan',
+            title: 'Chưa tải được phương thức thanh toán',
             message: getErrorMessage(error),
           });
         }
@@ -471,7 +471,7 @@ const CartScreen = () => {
   const shippingProviderLabel = shippingQuote?.provider === 'GHN'
     ? 'GHN toi uu'
     : shippingComparison?.comparisonStatus === 'fallback'
-      ? 'Phi tam tinh'
+      ? 'Phí tạm tính'
       : 'Gia toi uu';
   const shippingStatusText = isPreviewLoading
     ? 'Đang tính phí giao hàng...'
@@ -837,8 +837,8 @@ const CartScreen = () => {
     if (!checkoutPreview?.quoteVersion) {
       showNotice({
         tone: 'warning',
-        title: 'Dang cap nhat tong tien',
-        message: 'He thong can tinh lai phi giao hang truoc khi dat hang.',
+        title: 'Đang cập nhật tổng tiền',
+        message: 'Hệ thống cần tính lại phí giao hàng trước khi đặt hàng.',
       });
       return;
     }
@@ -925,15 +925,15 @@ const CartScreen = () => {
           setCheckoutPreview(refreshedPreview);
           showNotice({
             tone: 'warning',
-            title: 'Phi giao hang vua thay doi',
-            message: 'Tong tien da duoc cap nhat. Ban vui long kiem tra lai truoc khi dat hang.',
+            title: 'Phí giao hàng vừa thay đổi',
+            message: 'Tổng tiền đã được cập nhật. Bạn vui lòng kiểm tra lại trước khi đặt hàng.',
           });
           return;
         } catch (refreshError) {
           setCheckoutPreview(null);
           showNotice({
             tone: 'warning',
-            title: 'Can cap nhat lai phi giao hang',
+            title: 'Cần cập nhật lại phí giao hàng',
             message: getErrorMessage(refreshError),
           });
           void loadCart(true);
@@ -1315,7 +1315,7 @@ const CartScreen = () => {
             onPress={() => navigation.navigate('EditProfile')}
             activeOpacity={0.82}
           >
-            <Text style={styles.shippingQuoteActionText}>Quan ly dia chi</Text>
+            <Text style={styles.shippingQuoteActionText}>Quản lý địa chỉ</Text>
             <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brand} />
           </TouchableOpacity>
         ) : null}
@@ -1324,12 +1324,12 @@ const CartScreen = () => {
   );
 
   const vnpayPaymentSubtitle = isPaymentMethodsLoading
-    ? 'Dang tai phuong thuc thanh toan da luu...'
+    ? 'Đang tải phương thức thanh toán đã lưu...'
     : selectedSavedPaymentMethod
-      ? `Dung ${selectedSavedPaymentMethod.displayName}${
+      ? `Dùng ${selectedSavedPaymentMethod.displayName}${
           selectedSavedPaymentMethod.maskedInfo ? ` - ${selectedSavedPaymentMethod.maskedInfo}` : ''
         }.`
-      : 'Vi dien tu, the ATM, the quoc te qua VNPAY Sandbox.';
+      : 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.';
 
   const renderContent = () => {
     if (!isAuthenticated || !session?.accessToken) {

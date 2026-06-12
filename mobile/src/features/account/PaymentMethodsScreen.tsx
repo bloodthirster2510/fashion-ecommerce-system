@@ -28,7 +28,7 @@ type PaymentMethodsNavigationProp = StackNavigationProp<RootStackParamList, 'Pay
 const ACTIVE_STATUSES: PaymentMethodStatus[] = ['pending', 'verified'];
 
 const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Ban thu lai sau nha.';
+  error instanceof Error ? error.message : 'Bạn thử lại sau nha.';
 
 const getMethodIcon = (method: PaymentMethodRecord): keyof typeof MaterialCommunityIcons.glyphMap => {
   if (method.type === 'VNPAY') return 'credit-card-check-outline';
@@ -38,10 +38,10 @@ const getMethodIcon = (method: PaymentMethodRecord): keyof typeof MaterialCommun
 };
 
 const getStatusLabel = (status: PaymentMethodStatus) => {
-  if (status === 'verified') return 'San sang';
-  if (status === 'pending') return 'Dang xac minh';
-  if (status === 'expired') return 'Het han';
-  return 'Da tat';
+  if (status === 'verified') return 'Sẵn sàng';
+  if (status === 'pending') return 'Đang xác minh';
+  if (status === 'expired') return 'Hết hạn';
+  return 'Đã tắt';
 };
 
 const isActiveMethod = (method: PaymentMethodRecord) => ACTIVE_STATUSES.includes(method.status);
@@ -84,7 +84,7 @@ const PaymentMethodsScreen = () => {
         const message = getErrorMessage(loadError);
         setError(message);
         if (silent) {
-          Alert.alert('Chua tai duoc phuong thuc thanh toan', message);
+          Alert.alert('Chưa tải được phương thức thanh toán', message);
         }
       } finally {
         setIsLoading(false);
@@ -123,7 +123,7 @@ const PaymentMethodsScreen = () => {
       setDisplayName('');
       await loadMethods(true);
     } catch (createError) {
-      Alert.alert('Chua luu duoc phuong thuc', getErrorMessage(createError));
+      Alert.alert('Chưa lưu được phương thức', getErrorMessage(createError));
     } finally {
       setIsSaving(false);
     }
@@ -139,7 +139,7 @@ const PaymentMethodsScreen = () => {
       await runWithAuth((accessToken) => paymentMethodsApi.setDefault(accessToken, method._id));
       await loadMethods(true);
     } catch (defaultError) {
-      Alert.alert('Chua dat duoc mac dinh', getErrorMessage(defaultError));
+      Alert.alert('Chưa đặt được mặc định', getErrorMessage(defaultError));
     } finally {
       setPendingMethodId(null);
     }
@@ -151,12 +151,12 @@ const PaymentMethodsScreen = () => {
     }
 
     Alert.alert(
-      'Xoa phuong thuc thanh toan',
-      `Ban muon xoa ${method.displayName}?`,
+      'Xoá phương thức thanh toán',
+      `Bạn muốn xoá ${method.displayName}?`,
       [
-        { text: 'Huy', style: 'cancel' },
+        { text: 'Huỷ', style: 'cancel' },
         {
-          text: 'Xoa',
+          text: 'Xoá',
           style: 'destructive',
           onPress: () => {
             void (async () => {
@@ -165,7 +165,7 @@ const PaymentMethodsScreen = () => {
                 await runWithAuth((accessToken) => paymentMethodsApi.remove(accessToken, method._id));
                 await loadMethods(true);
               } catch (removeError) {
-                Alert.alert('Chua xoa duoc phuong thuc', getErrorMessage(removeError));
+                Alert.alert('Chưa xoá được phương thức', getErrorMessage(removeError));
               } finally {
                 setPendingMethodId(null);
               }
@@ -193,7 +193,7 @@ const PaymentMethodsScreen = () => {
             {method.isDefault ? (
               <View style={styles.defaultBadge}>
                 <MaterialCommunityIcons name="star" size={12} color={colors.goldText} />
-                <Text style={styles.defaultBadgeText}>Mac dinh</Text>
+                <Text style={styles.defaultBadgeText}>Mặc định</Text>
               </View>
             ) : null}
           </View>
@@ -244,13 +244,13 @@ const PaymentMethodsScreen = () => {
       return (
         <View style={styles.statePanel}>
           <MaterialCommunityIcons name="credit-card-outline" size={42} color={colors.brand} />
-          <Text style={styles.stateTitle}>Dang nhap de quan ly thanh toan</Text>
+          <Text style={styles.stateTitle}>Đăng nhập để quản lý thanh toán</Text>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => navigation.navigate('Login')}
             activeOpacity={0.82}
           >
-            <Text style={styles.primaryButtonText}>Dang nhap</Text>
+            <Text style={styles.primaryButtonText}>Đăng nhập</Text>
           </TouchableOpacity>
         </View>
       );
@@ -260,7 +260,7 @@ const PaymentMethodsScreen = () => {
       return (
         <View style={styles.statePanel}>
           <ActivityIndicator color={colors.brand} />
-          <Text style={styles.stateText}>Dang tai phuong thuc thanh toan</Text>
+          <Text style={styles.stateText}>Đang tải phương thức thanh toán</Text>
         </View>
       );
     }
@@ -285,35 +285,35 @@ const PaymentMethodsScreen = () => {
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Da luu</Text>
-            <Text style={styles.sectionMeta}>{activeMethods.length} dang hoat dong</Text>
+            <Text style={styles.sectionTitle}>Đã lưu</Text>
+            <Text style={styles.sectionMeta}>{activeMethods.length} đang hoạt động</Text>
           </View>
           {methods.length ? (
             <View style={styles.methodList}>{methods.map(renderMethod)}</View>
           ) : (
             <View style={styles.emptyPanel}>
               <MaterialCommunityIcons name="credit-card-plus-outline" size={34} color={colors.brand} />
-              <Text style={styles.emptyTitle}>Chua co phuong thuc nao</Text>
-              <Text style={styles.emptyText}>Them preference VNPay de checkout tu dong dung ngan hang quen thuoc.</Text>
+              <Text style={styles.emptyTitle}>Chưa có phương thức nào</Text>
+              <Text style={styles.emptyText}>Thêm preference VNPay để checkout tự động dùng ngân hàng quen thuộc.</Text>
             </View>
           )}
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Them VNPay</Text>
+          <Text style={styles.sectionTitle}>Thêm VNPay</Text>
           <View style={styles.formCard}>
             <TextInput
               style={styles.input}
               value={displayName}
               onChangeText={setDisplayName}
-              placeholder="Ten hien thi (vi du: VNPay Vietcombank)"
+              placeholder="Tên hiển thị (ví dụ: VNPay Vietcombank)"
               placeholderTextColor={colors.textSubtle}
             />
             <TextInput
               style={styles.input}
               value={bankCode}
               onChangeText={(value) => setBankCode(value.toUpperCase())}
-              placeholder="Ma ngan hang (tu chon)"
+              placeholder="Mã ngân hàng (tuỳ chọn)"
               placeholderTextColor={colors.textSubtle}
               autoCapitalize="characters"
             />
@@ -321,12 +321,12 @@ const PaymentMethodsScreen = () => {
               style={styles.input}
               value={bankName}
               onChangeText={setBankName}
-              placeholder="Ten ngan hang (tu chon)"
+              placeholder="Tên ngân hàng (tuỳ chọn)"
               placeholderTextColor={colors.textSubtle}
             />
             <View style={styles.safetyRow}>
               <MaterialCommunityIcons name="shield-check-outline" size={17} color={colors.success} />
-              <Text style={styles.safetyText}>Khong luu so the, CVV, OTP hoac mat khau ngan hang.</Text>
+              <Text style={styles.safetyText}>Không lưu số thẻ, CVV, OTP hoặc mật khẩu ngân hàng.</Text>
             </View>
             <TouchableOpacity
               style={[styles.primaryButton, isSaving && styles.primaryButtonDisabled]}
@@ -337,7 +337,7 @@ const PaymentMethodsScreen = () => {
               {isSaving ? (
                 <ActivityIndicator color={colors.white} />
               ) : (
-                <Text style={styles.primaryButtonText}>Luu VNPay</Text>
+                <Text style={styles.primaryButtonText}>Lưu VNPay</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -357,8 +357,8 @@ const PaymentMethodsScreen = () => {
           <MaterialCommunityIcons name="chevron-left" size={28} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Thanh toan</Text>
-          <Text style={styles.headerSubtitle}>Phuong thuc mac dinh cho checkout</Text>
+          <Text style={styles.headerTitle}>Thanh toán</Text>
+          <Text style={styles.headerSubtitle}>Phương thức mặc định cho checkout</Text>
         </View>
       </View>
       {renderContent()}

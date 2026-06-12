@@ -14,8 +14,8 @@ export type ShippingAreaMappingRecord = {
   note?: string;
 };
 
-// Seed batch dau tien de backend co the backfill GHN ngay luc luu dia chi.
-// Cau truc nay duoc giu rieng de sau nay co the thay bang collection/admin import.
+// Seed batch đầu tiên để backend có thể backfill GHN ngay lúc lưu địa chỉ.
+// Cấu trúc này được giữ riêng để sau này có thể thay bằng collection/admin import.
 export const shippingAreaMappingSeed: ShippingAreaMappingRecord[] = [
   {
     provider: 'GHN',
@@ -30,7 +30,7 @@ export const shippingAreaMappingSeed: ShippingAreaMappingRecord[] = [
     ghnWardCode: '1A0107',
     ghnWardName: 'Phuong Ngoc Ha',
     confidence: 'manual',
-    note: 'Manual representative cho ward moi Ba Dinh trong phase 1; can admin review khi co mapping chi tiet theo duong.',
+    note: 'Manual representative cho ward mới Ba Đình trong phase 1; cần admin review khi có mapping chi tiết theo đường.',
   },
   {
     provider: 'GHN',
@@ -45,7 +45,7 @@ export const shippingAreaMappingSeed: ShippingAreaMappingRecord[] = [
     ghnWardCode: '550108',
     ghnWardName: 'Phuong An Phu',
     confidence: 'manual',
-    note: 'Manual override cho ward moi Ninh Kieu trong phase 1.',
+    note: 'Manual override cho ward mới Ninh Kiều trong phase 1.',
   },
   {
     provider: 'GHN',

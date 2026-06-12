@@ -49,7 +49,7 @@ const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
 const transferPaymentMethods = new Set(['VNPAY', 'MOMO', 'BANK', 'CARD']);
 const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   paymentFilters[0],
-  { key: 'needs-payment', label: 'Cho thanh toan' },
+  { key: 'needs-payment', label: 'Chờ thanh toán' },
   ...paymentFilters.slice(1),
 ];
 
@@ -279,7 +279,7 @@ const OrderListScreen = () => {
             color={requiresPayment ? colors.goldText : colors.success}
           />
           <Text style={[styles.deliveryText, requiresPayment && styles.deliveryTextWarning]}>
-            {requiresPayment ? 'Don VNPay dang cho thanh toan. Bam chi tiet de thanh toan lai.' : getDeliveryLine(order)}
+            {requiresPayment ? 'Đơn VNPay đang chờ thanh toán. Bấm chi tiết để thanh toán lại.' : getDeliveryLine(order)}
           </Text>
         </View>
 
