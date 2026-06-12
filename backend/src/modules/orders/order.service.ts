@@ -3,6 +3,7 @@ import {
   Inventory,
   Order,
   Product,
+  Transaction,
   User,
   type IOrder,
   type IUserAddress,
@@ -17,6 +18,7 @@ import {
 } from '../sales/sales.helpers';
 import { cartService } from '../cart/cart.service';
 import { transactionService } from '../payments/transaction.service';
+import { paymentMethodService } from '../payment-methods/payment-method.service';
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
 import { couponService } from '../promotions/coupons/coupon.service';
@@ -80,6 +82,10 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
 
   if (query.paymentMethod) {
     filter.paymentMethod = query.paymentMethod;
+  }
+
+  if (query.paymentStatus) {
+    filter.paymentStatus = query.paymentStatus;
   }
 
   if (query.from || query.to) {
@@ -365,6 +371,11 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
 
 const createOrder = async (userId: string, input: CreateOrderInput) => {
   assertSupportedPaymentMethod(input.paymentMethod);
+  const selectedPaymentMethod = await paymentMethodService.assertUsablePaymentMethodForCheckout({
+    userId,
+    paymentMethodId: input.paymentMethodId,
+    paymentMethod: input.paymentMethod,
+  });
   const shippingAddress = await resolveCheckoutShippingAddress(userId, input, { required: true });
 
   const pricing = await promotionPricingService.calculateCheckout({
@@ -439,6 +450,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
       totalAmount,
       status: 'confirmed',
       paymentMethod: input.paymentMethod,
+      paymentMethodId: selectedPaymentMethod?._id ?? null,
       paymentStatus: 'pending',
       shipping: {
         ...toOrderShippingSnapshot(pricing.shippingQuote),
@@ -461,6 +473,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
           orderId: orderId.toString(),
           amount: totalAmount,
           paymentMethod: input.paymentMethod,
+          paymentMethodId: selectedPaymentMethod?._id?.toString(),
           gatewayProvider: getGatewayProvider(input.paymentMethod),
         }),
       );
@@ -554,6 +567,15 @@ const getOrderById = async (userId: string, role: string | undefined, id: string
   assertCanReadOrder(order, userId, role);
 
   return order;
+};
+
+const getOrderTransactions = async (userId: string, role: string | undefined, id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  assertCanReadOrder(order, userId, role);
+
+  return Transaction.find({ order_id: order._id })
+    .sort({ attemptNo: -1, createdAt: -1 })
+    .lean();
 };
 
 const restockCommittedOrder = async (order: IOrder) => {
@@ -661,6 +683,7 @@ export const orderService = {
   getMyOrders,
   getOrders,
   getOrderById,
+  getOrderTransactions,
   cancelOrder,
   updateOrderStatus,
   updateOrderShipping,

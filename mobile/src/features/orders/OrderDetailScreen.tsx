@@ -16,9 +16,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import * as WebBrowser from 'expo-web-browser';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
+import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import { orderApi, OrderApiError, type CustomerOrder, type OrderItem } from './orderApi';
 import {
   canCancelOrder,
@@ -78,6 +80,8 @@ const getPaymentStatusColor = (status: string) => {
   return colors.goldText;
 };
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const OrderDetailScreen = () => {
   const navigation = useNavigation<OrderDetailNavigationProp>();
   const route = useRoute<OrderDetailRouteProp>();
@@ -88,6 +92,7 @@ const OrderDetailScreen = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isCancelling, setIsCancelling] = React.useState(false);
+  const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [isInvoiceVisible, setIsInvoiceVisible] = React.useState(false);
 
@@ -164,6 +169,69 @@ const OrderDetailScreen = () => {
       Alert.alert('Không thể hủy đơn', getErrorMessage(error));
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  const refreshOrderAfterPayment = async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (attempt > 0) {
+        await wait(2500);
+      }
+
+      const paymentStatus = await runWithAuth((accessToken) =>
+        paymentApi.getOrderPaymentStatus(accessToken, orderId),
+      );
+
+      if (paymentStatus.paymentStatus === 'paid') {
+        const latestOrder = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
+        setOrder(latestOrder);
+        return latestOrder;
+      }
+    }
+
+    const latestOrder = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
+    setOrder(latestOrder);
+
+    return latestOrder.paymentStatus === 'paid' ? latestOrder : null;
+  };
+
+  const handleRetryPayment = async () => {
+    if (!order) return;
+
+    try {
+      setIsRetryingPayment(true);
+      const paymentData = await runWithAuth((accessToken) =>
+        paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
+      );
+
+      await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      });
+
+      const latestOrder = await refreshOrderAfterPayment();
+
+      if (latestOrder?.paymentStatus === 'paid') {
+        Alert.alert('Da ghi nhan thanh toan', 'Don hang cua ban da duoc cap nhat thanh da thanh toan.');
+        return;
+      }
+
+      Alert.alert(
+        'Chua ghi nhan thanh toan',
+        'Ban co the thu lai hoac doi he thong cap nhat trong vai phut.',
+      );
+    } catch (error) {
+      if (error instanceof PaymentApiError && error.status === 409) {
+        await loadOrder('refresh');
+        Alert.alert('Don hang da thanh toan', 'He thong vua cap nhat lai trang thai don hang.');
+        return;
+      }
+
+      Alert.alert(
+        'Khong the mo thanh toan',
+        error instanceof Error ? error.message : 'Ban thu lai sau nha.',
+      );
+    } finally {
+      setIsRetryingPayment(false);
     }
   };
 
@@ -384,6 +452,12 @@ const OrderDetailScreen = () => {
   const paymentStatusColor = getPaymentStatusColor(order.paymentStatus);
   const canCancel = canCancelOrder(order.status);
   const canReturn = canRequestReturn(order.status);
+  const canRetryVNPayPayment =
+    order.paymentMethod === 'VNPAY' &&
+    order.paymentStatus !== 'paid' &&
+    order.paymentStatus !== 'refunded' &&
+    order.status !== 'cancelled' &&
+    order.status !== 'returned';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -479,6 +553,23 @@ const OrderDetailScreen = () => {
             <Text style={[styles.infoHint, { color: paymentStatusColor }]}>
               {paymentStatusLabels[order.paymentStatus] ?? order.paymentStatus}
             </Text>
+            {canRetryVNPayPayment ? (
+              <TouchableOpacity
+                style={styles.paymentRetryButton}
+                onPress={handleRetryPayment}
+                activeOpacity={0.84}
+                disabled={isRetryingPayment}
+              >
+                {isRetryingPayment ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <MaterialCommunityIcons name="credit-card-refresh-outline" size={18} color={colors.white} />
+                )}
+                <Text style={styles.paymentRetryButtonText}>
+                  {order.paymentStatus === 'failed' ? 'Thanh toan lai' : 'Thanh toan ngay'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <View style={styles.infoCard}>
@@ -941,6 +1032,22 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
+  },
+  paymentRetryButton: {
+    minHeight: 42,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.xs,
+  },
+  paymentRetryButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '900',
   },
   supportCard: {
     borderRadius: radii.sm,

@@ -1,12 +1,14 @@
 import { Request, Response } from 'express';
+import { Types } from 'mongoose';
+import { Order, type OrderPaymentStatus, type TransactionStatus } from '../../database/models';
 import { error, ok, serverError } from '../../utils/response';
+import { auditLogService } from '../audit-logs/audit-log.service';
 import {
   createVNPayPaymentUrl,
   verifyVNPayResponse,
 } from './payments.service';
+import { paymentExpiryService } from './payment-expiry.service';
 import { transactionService } from './transaction.service';
-import { Order, type OrderPaymentStatus } from '../../database/models';
-import { Types } from 'mongoose';
 
 const getErrorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Internal Server Error';
@@ -22,7 +24,7 @@ const normalizeClientIp = (ip?: string) => {
   return ipv4Regex.test(normalizedIp) ? normalizedIp : '127.0.0.1';
 };
 
-const isValidVNPayTransactionRef = (orderId: string) => /^[A-Za-z0-9]{1,100}$/.test(orderId);
+const isValidVNPayTransactionRef = (txnRef: string) => /^[A-Za-z0-9]{1,100}$/.test(txnRef);
 
 const getClientIp = (req: Request) => {
   const rawIpAddr =
@@ -32,9 +34,174 @@ const getClientIp = (req: Request) => {
   return normalizeClientIp(rawIpAddr);
 };
 
-// ---------------------------------------------------------------------------
-// [Legacy] Dùng để test sandbox trực tiếp — KHÔNG dùng trong luồng checkout thật
-// ---------------------------------------------------------------------------
+const canCreatePaymentForOrderStatus = (status: string) =>
+  !['cancelled', 'returned'].includes(status);
+
+const ADMIN_PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
+
+const parseAdminPaymentStatus = (value: unknown) => {
+  const status = typeof value === 'string' ? value : '';
+
+  if (!ADMIN_PAYMENT_STATUSES.includes(status as OrderPaymentStatus)) {
+    return null;
+  }
+
+  return status as OrderPaymentStatus;
+};
+
+const parseAdminReason = (value: unknown) => {
+  const reason = typeof value === 'string' ? value.trim() : '';
+  return reason.length >= 5 ? reason : null;
+};
+
+const toManualTransactionStatus = (paymentStatus: OrderPaymentStatus) => {
+  if (paymentStatus === 'paid') return 'success' as const;
+  if (paymentStatus === 'pending') return 'pending' as const;
+  return 'failed' as const;
+};
+
+type VNPayResponseResult = ReturnType<typeof verifyVNPayResponse>;
+
+type VNPaySettlementResult = {
+  rspCode: '00' | '01' | '02' | '04' | '97';
+  message: string;
+  orderId?: string;
+  orderCode?: string;
+  transactionId?: string;
+  transactionStatus?: TransactionStatus;
+  paymentStatus?: OrderPaymentStatus;
+};
+
+const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySettlementResult> => {
+  if (!result.isValidSignature) {
+    return { rspCode: '97', message: 'Invalid signature' };
+  }
+
+  const txnRef = String(result.orderId || '').toUpperCase();
+  if (!txnRef) {
+    return { rspCode: '01', message: 'Order not found' };
+  }
+
+  let transaction = await transactionService.findByTxnRef(txnRef);
+  let order = transaction
+    ? await Order.findById(transaction.order_id).lean()
+    : null;
+
+  if (!transaction || !order) {
+    order = await Order.findOne({ orderCode: txnRef }).lean();
+    transaction = order
+      ? await transactionService.findPendingByOrderId(order._id.toString())
+      : null;
+  }
+
+  if (!order) {
+    return { rspCode: '01', message: 'Order not found' };
+  }
+
+  const orderId = order._id.toString();
+
+  if (!transaction) {
+    const latest = await transactionService.findLatestByOrderId(orderId);
+    if (latest?.status === 'success') {
+      return {
+        rspCode: '02',
+        message: 'Order already confirmed',
+        orderId,
+        orderCode: order.orderCode,
+        transactionId: latest._id.toString(),
+        transactionStatus: latest.status,
+        paymentStatus: 'paid',
+      };
+    }
+
+    return {
+      rspCode: '01',
+      message: 'Transaction not found',
+      orderId,
+      orderCode: order.orderCode,
+      transactionId: latest?._id.toString(),
+      transactionStatus: latest?.status,
+      paymentStatus: order.paymentStatus,
+    };
+  }
+
+  if (transaction.status !== 'pending') {
+    return {
+      rspCode: transaction.status === 'success' ? '02' : '00',
+      message: 'Transaction already resolved',
+      orderId,
+      orderCode: order.orderCode,
+      transactionId: transaction._id.toString(),
+      transactionStatus: transaction.status,
+      paymentStatus: transaction.status === 'success' ? 'paid' : order.paymentStatus,
+    };
+  }
+
+  const callbackAmount = result.amount;
+  if (callbackAmount !== undefined && Math.round(callbackAmount) !== Math.round(transaction.amount)) {
+    return {
+      rspCode: '04',
+      message: 'Invalid amount',
+      orderId,
+      orderCode: order.orderCode,
+      transactionId: transaction._id.toString(),
+      transactionStatus: transaction.status,
+      paymentStatus: order.paymentStatus,
+    };
+  }
+
+  const isSuccess = result.isSuccess;
+  const newStatus: TransactionStatus = isSuccess ? 'success' : 'failed';
+
+  const resolvedTransaction = await transactionService.resolveTransaction({
+    transactionId: transaction._id.toString(),
+    status: newStatus,
+    gatewayTransactionId: result.transactionNo ? String(result.transactionNo) : null,
+    failureReason: isSuccess ? null : `VNPay response ${result.responseCode || 'unknown'}`,
+    paymentDetail: {
+      vnp_ResponseCode: result.responseCode,
+      vnp_TransactionStatus: result.transactionStatus,
+      vnp_TransactionNo: result.transactionNo,
+      vnp_BankCode: result.bankCode,
+      vnp_PayDate: result.payDate,
+      vnp_Amount: callbackAmount,
+    },
+  });
+
+  if (!resolvedTransaction) {
+    return {
+      rspCode: '00',
+      message: 'Transaction already resolved',
+      orderId,
+      orderCode: order.orderCode,
+      transactionId: transaction._id.toString(),
+      paymentStatus: order.paymentStatus,
+    };
+  }
+
+  const latest = await transactionService.findLatestAttemptByOrderId(orderId);
+  const isLatestAttempt = latest?._id.toString() === resolvedTransaction._id.toString();
+  let paymentStatus = order.paymentStatus;
+
+  if (isSuccess || isLatestAttempt) {
+    paymentStatus = isSuccess ? 'paid' : 'failed';
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { paymentStatus } },
+    );
+  }
+
+  return {
+    rspCode: '00',
+    message: isSuccess ? 'Confirm success' : 'Confirm failed payment',
+    orderId,
+    orderCode: order.orderCode,
+    transactionId: resolvedTransaction._id.toString(),
+    transactionStatus: resolvedTransaction.status,
+    paymentStatus,
+  };
+};
+
 export const createVNPayUrl = async (req: Request, res: Response) => {
   try {
     const { orderId, amount, bankCode, locale } = req.body;
@@ -46,7 +213,7 @@ export const createVNPayUrl = async (req: Request, res: Response) => {
     }
 
     if (!isValidVNPayTransactionRef(transactionRef)) {
-      return error(res, 'orderId chỉ được gồm chữ và số, tối đa 100 ký tự theo định dạng vnp_TxnRef của VNPay');
+      return error(res, 'orderId must be alphanumeric and at most 100 characters');
     }
 
     const paymentUrl = createVNPayPaymentUrl({
@@ -63,9 +230,6 @@ export const createVNPayUrl = async (req: Request, res: Response) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// [Secure] Tạo URL thanh toán VNPay từ Order thật — dùng trong checkout mobile
-// ---------------------------------------------------------------------------
 export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
@@ -73,48 +237,41 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
     const { bankCode, locale } = req.body as { bankCode?: string; locale?: string };
 
     if (!Types.ObjectId.isValid(orderId)) {
-      return error(res, 'orderId không hợp lệ', 400);
+      return error(res, 'Invalid orderId', 400);
     }
 
-    // Lấy và xác thực Order
     const order = await Order.findById(orderId).lean();
-    if (!order) {
-      return error(res, 'Không tìm thấy đơn hàng', 404);
-    }
-
-    if (order.user_id.toString() !== userId) {
-      return error(res, 'Không tìm thấy đơn hàng', 404);
+    if (!order || order.user_id.toString() !== userId) {
+      return error(res, 'Order not found', 404);
     }
 
     if (order.paymentMethod !== 'VNPAY') {
-      return error(res, 'Đơn hàng này không sử dụng phương thức thanh toán VNPay', 400);
+      return error(res, 'This order does not use VNPay', 400);
     }
 
     if (order.paymentStatus === 'paid') {
-      return error(res, 'Đơn hàng đã được thanh toán', 409);
+      return error(res, 'Order is already paid', 409);
     }
 
-    if (order.status === 'cancelled') {
-      return error(res, 'Đơn hàng đã bị huỷ', 400);
+    if (!canCreatePaymentForOrderStatus(order.status)) {
+      return error(res, 'Order cannot create a new payment URL', 400);
     }
 
-    // Tìm hoặc tạo Transaction pending cho order này
-    let transaction = await transactionService.findPendingByOrderId(orderId);
+    const transaction = await transactionService.ensureVNPayAttemptForOrder({
+      userId,
+      orderId,
+      orderCode: order.orderCode,
+      amount: order.totalAmount,
+      paymentMethodId: order.paymentMethodId?.toString() ?? null,
+    });
 
-    if (!transaction) {
-      transaction = await transactionService.createPendingTransaction({
-        userId,
-        orderId,
-        amount: order.totalAmount,
-        paymentMethod: 'VNPAY',
-        gatewayProvider: 'vnpay',
-      });
+    if (!transaction?.txnRef) {
+      return error(res, 'Cannot create payment attempt', 500);
     }
 
-    // Dùng orderCode làm vnp_TxnRef — chữ/số, ngắn, duy nhất
-    const txnRef = order.orderCode;
+    const txnRef = transaction.txnRef;
     if (!isValidVNPayTransactionRef(txnRef)) {
-      return error(res, `orderCode "${txnRef}" không hợp lệ để dùng làm vnp_TxnRef`, 500);
+      return error(res, `Invalid VNPay txnRef "${txnRef}"`, 500);
     }
 
     const paymentUrl = createVNPayPaymentUrl({
@@ -128,6 +285,9 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
     return ok(res, {
       paymentUrl,
       transactionId: transaction._id.toString(),
+      txnRef,
+      attemptNo: transaction.attemptNo ?? 1,
+      expiredAt: transaction.expiredAt ?? null,
       orderCode: order.orderCode,
       amount: order.totalAmount,
     }, 'Created VNPay payment URL from order');
@@ -136,87 +296,193 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Return URL — VNPay redirect về sau khi người dùng thanh toán trên browser
-// ---------------------------------------------------------------------------
-export const handleVNPayReturn = (req: Request, res: Response) => {
+export const getOrderPaymentStatus = async (req: Request, res: Response) => {
   try {
-    const result = verifyVNPayResponse(req.query);
-    return ok(res, result, 'Verified VNPay return');
+    const userId = req.user!.userId;
+    const orderId = req.params.orderId as string;
+
+    if (!Types.ObjectId.isValid(orderId)) {
+      return error(res, 'Invalid orderId', 400);
+    }
+
+    const order = await Order.findById(orderId).lean();
+    if (!order || order.user_id.toString() !== userId) {
+      return error(res, 'Order not found', 404);
+    }
+
+    const latestTransaction = await transactionService.findLatestAttemptByOrderId(orderId);
+    const canPayNow =
+      order.paymentMethod === 'VNPAY' &&
+      order.paymentStatus !== 'paid' &&
+      order.paymentStatus !== 'refunded' &&
+      canCreatePaymentForOrderStatus(order.status);
+
+    return ok(res, {
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      canPayNow,
+      latestTransaction: latestTransaction
+        ? {
+          id: latestTransaction._id.toString(),
+          txnRef: latestTransaction.txnRef ?? null,
+          attemptNo: latestTransaction.attemptNo ?? null,
+          status: latestTransaction.status,
+          expiredAt: latestTransaction.expiredAt ?? null,
+          resolvedAt: latestTransaction.resolvedAt ?? null,
+          failureReason: latestTransaction.failureReason ?? null,
+        }
+        : null,
+    }, 'Fetched payment status');
   } catch (err: unknown) {
     return serverError(res, getErrorMessage(err));
   }
 };
 
-// ---------------------------------------------------------------------------
-// IPN — VNPay gọi server-to-server để xác nhận kết quả thanh toán
-// Luôn trả HTTP 200; dùng RspCode để báo kết quả xử lý cho VNPay.
-// PHẢI đảm bảo idempotent: cùng 1 giao dịch gọi nhiều lần vẫn an toàn.
-// ---------------------------------------------------------------------------
-export const handleVNPayIpn = async (req: Request, res: Response) => {
+export const expireStalePaymentAttempts = async (_req: Request, res: Response) => {
   try {
-    const result = verifyVNPayResponse(req.query);
+    const result = await paymentExpiryService.expireStaleTransactions();
 
-    if (!result.isValidSignature) {
-      return res.status(200).json({ RspCode: '97', Message: 'Invalid signature' });
+    return ok(res, {
+      ...result,
+      policy: 'Expired attempts are marked expired. Orders remain payment pending and can create a new payment URL.',
+    }, 'Expired stale payment attempts');
+  } catch (err: unknown) {
+    return serverError(res, getErrorMessage(err));
+  }
+};
+
+export const adjustOrderPaymentStatus = async (req: Request, res: Response) => {
+  try {
+    const orderId = req.params.orderId as string;
+    const paymentStatus = parseAdminPaymentStatus((req.body as { paymentStatus?: unknown }).paymentStatus);
+    const reason = parseAdminReason((req.body as { reason?: unknown }).reason);
+
+    if (!Types.ObjectId.isValid(orderId)) {
+      return error(res, 'Invalid orderId', 400);
     }
 
-    // Tìm order theo orderCode (vnp_TxnRef)
-    const orderCode = String(result.orderId || '');
-    if (!orderCode) {
-      return res.status(200).json({ RspCode: '01', Message: 'Order not found' });
+    if (!paymentStatus) {
+      return error(res, 'Invalid payment status', 400);
     }
 
-    const order = await Order.findOne({ orderCode }).lean();
+    if (!reason) {
+      return error(res, 'Reason is required and must be at least 5 characters', 400);
+    }
+
+    const order = await Order.findById(orderId);
     if (!order) {
-      return res.status(200).json({ RspCode: '01', Message: 'Order not found' });
+      return error(res, 'Order not found', 404);
     }
 
-    // Tìm transaction pending mới nhất của order này
-    const transaction = await transactionService.findPendingByOrderId(order._id.toString());
+    const before = {
+      paymentStatus: order.paymentStatus,
+      status: order.status,
+    };
 
-    if (!transaction) {
-      // Không có transaction pending → kiểm tra xem đã thành công trước đó chưa (idempotent)
-      const latest = await transactionService.findLatestByOrderId(order._id.toString());
-      if (latest?.status === 'success') {
-        // Đã xử lý thành công trước rồi — trả đã xử lý, không làm gì thêm
-        return res.status(200).json({ RspCode: '02', Message: 'Order already confirmed' });
-      }
-      return res.status(200).json({ RspCode: '01', Message: 'Transaction not found' });
+    if (order.paymentStatus === paymentStatus) {
+      return ok(res, order, 'Payment status already set');
     }
 
-    // Kiểm tra số tiền callback khớp với giao dịch trong DB (tránh gian lận)
-    const callbackAmount = result.amount;
-    if (callbackAmount !== undefined && Math.round(callbackAmount) !== Math.round(transaction.amount)) {
-      return res.status(200).json({ RspCode: '04', Message: 'Invalid amount' });
-    }
+    order.paymentStatus = paymentStatus;
+    const updatedOrder = await order.save();
 
-    const isSuccess = result.isSuccess;
-    const newStatus = isSuccess ? 'success' : 'failed';
+    await transactionService.createManualAdjustmentTransaction({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      amount: order.totalAmount,
+      paymentMethod: order.paymentMethod,
+      paymentMethodId: order.paymentMethodId?.toString() ?? null,
+      status: toManualTransactionStatus(paymentStatus),
+      reason,
+      actorId: req.user!.userId,
+    });
 
-    // Cập nhật Transaction
-    await transactionService.resolveTransaction({
-      transactionId: transaction._id.toString(),
-      status: newStatus,
-      gatewayTransactionId: result.transactionNo ? String(result.transactionNo) : null,
-      paymentDetail: {
-        vnp_ResponseCode: result.responseCode,
-        vnp_TransactionStatus: result.transactionStatus,
-        vnp_TransactionNo: result.transactionNo,
-        vnp_BankCode: result.bankCode,
-        vnp_PayDate: result.payDate,
-        vnp_Amount: callbackAmount,
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'payment.adjust',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason,
+      before,
+      after: {
+        paymentStatus: updatedOrder.paymentStatus,
+        status: updatedOrder.status,
+      },
+      metadata: {
+        orderCode: updatedOrder.orderCode,
+        paymentMethod: updatedOrder.paymentMethod,
       },
     });
 
-    // Cập nhật paymentStatus của Order
-    const newPaymentStatus: OrderPaymentStatus = isSuccess ? 'paid' : 'failed';
-    await Order.updateOne(
-      { _id: order._id },
-      { $set: { paymentStatus: newPaymentStatus } },
-    );
+    return ok(res, updatedOrder, 'Adjusted order payment status');
+  } catch (err: unknown) {
+    return serverError(res, getErrorMessage(err));
+  }
+};
 
-    return res.status(200).json({ RspCode: '00', Message: isSuccess ? 'Confirm success' : 'Confirm failed payment' });
+const buildMobileReturnUrl = async (
+  result: VNPayResponseResult,
+  settledOrderId?: string | null,
+) => {
+  const mobileReturnUrl = process.env.VNPAY_MOBILE_RETURN_URL?.trim();
+  if (!mobileReturnUrl) {
+    return null;
+  }
+
+  const txnRef = String(result.orderId || '').toUpperCase();
+  let orderId: string | null = settledOrderId ?? null;
+
+  if (!orderId && txnRef) {
+    const transaction = await transactionService.findByTxnRef(txnRef);
+    if (transaction) {
+      orderId = transaction.order_id.toString();
+    }
+  }
+
+  if (!orderId && txnRef) {
+    const order = await Order.findOne({ orderCode: txnRef }).select('_id').lean();
+    orderId = order?._id.toString() ?? null;
+  }
+
+  const url = new URL(mobileReturnUrl);
+  if (orderId) {
+    url.searchParams.set('orderId', orderId);
+  }
+  url.searchParams.set('paymentStatus', result.isValidSignature && result.isSuccess ? 'paid' : 'pending');
+  url.searchParams.set('responseCode', String(result.responseCode ?? ''));
+  url.searchParams.set('txnRef', txnRef);
+
+  return url.toString();
+};
+
+export const handleVNPayReturn = async (req: Request, res: Response) => {
+  try {
+    const result = verifyVNPayResponse(req.query);
+    const settlement = await settleVNPayPayment(result);
+    const mobileReturnUrl = await buildMobileReturnUrl(result, settlement.orderId ?? null);
+
+    if (mobileReturnUrl) {
+      return res.redirect(mobileReturnUrl);
+    }
+
+    return ok(res, { ...result, settlement }, 'Verified VNPay return');
+  } catch (err: unknown) {
+    return serverError(res, getErrorMessage(err));
+  }
+};
+
+export const handleVNPayIpn = async (req: Request, res: Response) => {
+  try {
+    const result = verifyVNPayResponse(req.query);
+    const settlement = await settleVNPayPayment(result);
+
+    return res.status(200).json({
+      RspCode: settlement.rspCode,
+      Message: settlement.message,
+    });
   } catch (err: unknown) {
     return res.status(200).json({ RspCode: '99', Message: getErrorMessage(err) });
   }

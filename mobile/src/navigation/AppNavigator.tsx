@@ -3,6 +3,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import HomeScreen from '../features/home/HomeScreen';
 import ProfileScreen from '../features/account/ProfileScreen';
 import EditProfileScreen from '../features/account/EditProfileScreen';
+import PaymentMethodsScreen from '../features/account/PaymentMethodsScreen';
 import LoginScreen from '../features/auth/screens/LoginScreen';
 import RegisterScreen from '../features/auth/screens/RegisterScreen';
 import ForgotPasswordScreen from '../features/auth/screens/ForgotPasswordScreen';
@@ -47,6 +48,7 @@ export type RootStackParamList = {
   Favorites: undefined;
   Profile: undefined;
   EditProfile: undefined;
+  PaymentMethods: undefined;
   Membership: undefined;
   Orders: {
     status?: OrderTabKey;
@@ -83,6 +85,7 @@ const AppNavigator = () => {
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+      <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
       <Stack.Screen name="Membership" component={MembershipScreen} />
       <Stack.Screen name="Orders" component={OrderListScreen} />
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />

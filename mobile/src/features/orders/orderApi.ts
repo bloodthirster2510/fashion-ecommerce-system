@@ -79,6 +79,7 @@ export type CustomerOrder = {
   totalAmount: number;
   status: OrderStatus;
   paymentMethod: OrderPaymentMethod;
+  paymentMethodId?: string | null;
   paymentStatus: OrderPaymentStatus;
   shipping?: OrderShipping | null;
   shippingAddress: OrderShippingAddress;
@@ -174,6 +175,7 @@ export const orderApi = {
     options: {
       status?: OrderFilterStatus;
       paymentMethod?: OrderPaymentMethod | 'all';
+      paymentStatus?: OrderPaymentStatus | 'all';
       keyword?: string;
       page?: number;
       limit?: number;
@@ -190,6 +192,10 @@ export const orderApi = {
 
     if (options.paymentMethod && options.paymentMethod !== 'all') {
       query.set('paymentMethod', options.paymentMethod);
+    }
+
+    if (options.paymentStatus && options.paymentStatus !== 'all') {
+      query.set('paymentStatus', options.paymentStatus);
     }
 
     if (options.keyword?.trim()) {

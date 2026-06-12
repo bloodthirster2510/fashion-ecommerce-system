@@ -77,6 +77,7 @@ export type CreateOrderPayload = {
   };
   quoteVersion: string;
   paymentMethod: CartPaymentMethod;
+  paymentMethodId?: string;
   couponCode?: string;
   orderNote?: string;
 };
@@ -206,6 +207,7 @@ export type OrderResponse = {
   totalAmount: number;
   status: string;
   paymentMethod: string;
+  paymentMethodId?: string | null;
   paymentStatus: string;
 };
 

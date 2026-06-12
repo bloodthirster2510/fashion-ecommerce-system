@@ -11,6 +11,7 @@ import { ManagerListPage } from '../modules/managers/ManagerListPage'
 import { CustomerListPage } from '../modules/customers/CustomerListPage'
 import { LoyaltyPage } from '../modules/loyalty/LoyaltyPage'
 import { PromotionsPage } from '../modules/promotions/PromotionsPage'
+import { OrderListPage } from '../modules/orders/OrderListPage'
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -139,6 +140,10 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'promotions') {
       return <PromotionsPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'orders') {
+      return <OrderListPage currentUser={currentUser} />
     }
 
     if (renderedSection === 'catalog') {

@@ -10,6 +10,7 @@ export type StaffPermission =
   | 'catalog.write'
   | 'orders.read'
   | 'orders.update'
+  | 'payments.adjust'
   | 'inventory.read'
   | 'inventory.write'
   | 'promotions.read'

@@ -1,14 +1,18 @@
 import { Router } from 'express';
 import {
+  adjustOrderPaymentStatus,
   createVNPayUrl,
   createVNPayUrlFromOrder,
+  expireStalePaymentAttempts,
+  getOrderPaymentStatus,
   handleVNPayIpn,
   handleVNPayReturn,
 } from './payments.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
-import { authorize } from '../../middlewares/role.middleware';
+import { authorize, requirePermission } from '../../middlewares/role.middleware';
 
 const router = Router();
+const adminPaymentRouter = Router();
 
 // ---------------------------------------------------------------------------
 // [Legacy sandbox test] Tạo URL thanh toán trực tiếp — không cần auth.
@@ -27,10 +31,31 @@ router.post(
   createVNPayUrlFromOrder,
 );
 
+router.get(
+  '/orders/:orderId/status',
+  authenticate,
+  authorize('user'),
+  getOrderPaymentStatus,
+);
+
 // ---------------------------------------------------------------------------
 // Callback từ VNPay — không yêu cầu auth vì VNPay server gọi trực tiếp.
 // ---------------------------------------------------------------------------
 router.get('/vnpay/return', handleVNPayReturn);
 router.get('/vnpay/ipn', handleVNPayIpn);
 
+adminPaymentRouter.use(authenticate);
+adminPaymentRouter.use(authorize('admin', 'staff'));
+adminPaymentRouter.post(
+  '/expire-stale',
+  requirePermission('orders.update'),
+  expireStalePaymentAttempts,
+);
+adminPaymentRouter.patch(
+  '/orders/:orderId/payment-status',
+  requirePermission('payments.adjust'),
+  adjustOrderPaymentStatus,
+);
+
+export { adminPaymentRouter };
 export default router;

@@ -6,6 +6,7 @@ import {
   createOrder,
   getMyOrders,
   getOrderById,
+  getOrderTransactions,
   getOrders,
   previewCheckout,
   updateOrderShipping,
@@ -26,6 +27,7 @@ customerOrderRouter.patch('/:id/cancel', cancelOrder);
 adminOrderRouter.use(authenticate);
 adminOrderRouter.use(authorize('admin', 'staff'));
 adminOrderRouter.get('/', requirePermission('orders.read'), getOrders);
+adminOrderRouter.get('/:id/transactions', requirePermission('orders.read'), getOrderTransactions);
 adminOrderRouter.get('/:id', requirePermission('orders.read'), getOrderById);
 adminOrderRouter.patch('/:id/cancel', requirePermission('orders.update'), cancelOrder);
 adminOrderRouter.patch('/:id/status', requirePermission('orders.update'), updateOrderStatus);

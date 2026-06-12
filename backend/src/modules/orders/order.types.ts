@@ -1,4 +1,4 @@
-import type { OrderPaymentMethod, OrderStatus } from '../../database/models';
+import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
 
 export interface ShippingAddressInput {
   customerName: string;
@@ -23,6 +23,7 @@ export interface CreateOrderInput {
   shippingAddress?: ShippingAddressInput;
   quoteVersion?: string;
   paymentMethod: OrderPaymentMethod;
+  paymentMethodId?: string;
   couponCode?: string;
   orderNote?: string;
 }
@@ -38,6 +39,7 @@ export interface PreviewCheckoutInput {
 export interface OrderListQueryInput {
   status?: OrderStatus;
   paymentMethod?: OrderPaymentMethod;
+  paymentStatus?: OrderPaymentStatus;
   keyword?: string;
   from?: Date;
   to?: Date;

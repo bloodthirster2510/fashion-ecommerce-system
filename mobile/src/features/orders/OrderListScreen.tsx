@@ -38,7 +38,7 @@ import {
 
 type OrderListNavigationProp = StackNavigationProp<RootStackParamList, 'Orders'>;
 type OrderListRouteProp = RouteProp<RootStackParamList, 'Orders'>;
-type PaymentFilter = 'all' | 'cash' | 'transfer';
+type PaymentFilter = 'all' | 'needs-payment' | 'cash' | 'transfer';
 
 const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   { key: 'all', label: 'Tất cả thanh toán' },
@@ -47,14 +47,30 @@ const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
 ];
 
 const transferPaymentMethods = new Set(['VNPAY', 'MOMO', 'BANK', 'CARD']);
+const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
+  paymentFilters[0],
+  { key: 'needs-payment', label: 'Cho thanh toan' },
+  ...paymentFilters.slice(1),
+];
 
 const getPaymentMethodQuery = (filter: PaymentFilter) => {
   if (filter === 'cash') return 'COD';
   return 'all';
 };
 
+const getPaymentStatusQuery = (filter: PaymentFilter) => {
+  if (filter === 'needs-payment') return 'pending';
+  return 'all';
+};
+
+const needsPaymentAction = (order: CustomerOrder) =>
+  order.paymentMethod === 'VNPAY' &&
+  (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') &&
+  !['cancelled', 'returned'].includes(order.status);
+
 const getOrderMatchesPaymentFilter = (order: CustomerOrder, filter: PaymentFilter) => {
   if (filter === 'all') return true;
+  if (filter === 'needs-payment') return needsPaymentAction(order);
   if (filter === 'cash') return order.paymentMethod === 'COD';
 
   return transferPaymentMethods.has(order.paymentMethod);
@@ -120,10 +136,12 @@ const OrderListScreen = () => {
       try {
         const primaryStatus = getPrimaryStatusForTab(status);
         const paymentMethodQuery = getPaymentMethodQuery(paymentFilter);
+        const paymentStatusQuery = getPaymentStatusQuery(paymentFilter);
         const response = await runWithAuth((accessToken) =>
           orderApi.getMyOrders(accessToken, {
             status: primaryStatus ?? 'all',
             paymentMethod: paymentMethodQuery,
+            paymentStatus: paymentStatusQuery,
             keyword: debouncedSearchText || undefined,
             page: 1,
             limit: primaryStatus && paymentFilter === 'cash' ? 30 : 100,
@@ -210,11 +228,12 @@ const OrderListScreen = () => {
     const meta = statusMeta[order.status];
     const imageUri = primaryItem?.image?.trim();
     const canCancel = canCancelOrder(order.status);
+    const requiresPayment = needsPaymentAction(order);
 
     return (
       <TouchableOpacity
         key={order._id}
-        style={styles.orderCard}
+        style={[styles.orderCard, requiresPayment && styles.orderCardNeedsPayment]}
         activeOpacity={0.84}
         onPress={() => navigation.navigate('OrderDetail', { orderId: order._id })}
       >
@@ -254,9 +273,13 @@ const OrderListScreen = () => {
         </View>
 
         <View style={styles.deliveryRow}>
-          <MaterialCommunityIcons name="truck-delivery-outline" size={18} color={colors.success} />
-          <Text style={styles.deliveryText}>
-            {getDeliveryLine(order)}
+          <MaterialCommunityIcons
+            name={requiresPayment ? 'credit-card-clock-outline' : 'truck-delivery-outline'}
+            size={18}
+            color={requiresPayment ? colors.goldText : colors.success}
+          />
+          <Text style={[styles.deliveryText, requiresPayment && styles.deliveryTextWarning]}>
+            {requiresPayment ? 'Don VNPay dang cho thanh toan. Bam chi tiet de thanh toan lai.' : getDeliveryLine(order)}
           </Text>
         </View>
 
@@ -335,7 +358,7 @@ const OrderListScreen = () => {
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.paymentFilters}>
-            {paymentFilters.map((item) => {
+            {displayedPaymentFilters.map((item) => {
               const isActive = paymentFilter === item.key;
 
               return (
@@ -613,6 +636,11 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     ...shadows.card,
   },
+  orderCardNeedsPayment: {
+    borderWidth: 1,
+    borderColor: colors.gold,
+    backgroundColor: '#FFFCF5',
+  },
   orderHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -710,6 +738,9 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontSize: 13,
     fontWeight: '700',
+  },
+  deliveryTextWarning: {
+    color: colors.goldText,
   },
   cardActions: {
     flexDirection: 'row',

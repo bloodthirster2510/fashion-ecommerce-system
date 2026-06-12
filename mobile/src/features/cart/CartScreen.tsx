@@ -22,8 +22,12 @@ import { colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
+import {
+  paymentMethodsApi,
+  type PaymentMethodRecord as SavedPaymentMethodRecord,
+} from '../account/paymentMethodsApi';
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
-import { paymentApi, PaymentApiError } from './paymentApi';
+import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
@@ -125,6 +129,9 @@ const CartScreen = () => {
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
   const [isAddressLoading, setIsAddressLoading] = React.useState(false);
+  const [paymentMethods, setPaymentMethods] = React.useState<SavedPaymentMethodRecord[]>([]);
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = React.useState<string | null>(null);
+  const [isPaymentMethodsLoading, setIsPaymentMethodsLoading] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [pendingItemId, setPendingItemId] = React.useState<string | null>(null);
@@ -146,6 +153,7 @@ const CartScreen = () => {
   });
   const selectedAddressIdRef = React.useRef<string | null>(null);
   const noticeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paymentMethodSelectionTouchedRef = React.useRef(false);
 
   const selectedAddress = React.useMemo(
     () =>
@@ -169,6 +177,27 @@ const CartScreen = () => {
         selectedAddress.streetName,
       ].join(':')
     : '';
+  const activeSavedPaymentMethods = React.useMemo(
+    () => paymentMethods.filter((method) => method.status === 'pending' || method.status === 'verified'),
+    [paymentMethods],
+  );
+  const defaultSavedPaymentMethod = React.useMemo(
+    () => activeSavedPaymentMethods.find((method) => method.isDefault) ?? null,
+    [activeSavedPaymentMethods],
+  );
+  const defaultVNPayPaymentMethod = React.useMemo(
+    () =>
+      activeSavedPaymentMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
+      activeSavedPaymentMethods.find((method) => method.type === 'VNPAY') ??
+      null,
+    [activeSavedPaymentMethods],
+  );
+  const selectedSavedPaymentMethod = React.useMemo(
+    () =>
+      activeSavedPaymentMethods.find((method) => method._id === selectedPaymentMethodId && method.type === 'VNPAY') ??
+      null,
+    [activeSavedPaymentMethods, selectedPaymentMethodId],
+  );
 
   const clearNoticeTimer = React.useCallback(() => {
     if (noticeTimeoutRef.current) {
@@ -303,12 +332,84 @@ const CartScreen = () => {
     [applyAddressToForm, runWithAuth, session?.accessToken, showNotice],
   );
 
+  const loadPaymentMethods = React.useCallback(
+    async (silent = false) => {
+      if (!session?.accessToken) {
+        setPaymentMethods([]);
+        setSelectedPaymentMethodId(null);
+        setIsPaymentMethodsLoading(false);
+        return;
+      }
+
+      if (!silent) {
+        setIsPaymentMethodsLoading(true);
+      }
+
+      try {
+        const nextPaymentMethods = await runWithAuth((accessToken) => paymentMethodsApi.list(accessToken));
+        const activeMethods = nextPaymentMethods.filter(
+          (method) => method.status === 'pending' || method.status === 'verified',
+        );
+        const nextDefaultMethod = activeMethods.find((method) => method.isDefault) ?? null;
+        const nextDefaultVNPayMethod =
+          activeMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
+          activeMethods.find((method) => method.type === 'VNPAY') ??
+          null;
+
+        setPaymentMethods(nextPaymentMethods);
+        setSelectedPaymentMethodId((current) => {
+          if (current && activeMethods.some((method) => method._id === current && method.type === 'VNPAY')) {
+            return current;
+          }
+
+          return nextDefaultVNPayMethod?._id ?? null;
+        });
+
+        if (!paymentMethodSelectionTouchedRef.current && nextDefaultMethod?.type === 'VNPAY') {
+          setPaymentMethod('VNPAY');
+        }
+      } catch (error) {
+        setPaymentMethods([]);
+        setSelectedPaymentMethodId(null);
+        if (!silent) {
+          showNotice({
+            tone: 'warning',
+            title: 'Chua tai duoc phuong thuc thanh toan',
+            message: getErrorMessage(error),
+          });
+        }
+      } finally {
+        setIsPaymentMethodsLoading(false);
+      }
+    },
+    [runWithAuth, session?.accessToken, showNotice],
+  );
+
   useFocusEffect(
     React.useCallback(() => {
       void loadCart();
       void loadAddresses();
-    }, [loadAddresses, loadCart]),
+      void loadPaymentMethods();
+    }, [loadAddresses, loadCart, loadPaymentMethods]),
   );
+
+  React.useEffect(() => {
+    if (paymentMethod !== 'VNPAY') {
+      if (selectedPaymentMethodId) {
+        setSelectedPaymentMethodId(null);
+      }
+      return;
+    }
+
+    if (
+      selectedPaymentMethodId &&
+      !activeSavedPaymentMethods.some(
+        (method) => method._id === selectedPaymentMethodId && method.type === 'VNPAY',
+      )
+    ) {
+      setSelectedPaymentMethodId(defaultVNPayPaymentMethod?._id ?? null);
+    }
+  }, [activeSavedPaymentMethods, defaultVNPayPaymentMethod, paymentMethod, selectedPaymentMethodId]);
 
   const selectedItems = React.useMemo(
     () => cart?.product_list.filter((item) => item.isSelected) ?? [],
@@ -665,6 +766,32 @@ const CartScreen = () => {
     });
   };
 
+  const handleSelectPaymentMethod = React.useCallback(
+    (method: PaymentMethod) => {
+      paymentMethodSelectionTouchedRef.current = true;
+      setPaymentMethod(method);
+
+      if (method !== 'VNPAY') {
+        setSelectedPaymentMethodId(null);
+        return;
+      }
+
+      setSelectedPaymentMethodId((current) => {
+        if (
+          current &&
+          activeSavedPaymentMethods.some(
+            (savedMethod) => savedMethod._id === current && savedMethod.type === 'VNPAY',
+          )
+        ) {
+          return current;
+        }
+
+        return defaultVNPayPaymentMethod?._id ?? null;
+      });
+    },
+    [activeSavedPaymentMethods, defaultVNPayPaymentMethod],
+  );
+
   const validateCheckout = () => {
     if (!selectedAddress) {
       showNotice({
@@ -721,6 +848,7 @@ const CartScreen = () => {
       const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         paymentMethod,
+        paymentMethodId: paymentMethod === 'VNPAY' ? selectedSavedPaymentMethod?._id : undefined,
         quoteVersion: checkoutPreview.quoteVersion,
         ...getCheckoutAddressPayload(),
         couponCode: appliedCouponCode ?? undefined,
@@ -977,7 +1105,7 @@ const CartScreen = () => {
     return (
       <TouchableOpacity
         style={[styles.paymentOption, selected && styles.paymentOptionSelected, disabled && styles.paymentOptionDisabled]}
-        onPress={() => (disabled ? undefined : setPaymentMethod(method))}
+        onPress={() => (disabled ? undefined : handleSelectPaymentMethod(method))}
         disabled={disabled}
         activeOpacity={0.82}
       >
@@ -1195,6 +1323,14 @@ const CartScreen = () => {
     </View>
   );
 
+  const vnpayPaymentSubtitle = isPaymentMethodsLoading
+    ? 'Dang tai phuong thuc thanh toan da luu...'
+    : selectedSavedPaymentMethod
+      ? `Dung ${selectedSavedPaymentMethod.displayName}${
+          selectedSavedPaymentMethod.maskedInfo ? ` - ${selectedSavedPaymentMethod.maskedInfo}` : ''
+        }.`
+      : 'Vi dien tu, the ATM, the quoc te qua VNPAY Sandbox.';
+
   const renderContent = () => {
     if (!isAuthenticated || !session?.accessToken) {
       return (
@@ -1290,7 +1426,7 @@ const CartScreen = () => {
               false,
               'Khách hàng được kiểm tra hàng trước khi nhận.',
             )}
-            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.')}
+            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, vnpayPaymentSubtitle)}
             {renderPaymentOption('MOMO', 'Thanh toán MoMo', 'wallet-outline', true, 'Sắp kết nối — MoMo chưa được tích hợp.')}
           </View>
         </View>

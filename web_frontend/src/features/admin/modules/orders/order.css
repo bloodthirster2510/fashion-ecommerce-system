@@ -1,0 +1,819 @@
+.admin-orders-page {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+}
+
+.admin-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-orders-page .admin-drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-orders-page .admin-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(20, 29, 39, 0.32);
+}
+
+.admin-orders-page .admin-user-drawer {
+  position: relative;
+  width: min(100%, 460px);
+  height: 100%;
+  overflow-y: auto;
+  padding: 22px;
+  background: #fff;
+  box-shadow: -18px 0 42px rgba(31, 45, 61, 0.18);
+}
+
+.admin-orders-page .admin-drawer-header,
+.admin-orders-page .admin-drawer-actions {
+  display: flex;
+  align-items: center;
+}
+
+.admin-orders-page .admin-drawer-header {
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-orders-page .admin-user-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-orders-page .admin-user-identity div {
+  min-width: 0;
+}
+
+.admin-orders-page .admin-user-identity h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--admin-text);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-orders-page .admin-user-identity p,
+.admin-orders-page .admin-drawer-section h3,
+.admin-orders-page .admin-address-block p,
+.admin-orders-page .admin-permission-note {
+  margin: 0;
+}
+
+.admin-orders-page .admin-user-identity p {
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-orders-page .admin-drawer-loading {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--admin-accent-dark);
+  background: #eef6fb;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.admin-orders-page .admin-drawer-section {
+  display: grid;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-orders-page .admin-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-orders-page .admin-detail-row span,
+.admin-orders-page .admin-detail-grid span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-orders-page .admin-detail-row select {
+  width: 160px;
+  min-height: 38px;
+  padding: 0 34px 0 10px;
+  border: 1px solid #d8e0e7;
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fbfcfd;
+  font: inherit;
+  font-size: 14px;
+  outline: 0;
+}
+
+.admin-orders-page .admin-detail-row select:focus {
+  border-color: var(--admin-accent);
+  box-shadow: 0 0 0 4px rgba(95, 134, 162, 0.14);
+}
+
+.admin-orders-page .admin-detail-row select:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.admin-orders-page .admin-drawer-actions {
+  align-items: stretch;
+  gap: 8px;
+}
+
+.admin-orders-page .admin-drawer-actions button {
+  flex: 1;
+}
+
+.admin-orders-page .admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-orders-page .admin-detail-grid div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-orders-page .admin-detail-grid strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-orders-page .admin-drawer-section h3 {
+  color: var(--admin-text);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.admin-orders-page .admin-address-block {
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-orders-page .admin-address-block strong {
+  color: var(--admin-text);
+  font-size: 14px;
+}
+
+.admin-orders-page .admin-address-block span,
+.admin-orders-page .admin-address-block p,
+.admin-orders-page .admin-permission-note {
+  color: var(--admin-muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.admin-orders-page .admin-permission-note {
+  padding-top: 16px;
+}
+
+.admin-orders-page .admin-status-pill {
+  align-items: center;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.admin-orders-page .admin-status-pill.is-active {
+  border-color: #b7dfc8;
+  color: #24623f;
+  background: #e8f6ee;
+}
+
+.admin-orders-page .admin-status-pill.is-blocked {
+  border-color: #efb5a7;
+  color: #9b351e;
+  background: #fff2ee;
+}
+
+.admin-orders-page .admin-status-pill.is-warning {
+  border-color: #ebd89a;
+  color: #806018;
+  background: #fff6d8;
+}
+
+.admin-orders-page .admin-status-pill.is-info {
+  border-color: #b8d7ea;
+  color: #285d80;
+  background: #eef6fb;
+}
+
+.admin-orders-page .admin-status-pill.is-progress {
+  border-color: #c8c5ee;
+  color: #4d4b8e;
+  background: #f2f1ff;
+}
+
+.admin-orders-page .admin-status-pill.is-refund {
+  border-color: #e4bdd7;
+  color: #87456f;
+  background: #fff0f8;
+}
+
+.admin-orders-page .admin-status-pill.is-soft {
+  border-color: #dce4ea;
+  color: #5c6f81;
+  background: #f7fafc;
+}
+
+.admin-order-stats {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.admin-order-stats div {
+  position: relative;
+  overflow: hidden;
+}
+
+.admin-order-stats div::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: #9eb1c0;
+}
+
+.admin-order-stats .is-total::before {
+  background: #5f86a2;
+}
+
+.admin-order-stats .is-attention {
+  background: #fff7f3;
+}
+
+.admin-order-stats .is-attention::before {
+  background: #c65d72;
+}
+
+.admin-order-stats .is-warning {
+  background: #fffaf0;
+}
+
+.admin-order-stats .is-warning::before {
+  background: #d6a73a;
+}
+
+.admin-order-stats .is-active {
+  background: #f1f8fb;
+}
+
+.admin-order-stats .is-active::before {
+  background: #4e94bd;
+}
+
+.admin-order-stats .is-success {
+  background: #f0faf4;
+}
+
+.admin-order-stats .is-success::before {
+  background: #4b9a68;
+}
+
+.admin-order-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.admin-order-tabs button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.admin-order-tab {
+  --order-tab-color: #315f83;
+  --order-tab-soft: #eef6fb;
+}
+
+.admin-order-tab.is-payment {
+  --order-tab-color: #a66a10;
+  --order-tab-soft: #fff6d8;
+}
+
+.admin-order-tab.is-confirmed {
+  --order-tab-color: #4d4b8e;
+  --order-tab-soft: #f2f1ff;
+}
+
+.admin-order-tab.is-shipping {
+  --order-tab-color: #285d80;
+  --order-tab-soft: #eef6fb;
+}
+
+.admin-order-tab.is-done {
+  --order-tab-color: #276140;
+  --order-tab-soft: #e8f6ee;
+}
+
+.admin-order-tab.is-exceptions {
+  --order-tab-color: #9b351e;
+  --order-tab-soft: #fff2ee;
+}
+
+.admin-order-tabs button:not(.is-active):hover {
+  border-color: var(--order-tab-color);
+  color: var(--order-tab-color);
+  background: var(--order-tab-soft);
+}
+
+.admin-order-tabs button.is-active {
+  border-color: var(--order-tab-color);
+  color: #fff;
+  background: var(--order-tab-color);
+  box-shadow: 0 10px 20px rgba(31, 45, 61, 0.12);
+}
+
+.admin-order-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: -2px 0 12px;
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-order-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-order-legend span::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d6a73a;
+}
+
+.admin-order-legend .is-info::before {
+  background: #4e94bd;
+}
+
+.admin-order-legend .is-active::before {
+  background: #4b9a68;
+}
+
+.admin-order-legend .is-attention::before {
+  background: #c65d72;
+}
+
+.admin-orders-table {
+  min-width: 1080px;
+}
+
+.admin-order-row td {
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.admin-order-row:hover td {
+  background: #fbfcfd;
+}
+
+.admin-order-row.is-payment-risk td:first-child {
+  box-shadow: inset 4px 0 0 #c65d72;
+}
+
+.admin-order-row.is-processing td:first-child {
+  box-shadow: inset 4px 0 0 #d6a73a;
+}
+
+.admin-order-row.is-packed td:first-child {
+  box-shadow: inset 4px 0 0 #7b74c8;
+}
+
+.admin-order-row.is-shipping td:first-child {
+  box-shadow: inset 4px 0 0 #4e94bd;
+}
+
+.admin-order-row.is-complete td:first-child {
+  box-shadow: inset 4px 0 0 #4b9a68;
+}
+
+.admin-order-row.is-exception td:first-child {
+  box-shadow: inset 4px 0 0 #9b351e;
+}
+
+.admin-order-code-cell,
+.admin-order-payment-cell,
+.admin-order-status-cell,
+.admin-shipping-cell {
+  display: grid;
+  gap: 5px;
+}
+
+.admin-order-code-cell strong,
+.admin-order-payment-cell strong,
+.admin-shipping-cell strong {
+  color: var(--admin-text);
+  font-weight: 900;
+}
+
+.admin-order-status-cell {
+  min-width: 132px;
+}
+
+.admin-shipping-cell .admin-status-pill {
+  width: max-content;
+  max-width: 160px;
+  overflow: hidden;
+  justify-content: flex-start;
+  text-overflow: ellipsis;
+}
+
+.admin-order-progress {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.admin-order-progress::before,
+.admin-order-progress > span {
+  grid-column: 1;
+  grid-row: 1;
+  height: 7px;
+  border-radius: 999px;
+}
+
+.admin-order-progress::before {
+  content: '';
+  background: #e7edf2;
+}
+
+.admin-order-progress > span {
+  max-width: 100%;
+  background: linear-gradient(90deg, #d6a73a, #4e94bd 58%, #4b9a68);
+}
+
+.admin-order-progress.is-exception > span {
+  background: linear-gradient(90deg, #c65d72, #9b351e);
+}
+
+.admin-order-progress.is-compact {
+  width: 132px;
+}
+
+.admin-order-progress ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-order-progress li {
+  min-width: 0;
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.admin-order-progress li.is-done {
+  color: var(--admin-text);
+}
+
+.admin-order-warning {
+  margin: 14px 0 0;
+}
+
+.admin-order-drawer {
+  width: min(100%, 620px);
+}
+
+.admin-order-drawer.is-payment-risk,
+.admin-order-drawer.is-exception {
+  border-left: 6px solid #c65d72;
+}
+
+.admin-order-drawer.is-shipping {
+  border-left: 6px solid #4e94bd;
+}
+
+.admin-order-drawer.is-complete {
+  border-left: 6px solid #4b9a68;
+}
+
+.admin-order-drawer.is-packed {
+  border-left: 6px solid #7b74c8;
+}
+
+.admin-order-drawer.is-processing {
+  border-left: 6px solid #d6a73a;
+}
+
+.admin-order-drawer-status {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.admin-section-inline-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-section-inline-heading h3 {
+  margin: 0;
+}
+
+.admin-detail-grid .admin-detail-card {
+  min-height: 76px;
+  align-content: center;
+  padding: 12px;
+  border: 1px solid #e6edf2;
+  border-left: 4px solid #9eb1c0;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-detail-card.is-order {
+  border-left-color: #4e94bd;
+}
+
+.admin-detail-card.is-payment {
+  border-left-color: #d6a73a;
+}
+
+.admin-detail-card.is-method {
+  border-left-color: #7b74c8;
+}
+
+.admin-detail-card.is-total {
+  border-left-color: #4b9a68;
+}
+
+.admin-detail-grid .admin-status-pill {
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-audit-log-list,
+.admin-order-item-list,
+.admin-payment-method-list,
+.admin-payment-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-order-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid #e6edf2;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-order-item div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-order-item strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-order-item span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-payment-method-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e6edf2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-payment-method-card > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-payment-method-card strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-payment-method-card span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-payment-method-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-payment-attempt {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e6edf2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-payment-attempt header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-payment-attempt header strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-payment-attempt header span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-payment-attempt header span.is-success {
+  color: #24623f;
+  background: #e8f6ee;
+}
+
+.admin-payment-attempt header span.is-pending {
+  color: #806018;
+  background: #fff6d8;
+}
+
+.admin-payment-attempt header span.is-failed {
+  color: var(--admin-danger);
+  background: var(--admin-danger-bg);
+}
+
+.admin-payment-attempt dl,
+.admin-audit-log-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.admin-payment-attempt dl div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-payment-attempt dt,
+.admin-audit-log-card dt {
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-payment-attempt dd,
+.admin-audit-log-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-payment-attempt p {
+  margin: 0;
+  color: var(--admin-danger);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-audit-log-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e6edf2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-audit-log-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-audit-log-card header strong {
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.admin-audit-log-card header span,
+.admin-audit-log-card p {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 980px) {
+  .admin-order-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-page-actions,
+  .admin-section-inline-heading,
+  .admin-payment-method-card,
+  .admin-payment-attempt header,
+  .admin-audit-log-card header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-stats,
+  .admin-payment-attempt dl,
+  .admin-audit-log-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-order-drawer {
+    width: 100%;
+  }
+}

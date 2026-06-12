@@ -81,6 +81,7 @@ export interface IOrder extends Document {
   totalAmount: number;
   status: OrderStatus;
   paymentMethod: OrderPaymentMethod;
+  paymentMethodId?: Types.ObjectId | null;
   paymentStatus: OrderPaymentStatus;
   shipping: IOrderShipping;
   shippingAddress: IOrderShippingAddress;
@@ -192,6 +193,11 @@ const orderSchema = new Schema<IOrder>(
       type: String,
       enum: ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'],
       required: true,
+    },
+    paymentMethodId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PaymentMethod',
+      default: null,
     },
     paymentStatus: {
       type: String,
