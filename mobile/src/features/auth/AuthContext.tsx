@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import { authApi } from './authApi';
+import { sessionStorage } from './sessionStorage';
 import type { AuthSession, SessionUser } from './types';
 
 type AuthContextType = {
@@ -38,14 +38,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const restoreSession = async () => {
       try {
-        const rawSession = await SecureStore.getItemAsync(AUTH_SESSION_STORAGE_KEY);
+        const rawSession = await sessionStorage.getItemAsync(AUTH_SESSION_STORAGE_KEY);
         if (!isMounted || !rawSession) return;
 
         const restoredSession = JSON.parse(rawSession) as AuthSession;
         sessionRef.current = restoredSession;
         setSession(restoredSession);
       } catch {
-        await SecureStore.deleteItemAsync(AUTH_SESSION_STORAGE_KEY).catch(() => undefined);
+        await sessionStorage.deleteItemAsync(AUTH_SESSION_STORAGE_KEY).catch(() => undefined);
       } finally {
         if (isMounted) setIsRestoringSession(false);
       }
@@ -60,8 +60,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const persistSession = React.useCallback((nextSession: AuthSession | null) => {
     const task = nextSession
-      ? SecureStore.setItemAsync(AUTH_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
-      : SecureStore.deleteItemAsync(AUTH_SESSION_STORAGE_KEY);
+      ? sessionStorage.setItemAsync(AUTH_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
+      : sessionStorage.deleteItemAsync(AUTH_SESSION_STORAGE_KEY);
 
     task.catch(() => undefined);
   }, []);
