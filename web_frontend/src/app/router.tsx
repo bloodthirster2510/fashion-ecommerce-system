@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { AdminLogin } from '../features/admin/auth/AdminLogin'
+import { AdminLogin } from '../features/admin/modules/auth/AdminLogin'
 import '../features/admin/styles/admin.css'
+import '../features/admin/layouts/admin-layout.css'
 import {
   clearAdminSession,
   getAdminSession,
   type AdminSession,
-} from '../features/admin/auth/adminSession'
+} from '../features/admin/modules/auth/adminSession'
 import {
   ADMIN_DEFAULT_PATH,
   ADMIN_LOGIN_PATH,
