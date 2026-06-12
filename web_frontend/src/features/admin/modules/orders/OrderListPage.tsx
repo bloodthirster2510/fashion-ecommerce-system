@@ -30,7 +30,6 @@ type OrderTab = {
   key: string
   label: string
   status?: AdminOrderStatus | 'all'
-  paymentStatus?: AdminOrderPaymentStatus | 'all'
 }
 
 type Notice = {
@@ -41,12 +40,11 @@ type Notice = {
 const pageSize = 10
 
 const orderTabs: OrderTab[] = [
-  { key: 'all', label: 'Tất cả', status: 'all', paymentStatus: 'all' },
-  { key: 'payment', label: 'Chờ thanh toán', status: 'all', paymentStatus: 'pending' },
-  { key: 'confirmed', label: 'Chờ xử lý', status: 'confirmed', paymentStatus: 'all' },
-  { key: 'shipping', label: 'Đang giao', status: 'shipping', paymentStatus: 'all' },
-  { key: 'done', label: 'Hoàn thành', status: 'delivered', paymentStatus: 'all' },
-  { key: 'exceptions', label: 'Hủy / trả', status: 'cancelled', paymentStatus: 'all' },
+  { key: 'all', label: 'Tất cả', status: 'all' },
+  { key: 'confirmed', label: 'Chờ xử lý', status: 'confirmed' },
+  { key: 'shipping', label: 'Đang giao', status: 'shipping' },
+  { key: 'done', label: 'Hoàn thành', status: 'delivered' },
+  { key: 'exceptions', label: 'Hủy / trả', status: 'cancelled' },
 ]
 
 const statusLabels: Record<AdminOrderStatus, string> = {
@@ -297,6 +295,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [keyword, setKeyword] = useState('')
   const [activeTabKey, setActiveTabKey] = useState('all')
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
+  const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
   const [page, setPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -340,7 +339,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
       const result = await listOrders({
         keyword,
         status: activeTab.status ?? 'all',
-        paymentStatus: activeTab.paymentStatus ?? 'all',
+        paymentStatus,
         paymentMethod,
         page,
         limit: pageSize,
@@ -354,7 +353,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [activeTab.paymentStatus, activeTab.status, keyword, page, paymentMethod])
+  }, [activeTab.status, keyword, page, paymentMethod, paymentStatus])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -641,7 +640,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         </label>
 
         <label>
-          <span>Thanh toán</span>
+          <span>Phương thức</span>
           <select
             value={paymentMethod}
             onChange={(event) => {
@@ -651,6 +650,24 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
           >
             <option value="all">Tất cả</option>
             {Object.entries(paymentMethodLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>Trạng thái thanh toán</span>
+          <select
+            value={paymentStatus}
+            onChange={(event) => {
+              setPaymentStatus(event.target.value as AdminOrderPaymentStatus | 'all')
+              setPage(1)
+            }}
+          >
+            <option value="all">Tất cả</option>
+            {Object.entries(paymentStatusLabels).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>

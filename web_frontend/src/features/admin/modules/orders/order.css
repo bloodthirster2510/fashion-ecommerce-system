@@ -331,11 +331,6 @@
   --order-tab-soft: #eef6fb;
 }
 
-.admin-order-tab.is-payment {
-  --order-tab-color: #a66a10;
-  --order-tab-soft: #fff6d8;
-}
-
 .admin-order-tab.is-confirmed {
   --order-tab-color: #4d4b8e;
   --order-tab-soft: #f2f1ff;
