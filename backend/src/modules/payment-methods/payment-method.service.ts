@@ -9,7 +9,6 @@ import { SalesServiceError } from '../sales/sales.helpers';
 import type { CreatePaymentMethodInput, UpdatePaymentMethodInput } from './payment-method.types';
 
 const allowedTypes: PaymentMethodType[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
-const allowedStatuses: PaymentMethodStatus[] = ['pending', 'verified', 'expired', 'disabled'];
 const DEFAULTABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
 const CHECKOUT_USABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
 const sensitiveFieldNames = [
@@ -107,17 +106,6 @@ const normalizeType = (type: unknown): PaymentMethodType => {
   }
 
   return normalizedType as PaymentMethodType;
-};
-
-const normalizeStatus = (status: unknown): PaymentMethodStatus | undefined => {
-  if (status === undefined) return undefined;
-
-  const normalizedStatus = typeof status === 'string' ? status : '';
-  if (!allowedStatuses.includes(normalizedStatus as PaymentMethodStatus)) {
-    throw new SalesServiceError('Invalid payment method status', 400);
-  }
-
-  return normalizedStatus as PaymentMethodStatus;
 };
 
 const getProvider = (type: PaymentMethodType, provider?: string) => {
