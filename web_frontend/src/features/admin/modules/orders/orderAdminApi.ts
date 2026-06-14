@@ -12,6 +12,8 @@ export type AdminOrderStatus =
 export type AdminOrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK'
 export type AdminOrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
 export type AdminPaymentMethodStatus = 'pending' | 'verified' | 'expired' | 'disabled'
+export type AdminReturnRequestStatus = 'requested' | 'approved' | 'rejected'
+export type AdminReturnReviewDecision = 'approved' | 'rejected'
 
 export type AdminOrderItem = {
   _id?: string
@@ -46,6 +48,24 @@ export type AdminOrderShipping = {
   estimatedDeliveryDate?: string | null
 }
 
+export type AdminOrderReturnRequest = {
+  reason: string
+  imageUrls?: string[]
+  status: AdminReturnRequestStatus
+  requestedAt: string
+  reviewedAt?: string | null
+  reviewedBy?: string | null
+  reviewReason?: string | null
+}
+
+export type AdminOrderCancellation = {
+  reason?: string | null
+  imageUrls?: string[]
+  cancelledAt: string
+  cancelledBy?: string | null
+  actorRole?: 'user' | 'admin' | 'staff' | 'system' | string | null
+}
+
 export type AdminOrder = {
   _id: string
   orderCode: string
@@ -63,6 +83,8 @@ export type AdminOrder = {
   status: AdminOrderStatus
   paymentMethod: AdminOrderPaymentMethod
   paymentStatus: AdminOrderPaymentStatus
+  returnRequest?: AdminOrderReturnRequest | null
+  cancellation?: AdminOrderCancellation | null
   shipping?: AdminOrderShipping | null
   shippingAddress: AdminOrderShippingAddress
   orderNote?: string | null
@@ -101,6 +123,7 @@ export type AdminCustomerPaymentMethod = {
   bankName?: string | null
   status: AdminPaymentMethodStatus
   isDefault: boolean
+  metadata?: Record<string, unknown>
   createdAt?: string
   updatedAt?: string
 }
@@ -118,6 +141,13 @@ export type OrderListFilters = {
 export type OrderListResponse = {
   items: AdminOrder[]
   statusSummary?: Record<AdminOrderStatus | 'all', number>
+  operationalSummary?: {
+    returnRequests: number
+    refunds: number
+    paidReady: number
+    paymentRisk: number
+    totalPriority: number
+  }
   pagination?: {
     page: number
     limit: number
@@ -129,6 +159,7 @@ export type OrderListResponse = {
 export type ExpireStalePaymentsResponse = {
   expiredCount: number
   orderIds: string[]
+  cancelledOrderIds: string[]
   transactions: Array<{
     id: string
     orderId: string
@@ -217,10 +248,20 @@ export const getOrder = (id: string) =>
 export const listOrderTransactions = (id: string) =>
   requestAdmin<AdminTransaction[]>(`/admin/orders/${id}/transactions`)
 
-export const updateOrderStatus = (id: string, status: AdminOrderStatus) =>
+export const updateOrderStatus = (id: string, status: AdminOrderStatus, reason?: string) =>
   requestAdmin<AdminOrder>(`/admin/orders/${id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, reason }),
+  })
+
+export const reviewReturnRequest = (
+  id: string,
+  decision: AdminReturnReviewDecision,
+  reason?: string,
+) =>
+  requestAdmin<AdminOrder>(`/admin/orders/${id}/return-request`, {
+    method: 'PATCH',
+    body: JSON.stringify({ decision, reason }),
   })
 
 export const updateOrderShipping = (id: string, payload: UpdateOrderShippingPayload) =>

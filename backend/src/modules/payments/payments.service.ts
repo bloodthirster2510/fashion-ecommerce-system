@@ -14,6 +14,23 @@ type VNPayCreatePaymentUrlInput = {
   locale?: string;
 };
 
+const trimTrailingSlashes = (value: string) => value.replace(/\/+$/, '');
+
+const buildApiCallbackUrl = (baseUrl: string, path: string) =>
+  `${trimTrailingSlashes(baseUrl)}${path}`;
+
+const getVNPayReturnUrl = () => {
+  const publicBaseUrl =
+    process.env.VNPAY_PUBLIC_BASE_URL?.trim() ||
+    process.env.PUBLIC_API_BASE_URL?.trim();
+
+  if (publicBaseUrl) {
+    return buildApiCallbackUrl(publicBaseUrl, '/api/payments/vnpay/return');
+  }
+
+  return process.env.VNPAY_RETURN_URL?.trim();
+};
+
 export const createVNPayPaymentUrl = ({
   orderId,
   amount,
@@ -24,7 +41,7 @@ export const createVNPayPaymentUrl = ({
   const tmnCode = process.env.VNPAY_TMN_CODE?.trim();
   const secretKey = process.env.VNPAY_HASH_SECRET?.trim();
   const vnpUrl = process.env.VNPAY_PAY_URL?.trim() || process.env.VNPAY_API_URL?.trim();
-  const returnUrl = process.env.VNPAY_RETURN_URL?.trim();
+  const returnUrl = getVNPayReturnUrl();
 
   if (!tmnCode || !secretKey || !vnpUrl || !returnUrl) {
     throw new Error('Missing VNPay configuration');

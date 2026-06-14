@@ -21,18 +21,19 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { orderApi, OrderApiError, type CustomerOrder, type OrderStatusSummary } from './orderApi';
 import {
-  canCancelOrder,
   formatCurrency,
   formatDate,
-  getDeliveryLine,
   getExtraItemText,
+  getOrderDisplayState,
   getOrderMatchesTab,
   getOrderItemCount,
+  getOrderTab,
   getOrderTabCount,
   getPrimaryStatusForTab,
   getPrimaryItem,
+  orderNeedsPaymentAction,
+  orderNeedsUserAction,
   orderTabs,
-  statusMeta,
   type OrderTabKey,
 } from './orderPresentation';
 
@@ -41,15 +42,15 @@ type OrderListRouteProp = RouteProp<RootStackParamList, 'Orders'>;
 type PaymentFilter = 'all' | 'needs-payment' | 'cash' | 'transfer';
 
 const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
-  { key: 'all', label: 'Tất cả thanh toán' },
-  { key: 'cash', label: 'Tiền mặt' },
-  { key: 'transfer', label: 'Chuyển khoản' },
+  { key: 'all', label: 'Tất cả' },
+  { key: 'cash', label: 'COD' },
+  { key: 'transfer', label: 'Online' },
 ];
 
 const transferPaymentMethods = new Set(['VNPAY', 'MOMO', 'BANK', 'CARD']);
 const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   paymentFilters[0],
-  { key: 'needs-payment', label: 'Chờ thanh toán' },
+  { key: 'needs-payment', label: 'Cần thanh toán' },
   ...paymentFilters.slice(1),
 ];
 
@@ -58,19 +59,13 @@ const getPaymentMethodQuery = (filter: PaymentFilter) => {
   return 'all';
 };
 
-const getPaymentStatusQuery = (filter: PaymentFilter) => {
-  if (filter === 'needs-payment') return 'pending';
+const getPaymentStatusQuery = () => {
   return 'all';
 };
 
-const needsPaymentAction = (order: CustomerOrder) =>
-  order.paymentMethod === 'VNPAY' &&
-  (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') &&
-  !['cancelled', 'returned'].includes(order.status);
-
 const getOrderMatchesPaymentFilter = (order: CustomerOrder, filter: PaymentFilter) => {
   if (filter === 'all') return true;
-  if (filter === 'needs-payment') return needsPaymentAction(order);
+  if (filter === 'needs-payment') return orderNeedsPaymentAction(order);
   if (filter === 'cash') return order.paymentMethod === 'COD';
 
   return transferPaymentMethods.has(order.paymentMethod);
@@ -96,14 +91,14 @@ const OrderListScreen = () => {
   const navigation = useNavigation<OrderListNavigationProp>();
   const route = useRoute<OrderListRouteProp>();
   const { logout, runWithAuth, session } = useAuth();
-  const initialStatus = route.params?.status ?? 'all';
+  const initialStatus = getOrderTab(route.params?.status ?? 'active').key;
 
   const [activeStatus, setActiveStatus] = React.useState<OrderTabKey>(initialStatus);
   const [orders, setOrders] = React.useState<CustomerOrder[]>([]);
   const [statusSummary, setStatusSummary] = React.useState<OrderStatusSummary | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
-  const [isCancellingId, setIsCancellingId] = React.useState<string | null>(null);
+  const [isConfirmingId, setIsConfirmingId] = React.useState<string | null>(null);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [searchText, setSearchText] = React.useState('');
   const [debouncedSearchText, setDebouncedSearchText] = React.useState('');
@@ -136,7 +131,7 @@ const OrderListScreen = () => {
       try {
         const primaryStatus = getPrimaryStatusForTab(status);
         const paymentMethodQuery = getPaymentMethodQuery(paymentFilter);
-        const paymentStatusQuery = getPaymentStatusQuery(paymentFilter);
+        const paymentStatusQuery = getPaymentStatusQuery();
         const response = await runWithAuth((accessToken) =>
           orderApi.getMyOrders(accessToken, {
             status: primaryStatus ?? 'all',
@@ -183,38 +178,46 @@ const OrderListScreen = () => {
     void loadOrders(activeStatus, 'refresh');
   };
 
-  const handleCancelOrder = (order: CustomerOrder) => {
+  const handleConfirmReceived = (order: CustomerOrder) => {
     Alert.alert(
-      'Hủy đơn hàng?',
-      'Bạn có thể hủy khi đơn chưa bàn giao cho đơn vị vận chuyển. Sau khi hủy, tồn kho và voucher sẽ được hệ thống xử lý lại.',
+      'Xác nhận đã nhận hàng?',
+      'Sau khi xác nhận, đơn sẽ chuyển sang Hoàn tất. Bạn vẫn có thể yêu cầu hỗ trợ đổi trả nếu phát sinh vấn đề.',
       [
         { text: 'Để sau', style: 'cancel' },
         {
-          text: 'Hủy đơn',
-          style: 'destructive',
+          text: 'Đã nhận hàng',
           onPress: () => {
-            void confirmCancelOrder(order);
+            void confirmReceivedOrder(order);
           },
         },
       ],
     );
   };
 
-  const confirmCancelOrder = async (order: CustomerOrder) => {
+  const confirmReceivedOrder = async (order: CustomerOrder) => {
     try {
-      setIsCancellingId(order._id);
-      const nextOrder = await runWithAuth((accessToken) => orderApi.cancelOrder(accessToken, order._id));
+      setIsConfirmingId(order._id);
+      const nextOrder = await runWithAuth((accessToken) => orderApi.confirmReceived(accessToken, order._id));
       setOrders((current) => current.map((item) => (item._id === nextOrder._id ? nextOrder : item)));
       void loadOrders(activeStatus, 'refresh');
     } catch (error) {
-      Alert.alert('Không thể hủy đơn', getErrorMessage(error));
+      Alert.alert('Không thể xác nhận nhận hàng', getErrorMessage(error));
     } finally {
-      setIsCancellingId(null);
+      setIsConfirmingId(null);
     }
   };
 
   const getTabCount = (status: OrderTabKey) => getOrderTabCount(statusSummary, status);
   const hasActiveFilters = Boolean(debouncedSearchText) || paymentFilter !== 'all';
+  const selectedTab = getOrderTab(activeStatus);
+  const hasVisiblePaymentAction = orders.some(orderNeedsPaymentAction);
+  const hasShippingAction = (statusSummary?.shipping ?? 0) > 0;
+
+  const shouldShowPaymentFilterDot = (filter: PaymentFilter) =>
+    filter === 'needs-payment' && (hasVisiblePaymentAction || paymentFilter === 'needs-payment');
+
+  const shouldShowTabDot = (tab: OrderTabKey) =>
+    tab === 'shipping' && hasShippingAction;
 
   const clearFilters = () => {
     setSearchText('');
@@ -225,15 +228,20 @@ const OrderListScreen = () => {
   const renderOrderCard = (order: CustomerOrder) => {
     const primaryItem = getPrimaryItem(order);
     const extraItemText = getExtraItemText(order);
-    const meta = statusMeta[order.status];
+    const displayState = getOrderDisplayState(order);
     const imageUri = primaryItem?.image?.trim();
-    const canCancel = canCancelOrder(order.status);
-    const requiresPayment = needsPaymentAction(order);
+    const canConfirmReceived = order.status === 'shipping';
+    const requiresPayment = orderNeedsPaymentAction(order);
+    const requiresUserAction = orderNeedsUserAction(order);
 
     return (
       <TouchableOpacity
         key={order._id}
-        style={[styles.orderCard, requiresPayment && styles.orderCardNeedsPayment]}
+        style={[
+          styles.orderCard,
+          requiresUserAction && styles.orderCardAttention,
+          requiresPayment && styles.orderCardNeedsPayment,
+        ]}
         activeOpacity={0.84}
         onPress={() => navigation.navigate('OrderDetail', { orderId: order._id })}
       >
@@ -242,8 +250,9 @@ const OrderListScreen = () => {
             <Text style={styles.orderCode}>{order.orderCode}</Text>
             <Text style={styles.orderDate}>Đặt ngày {formatDate(order.createdAt)}</Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: meta.backgroundColor }]}>
-            <Text style={[styles.statusBadgeText, { color: meta.color }]}>{meta.label}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: displayState.backgroundColor }]}>
+            {requiresUserAction ? <View style={styles.statusBadgeDot} /> : null}
+            <Text style={[styles.statusBadgeText, { color: displayState.color }]}>{displayState.label}</Text>
           </View>
         </View>
 
@@ -274,12 +283,12 @@ const OrderListScreen = () => {
 
         <View style={styles.deliveryRow}>
           <MaterialCommunityIcons
-            name={requiresPayment ? 'credit-card-clock-outline' : 'truck-delivery-outline'}
+            name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
             size={18}
-            color={requiresPayment ? colors.goldText : colors.success}
+            color={displayState.color}
           />
-          <Text style={[styles.deliveryText, requiresPayment && styles.deliveryTextWarning]}>
-            {requiresPayment ? 'Đơn VNPay đang chờ thanh toán. Bấm chi tiết để thanh toán lại.' : getDeliveryLine(order)}
+          <Text style={[styles.deliveryText, { color: displayState.color }]}>
+            {displayState.description}
           </Text>
         </View>
 
@@ -293,19 +302,19 @@ const OrderListScreen = () => {
             <Text style={styles.secondaryActionText}>Chi tiết</Text>
           </TouchableOpacity>
 
-          {canCancel ? (
+          {canConfirmReceived ? (
             <TouchableOpacity
-              style={styles.dangerAction}
-              onPress={() => handleCancelOrder(order)}
+              style={styles.primaryAction}
+              onPress={() => handleConfirmReceived(order)}
               activeOpacity={0.82}
-              disabled={isCancellingId === order._id}
+              disabled={isConfirmingId === order._id}
             >
-              {isCancellingId === order._id ? (
-                <ActivityIndicator size="small" color={colors.danger} />
+              {isConfirmingId === order._id ? (
+                <ActivityIndicator size="small" color={colors.white} />
               ) : (
-                <MaterialCommunityIcons name="close-circle-outline" size={18} color={colors.danger} />
+                <MaterialCommunityIcons name="package-check" size={18} color={colors.white} />
               )}
-              <Text style={styles.dangerActionText}>Hủy đơn</Text>
+              <Text style={styles.primaryActionText}>Đã nhận hàng</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -360,6 +369,7 @@ const OrderListScreen = () => {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.paymentFilters}>
             {displayedPaymentFilters.map((item) => {
               const isActive = paymentFilter === item.key;
+              const showDot = shouldShowPaymentFilterDot(item.key);
 
               return (
                 <TouchableOpacity
@@ -368,6 +378,7 @@ const OrderListScreen = () => {
                   onPress={() => setPaymentFilter(item.key)}
                   activeOpacity={0.84}
                 >
+                  {showDot ? <View style={styles.filterActionDot} /> : null}
                   <Text style={[styles.paymentFilterText, isActive && styles.paymentFilterTextActive]}>
                     {item.label}
                   </Text>
@@ -389,6 +400,7 @@ const OrderListScreen = () => {
             {orderTabs.map((tab) => {
               const isActive = activeStatus === tab.key;
               const count = getTabCount(tab.key);
+              const showDot = shouldShowTabDot(tab.key);
 
               return (
                 <TouchableOpacity
@@ -397,7 +409,10 @@ const OrderListScreen = () => {
                   onPress={() => setActiveStatus(tab.key)}
                   activeOpacity={0.84}
                 >
-                  <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+                  <View style={styles.tabLabelRow}>
+                    {showDot ? <View style={styles.tabActionDot} /> : null}
+                    <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+                  </View>
                   <Text style={[styles.tabCount, isActive && styles.tabCountActive]}>
                     {count === undefined ? tab.helper : `${count} đơn`}
                   </Text>
@@ -405,6 +420,16 @@ const OrderListScreen = () => {
               );
             })}
           </ScrollView>
+        </View>
+
+        <View style={styles.listSummary}>
+          <View style={styles.listSummaryCopy}>
+            <Text style={styles.listSummaryTitle}>{selectedTab.label}</Text>
+            <Text style={styles.listSummaryText}>{selectedTab.helper}</Text>
+          </View>
+          <View style={styles.listSummaryBadge}>
+            <Text style={styles.listSummaryBadgeText}>{isLoading ? '...' : `${orders.length} đơn`}</Text>
+          </View>
         </View>
 
         <ScrollView
@@ -551,8 +576,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
   },
   paymentFilterButtonActive: {
     borderColor: colors.brand,
@@ -565,6 +592,12 @@ const styles = StyleSheet.create({
   },
   paymentFilterTextActive: {
     color: colors.brandDark,
+  },
+  filterActionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.danger,
   },
   resetFilterButton: {
     minHeight: 36,
@@ -604,6 +637,17 @@ const styles = StyleSheet.create({
     borderColor: colors.brand,
     backgroundColor: colors.brandSoft,
   },
+  tabLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabActionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.danger,
+  },
   tabLabel: {
     color: colors.text,
     fontSize: 13,
@@ -621,6 +665,46 @@ const styles = StyleSheet.create({
   tabCountActive: {
     color: colors.brand,
     fontWeight: '700',
+  },
+  listSummary: {
+    minHeight: 58,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.background,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  listSummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  listSummaryTitle: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  listSummaryText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  listSummaryBadge: {
+    minHeight: 32,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listSummaryBadgeText: {
+    color: colors.brandDark,
+    fontSize: 12,
+    fontWeight: '900',
   },
   orderScroll: {
     flex: 1,
@@ -640,6 +724,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.gold,
     backgroundColor: '#FFFCF5',
+  },
+  orderCardAttention: {
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
   },
   orderHeader: {
     flexDirection: 'row',
@@ -661,10 +749,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  attentionBadge: {
+    alignSelf: 'flex-start',
+    minHeight: 24,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  attentionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  attentionBadgeText: {
+    maxWidth: 180,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   statusBadge: {
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusBadgeDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.danger,
   },
   statusBadgeText: {
     fontSize: 12,
@@ -744,6 +861,7 @@ const styles = StyleSheet.create({
   },
   cardActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'flex-end',
     gap: spacing.sm,
     marginTop: spacing.md,
@@ -764,22 +882,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  dangerAction: {
+  primaryAction: {
     minHeight: 40,
     borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.dangerSoft,
-    backgroundColor: '#FFF7F7',
+    backgroundColor: colors.brand,
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  dangerActionText: {
-    color: colors.danger,
+  primaryActionText: {
+    color: colors.white,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   statePanel: {
     minHeight: 260,

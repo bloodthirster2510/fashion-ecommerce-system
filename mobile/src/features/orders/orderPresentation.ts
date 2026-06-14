@@ -2,12 +2,11 @@ import { colors } from '../../theme';
 import type { CustomerOrder, OrderStatus, OrderStatusSummary } from './orderApi';
 
 export type OrderTabKey =
-  | 'all'
-  | 'waiting'
-  | 'processing'
+  | 'active'
   | 'shipping'
   | 'completed'
-  | 'issues';
+  | 'issues'
+  | 'all';
 
 export type OrderTab = {
   key: OrderTabKey;
@@ -18,40 +17,34 @@ export type OrderTab = {
 
 export const orderTabs: OrderTab[] = [
   {
-    key: 'all',
-    label: 'Tất cả',
-    helper: 'Toàn bộ đơn',
-    statuses: ['confirmed', 'packed', 'shipping', 'delivered', 'cancelled', 'return_requested', 'returned'],
-  },
-  {
-    key: 'waiting',
-    label: 'Chờ xác nhận',
-    helper: 'Shop kiểm tra đơn',
-    statuses: ['confirmed'],
-  },
-  {
-    key: 'processing',
-    label: 'Đang xử lý',
-    helper: 'Đóng gói, chuẩn bị giao',
-    statuses: ['packed'],
+    key: 'active',
+    label: 'Đang diễn ra',
+    helper: 'Shop xử lý & chuẩn bị',
+    statuses: ['confirmed', 'packed'],
   },
   {
     key: 'shipping',
-    label: 'Đang giao',
-    helper: 'Theo dõi vận chuyển',
+    label: 'Chờ nhận',
+    helper: 'Xác nhận khi đã nhận hàng',
     statuses: ['shipping'],
   },
   {
     key: 'completed',
-    label: 'Hoàn thành',
-    helper: 'Đã giao thành công',
+    label: 'Hoàn tất',
+    helper: 'Đơn đã kết thúc',
     statuses: ['delivered'],
   },
   {
     key: 'issues',
     label: 'Hủy/Trả',
-    helper: 'Đơn hủy hoặc đổi trả',
+    helper: 'Cần hỗ trợ hoặc đối soát',
     statuses: ['cancelled', 'return_requested', 'returned'],
+  },
+  {
+    key: 'all',
+    label: 'Tất cả',
+    helper: 'Lịch sử đầy đủ',
+    statuses: ['confirmed', 'packed', 'shipping', 'delivered', 'cancelled', 'return_requested', 'returned'],
   },
 ];
 
@@ -73,6 +66,145 @@ export const getPrimaryStatusForTab = (key: OrderTabKey) => {
   return statuses.length === 1 ? statuses[0] : undefined;
 };
 
+export type OrderDisplayTone = 'danger' | 'warning' | 'info' | 'success' | 'neutral';
+
+export type OrderDisplayState = {
+  label: string;
+  description: string;
+  deliveryLine: string;
+  icon: string;
+  tone: OrderDisplayTone;
+  color: string;
+  backgroundColor: string;
+  requiresUserAction: boolean;
+};
+
+const onlinePaymentMethods = new Set(['VNPAY', 'MOMO', 'CARD', 'BANK']);
+const closedOrderStatuses = new Set<OrderStatus>(['cancelled', 'returned']);
+
+export const isOnlinePaymentOrder = (order: CustomerOrder) =>
+  onlinePaymentMethods.has(order.paymentMethod);
+
+export const orderNeedsPaymentAction = (order: CustomerOrder) =>
+  order.paymentMethod === 'VNPAY' &&
+  (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') &&
+  !closedOrderStatuses.has(order.status);
+
+export const getOrderDisplayState = (order: CustomerOrder): OrderDisplayState => {
+  if (orderNeedsPaymentAction(order)) {
+    const isFailed = order.paymentStatus === 'failed';
+
+    return {
+      label: isFailed ? 'Thanh toán lỗi' : 'Chờ thanh toán',
+      description: isFailed ? 'Mở chi tiết để thử lại.' : 'Thanh toán để shop xử lý đơn.',
+      deliveryLine: isFailed ? 'Thanh toán lỗi, cần thử lại.' : 'Chờ bạn hoàn tất thanh toán.',
+      icon: 'credit-card-clock-outline',
+      tone: 'danger',
+      color: colors.danger,
+      backgroundColor: colors.dangerSoft,
+      requiresUserAction: true,
+    };
+  }
+
+  if (order.status === 'cancelled') {
+    const isPaid = order.paymentStatus === 'paid';
+
+    return {
+      label: 'Đã hủy',
+      description: isPaid ? 'Đang chờ shop xử lý hoàn tiền.' : 'Đơn đã được hủy.',
+      deliveryLine: `Đã hủy: ${formatDate(order.updatedAt)}`,
+      icon: isPaid ? 'cash-refund' : 'close-circle-outline',
+      tone: isPaid ? 'warning' : 'danger',
+      color: isPaid ? colors.goldText : colors.danger,
+      backgroundColor: isPaid ? colors.goldSoft : colors.dangerSoft,
+      requiresUserAction: false,
+    };
+  }
+
+  if (order.status === 'return_requested') {
+    return {
+      label: 'Đang duyệt trả hàng',
+      description: 'Shop đang xem yêu cầu của bạn.',
+      deliveryLine: 'Yêu cầu trả hàng đang chờ shop phản hồi.',
+      icon: 'archive-clock-outline',
+      tone: 'warning',
+      color: colors.coral,
+      backgroundColor: '#FFF0EA',
+      requiresUserAction: false,
+    };
+  }
+
+  if (order.status === 'returned') {
+    return {
+      label: 'Đã trả hàng',
+      description: 'Yêu cầu trả hàng đã hoàn tất.',
+      deliveryLine: `Đã trả hàng: ${formatDate(order.updatedAt)}`,
+      icon: 'archive-check-outline',
+      tone: 'neutral',
+      color: colors.textMuted,
+      backgroundColor: '#EEF1F4',
+      requiresUserAction: false,
+    };
+  }
+
+  if (order.status === 'delivered') {
+    return {
+      label: 'Hoàn tất',
+      description: 'Bạn đã xác nhận nhận hàng.',
+      deliveryLine: `Hoàn tất: ${formatDate(order.updatedAt)}`,
+      icon: 'package-check',
+      tone: 'success',
+      color: colors.success,
+      backgroundColor: colors.successSoft,
+      requiresUserAction: false,
+    };
+  }
+
+  if (order.status === 'shipping') {
+    return {
+      label: 'Đang giao',
+      description: 'Khi nhận hàng, hãy bấm Đã nhận hàng.',
+      deliveryLine: `Dự kiến giao: ${formatDate(getEstimatedDeliveryDate(order))}`,
+      icon: 'truck-check-outline',
+      tone: 'info',
+      color: colors.action,
+      backgroundColor: '#EAF3FF',
+      requiresUserAction: true,
+    };
+  }
+
+  if (order.status === 'packed') {
+    return {
+      label: 'Đang chuẩn bị hàng',
+      description: 'Shop đang đóng gói hoặc bàn giao vận chuyển.',
+      deliveryLine: `Dự kiến giao: ${formatDate(getEstimatedDeliveryDate(order))}`,
+      icon: 'package-variant-closed',
+      tone: 'info',
+      color: colors.brandDark,
+      backgroundColor: colors.brandSoft,
+      requiresUserAction: false,
+    };
+  }
+
+  return {
+    label: 'Chờ shop xử lý',
+    description: isOnlinePaymentOrder(order) && order.paymentStatus === 'paid'
+      ? 'Đã thanh toán, shop đang kiểm tra đơn.'
+      : 'Shop đang kiểm tra và xác nhận đơn.',
+    deliveryLine: `Dự kiến giao: ${formatDate(getEstimatedDeliveryDate(order))}`,
+    icon: isOnlinePaymentOrder(order) && order.paymentStatus === 'paid'
+      ? 'check-decagram-outline'
+      : 'clipboard-text-clock-outline',
+    tone: 'warning',
+    color: colors.goldText,
+    backgroundColor: colors.goldSoft,
+    requiresUserAction: false,
+  };
+};
+
+export const orderNeedsUserAction = (order: CustomerOrder) =>
+  getOrderDisplayState(order).requiresUserAction;
+
 export const statusMeta: Record<OrderStatus, {
   label: string;
   description: string;
@@ -80,14 +212,14 @@ export const statusMeta: Record<OrderStatus, {
   backgroundColor: string;
 }> = {
   confirmed: {
-    label: 'Chờ xác nhận',
-    description: 'Shop đã nhận đơn và đang kiểm tra tồn kho trước khi đóng gói.',
+    label: 'Chờ shop xử lý',
+    description: 'Shop đang kiểm tra và xác nhận đơn.',
     color: colors.goldText,
     backgroundColor: colors.goldSoft,
   },
   packed: {
-    label: 'Đang xử lý',
-    description: 'Đơn đã được duyệt và đang chuẩn bị đóng gói hoặc chờ bàn giao vận chuyển.',
+    label: 'Đang chuẩn bị hàng',
+    description: 'Shop đang đóng gói hoặc bàn giao vận chuyển.',
     color: colors.brandDark,
     backgroundColor: colors.brandSoft,
   },
@@ -98,8 +230,8 @@ export const statusMeta: Record<OrderStatus, {
     backgroundColor: '#EAF3FF',
   },
   delivered: {
-    label: 'Hoàn thành',
-    description: 'Đơn đã giao thành công. Bạn có thể yêu cầu hỗ trợ đổi trả nếu cần.',
+    label: 'Hoàn tất',
+    description: 'Bạn đã xác nhận nhận hàng.',
     color: colors.success,
     backgroundColor: colors.successSoft,
   },
@@ -110,8 +242,8 @@ export const statusMeta: Record<OrderStatus, {
     backgroundColor: colors.dangerSoft,
   },
   return_requested: {
-    label: 'Đang xử lý trả hàng',
-    description: 'Yêu cầu trả hàng đã được ghi nhận và đang chờ shop phản hồi.',
+    label: 'Đang duyệt trả hàng',
+    description: 'Shop đang xem yêu cầu của bạn.',
     color: colors.coral,
     backgroundColor: '#FFF0EA',
   },
@@ -177,23 +309,19 @@ export const getEstimatedDeliveryDate = (order: CustomerOrder) =>
   order.shipping?.estimatedDeliveryDate ?? addDays(order.createdAt, 4).toISOString();
 
 export const getDeliveryLine = (order: CustomerOrder) => {
-  if (order.status === 'cancelled') {
-    return `Đã hủy: ${formatDate(order.updatedAt)}`;
-  }
+  return getOrderDisplayState(order).deliveryLine;
+};
 
-  if (order.status === 'delivered') {
-    return `Đã giao: ${formatDate(order.updatedAt)}`;
-  }
+export type OrderAttention = {
+  tone: OrderDisplayTone;
+  icon: string;
+  label: string;
+  description: string;
+};
 
-  if (order.status === 'return_requested') {
-    return 'Đang xử lý yêu cầu trả hàng';
-  }
-
-  if (order.status === 'returned') {
-    return `Đã trả hàng: ${formatDate(order.updatedAt)}`;
-  }
-
-  return `Dự kiến giao: ${formatDate(getEstimatedDeliveryDate(order))}`;
+export const getOrderAttention = (order: CustomerOrder): OrderAttention | null => {
+  const displayState = getOrderDisplayState(order);
+  return displayState.requiresUserAction ? displayState : null;
 };
 
 export const canCancelOrder = (status: OrderStatus) =>

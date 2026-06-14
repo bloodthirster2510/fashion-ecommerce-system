@@ -11,6 +11,7 @@ import {
   getOrders,
   previewCheckout,
   requestReturn,
+  reviewReturnRequest,
   updateOrderShipping,
   updateOrderStatus,
 } from './order.controller';
@@ -34,6 +35,7 @@ adminOrderRouter.get('/', requirePermission('orders.read'), getOrders);
 adminOrderRouter.get('/:id/transactions', requirePermission('orders.read'), getOrderTransactions);
 adminOrderRouter.get('/:id', requirePermission('orders.read'), getOrderById);
 adminOrderRouter.patch('/:id/cancel', requirePermission('orders.update'), cancelOrder);
+adminOrderRouter.patch('/:id/return-request', requirePermission('orders.update'), reviewReturnRequest);
 adminOrderRouter.patch('/:id/status', requirePermission('orders.update'), updateOrderStatus);
 adminOrderRouter.patch('/:id/shipping', requirePermission('orders.update'), updateOrderShipping);
 

@@ -17,6 +17,7 @@ export type OrderFilterStatus = 'all' | OrderStatus;
 
 export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK' | string;
 export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded' | string;
+export type OrderReturnRequestStatus = 'requested' | 'approved' | 'rejected';
 
 export type OrderItem = {
   _id?: string;
@@ -64,6 +65,29 @@ export type OrderShipping = {
   estimatedDeliveryDate?: string | null;
 };
 
+export type OrderReturnRequest = {
+  reason: string;
+  imageUrls?: string[];
+  status: OrderReturnRequestStatus;
+  requestedAt: string;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewReason?: string | null;
+};
+
+export type OrderCancellation = {
+  reason?: string | null;
+  imageUrls?: string[];
+  cancelledAt: string;
+  cancelledBy?: string | null;
+  actorRole?: 'user' | 'admin' | 'staff' | 'system' | string | null;
+};
+
+export type OrderEvidenceImageAttachment = {
+  imageBase64: string;
+  mimeType?: string;
+};
+
 export type CustomerOrder = {
   _id: string;
   orderCode: string;
@@ -81,6 +105,8 @@ export type CustomerOrder = {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: string | null;
   paymentStatus: OrderPaymentStatus;
+  returnRequest?: OrderReturnRequest | null;
+  cancellation?: OrderCancellation | null;
   shipping?: OrderShipping | null;
   shippingAddress: OrderShippingAddress;
   orderNote?: string | null;
@@ -206,10 +232,36 @@ export const orderApi = {
   },
   getOrderById: (token: string, orderId: string) =>
     request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}`, token),
-  cancelOrder: (token: string, orderId: string) =>
-    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/cancel`, token, { method: 'PATCH' }),
+  cancelOrder: (
+    token: string,
+    orderId: string,
+    payload?: {
+      reason?: string;
+      imageUrls?: string[];
+      imageAttachments?: OrderEvidenceImageAttachment[];
+    },
+  ) =>
+    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/cancel`, token, {
+      method: 'PATCH',
+      body: payload,
+    }),
   confirmReceived: (token: string, orderId: string) =>
     request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/confirm-received`, token, { method: 'PATCH' }),
-  requestReturn: (token: string, orderId: string) =>
-    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/request-return`, token, { method: 'PATCH' }),
+  requestReturn: (
+    token: string,
+    orderId: string,
+    reason: string,
+    options?: {
+      imageUrls?: string[];
+      imageAttachments?: OrderEvidenceImageAttachment[];
+    },
+  ) =>
+    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/request-return`, token, {
+      method: 'PATCH',
+      body: {
+        reason,
+        ...(options?.imageUrls?.length ? { imageUrls: options.imageUrls } : {}),
+        ...(options?.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
+      },
+    }),
 };

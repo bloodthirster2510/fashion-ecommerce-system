@@ -88,12 +88,13 @@ const OrderSuccessScreen = () => {
     paymentMethod,
     paymentStatus,
     isProcessingPayment,
+    paymentMessage: initialPaymentMessage,
   } = route.params;
   const [latestPaymentStatus, setLatestPaymentStatus] = React.useState<string>(paymentStatus);
   const [canPayNow, setCanPayNow] = React.useState(paymentMethod === 'VNPAY' && paymentStatus !== 'paid');
   const [isCheckingPayment, setIsCheckingPayment] = React.useState(Boolean(isProcessingPayment));
   const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
-  const [paymentMessage, setPaymentMessage] = React.useState('');
+  const [paymentMessage, setPaymentMessage] = React.useState(initialPaymentMessage ?? '');
   const isVNPayPending = paymentMethod === 'VNPAY' && latestPaymentStatus !== 'paid';
 
   const refreshPaymentStatus = React.useCallback(
@@ -112,11 +113,15 @@ const OrderSuccessScreen = () => {
         );
         setLatestPaymentStatus(result.paymentStatus);
         setCanPayNow(result.canPayNow);
-        setPaymentMessage(
-          result.paymentStatus === 'paid'
-            ? 'Hệ thống đã ghi nhận thanh toán.'
-            : 'Chưa ghi nhận thanh toán. Bạn có thể thử lại hoặc đợi hệ thống cập nhật.',
-        );
+        if (result.paymentStatus === 'paid') {
+          setPaymentMessage('Hệ thống đã ghi nhận thanh toán.');
+        } else if (!silent) {
+          setPaymentMessage('Chưa ghi nhận thanh toán. Bạn có thể thử lại hoặc đợi hệ thống cập nhật.');
+        } else {
+          setPaymentMessage((currentMessage) =>
+            currentMessage || 'Chưa ghi nhận thanh toán. Bạn có thể thử lại hoặc đợi hệ thống cập nhật.',
+          );
+        }
 
         return result.paymentStatus;
       } catch (error) {
@@ -224,11 +229,16 @@ const OrderSuccessScreen = () => {
         paymentApi.createVNPayUrlFromOrder(accessToken, orderId),
       );
 
-      await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+      void WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-      });
+      })
+        .then(() => refreshPaymentStatus(false))
+        .catch((error) => {
+          console.warn('Cannot open VNPay browser', error);
+          setPaymentMessage('Không thể mở trang thanh toán VNPay. Bạn thử lại sau nha.');
+        });
 
-      await refreshPaymentStatus(false);
+      setPaymentMessage('Trang thanh toán VNPay đã mở. Sau khi thanh toán, quay lại app để hệ thống cập nhật trạng thái.');
     } catch (error) {
       const message =
         error instanceof PaymentApiError || error instanceof Error

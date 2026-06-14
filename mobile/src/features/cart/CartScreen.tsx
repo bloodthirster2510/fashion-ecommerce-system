@@ -178,7 +178,7 @@ const CartScreen = () => {
       ].join(':')
     : '';
   const activeSavedPaymentMethods = React.useMemo(
-    () => paymentMethods.filter((method) => method.status === 'pending' || method.status === 'verified'),
+    () => paymentMethods.filter((method) => method.status === 'verified'),
     [paymentMethods],
   );
   const defaultSavedPaymentMethod = React.useMemo(
@@ -191,6 +191,10 @@ const CartScreen = () => {
       activeSavedPaymentMethods.find((method) => method.type === 'VNPAY') ??
       null,
     [activeSavedPaymentMethods],
+  );
+  const pendingVNPayPaymentMethod = React.useMemo(
+    () => paymentMethods.find((method) => method.type === 'VNPAY' && method.status === 'pending') ?? null,
+    [paymentMethods],
   );
   const selectedSavedPaymentMethod = React.useMemo(
     () =>
@@ -347,9 +351,7 @@ const CartScreen = () => {
 
       try {
         const nextPaymentMethods = await runWithAuth((accessToken) => paymentMethodsApi.list(accessToken));
-        const activeMethods = nextPaymentMethods.filter(
-          (method) => method.status === 'pending' || method.status === 'verified',
-        );
+        const activeMethods = nextPaymentMethods.filter((method) => method.status === 'verified');
         const nextDefaultMethod = activeMethods.find((method) => method.isDefault) ?? null;
         const nextDefaultVNPayMethod =
           activeMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
@@ -866,8 +868,10 @@ const CartScreen = () => {
             paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
           );
 
-          await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+          void WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
             presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+          }).catch((error) => {
+            console.warn('Cannot open VNPay browser', error);
           });
 
           navigation.replace('OrderSuccess', {
@@ -890,13 +894,8 @@ const CartScreen = () => {
             totalAmount: order.totalAmount,
             paymentMethod: 'VNPAY',
             paymentStatus: 'pending',
+            paymentMessage: paymentMsg,
           });
-
-          showNotice({
-            tone: 'warning',
-            title: 'Đơn đã đặt, chưa lấy được link thanh toán',
-            message: paymentMsg,
-          }, 0);
         }
       } else {
         // Luồng COD: điều hướng thẳng đến màn hình thành công
@@ -1329,6 +1328,8 @@ const CartScreen = () => {
       ? `Dùng ${selectedSavedPaymentMethod.displayName}${
           selectedSavedPaymentMethod.maskedInfo ? ` - ${selectedSavedPaymentMethod.maskedInfo}` : ''
         }.`
+      : pendingVNPayPaymentMethod
+      ? 'VNPay đã lưu đang chờ xác minh, bạn vẫn có thể thanh toán qua cổng VNPay.'
       : 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.';
 
   const renderContent = () => {

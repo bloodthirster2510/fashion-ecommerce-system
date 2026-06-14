@@ -22,15 +22,20 @@ import { paymentMethodService } from '../payment-methods/payment-method.service'
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
 import { couponService } from '../promotions/coupons/coupon.service';
+import { uploadImageToCloudinary } from '../../utils/cloudinary';
 import type {
   ShippingComparisonResult,
   ShippingQuoteResult,
 } from '../shipping/shipping.types';
 import { shippingAreaMappingService } from '../shipping/shipping-area-mapping.service';
 import type {
+  CancelOrderInput,
   CreateOrderInput,
+  OrderEvidenceImageInput,
   OrderListQueryInput,
   PreviewCheckoutInput,
+  RequestReturnInput,
+  ReviewReturnRequestInput,
   ShippingAddressInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
@@ -39,6 +44,8 @@ import type {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const MAX_ORDER_EVIDENCE_IMAGES = 5;
+const MAX_ORDER_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO'];
 const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
 const ORDER_STATUSES: OrderStatus[] = [
@@ -136,6 +143,48 @@ const buildStatusSummary = async (filter: Record<string, unknown>) => {
   };
 };
 
+const buildOperationalSummary = async (filter: Record<string, unknown>) => {
+  const summaryFilter = { ...filter };
+  delete summaryFilter.status;
+  delete summaryFilter.paymentStatus;
+
+  const countWith = (condition: Record<string, unknown>) =>
+    Order.countDocuments({ $and: [summaryFilter, condition] });
+
+  const [returnRequests, refunds, paidReady, paymentRisk] = await Promise.all([
+    countWith({
+      status: 'return_requested',
+      'returnRequest.status': 'requested',
+    }),
+    countWith({
+      status: 'cancelled',
+      paymentStatus: 'paid',
+    }),
+    countWith({
+      status: { $in: ['confirmed', 'packed'] },
+      paymentStatus: 'paid',
+    }),
+    countWith({
+      status: { $nin: ['cancelled', 'returned'] },
+      $or: [
+        { paymentStatus: 'failed' },
+        {
+          paymentMethod: { $ne: 'COD' },
+          paymentStatus: { $ne: 'paid' },
+        },
+      ],
+    }),
+  ]);
+
+  return {
+    returnRequests,
+    refunds,
+    paidReady,
+    paymentRisk,
+    totalPriority: returnRequests + refunds + paidReady + paymentRisk,
+  };
+};
+
 const getOrderByIdOrThrow = async (id: string) => {
   if (!Types.ObjectId.isValid(id)) {
     throw new SalesServiceError('Invalid order id', 400);
@@ -169,6 +218,9 @@ const assertSupportedPaymentMethod = (paymentMethod: OrderPaymentMethod) => {
 const isOnlinePaymentMethod = (paymentMethod: OrderPaymentMethod) =>
   ONLINE_PAYMENT_METHODS.includes(paymentMethod);
 
+const requiresPaidOnlineOrder = (status: OrderStatus) =>
+  status !== 'confirmed' && status !== 'cancelled';
+
 const getGatewayProvider = (paymentMethod: OrderPaymentMethod) => {
   if (paymentMethod === 'VNPAY') return 'vnpay' as const;
   if (paymentMethod === 'MOMO') return 'momo' as const;
@@ -182,6 +234,16 @@ const assertOrderStatusTransition = (from: OrderStatus, to: OrderStatus) => {
 
   if (!ORDER_STATUS_TRANSITIONS[from].includes(to)) {
     throw new SalesServiceError(`Cannot transition order from ${from} to ${to}`, 400);
+  }
+};
+
+const assertPaymentAllowsOrderStatus = (order: IOrder, to: OrderStatus) => {
+  if (
+    isOnlinePaymentMethod(order.paymentMethod) &&
+    requiresPaidOnlineOrder(to) &&
+    order.paymentStatus !== 'paid'
+  ) {
+    throw new SalesServiceError('Online orders must be paid before processing', 400);
   }
 };
 
@@ -247,6 +309,146 @@ const toNullablePositiveInteger = (value: unknown) => {
 const trimOptional = (value: unknown) => (
   typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 );
+
+const assertTextMaxLength = (value: string, fieldName: string, maxLength = 500) => {
+  if (value.length > maxLength) {
+    throw new SalesServiceError(`${fieldName} cannot exceed ${maxLength} characters`, 400);
+  }
+};
+
+const normalizeCancelReason = (value: unknown) => {
+  const reason = trimOptional(value);
+
+  if (reason) {
+    assertTextMaxLength(reason, 'Cancel reason');
+  }
+
+  return reason;
+};
+
+const normalizeRequiredReturnReason = (value: unknown) => {
+  const reason = trimOptional(value);
+
+  if (!reason) {
+    throw new SalesServiceError('Return reason is required', 400);
+  }
+
+  assertTextMaxLength(reason, 'Return reason');
+  return reason;
+};
+
+const normalizeEvidenceImageUrls = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const urls = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const uniqueUrls = Array.from(new Set(urls));
+  uniqueUrls.forEach((url) => {
+    assertTextMaxLength(url, 'Evidence image URL');
+    if (!/^https?:\/\//i.test(url)) {
+      throw new SalesServiceError('Evidence image URLs must start with http:// or https://', 400);
+    }
+  });
+
+  return uniqueUrls.slice(0, MAX_ORDER_EVIDENCE_IMAGES);
+};
+
+const normalizeBase64Image = (imageBase64: string, fallbackMimeType?: string) => {
+  const dataUriMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+  const mimeType = (dataUriMatch?.[1] || fallbackMimeType || 'image/jpeg').toLowerCase();
+  const cleanBase64 = (dataUriMatch?.[2] || imageBase64).replace(/\s/g, '');
+
+  return { mimeType, cleanBase64 };
+};
+
+const uploadEvidenceAttachments = async (
+  orderId: string,
+  kind: 'cancel' | 'return',
+  value: unknown,
+) => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [];
+  }
+
+  const attachments = value.slice(0, MAX_ORDER_EVIDENCE_IMAGES) as OrderEvidenceImageInput[];
+  const allowedMimeTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+  const folder = process.env.CLOUDINARY_ORDER_EVIDENCE_FOLDER?.trim() || 'fashion-system/order-evidence';
+  const safeOrderId = orderId.replace(/[^a-zA-Z0-9]/g, '');
+
+  const uploadResults = await Promise.all(
+    attachments.map(async (attachment, index) => {
+      if (!attachment || typeof attachment.imageBase64 !== 'string') {
+        throw new SalesServiceError('Evidence image payload is invalid', 400);
+      }
+
+      const { mimeType, cleanBase64 } = normalizeBase64Image(attachment.imageBase64, attachment.mimeType);
+      if (!allowedMimeTypes.has(mimeType)) {
+        throw new SalesServiceError('Evidence images must be JPG, PNG, or WEBP', 400);
+      }
+
+      const imageBuffer = Buffer.from(cleanBase64, 'base64');
+      if (!imageBuffer.length || imageBuffer.length > MAX_ORDER_EVIDENCE_IMAGE_BYTES) {
+        throw new SalesServiceError('Each evidence image must be at most 3MB', 400);
+      }
+
+      const result = await uploadImageToCloudinary({
+        fileDataUri: `data:${mimeType};base64,${cleanBase64}`,
+        folder,
+        publicId: `${safeOrderId}-${kind}-${Date.now()}-${index + 1}`,
+      });
+
+      return result.secureUrl;
+    }),
+  );
+
+  return uploadResults;
+};
+
+const resolveEvidenceImageUrls = async (
+  orderId: string,
+  kind: 'cancel' | 'return',
+  input?: {
+    imageUrls?: string[];
+    imageAttachments?: OrderEvidenceImageInput[];
+  },
+) => {
+  const imageUrls = normalizeEvidenceImageUrls(input?.imageUrls);
+  const uploadedUrls = await uploadEvidenceAttachments(orderId, kind, input?.imageAttachments);
+
+  return Array.from(new Set([...imageUrls, ...uploadedUrls])).slice(0, MAX_ORDER_EVIDENCE_IMAGES);
+};
+
+const normalizeReturnReviewReason = (
+  value: unknown,
+  decision: ReviewReturnRequestInput['decision'],
+) => {
+  const reason = trimOptional(value);
+
+  if (decision === 'rejected' && !reason) {
+    throw new SalesServiceError('Return rejection reason is required', 400);
+  }
+
+  if (reason) {
+    assertTextMaxLength(reason, 'Return review reason');
+  }
+
+  return reason;
+};
+
+const assertReturnReviewDecision: (
+  value: unknown,
+) => asserts value is ReviewReturnRequestInput['decision'] = (
+  value: unknown,
+) => {
+  if (value !== 'approved' && value !== 'rejected') {
+    throw new SalesServiceError('Invalid return review decision', 400);
+  }
+};
 
 const toShippingAddressSnapshot = (address: ShippingAddressInput): ShippingAddressInput => {
   const provinceId = toNullablePositiveInteger(address.provinceId);
@@ -516,7 +718,7 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
     user_id: toObjectId(userId, 'userId'),
   };
 
-  const [items, totalItems, statusSummary] = await Promise.all([
+  const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -524,11 +726,13 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
       .lean(),
     Order.countDocuments(filter),
     buildStatusSummary(filter),
+    buildOperationalSummary(filter),
   ]);
 
   return {
     items,
     statusSummary,
+    operationalSummary,
     pagination: {
       page,
       limit,
@@ -542,7 +746,7 @@ const getOrders = async (query: OrderListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildOrderFilter(query);
 
-  const [items, totalItems, statusSummary] = await Promise.all([
+  const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -550,11 +754,13 @@ const getOrders = async (query: OrderListQueryInput) => {
       .lean(),
     Order.countDocuments(filter),
     buildStatusSummary(filter),
+    buildOperationalSummary(filter),
   ]);
 
   return {
     items,
     statusSummary,
+    operationalSummary,
     pagination: {
       page,
       limit,
@@ -610,7 +816,12 @@ const restockCommittedOrder = async (order: IOrder) => {
   );
 };
 
-const cancelOrder = async (userId: string, role: string | undefined, id: string) => {
+const cancelOrder = async (
+  userId: string,
+  role: string | undefined,
+  id: string,
+  input: CancelOrderInput = {},
+) => {
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId, role);
 
@@ -621,8 +832,15 @@ const cancelOrder = async (userId: string, role: string | undefined, id: string)
   assertOrderStatusTransition(order.status, 'cancelled');
 
   await restockCommittedOrder(order);
+  const evidenceImageUrls = await resolveEvidenceImageUrls(order._id.toString(), 'cancel', input);
   order.status = 'cancelled';
-  order.paymentStatus = order.paymentStatus === 'paid' ? 'refunded' : order.paymentStatus;
+  order.cancellation = {
+    reason: normalizeCancelReason(input?.reason),
+    ...(evidenceImageUrls.length ? { imageUrls: evidenceImageUrls } : {}),
+    cancelledAt: new Date(),
+    cancelledBy: toObjectId(userId, 'userId'),
+    actorRole: role === 'admin' || role === 'staff' ? role : 'user',
+  };
 
   return order.save();
 };
@@ -640,6 +858,7 @@ const confirmOrderReceived = async (userId: string, id: string) => {
   }
 
   assertOrderStatusTransition(order.status, 'delivered');
+  assertPaymentAllowsOrderStatus(order, 'delivered');
   order.status = 'delivered';
 
   if (order.paymentMethod === 'COD') {
@@ -654,7 +873,7 @@ const confirmOrderReceived = async (userId: string, id: string) => {
   return order.save();
 };
 
-const requestReturn = async (userId: string, id: string) => {
+const requestReturn = async (userId: string, id: string, input: RequestReturnInput) => {
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId);
 
@@ -667,7 +886,55 @@ const requestReturn = async (userId: string, id: string) => {
   }
 
   assertOrderStatusTransition(order.status, 'return_requested');
+  assertPaymentAllowsOrderStatus(order, 'return_requested');
+  const evidenceImageUrls = await resolveEvidenceImageUrls(order._id.toString(), 'return', input);
   order.status = 'return_requested';
+  order.returnRequest = {
+    reason: normalizeRequiredReturnReason(input?.reason),
+    ...(evidenceImageUrls.length ? { imageUrls: evidenceImageUrls } : {}),
+    status: 'requested',
+    requestedAt: new Date(),
+    reviewedAt: null,
+    reviewedBy: null,
+    reviewReason: null,
+  };
+
+  return order.save();
+};
+
+const reviewReturnRequest = async (
+  id: string,
+  reviewerId: string,
+  input: ReviewReturnRequestInput,
+) => {
+  assertReturnReviewDecision(input.decision);
+
+  const order = await getOrderByIdOrThrow(id);
+  if (order.status !== 'return_requested' || order.returnRequest?.status !== 'requested') {
+    throw new SalesServiceError('Order does not have a pending return request', 400);
+  }
+
+  const reviewReason = normalizeReturnReviewReason(input.reason, input.decision);
+  const reviewedAt = new Date();
+  const reviewedBy = toObjectId(reviewerId, 'reviewerId');
+
+  if (input.decision === 'approved') {
+    assertOrderStatusTransition(order.status, 'returned');
+    assertPaymentAllowsOrderStatus(order, 'returned');
+    order.status = 'returned';
+  } else {
+    order.status = 'delivered';
+  }
+
+  order.returnRequest = {
+    reason: order.returnRequest.reason,
+    ...(order.returnRequest.imageUrls?.length ? { imageUrls: order.returnRequest.imageUrls } : {}),
+    status: input.decision,
+    requestedAt: order.returnRequest.requestedAt,
+    reviewedAt,
+    reviewedBy,
+    reviewReason,
+  };
 
   return order.save();
 };
@@ -678,15 +945,25 @@ const updateOrderStatus = async (
 ) => {
   if (input.status === 'cancelled') {
     const order = await getOrderByIdOrThrow(id);
-    return cancelOrder(toIdString(order.user_id), 'admin', id);
+    return cancelOrder(toIdString(order.user_id), 'admin', id, input);
   }
 
   const order = await getOrderByIdOrThrow(id);
+  if (input.status === 'return_requested' || input.status === 'returned') {
+    throw new SalesServiceError('Use the return request review workflow for return orders', 400);
+  }
+
+  if (order.status === 'shipping' && input.status === 'delivered') {
+    throw new SalesServiceError('Customer confirmation is required before completing a delivered order', 400);
+  }
+
   assertOrderStatusTransition(order.status, input.status);
 
   if (order.status === input.status) {
     return order;
   }
+
+  assertPaymentAllowsOrderStatus(order, input.status);
 
   order.status = input.status;
 
@@ -734,6 +1011,7 @@ export const orderService = {
   cancelOrder,
   confirmOrderReceived,
   requestReturn,
+  reviewReturnRequest,
   updateOrderStatus,
   updateOrderShipping,
 };

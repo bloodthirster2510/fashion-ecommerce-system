@@ -66,6 +66,7 @@ export type RootStackParamList = {
     paymentMethod: string;
     paymentStatus: 'pending' | 'awaiting' | 'paid' | 'failed';
     isProcessingPayment?: boolean;
+    paymentMessage?: string;
   };
 };
 

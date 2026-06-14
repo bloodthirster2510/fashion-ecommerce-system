@@ -45,11 +45,11 @@ export const transactionService = {
       paymentDetail: {},
       status: 'pending',
       createdBy: createdBy ?? 'user',
+      expiredAt: expiredAt ?? new Date(Date.now() + PAYMENT_ATTEMPT_TTL_MS),
     };
 
     if (txnRef) payload.txnRef = txnRef;
     if (attemptNo) payload.attemptNo = attemptNo;
-    if (expiredAt) payload.expiredAt = expiredAt;
     if (paymentMethodId) payload.paymentMethodId = new Types.ObjectId(paymentMethodId);
 
     return Transaction.create(payload);

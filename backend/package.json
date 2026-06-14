@@ -9,6 +9,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",
+    "dev:vnpay": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-vnpay-tunnel.ps1",
+    "vnpay:public-url": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-vnpay-public-url.ps1",
     "test": "jest --passWithNoTests"
   },
   "keywords": [],

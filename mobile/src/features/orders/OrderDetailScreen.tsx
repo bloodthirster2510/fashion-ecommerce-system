@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -16,12 +17,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
-import { orderApi, OrderApiError, type CustomerOrder, type OrderItem } from './orderApi';
+import { orderApi, OrderApiError, type CustomerOrder, type OrderEvidenceImageAttachment, type OrderItem } from './orderApi';
 import {
   canCancelOrder,
   canConfirmReceived,
@@ -30,10 +32,9 @@ import {
   formatCurrency,
   formatDate,
   formatShortDate,
-  getDeliveryLine,
+  getOrderDisplayState,
   paymentMethodLabels,
   paymentStatusLabels,
-  statusMeta,
 } from './orderPresentation';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
@@ -45,11 +46,15 @@ type TimelineStep = {
   helper: string;
 };
 
+type EvidenceDraft = OrderEvidenceImageAttachment & {
+  uri: string;
+};
+
 const timelineSteps: TimelineStep[] = [
-  { key: 'confirmed', label: 'Đã xác nhận', helper: 'Đã ghi nhận đơn' },
-  { key: 'packed', label: 'Đã đóng gói', helper: 'Chờ bàn giao vận chuyển' },
-  { key: 'shipping', label: 'Đã rời kho', helper: 'Đang giao tới bạn' },
-  { key: 'delivered', label: 'Đã giao', helper: 'Hoàn tất' },
+  { key: 'confirmed', label: 'Đã đặt đơn', helper: 'Shop tiếp nhận' },
+  { key: 'packed', label: 'Chuẩn bị hàng', helper: 'Đóng gói' },
+  { key: 'shipping', label: 'Đang giao', helper: 'Theo dõi vận chuyển' },
+  { key: 'delivered', label: 'Hoàn tất', helper: 'Đã nhận hàng' },
 ];
 
 const isUnauthorizedError = (error: unknown) =>
@@ -81,6 +86,26 @@ const getPaymentStatusColor = (status: string) => {
   return colors.goldText;
 };
 
+const returnRequestStatusLabels: Record<string, string> = {
+  requested: 'Chờ duyệt',
+  approved: 'Đã duyệt',
+  rejected: 'Đã từ chối',
+};
+
+const getAttentionToneColor = (tone: 'danger' | 'warning' | 'info' | 'success') => {
+  if (tone === 'danger') return colors.danger;
+  if (tone === 'warning') return colors.goldText;
+  if (tone === 'success') return colors.success;
+  return colors.action;
+};
+
+const getAttentionToneBackground = (tone: 'danger' | 'warning' | 'info' | 'success') => {
+  if (tone === 'danger') return colors.dangerSoft;
+  if (tone === 'warning') return colors.goldSoft;
+  if (tone === 'success') return colors.successSoft;
+  return '#EAF3FF';
+};
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const OrderDetailScreen = () => {
@@ -98,6 +123,14 @@ const OrderDetailScreen = () => {
   const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [isInvoiceVisible, setIsInvoiceVisible] = React.useState(false);
+  const [isCancelModalVisible, setIsCancelModalVisible] = React.useState(false);
+  const [cancelReason, setCancelReason] = React.useState('');
+  const [cancelReasonError, setCancelReasonError] = React.useState('');
+  const [cancelEvidenceImages, setCancelEvidenceImages] = React.useState<EvidenceDraft[]>([]);
+  const [isReturnModalVisible, setIsReturnModalVisible] = React.useState(false);
+  const [returnReason, setReturnReason] = React.useState('');
+  const [returnReasonError, setReturnReasonError] = React.useState('');
+  const [returnEvidenceImages, setReturnEvidenceImages] = React.useState<EvidenceDraft[]>([]);
 
   const loadOrder = React.useCallback(
     async (mode: 'loading' | 'refresh' = 'loading') => {
@@ -144,6 +177,12 @@ const OrderDetailScreen = () => {
   const handleCancelOrder = () => {
     if (!order) return;
 
+    setCancelReason(order.cancellation?.reason ?? '');
+    setCancelReasonError('');
+    setCancelEvidenceImages([]);
+    setIsCancelModalVisible(true);
+    return;
+
     Alert.alert(
       'Hủy đơn hàng?',
       'Đơn sẽ dừng xử lý nếu chưa bàn giao cho đơn vị vận chuyển. Với đơn đã thanh toán, hoàn tiền sẽ được xử lý theo kênh thanh toán ban đầu.',
@@ -163,10 +202,25 @@ const OrderDetailScreen = () => {
   const confirmCancelOrder = async () => {
     if (!order) return;
 
+    const normalizedReason = cancelReason.trim();
+    if (!normalizedReason) {
+      setCancelReasonError('Vui lòng nhập lý do hủy đơn.');
+      return;
+    }
+
     try {
       setIsCancelling(true);
-      const nextOrder = await runWithAuth((accessToken) => orderApi.cancelOrder(accessToken, order._id));
+      const nextOrder = await runWithAuth((accessToken) =>
+        orderApi.cancelOrder(accessToken, order._id, {
+          reason: normalizedReason,
+          imageAttachments: cancelEvidenceImages.map(({ imageBase64, mimeType }) => ({
+            imageBase64,
+            mimeType,
+          })),
+        }),
+      );
       setOrder(nextOrder);
+      setIsCancelModalVisible(false);
       Alert.alert('Đã hủy đơn', 'Đơn hàng đã được cập nhật sang trạng thái đã hủy.');
     } catch (error) {
       Alert.alert('Không thể hủy đơn', getErrorMessage(error));
@@ -219,34 +273,89 @@ const OrderDetailScreen = () => {
       return;
     }
 
-    Alert.alert(
-      'Gửi yêu cầu trả hàng?',
-      'Shop sẽ ghi nhận yêu cầu và liên hệ bạn để kiểm tra điều kiện trả hàng. Sản phẩm cần còn tem mác, chưa qua sử dụng và có hóa đơn.',
-      [
-        { text: 'Để sau', style: 'cancel' },
-        {
-          text: 'Gửi yêu cầu',
-          onPress: () => {
-            void requestReturn();
-          },
-        },
-      ],
-    );
+    setReturnReason(order.returnRequest?.reason ?? '');
+    setReturnReasonError('');
+    setReturnEvidenceImages([]);
+    setIsReturnModalVisible(true);
   };
 
   const requestReturn = async () => {
     if (!order) return;
 
+    const normalizedReason = returnReason.trim();
+    if (!normalizedReason) {
+      setReturnReasonError('Vui lòng nhập lý do trả hàng.');
+      return;
+    }
+
     try {
       setIsRequestingReturn(true);
-      const nextOrder = await runWithAuth((accessToken) => orderApi.requestReturn(accessToken, order._id));
+      const nextOrder = await runWithAuth((accessToken) =>
+        orderApi.requestReturn(accessToken, order._id, normalizedReason, {
+          imageAttachments: returnEvidenceImages.map(({ imageBase64, mimeType }) => ({
+            imageBase64,
+            mimeType,
+          })),
+        }),
+      );
       setOrder(nextOrder);
+      setIsReturnModalVisible(false);
       Alert.alert('Đã gửi yêu cầu trả hàng', 'Shop đã ghi nhận yêu cầu và sẽ phản hồi trong thời gian sớm nhất.');
     } catch (error) {
       Alert.alert('Không thể gửi yêu cầu', getErrorMessage(error));
     } finally {
       setIsRequestingReturn(false);
     }
+  };
+
+  const pickEvidenceImage = async (
+    currentImages: EvidenceDraft[],
+    setImages: React.Dispatch<React.SetStateAction<EvidenceDraft[]>>,
+    setError?: React.Dispatch<React.SetStateAction<string>>,
+  ) => {
+    if (currentImages.length >= 3) {
+      setError?.('Tối đa 3 ảnh minh chứng.');
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError?.('Cần quyền truy cập thư viện ảnh để chọn ảnh minh chứng.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.65,
+      base64: true,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    if (!asset?.base64) {
+      setError?.('Không đọc được ảnh đã chọn. Bạn thử ảnh khác nha.');
+      return;
+    }
+
+    setError?.('');
+    setImages((images) => [
+      ...images,
+      {
+        uri: asset.uri,
+        imageBase64: asset.base64!,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+      },
+    ]);
+  };
+
+  const removeEvidenceImage = (
+    index: number,
+    setImages: React.Dispatch<React.SetStateAction<EvidenceDraft[]>>,
+  ) => {
+    setImages((images) => images.filter((_, imageIndex) => imageIndex !== index));
   };
 
   const refreshOrderAfterPayment = async () => {
@@ -281,8 +390,13 @@ const OrderDetailScreen = () => {
         paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
       );
 
-      await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+      void WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      }).catch((error) => {
+        Alert.alert(
+          'KhÃ´ng thá»ƒ má»Ÿ thanh toÃ¡n',
+          error instanceof Error ? error.message : 'Báº¡n thá»­ láº¡i sau nha.',
+        );
       });
 
       const latestOrder = await refreshOrderAfterPayment();
@@ -437,6 +551,207 @@ const OrderDetailScreen = () => {
     </View>
   );
 
+  const renderEvidencePicker = (
+    images: EvidenceDraft[],
+    onPick: () => void,
+    onRemove: (index: number) => void,
+    disabled: boolean,
+  ) => (
+    <View style={styles.evidencePicker}>
+      <View style={styles.evidenceHeader}>
+        <Text style={styles.evidenceTitle}>Ảnh minh chứng</Text>
+        <Text style={styles.evidenceHint}>Không bắt buộc, tối đa 3 ảnh</Text>
+      </View>
+      <View style={styles.evidenceImageRow}>
+        {images.map((image, index) => (
+          <View style={styles.evidenceImageFrame} key={`${image.uri}-${index}`}>
+            <Image source={{ uri: image.uri }} style={styles.evidenceImage} resizeMode="cover" />
+            <TouchableOpacity
+              style={styles.evidenceRemoveButton}
+              onPress={() => onRemove(index)}
+              disabled={disabled}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="close" size={14} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+        ))}
+        {images.length < 3 ? (
+          <TouchableOpacity
+            style={styles.evidenceAddButton}
+            onPress={onPick}
+            disabled={disabled}
+            activeOpacity={0.84}
+          >
+            <MaterialCommunityIcons name="image-plus" size={22} color={colors.brand} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const renderCancelOrderModal = () => (
+    <Modal
+      visible={isCancelModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setIsCancelModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.returnModal}>
+          <View style={styles.invoiceHeader}>
+            <View>
+              <Text style={styles.invoiceEyebrow}>CANCEL ORDER</Text>
+              <Text style={styles.invoiceTitle}>Lý do hủy đơn</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setIsCancelModalVisible(false)}
+              disabled={isCancelling}
+            >
+              <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.returnModalHint}>
+            Sau khi hủy, đơn đã thanh toán trước sẽ được chuyển sang trạng thái cần hoàn tiền để shop xử lý.
+          </Text>
+          <TextInput
+            style={styles.returnReasonInput}
+            value={cancelReason}
+            onChangeText={(value) => {
+              setCancelReason(value);
+              if (cancelReasonError) {
+                setCancelReasonError('');
+              }
+            }}
+            placeholder="Nhập lý do hủy đơn"
+            placeholderTextColor={colors.textSubtle}
+            multiline
+            maxLength={500}
+            textAlignVertical="top"
+            editable={!isCancelling}
+          />
+          <View style={styles.returnModalMetaRow}>
+            <Text style={styles.returnReasonCounter}>{cancelReason.trim().length}/500</Text>
+            {cancelReasonError ? <Text style={styles.returnReasonError}>{cancelReasonError}</Text> : null}
+          </View>
+          {renderEvidencePicker(
+            cancelEvidenceImages,
+            () => void pickEvidenceImage(cancelEvidenceImages, setCancelEvidenceImages, setCancelReasonError),
+            (index) => removeEvidenceImage(index, setCancelEvidenceImages),
+            isCancelling,
+          )}
+
+          <View style={styles.returnModalActions}>
+            <TouchableOpacity
+              style={styles.returnModalSecondaryButton}
+              onPress={() => setIsCancelModalVisible(false)}
+              activeOpacity={0.84}
+              disabled={isCancelling}
+            >
+              <Text style={styles.returnModalSecondaryText}>Để sau</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.returnModalPrimaryButton, styles.cancelModalPrimaryButton]}
+              onPress={() => void confirmCancelOrder()}
+              activeOpacity={0.84}
+              disabled={isCancelling}
+            >
+              {isCancelling ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <MaterialCommunityIcons name="close-circle-outline" size={18} color={colors.white} />
+              )}
+              <Text style={styles.returnModalPrimaryText}>Hủy đơn</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderReturnRequestModal = () => (
+    <Modal
+      visible={isReturnModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setIsReturnModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.returnModal}>
+          <View style={styles.invoiceHeader}>
+            <View>
+              <Text style={styles.invoiceEyebrow}>RETURN REQUEST</Text>
+              <Text style={styles.invoiceTitle}>Lý do trả hàng</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setIsReturnModalVisible(false)}
+              disabled={isRequestingReturn}
+            >
+              <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.returnModalHint}>
+            Shop sẽ xem lý do và phản hồi trên trạng thái đơn hàng.
+          </Text>
+          <TextInput
+            style={styles.returnReasonInput}
+            value={returnReason}
+            onChangeText={(value) => {
+              setReturnReason(value);
+              if (returnReasonError) {
+                setReturnReasonError('');
+              }
+            }}
+            placeholder="Nhập lý do trả hàng"
+            placeholderTextColor={colors.textSubtle}
+            multiline
+            maxLength={500}
+            textAlignVertical="top"
+            editable={!isRequestingReturn}
+          />
+          <View style={styles.returnModalMetaRow}>
+            <Text style={styles.returnReasonCounter}>{returnReason.trim().length}/500</Text>
+            {returnReasonError ? <Text style={styles.returnReasonError}>{returnReasonError}</Text> : null}
+          </View>
+          {renderEvidencePicker(
+            returnEvidenceImages,
+            () => void pickEvidenceImage(returnEvidenceImages, setReturnEvidenceImages, setReturnReasonError),
+            (index) => removeEvidenceImage(index, setReturnEvidenceImages),
+            isRequestingReturn,
+          )}
+
+          <View style={styles.returnModalActions}>
+            <TouchableOpacity
+              style={styles.returnModalSecondaryButton}
+              onPress={() => setIsReturnModalVisible(false)}
+              activeOpacity={0.84}
+              disabled={isRequestingReturn}
+            >
+              <Text style={styles.returnModalSecondaryText}>Để sau</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.returnModalPrimaryButton}
+              onPress={() => void requestReturn()}
+              activeOpacity={0.84}
+              disabled={isRequestingReturn}
+            >
+              {isRequestingReturn ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <MaterialCommunityIcons name="send-outline" size={18} color={colors.white} />
+              )}
+              <Text style={styles.returnModalPrimaryText}>Gửi yêu cầu</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const renderInvoiceModal = () => {
     if (!order) return null;
 
@@ -519,7 +834,8 @@ const OrderDetailScreen = () => {
     );
   }
 
-  const meta = statusMeta[order.status];
+  const displayState = getOrderDisplayState(order);
+  const actionState = displayState.requiresUserAction ? displayState : null;
   const shippingPayable = Math.max(0, order.shippingFee - order.shippingDiscountAmount);
   const paymentStatusColor = getPaymentStatusColor(order.paymentStatus);
   const canCancel = canCancelOrder(order.status);
@@ -568,13 +884,13 @@ const OrderDetailScreen = () => {
             <Text style={styles.heroLabel}>Mã đơn hàng</Text>
             <View style={styles.heroCodeRow}>
               <Text style={styles.heroCode}>{order.orderCode}</Text>
-              <View style={[styles.heroStatusBadge, { backgroundColor: meta.backgroundColor }]}>
-                <Text style={[styles.heroStatusText, { color: meta.color }]}>{meta.label}</Text>
+              <View style={[styles.heroStatusBadge, { backgroundColor: displayState.backgroundColor }]}>
+                <Text style={[styles.heroStatusText, { color: displayState.color }]}>{displayState.label}</Text>
               </View>
             </View>
             <Text style={styles.heroDate}>Ngày đặt: {formatDate(order.createdAt)}</Text>
             <Text style={styles.heroDelivery}>
-              {getDeliveryLine(order)}
+              {displayState.deliveryLine}
             </Text>
           </View>
 
@@ -584,15 +900,92 @@ const OrderDetailScreen = () => {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.statusCallout, { backgroundColor: meta.backgroundColor }]}>
-          <MaterialCommunityIcons name="information-outline" size={20} color={meta.color} />
-          <View style={styles.statusCalloutCopy}>
-            <Text style={[styles.statusCalloutTitle, { color: meta.color }]}>{meta.label}</Text>
-            <Text style={styles.statusCalloutText}>{meta.description}</Text>
+        {actionState ? (
+          <View
+            style={[
+              styles.attentionCallout,
+              { backgroundColor: displayState.backgroundColor, borderColor: displayState.color },
+            ]}
+          >
+            <View style={[styles.attentionDot, { backgroundColor: colors.danger }]} />
+            <MaterialCommunityIcons
+              name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
+              size={22}
+              color={displayState.color}
+            />
+            <View style={styles.attentionCopy}>
+              <Text style={[styles.attentionTitle, { color: displayState.color }]}>
+                {displayState.label}
+              </Text>
+              <Text style={styles.attentionText}>{displayState.description}</Text>
+            </View>
           </View>
-        </View>
+        ) : null}
+
+        {!actionState ? (
+          <View style={[styles.statusCallout, { backgroundColor: displayState.backgroundColor }]}>
+            <MaterialCommunityIcons
+              name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
+              size={20}
+              color={displayState.color}
+            />
+            <View style={styles.statusCalloutCopy}>
+              <Text style={[styles.statusCalloutTitle, { color: displayState.color }]}>{displayState.label}</Text>
+              <Text style={styles.statusCalloutText}>{displayState.description}</Text>
+            </View>
+          </View>
+        ) : null}
 
         {renderTimeline(order)}
+
+        {order.cancellation ? (
+          <View style={styles.returnRequestCard}>
+            <View style={styles.returnRequestHeader}>
+              <MaterialCommunityIcons name="close-circle-outline" size={22} color={colors.danger} />
+              <View style={styles.returnRequestTitleGroup}>
+                <Text style={styles.returnRequestTitle}>Thông tin hủy đơn</Text>
+                <Text style={styles.returnRequestStatus}>
+                  {order.paymentStatus === 'paid' ? 'Chờ hoàn tiền' : 'Đã ghi nhận'}
+                </Text>
+              </View>
+            </View>
+            {order.cancellation.reason ? (
+              <Text style={styles.returnRequestReason}>{order.cancellation.reason}</Text>
+            ) : null}
+            {order.cancellation.imageUrls?.length ? (
+              <View style={styles.evidenceUrlGrid}>
+                {order.cancellation.imageUrls.map((imageUrl) => (
+                  <Image key={imageUrl} source={{ uri: imageUrl }} style={styles.evidenceUrlImage} resizeMode="cover" />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {order.returnRequest ? (
+          <View style={styles.returnRequestCard}>
+            <View style={styles.returnRequestHeader}>
+              <MaterialCommunityIcons name="archive-refresh-outline" size={22} color={colors.brand} />
+              <View style={styles.returnRequestTitleGroup}>
+                <Text style={styles.returnRequestTitle}>Yêu cầu trả hàng</Text>
+                <Text style={styles.returnRequestStatus}>
+                  {returnRequestStatusLabels[order.returnRequest.status] ?? order.returnRequest.status}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.returnRequestReason}>{order.returnRequest.reason}</Text>
+            {order.returnRequest.reviewReason ? (
+              <Text style={styles.returnRequestReview}>{order.returnRequest.reviewReason}</Text>
+            ) : null}
+            {order.returnRequest.imageUrls?.length ? (
+              <View style={styles.evidenceUrlGrid}>
+                {order.returnRequest.imageUrls.map((imageUrl) => (
+                  <Image key={imageUrl} source={{ uri: imageUrl }} style={styles.evidenceUrlImage} resizeMode="cover" />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           {order.order_list.map(renderProduct)}
@@ -733,6 +1126,8 @@ const OrderDetailScreen = () => {
         ) : null}
       </ScrollView>
 
+      {renderCancelOrderModal()}
+      {renderReturnRequestModal()}
       {renderInvoiceModal()}
     </SafeAreaView>
   );
@@ -978,6 +1373,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
+  },
+  returnRequestCard: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    ...shadows.card,
+  },
+  returnRequestHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  returnRequestTitleGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  returnRequestTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  returnRequestStatus: {
+    color: colors.brand,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  returnRequestReason: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  returnRequestReview: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
   },
   section: {
     gap: spacing.md,
@@ -1286,6 +1720,86 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
+  returnModal: {
+    width: '100%',
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  returnModalHint: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  returnReasonInput: {
+    minHeight: 132,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    color: colors.text,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  returnModalMetaRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  returnReasonCounter: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  returnReasonError: {
+    flex: 1,
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  returnModalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  returnModalSecondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  returnModalSecondaryText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  returnModalPrimaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  cancelModalPrimaryButton: {
+    backgroundColor: colors.danger,
+  },
+  returnModalPrimaryText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
+  },
   invoiceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1353,6 +1867,109 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 24,
     fontWeight: '900',
+  },
+  attentionCallout: {
+    position: 'relative',
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    overflow: 'hidden',
+  },
+  attentionDot: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  attentionCopy: {
+    flex: 1,
+    gap: 3,
+    paddingRight: spacing.md,
+  },
+  attentionTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  attentionText: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  evidencePicker: {
+    gap: spacing.sm,
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  evidenceTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  evidenceHint: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  evidenceImageRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  evidenceImageFrame: {
+    position: 'relative',
+    width: 64,
+    height: 64,
+    borderRadius: radii.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.brandSoft,
+  },
+  evidenceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  evidenceRemoveButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  evidenceAddButton: {
+    width: 64,
+    height: 64,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandSoft,
+  },
+  evidenceUrlGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  evidenceUrlImage: {
+    width: 70,
+    height: 70,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brandSoft,
   },
 });
 

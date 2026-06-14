@@ -50,6 +50,31 @@ export interface OrderListQueryInput {
 
 export interface UpdateOrderStatusInput {
   status: OrderStatus;
+  reason?: string;
+}
+
+export interface OrderEvidenceImageInput {
+  imageBase64: string;
+  mimeType?: string;
+}
+
+export interface CancelOrderInput {
+  reason?: string;
+  imageUrls?: string[];
+  imageAttachments?: OrderEvidenceImageInput[];
+}
+
+export interface RequestReturnInput {
+  reason: string;
+  imageUrls?: string[];
+  imageAttachments?: OrderEvidenceImageInput[];
+}
+
+export type ReviewReturnDecision = 'approved' | 'rejected';
+
+export interface ReviewReturnRequestInput {
+  decision: ReviewReturnDecision;
+  reason?: string;
 }
 
 export interface UpdateOrderShippingInput {

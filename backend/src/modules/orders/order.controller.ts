@@ -5,9 +5,12 @@ import { auditLogService } from '../audit-logs/audit-log.service';
 import { SalesServiceError } from '../sales/sales.helpers';
 import { orderService } from './order.service';
 import type {
+  CancelOrderInput,
   CreateOrderInput,
   OrderListQueryInput,
   PreviewCheckoutInput,
+  RequestReturnInput,
+  ReviewReturnRequestInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -266,7 +269,33 @@ const getOrderTransactions = async (req: Request, res: Response) => {
 
 const cancelOrder = async (req: Request, res: Response) => {
   try {
-    const order = await orderService.cancelOrder(getUserId(req), getUserRole(req), req.params.id as string);
+    const input = req.body as CancelOrderInput;
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.cancelOrder(getUserId(req), getUserRole(req), req.params.id as string, input);
+    const actorRole = req.user?.role === 'admin' || req.user?.role === 'staff' ? req.user.role : 'user';
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole,
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: order.cancellation?.reason ?? 'Order cancelled',
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        cancellationReason: order.cancellation?.reason ?? null,
+        cancellationImageCount: order.cancellation?.imageUrls?.length ?? 0,
+      },
+    });
+
     return ok(res, order);
   } catch (e: unknown) {
     const { statusCode, message, errorCode, data } = getErrorResponse(e);
@@ -310,8 +339,9 @@ const confirmOrderReceived = async (req: Request, res: Response) => {
 
 const requestReturn = async (req: Request, res: Response) => {
   try {
+    const input = req.body as RequestReturnInput;
     const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
-    const order = await orderService.requestReturn(getUserId(req), req.params.id as string);
+    const order = await orderService.requestReturn(getUserId(req), req.params.id as string, input);
 
     await auditLogService.recordAuditLogBestEffort({
       actorId: req.user?.userId ?? null,
@@ -319,7 +349,7 @@ const requestReturn = async (req: Request, res: Response) => {
       action: 'order.status_update',
       targetType: 'Order',
       targetId: order._id.toString(),
-      reason: typeof req.body?.reason === 'string' ? req.body.reason : 'Customer requested return',
+      reason: order.returnRequest?.reason ?? 'Customer requested return',
       before: {
         status: beforeOrder.status,
         paymentStatus: beforeOrder.paymentStatus,
@@ -330,6 +360,52 @@ const requestReturn = async (req: Request, res: Response) => {
       },
       metadata: {
         orderCode: order.orderCode,
+        returnReason: order.returnRequest?.reason ?? null,
+        returnImageCount: order.returnRequest?.imageUrls?.length ?? 0,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const reviewReturnRequest = async (req: Request, res: Response) => {
+  try {
+    const input = req.body as ReviewReturnRequestInput;
+    if (input.decision !== 'approved' && input.decision !== 'rejected') {
+      return errorResponse(res, 'decision must be approved or rejected', 400);
+    }
+
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.reviewReturnRequest(req.params.id as string, getUserId(req), input);
+    const decisionReason = typeof input.reason === 'string' && input.reason.trim()
+      ? input.reason.trim()
+      : (input.decision === 'approved' ? 'Return request approved' : 'Return request rejected');
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: decisionReason,
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+        returnRequestStatus: beforeOrder.returnRequest?.status ?? null,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        returnRequestStatus: order.returnRequest?.status ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        returnDecision: input.decision,
+        returnReason: beforeOrder.returnRequest?.reason ?? null,
       },
     });
 
@@ -349,7 +425,14 @@ const updateOrderStatus = async (req: Request, res: Response) => {
     }
 
     const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
-    const order = await orderService.updateOrderStatus(req.params.id as string, input);
+    const order = input.status === 'cancelled'
+      ? await orderService.cancelOrder(
+        getUserId(req),
+        getUserRole(req),
+        req.params.id as string,
+        input as CancelOrderInput,
+      )
+      : await orderService.updateOrderStatus(req.params.id as string, input);
     await auditLogService.recordAuditLogBestEffort({
       actorId: req.user?.userId ?? null,
       actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
@@ -439,6 +522,7 @@ export {
   getOrders,
   previewCheckout,
   requestReturn,
+  reviewReturnRequest,
   updateOrderShipping,
   updateOrderStatus,
 };

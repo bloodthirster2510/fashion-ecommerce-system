@@ -11,6 +11,7 @@ export type OrderStatus =
 
 export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
 export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+export type OrderReturnRequestStatus = 'requested' | 'approved' | 'rejected';
 
 export interface IOrderItem {
   _id: Types.ObjectId;
@@ -65,6 +66,24 @@ export interface IOrderShipping {
   rawShipment?: Record<string, unknown> | null;
 }
 
+export interface IOrderReturnRequest {
+  reason: string;
+  imageUrls?: string[];
+  status: OrderReturnRequestStatus;
+  requestedAt: Date;
+  reviewedAt?: Date | null;
+  reviewedBy?: Types.ObjectId | null;
+  reviewReason?: string | null;
+}
+
+export interface IOrderCancellation {
+  reason?: string | null;
+  imageUrls?: string[];
+  cancelledAt: Date;
+  cancelledBy?: Types.ObjectId | null;
+  actorRole?: 'user' | 'admin' | 'staff' | 'system' | null;
+}
+
 export interface IOrder extends Document {
   orderCode: string;
   invoiceCode?: string | null;
@@ -83,6 +102,8 @@ export interface IOrder extends Document {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: Types.ObjectId | null;
   paymentStatus: OrderPaymentStatus;
+  returnRequest?: IOrderReturnRequest | null;
+  cancellation?: IOrderCancellation | null;
   shipping: IOrderShipping;
   shippingAddress: IOrderShippingAddress;
   orderNote?: string | null;
@@ -161,6 +182,41 @@ const orderShippingSchema = new Schema<IOrderShipping>(
   { _id: false },
 );
 
+const orderReturnRequestSchema = new Schema<IOrderReturnRequest>(
+  {
+    reason: { type: String, required: true, trim: true, minlength: 1, maxlength: 500 },
+    imageUrls: {
+      type: [{ type: String, trim: true, maxlength: 500 }],
+      default: undefined,
+    },
+    status: {
+      type: String,
+      enum: ['requested', 'approved', 'rejected'],
+      required: true,
+      default: 'requested',
+    },
+    requestedAt: { type: Date, required: true, default: Date.now },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    reviewReason: { type: String, trim: true, default: null, maxlength: 500 },
+  },
+  { _id: false },
+);
+
+const orderCancellationSchema = new Schema<IOrderCancellation>(
+  {
+    reason: { type: String, trim: true, default: null, maxlength: 500 },
+    imageUrls: {
+      type: [{ type: String, trim: true, maxlength: 500 }],
+      default: undefined,
+    },
+    cancelledAt: { type: Date, required: true, default: Date.now },
+    cancelledBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    actorRole: { type: String, enum: ['user', 'admin', 'staff', 'system'], default: null },
+  },
+  { _id: false },
+);
+
 const orderSchema = new Schema<IOrder>(
   {
     orderCode: { type: String, required: true, unique: true, trim: true, uppercase: true, maxlength: 40 },
@@ -205,6 +261,8 @@ const orderSchema = new Schema<IOrder>(
       required: true,
       default: 'pending',
     },
+    returnRequest: { type: orderReturnRequestSchema, default: null },
+    cancellation: { type: orderCancellationSchema, default: null },
     shipping: { type: orderShippingSchema, default: {} },
     shippingAddress: { type: shippingAddressSchema, required: true },
     orderNote: { type: String, trim: true, default: null, maxlength: 500 },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { AdminUser } from '../auth/adminSession'
 import {
   adjustOrderPaymentStatus,
@@ -8,6 +8,7 @@ import {
   listCustomerPaymentMethods,
   listOrderTransactions,
   listOrders,
+  reviewReturnRequest,
   updateCustomerPaymentMethodStatus,
   updateOrderShipping,
   updateOrderStatus,
@@ -18,6 +19,8 @@ import {
   type AdminOrderPaymentStatus,
   type AdminOrderStatus,
   type AdminPaymentMethodStatus,
+  type AdminReturnRequestStatus,
+  type AdminReturnReviewDecision,
   type AdminTransaction,
 } from './orderAdminApi'
 import './order.css'
@@ -29,9 +32,14 @@ type OrdersPageProps = {
 type OrderTab = {
   key: string
   label: string
+  helper?: string
   statuses?: AdminOrderStatus[]
+  paymentStatus?: AdminOrderPaymentStatus
+  queue?: OrderQueueKey
   requiresApproval?: boolean
 }
+
+type OrderQueueKey = 'actionable' | 'blocked' | 'review' | 'refund'
 
 type Notice = {
   type: 'success' | 'error'
@@ -51,14 +59,52 @@ const emptyStatusSummary: Record<AdminOrderStatus | 'all', number> = {
   returned: 0,
 }
 
+const emptyOperationalSummary = {
+  returnRequests: 0,
+  refunds: 0,
+  paidReady: 0,
+  paymentRisk: 0,
+  totalPriority: 0,
+}
+
 const orderTabs: OrderTab[] = [
-  { key: 'all', label: 'Tất cả' },
-  { key: 'confirmed', label: 'Chờ xử lý', statuses: ['confirmed'], requiresApproval: true },
-  { key: 'packed', label: 'Đã đóng gói', statuses: ['packed'] },
-  { key: 'shipping', label: 'Đang giao', statuses: ['shipping'] },
-  { key: 'delivered', label: 'Đã giao', statuses: ['delivered'] },
-  { key: 'returns', label: 'Yêu cầu trả', statuses: ['return_requested'], requiresApproval: true },
-  { key: 'closed', label: 'Đã đóng', statuses: ['cancelled', 'returned'] },
+  {
+    key: 'actionable',
+    label: 'Có thể duyệt',
+    helper: 'Đủ điều kiện để chuyển bước xử lý tiếp theo.',
+    statuses: ['confirmed', 'packed'],
+    queue: 'actionable',
+    requiresApproval: true,
+  },
+  {
+    key: 'blocked',
+    label: 'Chưa thể',
+    helper: 'Đang vướng thanh toán hoặc chờ khách xác nhận nhận hàng.',
+    statuses: ['confirmed', 'packed', 'shipping'],
+    queue: 'blocked',
+  },
+  {
+    key: 'review',
+    label: 'Xem lý do',
+    helper: 'Yêu cầu trả hàng hoặc đơn hủy cần đọc lý do/minh chứng.',
+    statuses: ['return_requested', 'cancelled'],
+    queue: 'review',
+    requiresApproval: true,
+  },
+  {
+    key: 'refund',
+    label: 'Cần hoàn',
+    helper: 'Đơn đã thanh toán nhưng đã hủy, cần đối soát hoàn tiền.',
+    statuses: ['cancelled'],
+    paymentStatus: 'paid',
+    queue: 'refund',
+    requiresApproval: true,
+  },
+  {
+    key: 'all',
+    label: 'Tất cả',
+    helper: 'Lịch sử và tra cứu toàn bộ đơn.',
+  },
 ]
 
 const statusLabels: Record<AdminOrderStatus, string> = {
@@ -85,6 +131,36 @@ const paymentMethodStatusLabels: Record<AdminPaymentMethodStatus, string> = {
   disabled: 'Đã tắt',
 }
 
+const getPaymentMethodStatusClass = (status: AdminPaymentMethodStatus) => {
+  if (status === 'verified') return 'admin-status-pill is-active'
+  if (status === 'pending') return 'admin-status-pill is-warning'
+  if (status === 'expired') return 'admin-status-pill is-soft'
+  return 'admin-status-pill is-blocked'
+}
+
+const getPaymentMethodStatusActions = (status: AdminPaymentMethodStatus) => {
+  const actions: Array<{
+    status: AdminPaymentMethodStatus
+    label: string
+    className: 'admin-secondary-button' | 'admin-danger-button'
+  }> = []
+
+  if (status !== 'verified') {
+    actions.push({ status: 'verified', label: 'Xác minh', className: 'admin-secondary-button' })
+  }
+
+  if (status === 'verified') {
+    actions.push({ status: 'pending', label: 'Chờ xác minh', className: 'admin-secondary-button' })
+    actions.push({ status: 'expired', label: 'Hết hạn', className: 'admin-secondary-button' })
+  }
+
+  if (status !== 'disabled') {
+    actions.push({ status: 'disabled', label: 'Tắt', className: 'admin-danger-button' })
+  }
+
+  return actions
+}
+
 const paymentMethodLabels: Record<AdminOrderPaymentMethod, string> = {
   COD: 'COD',
   VNPAY: 'VNPay',
@@ -98,6 +174,12 @@ const transactionStatusLabels: Record<AdminTransaction['status'], string> = {
   success: 'Thành công',
   failed: 'Thất bại',
   expired: 'Đã hết hạn',
+}
+
+const returnRequestStatusLabels: Record<AdminReturnRequestStatus, string> = {
+  requested: 'Chờ duyệt',
+  approved: 'Đã duyệt',
+  rejected: 'Đã từ chối',
 }
 
 const auditActionLabels: Record<AdminAuditLog['action'], string> = {
@@ -145,9 +227,18 @@ const shippingStatusLabels: Record<string, string> = {
 const nextStatusOptions: Partial<Record<AdminOrderStatus, AdminOrderStatus[]>> = {
   confirmed: ['packed', 'cancelled'],
   packed: ['shipping', 'cancelled'],
-  shipping: ['delivered', 'return_requested'],
-  delivered: ['return_requested'],
-  return_requested: ['returned'],
+}
+
+const getNoNextOrderStepMessage = (order: AdminOrder) => {
+  if (order.status === 'shipping') {
+    return 'Đơn đang giao. Chờ khách xác nhận đã nhận hàng trên app để hoàn tất đơn.'
+  }
+
+  if (order.status === 'delivered') {
+    return 'Đơn đã hoàn tất sau khi khách xác nhận đã nhận hàng.'
+  }
+
+  return 'Đơn hàng không có bước xử lý tiếp theo.'
 }
 
 const currencyFormatter = new Intl.NumberFormat('vi-VN', {
@@ -191,6 +282,12 @@ const getOrderPillClass = (status: AdminOrderStatus) => {
   return 'admin-status-pill is-warning'
 }
 
+const getReturnRequestPillClass = (status: AdminReturnRequestStatus) => {
+  if (status === 'approved') return 'admin-status-pill is-active'
+  if (status === 'rejected') return 'admin-status-pill is-blocked'
+  return 'admin-status-pill is-refund'
+}
+
 const getShippingPillClass = (status?: string | null) => {
   if (status === 'delivered') return 'admin-status-pill is-active'
   if (status === 'shipping' || status === 'delivering' || status === 'picking' || status === 'picked') {
@@ -223,14 +320,6 @@ const getTabClass = (tab: OrderTab, activeTabKey: string) =>
   ]
     .filter(Boolean)
     .join(' ')
-
-const getTabCount = (tab: OrderTab, summary: Record<AdminOrderStatus | 'all', number>) =>
-  tab.statuses?.length
-    ? tab.statuses.reduce((total, status) => total + (summary[status] ?? 0), 0)
-    : summary.all
-
-const shouldShowApprovalDot = (tab: OrderTab, summary: Record<AdminOrderStatus | 'all', number>) =>
-  Boolean(tab.requiresApproval && getTabCount(tab, summary) > 0)
 
 const orderFlowSteps = ['confirmed', 'packed', 'shipping', 'delivered'] as const
 
@@ -286,6 +375,148 @@ const shouldWarnPaymentBeforeShipping = (order: AdminOrder) =>
   order.status !== 'cancelled' &&
   order.status !== 'returned'
 
+const canAdvanceOrder = (order: AdminOrder) => {
+  const statusOptions = nextStatusOptions[order.status] ?? []
+
+  return statusOptions.some((status) => !isStatusBlockedByPayment(order, status))
+}
+
+const needsRefundReview = (order: AdminOrder) =>
+  order.status === 'cancelled' && order.paymentStatus === 'paid'
+
+const needsReasonReview = (order: AdminOrder) =>
+  (order.status === 'return_requested' && order.returnRequest?.status === 'requested') ||
+  (order.status === 'cancelled' && !needsRefundReview(order))
+
+const isBlockedOrder = (order: AdminOrder) =>
+  shouldWarnPaymentBeforeShipping(order) ||
+  order.paymentStatus === 'failed' ||
+  order.status === 'shipping'
+
+const getOrderQueue = (order: AdminOrder): OrderQueueKey | null => {
+  if (needsRefundReview(order)) return 'refund'
+  if (needsReasonReview(order)) return 'review'
+  if (canAdvanceOrder(order)) return 'actionable'
+  if (isBlockedOrder(order)) return 'blocked'
+
+  return null
+}
+
+const getQueueCount = (
+  queue: OrderQueueKey,
+  summary: Record<AdminOrderStatus | 'all', number>,
+  operationalSummary = emptyOperationalSummary,
+) => {
+  if (queue === 'refund') return operationalSummary.refunds
+  if (queue === 'review') return operationalSummary.returnRequests + Math.max(0, summary.cancelled - operationalSummary.refunds)
+  if (queue === 'blocked') return operationalSummary.paymentRisk + summary.shipping
+  return Math.max(0, summary.confirmed + summary.packed - operationalSummary.paymentRisk)
+}
+
+const shouldShowApprovalDot = (
+  tab: OrderTab,
+  summary: Record<AdminOrderStatus | 'all', number>,
+  operationalSummary = emptyOperationalSummary,
+) => {
+  if (!tab.requiresApproval) return false
+  if (tab.queue) return getQueueCount(tab.queue, summary, operationalSummary) > 0
+
+  return Boolean(
+    tab.statuses?.length
+      ? tab.statuses.reduce((total, status) => total + (summary[status] ?? 0), 0)
+      : summary.all,
+  )
+}
+
+type AdminOrderAttention = {
+  kind: 'return' | 'refund' | 'paid-ready' | 'payment-risk' | 'new' | 'shipping'
+  tone: 'danger' | 'warning' | 'info' | 'success'
+  label: string
+  helper: string
+}
+
+const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null => {
+  if (order.status === 'return_requested' && order.returnRequest?.status === 'requested') {
+    return {
+      kind: 'return',
+      tone: 'warning',
+      label: 'Cần duyệt trả hàng',
+      helper: 'Khách đã gửi yêu cầu đổi/trả, cần phản hồi trước.',
+    }
+  }
+
+  if (order.status === 'cancelled' && order.paymentStatus === 'paid') {
+    return {
+      kind: 'refund',
+      tone: 'warning',
+      label: 'Cần hoàn tiền',
+      helper: 'Đơn đã thanh toán nhưng bị hủy, cần đối soát hoàn tiền.',
+    }
+  }
+
+  if (order.paymentStatus === 'paid' && (order.status === 'confirmed' || order.status === 'packed')) {
+    return {
+      kind: 'paid-ready',
+      tone: 'success',
+      label: 'Đã thanh toán - xử lý ngay',
+      helper: 'Tiền đã ghi nhận, ưu tiên đóng gói hoặc bàn giao vận chuyển.',
+    }
+  }
+
+  if (shouldWarnPaymentBeforeShipping(order) || order.paymentStatus === 'failed') {
+    return {
+      kind: 'payment-risk',
+      tone: 'danger',
+      label: 'Vướng thanh toán',
+      helper: 'Chưa ghi nhận thanh toán, chưa nên xử lý giao hàng.',
+    }
+  }
+
+  if (order.status === 'confirmed') {
+    return {
+      kind: 'new',
+      tone: 'info',
+      label: 'Cần xử lý',
+      helper: 'Đơn mới cần kiểm tra trước khi đóng gói.',
+    }
+  }
+
+  if (order.status === 'shipping') {
+    return {
+      kind: 'shipping',
+      tone: 'success',
+      label: 'Đang giao',
+      helper: 'Theo dõi vận chuyển, chờ khách xác nhận đã nhận hàng trên app.',
+    }
+  }
+
+  return null
+}
+
+const getOrderAttentionClass = (order: AdminOrder) => {
+  const attention = getOrderAttention(order)
+  return attention ? `admin-order-attention-badge is-${attention.tone}` : ''
+}
+
+const getOrderAttentionRank = (order: AdminOrder) => {
+  const attention = getOrderAttention(order)
+  if (!attention) return 5
+
+  const ranks: Record<AdminOrderAttention['kind'], number> = {
+    return: 0,
+    refund: 1,
+    'paid-ready': 2,
+    'payment-risk': 3,
+    new: 4,
+    shipping: 5,
+  }
+
+  return ranks[attention.kind] ?? 6
+}
+
+const isStatusBlockedByPayment = (order: AdminOrder, status: AdminOrderStatus) =>
+  shouldWarnPaymentBeforeShipping(order) && status !== 'cancelled'
+
 const getAddressLine = (order: AdminOrder) =>
   [
     order.shippingAddress.streetName,
@@ -308,6 +539,22 @@ const formatShippingStatus = (status?: string | null) => {
   return shippingStatusLabels[status] ?? status
 }
 
+const getPaymentMethodMetadataText = (method: AdminCustomerPaymentMethod, key: string) => {
+  const value = method.metadata?.[key]
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+const getCustomerPaymentMethodSubtitle = (method: AdminCustomerPaymentMethod) => {
+  const accountHolder = getPaymentMethodMetadataText(method, 'accountHolder')
+
+  return [
+    accountHolder ? `Chủ TK: ${accountHolder}` : null,
+    method.maskedInfo,
+    method.bankName,
+    method.bankCode,
+  ].filter(Boolean).join(' / ') || method.provider
+}
+
 export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
@@ -316,13 +563,13 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [customerPaymentMethods, setCustomerPaymentMethods] = useState<AdminCustomerPaymentMethod[]>([])
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
-  const [activeTabKey, setActiveTabKey] = useState('all')
+  const [activeTabKey, setActiveTabKey] = useState('actionable')
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
   const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
   const [page, setPage] = useState(1)
-  const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [statusSummary, setStatusSummary] = useState<Record<AdminOrderStatus | 'all', number>>(emptyStatusSummary)
+  const [operationalSummary, setOperationalSummary] = useState(emptyOperationalSummary)
   const [isLoading, setIsLoading] = useState(false)
   const [isDrawerLoading, setIsDrawerLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -334,42 +581,49 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('orders.update'))
   const canAdjustPayments =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('payments.adjust'))
+  const canReadCustomerPaymentMethods =
+    currentUser.role === 'admin' ||
+    Boolean(
+      currentUser.permissions?.includes('customers.read') ||
+      currentUser.permissions?.includes('customers.manage'),
+    )
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
-
-  const orderStats = useMemo(() => {
-    return {
-      confirmed: statusSummary.confirmed,
-      packed: statusSummary.packed,
-      shipping: statusSummary.shipping,
-      returns: statusSummary.return_requested,
-    }
-  }, [statusSummary])
 
   const loadOrders = useCallback(async () => {
     setIsLoading(true)
     setErrorMessage('')
 
     try {
+      const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
+      const effectiveLimit = activeTab.queue ? 100 : pageSize
       const result = await listOrders({
         keyword,
         statuses: activeTab.statuses,
-        paymentStatus,
+        paymentStatus: effectivePaymentStatus,
         paymentMethod,
-        page,
-        limit: pageSize,
+        page: activeTab.queue ? 1 : page,
+        limit: effectiveLimit,
       })
 
-      setOrders(result.items)
-      setTotalItems(result.pagination?.totalItems ?? result.items.length)
-      setTotalPages(Math.max(1, result.pagination?.totalPages ?? 1))
+      const orderedItems = [...result.items]
+        .filter((order) => !activeTab.queue || getOrderQueue(order) === activeTab.queue)
+        .sort((left, right) => {
+          const rankDelta = getOrderAttentionRank(left) - getOrderAttentionRank(right)
+          if (rankDelta !== 0) return rankDelta
+          return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+        })
+
+      setOrders(orderedItems)
+      setTotalPages(activeTab.queue ? 1 : Math.max(1, result.pagination?.totalPages ?? 1))
       setStatusSummary({ ...emptyStatusSummary, ...result.statusSummary })
+      setOperationalSummary({ ...emptyOperationalSummary, ...result.operationalSummary })
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     } finally {
       setIsLoading(false)
     }
-  }, [activeTab.statuses, keyword, page, paymentMethod, paymentStatus])
+  }, [activeTab.paymentStatus, activeTab.queue, activeTab.statuses, keyword, page, paymentMethod, paymentStatus])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -391,7 +645,9 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
       const orderDetail = await getOrder(orderId)
       const [orderTransactions, paymentMethods, orderAuditLogs] = await Promise.all([
         listOrderTransactions(orderId),
-        listCustomerPaymentMethods(orderDetail.user_id),
+        canReadCustomerPaymentMethods
+          ? listCustomerPaymentMethods(orderDetail.user_id).catch(() => [])
+          : Promise.resolve([]),
         listAuditLogs({ targetType: 'Order', targetId: orderId, limit: 20 }),
       ])
       setSelectedOrder(orderDetail)
@@ -426,16 +682,67 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const handleStatusUpdate = async (nextStatus: AdminOrderStatus) => {
     if (!selectedOrder) return
 
+    const reason = nextStatus === 'cancelled'
+      ? window.prompt('Nhập lý do hủy đơn')
+      : null
+    if (nextStatus === 'cancelled' && !reason?.trim()) {
+      setNotice({ type: 'error', message: 'Cần nhập lý do hủy đơn' })
+      return
+    }
+
     setActionLoading(true)
     setNotice(null)
 
     try {
-      const updatedOrder = await updateOrderStatus(selectedOrder._id, nextStatus)
+      const updatedOrder = await updateOrderStatus(selectedOrder._id, nextStatus, reason?.trim())
       setSelectedOrder(updatedOrder)
       setOrders((currentOrders) =>
         currentOrders.map((order) => (order._id === updatedOrder._id ? updatedOrder : order)),
       )
       setNotice({ type: 'success', message: 'Đã cập nhật trạng thái đơn hàng' })
+      await refreshSelectedOrder(updatedOrder._id)
+      await loadOrders()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleReviewReturnRequest = async (decision: AdminReturnReviewDecision) => {
+    if (!selectedOrder) return
+
+    const promptLabel = decision === 'approved'
+      ? 'Ghi chú duyệt trả hàng (có thể bỏ trống)'
+      : 'Nhập lý do từ chối trả hàng'
+    const reason = window.prompt(promptLabel)
+    if (reason === null) return
+
+    const normalizedReason = reason.trim()
+    if (decision === 'rejected' && !normalizedReason) {
+      setNotice({ type: 'error', message: 'Cần nhập lý do từ chối trả hàng' })
+      return
+    }
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const updatedOrder = await reviewReturnRequest(
+        selectedOrder._id,
+        decision,
+        normalizedReason || undefined,
+      )
+      setSelectedOrder(updatedOrder)
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order._id === updatedOrder._id ? updatedOrder : order)),
+      )
+      setNotice({
+        type: 'success',
+        message: decision === 'approved'
+          ? 'Đã duyệt yêu cầu trả hàng'
+          : 'Đã từ chối yêu cầu trả hàng',
+      })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
     } catch (error) {
@@ -511,7 +818,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
       const result = await expireStalePayments()
       setNotice({
         type: 'success',
-        message: `Đã hết hạn ${result.expiredCount} lượt thanh toán quá hạn`,
+        message: `Đã hết hạn ${result.expiredCount} lượt thanh toán quá hạn, hủy ${result.cancelledOrderIds.length} đơn chưa thanh toán`,
       })
       await loadOrders()
       if (selectedOrder) {
@@ -551,10 +858,15 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     }
   }
 
-  const handleDisablePaymentMethod = async (method: AdminCustomerPaymentMethod) => {
+  const handleUpdatePaymentMethodStatus = async (
+    method: AdminCustomerPaymentMethod,
+    nextStatus: AdminPaymentMethodStatus,
+  ) => {
     if (!selectedOrder) return
 
-    const reason = window.prompt(`Nhập lý do tắt phương thức "${method.displayName}"`)
+    const reason = window.prompt(
+      `Nhập lý do chuyển "${method.displayName}" sang "${paymentMethodStatusLabels[nextStatus]}"`,
+    )
     if (!reason?.trim()) {
       return
     }
@@ -563,8 +875,8 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     setNotice(null)
 
     try {
-      await updateCustomerPaymentMethodStatus(method._id, 'disabled', reason.trim())
-      setNotice({ type: 'success', message: 'Đã tắt phương thức thanh toán của khách hàng' })
+      await updateCustomerPaymentMethodStatus(method._id, nextStatus, reason.trim())
+      setNotice({ type: 'success', message: 'Đã cập nhật phương thức thanh toán của khách hàng' })
       await refreshSelectedOrder(selectedOrder._id)
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
@@ -596,30 +908,15 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         </div>
       </header>
 
-      <div className="admin-user-stats admin-order-stats" aria-label="Thống kê đơn hàng">
-        <div className="is-total">
-          <span>Kết quả hiện tại</span>
-          <strong>{totalItems}</strong>
+      <section className="admin-order-workflow" aria-label="Phân loại xử lý đơn hàng">
+        <div>
+          <span>Hàng đợi xử lý</span>
+          <strong>{activeTab.label}</strong>
+          <p>{activeTab.helper ?? 'Chọn nhóm để tập trung xử lý đúng loại đơn.'}</p>
         </div>
-        <div className="is-attention">
-          <span>Chờ xử lý</span>
-          <strong>{orderStats.confirmed}</strong>
-        </div>
-        <div className="is-warning">
-          <span>Đã đóng gói</span>
-          <strong>{orderStats.packed}</strong>
-        </div>
-        <div className="is-active">
-          <span>Đang giao</span>
-          <strong>{orderStats.shipping}</strong>
-        </div>
-        <div className="is-refund">
-          <span>Yêu cầu trả</span>
-          <strong>{orderStats.returns}</strong>
-        </div>
-      </div>
+      </section>
 
-      <div className="admin-order-tabs" role="tablist" aria-label="Lọc nhanh đơn hàng">
+      <div className="admin-order-tabs" role="tablist" aria-label="Phân loại đơn hàng">
         {orderTabs.map((tab) => (
           <button
             className={getTabClass(tab, activeTabKey)}
@@ -629,27 +926,18 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
             aria-selected={tab.key === activeTabKey}
             onClick={() => {
               setActiveTabKey(tab.key)
+              setPaymentStatus('all')
               setPage(1)
             }}
           >
             <span className="admin-order-tab-label">
-              {shouldShowApprovalDot(tab, statusSummary) ? (
+              {shouldShowApprovalDot(tab, statusSummary, operationalSummary) ? (
                 <span className="admin-order-approval-dot" title="Có mục cần duyệt" aria-label="Có mục cần duyệt" />
               ) : null}
               <span>{tab.label}</span>
             </span>
-            <strong>{getTabCount(tab, statusSummary)}</strong>
           </button>
         ))}
-      </div>
-
-      <div className="admin-order-legend" aria-label="Chú giải màu trạng thái">
-        <span className="is-warning">Chờ xử lý</span>
-        <span className="is-progress">Đã đóng gói</span>
-        <span className="is-info">Đang giao</span>
-        <span className="is-active">Hoàn tất</span>
-        <span className="is-refund">Yêu cầu trả</span>
-        <span className="is-attention">Cần chú ý</span>
       </div>
 
       <div className="admin-table-toolbar">
@@ -684,7 +972,8 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         <label>
           <span>Trạng thái thanh toán</span>
           <select
-            value={paymentStatus}
+            value={activeTab.paymentStatus ?? paymentStatus}
+            disabled={Boolean(activeTab.paymentStatus)}
             onChange={(event) => {
               setPaymentStatus(event.target.value as AdminOrderPaymentStatus | 'all')
               setPage(1)
@@ -753,6 +1042,11 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
                         <div className="admin-order-code-cell">
                           <strong>{order.orderCode}</strong>
                           <span>{order.invoiceCode || 'Chưa có hóa đơn'}</span>
+                          {getOrderAttention(order) ? (
+                            <em className={getOrderAttentionClass(order)}>
+                              {getOrderAttention(order)?.label}
+                            </em>
+                          ) : null}
                         </div>
                       </td>
                       <td>
@@ -831,6 +1125,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         <OrderDetailDrawer
           canAdjustPayments={canAdjustPayments}
           canManageCustomerPaymentMethods={canManageCustomerPaymentMethods}
+          canReadCustomerPaymentMethods={canReadCustomerPaymentMethods}
           canUpdateOrders={canUpdateOrders}
           isActionLoading={actionLoading}
           isLoading={isDrawerLoading}
@@ -840,8 +1135,9 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
           transactions={transactions}
           onClose={closeDrawer}
           onAdjustPaymentStatus={(status) => void handleAdjustPaymentStatus(status)}
-          onDisablePaymentMethod={(method) => void handleDisablePaymentMethod(method)}
+          onUpdatePaymentMethodStatus={(method, status) => void handleUpdatePaymentMethodStatus(method, status)}
           onRefresh={() => void refreshSelectedOrder(selectedOrder._id)}
+          onReviewReturnRequest={(decision) => void handleReviewReturnRequest(decision)}
           onShippingUpdate={() => void handleShippingUpdate()}
           onStatusUpdate={(status) => void handleStatusUpdate(status)}
         />
@@ -853,6 +1149,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
 function OrderDetailDrawer({
   canAdjustPayments,
   canManageCustomerPaymentMethods,
+  canReadCustomerPaymentMethods,
   canUpdateOrders,
   isActionLoading,
   isLoading,
@@ -862,13 +1159,15 @@ function OrderDetailDrawer({
   transactions,
   onClose,
   onAdjustPaymentStatus,
-  onDisablePaymentMethod,
+  onUpdatePaymentMethodStatus,
   onRefresh,
+  onReviewReturnRequest,
   onShippingUpdate,
   onStatusUpdate,
 }: {
   canAdjustPayments: boolean
   canManageCustomerPaymentMethods: boolean
+  canReadCustomerPaymentMethods: boolean
   canUpdateOrders: boolean
   isActionLoading: boolean
   isLoading: boolean
@@ -878,12 +1177,15 @@ function OrderDetailDrawer({
   transactions: AdminTransaction[]
   onClose: () => void
   onAdjustPaymentStatus: (status: AdminOrderPaymentStatus) => void
-  onDisablePaymentMethod: (method: AdminCustomerPaymentMethod) => void
+  onUpdatePaymentMethodStatus: (method: AdminCustomerPaymentMethod, status: AdminPaymentMethodStatus) => void
   onRefresh: () => void
+  onReviewReturnRequest: (decision: AdminReturnReviewDecision) => void
   onShippingUpdate: () => void
   onStatusUpdate: (status: AdminOrderStatus) => void
 }) {
   const statusOptions = nextStatusOptions[order.status] ?? []
+  const hasPendingReturnRequest = order.status === 'return_requested' && order.returnRequest?.status === 'requested'
+  const attention = getOrderAttention(order)
 
   return (
     <div className="admin-drawer-layer" role="dialog" aria-modal="true" aria-labelledby="admin-order-title">
@@ -910,9 +1212,16 @@ function OrderDetailDrawer({
 
         {isLoading ? <div className="admin-drawer-loading">Đang tải chi tiết...</div> : null}
 
+        {attention ? (
+          <div className={`admin-order-attention-callout is-${attention.tone}`} role="status">
+            <strong>{attention.label}</strong>
+            <span>{attention.helper}</span>
+          </div>
+        ) : null}
+
         {shouldWarnPaymentBeforeShipping(order) ? (
           <p className="admin-notice is-error admin-order-warning" role="alert">
-            Đơn online chưa thanh toán. Không nên đóng gói hoặc tạo vận đơn khi chưa đối soát xong.
+            Đơn online chưa thanh toán. Hệ thống chỉ cho hủy đơn hoặc điều chỉnh thanh toán sau khi đối soát.
           </p>
         ) : null}
 
@@ -939,36 +1248,115 @@ function OrderDetailDrawer({
           </div>
         </section>
 
+        {order.cancellation ? (
+          <section className="admin-drawer-section">
+            <div className="admin-section-inline-heading">
+              <h3>Thông tin hủy đơn</h3>
+              {order.paymentStatus === 'paid' ? (
+                <span className="admin-status-pill is-warning">Cần hoàn tiền</span>
+              ) : (
+                <span className="admin-status-pill is-blocked">Đã hủy</span>
+              )}
+            </div>
+            <article className="admin-return-request-card">
+              <p>{order.cancellation.reason || 'Không có lý do hủy.'}</p>
+              <dl>
+                <div>
+                  <dt>Hủy lúc</dt>
+                  <dd>{formatDate(order.cancellation.cancelledAt)}</dd>
+                </div>
+                <div>
+                  <dt>Người hủy</dt>
+                  <dd>{order.cancellation.actorRole || 'Chưa có'}</dd>
+                </div>
+              </dl>
+              {order.cancellation.imageUrls?.length ? (
+                <div className="admin-evidence-grid">
+                  {order.cancellation.imageUrls.map((imageUrl) => (
+                    <a href={imageUrl} key={imageUrl} target="_blank" rel="noreferrer">
+                      <img src={imageUrl} alt="Minh chứng hủy đơn" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          </section>
+        ) : null}
+
+        {order.returnRequest ? (
+          <section className="admin-drawer-section">
+            <div className="admin-section-inline-heading">
+              <h3>Yêu cầu trả hàng</h3>
+              <span className={getReturnRequestPillClass(order.returnRequest.status)}>
+                {returnRequestStatusLabels[order.returnRequest.status]}
+              </span>
+            </div>
+            <article className="admin-return-request-card">
+              <p>{order.returnRequest.reason}</p>
+              <dl>
+                <div>
+                  <dt>Gửi lúc</dt>
+                  <dd>{formatDate(order.returnRequest.requestedAt)}</dd>
+                </div>
+                <div>
+                  <dt>Xử lý lúc</dt>
+                  <dd>{formatDate(order.returnRequest.reviewedAt)}</dd>
+                </div>
+                <div>
+                  <dt>Người duyệt</dt>
+                  <dd>{order.returnRequest.reviewedBy || 'Chưa có'}</dd>
+                </div>
+                <div>
+                  <dt>Ghi chú</dt>
+                  <dd>{order.returnRequest.reviewReason || 'Chưa có'}</dd>
+                </div>
+              </dl>
+              {order.returnRequest.imageUrls?.length ? (
+                <div className="admin-evidence-grid">
+                  {order.returnRequest.imageUrls.map((imageUrl) => (
+                    <a href={imageUrl} key={imageUrl} target="_blank" rel="noreferrer">
+                      <img src={imageUrl} alt="Minh chứng trả hàng" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          </section>
+        ) : null}
+
         <section className="admin-drawer-section">
           <h3>Phương thức thanh toán của khách hàng</h3>
-          {paymentMethods.length === 0 ? (
+          {!canReadCustomerPaymentMethods ? (
+            <p className="admin-muted-text">Cần quyền customers.read để xem phương thức thanh toán của khách.</p>
+          ) : paymentMethods.length === 0 ? (
             <p className="admin-muted-text">Khách hàng chưa lưu phương thức thanh toán nào.</p>
           ) : (
             <div className="admin-payment-method-list">
               {paymentMethods.map((method) => {
-                const isActive = method.status === 'pending' || method.status === 'verified'
+                const statusActions = getPaymentMethodStatusActions(method.status)
 
                 return (
                   <article className="admin-payment-method-card" key={method._id}>
                     <div>
                       <strong>{method.displayName}</strong>
-                      <span>{[method.maskedInfo, method.bankName, method.bankCode].filter(Boolean).join(' / ') || method.provider}</span>
+                      <span>{getCustomerPaymentMethodSubtitle(method)}</span>
                     </div>
                     <div className="admin-payment-method-actions">
-                      <span className={isActive ? 'admin-status-pill is-active' : 'admin-status-pill is-blocked'}>
+                      <span className={getPaymentMethodStatusClass(method.status)}>
                         {paymentMethodStatusLabels[method.status]}
                       </span>
                       {method.isDefault ? <span className="admin-status-pill is-warning">Mặc định</span> : null}
-                      {isActive ? (
+                      {statusActions.map((action) => (
                         <button
-                          className="admin-danger-button"
+                          className={action.className}
                           type="button"
+                          key={action.status}
                           disabled={!canManageCustomerPaymentMethods || isActionLoading}
-                          onClick={() => onDisablePaymentMethod(method)}
+                          onClick={() => onUpdatePaymentMethodStatus(method, action.status)}
                         >
-                          Tắt
+                          {action.label}
                         </button>
-                      ) : null}
+                      ))}
                     </div>
                   </article>
                 )
@@ -976,7 +1364,7 @@ function OrderDetailDrawer({
             </div>
           )}
           {!canManageCustomerPaymentMethods ? (
-            <p className="admin-permission-note">Cần quyền customers.manage để tắt phương thức thanh toán.</p>
+            <p className="admin-permission-note">Cần quyền customers.manage để cập nhật phương thức thanh toán.</p>
           ) : null}
         </section>
 
@@ -1145,21 +1533,45 @@ function OrderDetailDrawer({
 
         <section className="admin-drawer-section">
           <h3>Xử lý đơn</h3>
-          {statusOptions.length === 0 ? (
-            <p className="admin-muted-text">Đơn hàng không có bước xử lý tiếp theo.</p>
+          {hasPendingReturnRequest ? (
+            <div className="admin-drawer-actions">
+              <button
+                className="admin-primary-button"
+                type="button"
+                disabled={!canUpdateOrders || isActionLoading}
+                onClick={() => onReviewReturnRequest('approved')}
+              >
+                {isActionLoading ? 'Đang xử lý...' : 'Duyệt trả hàng'}
+              </button>
+              <button
+                className="admin-danger-button"
+                type="button"
+                disabled={!canUpdateOrders || isActionLoading}
+                onClick={() => onReviewReturnRequest('rejected')}
+              >
+                {isActionLoading ? 'Đang xử lý...' : 'Từ chối'}
+              </button>
+            </div>
+          ) : statusOptions.length === 0 ? (
+            <p className="admin-muted-text">{getNoNextOrderStepMessage(order)}</p>
           ) : (
             <div className="admin-drawer-actions">
-              {statusOptions.map((status) => (
-                <button
-                  className={status === 'cancelled' ? 'admin-danger-button' : 'admin-primary-button'}
-                  key={status}
-                  type="button"
-                  disabled={!canUpdateOrders || isActionLoading}
-                  onClick={() => onStatusUpdate(status)}
-                >
-                  {isActionLoading ? 'Đang xử lý...' : statusLabels[status]}
-                </button>
-              ))}
+              {statusOptions.map((status) => {
+                const blockedByPayment = isStatusBlockedByPayment(order, status)
+
+                return (
+                  <button
+                    className={status === 'cancelled' ? 'admin-danger-button' : 'admin-primary-button'}
+                    key={status}
+                    type="button"
+                    disabled={!canUpdateOrders || isActionLoading || blockedByPayment}
+                    title={blockedByPayment ? 'Đơn online cần thanh toán trước khi xử lý.' : undefined}
+                    onClick={() => onStatusUpdate(status)}
+                  >
+                    {isActionLoading ? 'Đang xử lý...' : statusLabels[status]}
+                  </button>
+                )
+              })}
             </div>
           )}
           {!canUpdateOrders ? (

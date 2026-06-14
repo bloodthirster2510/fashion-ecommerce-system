@@ -55,7 +55,7 @@ const parseAdminReason = (value: unknown) => {
 };
 
 const toManualTransactionStatus = (paymentStatus: OrderPaymentStatus) => {
-  if (paymentStatus === 'paid') return 'success' as const;
+  if (paymentStatus === 'paid' || paymentStatus === 'refunded') return 'success' as const;
   if (paymentStatus === 'pending') return 'pending' as const;
   return 'failed' as const;
 };
@@ -204,6 +204,10 @@ const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySet
 
 export const createVNPayUrl = async (req: Request, res: Response) => {
   try {
+    if (process.env.ENABLE_VNPAY_LEGACY_PAYMENT_URL !== 'true') {
+      return error(res, 'Legacy VNPay payment URL creation is disabled', 404);
+    }
+
     const { orderId, amount, bankCode, locale } = req.body;
     const transactionRef = String(orderId || '');
     const parsedAmount = Number(amount);
@@ -346,7 +350,7 @@ export const expireStalePaymentAttempts = async (_req: Request, res: Response) =
 
     return ok(res, {
       ...result,
-      policy: 'Expired attempts are marked expired. Orders remain payment pending and can create a new payment URL.',
+      policy: 'Payment attempts expire after the configured grace window. Expired latest attempts cancel confirmed unpaid online orders and restock inventory. Older expired attempts only mark the transaction expired.',
     }, 'Expired stale payment attempts');
   } catch (err: unknown) {
     return serverError(res, getErrorMessage(err));
@@ -458,6 +462,95 @@ const buildMobileReturnUrl = async (
   return url.toString();
 };
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const renderVNPayReturnPage = (mobileReturnUrl: string, isSuccess: boolean) => {
+  const safeMobileReturnUrl = escapeHtml(mobileReturnUrl);
+  const title = isSuccess ? 'Thanh toán thành công' : 'Đã nhận kết quả thanh toán';
+  const message = isSuccess
+    ? 'Hệ thống đã ghi nhận thanh toán. Bạn có thể quay lại ứng dụng để xem đơn hàng.'
+    : 'Hệ thống đã nhận phản hồi từ VNPay. Bạn quay lại ứng dụng để kiểm tra trạng thái đơn hàng.';
+
+  return `<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f7fafc;
+      color: #111827;
+    }
+    main {
+      min-height: 100vh;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 32px 20px;
+      text-align: center;
+    }
+    .mark {
+      width: 72px;
+      height: 72px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 24px;
+      background: ${isSuccess ? '#dcfce7' : '#fef3c7'};
+      color: ${isSuccess ? '#15803d' : '#b45309'};
+      font-size: 42px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+    p {
+      margin: 0 auto 28px;
+      max-width: 520px;
+      color: #4b5563;
+      font-size: 17px;
+      line-height: 1.55;
+    }
+    a {
+      display: inline-block;
+      padding: 15px 22px;
+      border-radius: 12px;
+      background: #111827;
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 17px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">${isSuccess ? '&#10003;' : '!'}</div>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+    <a href="${safeMobileReturnUrl}">Quay lại ứng dụng</a>
+  </main>
+  <script>
+    setTimeout(function () {
+      window.location.href = '${safeMobileReturnUrl}';
+    }, 700);
+  </script>
+</body>
+</html>`;
+};
+
 export const handleVNPayReturn = async (req: Request, res: Response) => {
   try {
     const result = verifyVNPayResponse(req.query);
@@ -465,7 +558,7 @@ export const handleVNPayReturn = async (req: Request, res: Response) => {
     const mobileReturnUrl = await buildMobileReturnUrl(result, settlement.orderId ?? null);
 
     if (mobileReturnUrl) {
-      return res.redirect(mobileReturnUrl);
+      return res.status(200).send(renderVNPayReturnPage(mobileReturnUrl, settlement.paymentStatus === 'paid'));
     }
 
     return ok(res, { ...result, settlement }, 'Verified VNPay return');

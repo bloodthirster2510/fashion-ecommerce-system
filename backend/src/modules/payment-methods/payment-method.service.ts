@@ -10,8 +10,15 @@ import type { CreatePaymentMethodInput, UpdatePaymentMethodInput } from './payme
 
 const allowedTypes: PaymentMethodType[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
 const allowedStatuses: PaymentMethodStatus[] = ['pending', 'verified', 'expired', 'disabled'];
+const DEFAULTABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
+const CHECKOUT_USABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
 const sensitiveFieldNames = [
+  'accountNumber',
+  'account_number',
+  'bankAccountNumber',
+  'bank_account_number',
   'cardNumber',
+  'card_number',
   'number',
   'cvv',
   'cvc',
@@ -31,15 +38,65 @@ const toObjectId = (value: string, fieldName: string) => {
   return new Types.ObjectId(value);
 };
 
-const assertNoSensitiveFields = (input: Record<string, unknown>) => {
-  const loweredKeys = Object.keys(input).map((key) => key.toLowerCase());
-  const hasSensitiveField = sensitiveFieldNames.some((field) =>
-    loweredKeys.includes(field.toLowerCase()),
-  );
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
-  if (hasSensitiveField) {
-    throw new SalesServiceError('Raw payment secrets are not accepted', 400);
+const assertNoSensitiveFields = (input: Record<string, unknown>) => {
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+
+    if (!isPlainRecord(value)) {
+      return;
+    }
+
+    Object.entries(value).forEach(([key, nestedValue]) => {
+      const loweredKey = key.toLowerCase();
+      const hasSensitiveField = sensitiveFieldNames.some((field) =>
+        loweredKey === field.toLowerCase(),
+      );
+
+      if (hasSensitiveField) {
+        throw new SalesServiceError('Raw payment secrets are not accepted', 400);
+      }
+
+      visit(nestedValue);
+    });
+  };
+
+  visit(input);
+};
+
+const sanitizeMetadata = (value: unknown) => {
+  if (!isPlainRecord(value)) return {};
+
+  const result: Record<string, unknown> = {};
+  Object.entries(value).forEach(([key, nestedValue]) => {
+    if (typeof nestedValue === 'string') {
+      const trimmedValue = nestedValue.trim();
+      if (trimmedValue) result[key] = trimmedValue;
+      return;
+    }
+
+    if (typeof nestedValue === 'boolean' || typeof nestedValue === 'number' || nestedValue === null) {
+      result[key] = nestedValue;
+    }
+  });
+
+  return result;
+};
+
+const normalizeMaskedInfo = (value?: string | null) => {
+  const maskedInfo = value?.trim();
+  if (!maskedInfo) return null;
+
+  if (/\d{5,}/.test(maskedInfo) && !/[•*xX]/.test(maskedInfo)) {
+    throw new SalesServiceError('Payment account information must be masked', 400);
   }
+
+  return maskedInfo;
 };
 
 const normalizeType = (type: unknown): PaymentMethodType => {
@@ -75,20 +132,28 @@ const getDisplayName = (input: CreatePaymentMethodInput, type: PaymentMethodType
   if (input.displayName?.trim()) return input.displayName.trim();
   if (type === 'VNPAY' && input.bankName?.trim()) return `VNPay ${input.bankName.trim()}`;
   if (type === 'VNPAY') return 'VNPay';
+  if (type === 'BANK' && input.bankName?.trim()) return `Tài khoản ${input.bankName.trim()}`;
+  if (type === 'BANK') return 'Tài khoản ngân hàng';
   return type;
 };
 
 const getMaskedInfo = (input: CreatePaymentMethodInput, type: PaymentMethodType) => {
-  if (input.maskedInfo?.trim()) return input.maskedInfo.trim();
+  const maskedInfo = normalizeMaskedInfo(input.maskedInfo);
+  if (maskedInfo) return maskedInfo;
   if (type === 'VNPAY' && input.bankCode?.trim()) return `Bank ${input.bankCode.trim().toUpperCase()}`;
   return null;
+};
+
+const getInitialStatus = (type: PaymentMethodType): PaymentMethodStatus => {
+  if (type === 'BANK') return 'pending';
+  return 'verified';
 };
 
 const unsetDefaultPaymentMethods = (userId: string) =>
   PaymentMethod.updateMany(
     {
       user_id: toObjectId(userId, 'userId'),
-      status: { $in: ['pending', 'verified'] },
+      status: { $in: DEFAULTABLE_STATUSES },
       isDefault: true,
     },
     { $set: { isDefault: false } },
@@ -106,11 +171,13 @@ const createPaymentMethod = async (userId: string, input: CreatePaymentMethodInp
   assertNoSensitiveFields(input as Record<string, unknown>);
 
   const type = normalizeType(input.type);
-  const existingActiveCount = await PaymentMethod.countDocuments({
+  const initialStatus = getInitialStatus(type);
+  const canBeDefault = DEFAULTABLE_STATUSES.includes(initialStatus);
+  const existingDefaultableCount = await PaymentMethod.countDocuments({
     user_id: toObjectId(userId, 'userId'),
-    status: { $in: ['pending', 'verified'] },
+    status: { $in: DEFAULTABLE_STATUSES },
   });
-  const isDefault = Boolean(input.isDefault) || existingActiveCount === 0;
+  const isDefault = canBeDefault && (Boolean(input.isDefault) || existingDefaultableCount === 0);
 
   if (isDefault) {
     await unsetDefaultPaymentMethods(userId);
@@ -124,9 +191,9 @@ const createPaymentMethod = async (userId: string, input: CreatePaymentMethodInp
     maskedInfo: getMaskedInfo(input, type),
     bankCode: input.bankCode?.trim().toUpperCase() || null,
     bankName: input.bankName?.trim() || null,
-    status: 'verified',
+    status: initialStatus,
     isDefault,
-    metadata: input.metadata ?? {},
+    metadata: sanitizeMetadata(input.metadata),
   });
 
   return serializePaymentMethod(method);
@@ -159,21 +226,27 @@ const updatePaymentMethod = async (userId: string, id: string, input: UpdatePaym
   assertNoSensitiveFields(input as Record<string, unknown>);
 
   const method = await getOwnedPaymentMethod(userId, id);
-  const nextStatus = normalizeStatus(input.status);
+
+  if (input.status !== undefined) {
+    throw new SalesServiceError('Payment method status can only be updated by admin', 403);
+  }
 
   if (input.isDefault === true) {
+    if (!DEFAULTABLE_STATUSES.includes(method.status)) {
+      throw new SalesServiceError('Only verified payment methods can be default', 400);
+    }
+
     await unsetDefaultPaymentMethods(userId);
   }
 
   if (input.displayName !== undefined) method.displayName = input.displayName.trim();
-  if (input.maskedInfo !== undefined) method.maskedInfo = input.maskedInfo?.trim() || null;
+  if (input.maskedInfo !== undefined) method.maskedInfo = normalizeMaskedInfo(input.maskedInfo);
   if (input.bankCode !== undefined) method.bankCode = input.bankCode?.trim().toUpperCase() || null;
   if (input.bankName !== undefined) method.bankName = input.bankName?.trim() || null;
-  if (input.metadata !== undefined) method.metadata = input.metadata;
-  if (nextStatus) method.status = nextStatus;
+  if (input.metadata !== undefined) method.metadata = sanitizeMetadata(input.metadata);
   if (input.isDefault !== undefined) method.isDefault = Boolean(input.isDefault);
 
-  if (method.status === 'disabled' || method.status === 'expired') {
+  if (!DEFAULTABLE_STATUSES.includes(method.status)) {
     method.isDefault = false;
   }
 
@@ -183,8 +256,8 @@ const updatePaymentMethod = async (userId: string, id: string, input: UpdatePaym
 const setDefaultPaymentMethod = async (userId: string, id: string) => {
   const method = await getOwnedPaymentMethod(userId, id);
 
-  if (!['pending', 'verified'].includes(method.status)) {
-    throw new SalesServiceError('Only active payment methods can be default', 400);
+  if (!DEFAULTABLE_STATUSES.includes(method.status)) {
+    throw new SalesServiceError('Only verified payment methods can be default', 400);
   }
 
   await unsetDefaultPaymentMethods(userId);
@@ -219,15 +292,15 @@ const updatePaymentMethodStatusForAdmin = async ({
   };
 
   method.status = status;
-  if (status === 'disabled' || status === 'expired') {
+  if (!DEFAULTABLE_STATUSES.includes(status)) {
     method.isDefault = false;
   }
 
-  if (status === 'pending' || status === 'verified') {
+  if (DEFAULTABLE_STATUSES.includes(status)) {
     const activeDefault = await PaymentMethod.findOne({
       _id: { $ne: method._id },
       user_id: method.user_id,
-      status: { $in: ['pending', 'verified'] },
+      status: { $in: DEFAULTABLE_STATUSES },
       isDefault: true,
     }).lean();
 
@@ -261,7 +334,7 @@ const assertUsablePaymentMethodForCheckout = async ({
 
   const method = await getOwnedPaymentMethod(userId, paymentMethodId);
 
-  if (!['pending', 'verified'].includes(method.status)) {
+  if (!CHECKOUT_USABLE_STATUSES.includes(method.status)) {
     throw new SalesServiceError('Payment method is not available', 400);
   }
 

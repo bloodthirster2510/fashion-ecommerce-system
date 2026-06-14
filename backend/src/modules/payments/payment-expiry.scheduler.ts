@@ -32,6 +32,7 @@ const expireOnce = async () => {
         after: {
           expiredCount: result.expiredCount,
           orderIds: result.orderIds,
+          cancelledOrderIds: result.cancelledOrderIds,
         },
         metadata: {
           transactions: result.transactions,

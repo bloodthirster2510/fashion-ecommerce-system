@@ -72,7 +72,7 @@ paymentMethodSchema.index(
     unique: true,
     partialFilterExpression: {
       isDefault: true,
-      status: { $in: ['pending', 'verified'] },
+      status: { $in: ['verified'] },
     },
   },
 );

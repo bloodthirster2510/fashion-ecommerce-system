@@ -445,7 +445,7 @@ describe('orderService', () => {
     expect(mockedOrder.create).not.toHaveBeenCalled();
   });
 
-  it('restocks inventory and refunds paid COD orders when cancelled', async () => {
+  it('restocks inventory and keeps paid orders paid when cancelled', async () => {
     const orderId = new Types.ObjectId('665000000000000000000050');
     const order = {
       _id: orderId,
@@ -490,7 +490,7 @@ describe('orderService', () => {
       { $inc: { sold_quantity: -2 } },
     );
     expect(order.status).toBe('cancelled');
-    expect(order.paymentStatus).toBe('refunded');
+    expect(order.paymentStatus).toBe('paid');
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
   });
@@ -529,18 +529,137 @@ describe('orderService', () => {
       status: 'delivered',
       paymentMethod: 'VNPAY',
       paymentStatus: 'paid',
+      returnRequest: null,
       order_list: [],
       save: jest.fn(),
     };
     order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
 
-    const result = await orderService.requestReturn(userId, orderId.toString());
+    const result = await orderService.requestReturn(userId, orderId.toString(), {
+      reason: 'Size is not suitable',
+    });
 
     expect(order.status).toBe('return_requested');
     expect(order.paymentStatus).toBe('paid');
+    expect(order.returnRequest).toEqual({
+      reason: 'Size is not suitable',
+      status: 'requested',
+      requestedAt: expect.any(Date),
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewReason: null,
+    });
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('approves a pending return request without changing payment status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000055');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Size is not suitable',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'approved',
+      reason: 'Eligible return',
+    });
+
+    expect(order.status).toBe('returned');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.returnRequest).toEqual({
+      reason: 'Size is not suitable',
+      status: 'approved',
+      requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      reviewedAt: expect.any(Date),
+      reviewedBy: new Types.ObjectId(userId),
+      reviewReason: 'Eligible return',
+    });
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('rejects a pending return request and restores the delivered status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000056');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Changed my mind',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'rejected',
+      reason: 'Product was already used',
+    });
+
+    expect(order.status).toBe('delivered');
+    expect(order.returnRequest).toEqual({
+      reason: 'Changed my mind',
+      status: 'rejected',
+      requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      reviewedAt: expect.any(Date),
+      reviewedBy: new Types.ObjectId(userId),
+      reviewReason: 'Product was already used',
+    });
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('requires a reason when rejecting a return request', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000057');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Changed my mind',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.reviewReturnRequest(orderId.toString(), userId, {
+        decision: 'rejected',
+      }),
+    ).rejects.toThrow('Return rejection reason is required');
+
+    expect(order.save).not.toHaveBeenCalled();
   });
 
   it('lists orders with grouped statuses and keeps status summary outside the selected group', async () => {
@@ -603,6 +722,46 @@ describe('orderService', () => {
     await expect(
       orderService.updateOrderStatus(orderId.toString(), { status: 'delivered' }),
     ).rejects.toThrow('Cannot transition order from confirmed to delivered');
+
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('requires customer confirmation before admin completes a shipping order', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000058');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.updateOrderStatus(orderId.toString(), { status: 'delivered' }),
+    ).rejects.toThrow('Customer confirmation is required before completing a delivered order');
+
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects processing online orders before payment is paid', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000054');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.updateOrderStatus(orderId.toString(), { status: 'packed' }),
+    ).rejects.toThrow('Online orders must be paid before processing');
 
     expect(order.save).not.toHaveBeenCalled();
   });
