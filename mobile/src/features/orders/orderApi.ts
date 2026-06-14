@@ -110,6 +110,7 @@ export type CustomerOrder = {
   shipping?: OrderShipping | null;
   shippingAddress: OrderShippingAddress;
   orderNote?: string | null;
+  deliveredAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -33,6 +33,7 @@ import {
   formatDate,
   formatShortDate,
   getOrderDisplayState,
+  getShippingStatusLabel,
   paymentMethodLabels,
   paymentStatusLabels,
 } from './orderPresentation';
@@ -84,6 +85,26 @@ const getPaymentStatusColor = (status: string) => {
   if (status === 'paid') return colors.success;
   if (status === 'failed' || status === 'refunded') return colors.danger;
   return colors.goldText;
+};
+
+const getShippingStatusColor = (status?: string | null) => {
+  if (status === 'failed' || status === 'cancelled') return colors.danger;
+  if (status === 'delivered') return colors.success;
+  if (status === 'picking' || status === 'picked' || status === 'shipping' || status === 'delivering') {
+    return colors.action;
+  }
+
+  return colors.goldText;
+};
+
+const getShippingStatusBackground = (status?: string | null) => {
+  if (status === 'failed' || status === 'cancelled') return colors.dangerSoft;
+  if (status === 'delivered') return colors.successSoft;
+  if (status === 'picking' || status === 'picked' || status === 'shipping' || status === 'delivering') {
+    return '#EAF3FF';
+  }
+
+  return colors.goldSoft;
 };
 
 const returnRequestStatusLabels: Record<string, string> = {
@@ -435,6 +456,7 @@ const OrderDetailScreen = () => {
         [
           `Đơn vị: ${order.shipping?.provider || 'Fashionista Delivery'}`,
           `Mã vận đơn: ${order.shipping?.trackingCode || 'Đang cập nhật'}`,
+          `Trạng thái: ${getShippingStatusLabel(order.shipping?.status)}`,
           `Địa chỉ: ${formatAddress(order)}`,
         ].join('\n'),
       );
@@ -695,7 +717,7 @@ const OrderDetailScreen = () => {
           </View>
 
           <Text style={styles.returnModalHint}>
-            Shop sẽ xem lý do và phản hồi trên trạng thái đơn hàng.
+            Shop sẽ xem lý do, hình ảnh minh chứng và phản hồi trên trạng thái đơn hàng. Yêu cầu trả hàng chỉ mở trong 7 ngày sau khi giao thành công.
           </Text>
           <TextInput
             style={styles.returnReasonInput}
@@ -839,8 +861,10 @@ const OrderDetailScreen = () => {
   const shippingPayable = Math.max(0, order.shippingFee - order.shippingDiscountAmount);
   const paymentStatusColor = getPaymentStatusColor(order.paymentStatus);
   const canCancel = canCancelOrder(order.status);
-  const canConfirmDelivery = canConfirmReceived(order.status);
+  const canConfirmDelivery = canConfirmReceived(order);
   const canReturn = canRequestReturn(order.status);
+  const shippingStatusColor = getShippingStatusColor(order.shipping?.status);
+  const shippingStatusBackground = getShippingStatusBackground(order.shipping?.status);
   const canRetryVNPayPayment =
     order.paymentMethod === 'VNPAY' &&
     order.paymentStatus !== 'paid' &&
@@ -907,7 +931,7 @@ const OrderDetailScreen = () => {
               { backgroundColor: displayState.backgroundColor, borderColor: displayState.color },
             ]}
           >
-            <View style={[styles.attentionDot, { backgroundColor: colors.danger }]} />
+            <View style={[styles.attentionDot, { backgroundColor: displayState.color }]} />
             <MaterialCommunityIcons
               name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
               size={22}
@@ -1043,8 +1067,21 @@ const OrderDetailScreen = () => {
               <MaterialCommunityIcons name="cube-outline" size={20} color={colors.text} />
               <Text style={styles.infoTitle}>Giao hàng</Text>
             </View>
+            <View
+              style={[
+                styles.shippingStatusPill,
+                { backgroundColor: shippingStatusBackground, borderColor: shippingStatusColor },
+              ]}
+            >
+              <MaterialCommunityIcons name="truck-delivery-outline" size={15} color={shippingStatusColor} />
+              <Text style={[styles.shippingStatusText, { color: shippingStatusColor }]}>
+                {getShippingStatusLabel(order.shipping?.status)}
+              </Text>
+            </View>
             <Text style={styles.infoValue}>{formatAddress(order)}</Text>
             <Text style={styles.infoHint}>{order.shippingAddress.phoneNumber}</Text>
+            <Text style={styles.infoHint}>Đơn vị: {order.shipping?.provider || 'Fashionista Delivery'}</Text>
+            <Text style={styles.infoHint}>Mã vận đơn: {order.shipping?.trackingCode || 'Đang cập nhật'}</Text>
           </View>
         </View>
 
@@ -1564,6 +1601,20 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
+  },
+  shippingStatusPill: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  shippingStatusText: {
+    fontSize: 12,
+    fontWeight: '900',
   },
   paymentRetryButton: {
     minHeight: 42,

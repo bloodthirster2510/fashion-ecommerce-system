@@ -2,7 +2,9 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -33,6 +35,7 @@ type FieldConfig = {
   placeholder: string;
   keyboardType?: 'default' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  onFocus?: () => void;
 };
 type BankOption = {
   code: string;
@@ -168,6 +171,7 @@ const PaymentMethodsScreen = () => {
   const [displayName, setDisplayName] = React.useState('');
   const [accountHolder, setAccountHolder] = React.useState('');
   const [accountNumber, setAccountNumber] = React.useState('');
+  const scrollViewRef = React.useRef<ScrollView>(null);
 
   const refundMethods = React.useMemo(() => methods.filter(isVisibleRefundMethod), [methods]);
   const defaultableMethods = React.useMemo(() => methods.filter(isDefaultableMethod), [methods]);
@@ -327,6 +331,12 @@ const PaymentMethodsScreen = () => {
     );
   };
 
+  const scrollFormFieldIntoView = () => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 120);
+  };
+
   const renderField = ({
     label,
     value,
@@ -334,6 +344,7 @@ const PaymentMethodsScreen = () => {
     placeholder,
     keyboardType = 'default',
     autoCapitalize = 'sentences',
+    onFocus,
   }: FieldConfig) => (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -345,6 +356,7 @@ const PaymentMethodsScreen = () => {
         placeholderTextColor={colors.textSubtle}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        onFocus={onFocus}
       />
     </View>
   );
@@ -630,6 +642,7 @@ const PaymentMethodsScreen = () => {
           onChangeText: setAccountHolder,
           placeholder: 'Nhập đúng tên trên thẻ hoặc tài khoản',
           autoCapitalize: 'characters',
+          onFocus: scrollFormFieldIntoView,
         })}
         {renderField({
           label: 'Số thẻ/tài khoản',
@@ -637,6 +650,7 @@ const PaymentMethodsScreen = () => {
           onChangeText: setAccountNumber,
           placeholder: 'Số thẻ hoặc tài khoản nhận hoàn tiền',
           keyboardType: 'number-pad',
+          onFocus: scrollFormFieldIntoView,
         })}
 
         <View style={[styles.infoRow, styles.infoRowWarning]}>
@@ -700,8 +714,12 @@ const PaymentMethodsScreen = () => {
 
     return (
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -770,7 +788,12 @@ const PaymentMethodsScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>{renderContent()}</View>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoiding}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.content}>{renderContent()}</View>
+      </KeyboardAvoidingView>
       {renderBankPickerModal()}
     </SafeAreaView>
   );
@@ -780,6 +803,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.brand,
+  },
+  keyboardAvoiding: {
+    flex: 1,
   },
   header: {
     minHeight: 92,
@@ -832,7 +858,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 180,
     gap: spacing.lg,
   },
   statePanel: {

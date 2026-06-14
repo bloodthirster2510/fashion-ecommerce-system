@@ -82,6 +82,30 @@ export type OrderDisplayState = {
 const onlinePaymentMethods = new Set(['VNPAY', 'MOMO', 'CARD', 'BANK']);
 const closedOrderStatuses = new Set<OrderStatus>(['cancelled', 'returned']);
 
+export const shippingStatusLabels: Record<string, string> = {
+  created: 'Đã tạo vận đơn',
+  quoted: 'Đã báo phí',
+  fallback: 'Phí cố định',
+  ready: 'Sẵn sàng giao',
+  picking: 'Đang lấy hàng',
+  picked: 'Đã lấy hàng',
+  shipping: 'Đang giao',
+  delivering: 'Đang giao',
+  delivered: 'Đã giao',
+  cancelled: 'Đã hủy vận chuyển',
+  returned: 'Đã trả hàng',
+  failed: 'Giao hàng thất bại',
+};
+
+export const getShippingStatusLabel = (status?: string | null) => {
+  if (!status) return 'Đang chờ vận chuyển';
+
+  return shippingStatusLabels[status] ?? status;
+};
+
+export const hasFailedDelivery = (order: Pick<CustomerOrder, 'status' | 'shipping'>) =>
+  order.status === 'shipping' && order.shipping?.status === 'failed';
+
 export const isOnlinePaymentOrder = (order: CustomerOrder) =>
   onlinePaymentMethods.has(order.paymentMethod);
 
@@ -93,15 +117,17 @@ export const orderNeedsPaymentAction = (order: CustomerOrder) =>
 export const getOrderDisplayState = (order: CustomerOrder): OrderDisplayState => {
   if (orderNeedsPaymentAction(order)) {
     const isFailed = order.paymentStatus === 'failed';
+    const color = isFailed ? colors.danger : colors.goldText;
+    const backgroundColor = isFailed ? colors.dangerSoft : colors.goldSoft;
 
     return {
       label: isFailed ? 'Thanh toán lỗi' : 'Chờ thanh toán',
       description: isFailed ? 'Mở chi tiết để thử lại.' : 'Thanh toán để shop xử lý đơn.',
       deliveryLine: isFailed ? 'Thanh toán lỗi, cần thử lại.' : 'Chờ bạn hoàn tất thanh toán.',
       icon: 'credit-card-clock-outline',
-      tone: 'danger',
-      color: colors.danger,
-      backgroundColor: colors.dangerSoft,
+      tone: isFailed ? 'danger' : 'warning',
+      color,
+      backgroundColor,
       requiresUserAction: true,
     };
   }
@@ -160,9 +186,22 @@ export const getOrderDisplayState = (order: CustomerOrder): OrderDisplayState =>
     };
   }
 
+  if (hasFailedDelivery(order)) {
+    return {
+      label: 'Giao hàng thất bại',
+      description: 'Đơn vị vận chuyển báo giao không thành công. Shop sẽ liên hệ để giao lại hoặc xử lý tiếp.',
+      deliveryLine: `Giao thất bại: ${formatDate(order.updatedAt)}`,
+      icon: 'truck-alert-outline',
+      tone: 'danger',
+      color: colors.danger,
+      backgroundColor: colors.dangerSoft,
+      requiresUserAction: false,
+    };
+  }
+
   if (order.status === 'shipping') {
     return {
-      label: 'Đang giao',
+      label: getShippingStatusLabel(order.shipping?.status),
       description: 'Khi nhận hàng, hãy bấm Đã nhận hàng.',
       deliveryLine: `Dự kiến giao: ${formatDate(getEstimatedDeliveryDate(order))}`,
       icon: 'truck-check-outline',
@@ -330,8 +369,8 @@ export const canCancelOrder = (status: OrderStatus) =>
 export const canRequestReturn = (status: OrderStatus) =>
   status === 'delivered';
 
-export const canConfirmReceived = (status: OrderStatus) =>
-  status === 'shipping';
+export const canConfirmReceived = (order: Pick<CustomerOrder, 'status' | 'shipping'>) =>
+  order.status === 'shipping' && !hasFailedDelivery(order);
 
 export const getOrderItemCount = (order: CustomerOrder) =>
   order.order_list.reduce((total, item) => total + item.quantity, 0);

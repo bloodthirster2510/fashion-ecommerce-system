@@ -21,6 +21,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { orderApi, OrderApiError, type CustomerOrder, type OrderStatusSummary } from './orderApi';
 import {
+  canConfirmReceived,
   formatCurrency,
   formatDate,
   getExtraItemText,
@@ -230,7 +231,7 @@ const OrderListScreen = () => {
     const extraItemText = getExtraItemText(order);
     const displayState = getOrderDisplayState(order);
     const imageUri = primaryItem?.image?.trim();
-    const canConfirmReceived = order.status === 'shipping';
+    const canConfirmDelivery = canConfirmReceived(order);
     const requiresPayment = orderNeedsPaymentAction(order);
     const requiresUserAction = orderNeedsUserAction(order);
 
@@ -251,7 +252,7 @@ const OrderListScreen = () => {
             <Text style={styles.orderDate}>Đặt ngày {formatDate(order.createdAt)}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: displayState.backgroundColor }]}>
-            {requiresUserAction ? <View style={styles.statusBadgeDot} /> : null}
+            {requiresUserAction ? <View style={[styles.statusBadgeDot, { backgroundColor: displayState.color }]} /> : null}
             <Text style={[styles.statusBadgeText, { color: displayState.color }]}>{displayState.label}</Text>
           </View>
         </View>
@@ -302,7 +303,7 @@ const OrderListScreen = () => {
             <Text style={styles.secondaryActionText}>Chi tiết</Text>
           </TouchableOpacity>
 
-          {canConfirmReceived ? (
+          {canConfirmDelivery ? (
             <TouchableOpacity
               style={styles.primaryAction}
               onPress={() => handleConfirmReceived(order)}
@@ -597,7 +598,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: colors.danger,
+    backgroundColor: colors.goldDark,
   },
   resetFilterButton: {
     minHeight: 36,
@@ -781,7 +782,6 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: colors.danger,
   },
   statusBadgeText: {
     fontSize: 12,
