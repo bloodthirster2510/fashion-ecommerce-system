@@ -3,6 +3,7 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 export type AuditLogAction =
   | 'order.status_update'
   | 'order.shipping_update'
+  | 'order.shipping_webhook'
   | 'payment.adjust'
   | 'payment.expire'
   | 'payment_method.status_update';
@@ -34,6 +35,7 @@ const auditLogSchema = new Schema<IAuditLog>(
       enum: [
         'order.status_update',
         'order.shipping_update',
+        'order.shipping_webhook',
         'payment.adjust',
         'payment.expire',
         'payment_method.status_update',

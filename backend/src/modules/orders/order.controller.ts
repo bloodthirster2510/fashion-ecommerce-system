@@ -11,6 +11,7 @@ import type {
   PreviewCheckoutInput,
   RequestReturnInput,
   ReviewReturnRequestInput,
+  SimulatedShippingWebhookInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -208,6 +209,101 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
 
 const getUserId = (req: Request) => req.user!.userId;
 const getUserRole = (req: Request) => req.user?.role;
+const getShippingWebhookSecret = () => process.env.SHIPPING_WEBHOOK_SECRET || 'dev-secret';
+const getGhnWebhookSecret = () => process.env.GHN_WEBHOOK_SECRET || getShippingWebhookSecret();
+
+const parseShippingWebhookInput = (
+  value: unknown,
+  overrides: Partial<SimulatedShippingWebhookInput> = {},
+): SimulatedShippingWebhookInput => {
+  const body = typeof value === 'object' && value !== null
+    ? value as Record<string, unknown>
+    : {};
+  const status = parseString(body.status);
+  const deliveredAt = parseDate(body.deliveredAt, 'deliveredAt');
+
+  if (!status) {
+    throw new SalesServiceError('status is required', 400);
+  }
+
+  return {
+    orderId: parseString(body.orderId),
+    trackingCode: parseString(body.trackingCode),
+    status: status as SimulatedShippingWebhookInput['status'],
+    reason: parseString(body.reason),
+    provider: parseString(body.provider) ?? null,
+    deliveredAt: deliveredAt ?? null,
+    rawPayload: body,
+    ...overrides,
+  };
+};
+
+const recordShippingWebhookAudit = async ({
+  actorId,
+  actorRole,
+  source,
+  result,
+}: {
+  actorId?: string | null;
+  actorRole: 'admin' | 'staff' | 'system';
+  source: 'external_webhook' | 'admin_simulation';
+  result: Awaited<ReturnType<typeof orderService.applyShippingWebhook>>;
+}) => {
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: actorId ?? null,
+    actorRole,
+    action: 'order.shipping_webhook',
+    targetType: 'Order',
+    targetId: result.order._id.toString(),
+    reason: result.reason,
+    before: result.before,
+    after: {
+      status: result.order.status,
+      paymentStatus: result.order.paymentStatus,
+      deliveredAt: result.order.deliveredAt ?? null,
+      shipping: result.order.shipping ?? null,
+    },
+    metadata: {
+      orderCode: result.order.orderCode,
+      webhookSource: source,
+      shippingStatus: result.order.shipping?.status ?? null,
+      trackingCode: result.order.shipping?.trackingCode ?? null,
+    },
+  });
+};
+
+const recordOrderShippingUpdateAudit = async ({
+  req,
+  beforeOrder,
+  order,
+  reason,
+}: {
+  req: Request;
+  beforeOrder: Awaited<ReturnType<typeof orderService.getOrderById>>;
+  order: Awaited<ReturnType<typeof orderService.updateOrderShipping>>;
+  reason: string;
+}) => {
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: req.user?.userId ?? null,
+    actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+    action: 'order.shipping_update',
+    targetType: 'Order',
+    targetId: order._id.toString(),
+    reason,
+    before: {
+      shipping: beforeOrder.shipping ?? null,
+    },
+    after: {
+      shipping: order.shipping ?? null,
+    },
+    metadata: {
+      orderCode: order.orderCode,
+      provider: order.shipping?.provider ?? null,
+      trackingCode: order.shipping?.trackingCode ?? null,
+      shippingStatus: order.shipping?.status ?? null,
+    },
+  });
+};
 
 const createOrder = async (req: Request, res: Response) => {
   try {
@@ -530,17 +626,148 @@ const updateOrderShipping = async (req: Request, res: Response) => {
   }
 };
 
+const createGhnShipment = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.createGhnShipment(req.params.id as string);
+
+    await recordOrderShippingUpdateAudit({
+      req,
+      beforeOrder,
+      order,
+      reason: 'Created GHN shipment',
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const cancelGhnShipment = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.cancelGhnShipment(req.params.id as string);
+
+    await recordOrderShippingUpdateAudit({
+      req,
+      beforeOrder,
+      order,
+      reason: typeof req.body?.reason === 'string' && req.body.reason.trim()
+        ? req.body.reason.trim()
+        : 'Cancelled GHN shipment',
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const syncGhnShipment = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const result = await orderService.syncGhnShipment(req.params.id as string);
+
+    await recordOrderShippingUpdateAudit({
+      req,
+      beforeOrder,
+      order: result.order,
+      reason: result.reason || 'Synced GHN shipment',
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const handleSimulatedShippingWebhook = async (req: Request, res: Response) => {
+  try {
+    const receivedSecret = parseString(req.headers['x-webhook-secret']);
+    if (receivedSecret !== getShippingWebhookSecret()) {
+      return errorResponse(res, 'Invalid shipping webhook secret', 401);
+    }
+
+    const input = parseShippingWebhookInput(req.body);
+    const result = await orderService.applyShippingWebhook(input);
+
+    await recordShippingWebhookAudit({
+      actorRole: 'system',
+      source: 'external_webhook',
+      result,
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const simulateShippingWebhook = async (req: Request, res: Response) => {
+  try {
+    const input = parseShippingWebhookInput(req.body, {
+      orderId: req.params.id as string,
+    });
+    const result = await orderService.applyShippingWebhook(input);
+
+    await recordShippingWebhookAudit({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      source: 'admin_simulation',
+      result,
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const handleGhnShippingWebhook = async (req: Request, res: Response) => {
+  try {
+    const receivedSecret = parseString(req.headers['x-webhook-secret']);
+    if (receivedSecret !== getGhnWebhookSecret()) {
+      return errorResponse(res, 'Invalid GHN webhook secret', 401);
+    }
+
+    const result = await orderService.applyGhnShippingWebhook(req.body);
+
+    await recordShippingWebhookAudit({
+      actorRole: 'system',
+      source: 'external_webhook',
+      result,
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
 export {
   cancelOrder,
+  cancelGhnShipment,
   confirmOrderReceived,
+  createGhnShipment,
   createOrder,
   getMyOrders,
   getOrderById,
   getOrderTransactions,
   getOrders,
+  handleGhnShippingWebhook,
+  handleSimulatedShippingWebhook,
   previewCheckout,
   requestReturn,
   reviewReturnRequest,
+  simulateShippingWebhook,
+  syncGhnShipment,
   updateOrderShipping,
   updateOrderStatus,
 };

@@ -28,6 +28,7 @@ import type {
   ShippingQuoteResult,
 } from '../shipping/shipping.types';
 import { shippingAreaMappingService } from '../shipping/shipping-area-mapping.service';
+import { GHNService } from '../shipping/ghn.service';
 import type {
   CancelOrderInput,
   CreateOrderInput,
@@ -37,6 +38,7 @@ import type {
   RequestReturnInput,
   ReviewReturnRequestInput,
   ShippingAddressInput,
+  SimulatedShippingWebhookInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -48,6 +50,11 @@ const MAX_ORDER_EVIDENCE_IMAGES = 5;
 const MAX_ORDER_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const RETURN_WINDOW_DAYS = 7;
 const RETURN_WINDOW_MS = RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const DEFAULT_GHN_ITEM_WEIGHT_GRAMS = 500;
+const DEFAULT_GHN_PACKAGE_LENGTH_CM = 20;
+const DEFAULT_GHN_PACKAGE_WIDTH_CM = 20;
+const DEFAULT_GHN_PACKAGE_HEIGHT_CM = 10;
+const DEFAULT_GHN_SERVICE_TYPE_ID = 2;
 const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO'];
 const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
 const ORDER_STATUSES: OrderStatus[] = [
@@ -163,7 +170,7 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     ],
   };
 
-  const [returnRequests, refunds, paidReady, readyToProcess, deliveryConfirmations, paymentRisk] = await Promise.all([
+  const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk] = await Promise.all([
     countWith({
       status: 'return_requested',
       'returnRequest.status': 'requested',
@@ -177,7 +184,11 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
       paymentStatus: 'paid',
     }),
     countWith({
-      status: { $in: ['confirmed', 'packed'] },
+      status: 'confirmed',
+      ...readyOrderCondition,
+    }),
+    countWith({
+      status: 'packed',
       ...readyOrderCondition,
     }),
     countWith({
@@ -200,10 +211,12 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     returnRequests,
     refunds,
     paidReady,
-    readyToProcess,
+    packingReady,
+    handoffReady,
+    readyToProcess: packingReady + handoffReady,
     deliveryConfirmations,
     paymentRisk,
-    totalPriority: returnRequests + refunds + readyToProcess + deliveryConfirmations + paymentRisk,
+    totalPriority: returnRequests + refunds + packingReady + handoffReady + deliveryConfirmations + paymentRisk,
   };
 };
 
@@ -331,6 +344,179 @@ const toNullablePositiveInteger = (value: unknown) => {
 const trimOptional = (value: unknown) => (
   typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 );
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+const normalizeRawRecord = (value: unknown): Record<string, unknown> => (
+  isRecord(value) ? value : { value }
+);
+
+const getNestedDataRecord = (value: Record<string, unknown>) => (
+  isRecord(value.data) ? value.data : null
+);
+
+const readStringField = (source: Record<string, unknown> | null, keys: string[]) => {
+  if (!source) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return null;
+};
+
+const readNumberField = (source: Record<string, unknown> | null, keys: string[]) => {
+  if (!source) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const numericValue = Number(value);
+      if (Number.isFinite(numericValue)) {
+        return numericValue;
+      }
+    }
+  }
+
+  return null;
+};
+
+const readDateField = (source: Record<string, unknown> | null, keys: string[]) => {
+  const value = readStringField(source, keys);
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const readGhnString = (payload: Record<string, unknown>, keys: string[]) =>
+  readStringField(getNestedDataRecord(payload), keys) ?? readStringField(payload, keys);
+
+const readGhnNumber = (payload: Record<string, unknown>, keys: string[]) =>
+  readNumberField(getNestedDataRecord(payload), keys) ?? readNumberField(payload, keys);
+
+const readGhnDate = (payload: Record<string, unknown>, keys: string[]) =>
+  readDateField(getNestedDataRecord(payload), keys) ?? readDateField(payload, keys);
+
+const normalizeGhnStatus = (value: string | null) => (
+  value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_') ?? null
+);
+
+const mapGhnStatusToShippingStatus = (value: string | null): SimulatedShippingWebhookInput['status'] | null => {
+  const status = normalizeGhnStatus(value);
+  if (!status) {
+    return null;
+  }
+
+  if (['ready_to_pick', 'ready_to_pickup', 'created'].includes(status)) {
+    return 'ready';
+  }
+
+  if (['picking', 'money_collect_picking'].includes(status)) {
+    return 'picking';
+  }
+
+  if (['picked', 'storing'].includes(status)) {
+    return 'picked';
+  }
+
+  if (['shipping', 'transporting', 'sorting', 'delivering', 'money_collect_delivering'].includes(status)) {
+    return 'shipping';
+  }
+
+  if (['delivered', 'delivery_success', 'success'].includes(status)) {
+    return 'delivered';
+  }
+
+  if ([
+    'delivery_fail',
+    'waiting_to_return',
+    'return',
+    'return_transporting',
+    'return_sorting',
+    'returning',
+    'return_fail',
+    'returned',
+    'exception',
+    'damage',
+    'lost',
+  ].includes(status)) {
+    return 'failed';
+  }
+
+  if (['cancel', 'cancelled', 'canceled'].includes(status)) {
+    return 'cancelled';
+  }
+
+  return null;
+};
+
+const parseGhnWebhookPayload = (
+  value: unknown,
+  overrides: Partial<SimulatedShippingWebhookInput> = {},
+): SimulatedShippingWebhookInput => {
+  const rawPayload = normalizeRawRecord(value);
+  const rawStatus = readGhnString(rawPayload, [
+    'status',
+    'Status',
+    'converted_status',
+    'convertedStatus',
+    'ConvertedStatus',
+    'order_status',
+    'orderStatus',
+  ]);
+  const status = mapGhnStatusToShippingStatus(rawStatus);
+
+  if (!status) {
+    throw new SalesServiceError('Cannot map GHN shipment status', 400);
+  }
+
+  return {
+    provider: 'GHN',
+    orderCode: readGhnString(rawPayload, [
+      'client_order_code',
+      'clientOrderCode',
+      'ClientOrderCode',
+      'client_order_id',
+    ]) ?? undefined,
+    trackingCode: readGhnString(rawPayload, [
+      'order_code',
+      'orderCode',
+      'OrderCode',
+      'tracking_code',
+      'trackingCode',
+    ]) ?? undefined,
+    status,
+    reason: `GHN reported ${rawStatus ?? status}`,
+    deliveredAt: status === 'delivered'
+      ? readGhnDate(rawPayload, ['finish_date', 'delivered_at', 'deliveredAt', 'updated_date', 'updatedAt'])
+      : null,
+    rawPayload,
+    ...overrides,
+  };
+};
 
 const assertTextMaxLength = (value: string, fieldName: string, maxLength = 500) => {
   if (value.length > maxLength) {
@@ -787,7 +973,7 @@ const getOrders = async (query: OrderListQueryInput) => {
 
   const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: 1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
@@ -881,6 +1067,8 @@ const cancelOrder = async (
     actorRole: role === 'admin' || role === 'staff' ? role : 'user',
   };
 
+  await cancelLinkedGhnShipmentBestEffort(order).catch(() => null);
+
   return order.save();
 };
 
@@ -894,6 +1082,10 @@ const confirmOrderReceived = async (userId: string, id: string) => {
 
   if (order.status !== 'shipping') {
     throw new SalesServiceError('Order can only be confirmed received while it is shipping', 400);
+  }
+
+  if (order.shipping?.status === 'failed') {
+    throw new SalesServiceError('Delivery has failed and must be reattempted before confirming receipt', 400);
   }
 
   assertOrderStatusTransition(order.status, 'delivered');
@@ -1020,6 +1212,169 @@ const updateOrderStatus = async (
   return order.save();
 };
 
+const getOrderGhnDestination = (order: IOrder) => {
+  const toDistrictId = toNullablePositiveInteger(
+    order.shippingAddress?.ghnDistrictId ?? order.shippingAddress?.districtId,
+  );
+  const toWardCode = trimOptional(order.shippingAddress?.ghnWardCode ?? order.shippingAddress?.wardCode);
+
+  if (!toDistrictId || !toWardCode) {
+    throw new SalesServiceError('Order shipping address is missing GHN district or ward code', 400);
+  }
+
+  return { toDistrictId, toWardCode };
+};
+
+const getOrderPackageMetrics = (order: IOrder) => (
+  order.order_list.reduce(
+    (metrics, item) => {
+      const quantity = Math.max(1, item.quantity);
+
+      return {
+        weight: metrics.weight + DEFAULT_GHN_ITEM_WEIGHT_GRAMS * quantity,
+        length: DEFAULT_GHN_PACKAGE_LENGTH_CM,
+        width: DEFAULT_GHN_PACKAGE_WIDTH_CM,
+        height: Math.max(metrics.height, DEFAULT_GHN_PACKAGE_HEIGHT_CM),
+        insuranceValue: metrics.insuranceValue + Math.max(0, item.priceAtPurchased) * quantity,
+      };
+    },
+    {
+      weight: 0,
+      length: DEFAULT_GHN_PACKAGE_LENGTH_CM,
+      width: DEFAULT_GHN_PACKAGE_WIDTH_CM,
+      height: DEFAULT_GHN_PACKAGE_HEIGHT_CM,
+      insuranceValue: 0,
+    },
+  )
+);
+
+const getGhnShipmentTrackingCode = (payload: Record<string, unknown>) =>
+  readGhnString(payload, ['order_code', 'orderCode', 'OrderCode']);
+
+const getGhnShipmentFee = (payload: Record<string, unknown>) =>
+  readGhnNumber(payload, ['total_fee', 'totalFee', 'fee', 'main_service', 'service_fee']);
+
+const getGhnExpectedDeliveryDate = (payload: Record<string, unknown>) =>
+  readGhnDate(payload, ['expected_delivery_time', 'expectedDeliveryTime', 'leadtime', 'lead_time']);
+
+const canCancelLinkedGhnShipment = (order: IOrder) => (
+  order.shipping?.provider === 'GHN' &&
+  Boolean(order.shipping?.trackingCode) &&
+  !['delivered', 'cancelled'].includes(order.shipping?.status ?? '') &&
+  (order.status === 'packed' || order.status === 'cancelled')
+);
+
+const cancelLinkedGhnShipmentBestEffort = async (order: IOrder) => {
+  const trackingCode = order.shipping?.trackingCode?.trim();
+  if (!trackingCode || !canCancelLinkedGhnShipment(order)) {
+    return null;
+  }
+
+  const cancellationPayload = normalizeRawRecord(await GHNService.cancelOrder([trackingCode]));
+  order.shipping = {
+    ...(order.shipping ?? {}),
+    status: 'cancelled',
+    rawShipment: {
+      previous: order.shipping?.rawShipment ?? null,
+      cancellation: cancellationPayload,
+    },
+  };
+
+  return cancellationPayload;
+};
+
+const createGhnShipment = async (id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+
+  if (order.status !== 'packed') {
+    throw new SalesServiceError('Order must be packed before creating a GHN shipment', 400);
+  }
+
+  assertPaymentAllowsOrderStatus(order, 'shipping');
+
+  if (
+    order.shipping?.provider === 'GHN' &&
+    order.shipping?.trackingCode &&
+    order.shipping?.status !== 'cancelled'
+  ) {
+    throw new SalesServiceError('GHN shipment already exists for this order', 400);
+  }
+
+  const { toDistrictId, toWardCode } = getOrderGhnDestination(order);
+  const metrics = getOrderPackageMetrics(order);
+  const orderItems = order.order_list as IOrder['order_list'];
+  const rawShipment = normalizeRawRecord(await GHNService.createShippingOrder({
+    clientOrderCode: order.orderCode,
+    toName: order.shippingAddress.customerName,
+    toPhone: order.shippingAddress.phoneNumber,
+    toAddress: order.shippingAddress.streetName,
+    toWardCode,
+    toDistrictId,
+    codAmount: order.paymentMethod === 'COD' && order.paymentStatus !== 'paid'
+      ? Math.max(0, Math.round(order.totalAmount))
+      : 0,
+    content: orderItems.map((item) => item.name).join(', ').slice(0, 200),
+    weight: Math.max(1, metrics.weight),
+    length: metrics.length,
+    width: metrics.width,
+    height: metrics.height,
+    insuranceValue: Math.max(0, Math.round(metrics.insuranceValue)),
+    serviceId: order.shipping?.serviceId ?? undefined,
+    serviceTypeId: order.shipping?.serviceTypeId ?? DEFAULT_GHN_SERVICE_TYPE_ID,
+    items: orderItems.map((item) => ({
+      name: item.name,
+      quantity: Math.max(1, item.quantity),
+      price: Math.max(0, Math.round(item.priceAtPurchased)),
+    })),
+  }));
+  const trackingCode = getGhnShipmentTrackingCode(rawShipment);
+
+  if (!trackingCode) {
+    throw new SalesServiceError('GHN did not return an order code', 502);
+  }
+
+  order.shipping = {
+    ...(order.shipping ?? {}),
+    provider: 'GHN',
+    serviceTypeId: order.shipping?.serviceTypeId ?? DEFAULT_GHN_SERVICE_TYPE_ID,
+    actualProviderCost: getGhnShipmentFee(rawShipment) ?? order.shipping?.actualProviderCost ?? null,
+    status: 'ready',
+    trackingCode,
+    estimatedDeliveryDate: getGhnExpectedDeliveryDate(rawShipment) ?? order.shipping?.estimatedDeliveryDate ?? null,
+    rawShipment,
+  };
+
+  return order.save();
+};
+
+const cancelGhnShipment = async (id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  if (!order.shipping?.trackingCode || order.shipping.provider !== 'GHN') {
+    throw new SalesServiceError('Order does not have a GHN shipment', 400);
+  }
+
+  if (!canCancelLinkedGhnShipment(order)) {
+    throw new SalesServiceError('GHN shipment can only be cancelled before delivery starts', 400);
+  }
+
+  await cancelLinkedGhnShipmentBestEffort(order);
+  return order.save();
+};
+
+const syncGhnShipment = async (id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  const trackingCode = order.shipping?.trackingCode?.trim();
+
+  if (order.shipping?.provider !== 'GHN' || !trackingCode) {
+    throw new SalesServiceError('Order does not have a GHN shipment', 400);
+  }
+
+  const detailPayload = normalizeRawRecord(await GHNService.getOrderDetail(trackingCode));
+  const input = parseGhnWebhookPayload(detailPayload, { orderId: id });
+
+  return applyShippingWebhook(input);
+};
+
 const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) => {
   const order = await getOrderByIdOrThrow(id);
 
@@ -1047,6 +1402,137 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
   return order.save();
 };
 
+const getOrderForShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
+  if (input.orderId?.trim()) {
+    return getOrderByIdOrThrow(input.orderId.trim());
+  }
+
+  const trackingCode = input.trackingCode?.trim();
+  if (trackingCode) {
+    const order = await Order.findOne({ 'shipping.trackingCode': trackingCode });
+    if (order) {
+      return order;
+    }
+  }
+
+  const orderCode = input.orderCode?.trim().toUpperCase();
+  if (orderCode) {
+    const order = await Order.findOne({ orderCode });
+    if (!order) {
+      throw new SalesServiceError('Order not found for order code', 404);
+    }
+
+    return order;
+  }
+
+  if (trackingCode) {
+    throw new SalesServiceError('Order not found for tracking code', 404);
+  }
+
+  throw new SalesServiceError('orderId, trackingCode or orderCode is required', 400);
+};
+
+const createWebhookOrderSnapshot = (order: IOrder) => ({
+  status: order.status,
+  paymentStatus: order.paymentStatus,
+  deliveredAt: order.deliveredAt ?? null,
+  shipping: order.shipping ?? null,
+});
+
+const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
+  if (!['ready', 'picking', 'picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(input.status)) {
+    throw new SalesServiceError('Invalid shipping webhook status', 400);
+  }
+
+  const order = await getOrderForShippingWebhook(input);
+  const before = createWebhookOrderSnapshot(order);
+  const webhookReason = input.reason?.trim() || `Shipping partner reported ${input.status}`;
+  const nextShipping = {
+    ...(order.shipping ?? {}),
+    provider: input.provider ?? order.shipping?.provider ?? null,
+    trackingCode: input.trackingCode ?? order.shipping?.trackingCode ?? null,
+    status: input.status,
+    rawShipment: input.rawPayload ?? order.shipping?.rawShipment ?? null,
+  };
+
+  if (input.status === 'ready' || input.status === 'picking') {
+    if (order.status !== 'packed' && order.status !== 'shipping') {
+      throw new SalesServiceError('Order must be packed before shipping partner can process it', 400);
+    }
+    order.shipping = nextShipping;
+  }
+
+  if (input.status === 'picked' || input.status === 'shipping') {
+    if (order.status !== 'packed' && order.status !== 'shipping') {
+      throw new SalesServiceError('Order must be packed before it can be shipped', 400);
+    }
+
+    if (order.status === 'packed') {
+      assertOrderStatusTransition(order.status, 'shipping');
+      assertPaymentAllowsOrderStatus(order, 'shipping');
+      order.status = 'shipping';
+    }
+
+    order.shipping = nextShipping;
+  }
+
+  if (input.status === 'failed') {
+    if (order.status !== 'packed' && order.status !== 'shipping') {
+      throw new SalesServiceError('Delivery can only fail while order is shipping', 400);
+    }
+
+    if (order.status === 'packed') {
+      assertOrderStatusTransition(order.status, 'shipping');
+      assertPaymentAllowsOrderStatus(order, 'shipping');
+      order.status = 'shipping';
+    }
+
+    order.shipping = nextShipping;
+  }
+
+  if (input.status === 'delivered') {
+    if (order.status !== 'packed' && order.status !== 'shipping') {
+      throw new SalesServiceError('Order can only be delivered while it is shipping', 400);
+    }
+
+    if (order.status === 'packed') {
+      assertOrderStatusTransition(order.status, 'shipping');
+      assertPaymentAllowsOrderStatus(order, 'shipping');
+      order.status = 'shipping';
+    }
+
+    assertOrderStatusTransition(order.status, 'delivered');
+    assertPaymentAllowsOrderStatus(order, 'delivered');
+    order.status = 'delivered';
+    order.deliveredAt = input.deliveredAt ?? new Date();
+
+    if (order.paymentMethod === 'COD') {
+      order.paymentStatus = 'paid';
+    }
+
+    order.shipping = nextShipping;
+  }
+
+  if (input.status === 'cancelled') {
+    if (order.status !== 'packed' && order.status !== 'shipping' && order.status !== 'cancelled') {
+      throw new SalesServiceError('Shipment can only be cancelled after the order is packed', 400);
+    }
+    order.shipping = nextShipping;
+  }
+
+  const savedOrder = await order.save();
+
+  return {
+    before,
+    order: savedOrder,
+    reason: webhookReason,
+  };
+};
+
+const applyGhnShippingWebhook = async (payload: unknown) => (
+  applyShippingWebhook(parseGhnWebhookPayload(payload))
+);
+
 export const orderService = {
   previewCheckout,
   createOrder,
@@ -1058,6 +1544,11 @@ export const orderService = {
   confirmOrderReceived,
   requestReturn,
   reviewReturnRequest,
+  applyGhnShippingWebhook,
+  applyShippingWebhook,
+  cancelGhnShipment,
+  createGhnShipment,
+  syncGhnShipment,
   updateOrderStatus,
   updateOrderShipping,
 };

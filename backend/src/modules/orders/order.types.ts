@@ -99,3 +99,23 @@ export interface UpdateOrderShippingInput {
   rawQuote?: Record<string, unknown> | null;
   rawShipment?: Record<string, unknown> | null;
 }
+
+export type SimulatedShippingWebhookStatus =
+  | 'ready'
+  | 'picking'
+  | 'picked'
+  | 'shipping'
+  | 'delivered'
+  | 'failed'
+  | 'cancelled';
+
+export interface SimulatedShippingWebhookInput {
+  orderId?: string;
+  orderCode?: string;
+  trackingCode?: string;
+  status: SimulatedShippingWebhookStatus;
+  reason?: string;
+  provider?: string | null;
+  deliveredAt?: Date | null;
+  rawPayload?: Record<string, unknown> | null;
+}

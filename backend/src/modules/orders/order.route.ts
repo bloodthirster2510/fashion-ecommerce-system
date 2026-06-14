@@ -3,7 +3,9 @@ import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   cancelOrder,
+  cancelGhnShipment,
   confirmOrderReceived,
+  createGhnShipment,
   createOrder,
   getMyOrders,
   getOrderById,
@@ -12,6 +14,8 @@ import {
   previewCheckout,
   requestReturn,
   reviewReturnRequest,
+  simulateShippingWebhook,
+  syncGhnShipment,
   updateOrderShipping,
   updateOrderStatus,
 } from './order.controller';
@@ -38,6 +42,10 @@ adminOrderRouter.patch('/:id/cancel', requirePermission('orders.update'), cancel
 adminOrderRouter.patch('/:id/return-request', requirePermission('orders.update'), reviewReturnRequest);
 adminOrderRouter.patch('/:id/status', requirePermission('orders.update'), updateOrderStatus);
 adminOrderRouter.patch('/:id/shipping', requirePermission('orders.update'), updateOrderShipping);
+adminOrderRouter.post('/:id/ghn-shipment', requirePermission('orders.update'), createGhnShipment);
+adminOrderRouter.post('/:id/ghn-shipment/cancel', requirePermission('orders.update'), cancelGhnShipment);
+adminOrderRouter.post('/:id/ghn-shipment/sync', requirePermission('orders.update'), syncGhnShipment);
+adminOrderRouter.post('/:id/shipping-webhook-simulation', requirePermission('orders.update'), simulateShippingWebhook);
 
 export { adminOrderRouter, customerOrderRouter };
 export default customerOrderRouter;

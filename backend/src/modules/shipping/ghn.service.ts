@@ -164,6 +164,9 @@ export const GHNService = {
     length?: number;
     width?: number;
     height?: number;
+    insuranceValue?: number;
+    serviceId?: number;
+    serviceTypeId?: number;
     items: {
       name: string;
       quantity: number;
@@ -198,7 +201,10 @@ export const GHNService = {
         width: data.width || 20,
         height: data.height || 10,
 
-        service_type_id: 2,
+        insurance_value: data.insuranceValue || 0,
+        ...(data.serviceId
+          ? { service_id: data.serviceId }
+          : { service_type_id: data.serviceTypeId || 2 }),
 
         items: data.items.map((item) => ({
           name: item.name,

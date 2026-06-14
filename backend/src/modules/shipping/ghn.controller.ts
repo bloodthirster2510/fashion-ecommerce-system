@@ -179,6 +179,9 @@ export const createShippingOrder = async (req: Request, res: Response) => {
       length: parsePositiveInteger(req.body.length) || undefined,
       width: parsePositiveInteger(req.body.width) || undefined,
       height: parsePositiveInteger(req.body.height) || undefined,
+      insuranceValue: parsePositiveInteger(req.body.insuranceValue) || undefined,
+      serviceId: parsePositiveInteger(req.body.serviceId) || undefined,
+      serviceTypeId: parsePositiveInteger(req.body.serviceTypeId) || undefined,
       items: validItems,
     });
 
