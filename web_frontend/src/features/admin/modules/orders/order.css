@@ -254,106 +254,6 @@
   background: #f7fafc;
 }
 
-.admin-order-workflow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--admin-line);
-  border-radius: 8px;
-  background: #fbfcfd;
-}
-
-.admin-order-workflow div {
-  display: grid;
-  gap: 3px;
-}
-
-.admin-order-workflow-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(86px, 1fr));
-  gap: 8px;
-  min-width: min(100%, 460px);
-}
-
-.admin-order-workflow-metrics span {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  padding: 9px 10px;
-  border: 1px solid var(--metric-border, #dce4ea);
-  border-radius: 8px;
-  color: var(--metric-color, var(--admin-text));
-  background: var(--metric-bg, #fff);
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1.2;
-  text-transform: none;
-}
-
-.admin-order-workflow-metrics strong {
-  color: inherit;
-  font-size: 18px;
-  font-weight: 950;
-  line-height: 1;
-}
-
-.admin-order-workflow-metrics .is-actionable {
-  --metric-border: #b7dfc8;
-  --metric-color: #24623f;
-  --metric-bg: #e8f6ee;
-}
-
-.admin-order-workflow-metrics .is-review {
-  --metric-border: #f0c28f;
-  --metric-color: #8b4d12;
-  --metric-bg: #fff4e8;
-}
-
-.admin-order-workflow-metrics .is-refund {
-  --metric-border: #e4bdd7;
-  --metric-color: #87456f;
-  --metric-bg: #fff0f8;
-}
-
-.admin-order-workflow-metrics .is-blocked {
-  --metric-border: #efb5a7;
-  --metric-color: #9b351e;
-  --metric-bg: #fff2ee;
-}
-
-.admin-order-workflow span {
-  color: var(--admin-muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.admin-order-workflow strong {
-  color: var(--admin-text);
-  font-size: 16px;
-  font-weight: 950;
-}
-
-.admin-order-workflow p {
-  margin: 0;
-  color: var(--admin-muted);
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.admin-order-workflow .admin-order-workflow-metrics span {
-  color: var(--metric-color, var(--admin-text));
-  text-transform: none;
-}
-
-.admin-order-workflow .admin-order-workflow-metrics strong {
-  color: inherit;
-  font-size: 18px;
-}
-
 .admin-payment-sections {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -361,7 +261,29 @@
   margin-bottom: 12px;
 }
 
+.admin-payment-section-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.admin-payment-section-panel.is-active {
+  grid-column: 1 / -1;
+  border-color: var(--section-border);
+  background: var(--section-bg);
+  box-shadow: 0 16px 34px rgba(31, 45, 61, 0.12);
+  transform: translateY(-1px);
+}
+
 .admin-payment-section-card {
+  width: 100%;
   display: grid;
   gap: 5px;
   min-height: 92px;
@@ -377,8 +299,7 @@
   transition:
     background 160ms ease,
     border-color 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    box-shadow 160ms ease;
 }
 
 .admin-payment-section-card span {
@@ -402,27 +323,56 @@
   line-height: 1.45;
 }
 
-.admin-payment-section-card.is-online {
+.admin-payment-section-panel.is-online {
   --section-color: #315f83;
   --section-border: #b8d7ea;
   --section-bg: #eef6fb;
 }
 
-.admin-payment-section-card.is-cod {
+.admin-payment-section-panel.is-cod {
   --section-color: #276140;
   --section-border: #b7dfc8;
   --section-bg: #e8f6ee;
 }
 
 .admin-payment-section-card:hover,
-.admin-payment-section-card.is-active {
+.admin-payment-section-panel.is-active .admin-payment-section-card {
   border-color: var(--section-border);
   background: var(--section-bg);
-  box-shadow: 0 12px 24px rgba(31, 45, 61, 0.1);
 }
 
-.admin-payment-section-card.is-active {
-  transform: translateY(-1px);
+.admin-payment-section-panel.is-active .admin-payment-section-card {
+  border-color: transparent;
+  border-left-color: var(--section-color);
+  box-shadow: none;
+}
+
+.admin-payment-section-content {
+  padding: 0 8px 8px;
+  transform-origin: top center;
+  animation: adminPaymentSectionOpen 180ms ease both;
+}
+
+.admin-payment-section-content .admin-order-tabs {
+  margin: 0;
+  padding: 4px 0 2px;
+}
+
+@keyframes adminPaymentSectionOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.96);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translateY(-2px) scaleY(1);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .admin-order-tabs {
@@ -1101,17 +1051,6 @@
   .admin-payment-attempt dl,
   .admin-audit-log-card dl {
     grid-template-columns: 1fr;
-  }
-
-  .admin-order-workflow {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .admin-order-workflow-metrics {
-    width: 100%;
-    min-width: 0;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-payment-sections {

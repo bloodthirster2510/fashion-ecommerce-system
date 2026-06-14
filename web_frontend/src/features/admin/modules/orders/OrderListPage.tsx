@@ -94,7 +94,7 @@ const paymentSections: Array<{
 ]
 
 const getPaymentSectionMethods = (sectionKey: PaymentSectionKey) =>
-  sectionKey === 'cod' ? codPaymentMethods : onlinePaymentMethods
+  paymentSections.find((section) => section.key === sectionKey)?.methods ?? onlinePaymentMethods
 
 const orderTabs: OrderTab[] = [
   {
@@ -647,7 +647,6 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [notice, setNotice] = useState<Notice | null>(null)
 
   const activeTab = orderTabs.find((tab) => tab.key === activeTabKey) ?? orderTabs[0]
-  const activePaymentSection = paymentSections.find((section) => section.key === activePaymentSectionKey) ?? paymentSections[0]
   const canUpdateOrders =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('orders.update'))
   const canAdjustPayments =
@@ -992,84 +991,66 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         </div>
       </header>
 
-      <section className="admin-order-workflow" aria-label="Phân loại xử lý đơn hàng">
-        <div>
-          <span>Hàng đợi đang xem</span>
-          <strong>{activePaymentSection.label} / {activeTab.label}</strong>
-          <p>{activeTab.helper ?? 'Chọn nhóm để tập trung đúng loại đơn cần thao tác.'}</p>
-        </div>
-        <div className="admin-order-workflow-metrics" aria-label="Số lượng việc cần xử lý">
-          <span className="is-actionable">
-            <strong>{getQueueCount('actionable', statusSummary, operationalSummary)}</strong>
-            Cần xử lý
-          </span>
-          <span className="is-review">
-            <strong>{operationalSummary.returnRequests}</strong>
-            Duyệt trả
-          </span>
-          <span className="is-refund">
-            <strong>{operationalSummary.refunds}</strong>
-            Hoàn tiền
-          </span>
-          <span className="is-blocked">
-            <strong>{operationalSummary.paymentRisk}</strong>
-            Đang vướng
-          </span>
-        </div>
-      </section>
-
       <section className="admin-payment-sections" aria-label="Phân luồng thanh toán">
         {paymentSections.map((section) => {
           const isActiveSection = section.key === activePaymentSectionKey
 
           return (
-            <button
-              className={`admin-payment-section-card is-${section.key}${isActiveSection ? ' is-active' : ''}`}
+            <article
+              className={`admin-payment-section-panel is-${section.key}${isActiveSection ? ' is-active' : ''}`}
               key={section.key}
-              type="button"
-              aria-pressed={isActiveSection}
-              onClick={() => {
-                setActivePaymentSectionKey(section.key)
-                setPaymentMethod(section.key === 'cod' ? 'COD' : 'all')
-                setPaymentStatus('all')
-                setPage(1)
-              }}
             >
-              <span>{isActiveSection ? 'Đang xem' : 'Luồng xử lý'}</span>
-              <strong>{section.label}</strong>
-              <small>{section.helper}</small>
-            </button>
+              <button
+                className="admin-payment-section-card"
+                type="button"
+                aria-expanded={isActiveSection}
+                onClick={() => {
+                  setActivePaymentSectionKey(section.key)
+                  setPaymentMethod(section.key === 'cod' ? 'COD' : 'all')
+                  setPaymentStatus('all')
+                  setPage(1)
+                }}
+              >
+                <span>{isActiveSection ? 'Đang mở' : 'Luồng xử lý'}</span>
+                <strong>{section.label}</strong>
+                <small>{section.helper}</small>
+              </button>
+
+              {isActiveSection ? (
+                <div className="admin-payment-section-content">
+                  <div className="admin-order-tabs" role="tablist" aria-label="Phân loại đơn hàng">
+                    {orderTabs.map((tab) => {
+                      const tabCount = getTabCount(tab, statusSummary, operationalSummary)
+
+                      return (
+                        <button
+                          className={getTabClass(tab, activeTabKey)}
+                          key={tab.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={tab.key === activeTabKey}
+                          onClick={() => {
+                            setActiveTabKey(tab.key)
+                            setPaymentStatus('all')
+                            setPage(1)
+                          }}
+                        >
+                          <span className="admin-order-tab-label">
+                            <span>{tab.label}</span>
+                            <span className="admin-order-tab-count" aria-label={`${tabCount} đơn`}>
+                              {tabCount}
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </article>
           )
         })}
       </section>
-
-      <div className="admin-order-tabs" role="tablist" aria-label="Phân loại đơn hàng">
-        {orderTabs.map((tab) => {
-          const tabCount = getTabCount(tab, statusSummary, operationalSummary)
-
-          return (
-            <button
-              className={getTabClass(tab, activeTabKey)}
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === activeTabKey}
-              onClick={() => {
-                setActiveTabKey(tab.key)
-                setPaymentStatus('all')
-                setPage(1)
-              }}
-            >
-              <span className="admin-order-tab-label">
-                <span>{tab.label}</span>
-                <span className="admin-order-tab-count" aria-label={`${tabCount} đơn`}>
-                  {tabCount}
-                </span>
-              </span>
-            </button>
-          )
-        })}
-      </div>
 
       <div className="admin-table-toolbar">
         <label className="admin-user-search">
