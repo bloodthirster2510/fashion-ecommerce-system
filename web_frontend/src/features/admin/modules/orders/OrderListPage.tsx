@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { AdminUser } from '../auth/adminSession'
 import {
   adjustOrderPaymentStatus,
+  cancelGhnShipment,
+  createGhnShipment,
   expireStalePayments,
   getOrder,
   listAuditLogs,
@@ -9,6 +11,8 @@ import {
   listOrderTransactions,
   listOrders,
   reviewReturnRequest,
+  simulateShippingWebhook,
+  syncGhnShipment,
   updateCustomerPaymentMethodStatus,
   updateOrderShipping,
   updateOrderStatus,
@@ -27,19 +31,24 @@ import './order.css'
 
 type OrdersPageProps = {
   currentUser: AdminUser
+  paymentSection?: PaymentSectionKey
+  lockPaymentSection?: boolean
 }
 
 type OrderTab = {
   key: string
   label: string
   helper?: string
+  group: OrderTabGroupKey
   statuses?: AdminOrderStatus[]
   paymentStatus?: AdminOrderPaymentStatus
   queue?: OrderQueueKey
 }
 
-type OrderQueueKey = 'actionable' | 'blocked' | 'review' | 'refund'
+type OrderTabGroupKey = 'flow' | 'exceptions' | 'lookup'
+type OrderQueueKey = 'packing' | 'handoff' | 'delivery' | 'blocked' | 'review' | 'refund'
 type PaymentSectionKey = 'online' | 'cod'
+type ShippingSimulationStatus = 'picked' | 'shipping' | 'delivered' | 'failed'
 
 type Notice = {
   type: 'success' | 'error'
@@ -64,6 +73,8 @@ const emptyOperationalSummary = {
   returnRequests: 0,
   refunds: 0,
   paidReady: 0,
+  packingReady: 0,
+  handoffReady: 0,
   readyToProcess: 0,
   deliveryConfirmations: 0,
   paymentRisk: 0,
@@ -72,6 +83,7 @@ const emptyOperationalSummary = {
 
 const onlinePaymentMethods: AdminOrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK']
 const codPaymentMethods: AdminOrderPaymentMethod[] = ['COD']
+const allPaymentMethods: AdminOrderPaymentMethod[] = [...onlinePaymentMethods, ...codPaymentMethods]
 
 const paymentSections: Array<{
   key: PaymentSectionKey
@@ -98,16 +110,34 @@ const getPaymentSectionMethods = (sectionKey: PaymentSectionKey) =>
 
 const orderTabs: OrderTab[] = [
   {
-    key: 'actionable',
-    label: 'Cần xử lý',
-    helper: 'Đơn đủ điều kiện để đóng gói, bàn giao vận chuyển hoặc xác nhận đã giao tới khách.',
-    statuses: ['confirmed', 'packed', 'shipping'],
-    queue: 'actionable',
+    key: 'packing',
+    label: 'Cần đóng gói',
+    helper: 'Đơn đã đủ điều kiện thanh toán/COD và đang chờ kiểm tra, đóng gói.',
+    group: 'flow',
+    statuses: ['confirmed'],
+    queue: 'packing',
+  },
+  {
+    key: 'handoff',
+    label: 'Chờ bàn giao',
+    helper: 'Đơn đã đóng gói, cần bàn giao cho đơn vị vận chuyển.',
+    group: 'flow',
+    statuses: ['packed'],
+    queue: 'handoff',
+  },
+  {
+    key: 'delivery',
+    label: 'Chờ giao thành công',
+    helper: 'Đơn đang giao, cần xác nhận khi đối tác báo đã giao tới khách.',
+    group: 'flow',
+    statuses: ['shipping'],
+    queue: 'delivery',
   },
   {
     key: 'review',
     label: 'Duyệt trả hàng',
     helper: 'Yêu cầu đổi/trả cần kiểm tra lý do, minh chứng và thời hạn 7 ngày từ lúc giao.',
+    group: 'exceptions',
     statuses: ['return_requested'],
     queue: 'review',
   },
@@ -115,22 +145,26 @@ const orderTabs: OrderTab[] = [
     key: 'refund',
     label: 'Hoàn tiền',
     helper: 'Đơn đã thanh toán nhưng bị hủy, cần đối soát và hoàn tiền thủ công.',
+    group: 'exceptions',
     statuses: ['cancelled'],
     paymentStatus: 'paid',
     queue: 'refund',
   },
   {
-    key: 'blocked',
-    label: 'Đang vướng',
-    helper: 'Đơn lỗi hoặc chưa ghi nhận thanh toán; chưa nên tiếp tục giao hàng.',
-    statuses: ['confirmed', 'packed', 'shipping'],
-    queue: 'blocked',
-  },
-  {
     key: 'all',
     label: 'Tất cả',
     helper: 'Tra cứu toàn bộ đơn, hóa đơn, thanh toán và vận chuyển.',
+    group: 'lookup',
   },
+]
+
+const orderTabGroups: Array<{
+  key: OrderTabGroupKey
+  label: string
+}> = [
+  { key: 'flow', label: 'Luồng vận hành' },
+  { key: 'exceptions', label: 'Phát sinh cần xử lý' },
+  { key: 'lookup', label: 'Tra cứu' },
 ]
 
 const statusLabels: Record<AdminOrderStatus, string> = {
@@ -211,6 +245,7 @@ const returnRequestStatusLabels: Record<AdminReturnRequestStatus, string> = {
 const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'order.status_update': 'Cập nhật trạng thái đơn',
   'order.shipping_update': 'Cập nhật vận chuyển',
+  'order.shipping_webhook': 'Webhook vận chuyển',
   'payment.adjust': 'Điều chỉnh thanh toán',
   'payment.expire': 'Hết hạn thanh toán',
   'payment_method.status_update': 'Cập nhật phương thức thanh toán',
@@ -250,10 +285,20 @@ const shippingStatusLabels: Record<string, string> = {
   failed: 'Giao thất bại',
 }
 
+const shippingSimulationActions: Array<{
+  status: ShippingSimulationStatus
+  label: string
+  className: 'admin-secondary-button' | 'admin-primary-button' | 'admin-danger-button'
+}> = [
+  { status: 'picked', label: 'Đã lấy hàng', className: 'admin-secondary-button' },
+  { status: 'shipping', label: 'Đang giao', className: 'admin-secondary-button' },
+  { status: 'delivered', label: 'Đã giao', className: 'admin-primary-button' },
+  { status: 'failed', label: 'Giao thất bại', className: 'admin-danger-button' },
+]
+
 const nextStatusOptions: Partial<Record<AdminOrderStatus, AdminOrderStatus[]>> = {
   confirmed: ['packed', 'cancelled'],
-  packed: ['shipping', 'cancelled'],
-  shipping: ['delivered'],
+  packed: ['cancelled'],
 }
 
 const getNoNextOrderStepMessage = (order: AdminOrder) => {
@@ -436,12 +481,6 @@ const shouldWarnPaymentBeforeShipping = (order: AdminOrder) =>
   order.status !== 'cancelled' &&
   order.status !== 'returned'
 
-const canAdvanceOrder = (order: AdminOrder) => {
-  const statusOptions = nextStatusOptions[order.status] ?? []
-
-  return statusOptions.some((status) => !isStatusBlockedByPayment(order, status))
-}
-
 const needsRefundReview = (order: AdminOrder) =>
   order.status === 'cancelled' && order.paymentStatus === 'paid'
 
@@ -455,8 +494,10 @@ const isBlockedOrder = (order: AdminOrder) =>
 const getOrderQueue = (order: AdminOrder): OrderQueueKey | null => {
   if (needsRefundReview(order)) return 'refund'
   if (needsReasonReview(order)) return 'review'
-  if (canAdvanceOrder(order)) return 'actionable'
-  if (isBlockedOrder(order)) return 'blocked'
+  if (isBlockedOrder(order)) return null
+  if (order.status === 'confirmed') return 'packing'
+  if (order.status === 'packed') return 'handoff'
+  if (order.status === 'shipping') return 'delivery'
 
   return null
 }
@@ -469,6 +510,9 @@ const getQueueCount = (
   if (queue === 'refund') return operationalSummary.refunds
   if (queue === 'review') return operationalSummary.returnRequests
   if (queue === 'blocked') return operationalSummary.paymentRisk
+  if (queue === 'packing') return operationalSummary.packingReady ?? 0
+  if (queue === 'handoff') return operationalSummary.handoffReady ?? 0
+  if (queue === 'delivery') return operationalSummary.deliveryConfirmations ?? summary.shipping
 
   const readyToProcess = operationalSummary.readyToProcess ?? Math.max(0, summary.confirmed + summary.packed)
   const deliveryConfirmations = operationalSummary.deliveryConfirmations ?? summary.shipping
@@ -513,15 +557,6 @@ const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null => {
     }
   }
 
-  if (order.paymentStatus === 'paid' && (order.status === 'confirmed' || order.status === 'packed')) {
-    return {
-      kind: 'paid-ready',
-      tone: 'success',
-      label: 'Sẵn sàng xử lý',
-      helper: 'Tiền đã ghi nhận, ưu tiên đóng gói hoặc bàn giao vận chuyển.',
-    }
-  }
-
   if (shouldWarnPaymentBeforeShipping(order) || order.paymentStatus === 'failed') {
     return {
       kind: 'payment-risk',
@@ -535,8 +570,8 @@ const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null => {
     return {
       kind: 'new',
       tone: 'info',
-      label: 'Cần xử lý',
-      helper: 'Đơn mới cần kiểm tra trước khi đóng gói.',
+      label: 'Cần đóng gói',
+      helper: 'Đơn đã đủ điều kiện xử lý, cần kiểm tra và đóng gói.',
     }
   }
 
@@ -545,7 +580,7 @@ const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null => {
       kind: 'packed',
       tone: 'info',
       label: 'Chờ bàn giao',
-      helper: 'Đơn đã đóng gói, có thể chuyển sang đang giao khi giao cho vận chuyển.',
+      helper: 'Đơn đã đóng gói, cần bàn giao cho đơn vị vận chuyển.',
     }
   }
 
@@ -553,7 +588,7 @@ const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null => {
     return {
       kind: 'delivery',
       tone: 'success',
-      label: 'Chờ xác nhận đã giao',
+      label: 'Chờ giao thành công',
       helper: 'Có thể hoàn tất đơn khi shipper hoặc đối tác vận chuyển báo đã giao tới khách.',
     }
   }
@@ -608,6 +643,47 @@ const formatShippingStatus = (status?: string | null) => {
   return shippingStatusLabels[status] ?? status
 }
 
+const canSimulateShippingStatus = (order: AdminOrder, status: ShippingSimulationStatus) => {
+  if (order.shipping?.status === 'failed') return status === 'shipping' && order.status === 'shipping'
+  if (status === 'picked') return order.status === 'packed'
+  if (status === 'shipping') return order.status === 'packed' || order.status === 'shipping'
+  if (status === 'delivered' || status === 'failed') return order.status === 'shipping'
+
+  return false
+}
+
+const hasActiveGhnShipment = (order: AdminOrder) =>
+  order.shipping?.provider === 'GHN' &&
+  Boolean(order.shipping?.trackingCode) &&
+  order.shipping?.status !== 'cancelled'
+
+const canCreateGhnShipment = (order: AdminOrder) => {
+  const paymentReady = order.paymentMethod === 'COD' || order.paymentStatus === 'paid'
+
+  return order.status === 'packed' && paymentReady && !hasActiveGhnShipment(order)
+}
+
+const canCancelGhnShipment = (order: AdminOrder) =>
+  order.shipping?.provider === 'GHN' &&
+  Boolean(order.shipping?.trackingCode) &&
+  order.shipping?.status !== 'delivered' &&
+  order.shipping?.status !== 'cancelled' &&
+  (order.status === 'packed' || order.status === 'cancelled')
+
+const canSyncGhnShipment = (order: AdminOrder) =>
+  order.shipping?.provider === 'GHN' && Boolean(order.shipping?.trackingCode)
+
+const getShippingSimulationActionLabel = (
+  order: AdminOrder,
+  action: (typeof shippingSimulationActions)[number],
+) => {
+  if (action.status === 'shipping' && order.shipping?.status === 'failed') {
+    return 'Giao lại'
+  }
+
+  return action.label
+}
+
 const getPaymentMethodMetadataText = (method: AdminCustomerPaymentMethod, key: string) => {
   const value = method.metadata?.[key]
   return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -624,7 +700,11 @@ const getCustomerPaymentMethodSubtitle = (method: AdminCustomerPaymentMethod) =>
   ].filter(Boolean).join(' / ') || method.provider
 }
 
-export function OrderListPage({ currentUser }: OrdersPageProps) {
+export function OrderListPage({
+  currentUser,
+  paymentSection = 'online',
+  lockPaymentSection = false,
+}: OrdersPageProps) {
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
   const [transactions, setTransactions] = useState<AdminTransaction[]>([])
@@ -632,8 +712,8 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [customerPaymentMethods, setCustomerPaymentMethods] = useState<AdminCustomerPaymentMethod[]>([])
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
-  const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>('online')
-  const [activeTabKey, setActiveTabKey] = useState('actionable')
+  const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
+  const [activeTabKey, setActiveTabKey] = useState(lockPaymentSection ? 'packing' : 'all')
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
   const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
   const [page, setPage] = useState(1)
@@ -646,7 +726,12 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [errorMessage, setErrorMessage] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
 
+  const isLookupMode = !lockPaymentSection
   const activeTab = orderTabs.find((tab) => tab.key === activeTabKey) ?? orderTabs[0]
+  const activePaymentSection =
+    paymentSections.find((section) => section.key === activePaymentSectionKey) ?? paymentSections[0]
+  const pageTitle = lockPaymentSection ? activePaymentSection.label : 'Tra cứu hóa đơn & đơn hàng'
+  const pageHelper = lockPaymentSection ? activePaymentSection.helper : 'Tìm theo mã đơn, mã hóa đơn, khách hàng hoặc sản phẩm'
   const canUpdateOrders =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('orders.update'))
   const canAdjustPayments =
@@ -660,6 +745,14 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
 
+  useEffect(() => {
+    setActivePaymentSectionKey(paymentSection)
+    setPaymentMethod(paymentSection === 'cod' ? 'COD' : 'all')
+    setPaymentStatus('all')
+    setActiveTabKey(lockPaymentSection ? 'packing' : 'all')
+    setPage(1)
+  }, [lockPaymentSection, paymentSection])
+
   const loadOrders = useCallback(async () => {
     setIsLoading(true)
     setErrorMessage('')
@@ -667,8 +760,8 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     try {
       const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
       const effectiveLimit = activeTab.queue ? 100 : pageSize
-      const sectionPaymentMethods = getPaymentSectionMethods(activePaymentSectionKey)
-      const selectedPaymentMethod = activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod
+      const sectionPaymentMethods = isLookupMode ? undefined : getPaymentSectionMethods(activePaymentSectionKey)
+      const selectedPaymentMethod = !isLookupMode && activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod
       const result = await listOrders({
         keyword,
         statuses: activeTab.statuses,
@@ -684,7 +777,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         .sort((left, right) => {
           const rankDelta = getOrderAttentionRank(left) - getOrderAttentionRank(right)
           if (rankDelta !== 0) return rankDelta
-          return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+          return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
         })
 
       setOrders(orderedItems)
@@ -696,7 +789,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [activePaymentSectionKey, activeTab.paymentStatus, activeTab.queue, activeTab.statuses, keyword, page, paymentMethod, paymentStatus])
+  }, [activePaymentSectionKey, activeTab.paymentStatus, activeTab.queue, activeTab.statuses, isLookupMode, keyword, page, paymentMethod, paymentStatus])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -893,6 +986,115 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     }
   }
 
+  const handleSimulateShippingStatus = async (nextShippingStatus: ShippingSimulationStatus) => {
+    if (!selectedOrder) return
+
+    if (!canSimulateShippingStatus(selectedOrder, nextShippingStatus)) {
+      setNotice({ type: 'error', message: 'Trạng thái giao hàng chưa phù hợp với bước hiện tại của đơn.' })
+      return
+    }
+
+    const simulationAction = shippingSimulationActions.find((action) => action.status === nextShippingStatus)
+    const actionLabel = simulationAction
+      ? getShippingSimulationActionLabel(selectedOrder, simulationAction)
+      : formatShippingStatus(nextShippingStatus)
+    const reason = `Mô phỏng đơn vị vận chuyển: ${actionLabel}`
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const updatedOrder = await simulateShippingWebhook(selectedOrder._id, {
+        status: nextShippingStatus,
+        reason,
+        provider: selectedOrder.shipping?.provider ?? 'GHN',
+        trackingCode: selectedOrder.shipping?.trackingCode ?? null,
+      })
+
+      setSelectedOrder(updatedOrder)
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order._id === updatedOrder._id ? updatedOrder : order)),
+      )
+      setNotice({ type: 'success', message: `Đã nhận webhook vận chuyển: ${actionLabel}` })
+      await refreshSelectedOrder(updatedOrder._id)
+      await loadOrders()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleCreateGhnShipment = async () => {
+    if (!selectedOrder) return
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const updatedOrder = await createGhnShipment(selectedOrder._id)
+      setSelectedOrder(updatedOrder)
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order._id === updatedOrder._id ? updatedOrder : order)),
+      )
+      setNotice({ type: 'success', message: 'Đã tạo vận đơn GHN và liên kết vào đơn hàng' })
+      await refreshSelectedOrder(updatedOrder._id)
+      await loadOrders()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleCancelGhnShipment = async () => {
+    if (!selectedOrder) return
+
+    if (!window.confirm('Hủy vận đơn GHN cho đơn này?')) {
+      return
+    }
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const updatedOrder = await cancelGhnShipment(selectedOrder._id, 'Admin cancelled GHN shipment')
+      setSelectedOrder(updatedOrder)
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order._id === updatedOrder._id ? updatedOrder : order)),
+      )
+      setNotice({ type: 'success', message: 'Đã hủy vận đơn GHN' })
+      await refreshSelectedOrder(updatedOrder._id)
+      await loadOrders()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleSyncGhnShipment = async () => {
+    if (!selectedOrder) return
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const updatedOrder = await syncGhnShipment(selectedOrder._id)
+      setSelectedOrder(updatedOrder)
+      setOrders((currentOrders) =>
+        currentOrders.map((order) => (order._id === updatedOrder._id ? updatedOrder : order)),
+      )
+      setNotice({ type: 'success', message: 'Đã đồng bộ trạng thái GHN' })
+      await refreshSelectedOrder(updatedOrder._id)
+      await loadOrders()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const handleExpireStalePayments = async () => {
     setActionLoading(true)
     setNotice(null)
@@ -968,89 +1170,76 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     }
   }
 
+  const renderOrderTabs = () => (
+    <div className="admin-order-tab-groups" role="tablist" aria-label="Phân loại đơn hàng">
+      {orderTabGroups.map((group) => {
+        const tabs = orderTabs.filter((tab) => tab.group === group.key)
+
+        return (
+          <section className={`admin-order-tab-group is-${group.key}`} key={group.key}>
+            <span className="admin-order-tab-group-label">{group.label}</span>
+            <div className="admin-order-tabs">
+              {tabs.map((tab) => {
+                const tabCount = getTabCount(tab, statusSummary, operationalSummary)
+
+                return (
+                  <button
+                    className={getTabClass(tab, activeTabKey)}
+                    key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.key === activeTabKey}
+                    onClick={() => {
+                      setActiveTabKey(tab.key)
+                      setPaymentStatus('all')
+                      setPage(1)
+                    }}
+                  >
+                    <span className="admin-order-tab-label">
+                      <span>{tab.label}</span>
+                      <span className="admin-order-tab-count" aria-label={`${tabCount} đơn`}>
+                        {tabCount}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )
+      })}
+    </div>
+  )
+
   return (
     <section className="admin-orders-page" aria-busy={isLoading}>
       <header className="admin-page-heading">
         <div>
-          <p>Vận hành đơn hàng</p>
-          <h1>Hóa đơn & đơn hàng</h1>
+          <p>{isLookupMode ? 'Tra cứu bán hàng' : 'Vận hành đơn hàng'}</p>
+          <h1>{pageTitle}</h1>
+          <span>{pageHelper}</span>
         </div>
 
         <div className="admin-page-actions">
-          <button
-            className="admin-secondary-button"
-            type="button"
-            disabled={!canUpdateOrders || actionLoading}
-            onClick={() => void handleExpireStalePayments()}
-          >
-            Hết hạn thanh toán quá hạn
-          </button>
+          {!isLookupMode ? (
+            <button
+              className="admin-secondary-button"
+              type="button"
+              disabled={!canUpdateOrders || actionLoading}
+              onClick={() => void handleExpireStalePayments()}
+            >
+              Hết hạn thanh toán quá hạn
+            </button>
+          ) : null}
           <button className="admin-secondary-button" type="button" onClick={() => void loadOrders()}>
             Tải lại
           </button>
         </div>
       </header>
 
-      <section className="admin-payment-sections" aria-label="Phân luồng thanh toán">
-        {paymentSections.map((section) => {
-          const isActiveSection = section.key === activePaymentSectionKey
-
-          return (
-            <article
-              className={`admin-payment-section-panel is-${section.key}${isActiveSection ? ' is-active' : ''}`}
-              key={section.key}
-            >
-              <button
-                className="admin-payment-section-card"
-                type="button"
-                aria-expanded={isActiveSection}
-                onClick={() => {
-                  setActivePaymentSectionKey(section.key)
-                  setPaymentMethod(section.key === 'cod' ? 'COD' : 'all')
-                  setPaymentStatus('all')
-                  setPage(1)
-                }}
-              >
-                <span>{isActiveSection ? 'Đang mở' : 'Luồng xử lý'}</span>
-                <strong>{section.label}</strong>
-                <small>{section.helper}</small>
-              </button>
-
-              {isActiveSection ? (
-                <div className="admin-payment-section-content">
-                  <div className="admin-order-tabs" role="tablist" aria-label="Phân loại đơn hàng">
-                    {orderTabs.map((tab) => {
-                      const tabCount = getTabCount(tab, statusSummary, operationalSummary)
-
-                      return (
-                        <button
-                          className={getTabClass(tab, activeTabKey)}
-                          key={tab.key}
-                          type="button"
-                          role="tab"
-                          aria-selected={tab.key === activeTabKey}
-                          onClick={() => {
-                            setActiveTabKey(tab.key)
-                            setPaymentStatus('all')
-                            setPage(1)
-                          }}
-                        >
-                          <span className="admin-order-tab-label">
-                            <span>{tab.label}</span>
-                            <span className="admin-order-tab-count" aria-label={`${tabCount} đơn`}>
-                              {tabCount}
-                            </span>
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : null}
-            </article>
-          )
-        })}
-      </section>
+      {!isLookupMode ? (
+        renderOrderTabs()
+      ) : null}
 
       <div className="admin-table-toolbar">
         <label className="admin-user-search">
@@ -1066,15 +1255,15 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         <label>
           <span>Phương thức</span>
           <select
-            value={activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod}
-            disabled={activePaymentSectionKey === 'cod'}
+            value={!isLookupMode && activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod}
+            disabled={!isLookupMode && activePaymentSectionKey === 'cod'}
             onChange={(event) => {
               setPaymentMethod(event.target.value as AdminOrderPaymentMethod | 'all')
               setPage(1)
             }}
           >
-            <option value="all">Tất cả online</option>
-            {getPaymentSectionMethods(activePaymentSectionKey).map((value) => (
+            <option value="all">{isLookupMode ? 'Tất cả phương thức' : 'Tất cả online'}</option>
+            {(isLookupMode ? allPaymentMethods : getPaymentSectionMethods(activePaymentSectionKey)).map((value) => (
               <option key={value} value={value}>
                 {paymentMethodLabels[value]}
               </option>
@@ -1248,10 +1437,14 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
           transactions={transactions}
           onClose={closeDrawer}
           onAdjustPaymentStatus={(status) => void handleAdjustPaymentStatus(status)}
+          onCancelGhnShipment={() => void handleCancelGhnShipment()}
+          onCreateGhnShipment={() => void handleCreateGhnShipment()}
           onUpdatePaymentMethodStatus={(method, status) => void handleUpdatePaymentMethodStatus(method, status)}
           onRefresh={() => void refreshSelectedOrder(selectedOrder._id)}
           onReviewReturnRequest={(decision) => void handleReviewReturnRequest(decision)}
           onShippingUpdate={() => void handleShippingUpdate()}
+          onSimulateShippingStatus={(status) => void handleSimulateShippingStatus(status)}
+          onSyncGhnShipment={() => void handleSyncGhnShipment()}
           onStatusUpdate={(status) => void handleStatusUpdate(status)}
         />
       ) : null}
@@ -1272,10 +1465,14 @@ function OrderDetailDrawer({
   transactions,
   onClose,
   onAdjustPaymentStatus,
+  onCancelGhnShipment,
+  onCreateGhnShipment,
   onUpdatePaymentMethodStatus,
   onRefresh,
   onReviewReturnRequest,
   onShippingUpdate,
+  onSimulateShippingStatus,
+  onSyncGhnShipment,
   onStatusUpdate,
 }: {
   canAdjustPayments: boolean
@@ -1290,14 +1487,20 @@ function OrderDetailDrawer({
   transactions: AdminTransaction[]
   onClose: () => void
   onAdjustPaymentStatus: (status: AdminOrderPaymentStatus) => void
+  onCancelGhnShipment: () => void
+  onCreateGhnShipment: () => void
   onUpdatePaymentMethodStatus: (method: AdminCustomerPaymentMethod, status: AdminPaymentMethodStatus) => void
   onRefresh: () => void
   onReviewReturnRequest: (decision: AdminReturnReviewDecision) => void
   onShippingUpdate: () => void
+  onSimulateShippingStatus: (status: ShippingSimulationStatus) => void
+  onSyncGhnShipment: () => void
   onStatusUpdate: (status: AdminOrderStatus) => void
 }) {
   const statusOptions = nextStatusOptions[order.status] ?? []
   const hasPendingReturnRequest = order.status === 'return_requested' && order.returnRequest?.status === 'requested'
+  const needsRefundHandling =
+    order.paymentStatus === 'paid' && (order.status === 'cancelled' || order.status === 'returned')
   const attention = getOrderAttention(order)
   const returnWindowStatus = getReturnWindowStatus(order)
 
@@ -1342,7 +1545,8 @@ function OrderDetailDrawer({
           </p>
         ) : null}
 
-        <section className="admin-drawer-section">
+        <div className="admin-order-drawer-body">
+        <section className="admin-drawer-section admin-order-section-summary">
           <h3>Tổng quan</h3>
           <OrderProgressRail status={order.status} />
           <div className="admin-detail-grid">
@@ -1370,7 +1574,7 @@ function OrderDetailDrawer({
         </section>
 
         {order.cancellation ? (
-          <section className="admin-drawer-section">
+          <section className="admin-drawer-section admin-order-section-main">
             <div className="admin-section-inline-heading">
               <h3>Thông tin hủy đơn</h3>
               {order.paymentStatus === 'paid' ? (
@@ -1380,7 +1584,11 @@ function OrderDetailDrawer({
               )}
             </div>
             <article className="admin-return-request-card">
-              <p>{order.cancellation.reason || 'Không có lý do hủy.'}</p>
+              <div className="admin-user-reason-block">
+                <span>Đầu vào từ khách</span>
+                <strong>Lý do hủy đơn</strong>
+                <p>{order.cancellation.reason || 'Không có lý do hủy.'}</p>
+              </div>
               <dl>
                 <div>
                   <dt>Hủy lúc</dt>
@@ -1392,12 +1600,15 @@ function OrderDetailDrawer({
                 </div>
               </dl>
               {order.cancellation.imageUrls?.length ? (
-                <div className="admin-evidence-grid">
-                  {order.cancellation.imageUrls.map((imageUrl) => (
-                    <a href={imageUrl} key={imageUrl} target="_blank" rel="noreferrer">
-                      <img src={imageUrl} alt="Minh chứng hủy đơn" />
-                    </a>
-                  ))}
+                <div className="admin-evidence-block">
+                  <span>Ảnh minh chứng khách gửi</span>
+                  <div className="admin-evidence-grid">
+                    {order.cancellation.imageUrls.map((imageUrl) => (
+                      <a href={imageUrl} key={imageUrl} target="_blank" rel="noreferrer">
+                        <img src={imageUrl} alt="Minh chứng hủy đơn" />
+                      </a>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </article>
@@ -1405,7 +1616,7 @@ function OrderDetailDrawer({
         ) : null}
 
         {order.returnRequest ? (
-          <section className="admin-drawer-section">
+          <section className="admin-drawer-section admin-order-section-main">
             <div className="admin-section-inline-heading">
               <h3>Yêu cầu trả hàng</h3>
               <span className={getReturnRequestPillClass(order.returnRequest.status)}>
@@ -1416,7 +1627,11 @@ function OrderDetailDrawer({
               <strong className="admin-return-policy-note">
                 Chính sách trả hàng: 7 ngày từ lúc đơn được giao tới khách.
               </strong>
-              <p>{order.returnRequest.reason}</p>
+              <div className="admin-user-reason-block">
+                <span>Đầu vào từ khách</span>
+                <strong>Lý do yêu cầu trả hàng</strong>
+                <p>{order.returnRequest.reason}</p>
+              </div>
               <dl>
                 <div>
                   <dt>Gửi lúc</dt>
@@ -1431,25 +1646,33 @@ function OrderDetailDrawer({
                   <dd>{order.returnRequest.reviewedBy || 'Chưa có'}</dd>
                 </div>
                 <div>
-                  <dt>Ghi chú</dt>
+                  <dt>Phản hồi admin</dt>
                   <dd>{order.returnRequest.reviewReason || 'Chưa có'}</dd>
                 </div>
               </dl>
               {order.returnRequest.imageUrls?.length ? (
-                <div className="admin-evidence-grid">
-                  {order.returnRequest.imageUrls.map((imageUrl) => (
-                    <a href={imageUrl} key={imageUrl} target="_blank" rel="noreferrer">
-                      <img src={imageUrl} alt="Minh chứng trả hàng" />
-                    </a>
-                  ))}
+                <div className="admin-evidence-block">
+                  <span>Ảnh minh chứng khách gửi</span>
+                  <div className="admin-evidence-grid">
+                    {order.returnRequest.imageUrls.map((imageUrl) => (
+                      <a href={imageUrl} key={imageUrl} target="_blank" rel="noreferrer">
+                        <img src={imageUrl} alt="Minh chứng trả hàng" />
+                      </a>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </article>
           </section>
         ) : null}
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-side">
           <h3>Phương thức thanh toán của khách hàng</h3>
+          {needsRefundHandling ? (
+            <p className="admin-refund-bank-note">
+              Đơn cần hoàn tiền. Ưu tiên tài khoản ngân hàng khách đã cập nhật/xác minh; sau khi chuyển khoản ngoài hệ thống thì đánh dấu Đã hoàn tiền.
+            </p>
+          ) : null}
           {!canReadCustomerPaymentMethods ? (
             <p className="admin-muted-text">Cần quyền customers.read để xem phương thức thanh toán của khách.</p>
           ) : paymentMethods.length === 0 ? (
@@ -1492,7 +1715,7 @@ function OrderDetailDrawer({
           ) : null}
         </section>
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-main">
           <div className="admin-section-inline-heading">
             <h3>Khách hàng & giao hàng</h3>
             <button
@@ -1527,9 +1750,61 @@ function OrderDetailDrawer({
               <strong>{formatCurrency(order.shipping?.actualProviderCost ?? 0)}</strong>
             </div>
           </div>
+          <div className="admin-shipping-simulator">
+            <div className="admin-shipping-simulator-header">
+              <span>Đối tác vận chuyển</span>
+              <strong className={getShippingPillClass(order.shipping?.status)}>
+                {formatShippingStatus(order.shipping?.status)}
+              </strong>
+            </div>
+            {order.shipping?.status === 'failed' ? (
+              <p className="admin-shipping-failed-note">
+                Đơn vị vận chuyển báo giao không thành công. Admin có thể bấm Giao lại sau khi liên hệ khách, hoặc xử lý hoàn tiền/hỗ trợ theo chính sách.
+              </p>
+            ) : null}
+            <div className="admin-ghn-actions">
+              <button
+                className="admin-primary-button"
+                type="button"
+                disabled={!canUpdateOrders || isActionLoading || !canCreateGhnShipment(order)}
+                onClick={onCreateGhnShipment}
+              >
+                Tạo vận đơn GHN
+              </button>
+              <button
+                className="admin-secondary-button"
+                type="button"
+                disabled={!canUpdateOrders || isActionLoading || !canSyncGhnShipment(order)}
+                onClick={onSyncGhnShipment}
+              >
+                Đồng bộ GHN
+              </button>
+              <button
+                className="admin-danger-button"
+                type="button"
+                disabled={!canUpdateOrders || isActionLoading || !canCancelGhnShipment(order)}
+                onClick={onCancelGhnShipment}
+              >
+                Hủy vận đơn GHN
+              </button>
+            </div>
+            <div className="admin-shipping-simulator-actions">
+              {shippingSimulationActions.map((action) => (
+                <button
+                  className={action.className}
+                  type="button"
+                  key={action.status}
+                  disabled={!canUpdateOrders || isActionLoading || !canSimulateShippingStatus(order, action.status)}
+                  onClick={() => onSimulateShippingStatus(action.status)}
+                >
+                  {getShippingSimulationActionLabel(order, action)}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-main">
           <h3>Sản phẩm</h3>
           <div className="admin-order-item-list">
             {order.order_list.map((item) => (
@@ -1546,7 +1821,7 @@ function OrderDetailDrawer({
           </div>
         </section>
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-side">
           <div className="admin-section-inline-heading">
             <h3>Lượt thanh toán</h3>
             <button className="admin-link-button" type="button" onClick={onRefresh}>
@@ -1600,7 +1875,7 @@ function OrderDetailDrawer({
           )}
         </section>
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-side">
           <h3>Điều chỉnh thanh toán thủ công</h3>
           <p className="admin-muted-text">Chỉ dùng khi đã đối soát ngoài cổng thanh toán. Lý do bắt buộc và sẽ ghi nhật ký thao tác.</p>
           <div className="admin-drawer-actions">
@@ -1621,7 +1896,7 @@ function OrderDetailDrawer({
           ) : null}
         </section>
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-main">
           <div className="admin-section-inline-heading">
             <h3>Nhật ký thao tác</h3>
             <button className="admin-link-button" type="button" onClick={onRefresh}>
@@ -1655,7 +1930,7 @@ function OrderDetailDrawer({
           )}
         </section>
 
-        <section className="admin-drawer-section">
+        <section className="admin-drawer-section admin-order-section-side">
           <h3>Xử lý đơn</h3>
           {hasPendingReturnRequest ? (
             <div className="admin-drawer-actions">
@@ -1702,6 +1977,7 @@ function OrderDetailDrawer({
             <p className="admin-permission-note">Tài khoản này chỉ có quyền xem đơn hàng.</p>
           ) : null}
         </section>
+        </div>
       </aside>
     </div>
   )

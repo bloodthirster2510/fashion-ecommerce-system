@@ -147,6 +147,8 @@ export type OrderListResponse = {
     returnRequests: number
     refunds: number
     paidReady: number
+    packingReady?: number
+    handoffReady?: number
     readyToProcess?: number
     deliveryConfirmations?: number
     paymentRisk: number
@@ -181,6 +183,7 @@ export type AdminAuditLog = {
   action:
     | 'order.status_update'
     | 'order.shipping_update'
+    | 'order.shipping_webhook'
     | 'payment.adjust'
     | 'payment.expire'
     | 'payment_method.status_update'
@@ -211,6 +214,13 @@ export type UpdateOrderShippingPayload = {
   labelUrl?: string | null
   actualProviderCost?: number | null
   reason?: string | null
+}
+
+export type SimulateShippingWebhookPayload = {
+  status: 'picked' | 'shipping' | 'delivered' | 'failed'
+  reason?: string | null
+  trackingCode?: string | null
+  provider?: string | null
 }
 
 const buildOrderListQuery = (filters: OrderListFilters) => {
@@ -276,6 +286,28 @@ export const updateOrderShipping = (id: string, payload: UpdateOrderShippingPayl
   requestAdmin<AdminOrder>(`/admin/orders/${id}/shipping`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  })
+
+export const simulateShippingWebhook = (id: string, payload: SimulateShippingWebhookPayload) =>
+  requestAdmin<AdminOrder>(`/admin/orders/${id}/shipping-webhook-simulation`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+export const createGhnShipment = (id: string) =>
+  requestAdmin<AdminOrder>(`/admin/orders/${id}/ghn-shipment`, {
+    method: 'POST',
+  })
+
+export const cancelGhnShipment = (id: string, reason?: string) =>
+  requestAdmin<AdminOrder>(`/admin/orders/${id}/ghn-shipment/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+
+export const syncGhnShipment = (id: string) =>
+  requestAdmin<AdminOrder>(`/admin/orders/${id}/ghn-shipment/sync`, {
+    method: 'POST',
   })
 
 export const expireStalePayments = () =>

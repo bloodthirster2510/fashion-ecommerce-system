@@ -32,6 +32,8 @@ const navIcons: Record<NavId, () => ReactNode> = {
   products: ProductsIcon,
   catalog: TagsIcon,
   orders: OrdersIcon,
+  ordersOnline: PaymentOnlineIcon,
+  ordersCod: PaymentCodIcon,
   inventory: InventoryIcon,
   promotions: CouponIcon,
   reviews: ReviewIcon,
@@ -52,6 +54,8 @@ const routePermissions: Partial<Record<NavId, string>> = {
   products: 'products.read',
   catalog: 'catalog.read',
   orders: 'orders.read',
+  ordersOnline: 'orders.read',
+  ordersCod: 'orders.read',
   inventory: 'inventory.read',
   promotions: 'promotions.read',
   reviews: 'reviews.moderate',
@@ -146,6 +150,14 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       return <OrderListPage currentUser={currentUser} />
     }
 
+    if (renderedSection === 'ordersOnline') {
+      return <OrderListPage currentUser={currentUser} paymentSection="online" lockPaymentSection />
+    }
+
+    if (renderedSection === 'ordersCod') {
+      return <OrderListPage currentUser={currentUser} paymentSection="cod" lockPaymentSection />
+    }
+
     if (renderedSection === 'catalog') {
       return (
         <section className="admin-placeholder-page">
@@ -180,11 +192,12 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
               {group.items.map((item) => {
                 const Icon = item.icon
                 const isActive = item.id === renderedSection
+                const isOrderPaymentRoute = item.id === 'ordersOnline' || item.id === 'ordersCod'
 
                 return (
                   <button
                     aria-current={isActive ? 'page' : undefined}
-                    className={`admin-nav-item${isActive ? ' is-active' : ''}`}
+                    className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}`}
                     type="button"
                     key={item.id}
                     onClick={() => handleNavigate(item)}
@@ -296,6 +309,22 @@ function OrdersIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3 4h2.3l1.1 10.2A3 3 0 0 0 9.4 17H18v-2H9.4a1 1 0 0 1-1-.9L8.3 13h9.9a2 2 0 0 0 1.9-1.4L22 6H7.1L6.8 4H3v2Zm6 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm9 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+    </svg>
+  )
+}
+
+function PaymentOnlineIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 6h18v12H3V6Zm2 2v2h14V8H5Zm0 5v3h14v-3H5Zm2 1h5v1H7v-1Zm10-9h2v2h-2V5Zm-4 0h2v2h-2V5Z" />
+    </svg>
+  )
+}
+
+function PaymentCodIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 6h16v12H4V6Zm2 2v8h12V8H6Zm6 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Zm-4 0h2v1H8v-1Zm6 5h2v1h-2v-1ZM3 10h2v4H3v-4Zm16 0h2v4h-2v-4Z" />
     </svg>
   )
 }

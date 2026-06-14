@@ -102,11 +102,27 @@
   background: #eef6fb;
 }
 
+.admin-nav-item.is-child {
+  min-height: 46px;
+  margin-left: 22px;
+  padding: 8px 10px;
+  border-left-color: rgba(255, 255, 255, 0.18);
+}
+
+.admin-nav-item.is-child strong {
+  font-size: 13px;
+}
+
 .admin-nav-item svg {
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
   fill: currentColor;
+}
+
+.admin-nav-item.is-child svg {
+  width: 18px;
+  height: 18px;
 }
 
 .admin-nav-item span {
@@ -409,6 +425,10 @@
   .admin-nav-item {
     width: auto;
     min-width: 190px;
+  }
+
+  .admin-nav-item.is-child {
+    margin-left: 0;
   }
 
   .admin-content {

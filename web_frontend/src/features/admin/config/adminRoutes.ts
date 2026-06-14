@@ -6,6 +6,8 @@ export type AdminRouteId =
   | 'products'
   | 'catalog'
   | 'orders'
+  | 'ordersOnline'
+  | 'ordersCod'
   | 'inventory'
   | 'promotions'
   | 'reviews'
@@ -97,7 +99,21 @@ export const adminRoutes: AdminRoute[] = [
     id: 'orders',
     path: '/admin/orders',
     label: 'Hóa đơn & đơn hàng',
-    helper: 'Duyệt, giao hàng & hoàn tiền',
+    helper: 'Tra cứu mã đơn, hóa đơn & lịch sử',
+    group: 'sales',
+  },
+  {
+    id: 'ordersOnline',
+    path: '/admin/orders/online',
+    label: 'Thanh toán online',
+    helper: 'Đối soát VNPay, MoMo & thẻ',
+    group: 'sales',
+  },
+  {
+    id: 'ordersCod',
+    path: '/admin/orders/cod',
+    label: 'Thanh toán COD',
+    helper: 'Thu tiền khi nhận hàng',
     group: 'sales',
   },
   {
