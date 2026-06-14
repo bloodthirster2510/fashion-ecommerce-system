@@ -242,6 +242,12 @@
   background: #fff0f8;
 }
 
+.admin-orders-page .admin-status-pill.is-review {
+  border-color: #f0c28f;
+  color: #8b4d12;
+  background: #fff4e8;
+}
+
 .admin-orders-page .admin-status-pill.is-soft {
   border-color: #dce4ea;
   color: #5c6f81;
@@ -265,6 +271,59 @@
   gap: 3px;
 }
 
+.admin-order-workflow-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(86px, 1fr));
+  gap: 8px;
+  min-width: min(100%, 460px);
+}
+
+.admin-order-workflow-metrics span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 1px solid var(--metric-border, #dce4ea);
+  border-radius: 8px;
+  color: var(--metric-color, var(--admin-text));
+  background: var(--metric-bg, #fff);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.admin-order-workflow-metrics strong {
+  color: inherit;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.admin-order-workflow-metrics .is-actionable {
+  --metric-border: #b7dfc8;
+  --metric-color: #24623f;
+  --metric-bg: #e8f6ee;
+}
+
+.admin-order-workflow-metrics .is-review {
+  --metric-border: #f0c28f;
+  --metric-color: #8b4d12;
+  --metric-bg: #fff4e8;
+}
+
+.admin-order-workflow-metrics .is-refund {
+  --metric-border: #e4bdd7;
+  --metric-color: #87456f;
+  --metric-bg: #fff0f8;
+}
+
+.admin-order-workflow-metrics .is-blocked {
+  --metric-border: #efb5a7;
+  --metric-color: #9b351e;
+  --metric-bg: #fff2ee;
+}
+
 .admin-order-workflow span {
   color: var(--admin-muted);
   font-size: 11px;
@@ -283,6 +342,16 @@
   color: var(--admin-muted);
   font-size: 12px;
   font-weight: 750;
+}
+
+.admin-order-workflow .admin-order-workflow-metrics span {
+  color: var(--metric-color, var(--admin-text));
+  text-transform: none;
+}
+
+.admin-order-workflow .admin-order-workflow-metrics strong {
+  color: inherit;
+  font-size: 18px;
 }
 
 .admin-order-tabs {
@@ -320,14 +389,17 @@
   min-width: 0;
 }
 
-.admin-order-approval-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border: 2px solid #fff;
+.admin-order-tab-count {
+  min-width: 24px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 7px;
   border-radius: 999px;
-  background: #d93025;
-  box-shadow: 0 0 0 2px rgba(217, 48, 37, 0.14);
+  color: var(--order-tab-color);
+  background: var(--order-tab-soft);
+  font-size: 12px;
+  font-weight: 950;
 }
 
 .admin-order-tab {
@@ -346,13 +418,13 @@
 }
 
 .admin-order-tab.is-review {
-  --order-tab-color: #9a3c64;
-  --order-tab-soft: #fff0f6;
+  --order-tab-color: #8b4d12;
+  --order-tab-soft: #fff4e8;
 }
 
 .admin-order-tab.is-refund {
-  --order-tab-color: #806018;
-  --order-tab-soft: #fff6d8;
+  --order-tab-color: #87456f;
+  --order-tab-soft: #fff0f8;
 }
 
 .admin-order-tab.is-all {
@@ -371,6 +443,11 @@
   color: #fff;
   background: var(--order-tab-color);
   box-shadow: 0 10px 20px rgba(31, 45, 61, 0.12);
+}
+
+.admin-order-tabs button.is-active .admin-order-tab-count {
+  color: var(--order-tab-color);
+  background: #fff;
 }
 
 .admin-orders-table {
@@ -565,6 +642,10 @@
   border-left-color: #4b9a68;
 }
 
+.admin-detail-card.is-delivery {
+  border-left-color: #4e94bd;
+}
+
 .admin-detail-grid .admin-status-pill {
   width: max-content;
   min-width: 0;
@@ -595,6 +676,17 @@
   font-size: 14px;
   font-weight: 800;
   line-height: 1.5;
+}
+
+.admin-return-policy-note {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #8b4d12;
+  background: #fff4e8;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.35;
 }
 
 .admin-return-request-card dl {
@@ -943,6 +1035,12 @@
   .admin-order-workflow {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .admin-order-workflow-metrics {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .admin-order-drawer {

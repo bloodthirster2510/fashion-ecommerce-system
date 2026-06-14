@@ -96,8 +96,8 @@ export const adminRoutes: AdminRoute[] = [
   {
     id: 'orders',
     path: '/admin/orders',
-    label: 'Đơn hàng',
-    helper: 'Thanh toán & vận chuyển',
+    label: 'Hóa đơn & đơn hàng',
+    helper: 'Duyệt, giao hàng & hoàn tiền',
     group: 'sales',
   },
   {

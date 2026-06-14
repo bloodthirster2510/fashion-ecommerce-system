@@ -83,6 +83,7 @@ export type AdminOrder = {
   status: AdminOrderStatus
   paymentMethod: AdminOrderPaymentMethod
   paymentStatus: AdminOrderPaymentStatus
+  deliveredAt?: string | null
   returnRequest?: AdminOrderReturnRequest | null
   cancellation?: AdminOrderCancellation | null
   shipping?: AdminOrderShipping | null
@@ -145,6 +146,8 @@ export type OrderListResponse = {
     returnRequests: number
     refunds: number
     paidReady: number
+    readyToProcess?: number
+    deliveryConfirmations?: number
     paymentRisk: number
     totalPriority: number
   }

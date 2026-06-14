@@ -46,6 +46,8 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const MAX_ORDER_EVIDENCE_IMAGES = 5;
 const MAX_ORDER_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
+const RETURN_WINDOW_DAYS = 7;
+const RETURN_WINDOW_MS = RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO'];
 const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
 const ORDER_STATUSES: OrderStatus[] = [
@@ -151,7 +153,15 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
   const countWith = (condition: Record<string, unknown>) =>
     Order.countDocuments({ $and: [summaryFilter, condition] });
 
-  const [returnRequests, refunds, paidReady, paymentRisk] = await Promise.all([
+  const readyOrderCondition = {
+    paymentStatus: { $ne: 'failed' },
+    $or: [
+      { paymentMethod: 'COD' },
+      { paymentStatus: 'paid' },
+    ],
+  };
+
+  const [returnRequests, refunds, paidReady, readyToProcess, deliveryConfirmations, paymentRisk] = await Promise.all([
     countWith({
       status: 'return_requested',
       'returnRequest.status': 'requested',
@@ -163,6 +173,14 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     countWith({
       status: { $in: ['confirmed', 'packed'] },
       paymentStatus: 'paid',
+    }),
+    countWith({
+      status: { $in: ['confirmed', 'packed'] },
+      ...readyOrderCondition,
+    }),
+    countWith({
+      status: 'shipping',
+      ...readyOrderCondition,
     }),
     countWith({
       status: { $nin: ['cancelled', 'returned'] },
@@ -180,8 +198,10 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     returnRequests,
     refunds,
     paidReady,
+    readyToProcess,
+    deliveryConfirmations,
     paymentRisk,
-    totalPriority: returnRequests + refunds + paidReady + paymentRisk,
+    totalPriority: returnRequests + refunds + readyToProcess + deliveryConfirmations + paymentRisk,
   };
 };
 
@@ -447,6 +467,23 @@ const assertReturnReviewDecision: (
 ) => {
   if (value !== 'approved' && value !== 'rejected') {
     throw new SalesServiceError('Invalid return review decision', 400);
+  }
+};
+
+const getDeliveredAt = (order: IOrder) => order.deliveredAt ?? order.updatedAt ?? null;
+
+const assertReturnWindowIsOpen = (order: IOrder) => {
+  const deliveredAt = getDeliveredAt(order);
+
+  if (!deliveredAt) {
+    throw new SalesServiceError('Delivery time is required before requesting return', 400);
+  }
+
+  if (Date.now() - deliveredAt.getTime() > RETURN_WINDOW_MS) {
+    throw new SalesServiceError(
+      `Return requests are only available within ${RETURN_WINDOW_DAYS} days after delivery`,
+      400,
+    );
   }
 };
 
@@ -859,7 +896,9 @@ const confirmOrderReceived = async (userId: string, id: string) => {
 
   assertOrderStatusTransition(order.status, 'delivered');
   assertPaymentAllowsOrderStatus(order, 'delivered');
+  const deliveredAt = new Date();
   order.status = 'delivered';
+  order.deliveredAt = deliveredAt;
 
   if (order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';
@@ -885,6 +924,7 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
     throw new SalesServiceError('Order can only request return after it is delivered', 400);
   }
 
+  assertReturnWindowIsOpen(order);
   assertOrderStatusTransition(order.status, 'return_requested');
   assertPaymentAllowsOrderStatus(order, 'return_requested');
   const evidenceImageUrls = await resolveEvidenceImageUrls(order._id.toString(), 'return', input);
@@ -953,10 +993,6 @@ const updateOrderStatus = async (
     throw new SalesServiceError('Use the return request review workflow for return orders', 400);
   }
 
-  if (order.status === 'shipping' && input.status === 'delivered') {
-    throw new SalesServiceError('Customer confirmation is required before completing a delivered order', 400);
-  }
-
   assertOrderStatusTransition(order.status, input.status);
 
   if (order.status === input.status) {
@@ -966,6 +1002,14 @@ const updateOrderStatus = async (
   assertPaymentAllowsOrderStatus(order, input.status);
 
   order.status = input.status;
+
+  if (input.status === 'delivered') {
+    order.deliveredAt = new Date();
+    order.shipping = {
+      ...(order.shipping ?? {}),
+      status: 'delivered',
+    };
+  }
 
   if (input.status === 'delivered' && order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';

@@ -102,6 +102,7 @@ export interface IOrder extends Document {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: Types.ObjectId | null;
   paymentStatus: OrderPaymentStatus;
+  deliveredAt?: Date | null;
   returnRequest?: IOrderReturnRequest | null;
   cancellation?: IOrderCancellation | null;
   shipping: IOrderShipping;
@@ -261,6 +262,7 @@ const orderSchema = new Schema<IOrder>(
       required: true,
       default: 'pending',
     },
+    deliveredAt: { type: Date, default: null },
     returnRequest: { type: orderReturnRequestSchema, default: null },
     cancellation: { type: orderCancellationSchema, default: null },
     shipping: { type: orderShippingSchema, default: {} },

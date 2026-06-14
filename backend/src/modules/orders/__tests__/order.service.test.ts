@@ -501,6 +501,7 @@ describe('orderService', () => {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
       status: 'shipping',
+      deliveredAt: null,
       paymentMethod: 'COD',
       paymentStatus: 'pending',
       shipping: {
@@ -516,6 +517,7 @@ describe('orderService', () => {
 
     expect(order.status).toBe('delivered');
     expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
@@ -527,6 +529,7 @@ describe('orderService', () => {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
       status: 'delivered',
+      deliveredAt: new Date(),
       paymentMethod: 'VNPAY',
       paymentStatus: 'paid',
       returnRequest: null,
@@ -552,6 +555,30 @@ describe('orderService', () => {
     });
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('rejects return requests after the 7 day delivery window', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000059');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'delivered',
+      deliveredAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      returnRequest: null,
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.requestReturn(userId, orderId.toString(), {
+        reason: 'Size is not suitable',
+      }),
+    ).rejects.toThrow('Return requests are only available within 7 days after delivery');
+
+    expect(order.save).not.toHaveBeenCalled();
   });
 
   it('approves a pending return request without changing payment status', async () => {
@@ -726,24 +753,32 @@ describe('orderService', () => {
     expect(order.save).not.toHaveBeenCalled();
   });
 
-  it('requires customer confirmation before admin completes a shipping order', async () => {
+  it('lets admin complete a shipping order when delivery is confirmed externally', async () => {
     const orderId = new Types.ObjectId('665000000000000000000058');
     const order = {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
       status: 'shipping',
+      deliveredAt: null,
       paymentMethod: 'COD',
       paymentStatus: 'pending',
+      shipping: {
+        status: 'delivering',
+      },
       order_list: [],
       save: jest.fn(),
     };
+    order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
 
-    await expect(
-      orderService.updateOrderStatus(orderId.toString(), { status: 'delivered' }),
-    ).rejects.toThrow('Customer confirmation is required before completing a delivered order');
+    const result = await orderService.updateOrderStatus(orderId.toString(), { status: 'delivered' });
 
-    expect(order.save).not.toHaveBeenCalled();
+    expect(order.status).toBe('delivered');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toEqual(expect.any(Date));
+    expect(order.shipping.status).toBe('delivered');
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
   });
 
   it('rejects processing online orders before payment is paid', async () => {
