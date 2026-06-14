@@ -354,6 +354,77 @@
   font-size: 18px;
 }
 
+.admin-payment-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.admin-payment-section-card {
+  display: grid;
+  gap: 5px;
+  min-height: 92px;
+  padding: 12px 14px;
+  border: 1px solid var(--section-border, var(--admin-line));
+  border-left: 5px solid var(--section-color, var(--admin-accent));
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.admin-payment-section-card span {
+  color: var(--section-color, var(--admin-accent-dark));
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.admin-payment-section-card strong {
+  color: var(--admin-text);
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.admin-payment-section-card small {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.admin-payment-section-card.is-online {
+  --section-color: #315f83;
+  --section-border: #b8d7ea;
+  --section-bg: #eef6fb;
+}
+
+.admin-payment-section-card.is-cod {
+  --section-color: #276140;
+  --section-border: #b7dfc8;
+  --section-bg: #e8f6ee;
+}
+
+.admin-payment-section-card:hover,
+.admin-payment-section-card.is-active {
+  border-color: var(--section-border);
+  background: var(--section-bg);
+  box-shadow: 0 12px 24px rgba(31, 45, 61, 0.1);
+}
+
+.admin-payment-section-card.is-active {
+  transform: translateY(-1px);
+}
+
 .admin-order-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1041,6 +1112,10 @@
     width: 100%;
     min-width: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-payment-sections {
+    grid-template-columns: 1fr;
   }
 
   .admin-order-drawer {

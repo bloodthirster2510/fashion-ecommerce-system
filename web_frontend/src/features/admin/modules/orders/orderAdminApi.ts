@@ -133,6 +133,7 @@ export type OrderListFilters = {
   status?: AdminOrderStatus | 'all'
   statuses?: AdminOrderStatus[]
   paymentMethod?: AdminOrderPaymentMethod | 'all'
+  paymentMethods?: AdminOrderPaymentMethod[]
   paymentStatus?: AdminOrderPaymentStatus | 'all'
   keyword?: string
   page?: number
@@ -230,6 +231,10 @@ const buildOrderListQuery = (filters: OrderListFilters) => {
 
   if (filters.paymentMethod && filters.paymentMethod !== 'all') {
     params.set('paymentMethod', filters.paymentMethod)
+  }
+
+  if (filters.paymentMethods?.length) {
+    params.set('paymentMethods', filters.paymentMethods.join(','))
   }
 
   if (filters.paymentStatus && filters.paymentStatus !== 'all') {

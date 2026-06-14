@@ -162,6 +162,23 @@ const parsePaymentMethod = (value: unknown) => {
   return paymentMethod as OrderPaymentMethod;
 };
 
+const parsePaymentMethods = (value: unknown) => {
+  const paymentMethods = parseStringList(value);
+
+  if (paymentMethods.length === 0) {
+    return undefined;
+  }
+
+  const uniquePaymentMethods = Array.from(new Set(paymentMethods));
+  uniquePaymentMethods.forEach((paymentMethod) => {
+    if (!PAYMENT_METHODS.includes(paymentMethod as OrderPaymentMethod)) {
+      throw new SalesServiceError('Invalid payment method', 400);
+    }
+  });
+
+  return uniquePaymentMethods as OrderPaymentMethod[];
+};
+
 const parsePaymentStatus = (value: unknown) => {
   const paymentStatus = parseString(value);
 
@@ -180,6 +197,7 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   status: parseStatus(req.query.status),
   statuses: parseStatuses(req.query.statuses),
   paymentMethod: parsePaymentMethod(req.query.paymentMethod),
+  paymentMethods: parsePaymentMethods(req.query.paymentMethods),
   paymentStatus: parsePaymentStatus(req.query.paymentStatus),
   keyword: parseString(req.query.keyword),
   from: parseDate(req.query.from, 'from'),

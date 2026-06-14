@@ -36,10 +36,10 @@ type OrderTab = {
   statuses?: AdminOrderStatus[]
   paymentStatus?: AdminOrderPaymentStatus
   queue?: OrderQueueKey
-  requiresApproval?: boolean
 }
 
 type OrderQueueKey = 'actionable' | 'blocked' | 'review' | 'refund'
+type PaymentSectionKey = 'online' | 'cod'
 
 type Notice = {
   type: 'success' | 'error'
@@ -70,6 +70,32 @@ const emptyOperationalSummary = {
   totalPriority: 0,
 }
 
+const onlinePaymentMethods: AdminOrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK']
+const codPaymentMethods: AdminOrderPaymentMethod[] = ['COD']
+
+const paymentSections: Array<{
+  key: PaymentSectionKey
+  label: string
+  helper: string
+  methods: AdminOrderPaymentMethod[]
+}> = [
+  {
+    key: 'online',
+    label: 'Thanh toán online',
+    helper: 'VNPay, MoMo, thẻ và chuyển khoản cần ghi nhận tiền trước khi xử lý giao.',
+    methods: onlinePaymentMethods,
+  },
+  {
+    key: 'cod',
+    label: 'COD',
+    helper: 'Đơn thu tiền khi nhận hàng, ưu tiên đóng gói, giao hàng và xác nhận đã giao.',
+    methods: codPaymentMethods,
+  },
+]
+
+const getPaymentSectionMethods = (sectionKey: PaymentSectionKey) =>
+  sectionKey === 'cod' ? codPaymentMethods : onlinePaymentMethods
+
 const orderTabs: OrderTab[] = [
   {
     key: 'actionable',
@@ -77,7 +103,6 @@ const orderTabs: OrderTab[] = [
     helper: 'Đơn đủ điều kiện để đóng gói, bàn giao vận chuyển hoặc xác nhận đã giao tới khách.',
     statuses: ['confirmed', 'packed', 'shipping'],
     queue: 'actionable',
-    requiresApproval: true,
   },
   {
     key: 'review',
@@ -85,7 +110,6 @@ const orderTabs: OrderTab[] = [
     helper: 'Yêu cầu đổi/trả cần kiểm tra lý do, minh chứng và thời hạn 7 ngày từ lúc giao.',
     statuses: ['return_requested'],
     queue: 'review',
-    requiresApproval: true,
   },
   {
     key: 'refund',
@@ -94,7 +118,6 @@ const orderTabs: OrderTab[] = [
     statuses: ['cancelled'],
     paymentStatus: 'paid',
     queue: 'refund',
-    requiresApproval: true,
   },
   {
     key: 'blocked',
@@ -609,6 +632,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [customerPaymentMethods, setCustomerPaymentMethods] = useState<AdminCustomerPaymentMethod[]>([])
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
+  const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>('online')
   const [activeTabKey, setActiveTabKey] = useState('actionable')
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
   const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
@@ -623,6 +647,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
   const [notice, setNotice] = useState<Notice | null>(null)
 
   const activeTab = orderTabs.find((tab) => tab.key === activeTabKey) ?? orderTabs[0]
+  const activePaymentSection = paymentSections.find((section) => section.key === activePaymentSectionKey) ?? paymentSections[0]
   const canUpdateOrders =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('orders.update'))
   const canAdjustPayments =
@@ -643,11 +668,14 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     try {
       const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
       const effectiveLimit = activeTab.queue ? 100 : pageSize
+      const sectionPaymentMethods = getPaymentSectionMethods(activePaymentSectionKey)
+      const selectedPaymentMethod = activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod
       const result = await listOrders({
         keyword,
         statuses: activeTab.statuses,
         paymentStatus: effectivePaymentStatus,
-        paymentMethod,
+        paymentMethod: selectedPaymentMethod === 'all' ? undefined : selectedPaymentMethod,
+        paymentMethods: selectedPaymentMethod === 'all' ? sectionPaymentMethods : undefined,
         page: activeTab.queue ? 1 : page,
         limit: effectiveLimit,
       })
@@ -669,7 +697,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [activeTab.paymentStatus, activeTab.queue, activeTab.statuses, keyword, page, paymentMethod, paymentStatus])
+  }, [activePaymentSectionKey, activeTab.paymentStatus, activeTab.queue, activeTab.statuses, keyword, page, paymentMethod, paymentStatus])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -967,7 +995,7 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
       <section className="admin-order-workflow" aria-label="Phân loại xử lý đơn hàng">
         <div>
           <span>Hàng đợi đang xem</span>
-          <strong>{activeTab.label}</strong>
+          <strong>{activePaymentSection.label} / {activeTab.label}</strong>
           <p>{activeTab.helper ?? 'Chọn nhóm để tập trung đúng loại đơn cần thao tác.'}</p>
         </div>
         <div className="admin-order-workflow-metrics" aria-label="Số lượng việc cần xử lý">
@@ -988,6 +1016,31 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
             Đang vướng
           </span>
         </div>
+      </section>
+
+      <section className="admin-payment-sections" aria-label="Phân luồng thanh toán">
+        {paymentSections.map((section) => {
+          const isActiveSection = section.key === activePaymentSectionKey
+
+          return (
+            <button
+              className={`admin-payment-section-card is-${section.key}${isActiveSection ? ' is-active' : ''}`}
+              key={section.key}
+              type="button"
+              aria-pressed={isActiveSection}
+              onClick={() => {
+                setActivePaymentSectionKey(section.key)
+                setPaymentMethod(section.key === 'cod' ? 'COD' : 'all')
+                setPaymentStatus('all')
+                setPage(1)
+              }}
+            >
+              <span>{isActiveSection ? 'Đang xem' : 'Luồng xử lý'}</span>
+              <strong>{section.label}</strong>
+              <small>{section.helper}</small>
+            </button>
+          )
+        })}
       </section>
 
       <div className="admin-order-tabs" role="tablist" aria-label="Phân loại đơn hàng">
@@ -1032,16 +1085,17 @@ export function OrderListPage({ currentUser }: OrdersPageProps) {
         <label>
           <span>Phương thức</span>
           <select
-            value={paymentMethod}
+            value={activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod}
+            disabled={activePaymentSectionKey === 'cod'}
             onChange={(event) => {
               setPaymentMethod(event.target.value as AdminOrderPaymentMethod | 'all')
               setPage(1)
             }}
           >
-            <option value="all">Tất cả</option>
-            {Object.entries(paymentMethodLabels).map(([value, label]) => (
+            <option value="all">Tất cả online</option>
+            {getPaymentSectionMethods(activePaymentSectionKey).map((value) => (
               <option key={value} value={value}>
-                {label}
+                {paymentMethodLabels[value]}
               </option>
             ))}
           </select>
