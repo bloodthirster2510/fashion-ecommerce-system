@@ -14,9 +14,7 @@
   display: flex;
   overflow: hidden;
   color: var(--admin-text);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(244, 246, 248, 0.96)),
-    var(--admin-bg);
+  background: #f3f3f3;
   font-family: var(--font-sans);
   letter-spacing: 0;
   text-align: left;
