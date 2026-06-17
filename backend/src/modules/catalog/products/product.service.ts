@@ -258,7 +258,6 @@ type PopulatedCategory = {
   parent_id?: Types.ObjectId | null;
   level?: number;
   image?: string;
-  bannerImage?: string | null;
   isSizeTemplateSource?: boolean;
   sizeTemplateSourceId?: Types.ObjectId | null;
   sizes?: string[];
@@ -682,7 +681,6 @@ const mapProductListItem = (
         name: product.category_id.name,
         gender: product.category_id.gender,
         image: product.category_id.image,
-        bannerImage: product.category_id.bannerImage ?? null,
       }
     : null;
 
@@ -722,7 +720,6 @@ const mapFilterCategory = (category: {
   parent_id?: Types.ObjectId | null;
   level?: number;
   image?: string;
-  bannerImage?: string | null;
 }) => ({
   _id: category._id.toString(),
   name: category.name,
@@ -730,14 +727,13 @@ const mapFilterCategory = (category: {
   parent_id: category.parent_id?.toString() ?? null,
   level: category.level,
   image: category.image,
-  bannerImage: category.bannerImage ?? null,
 });
 
 const getProductListFilters = async (filter: ProductListFilter, query: ProductListQueryInput) => {
   const [brands, categories, colors, fitTypes, sizes] = await Promise.all([
     Brand.find({ isActive: true }).select('_id name image').sort({ name: 1 }).lean(),
     Category.find({ isActive: true, ...(query.gender ? { gender: query.gender } : {}) })
-      .select('_id name gender parent_id level image bannerImage')
+      .select('_id name gender parent_id level image')
       .sort({ gender: 1, level: 1, name: 1 })
       .lean(),
     Product.distinct('variant.colors.color', filter),
@@ -755,7 +751,7 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
 };
 
 const PRODUCT_DETAIL_CATEGORY_PROJECTION =
-  '_id name gender parent_id level image bannerImage isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes';
+  '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes';
 
 const DEFAULT_PRODUCT_POLICIES = [
   {
@@ -953,7 +949,6 @@ const mapDetailCategory = (relation: ProductListDocument['category_id']) => {
     name: relation.name,
     gender: relation.gender,
     image: relation.image,
-    bannerImage: relation.bannerImage ?? null,
   };
 };
 
@@ -1281,7 +1276,7 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
   const [products, totalItems, filters] = await Promise.all([
     Product.find(filter)
       .populate('brand_id', '_id name image')
-      .populate('category_id', '_id name gender image bannerImage')
+      .populate('category_id', '_id name gender image')
       .sort(sort)
       .skip((page - 1) * limit)
       .limit(limit)

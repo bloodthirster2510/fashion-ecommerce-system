@@ -98,7 +98,6 @@ export interface ProductListItem {
     name: string;
     gender?: ProductGenderFilter;
     image?: string;
-    bannerImage?: string | null;
   } | null;
 }
 
@@ -122,7 +121,6 @@ export interface ProductListResponse {
       parent_id?: string | null;
       level?: number;
       image?: string;
-      bannerImage?: string | null;
     }>;
   };
 }
@@ -211,7 +209,6 @@ export interface ProductDetailResponse {
     name: string;
     gender?: ProductGenderFilter;
     image?: string;
-    bannerImage?: string | null;
   } | null;
   categoryBreadcrumb: ProductCategoryBreadcrumbItem[];
   variants: ProductDetailVariant[];

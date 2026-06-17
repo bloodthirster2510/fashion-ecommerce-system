@@ -210,7 +210,6 @@ const createCategory = async (input: CreateCategoryInput) => {
     level: input.level,
     gender: input.gender,
     image: input.image.trim(),
-    bannerImage: input.bannerImage?.trim() || null,
     description: input.description.trim(),
     isLeaf: input.isLeaf ?? false,
     isSizeTemplateSource: input.isSizeTemplateSource ?? false,
@@ -252,7 +251,6 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   if (input.level !== undefined) updateData.level = input.level;
   if (input.gender !== undefined) updateData.gender = input.gender;
   if (input.image !== undefined) updateData.image = input.image.trim();
-  if (input.bannerImage !== undefined) updateData.bannerImage = input.bannerImage?.trim() || null;
   if (input.description !== undefined) updateData.description = input.description.trim();
   if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
   if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;

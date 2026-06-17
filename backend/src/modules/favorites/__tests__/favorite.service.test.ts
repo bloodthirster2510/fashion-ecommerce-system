@@ -73,7 +73,6 @@ const product = {
     name: 'Ao thun',
     gender: 'unisex',
     image: 'https://example.com/category.png',
-    bannerImage: null,
   },
   name: 'Basic Tee',
   brand_id: {

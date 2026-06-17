@@ -7,7 +7,6 @@ export type CatalogCategory = {
   level: number
   gender: CategoryGender
   image: string
-  bannerImage?: string | null
   description: string
   isLeaf: boolean
   isActive: boolean
@@ -72,7 +71,6 @@ export type ProductListItem = {
     name: string
     gender?: CategoryGender
     image?: string
-    bannerImage?: string | null
   } | null
 }
 
@@ -95,7 +93,6 @@ export type ProductListResponse = {
       parent_id?: string | null
       level?: number
       image?: string
-      bannerImage?: string | null
     }>
   }
 }
