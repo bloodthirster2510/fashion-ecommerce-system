@@ -1,8 +1,14 @@
 import { SortOrder, Types } from 'mongoose';
 import {
   Brand,
+  Cart,
   Category,
+  Coupon,
+  Favorite,
   Inventory,
+  InventoryImport,
+  InventoryReservation,
+  Order,
   Product,
   type ICategory,
   type ICategoryFitType,
@@ -20,6 +26,7 @@ import type {
   ProductGenderFilter,
   ProductListQueryInput,
   ProductListResponse,
+  ProductManagementItem,
   ProductSortOption,
   ProductVariantInput,
   UpdateProductInput,
@@ -54,6 +61,10 @@ const assertBrandExists = async (brandId: string) => {
   if (!brand) {
     throw new ProductServiceError('Brand not found', 404);
   }
+
+  if (brand.isActive === false) {
+    throw new ProductServiceError('Brand is inactive', 400);
+  }
 };
 
 const assertCategoryExists = async (categoryId: string) => {
@@ -64,6 +75,10 @@ const assertCategoryExists = async (categoryId: string) => {
   if (!category) {
     throw new ProductServiceError('Category not found', 404);
   }
+
+  if (category.isActive === false) {
+    throw new ProductServiceError('Category is inactive', 400);
+  }
 };
 
 const normalizeVariants = (variants?: ProductVariantInput[]) => {
@@ -72,11 +87,18 @@ const normalizeVariants = (variants?: ProductVariantInput[]) => {
   }
 
   return variants.map((variant) => {
+    const variantId = variant._id?.trim();
+
+    if (variantId && !Types.ObjectId.isValid(variantId)) {
+      throw new ProductServiceError('Invalid variant id', 400);
+    }
+
     if (!variant.fitTypeId || !variant.fitTypeId.trim()) {
       throw new ProductServiceError('Variant fitTypeId is required', 400);
     }
 
     return {
+      ...(variantId ? { _id: new Types.ObjectId(variantId) } : {}),
       fitTypeId: new Types.ObjectId(variant.fitTypeId.trim()),
       price: variant.price,
       discount: variant.discount,
@@ -88,6 +110,9 @@ const normalizeVariants = (variants?: ProductVariantInput[]) => {
         })),
       })),
       colors: variant.colors.map((color) => ({
+        ...(color._id?.trim()
+          ? { _id: new Types.ObjectId(color._id.trim()) }
+          : {}),
         color: color.color.trim(),
         colorCode: color.colorCode?.trim(),
         image: color.image.trim(),
@@ -134,6 +159,10 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
   }
 
   for (const variant of variants) {
+    if (variant._id?.trim() && !Types.ObjectId.isValid(variant._id.trim())) {
+      throw new ProductServiceError('Invalid variant id', 400);
+    }
+
     if (!variant.fitTypeId?.trim()) {
       throw new ProductServiceError('Variant fitTypeId is required', 400);
     }
@@ -152,6 +181,12 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
 
     if (!variant.colors?.length) {
       throw new ProductServiceError('Variant must include at least one color option', 400);
+    }
+
+    for (const color of variant.colors) {
+      if (color._id?.trim() && !Types.ObjectId.isValid(color._id.trim())) {
+        throw new ProductServiceError('Invalid color variant id', 400);
+      }
     }
   }
 };
@@ -202,7 +237,6 @@ const assertVariantTemplateMatchesCategory = async (
   }
 
   const templateCategory = await resolveCategoryTemplateSource(categoryId);
-  const allowedSizeMap = new Map(templateCategory.sizes.map((size) => [size.trim().toLowerCase(), true]));
   const measurementKeys = templateCategory.measurementFields.map((field) => field.key.trim().toLowerCase());
   const requiredMeasurements = templateCategory.measurementFields
     .filter((field) => field.required)
@@ -217,11 +251,6 @@ const assertVariantTemplateMatchesCategory = async (
     }
 
     for (const sizeMeasurement of variant.sizeMeasurements) {
-      const size = sizeMeasurement.size.trim().toLowerCase();
-      if (!allowedSizeMap.has(size)) {
-        throw new ProductServiceError(`Size ${sizeMeasurement.size} is not allowed for this category`, 400);
-      }
-
       const measurementKeysForSize = sizeMeasurement.measurements.map((measurement) => measurement.key.trim().toLowerCase());
       for (const requiredKey of requiredMeasurements) {
         if (!measurementKeysForSize.includes(requiredKey)) {
@@ -285,6 +314,26 @@ type InventoryStockDocument = Pick<
   IInventory,
   'productId' | 'variantId' | 'colorVariantId' | 'size' | 'sku' | 'quantity' | 'reservedQuantity' | 'availableQuantity'
 >;
+
+type InventoryQuantityDocument = Pick<
+  IInventory,
+  'quantity' | 'reservedQuantity' | 'availableQuantity'
+>;
+
+type ProductManagementDocument = Omit<ProductListDocument, 'brand_id' | 'category_id'> & {
+  brand: PopulatedBrand | null;
+  category: PopulatedCategory | null;
+  templateCategory: PopulatedCategory | null;
+  inventoryItems: InventoryStockDocument[];
+};
+
+type ProductPermanentDeleteCheckInput = {
+  productId: Types.ObjectId;
+  categoryId?: string;
+  soldQuantity: number;
+  reviewCount: number;
+  inventoryItems?: InventoryQuantityDocument[];
+};
 
 const escapeRegex = (value: string) => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -657,6 +706,150 @@ const groupInventoryByProductId = (inventoryItems: InventoryStockDocument[]) => 
   });
 
   return inventoryByProductId;
+};
+
+const getInventoryLookupKey = (
+  variantId: Types.ObjectId | string | { toString(): string },
+  colorVariantId: Types.ObjectId | string | { toString(): string },
+  size: string,
+) => {
+  return `${toIdString(variantId)}:${toIdString(colorVariantId)}:${size.trim().toLowerCase()}`;
+};
+
+const groupInventoryByVariantColorAndSize = (
+  inventoryItems: InventoryStockDocument[],
+) => {
+  return new Map(
+    inventoryItems.map((inventory) => [
+      getInventoryLookupKey(
+        inventory.variantId,
+        inventory.colorVariantId,
+        inventory.size,
+      ),
+      inventory,
+    ]),
+  );
+};
+
+const getInventoryOptionKey = (
+  variantId: Types.ObjectId | string | { toString(): string },
+  colorVariantId: Types.ObjectId | string | { toString(): string },
+) => `${toIdString(variantId)}:${toIdString(colorVariantId)}`;
+
+const getSizeSetKey = (sizes: Iterable<string>) => {
+  return [...sizes].map((size) => size.trim().toLowerCase()).sort().join('|');
+};
+
+const repairInventoryReferencesForProduct = async (
+  productId: Types.ObjectId,
+  variants: IProductVariant[],
+  inventoryItems: InventoryStockDocument[],
+) => {
+  if (!inventoryItems.length || !variants.length) {
+    return;
+  }
+
+  const currentOptions = variants.flatMap((variant) =>
+    variant.colors.map((color) => ({
+      variantId: toIdString(variant._id),
+      colorVariantId: toIdString(color._id),
+      sizeSetKey: getSizeSetKey(variant.sizeMeasurements.map((item) => item.size)),
+    })),
+  );
+  const currentOptionKeys = new Set(
+    currentOptions.map((option) => getInventoryOptionKey(option.variantId, option.colorVariantId)),
+  );
+  const occupiedCurrentKeys = new Set<string>();
+  const orphanGroups = new Map<string, InventoryStockDocument[]>();
+
+  inventoryItems.forEach((inventory) => {
+    const optionKey = getInventoryOptionKey(inventory.variantId, inventory.colorVariantId);
+
+    if (currentOptionKeys.has(optionKey)) {
+      occupiedCurrentKeys.add(optionKey);
+      return;
+    }
+
+    const group = orphanGroups.get(optionKey) ?? [];
+    group.push(inventory);
+    orphanGroups.set(optionKey, group);
+  });
+
+  if (!orphanGroups.size) {
+    return;
+  }
+
+  const usedTargetKeys = new Set<string>();
+  const replacements: Array<{
+    fromVariantId: Types.ObjectId;
+    fromColorVariantId: Types.ObjectId;
+    toVariantId: Types.ObjectId;
+    toColorVariantId: Types.ObjectId;
+  }> = [];
+
+  for (const group of orphanGroups.values()) {
+    const source = group[0];
+    const sourceSizeSetKey = getSizeSetKey(group.map((item) => item.size));
+    const target = currentOptions.find((option) => {
+      const optionKey = getInventoryOptionKey(option.variantId, option.colorVariantId);
+      return (
+        option.sizeSetKey === sourceSizeSetKey &&
+        !occupiedCurrentKeys.has(optionKey) &&
+        !usedTargetKeys.has(optionKey)
+      );
+    });
+
+    if (!source || !target) {
+      continue;
+    }
+
+    const targetKey = getInventoryOptionKey(target.variantId, target.colorVariantId);
+    usedTargetKeys.add(targetKey);
+    replacements.push({
+      fromVariantId: new Types.ObjectId(toIdString(source.variantId)),
+      fromColorVariantId: new Types.ObjectId(toIdString(source.colorVariantId)),
+      toVariantId: new Types.ObjectId(target.variantId),
+      toColorVariantId: new Types.ObjectId(target.colorVariantId),
+    });
+  }
+
+  if (!replacements.length) {
+    return;
+  }
+
+  await Promise.all(
+    replacements.flatMap((replacement) => {
+      const filter = {
+        productId,
+        variantId: replacement.fromVariantId,
+        colorVariantId: replacement.fromColorVariantId,
+      };
+      const update = {
+        $set: {
+          variantId: replacement.toVariantId,
+          colorVariantId: replacement.toColorVariantId,
+        },
+      };
+
+      return [
+        Inventory.updateMany(filter, update),
+        InventoryImport.updateMany(filter, update),
+        InventoryReservation.updateMany(filter, update),
+      ];
+    }),
+  );
+
+  replacements.forEach((replacement) => {
+    inventoryItems.forEach((inventory) => {
+      if (
+        toIdString(inventory.variantId) === replacement.fromVariantId.toString() &&
+        toIdString(inventory.colorVariantId) === replacement.fromColorVariantId.toString()
+      ) {
+        inventory.variantId = replacement.toVariantId;
+        inventory.colorVariantId = replacement.toColorVariantId;
+      }
+    });
+  });
 };
 
 const mapProductListItem = (
@@ -1122,6 +1315,7 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
     getCategoryBreadcrumb(category),
     Inventory.find({ productId: product._id }).lean<InventoryStockDocument[]>(),
   ]);
+  await repairInventoryReferencesForProduct(product._id, product.variant, inventoryItems);
   const fitTypeMap = getFitTypeMap(templateCategory);
   const measurementFieldMap = getMeasurementFieldMap(templateCategory);
   const variants = product.variant.map((variant) =>
@@ -1142,6 +1336,7 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
     name: product.name,
     description: product.description,
     productImage: product.product_image,
+    isActive: product.isActive,
     gallery: uniqueStrings([
       product.product_image,
       ...variants.flatMap((variant) => variant.colors.map((color) => color.image)),
@@ -1224,7 +1419,15 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   if (input.variant !== undefined) updateData.variant = normalizeVariants(input.variant);
   if (input.description !== undefined) updateData.description = input.description.trim();
   if (input.product_image !== undefined) updateData.product_image = input.product_image.trim();
-  if (input.isActive !== undefined) updateData.isActive = input.isActive;
+  if (input.isActive !== undefined) {
+    if (typeof input.isActive === 'boolean') {
+      updateData.isActive = input.isActive;
+    } else if (input.isActive === 'true' || input.isActive === 'false') {
+      updateData.isActive = input.isActive === 'true';
+    } else {
+      throw new ProductServiceError('Invalid isActive value', 400);
+    }
+  }
   if (input.sold_quantity !== undefined) updateData.sold_quantity = input.sold_quantity;
   if (input.averageRating !== undefined) updateData.averageRating = input.averageRating;
   if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
@@ -1254,11 +1457,262 @@ const deleteProduct = async (id: string) => {
   return product;
 };
 
+const countActiveProductPromotions = (productId: Types.ObjectId, categoryId?: string) => {
+  const now = new Date();
+
+  return Coupon.countDocuments({
+    deletedAt: null,
+    isActive: true,
+    startAt: { $lte: now },
+    endAt: { $gte: now },
+    $or: [
+      { applicableProducts: productId },
+      ...(categoryId && Types.ObjectId.isValid(categoryId)
+        ? [{ applicableCategories: new Types.ObjectId(categoryId) }]
+        : []),
+    ],
+  });
+};
+
+const getProductPermanentDeleteBlockReason = async ({
+  productId,
+  categoryId,
+  soldQuantity,
+  reviewCount,
+  inventoryItems,
+}: ProductPermanentDeleteCheckInput) => {
+  const inventoryRecords =
+    inventoryItems ??
+    (await Inventory.find({ productId })
+      .select('quantity reservedQuantity availableQuantity')
+      .lean<InventoryQuantityDocument[]>());
+  const hasInventoryQuantity = inventoryRecords.some((inventory) => (
+    inventory.quantity > 0 ||
+    inventory.reservedQuantity > 0 ||
+    inventory.availableQuantity > 0
+  ));
+
+  if (hasInventoryQuantity) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì vẫn còn tồn kho hoặc hàng đang được giữ. Hãy xử lý tồn kho trước, hoặc chọn ngừng bán để ẩn sản phẩm.';
+  }
+
+  const [orderCount, inventoryImportCount, inventoryReservationCount, cartCount, favoriteCount, activePromotionCount] = await Promise.all([
+    Order.countDocuments({ 'order_list.productId': productId }),
+    InventoryImport.countDocuments({ productId }),
+    InventoryReservation.countDocuments({ productId }),
+    Cart.countDocuments({ 'product_list.productId': productId }),
+    Favorite.countDocuments({ product_id: productId }),
+    countActiveProductPromotions(productId, categoryId),
+  ]);
+
+  if (orderCount > 0 || soldQuantity > 0) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì đã phát sinh đơn hàng. Bạn có thể ngừng bán để ẩn sản phẩm nhưng vẫn giữ lịch sử.';
+  }
+
+  if (inventoryImportCount > 0) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì đã có phiếu nhập kho. Bạn có thể ngừng bán để giữ lại lịch sử nhập hàng.';
+  }
+
+  if (inventoryReservationCount > 0) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì vẫn còn dữ liệu giữ hàng. Hãy chọn ngừng bán nếu không muốn tiếp tục bán sản phẩm.';
+  }
+
+  if (cartCount > 0) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì đang nằm trong giỏ hàng của khách. Bạn có thể ngừng bán để khách không đặt thêm.';
+  }
+
+  if (activePromotionCount > 0) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì đang được dùng trong khuyến mãi còn hiệu lực.';
+  }
+
+  if (favoriteCount > 0 || reviewCount > 0) {
+    return 'Chưa thể xóa vĩnh viễn sản phẩm này vì đã có lượt yêu thích hoặc đánh giá từ khách hàng.';
+  }
+
+  return null;
+};
+
+const permanentlyDeleteProduct = async (id: string) => {
+  assertValidObjectId(id, 'product id');
+  const productObjectId = new Types.ObjectId(id);
+
+  const product = await Product.findById(id);
+
+  if (!product) {
+    throw new ProductServiceError('Product not found', 404);
+  }
+
+  const categoryId = getRelationId(product.category_id);
+  const blockReason = await getProductPermanentDeleteBlockReason({
+    productId: productObjectId,
+    categoryId,
+    soldQuantity: product.sold_quantity,
+    reviewCount: product.reviewCount,
+  });
+
+  if (blockReason) {
+    throw new ProductServiceError(blockReason, 409);
+  }
+
+  await Inventory.deleteMany({ productId: productObjectId });
+  await Product.findByIdAndDelete(id);
+
+  return product;
+};
+
 const getProducts = () => {
   return Product.find()
     .populate('brand_id')
     .populate('category_id')
     .sort({ createdAt: -1 });
+};
+
+const getManagementProducts = async (): Promise<ProductManagementItem[]> => {
+  const products = await Product.aggregate<ProductManagementDocument>([
+    { $sort: { createdAt: -1 } },
+    {
+      $lookup: {
+        from: 'brands',
+        localField: 'brand_id',
+        foreignField: '_id',
+        as: 'brand',
+      },
+    },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'category_id',
+        foreignField: '_id',
+        as: 'category',
+      },
+    },
+    {
+      $set: {
+        brand: { $ifNull: [{ $arrayElemAt: ['$brand', 0] }, null] },
+        category: { $ifNull: [{ $arrayElemAt: ['$category', 0] }, null] },
+      },
+    },
+    {
+      $set: {
+        templateCategoryId: {
+          $cond: [
+            { $eq: ['$category.isSizeTemplateSource', true] },
+            '$category._id',
+            {
+              $ifNull: [
+                '$category.sizeTemplateSourceId',
+                {
+                  $cond: [
+                    {
+                      $or: [
+                        { $gt: [{ $size: { $ifNull: ['$category.fitTypes', []] } }, 0] },
+                        { $gt: [{ $size: { $ifNull: ['$category.measurementFields', []] } }, 0] },
+                        { $gt: [{ $size: { $ifNull: ['$category.sizes', []] } }, 0] },
+                      ],
+                    },
+                    '$category._id',
+                    '$category.parent_id',
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: 'categories',
+        localField: 'templateCategoryId',
+        foreignField: '_id',
+        as: 'templateCategory',
+      },
+    },
+    {
+      $lookup: {
+        from: 'inventories',
+        localField: '_id',
+        foreignField: 'productId',
+        as: 'inventoryItems',
+      },
+    },
+    {
+      $set: {
+        templateCategory: {
+          $ifNull: [
+            { $arrayElemAt: ['$templateCategory', 0] },
+            '$category',
+          ],
+        },
+      },
+    },
+    { $unset: 'templateCategoryId' },
+  ]);
+
+  return Promise.all(products.map(async (product) => {
+    const category = product.category;
+    const brand = product.brand;
+    const templateCategory = product.templateCategory ?? category;
+    const fitTypeMap = getFitTypeMap(templateCategory);
+    const productInventory = product.inventoryItems ?? [];
+    await repairInventoryReferencesForProduct(product._id, product.variant, productInventory);
+    const inventoryByOption = groupInventoryByVariantColorAndSize(productInventory);
+    const blockReason = await getProductPermanentDeleteBlockReason({
+      productId: product._id,
+      categoryId: toIdString(category?._id),
+      soldQuantity: product.sold_quantity,
+      reviewCount: product.reviewCount,
+      inventoryItems: productInventory,
+    });
+
+    return {
+      _id: toIdString(product._id),
+      name: product.name,
+      productImage: product.product_image,
+      isActive: product.isActive,
+      soldQuantity: product.sold_quantity,
+      brandName: brand?.name ?? '',
+      categoryName: category?.name ?? '',
+      canDeletePermanently: !blockReason,
+      ...(blockReason ? { permanentDeleteBlockReason: blockReason } : {}),
+      variants: product.variant.map((variant, variantIndex) => {
+        const variantId = toIdString(variant._id);
+        const fitType = fitTypeMap.get(toIdString(variant.fitTypeId));
+
+        return {
+          _id: variantId,
+          fitTypeId: toIdString(variant.fitTypeId),
+          fitTypeLabel: fitType?.label ?? `Form ${variantIndex + 1}`,
+          price: variant.price,
+          discount: variant.discount,
+          isActive: variant.isActive,
+          colors: variant.colors.map((color) => {
+            const colorId = toIdString(color._id);
+
+            return {
+              _id: colorId,
+              color: color.color,
+              ...(color.colorCode
+                ? { colorCode: resolveDisplayColorCode(color.colorCode, color.color) }
+                : {}),
+              image: color.image,
+              inventory: variant.sizeMeasurements.map((sizeMeasurement) => {
+                const inventory = inventoryByOption.get(
+                  getInventoryLookupKey(variantId, colorId, sizeMeasurement.size),
+                );
+
+                return {
+                  size: sizeMeasurement.size,
+                  sku: inventory?.sku ?? '',
+                  availableQuantity: inventory?.availableQuantity ?? 0,
+                };
+              }),
+            };
+          }),
+        };
+      }),
+    };
+  }));
 };
 
 const getActiveProducts = () => {
@@ -1282,15 +1736,25 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
       .limit(limit)
       .lean<ProductListDocument[]>(),
     Product.countDocuments(filter),
-    getProductListFilters(filter, query),
+    query.includeFilters === false
+      ? Promise.resolve(undefined)
+      : getProductListFilters(filter, query),
   ]);
   const inventoryItems = products.length
     ? await Inventory.find({
         productId: { $in: products.map((product) => product._id) },
-        availableQuantity: { $gt: 0 },
       }).lean<InventoryStockDocument[]>()
     : [];
   const inventoryByProductId = groupInventoryByProductId(inventoryItems);
+  await Promise.all(
+    products.map((product) =>
+      repairInventoryReferencesForProduct(
+        product._id,
+        product.variant,
+        inventoryByProductId.get(product._id.toString()) ?? [],
+      ),
+    ),
+  );
 
   return {
     items: products.map((product) => mapProductListItem(product, query, inventoryByProductId)),
@@ -1300,8 +1764,13 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
       totalItems,
       totalPages: Math.ceil(totalItems / limit),
     },
-    filters,
+    ...(filters ? { filters } : {}),
   };
+};
+
+const getProductFilters = async (query: ProductListQueryInput) => {
+  const filter = await buildProductListFilter(query);
+  return getProductListFilters(filter, query);
 };
 
 const getProductById = async (id: string) => {
@@ -1316,10 +1785,16 @@ const getProductById = async (id: string) => {
   return product;
 };
 
-const getProductDetailById = async (id: string): Promise<ProductDetailResponse> => {
+const getProductDetailById = async (
+  id: string,
+  options: { activeOnly?: boolean } = {},
+): Promise<ProductDetailResponse> => {
   assertValidObjectId(id, 'product id');
 
-  const product = await Product.findOne({ _id: id, isActive: true })
+  const product = await Product.findOne({
+    _id: id,
+    ...(options.activeOnly ?? true ? { isActive: true } : {}),
+  })
     .populate('brand_id', '_id name image')
     .populate('category_id', PRODUCT_DETAIL_CATEGORY_PROJECTION)
     .lean<ProductListDocument | null>();
@@ -1335,9 +1810,12 @@ export const productService = {
   createProduct,
   updateProduct,
   deleteProduct,
+  permanentlyDeleteProduct,
   getProducts,
+  getManagementProducts,
   getActiveProducts,
   getProductList,
+  getProductFilters,
   getProductById,
   getProductDetailById,
 };
