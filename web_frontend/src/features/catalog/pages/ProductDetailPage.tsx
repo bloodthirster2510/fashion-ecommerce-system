@@ -13,39 +13,17 @@ import {
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
 import { catalogService } from '../catalog.service'
-import type { CatalogCategory, ProductColorVariant, ProductDetail, ProductVariant } from '../catalog.types'
+import type { ProductColorVariant, ProductDetail, ProductVariant } from '../catalog.types'
 import '../catalog.css'
 
 const getProductIdFromPath = () => window.location.pathname.split('/').filter(Boolean)[1] || ''
 
-const getCategoryId = (category?: string | { _id: string } | null) => {
-  if (!category) return null
-  return typeof category === 'string' ? category : category._id
-}
-
-const buildCategoryTrail = (category: CatalogCategory | undefined, categories: CatalogCategory[]) => {
-  if (!category) return []
-
-  const categoriesById = new Map(categories.map((item) => [item._id, item]))
-  const trail: CatalogCategory[] = []
-  let current: CatalogCategory | undefined = category
-
-  while (current) {
-    trail.unshift(current)
-    const parentId = getCategoryId(current.parent_id)
-    current = parentId ? categoriesById.get(parentId) : undefined
-  }
-
-  return trail.length ? trail : [category]
-}
-
 const getFinalPrice = (variant?: ProductVariant) => {
-  if (!variant) return 0
-  return Math.round(variant.price * (1 - variant.discount / 100))
+  return variant?.finalPrice ?? 0
 }
 
 const getUniqueImages = (product: ProductDetail) => {
-  const images = [product.product_image, ...product.variant.flatMap((variant) => variant.colors.map((color) => color.image))]
+  const images = [product.productImage, ...product.gallery]
   return images.filter((image, index) => Boolean(image) && images.indexOf(image) === index)
 }
 
@@ -62,7 +40,6 @@ const isCssColor = (value?: string) => Boolean(value && (value.startsWith('#') |
 export function ProductDetailPage() {
   const productId = getProductIdFromPath()
   const [product, setProduct] = useState<ProductDetail | null>(null)
-  const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [selectedVariantId, setSelectedVariantId] = useState('')
   const [selectedColorId, setSelectedColorId] = useState('')
   const [selectedSize, setSelectedSize] = useState('')
@@ -80,28 +57,27 @@ export function ProductDetailPage() {
       setIsLoading(true)
       setError('')
 
-      const [productData, categoryData] = await Promise.all([
-        catalogService.getProductById(productId),
-        catalogService.getActiveCategories()
-      ])
+      const productData = await catalogService.getProductById(productId)
 
       if (!isMounted) return
 
       const firstVariant =
-        productData.variant.find((variant) => variant.isActive) ??
-        productData.variant[0]
+        productData.variants.find((variant) => variant._id === productData.selectedVariantId) ??
+        productData.variants.find((variant) => variant.isActive) ??
+        productData.variants[0]
 
       const firstColor = firstVariant?.colors[0]
 
       const firstSize =
-        firstVariant?.sizeMeasurements[0]?.size ?? ''
+        firstVariant?.sizes.find((size) => size.isAvailable)?.size ??
+        firstVariant?.sizes[0]?.size ??
+        ''
 
       setProduct(productData)
-      setCategories(categoryData)
       setSelectedVariantId(firstVariant?._id ?? '')
       setSelectedColorId(firstColor?._id ?? '')
       setSelectedSize(firstSize)
-      setSelectedImage(firstColor?.image || productData.product_image)
+      setSelectedImage(firstColor?.image || productData.productImage)
       setThumbnailStart(0)
     } catch (loadError: unknown) {
       if (!isMounted) return
@@ -126,22 +102,26 @@ export function ProductDetailPage() {
 }, [productId])
 
   const selectedVariant = useMemo(() => {
-    return product?.variant.find((variant) => variant._id === selectedVariantId) ?? product?.variant[0]
+    return product?.variants.find((variant) => variant._id === selectedVariantId) ?? product?.variants[0]
   }, [product, selectedVariantId])
 
   const selectedColor = useMemo(() => {
     return selectedVariant?.colors.find((color) => color._id === selectedColorId) ?? selectedVariant?.colors[0]
   }, [selectedColorId, selectedVariant])
 
-  const stockItem = product?.source?.sourceInventory?.find(
-    (item) => item.color === selectedColor?.color && item.size === selectedSize,
+  const stockItem = selectedVariant?.inventory.find(
+    (item) => item.colorVariantId === selectedColor?._id && item.size === selectedSize,
   )
-  const sku = stockItem?.sku ?? product?.source?.sourceProductId?.toString() ?? product?._id.slice(-8).toUpperCase()
-  const isAvailable = product?.isActive && selectedVariant?.isActive && (stockItem ? stockItem.quantity > 0 : true)
+  const sku = stockItem?.sku ?? product?._id.slice(-8).toUpperCase()
+  const isAvailable = Boolean(
+    product?.isAvailable &&
+    selectedVariant?.isActive &&
+    stockItem?.isAvailable,
+  )
   const images = product ? getUniqueImages(product) : []
   const maxThumbnailStart = Math.max(images.length - 5, 0)
   const visibleImages = images.slice(thumbnailStart, thumbnailStart + 5)
-  const categoryTrail = buildCategoryTrail(product?.category_id, categories)
+  const categoryTrail = product?.categoryBreadcrumb ?? []
   const description = product ? stripDescription(product.description) : ''
 
   const handleVariantColorChange = (variant: ProductVariant, color: ProductColorVariant) => {
@@ -150,7 +130,7 @@ export function ProductDetailPage() {
     setSelectedVariantId(variant._id)
     setSelectedColorId(color._id)
     setSelectedImage(color.image)
-    setSelectedSize(variant.sizeMeasurements[0]?.size ?? '')
+    setSelectedSize(variant.sizes.find((size) => size.isAvailable)?.size ?? variant.sizes[0]?.size ?? '')
     setThumbnailStart(colorImageIndex >= 0 ? Math.min(colorImageIndex, maxThumbnailStart) : 0)
     setQuantity(1)
   }
@@ -177,7 +157,7 @@ export function ProductDetailPage() {
                 <section className="product-detail-shell">
                   <section className="product-gallery" aria-label="Ảnh sản phẩm">
                     <div className="product-gallery-main">
-                      <img src={selectedImage || product.product_image} alt={product.name} />
+                      <img src={selectedImage || product.productImage} alt={product.name} />
                     </div>
 
                     <div className="product-thumbnails">
@@ -219,7 +199,7 @@ export function ProductDetailPage() {
                     </div>
 
                     <p className="product-meta">
-                      Loại: <strong>{product.category_id.name}</strong>
+                      Loại: <strong>{product.category?.name ?? 'Chưa phân loại'}</strong>
                       <span>Mã: {sku}</span>
                     </p>
 
@@ -231,7 +211,7 @@ export function ProductDetailPage() {
                     <section className="detail-option-group" aria-label="Màu sắc">
                       <span className="detail-option-label">Màu sắc</span>
                       <div className="color-options">
-                        {product.variant.flatMap((variant) =>
+                        {product.variants.flatMap((variant) =>
                           variant.colors.map((color) => (
                             <button
                               type="button"
@@ -261,11 +241,12 @@ export function ProductDetailPage() {
                         </label>
                       </div>
                       <div className="size-options">
-                        {selectedVariant?.sizeMeasurements.map((sizeMeasurement) => (
+                        {selectedVariant?.sizes.map((sizeMeasurement) => (
                           <button
                             type="button"
                             className={sizeMeasurement.size === selectedSize ? 'active' : ''}
                             key={sizeMeasurement.size}
+                            disabled={!sizeMeasurement.isAvailable}
                             onClick={() => {
                               setSelectedSize(sizeMeasurement.size)
                               setQuantity(1)

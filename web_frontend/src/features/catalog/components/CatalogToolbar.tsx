@@ -1,6 +1,6 @@
 import { Button, Checkbox, InputNumber, Select } from 'antd'
 import { FilterOutlined, ReloadOutlined, SortAscendingOutlined } from '@ant-design/icons'
-import type { ProductListQuery, ProductListResponse, ProductSortOption } from '../catalog.types'
+import type { ProductListFilters, ProductListQuery, ProductSortOption } from '../catalog.types'
 
 type SortOption = {
   value: ProductSortOption
@@ -9,7 +9,7 @@ type SortOption = {
 
 type CatalogToolbarProps = {
   query: ProductListQuery
-  filters?: ProductListResponse['filters']
+  filters?: ProductListFilters
   fitTypeLabelById: Map<string, string>
   sortOptions: SortOption[]
   selectedSort: SortOption

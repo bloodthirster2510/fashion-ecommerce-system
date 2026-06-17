@@ -1,6 +1,12 @@
 import { axiosClient } from '../../services/axiosClient'
 import type { ApiResponse } from '../../types/api.type'
-import type { CatalogCategory, ProductDetail, ProductListQuery, ProductListResponse } from './catalog.types'
+import type {
+  CatalogCategory,
+  ProductDetail,
+  ProductListFilters,
+  ProductListQuery,
+  ProductListResponse,
+} from './catalog.types'
 
 class CatalogApiError extends Error {
   constructor(message: string) {
@@ -65,13 +71,45 @@ const buildProductListQuery = (query: ProductListQuery = {}) => {
   return params.toString()
 }
 
+const CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000
+let categoryCache: { data: CatalogCategory[]; expiresAt: number } | null = null
+let categoryRequest: Promise<CatalogCategory[]> | null = null
+
+const getActiveCategories = () => {
+  if (categoryCache && categoryCache.expiresAt > Date.now()) {
+    return Promise.resolve(categoryCache.data)
+  }
+
+  if (categoryRequest) {
+    return categoryRequest
+  }
+
+  categoryRequest = request<CatalogCategory[]>('/categories?activeOnly=true')
+    .then((data) => {
+      categoryCache = {
+        data,
+        expiresAt: Date.now() + CATEGORY_CACHE_TTL_MS,
+      }
+      return data
+    })
+    .finally(() => {
+      categoryRequest = null
+    })
+
+  return categoryRequest
+}
+
 export const catalogService = {
-  getActiveCategories() {
-    return request<CatalogCategory[]>('/categories?activeOnly=true')
-  },
-  getProducts(query?: ProductListQuery) {
+  getActiveCategories,
+  getProducts(query?: ProductListQuery, includeFilters = true) {
     const queryString = buildProductListQuery(query)
-    return request<ProductListResponse>(`/products${queryString ? `?${queryString}` : ''}`)
+    const params = new URLSearchParams(queryString)
+    params.set('includeFilters', String(includeFilters))
+    return request<ProductListResponse>(`/products?${params.toString()}`)
+  },
+  getProductFilters(query?: ProductListQuery) {
+    const queryString = buildProductListQuery(query)
+    return request<ProductListFilters>(`/products/filters${queryString ? `?${queryString}` : ''}`)
   },
   getProductById(productId: string) {
     return request<ProductDetail>(`/products/${productId}`)
