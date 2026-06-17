@@ -23,10 +23,13 @@ export interface IInventoryImportDetail {
 }
 
 export interface IInventoryImport extends Document {
+  importCode: string;
+  supplierName?: string;
   productId: Types.ObjectId;
   variantId: Types.ObjectId;
   colorVariantId: Types.ObjectId;
   detail: IInventoryImportDetail[];
+  totalAmount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -71,6 +74,13 @@ const importDetailSchema = new Schema<IInventoryImportDetail>(
   { _id: false },
 );
 
+const buildImportCode = () => {
+  const timestamp = new Date().toISOString().slice(2, 10).replace(/\D/g, '');
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  return `IMP-${timestamp}-${suffix}`;
+};
+
 importDetailSchema.path('remainingQuantity').validate(function validateRemainingQuantity(
   this: IInventoryImportDetail,
   value: number,
@@ -80,6 +90,16 @@ importDetailSchema.path('remainingQuantity').validate(function validateRemaining
 
 const inventoryImportSchema = new Schema<IInventoryImport>(
   {
+    importCode: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+      maxlength: 40,
+      unique: true,
+      default: buildImportCode,
+    },
+    supplierName: { type: String, trim: true, maxlength: 120, default: '' },
     productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
     variantId: { type: Schema.Types.ObjectId, required: true },
     colorVariantId: { type: Schema.Types.ObjectId, required: true },
@@ -91,9 +111,22 @@ const inventoryImportSchema = new Schema<IInventoryImport>(
         message: 'Import must include at least one detail line',
       },
     },
+    totalAmount: { type: Number, required: true, default: 0, min: 0 },
   },
   { timestamps: true },
 );
+
+inventoryImportSchema.path('totalAmount').validate(function validateTotalAmount(
+  this: IInventoryImport,
+  value: number,
+) {
+  const expectedTotal = this.detail.reduce(
+    (sum, item) => sum + item.quantity * (item.importPrice ?? 0),
+    0,
+  );
+
+  return value === expectedTotal;
+}, 'totalAmount must equal import detail quantity multiplied by importPrice');
 
 const inventorySchema = new Schema<IInventory>(
   {
@@ -168,6 +201,7 @@ const inventoryReservationSchema = new Schema<IInventoryReservation>(
 );
 
 inventoryImportSchema.index({ productId: 1, variantId: 1, colorVariantId: 1, createdAt: -1 });
+inventoryImportSchema.index({ supplierName: 1 });
 inventorySchema.index({ productId: 1, variantId: 1, colorVariantId: 1, size: 1 }, { unique: true });
 inventorySchema.index({ sku: 1 }, { unique: true });
 inventorySchema.index({ availableQuantity: 1 });

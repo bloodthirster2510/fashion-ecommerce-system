@@ -150,6 +150,16 @@ const getImports = async (req: Request, res: Response) => {
   }
 };
 
+const getImportSuppliers = async (_req: Request, res: Response) => {
+  try {
+    const result = await inventoryService.getImportSuppliers();
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const getImportById = async (req: Request, res: Response) => {
   try {
     const importRecord = await inventoryService.getImportById(req.params.id as string);
@@ -190,6 +200,26 @@ const adjustInventory = async (req: Request, res: Response) => {
     };
 
     const inventory = await inventoryService.adjustInventory(req.params.id as string, input);
+    return ok(res, inventory);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const deleteImport = async (req: Request, res: Response) => {
+  try {
+    const importRecord = await inventoryService.deleteImport(req.params.id as string);
+    return ok(res, importRecord);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const deleteInventory = async (req: Request, res: Response) => {
+  try {
+    const inventory = await inventoryService.deleteInventory(req.params.id as string);
     return ok(res, inventory);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
@@ -254,8 +284,11 @@ export {
   adjustInventory,
   commitReservations,
   createImport,
+  deleteInventory,
+  deleteImport,
   expireReservations,
   getImportById,
+  getImportSuppliers,
   getImports,
   getInventory,
   getLowStockInventory,

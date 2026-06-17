@@ -576,6 +576,16 @@ const restockCommittedOrder = async (order: IOrder) => {
     ),
   );
 
+  await inventoryService.restoreImportRemainingQuantities(
+    order.order_list.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId,
+      colorVariantId: item.colorVariantId,
+      size: item.size,
+      quantity: item.quantity,
+    })),
+  );
+
   await Promise.all(
     order.order_list.map((item) =>
       Product.updateOne(

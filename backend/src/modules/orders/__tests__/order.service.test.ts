@@ -30,6 +30,7 @@ jest.mock('../../inventory/inventory.service', () => ({
     reserveInventory: jest.fn(),
     commitReservations: jest.fn(),
     releaseReservations: jest.fn(),
+    restoreImportRemainingQuantities: jest.fn(),
   },
 }));
 
@@ -179,6 +180,7 @@ describe('orderService', () => {
     mockedCouponService.recordCouponUsage.mockResolvedValue(null);
     mockedCouponService.rollbackRecordedCouponUsage.mockResolvedValue(undefined);
     mockedCouponService.rollbackCouponUsageReservation.mockResolvedValue(undefined);
+    mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
 
   it('creates a COD order by reserving and committing inventory', async () => {
@@ -488,6 +490,15 @@ describe('orderService', () => {
       { _id: productId, sold_quantity: { $gte: 2 } },
       { $inc: { sold_quantity: -2 } },
     );
+    expect(mockedInventoryService.restoreImportRemainingQuantities).toHaveBeenCalledWith([
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 2,
+      },
+    ]);
     expect(order.status).toBe('cancelled');
     expect(order.paymentStatus).toBe('refunded');
     expect(order.save).toHaveBeenCalled();
