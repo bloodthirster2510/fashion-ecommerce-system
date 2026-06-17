@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { CategoryServiceError, categoryService } from './categories.service';
 import type { CategoryListQueryInput, CreateCategoryInput, UpdateCategoryInput } from './categories.type';
 import { created, error as errorResponse, ok } from '../../../utils/response';
+import { handleMulterError, type MulterRequest } from '../../../middlewares/upload.middleware';
+import { deleteCatalogImage, uploadCatalogImage } from '../catalog-image';
 
 const getErrorResponse = (e: unknown) => {
   if (e instanceof CategoryServiceError) {
@@ -63,34 +65,60 @@ const parseCategoryListQuery = (req: Request): CategoryListQueryInput => {
 };
 
 const createCategory = async (req: Request, res: Response) => {
+  const uploadedUrls: string[] = [];
+
   try {
+    const uploadReq = req as MulterRequest;
+    const multerErrorResponse = handleMulterError(uploadReq.fileValidationError, res);
+    if (multerErrorResponse) return;
+
+    const files = !req.files || Array.isArray(req.files) ? {} : req.files;
+    const imageFile = files.image?.[0];
     const input = req.body as CreateCategoryInput;
 
-    if (!input.name || input.level === undefined || !input.gender || !input.image || !input.description) {
-      return errorResponse(res, 'Name, level, gender, image, and description are required', 400);
+    if (!input.name || !input.gender || (!input.image && !imageFile) || !input.description) {
+      return errorResponse(res, 'Name, gender, image, and description are required', 400);
     }
 
-    const category = await categoryService.createCategory(input);
+    const image = imageFile ? await uploadCatalogImage(imageFile, 'categories') : input.image;
+    if (imageFile) uploadedUrls.push(image);
+
+    const category = await categoryService.createCategory({
+      ...input,
+      level: Number(input.level) || 1,
+      parent_id: input.parent_id || null,
+      image,
+      isActive:
+        input.isActive === undefined ? true : String(input.isActive) === 'true',
+    });
 
     return created(res, category);
   } catch (e: unknown) {
+    await Promise.all(uploadedUrls.map((url) => deleteCatalogImage(url)));
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
   }
 };
 
 const updateCategory = async (req: Request, res: Response) => {
+  const uploadedUrls: string[] = [];
+
   try {
+    const uploadReq = req as MulterRequest;
+    const multerErrorResponse = handleMulterError(uploadReq.fileValidationError, res);
+    if (multerErrorResponse) return;
+
     const id = req.params.id as string;
     const input = req.body as UpdateCategoryInput;
+    const files = !req.files || Array.isArray(req.files) ? {} : req.files;
+    const imageFile = files.image?.[0];
     const updateData: UpdateCategoryInput = {};
 
     if (input.name !== undefined) updateData.name = input.name;
     if (input.parent_id !== undefined) updateData.parent_id = input.parent_id;
-    if (input.level !== undefined) updateData.level = input.level;
+    if (input.level !== undefined) updateData.level = Number(input.level);
     if (input.gender !== undefined) updateData.gender = input.gender;
     if (input.image !== undefined) updateData.image = input.image;
-    if (input.bannerImage !== undefined) updateData.bannerImage = input.bannerImage;
     if (input.description !== undefined) updateData.description = input.description;
     if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
     if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;
@@ -98,16 +126,29 @@ const updateCategory = async (req: Request, res: Response) => {
     if (input.sizes !== undefined) updateData.sizes = input.sizes;
     if (input.measurementFields !== undefined) updateData.measurementFields = input.measurementFields;
     if (input.fitTypes !== undefined) updateData.fitTypes = input.fitTypes;
-    if (input.isActive !== undefined) updateData.isActive = input.isActive;
+    if (input.isActive !== undefined) updateData.isActive = String(input.isActive) === 'true';
+
+    const currentCategory =
+      imageFile ? await categoryService.getCategoryById(id) : null;
+
+    if (imageFile) {
+      const image = await uploadCatalogImage(imageFile, 'categories');
+      uploadedUrls.push(image);
+      updateData.image = image;
+    }
 
     if (Object.keys(updateData).length === 0) {
       return errorResponse(res, 'No data to update', 400);
     }
 
     const category = await categoryService.updateCategory(id, updateData);
+    if (imageFile) {
+      await deleteCatalogImage(currentCategory?.image);
+    }
 
     return ok(res, category);
   } catch (e: unknown) {
+    await Promise.all(uploadedUrls.map((url) => deleteCatalogImage(url)));
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
   }
@@ -127,9 +168,24 @@ const getCategoryTemplate = async (req: Request, res: Response) => {
 const deleteCategory = async (req: Request, res: Response) => {
   try {
     const categoryId = req.params.id as string;
-    const category = await categoryService.deleteCategory(categoryId);
+    const cascadeProducts = req.query.cascadeProducts === 'true' || req.body?.cascadeProducts === true;
+    const category = await categoryService.deleteCategory(categoryId, { cascadeProducts });
 
     return ok(res, category);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const deleteCategoryPermanently = async (req: Request, res: Response) => {
+  try {
+    const categoryId = req.params.id as string;
+    const categories = await categoryService.deleteCategoryPermanently(categoryId);
+
+    await Promise.all(categories.map((category) => deleteCatalogImage(category.image)));
+
+    return ok(res, categories);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
@@ -139,6 +195,17 @@ const deleteCategory = async (req: Request, res: Response) => {
 const getCategories = async (_req: Request, res: Response) => {
   try {
     const categories = await categoryService.getCategories();
+
+    return ok(res, categories);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getCategoriesForManagement = async (_req: Request, res: Response) => {
+  try {
+    const categories = await categoryService.getCategoriesForManagement();
 
     return ok(res, categories);
   } catch (e: unknown) {
@@ -170,4 +237,14 @@ const getCategoryById = async (req: Request, res: Response) => {
   }
 };
 
-export { createCategory, updateCategory, deleteCategory, getCategories, listCategories, getCategoryById, getCategoryTemplate };
+export {
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  deleteCategoryPermanently,
+  getCategories,
+  getCategoriesForManagement,
+  listCategories,
+  getCategoryById,
+  getCategoryTemplate,
+};

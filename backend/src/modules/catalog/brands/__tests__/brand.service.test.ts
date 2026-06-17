@@ -1,17 +1,26 @@
 import { Brand } from '../../../../database/models/brand.model';
+import { Product } from '../../../../database/models/product.model';
 import { BrandServiceError, brandService } from '../brand.service';
 
 jest.mock('../../../../database/models/brand.model', () => ({
   Brand: {
     create: jest.fn(),
     findById: jest.fn(),
+    findByIdAndDelete: jest.fn(),
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
   },
 }));
 
+jest.mock('../../../../database/models/product.model', () => ({
+  Product: {
+    countDocuments: jest.fn(),
+  },
+}));
+
 const mockedBrand = Brand as jest.Mocked<typeof Brand>;
+const mockedProduct = Product as jest.Mocked<typeof Product>;
 
 describe('brandService', () => {
   beforeEach(() => {
@@ -72,6 +81,33 @@ describe('brandService', () => {
     });
   });
 
+  it('normalizes brand fields when updating', async () => {
+    const brandId = '665000000000000000000001';
+    const brand = { _id: brandId, name: 'Nike' };
+    mockedBrand.findById.mockResolvedValue(brand as never);
+    mockedBrand.findOne.mockResolvedValue(null);
+    mockedBrand.findByIdAndUpdate.mockResolvedValue(brand as never);
+
+    await brandService.updateBrand(brandId, {
+      name: ' Nike ',
+      image: ' https://example.com/nike.png ',
+      isActive: true,
+    });
+
+    expect(mockedBrand.findByIdAndUpdate).toHaveBeenCalledWith(
+      brandId,
+      {
+        name: 'Nike',
+        image: 'https://example.com/nike.png',
+        isActive: true,
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+  });
+
   it('soft deletes a brand by setting isActive to false', async () => {
     const brand = { _id: '665000000000000000000001', isActive: false };
     mockedBrand.findByIdAndUpdate.mockResolvedValue(brand as never);
@@ -85,6 +121,32 @@ describe('brandService', () => {
         new: true,
         runValidators: true,
       },
+    );
+    expect(result).toBe(brand);
+  });
+
+  it('prevents permanent deletion when a brand has products', async () => {
+    mockedProduct.countDocuments.mockResolvedValue(1);
+
+    await expect(
+      brandService.deleteBrandPermanently('665000000000000000000001'),
+    ).rejects.toMatchObject({
+      message: 'Cannot permanently delete a brand with products',
+      statusCode: 409,
+    });
+
+    expect(mockedBrand.findByIdAndDelete).not.toHaveBeenCalled();
+  });
+
+  it('permanently deletes a brand when it has no products', async () => {
+    const brand = { _id: '665000000000000000000001', name: 'Nike' };
+    mockedProduct.countDocuments.mockResolvedValue(0);
+    mockedBrand.findByIdAndDelete.mockResolvedValue(brand as never);
+
+    const result = await brandService.deleteBrandPermanently('665000000000000000000001');
+
+    expect(mockedBrand.findByIdAndDelete).toHaveBeenCalledWith(
+      '665000000000000000000001',
     );
     expect(result).toBe(brand);
   });

@@ -1,4 +1,4 @@
-import type { Response } from 'express';
+import type { RequestHandler, Response } from 'express';
 import multer from 'multer';
 
 export type MulterRequest = Express.Request & {
@@ -59,4 +59,17 @@ export const handleMulterError = (error: unknown, res: Response) => {
   }
 
   return null;
+};
+
+export const withMulterErrorHandling = (middleware: RequestHandler): RequestHandler => {
+  return (req, res, next) => {
+    middleware(req, res, (error?: unknown) => {
+      if (error) {
+        handleMulterError(error, res);
+        return;
+      }
+
+      next();
+    });
+  };
 };

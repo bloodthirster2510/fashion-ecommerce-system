@@ -1,5 +1,16 @@
 import { Types } from 'mongoose';
-import { Brand, Category, Inventory, Product } from '../../../../database/models';
+import {
+  Brand,
+  Cart,
+  Category,
+  Coupon,
+  Favorite,
+  Inventory,
+  InventoryImport,
+  InventoryReservation,
+  Order,
+  Product,
+} from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput } from '../product.types';
 
@@ -12,23 +23,51 @@ jest.mock('../../../../database/models', () => ({
     find: jest.fn(),
     findById: jest.fn(),
   },
+  Coupon: {
+    countDocuments: jest.fn(),
+  },
   Product: {
+    aggregate: jest.fn(),
     countDocuments: jest.fn(),
     create: jest.fn(),
     distinct: jest.fn(),
     findById: jest.fn(),
+    findByIdAndDelete: jest.fn(),
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
   },
   Inventory: {
+    countDocuments: jest.fn(),
+    deleteMany: jest.fn(),
     find: jest.fn(),
+  },
+  InventoryImport: {
+    countDocuments: jest.fn(),
+  },
+  InventoryReservation: {
+    countDocuments: jest.fn(),
+  },
+  Cart: {
+    countDocuments: jest.fn(),
+  },
+  Order: {
+    countDocuments: jest.fn(),
+  },
+  Favorite: {
+    countDocuments: jest.fn(),
   },
 }));
 
 const mockedBrand = Brand as jest.Mocked<typeof Brand>;
+const mockedCart = Cart as jest.Mocked<typeof Cart>;
 const mockedCategory = Category as jest.Mocked<typeof Category>;
+const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
+const mockedFavorite = Favorite as jest.Mocked<typeof Favorite>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
+const mockedInventoryImport = InventoryImport as jest.Mocked<typeof InventoryImport>;
+const mockedInventoryReservation = InventoryReservation as jest.Mocked<typeof InventoryReservation>;
+const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 
 const brandId = '665000000000000000000001';
@@ -104,8 +143,16 @@ describe('productService', () => {
     mockedProduct.countDocuments.mockResolvedValue(0);
     mockedProduct.distinct.mockResolvedValue([]);
     mockedInventory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue([]),
     } as never);
+    mockedInventory.countDocuments.mockResolvedValue(0);
+    mockedInventoryImport.countDocuments.mockResolvedValue(0);
+    mockedInventoryReservation.countDocuments.mockResolvedValue(0);
+    mockedCart.countDocuments.mockResolvedValue(0);
+    mockedOrder.countDocuments.mockResolvedValue(0);
+    mockedFavorite.countDocuments.mockResolvedValue(0);
+    mockedCoupon.countDocuments.mockResolvedValue(0);
   });
 
   it('creates a product with normalized object ids and variant data', async () => {
@@ -157,6 +204,24 @@ describe('productService', () => {
     await expect(productService.createProduct(createProductInput)).rejects.toMatchObject({
       message: 'Category not found',
       statusCode: 404,
+    });
+  });
+
+  it('throws 400 when brand is inactive', async () => {
+    mockedBrand.findById.mockResolvedValue({ _id: brandId, isActive: false } as never);
+
+    await expect(productService.createProduct(createProductInput)).rejects.toMatchObject({
+      message: 'Brand is inactive',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when category is inactive', async () => {
+    mockedCategory.findById.mockResolvedValue({ _id: categoryId, isActive: false } as never);
+
+    await expect(productService.createProduct(createProductInput)).rejects.toMatchObject({
+      message: 'Category is inactive',
+      statusCode: 400,
     });
   });
 
@@ -254,6 +319,154 @@ describe('productService', () => {
     expect(result).toBe(product);
   });
 
+  it('permanently deletes a product only when it has no business records', async () => {
+    const product = {
+      _id: productId,
+      category_id: categoryId,
+      isActive: false,
+      sold_quantity: 0,
+      reviewCount: 0,
+    };
+    mockedProduct.findById.mockResolvedValue(product as never);
+    mockedProduct.findByIdAndDelete.mockResolvedValue(product as never);
+
+    const result = await productService.permanentlyDeleteProduct(productId);
+
+    expect(mockedInventory.deleteMany).toHaveBeenCalledWith({
+      productId: new Types.ObjectId(productId),
+    });
+    expect(mockedProduct.findByIdAndDelete).toHaveBeenCalledWith(productId);
+    expect(result).toBe(product);
+  });
+
+  it('prevents permanent deletion when product has business records', async () => {
+    mockedProduct.findById.mockResolvedValue({
+      _id: productId,
+      category_id: categoryId,
+      sold_quantity: 0,
+      reviewCount: 0,
+    } as never);
+    mockedInventory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        { quantity: 1, reservedQuantity: 0, availableQuantity: 1 },
+      ]),
+    } as never);
+
+    await expect(productService.permanentlyDeleteProduct(productId)).rejects.toMatchObject({
+      message: 'Chưa thể xóa vĩnh viễn sản phẩm này vì vẫn còn tồn kho hoặc hàng đang được giữ. Hãy xử lý tồn kho trước, hoặc chọn ngừng bán để ẩn sản phẩm.',
+      statusCode: 409,
+    });
+    expect(mockedProduct.findByIdAndDelete).not.toHaveBeenCalled();
+  });
+
+  it('prevents permanent deletion when product is in an active coupon', async () => {
+    mockedProduct.findById.mockResolvedValue({
+      _id: productId,
+      category_id: categoryId,
+      sold_quantity: 0,
+      reviewCount: 0,
+    } as never);
+    mockedCoupon.countDocuments.mockResolvedValue(1);
+
+    await expect(productService.permanentlyDeleteProduct(productId)).rejects.toMatchObject({
+      message: 'Chưa thể xóa vĩnh viễn sản phẩm này vì đang được dùng trong khuyến mãi còn hiệu lực.',
+      statusCode: 409,
+    });
+    expect(mockedProduct.findByIdAndDelete).not.toHaveBeenCalled();
+  });
+
+  it('maps products and inventory into the admin management hierarchy', async () => {
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const variantId = new Types.ObjectId('665000000000000000000011');
+    const colorId = new Types.ObjectId('665000000000000000000012');
+    mockedProduct.aggregate.mockResolvedValue([
+        {
+          _id: new Types.ObjectId(productId),
+          category: {
+            _id: new Types.ObjectId(categoryId),
+            name: 'T-shirts',
+          },
+          templateCategory: {
+            _id: new Types.ObjectId(categoryId),
+            name: 'T-shirts',
+            fitTypes: [
+              {
+                _id: fitTypeId,
+                key: 'regular',
+                label: 'Regular',
+                sortOrder: 1,
+                isActive: true,
+              },
+            ],
+          },
+          name: 'Basic T-shirt',
+          brand: { _id: new Types.ObjectId(brandId), name: 'YODY' },
+          variant: [
+            {
+              _id: variantId,
+              fitTypeId,
+              price: 200000,
+              discount: 0,
+              sizeMeasurements: [{ size: 'M', measurements: [] }],
+              colors: [
+                {
+                  _id: colorId,
+                  color: 'Black',
+                  colorCode: '#000000',
+                  image: 'https://example.com/black.png',
+                },
+              ],
+              isActive: true,
+            },
+          ],
+          product_image: 'https://example.com/product.png',
+          isActive: true,
+          sold_quantity: 12,
+          inventoryItems: [
+            {
+              productId: new Types.ObjectId(productId),
+              variantId,
+              colorVariantId: colorId,
+              size: 'M',
+              sku: 'TEE-REG-BLK-M',
+              availableQuantity: 4,
+            },
+          ],
+        },
+      ] as never);
+
+    const result = await productService.getManagementProducts();
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        _id: productId,
+        name: 'Basic T-shirt',
+        brandName: 'YODY',
+        categoryName: 'T-shirts',
+        soldQuantity: 12,
+        variants: [
+          expect.objectContaining({
+            _id: variantId.toString(),
+            fitTypeLabel: 'Regular',
+            colors: [
+              expect.objectContaining({
+                _id: colorId.toString(),
+                inventory: [
+                  {
+                    size: 'M',
+                    sku: 'TEE-REG-BLK-M',
+                    availableQuantity: 4,
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it('maps product detail into a public catalog DTO', async () => {
     const fitTypeId = new Types.ObjectId('665000000000000000000010');
     const variantId = new Types.ObjectId('665000000000000000000011');
@@ -273,7 +486,6 @@ describe('productService', () => {
           parent_id: null,
           level: 2,
           image: 'https://example.com/category.png',
-          bannerImage: null,
           isSizeTemplateSource: true,
           sizeTemplateSourceId: null,
           sizes: ['M'],
@@ -341,6 +553,7 @@ describe('productService', () => {
     };
     mockedProduct.findOne.mockReturnValue(productDetailQuery as never);
     mockedInventory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue([
         {
           productId: new Types.ObjectId(productId),
@@ -361,7 +574,7 @@ describe('productService', () => {
     expect(productDetailQuery.populate).toHaveBeenCalledWith('brand_id', '_id name image');
     expect(productDetailQuery.populate).toHaveBeenCalledWith(
       'category_id',
-      '_id name gender parent_id level image bannerImage isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes',
+      '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes',
     );
     expect(result).toMatchObject({
       _id: productId,
@@ -455,7 +668,6 @@ describe('productService', () => {
         name: 'T-shirts',
         gender: 'male',
         image: null,
-        bannerImage: null,
       },
       name: 'Basic T-shirt',
       brand_id: {

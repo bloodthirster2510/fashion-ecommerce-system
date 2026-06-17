@@ -1,5 +1,7 @@
 import { Types } from 'mongoose';
-import { Category } from '../../../database/models/category.model';
+import { Category, type CategoryGender } from '../../../database/models/category.model';
+import { Coupon } from '../../../database/models/coupon.model';
+import { Product } from '../../../database/models/product.model';
 import type {
   CategoryListQueryInput,
   CategoryFitTypeInput,
@@ -32,9 +34,21 @@ const normalizeParentId = (parentId?: string | null) => {
   return parentId ? new Types.ObjectId(parentId) : null;
 };
 
+type CategoryHierarchyNode = {
+  parent_id?: Types.ObjectId | null;
+  level: number;
+  gender: CategoryGender;
+};
+
+type CategoryManagementDocument = {
+  _id: Types.ObjectId;
+  parent_id?: Types.ObjectId | null;
+  image?: string | null;
+};
+
 const assertValidParentId = async (parentId?: string | null, currentCategoryId?: string) => {
   if (!parentId) {
-    return;
+    return null;
   }
 
   assertValidCategoryId(parentId);
@@ -43,11 +57,30 @@ const assertValidParentId = async (parentId?: string | null, currentCategoryId?:
     throw new CategoryServiceError('Category cannot be its own parent', 400);
   }
 
-  const parentCategory = await Category.findById(parentId);
+  const visitedIds = new Set<string>();
+  let ancestorId: string | null = parentId;
+  let parentCategory: CategoryHierarchyNode | null = null;
 
-  if (!parentCategory) {
-    throw new CategoryServiceError('Parent category not found', 404);
+  while (ancestorId) {
+    if (visitedIds.has(ancestorId) || (currentCategoryId && ancestorId === currentCategoryId)) {
+      throw new CategoryServiceError('Category hierarchy cannot contain a cycle', 400);
+    }
+
+    visitedIds.add(ancestorId);
+    const ancestor = (await Category.findById(ancestorId)) as CategoryHierarchyNode | null;
+
+    if (!ancestor) {
+      throw new CategoryServiceError('Parent category not found', 404);
+    }
+
+    if (!parentCategory) {
+      parentCategory = ancestor;
+    }
+
+    ancestorId = ancestor.parent_id?.toString() ?? null;
   }
+
+  return parentCategory;
 };
 
 const findCategoryByUniqueFields = (
@@ -191,13 +224,19 @@ const assertValidSizeTemplateSourceId = async (sizeTemplateSourceId?: string | n
 };
 
 const createCategory = async (input: CreateCategoryInput) => {
-  await assertValidParentId(input.parent_id);
+  const parentCategory = await assertValidParentId(input.parent_id);
   const sizeTemplateSourceId = await assertValidSizeTemplateSourceId(input.sizeTemplateSourceId);
+  const level = parentCategory ? parentCategory.level + 1 : 1;
+  const gender = parentCategory ? parentCategory.gender : input.gender;
+
+  if (level > 10) {
+    throw new CategoryServiceError('Category hierarchy exceeds the maximum level', 400);
+  }
 
   const existingCategory = await findCategoryByUniqueFields(
     input.name,
     input.parent_id,
-    input.gender,
+    gender,
   );
 
   if (existingCategory) {
@@ -207,10 +246,9 @@ const createCategory = async (input: CreateCategoryInput) => {
   return Category.create({
     name: input.name.trim(),
     parent_id: normalizeParentId(input.parent_id),
-    level: input.level,
-    gender: input.gender,
+    level,
+    gender,
     image: input.image.trim(),
-    bannerImage: input.bannerImage?.trim() || null,
     description: input.description.trim(),
     isLeaf: input.isLeaf ?? false,
     isSizeTemplateSource: input.isSizeTemplateSource ?? false,
@@ -224,7 +262,10 @@ const createCategory = async (input: CreateCategoryInput) => {
 
 const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   assertValidCategoryId(id);
-  await assertValidParentId(input.parent_id, id);
+  const parentCategory =
+    input.parent_id !== undefined
+      ? await assertValidParentId(input.parent_id, id)
+      : undefined;
   const sizeTemplateSourceId = await assertValidSizeTemplateSourceId(input.sizeTemplateSourceId);
 
   const category = await Category.findById(id);
@@ -233,9 +274,20 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
     throw new CategoryServiceError('Category not found', 404);
   }
 
+  if (input.isActive === false && category.isActive) {
+    const activeProductCount = await countActiveProductsInCategoryTree(id);
+    if (activeProductCount > 0) {
+      throw new CategoryServiceError(
+        'Danh mục này vẫn còn sản phẩm đang bán. Vui lòng dùng nút xóa của quản lý danh mục để xác nhận ngừng bán các sản phẩm liên quan.',
+        409,
+      );
+    }
+  }
+
   const nextName = input.name ?? category.name;
   const nextParentId = input.parent_id !== undefined ? input.parent_id : category.parent_id?.toString() ?? null;
-  const nextGender = input.gender ?? category.gender;
+  const nextGender =
+    parentCategory ? parentCategory.gender : input.gender ?? category.gender;
 
   if (input.name !== undefined || input.parent_id !== undefined || input.gender !== undefined) {
     const existingCategory = await findCategoryByUniqueFields(nextName, nextParentId, nextGender);
@@ -249,10 +301,19 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
 
   if (input.name !== undefined) updateData.name = input.name.trim();
   if (input.parent_id !== undefined) updateData.parent_id = normalizeParentId(input.parent_id);
-  if (input.level !== undefined) updateData.level = input.level;
-  if (input.gender !== undefined) updateData.gender = input.gender;
+  if (input.parent_id !== undefined) {
+    const level = parentCategory ? parentCategory.level + 1 : 1;
+
+    if (level > 10) {
+      throw new CategoryServiceError('Category hierarchy exceeds the maximum level', 400);
+    }
+
+    updateData.level = level;
+  }
+  if (input.parent_id !== undefined || input.gender !== undefined) {
+    updateData.gender = nextGender;
+  }
   if (input.image !== undefined) updateData.image = input.image.trim();
-  if (input.bannerImage !== undefined) updateData.bannerImage = input.bannerImage?.trim() || null;
   if (input.description !== undefined) updateData.description = input.description.trim();
   if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
   if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;
@@ -274,10 +335,41 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   });
 };
 
-const deleteCategory = async (id: string) => {
+type DeleteCategoryOptions = {
+  cascadeProducts?: boolean;
+};
+
+const deleteCategory = async (id: string, options: DeleteCategoryOptions = {}) => {
   assertValidCategoryId(id);
 
-  const category = await Category.findByIdAndUpdate(
+  const categories = await Category.find()
+    .select('_id parent_id')
+    .lean<CategoryManagementDocument[]>();
+  const category = categories.find((item) => item._id.toString() === id);
+
+  if (!category) {
+    throw new CategoryServiceError('Category not found', 404);
+  }
+
+  const categoryIds = getDescendantIdsFromCategories(categories, id).map((categoryId) => new Types.ObjectId(categoryId));
+  const activeProductFilter = {
+    category_id: { $in: categoryIds },
+    isActive: true,
+  };
+  const activeProductCount = await Product.countDocuments(activeProductFilter);
+
+  if (activeProductCount > 0 && !options.cascadeProducts) {
+    throw new CategoryServiceError(
+      'Danh mục này vẫn còn sản phẩm đang bán. Vui lòng xác nhận ngừng bán các sản phẩm liên quan trước khi tạm ngừng danh mục.',
+      409,
+    );
+  }
+
+  if (activeProductCount > 0) {
+    await Product.updateMany(activeProductFilter, { isActive: false });
+  }
+
+  const updatedCategory = await Category.findByIdAndUpdate(
     id,
     { isActive: false },
     {
@@ -286,15 +378,156 @@ const deleteCategory = async (id: string) => {
     },
   );
 
+  if (!updatedCategory) {
+    throw new CategoryServiceError('Category not found', 404);
+  }
+
+  return updatedCategory;
+};
+
+const getDescendantIdsFromCategories = (
+  categories: CategoryManagementDocument[],
+  rootId: string,
+) => {
+  const childrenByParentId = new Map<string, CategoryManagementDocument[]>();
+
+  categories.forEach((category) => {
+    const parentId = category.parent_id?.toString();
+    if (!parentId) return;
+    const children = childrenByParentId.get(parentId) ?? [];
+    children.push(category);
+    childrenByParentId.set(parentId, children);
+  });
+
+  const ids: string[] = [];
+  const visited = new Set<string>();
+  const visit = (categoryId: string) => {
+    if (visited.has(categoryId)) return;
+    visited.add(categoryId);
+    ids.push(categoryId);
+    (childrenByParentId.get(categoryId) ?? []).forEach((child) => visit(child._id.toString()));
+  };
+
+  visit(rootId);
+  return ids;
+};
+
+const countActiveProductsInCategoryTree = async (id: string) => {
+  const categories = await Category.find()
+    .select('_id parent_id')
+    .lean<CategoryManagementDocument[]>();
+
+  const categoryIds = getDescendantIdsFromCategories(categories, id).map(
+    (categoryId) => new Types.ObjectId(categoryId),
+  );
+
+  return Product.countDocuments({
+    category_id: { $in: categoryIds },
+    isActive: true,
+  });
+};
+
+const deleteCategoryPermanently = async (id: string) => {
+  assertValidCategoryId(id);
+  const categoryObjectId = new Types.ObjectId(id);
+
+  const categories = await Category.find()
+    .select('_id parent_id image')
+    .lean<CategoryManagementDocument[]>();
+  const category = categories.find((item) => item._id.toString() === id);
+
   if (!category) {
     throw new CategoryServiceError('Category not found', 404);
   }
 
-  return category;
+  const now = new Date();
+  const [childCategoryCount, productCount, templateDependencyCount, activePromotionCount] = await Promise.all([
+    Category.countDocuments({ parent_id: categoryObjectId }),
+    Product.countDocuments({ category_id: categoryObjectId }),
+    Category.countDocuments({
+      _id: { $ne: categoryObjectId },
+      sizeTemplateSourceId: categoryObjectId,
+    }),
+    Coupon.countDocuments({
+      deletedAt: null,
+      isActive: true,
+      startAt: { $lte: now },
+      endAt: { $gte: now },
+      applicableCategories: categoryObjectId,
+    }),
+  ]);
+
+  if (childCategoryCount > 0) {
+    throw new CategoryServiceError('Chưa thể xóa vĩnh viễn danh mục này vì vẫn còn danh mục con.', 409);
+  }
+
+  if (productCount > 0) {
+    throw new CategoryServiceError('Chưa thể xóa vĩnh viễn danh mục này vì vẫn còn sản phẩm đang tham chiếu.', 409);
+  }
+
+  if (templateDependencyCount > 0) {
+    throw new CategoryServiceError('Chưa thể xóa vĩnh viễn danh mục này vì đang được dùng làm mẫu size/form cho danh mục khác.', 409);
+  }
+
+  if (activePromotionCount > 0) {
+    throw new CategoryServiceError('Chưa thể xóa vĩnh viễn danh mục này vì đang được dùng trong khuyến mãi còn hiệu lực.', 409);
+  }
+
+  await Category.deleteMany({ _id: categoryObjectId });
+
+  return [category];
 };
 
 const getCategories = () => {
   return Category.find().sort({ createdAt: -1 });
+};
+
+const getCategoriesForManagement = async () => {
+  const [categories, productCounts] = await Promise.all([
+    Category.find()
+      .select('_id name parent_id level gender image description isActive createdAt updatedAt')
+      .sort({ gender: 1, level: 1, name: 1 })
+      .lean(),
+    Product.aggregate<{ _id: Types.ObjectId; count: number; activeCount: number }>([
+      {
+        $group: {
+          _id: '$category_id',
+          count: { $sum: 1 },
+          activeCount: { $sum: { $cond: ['$isActive', 1, 0] } },
+        },
+      },
+    ]),
+  ]);
+  const countByCategoryId = new Map(
+    productCounts.map((item) => [item._id.toString(), item.count]),
+  );
+  const activeCountByCategoryId = new Map(
+    productCounts.map((item) => [item._id.toString(), item.activeCount]),
+  );
+  const directCountByCategoryId = new Map(countByCategoryId);
+  const directActiveCountByCategoryId = new Map(activeCountByCategoryId);
+  const managementCategories = categories as CategoryManagementDocument[];
+
+  categories.forEach((category) => {
+    const categoryId = category._id.toString();
+    const descendantIds = getDescendantIdsFromCategories(managementCategories, categoryId);
+    const aggregateCount = descendantIds.reduce(
+      (total, descendantId) => total + (directCountByCategoryId.get(descendantId) ?? 0),
+      0,
+    );
+    const aggregateActiveCount = descendantIds.reduce(
+      (total, descendantId) => total + (directActiveCountByCategoryId.get(descendantId) ?? 0),
+      0,
+    );
+    countByCategoryId.set(categoryId, aggregateCount);
+    activeCountByCategoryId.set(categoryId, aggregateActiveCount);
+  });
+
+  return categories.map((category) => ({
+    ...category,
+    productCount: countByCategoryId.get(category._id.toString()) ?? 0,
+    activeProductCount: activeCountByCategoryId.get(category._id.toString()) ?? 0,
+  }));
 };
 
 const getActiveCategories = () => {
@@ -379,7 +612,9 @@ export const categoryService = {
   createCategory,
   updateCategory,
   deleteCategory,
+  deleteCategoryPermanently,
   getCategories,
+  getCategoriesForManagement,
   getActiveCategories,
   listCategories,
   getCategoryById,

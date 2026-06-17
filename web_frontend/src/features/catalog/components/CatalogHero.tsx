@@ -44,8 +44,8 @@ const resolveHeroData = (categories: CatalogCategory[], query: ProductListQuery,
 
   const ancestors = buildAncestors(selectedCategory, categoriesById)
   const imageCategory =
-    [...ancestors].reverse().find((category) => category.bannerImage || category.image) ?? selectedCategory
-  const image = imageCategory.bannerImage || imageCategory.image
+    [...ancestors].reverse().find((category) => category.image) ?? selectedCategory
+  const image = imageCategory.image
 
   if (!image) {
     return null

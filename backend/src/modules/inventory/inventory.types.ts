@@ -9,6 +9,7 @@ export interface CreateInventoryImportInput {
   productId: string;
   variantId: string;
   colorVariantId: string;
+  supplierName?: string;
   detail: InventoryImportDetailInput[];
 }
 

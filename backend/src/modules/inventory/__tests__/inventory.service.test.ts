@@ -18,6 +18,7 @@ jest.mock('../../../database/models', () => ({
     find: jest.fn(),
     findById: jest.fn(),
     countDocuments: jest.fn(),
+    distinct: jest.fn(),
   },
   InventoryReservation: {
     create: jest.fn(),
@@ -191,5 +192,71 @@ describe('inventoryService', () => {
         },
       },
     );
+  });
+
+  it('consumes import remaining quantities when reservations are committed', async () => {
+    const reservation = {
+      _id: new Types.ObjectId(),
+      productId: new Types.ObjectId(productId),
+      variantId: new Types.ObjectId(variantId),
+      colorVariantId: new Types.ObjectId(colorVariantId),
+      size: 'M',
+      quantity: 2,
+      status: 'active',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const firstImport = {
+      detail: [{ size: 'M', quantity: 10, remainingQuantity: 1 }],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const secondImport = {
+      detail: [{ size: 'M', quantity: 10, remainingQuantity: 5 }],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const sort = jest.fn().mockResolvedValue([firstImport, secondImport]);
+
+    mockedInventoryReservation.find.mockResolvedValue([reservation] as never);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedInventoryImport.find.mockReturnValue({ sort } as never);
+
+    await inventoryService.commitReservations({
+      reservationIds: [reservation._id.toString()],
+    });
+
+    expect(sort).toHaveBeenCalledWith({ createdAt: 1 });
+    expect(firstImport.detail[0].remainingQuantity).toBe(0);
+    expect(secondImport.detail[0].remainingQuantity).toBe(4);
+    expect(firstImport.save).toHaveBeenCalled();
+    expect(secondImport.save).toHaveBeenCalled();
+  });
+
+  it('restores import remaining quantities when committed stock is returned', async () => {
+    const oldImport = {
+      detail: [{ size: 'M', quantity: 10, remainingQuantity: 8 }],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const latestImport = {
+      detail: [{ size: 'M', quantity: 10, remainingQuantity: 9 }],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const sort = jest.fn().mockResolvedValue([latestImport, oldImport]);
+
+    mockedInventoryImport.find.mockReturnValue({ sort } as never);
+
+    await inventoryService.restoreImportRemainingQuantities([
+      {
+        productId: new Types.ObjectId(productId),
+        variantId: new Types.ObjectId(variantId),
+        colorVariantId: new Types.ObjectId(colorVariantId),
+        size: 'M',
+        quantity: 2,
+      },
+    ]);
+
+    expect(sort).toHaveBeenCalledWith({ createdAt: -1 });
+    expect(latestImport.detail[0].remainingQuantity).toBe(10);
+    expect(oldImport.detail[0].remainingQuantity).toBe(9);
+    expect(latestImport.save).toHaveBeenCalled();
+    expect(oldImport.save).toHaveBeenCalled();
   });
 });
