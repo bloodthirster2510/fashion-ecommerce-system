@@ -1,9 +1,13 @@
 import { Category } from '../../../../database/models/category.model';
+import { Coupon } from '../../../../database/models/coupon.model';
+import { Product } from '../../../../database/models/product.model';
 import { CategoryServiceError, categoryService } from '../categories.service';
 
 jest.mock('../../../../database/models/category.model', () => ({
   Category: {
     create: jest.fn(),
+    deleteMany: jest.fn(),
+    countDocuments: jest.fn(),
     findById: jest.fn(),
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
@@ -11,11 +15,29 @@ jest.mock('../../../../database/models/category.model', () => ({
   },
 }));
 
+jest.mock('../../../../database/models/product.model', () => ({
+  Product: {
+    aggregate: jest.fn(),
+    countDocuments: jest.fn(),
+    updateMany: jest.fn(),
+  },
+}));
+
+jest.mock('../../../../database/models/coupon.model', () => ({
+  Coupon: {
+    countDocuments: jest.fn(),
+  },
+}));
+
 const mockedCategory = Category as jest.Mocked<typeof Category>;
+const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
+const mockedProduct = Product as jest.Mocked<typeof Product>;
 
 describe('categoryService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedCategory.countDocuments.mockResolvedValue(0);
+    mockedCoupon.countDocuments.mockResolvedValue(0);
   });
 
   it('creates a root category with normalized values', async () => {
@@ -29,7 +51,6 @@ describe('categoryService', () => {
       level: 1,
       gender: 'male',
       image: ' https://example.com/category.png ',
-      bannerImage: ' https://example.com/banner.png ',
       description: ' Men shirts category ',
     });
 
@@ -40,7 +61,6 @@ describe('categoryService', () => {
       level: 1,
       gender: 'male',
       image: 'https://example.com/category.png',
-      bannerImage: 'https://example.com/banner.png',
       description: 'Men shirts category',
       isLeaf: false,
       isSizeTemplateSource: false,
@@ -64,7 +84,6 @@ describe('categoryService', () => {
       level: 1,
       gender: 'male',
       image: ' https://example.com/category.png ',
-      bannerImage: ' https://example.com/banner.png ',
       description: ' Men shirts category ',
       isSizeTemplateSource: true,
       sizes: ['S', 'M', 'L'],
@@ -152,6 +171,122 @@ describe('categoryService', () => {
     });
   });
 
+  it('throws 400 when assigning a descendant as the parent', async () => {
+    mockedCategory.findById.mockResolvedValueOnce({
+      parent_id: { toString: () => '665000000000000000000001' },
+      level: 2,
+      gender: 'female',
+    } as never);
+
+    await expect(
+      categoryService.updateCategory('665000000000000000000001', {
+        parent_id: '665000000000000000000002',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Category hierarchy cannot contain a cycle',
+      statusCode: 400,
+    });
+  });
+
+  it('derives category level from its parent', async () => {
+    const category = { _id: '665000000000000000000002', level: 4 };
+    mockedCategory.findById.mockResolvedValue({
+      parent_id: null,
+      level: 3,
+      gender: 'male',
+    } as never);
+    mockedCategory.findOne.mockResolvedValue(null);
+    mockedCategory.create.mockResolvedValue(category as never);
+
+    await categoryService.createCategory({
+      name: 'T-shirts',
+      parent_id: '665000000000000000000001',
+      level: 9,
+      gender: 'male',
+      image: 'https://example.com/category.png',
+      description: 'Men t-shirts category',
+    });
+
+    expect(mockedCategory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parent_id: expect.any(Object),
+        level: 4,
+      }),
+    );
+  });
+
+  it('uses the parent gender when creating a child category', async () => {
+    const category = { _id: '665000000000000000000002', gender: 'female' };
+    mockedCategory.findById.mockResolvedValue({
+      parent_id: null,
+      level: 1,
+      gender: 'female',
+    } as never);
+    mockedCategory.findOne.mockResolvedValue(null);
+    mockedCategory.create.mockResolvedValue(category as never);
+
+    await categoryService.createCategory({
+      name: 'Sneakers',
+      parent_id: '665000000000000000000001',
+      level: 2,
+      gender: 'male',
+      image: 'https://example.com/category.png',
+      description: 'Women sneakers category',
+    });
+
+    expect(mockedCategory.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gender: 'female',
+      }),
+    );
+    expect(mockedCategory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gender: 'female',
+        level: 2,
+      }),
+    );
+  });
+
+  it('uses the new parent gender when updating a category parent', async () => {
+    const categoryId = '665000000000000000000003';
+    const parentId = '665000000000000000000001';
+    mockedCategory.findById
+      .mockResolvedValueOnce({
+        parent_id: null,
+        level: 1,
+        gender: 'female',
+      } as never)
+      .mockResolvedValueOnce({
+        _id: { toString: () => categoryId },
+        name: 'Sneakers',
+        parent_id: null,
+        gender: 'male',
+      } as never);
+    mockedCategory.findOne.mockResolvedValue(null);
+    mockedCategory.findByIdAndUpdate.mockResolvedValue({
+      _id: categoryId,
+      gender: 'female',
+    } as never);
+
+    await categoryService.updateCategory(categoryId, {
+      parent_id: parentId,
+      gender: 'male',
+    });
+
+    expect(mockedCategory.findByIdAndUpdate).toHaveBeenCalledWith(
+      categoryId,
+      expect.objectContaining({
+        parent_id: expect.any(Object),
+        level: 2,
+        gender: 'female',
+      }),
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
+  });
+
   it('throws 409 when updating to an existing unique category combination', async () => {
     mockedCategory.findById.mockResolvedValue({
       _id: { toString: () => '665000000000000000000001' },
@@ -173,6 +308,16 @@ describe('categoryService', () => {
 
   it('soft deletes a category by setting isActive to false', async () => {
     const category = { _id: '665000000000000000000001', isActive: false };
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(0);
     mockedCategory.findByIdAndUpdate.mockResolvedValue(category as never);
 
     const result = await categoryService.deleteCategory('665000000000000000000001');
@@ -185,7 +330,213 @@ describe('categoryService', () => {
         runValidators: true,
       },
     );
+    expect(mockedProduct.updateMany).not.toHaveBeenCalled();
     expect(result).toBe(category);
+  });
+
+  it('prevents soft deletion when a category still has active products without confirmation', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(2);
+
+    await expect(
+      categoryService.deleteCategory('665000000000000000000001'),
+    ).rejects.toMatchObject({
+      message:
+        'Danh mục này vẫn còn sản phẩm đang bán. Vui lòng xác nhận ngừng bán các sản phẩm liên quan trước khi tạm ngừng danh mục.',
+      statusCode: 409,
+    });
+    expect(mockedCategory.findByIdAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('soft deletes a category and deactivates related active products when confirmed', async () => {
+    const category = { _id: '665000000000000000000001', isActive: false };
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+        {
+          _id: { toString: () => '665000000000000000000002' },
+          parent_id: { toString: () => '665000000000000000000001' },
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(2);
+    mockedProduct.updateMany.mockResolvedValue({ modifiedCount: 2 } as never);
+    mockedCategory.findByIdAndUpdate.mockResolvedValue(category as never);
+
+    const result = await categoryService.deleteCategory('665000000000000000000001', {
+      cascadeProducts: true,
+    });
+
+    expect(mockedProduct.updateMany).toHaveBeenCalledWith(
+      {
+        category_id: {
+          $in: [
+            expect.objectContaining({ _bsontype: 'ObjectId' }),
+            expect.objectContaining({ _bsontype: 'ObjectId' }),
+          ],
+        },
+        isActive: true,
+      },
+      { isActive: false },
+    );
+    expect(result).toBe(category);
+  });
+
+  it('aggregates product counts from descendant categories for management', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          name: 'Giày dép',
+          parent_id: null,
+        },
+        {
+          _id: { toString: () => '665000000000000000000002' },
+          name: 'Sneakers',
+          parent_id: { toString: () => '665000000000000000000001' },
+        },
+      ]),
+    } as never);
+    mockedProduct.aggregate.mockResolvedValue([
+      { _id: { toString: () => '665000000000000000000001' }, count: 2, activeCount: 1 },
+      { _id: { toString: () => '665000000000000000000002' }, count: 3, activeCount: 2 },
+    ] as never);
+
+    const result = await categoryService.getCategoriesForManagement();
+
+    expect(result).toEqual([
+      expect.objectContaining({ name: 'Giày dép', productCount: 5, activeProductCount: 3 }),
+      expect.objectContaining({ name: 'Sneakers', productCount: 3, activeProductCount: 2 }),
+    ]);
+  });
+
+  it('prevents permanent deletion when a category has child categories', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedCategory.countDocuments.mockResolvedValueOnce(1);
+
+    await expect(
+      categoryService.deleteCategoryPermanently('665000000000000000000001'),
+    ).rejects.toMatchObject({
+      message: 'Chưa thể xóa vĩnh viễn danh mục này vì vẫn còn danh mục con.',
+      statusCode: 409,
+    });
+
+    expect(mockedCategory.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('prevents permanent deletion when a category has products', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(1);
+
+    await expect(
+      categoryService.deleteCategoryPermanently('665000000000000000000001'),
+    ).rejects.toMatchObject({
+      message: 'Chưa thể xóa vĩnh viễn danh mục này vì vẫn còn sản phẩm đang tham chiếu.',
+      statusCode: 409,
+    });
+
+    expect(mockedCategory.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('prevents permanent deletion when a category is used as a size template', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(0);
+    mockedCategory.countDocuments
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1);
+
+    await expect(
+      categoryService.deleteCategoryPermanently('665000000000000000000001'),
+    ).rejects.toMatchObject({
+      message: 'Chưa thể xóa vĩnh viễn danh mục này vì đang được dùng làm mẫu size/form cho danh mục khác.',
+      statusCode: 409,
+    });
+
+    expect(mockedCategory.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('prevents permanent deletion when a category is used by an active promotion', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(0);
+    mockedCoupon.countDocuments.mockResolvedValue(1);
+
+    await expect(
+      categoryService.deleteCategoryPermanently('665000000000000000000001'),
+    ).rejects.toMatchObject({
+      message: 'Chưa thể xóa vĩnh viễn danh mục này vì đang được dùng trong khuyến mãi còn hiệu lực.',
+      statusCode: 409,
+    });
+
+    expect(mockedCategory.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('permanently deletes a category when it has no dependencies', async () => {
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: { toString: () => '665000000000000000000001' },
+          parent_id: null,
+        },
+      ]),
+    } as never);
+    mockedProduct.countDocuments.mockResolvedValue(0);
+    mockedCategory.deleteMany.mockResolvedValue({ deletedCount: 1 } as never);
+
+    const result = await categoryService.deleteCategoryPermanently(
+      '665000000000000000000001',
+    );
+
+    expect(mockedCategory.deleteMany).toHaveBeenCalledWith({
+      _id: expect.any(Object),
+    });
+    expect(result).toHaveLength(1);
   });
 
   it('uses a typed service error for category failures', async () => {
