@@ -37,6 +37,11 @@ const supportLinks = [
   'Chính sách bảo mật',
   'Liên hệ với chúng tôi',
 ]
+const shopContact = {
+  phone: import.meta.env.VITE_SHOP_PHONE?.trim() || 'Đang cập nhật',
+  email: import.meta.env.VITE_SHOP_EMAIL?.trim() || 'Đang cập nhật',
+  hours: import.meta.env.VITE_SHOP_HOURS?.trim() || 'Đang cập nhật',
+}
 const slides = [
   {
     id: 'summer',
@@ -257,9 +262,9 @@ function Footer() {
         <section>
           <h2>Giới thiệu</h2>
           <p>Cửa hàng thời trang</p>
-          <p>SDT: 0123.456.789</p>
-          <p>Email: fashion@email.com</p>
-          <p>Giờ mở cửa: 8:30 - 22:00</p>
+          <p>SDT: {shopContact.phone}</p>
+          <p>Email: {shopContact.email}</p>
+          <p>Giờ mở cửa: {shopContact.hours}</p>
         </section>
 
         <section>
