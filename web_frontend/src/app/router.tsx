@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AdminLogin } from '../features/admin/modules/auth/AdminLogin'
 import { ForcePasswordChange } from '../features/admin/modules/auth/ForcePasswordChange'
 import '../features/admin/styles/admin.css'
@@ -22,7 +22,14 @@ export function Router() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>
     getAdminSession(),
   )
-  const path = window.location.pathname
+  const [path, setPath] = useState(() => window.location.pathname)
+  const replacePath = useCallback((nextPath: string) => {
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(null, '', nextPath)
+    }
+
+    setPath(nextPath)
+  }, [])
 
   const handleLogout = async () => {
     const accessToken = adminSession?.accessToken
@@ -32,20 +39,54 @@ export function Router() {
 
     clearAdminSession()
     setAdminSession(null)
-    window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
+    replacePath(ADMIN_LOGIN_PATH)
   }
 
   useEffect(() => {
     const handleSessionExpired = () => {
       clearAdminSession()
       setAdminSession(null)
-      window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
+      replacePath(ADMIN_LOGIN_PATH)
     }
 
     window.addEventListener('admin-session-expired', handleSessionExpired)
 
     return () => window.removeEventListener('admin-session-expired', handleSessionExpired)
+  }, [replacePath])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setPath(window.location.pathname)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => window.removeEventListener('popstate', handlePopState)
   }, [])
+
+  useEffect(() => {
+    if (!path.startsWith('/admin')) {
+      return
+    }
+
+    if (!adminSession) {
+      if (path !== ADMIN_LOGIN_PATH) {
+        replacePath(ADMIN_LOGIN_PATH)
+      }
+      return
+    }
+
+    if (adminSession.user.mustChangePassword) {
+      if (path !== '/admin/change-password') {
+        replacePath('/admin/change-password')
+      }
+      return
+    }
+
+    if (path === ADMIN_LOGIN_PATH || path === '/admin' || path === '/admin/') {
+      replacePath(ADMIN_DEFAULT_PATH)
+    }
+  }, [adminSession, path, replacePath])
 
   if (!path.startsWith('/admin')) {
     if (path === '/account') {
@@ -59,21 +100,12 @@ export function Router() {
     return <ProductListPage showSlider={path === '/'} />
   }
 
-  const isLoginRoute = path === ADMIN_LOGIN_PATH
   const handleLoginSuccess = (session: AdminSession) => {
     setAdminSession(session)
-    window.history.replaceState(
-      null,
-      '',
-      session.user.mustChangePassword ? '/admin/change-password' : ADMIN_DEFAULT_PATH,
-    )
+    replacePath(session.user.mustChangePassword ? '/admin/change-password' : ADMIN_DEFAULT_PATH)
   }
 
   if (!adminSession) {
-    if (!isLoginRoute) {
-      window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
-    }
-
     return <AdminLogin onLoginSuccess={handleLoginSuccess} />
   }
 
@@ -85,10 +117,6 @@ export function Router() {
         onLogout={handleLogout}
       />
     )
-  }
-
-  if (isLoginRoute || path === '/admin' || path === '/admin/') {
-    window.history.replaceState(null, '', ADMIN_DEFAULT_PATH)
   }
 
   return <AdminLayout currentUser={adminSession.user} onLogout={handleLogout} />
