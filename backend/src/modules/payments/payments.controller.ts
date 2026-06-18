@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Order, type OrderPaymentStatus, type TransactionStatus } from '../../database/models';
 import { error, ok, serverError } from '../../utils/response';
 import { auditLogService } from '../audit-logs/audit-log.service';
@@ -168,21 +168,62 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
 
   const isSuccess = result.isSuccess;
   const newStatus: TransactionStatus = isSuccess ? 'success' : 'failed';
+  const session = await mongoose.startSession();
+  let resolvedTransaction: Awaited<ReturnType<typeof transactionService.resolveTransaction>> = null;
+  let paymentStatus = order.paymentStatus;
 
-  const resolvedTransaction = await transactionService.resolveTransaction({
-    transactionId: transaction._id.toString(),
-    status: newStatus,
-    gatewayTransactionId: result.transactionNo ? String(result.transactionNo) : null,
-    failureReason: isSuccess ? null : `VNPay response ${result.responseCode || 'unknown'}`,
-    paymentDetail: {
-      vnp_ResponseCode: result.responseCode,
-      vnp_TransactionStatus: result.transactionStatus,
-      vnp_TransactionNo: result.transactionNo,
-      vnp_BankCode: result.bankCode,
-      vnp_PayDate: result.payDate,
-      vnp_Amount: callbackAmount,
-    },
-  });
+  try {
+    await session.withTransaction(async () => {
+      resolvedTransaction = await transactionService.resolveTransaction({
+        transactionId: transaction._id.toString(),
+        status: newStatus,
+        gatewayTransactionId: result.transactionNo ? String(result.transactionNo) : null,
+        failureReason: isSuccess ? null : `VNPay response ${result.responseCode || 'unknown'}`,
+        paymentDetail: {
+          vnp_ResponseCode: result.responseCode,
+          vnp_TransactionStatus: result.transactionStatus,
+          vnp_TransactionNo: result.transactionNo,
+          vnp_BankCode: result.bankCode,
+          vnp_PayDate: result.payDate,
+          vnp_Amount: callbackAmount,
+        },
+        session,
+      });
+
+      if (!resolvedTransaction) {
+        return;
+      }
+
+      const latest = await transactionService.findLatestAttemptByOrderId(orderId, session);
+      const isLatestAttempt = latest?._id.toString() === resolvedTransaction._id.toString();
+
+      if (isSuccess && !isTerminalPaymentStatus(order.paymentStatus)) {
+        const nextPaymentStatus = 'paid';
+        const updateResult = await Order.updateOne(
+          { _id: order._id, paymentStatus: { $nin: TERMINAL_PAYMENT_STATUSES } },
+          { $set: { paymentStatus: nextPaymentStatus } },
+          { session },
+        );
+
+        if (updateResult.matchedCount > 0) {
+          paymentStatus = nextPaymentStatus;
+        }
+      } else if (!isSuccess && isLatestAttempt && !isTerminalPaymentStatus(order.paymentStatus)) {
+        const nextPaymentStatus = 'failed';
+        const updateResult = await Order.updateOne(
+          { _id: order._id, paymentStatus: { $nin: TERMINAL_PAYMENT_STATUSES } },
+          { $set: { paymentStatus: nextPaymentStatus } },
+          { session },
+        );
+
+        if (updateResult.matchedCount > 0) {
+          paymentStatus = nextPaymentStatus;
+        }
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
 
   if (!resolvedTransaction) {
     return {
@@ -193,24 +234,6 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
       transactionId: transaction._id.toString(),
       paymentStatus: order.paymentStatus,
     };
-  }
-
-  const latest = await transactionService.findLatestAttemptByOrderId(orderId);
-  const isLatestAttempt = latest?._id.toString() === resolvedTransaction._id.toString();
-  let paymentStatus = order.paymentStatus;
-
-  if (isSuccess && !isTerminalPaymentStatus(order.paymentStatus)) {
-    paymentStatus = 'paid';
-    await Order.updateOne(
-      { _id: order._id },
-      { $set: { paymentStatus } },
-    );
-  } else if (!isSuccess && isLatestAttempt && !isTerminalPaymentStatus(order.paymentStatus)) {
-    paymentStatus = 'failed';
-    await Order.updateOne(
-      { _id: order._id },
-      { $set: { paymentStatus } },
-    );
   }
 
   return {

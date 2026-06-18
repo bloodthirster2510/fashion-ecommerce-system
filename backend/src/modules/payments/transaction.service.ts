@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import {
   Transaction,
   type TransactionStatus,
@@ -114,10 +114,12 @@ export const transactionService = {
     }).sort({ createdAt: -1 });
   },
 
-  findLatestAttemptByOrderId: async (orderId: string) => {
-    return Transaction.findOne({
+  findLatestAttemptByOrderId: async (orderId: string, session?: ClientSession) => {
+    const query = Transaction.findOne({
       order_id: new Types.ObjectId(orderId),
     }).sort({ attemptNo: -1, createdAt: -1 });
+
+    return session ? query.session(session) : query;
   },
 
   findByTxnRef: async (txnRef: string) => {
@@ -259,12 +261,14 @@ export const transactionService = {
     gatewayTransactionId,
     paymentDetail,
     failureReason,
+    session,
   }: {
     transactionId: string;
     status: 'success' | 'failed' | 'expired';
     gatewayTransactionId?: string | null;
     paymentDetail?: Record<string, unknown>;
     failureReason?: string | null;
+    session?: ClientSession;
   }) => {
     return Transaction.findOneAndUpdate(
       { _id: new Types.ObjectId(transactionId), status: 'pending' },
@@ -277,7 +281,7 @@ export const transactionService = {
           failureReason: failureReason ?? null,
         },
       },
-      { returnDocument: 'after' },
+      { returnDocument: 'after', session },
     );
   },
 };

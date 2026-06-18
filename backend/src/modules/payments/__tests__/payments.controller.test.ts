@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Order } from '../../../database/models';
 import { transactionService } from '../transaction.service';
 import { handleVNPayIpn, settleVNPayPayment } from '../payments.controller';
@@ -37,6 +37,14 @@ jest.mock('../../audit-logs/audit-log.service', () => ({
 
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
+const startSessionSpy = jest.spyOn(mongoose, 'startSession');
+
+type MockSession = {
+  withTransaction: jest.Mock;
+  endSession: jest.Mock;
+};
+
+let mockSession: MockSession;
 
 const chainLeanResult = (value: unknown) => ({
   lean: jest.fn().mockResolvedValue(value),
@@ -45,6 +53,12 @@ const chainLeanResult = (value: unknown) => ({
 describe('settleVNPayPayment', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSession = {
+      withTransaction: jest.fn(async (callback: () => Promise<unknown>) => callback()),
+      endSession: jest.fn(),
+    };
+    startSessionSpy.mockResolvedValue(mockSession as never);
+    mockedOrder.updateOne.mockResolvedValue({ matchedCount: 1 } as never);
   });
 
   it('fails closed when VNPay callback amount is missing', async () => {
@@ -83,6 +97,68 @@ describe('settleVNPayPayment', () => {
     });
     expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
     expect(mockedOrder.updateOne).not.toHaveBeenCalled();
+    expect(startSessionSpy).not.toHaveBeenCalled();
+  });
+
+  it('resolves a successful payment and updates the order in one Mongo session', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000204');
+    const transactionId = new Types.ObjectId('665000000000000000000304');
+    const transaction = {
+      _id: transactionId,
+      order_id: orderId,
+      amount: 385000,
+      status: 'pending',
+    };
+    const order = {
+      _id: orderId,
+      orderCode: 'FSORDER',
+      paymentStatus: 'pending',
+    };
+    const resolvedTransaction = {
+      ...transaction,
+      status: 'success',
+    };
+
+    mockedTransactionService.findByTxnRef.mockResolvedValue(transaction as never);
+    mockedOrder.findById.mockReturnValue(chainLeanResult(order) as never);
+    mockedTransactionService.resolveTransaction.mockResolvedValue(resolvedTransaction as never);
+    mockedTransactionService.findLatestAttemptByOrderId.mockResolvedValue(resolvedTransaction as never);
+
+    const result = await settleVNPayPayment({
+      isValidSignature: true,
+      isSuccess: true,
+      orderId: 'FSORDERA1',
+      amount: 385000,
+      responseCode: '00',
+      transactionStatus: '00',
+      transactionNo: 'VNP126',
+      bankCode: 'NCB',
+      payDate: '20260618123000',
+    });
+
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockedTransactionService.resolveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionId: transactionId.toString(),
+        status: 'success',
+        session: mockSession,
+      }),
+    );
+    expect(mockedTransactionService.findLatestAttemptByOrderId).toHaveBeenCalledWith(
+      orderId.toString(),
+      mockSession,
+    );
+    expect(mockedOrder.updateOne).toHaveBeenCalledWith(
+      { _id: orderId, paymentStatus: { $nin: ['paid', 'refunded'] } },
+      { $set: { paymentStatus: 'paid' } },
+      { session: mockSession },
+    );
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      rspCode: '00',
+      transactionStatus: 'success',
+      paymentStatus: 'paid',
+    });
   });
 
   it('does not let a late failed latest attempt overwrite an already paid order', async () => {
