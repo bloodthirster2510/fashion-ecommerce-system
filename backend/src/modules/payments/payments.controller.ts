@@ -567,6 +567,7 @@ export const handleVNPayIpn = async (req: Request, res: Response) => {
       Message: settlement.message,
     });
   } catch (err: unknown) {
+    console.error('Failed to handle VNPay IPN:', err);
     return res.status(200).json({ RspCode: '99', Message: 'Internal Server Error' });
   }
 };

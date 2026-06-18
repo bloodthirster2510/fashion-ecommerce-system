@@ -195,9 +195,11 @@ describe('handleVNPayIpn', () => {
     } else {
       process.env.VNPAY_HASH_SECRET = originalVNPayHashSecret;
     }
+    jest.restoreAllMocks();
   });
 
   it('returns a generic message when VNPay verification throws', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     delete process.env.VNPAY_HASH_SECRET;
     const req = { query: {} } as Request;
     const res = {
@@ -212,5 +214,6 @@ describe('handleVNPayIpn', () => {
       RspCode: '99',
       Message: 'Internal Server Error',
     });
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle VNPay IPN:', expect.any(Error));
   });
 });
