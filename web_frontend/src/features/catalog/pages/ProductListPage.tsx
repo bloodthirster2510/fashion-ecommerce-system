@@ -207,6 +207,7 @@ export function ProductListPage({ showSlider = false }: { showSlider?: boolean }
 
   const clearFilters = () => {
     const params = new URLSearchParams()
+    if (query.gender) params.set('gender', query.gender)
     if (query.sort && query.sort !== 'newest') params.set('sort', query.sort)
 
     const nextSearch = params.toString()
