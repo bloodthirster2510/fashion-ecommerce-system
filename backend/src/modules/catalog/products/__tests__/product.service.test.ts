@@ -12,7 +12,7 @@ import {
   Product,
 } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
-import type { CreateProductInput } from '../product.types';
+import type { CreateProductInput, UpdateProductInput } from '../product.types';
 
 jest.mock('../../../../database/models', () => ({
   Brand: {
@@ -330,6 +330,33 @@ describe('productService', () => {
       expect.objectContaining({
         name: 'Updated product',
       }),
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+    expect(result).toBe(updatedProduct);
+  });
+
+  it('does not let product updates override system-owned rating metrics', async () => {
+    const product = { _id: productId, name: 'Old product' };
+    const updatedProduct = { _id: productId, name: 'Updated product' };
+    mockedProduct.findById.mockResolvedValue(product as never);
+    mockedProduct.findByIdAndUpdate.mockResolvedValue(updatedProduct as never);
+
+    const unsafeInput = {
+      name: ' Updated product ',
+      averageRating: 5,
+      reviewCount: 999,
+    } as unknown as UpdateProductInput;
+
+    const result = await productService.updateProduct(productId, unsafeInput);
+
+    expect(mockedProduct.findByIdAndUpdate).toHaveBeenCalledWith(
+      productId,
+      {
+        name: 'Updated product',
+      },
       {
         returnDocument: 'after',
         runValidators: true,

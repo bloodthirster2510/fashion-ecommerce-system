@@ -43,8 +43,6 @@ export interface UpdateProductInput {
   description?: string;
   product_image?: string;
   isActive?: boolean;
-  averageRating?: number;
-  reviewCount?: number;
 }
 
 export type ProductGenderFilter = 'male' | 'female' | 'unisex';

@@ -1441,8 +1441,6 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
       throw new ProductServiceError('Invalid isActive value', 400);
     }
   }
-  if (input.averageRating !== undefined) updateData.averageRating = input.averageRating;
-  if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
 
   return Product.findByIdAndUpdate(id, updateData, {
     returnDocument: 'after',
