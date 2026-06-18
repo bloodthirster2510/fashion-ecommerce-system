@@ -114,7 +114,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         try {
-          const refreshSession = sessionRef.current ?? currentSession;
+          const refreshSession = sessionRef.current;
+
+          if (!refreshSession) {
+            throw new Error('Vui lòng đăng nhập để tiếp tục.');
+          }
 
           if (!refreshPromiseRef.current) {
             refreshPromiseRef.current = authApi.refreshToken(refreshSession.refreshToken).finally(() => {

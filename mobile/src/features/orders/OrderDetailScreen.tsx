@@ -51,6 +51,38 @@ type EvidenceDraft = OrderEvidenceImageAttachment & {
   uri: string;
 };
 
+const maxEvidenceImageBytes = 5 * 1024 * 1024;
+const supportedEvidenceMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const getImageAssetByteSize = (asset: ImagePicker.ImagePickerAsset) =>
+  asset.fileSize ?? Math.ceil(((asset.base64?.length ?? 0) * 3) / 4);
+
+const getImageAssetMimeType = (asset: ImagePicker.ImagePickerAsset) => {
+  const mimeType = asset.mimeType?.toLowerCase();
+  if (mimeType) return mimeType;
+
+  const uri = asset.uri.toLowerCase();
+  if (/\.(jpe?g)(?:\?|$)/.test(uri)) return 'image/jpeg';
+  if (/\.png(?:\?|$)/.test(uri)) return 'image/png';
+  if (/\.webp(?:\?|$)/.test(uri)) return 'image/webp';
+
+  return '';
+};
+
+const validateEvidenceImage = (asset: ImagePicker.ImagePickerAsset): { mimeType: string } | { error: string } => {
+  const mimeType = getImageAssetMimeType(asset);
+
+  if (!supportedEvidenceMimeTypes.has(mimeType)) {
+    return { error: 'Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.' };
+  }
+
+  if (getImageAssetByteSize(asset) > maxEvidenceImageBytes) {
+    return { error: 'Mỗi ảnh minh chứng tối đa 5MB. Bạn chọn ảnh nhẹ hơn nha.' };
+  }
+
+  return { mimeType };
+};
+
 const timelineSteps: TimelineStep[] = [
   { key: 'confirmed', label: 'Đã đặt đơn', helper: 'Shop tiếp nhận' },
   { key: 'packed', label: 'Chuẩn bị hàng', helper: 'Đóng gói' },
@@ -76,7 +108,8 @@ const getErrorMessage = (error: unknown) => {
 
 const getProgressIndex = (order: CustomerOrder) => {
   if (order.status === 'cancelled') return -1;
-  if (order.status === 'returned' || order.status === 'return_requested') return 3;
+  if (order.status === 'returned') return 3;
+  if (order.status === 'return_requested') return 2;
 
   return timelineSteps.findIndex((step) => step.key === order.status);
 };
@@ -345,13 +378,19 @@ const OrderDetailScreen = () => {
       return;
     }
 
+    const validation = validateEvidenceImage(asset);
+    if ('error' in validation) {
+      setError?.(validation.error);
+      return;
+    }
+
     setError?.('');
     setImages((images) => [
       ...images,
       {
         uri: asset.uri,
         imageBase64: asset.base64!,
-        mimeType: asset.mimeType ?? 'image/jpeg',
+        mimeType: validation.mimeType,
       },
     ]);
   };
