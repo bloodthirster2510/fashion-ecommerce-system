@@ -101,6 +101,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   const tableShellRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarContentRef = useRef<HTMLDivElement>(null)
+  const editRequestIdRef = useRef(0)
   const [products, setProducts] = useState<ManagedProduct[]>([])
   const [keyword, setKeyword] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -117,7 +118,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   const [deletingProduct, setDeletingProduct] = useState<ManagedProduct | null>(null)
   const [isCreatingProduct, setIsCreatingProduct] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [isLoadingEditor, setIsLoadingEditor] = useState(false)
+  const [loadingEditorProductId, setLoadingEditorProductId] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -322,14 +323,23 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   }
 
   const handleOpenEditor = async (product: ManagedProduct) => {
-    setIsLoadingEditor(true)
+    const requestId = editRequestIdRef.current + 1
+    editRequestIdRef.current = requestId
+    setLoadingEditorProductId(product._id)
     setNotice(null)
     try {
-      setEditingProduct(await getManagedProductDetail(product._id))
+      const productDetail = await getManagedProductDetail(product._id)
+      if (editRequestIdRef.current === requestId) {
+        setEditingProduct(productDetail)
+      }
     } catch (error) {
-      setNotice({ type: 'error', message: getErrorMessage(error) })
+      if (editRequestIdRef.current === requestId) {
+        setNotice({ type: 'error', message: getErrorMessage(error) })
+      }
     } finally {
-      setIsLoadingEditor(false)
+      if (editRequestIdRef.current === requestId) {
+        setLoadingEditorProductId(null)
+      }
     }
   }
 
@@ -532,6 +542,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
                     ).size
                     const isExpanded = expandedProducts.has(product._id)
                     const displayVariant = product.variants[0]
+                    const isEditorLoadingForProduct = loadingEditorProductId === product._id
 
                     return [
                       <tr className="admin-product-row" key={product._id}>
@@ -599,10 +610,10 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
                             <button
                               className="admin-link-button"
                               type="button"
-                              disabled={!canWrite || isLoadingEditor}
+                              disabled={!canWrite || isEditorLoadingForProduct}
                               onClick={() => void handleOpenEditor(product)}
                             >
-                              <EditIcon /> {isLoadingEditor ? 'Đang tải...' : 'Sửa'}
+                              <EditIcon /> {isEditorLoadingForProduct ? 'Đang tải...' : 'Sửa'}
                             </button>
                             <button
                               className="admin-danger-link"
