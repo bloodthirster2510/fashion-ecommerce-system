@@ -8,6 +8,19 @@ import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 
 const SALT_ROUNDS = 10;
+const DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS = 60_000;
+const DEFAULT_AUTH_IDENTIFIER_WINDOW_MS = 15 * 60 * 1000;
+const DEFAULT_AUTH_IDENTIFIER_MAX_ATTEMPTS = 5;
+const DEFAULT_AUTH_IDENTIFIER_LOCK_MS = 15 * 60 * 1000;
+
+type AuthIdentifierThrottleBucket = {
+  count: number;
+  resetAt: number;
+  lastRequestedAt: number;
+  lockedUntil?: number;
+};
+
+const authIdentifierThrottleStore = new Map<string, AuthIdentifierThrottleBucket>();
 
 const hashPassword = async (password: string): Promise<string> => {
   return bcrypt.hash(password, SALT_ROUNDS);
@@ -19,6 +32,65 @@ const comparePassword = async (password: string, hash: string): Promise<boolean>
 
 const hashRefreshToken = (token: string) => {
   return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const parsePositiveIntegerEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+};
+
+const createAuthThrottleError = () => ({
+  status: 429,
+  message: 'Vui lÃ²ng chá» trÆ°á»›c khi yÃªu cáº§u mÃ£ má»›i',
+});
+
+const normalizeThrottleIdentifier = (identifier: string) => identifier.trim().toLowerCase();
+
+const assertAuthIdentifierNotThrottled = (flow: 'send-otp' | 'forgot-password', identifier: string) => {
+  const now = Date.now();
+  const key = `${flow}:${normalizeThrottleIdentifier(identifier)}`;
+  const cooldownMs = parsePositiveIntegerEnv(
+    'AUTH_IDENTIFIER_COOLDOWN_MS',
+    DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS,
+  );
+  const windowMs = parsePositiveIntegerEnv('AUTH_IDENTIFIER_WINDOW_MS', DEFAULT_AUTH_IDENTIFIER_WINDOW_MS);
+  const maxAttempts = parsePositiveIntegerEnv(
+    'AUTH_IDENTIFIER_MAX_ATTEMPTS',
+    DEFAULT_AUTH_IDENTIFIER_MAX_ATTEMPTS,
+  );
+  const lockMs = parsePositiveIntegerEnv('AUTH_IDENTIFIER_LOCK_MS', DEFAULT_AUTH_IDENTIFIER_LOCK_MS);
+  const existingBucket = authIdentifierThrottleStore.get(key);
+
+  if (existingBucket?.lockedUntil && existingBucket.lockedUntil > now) {
+    throw createAuthThrottleError();
+  }
+
+  if (existingBucket && now - existingBucket.lastRequestedAt < cooldownMs) {
+    throw createAuthThrottleError();
+  }
+
+  const bucket =
+    existingBucket && existingBucket.resetAt > now
+      ? existingBucket
+      : { count: 0, resetAt: now + windowMs, lastRequestedAt: 0 };
+
+  bucket.count += 1;
+  bucket.lastRequestedAt = now;
+
+  if (bucket.count > maxAttempts) {
+    bucket.lockedUntil = now + lockMs;
+    authIdentifierThrottleStore.set(key, bucket);
+    throw createAuthThrottleError();
+  }
+
+  delete bucket.lockedUntil;
+  authIdentifierThrottleStore.set(key, bucket);
+};
+
+export const clearAuthRequestThrottleForTests = () => {
+  if (process.env.NODE_ENV === 'test') {
+    authIdentifierThrottleStore.clear();
+  }
 };
 
 const updateAuthFields = async (user: IUser, fields: Record<string, unknown>) => {
@@ -73,6 +145,7 @@ const linkAuthProvider = async (user: IUser, provider: AuthProviderName, provide
 };
 
 export const sendOtp = async (phone: string) => {
+  assertAuthIdentifierNotThrottled('send-otp', phone);
   const existingUser = await User.findOne({ phone });
   if (existingUser) return;
 
@@ -219,6 +292,12 @@ export const refreshAccessToken = async (token: string) => {
 };
 
 export const forgotPassword = async (identifier: string) => {
+  try {
+    assertAuthIdentifierNotThrottled('forgot-password', identifier);
+  } catch {
+    return;
+  }
+
   const isEmail = identifier.includes('@');
   const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
 

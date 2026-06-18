@@ -1,4 +1,4 @@
-import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword } from '../auth.service';
+import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword, clearAuthRequestThrottleForTests } from '../auth.service';
 import { User } from '../../../database/models/user.model';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -25,6 +25,8 @@ describe('Auth Service', () => {
     jest.clearAllMocks();
     process.env.JWT_ACCESS_SECRET = 'test-access-secret';
     process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+    process.env.NODE_ENV = 'test';
+    clearAuthRequestThrottleForTests();
   });
 
   describe('sendOtp', () => {
@@ -37,6 +39,16 @@ describe('Auth Service', () => {
     it('should send OTP successfully', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
       await expect(sendOtp('0900000000')).resolves.toBeUndefined();
+    });
+
+    it('should throttle repeated OTP requests before user lookup', async () => {
+      (User.findOne as jest.Mock).mockResolvedValue(null);
+
+      await expect(sendOtp('0900000001')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000001')).rejects.toMatchObject({ status: 429 });
+
+      expect(User.findOne).toHaveBeenCalledTimes(1);
+      expect(sendOtpSms).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -346,6 +358,19 @@ describe('Auth Service', () => {
     it('should do nothing if user not found', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
       await expect(forgotPassword('test@test.com')).resolves.toBeUndefined();
+    });
+
+    it('should throttle repeated phone reset requests without sending another SMS', async () => {
+      (User.findOne as jest.Mock).mockResolvedValue({
+        phone: '0900000009',
+        email: 'user@test.com',
+      });
+
+      await expect(forgotPassword('0900000009')).resolves.toBeUndefined();
+      await expect(forgotPassword('0900000009')).resolves.toBeUndefined();
+
+      expect(sendOtpSms).toHaveBeenCalledTimes(1);
+      expect(User.findOne).toHaveBeenCalledTimes(1);
     });
   });
 
