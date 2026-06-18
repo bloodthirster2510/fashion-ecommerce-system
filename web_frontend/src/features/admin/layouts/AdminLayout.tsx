@@ -22,6 +22,7 @@ type AdminLayoutProps = {
 }
 
 type NavId = AdminRouteId
+const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
 type NavItem = AdminRoute & {
   icon: () => ReactNode
@@ -87,6 +88,10 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
 const getActiveSectionFromPath = () =>
   getAdminRouteByPath(window.location.pathname)?.id ?? 'overview'
 
+const notifyAdminNavigation = () => {
+  window.dispatchEvent(new Event(ADMIN_NAVIGATION_EVENT))
+}
+
 export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
   const [activeSection, setActiveSection] = useState<NavId>(() => getActiveSectionFromPath())
   const displayName = currentUser.name || currentUser.email
@@ -113,6 +118,7 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
       if (window.location.pathname !== fallbackRoute.path) {
         window.history.replaceState(null, '', fallbackRoute.path)
+        notifyAdminNavigation()
       }
 
       setActiveSection(fallbackRoute.id)
@@ -120,8 +126,12 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
     syncSectionWithPath()
     window.addEventListener('popstate', syncSectionWithPath)
+    window.addEventListener(ADMIN_NAVIGATION_EVENT, syncSectionWithPath)
 
-    return () => window.removeEventListener('popstate', syncSectionWithPath)
+    return () => {
+      window.removeEventListener('popstate', syncSectionWithPath)
+      window.removeEventListener(ADMIN_NAVIGATION_EVENT, syncSectionWithPath)
+    }
   }, [currentUser, fallbackRoute.id, fallbackRoute.path])
 
   const handleNavigate = (item: NavItem) => {
@@ -129,6 +139,7 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (window.location.pathname !== item.path) {
       window.history.pushState(null, '', item.path)
+      notifyAdminNavigation()
     }
   }
 

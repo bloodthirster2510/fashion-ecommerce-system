@@ -60,7 +60,7 @@ const genderLabels: Record<CatalogGender, string> = {
   unisex: 'Unisex',
 }
 
-const categoryRootsPerPage = 1
+const categoryRootsPerPage = 10
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'

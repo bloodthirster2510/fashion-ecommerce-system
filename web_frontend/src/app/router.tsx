@@ -18,6 +18,8 @@ import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
 import { ProductListPage } from '../features/catalog/pages/ProductListPage'
 import { ProfilePage } from '../features/profile/pages/ProfilePage'
 
+const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
+
 export function Router() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>
     getAdminSession(),
@@ -55,13 +57,17 @@ export function Router() {
   }, [replacePath])
 
   useEffect(() => {
-    const handlePopState = () => {
+    const handleLocationChange = () => {
       setPath(window.location.pathname)
     }
 
-    window.addEventListener('popstate', handlePopState)
+    window.addEventListener('popstate', handleLocationChange)
+    window.addEventListener(ADMIN_NAVIGATION_EVENT, handleLocationChange)
 
-    return () => window.removeEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange)
+      window.removeEventListener(ADMIN_NAVIGATION_EVENT, handleLocationChange)
+    }
   }, [])
 
   useEffect(() => {

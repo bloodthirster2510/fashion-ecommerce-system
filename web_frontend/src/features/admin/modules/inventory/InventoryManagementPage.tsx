@@ -112,7 +112,6 @@ export function InventoryManagementPage({
   const [brand, setBrand] = useState('all')
   const [fitType, setFitType] = useState('all')
   const [status, setStatus] = useState<StockStatus>('all')
-  const [warehouse, setWarehouse] = useState('default')
   const [page, setPage] = useState(1)
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set())
@@ -261,7 +260,7 @@ export function InventoryManagementPage({
     }
   }, [brand, category, fitType, keyword, page, rows, status, productTotals])
 
-  useEffect(() => setPage(1), [brand, category, fitType, keyword, status, warehouse])
+  useEffect(() => setPage(1), [brand, category, fitType, keyword, status])
 
   useEffect(() => {
     const tableShell = tableShellRef.current
@@ -328,7 +327,6 @@ export function InventoryManagementPage({
     setBrand('all')
     setFitType('all')
     setStatus('all')
-    setWarehouse('default')
   }
 
   const toggleExpanded = (
@@ -443,9 +441,6 @@ export function InventoryManagementPage({
             <option value="available">Còn hàng</option>
             <option value="low">Sắp hết</option>
             <option value="out">Hết hàng</option>
-          </select>
-          <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} aria-label="Kho hàng">
-            <option value="default">Kho mặc định</option>
           </select>
           <button className="admin-secondary-button" type="button" onClick={resetFilters}>Đặt lại</button>
         </div>
@@ -776,17 +771,22 @@ function ImportDialog({
     (sum, quantity) => sum + Math.max(0, quantity),
     0,
   )
-  const numericImportPrice = importPrice ? Number(importPrice) : 0
-  const totalAmount = totalImport * (Number.isFinite(numericImportPrice) ? numericImportPrice : 0)
+  const hasImportPrice = importPrice.trim().length > 0
+  const parsedImportPrice = hasImportPrice ? Number(importPrice) : null
+  const isImportPriceValid =
+    parsedImportPrice === null || (Number.isFinite(parsedImportPrice) && parsedImportPrice >= 0)
+  const totalAmount = totalImport * (isImportPriceValid && parsedImportPrice ? parsedImportPrice : 0)
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
+    if (!isImportPriceValid) return
+
     const detail = group.rows
       .filter((row) => (quantities[row.size] ?? 0) > 0)
       .map((row) => ({
         size: row.size,
         quantity: quantities[row.size] ?? 0,
-        ...(importPrice ? { importPrice: Number(importPrice) } : {}),
+        ...(parsedImportPrice !== null ? { importPrice: parsedImportPrice } : {}),
       }))
 
     if (!detail.length) return
@@ -881,7 +881,7 @@ function ImportDialog({
         </div>
         <footer>
           <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={onClose}>Hủy</button>
-          <button className="admin-primary-button" type="submit" disabled={isSaving || totalImport < 1}>{isSaving ? 'Đang tạo...' : `Nhập ${formatNumber(totalImport)} sản phẩm`}</button>
+          <button className="admin-primary-button" type="submit" disabled={isSaving || totalImport < 1 || !isImportPriceValid}>{isSaving ? 'Đang tạo...' : `Nhập ${formatNumber(totalImport)} sản phẩm`}</button>
         </footer>
       </form>
     </div>
