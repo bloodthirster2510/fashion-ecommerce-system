@@ -44,7 +44,6 @@ type ExpirableOrder = {
   }>;
   status: string;
   paymentStatus: string;
-  save: () => Promise<unknown>;
 };
 
 const restockCommittedOrder = async (order: ExpirableOrder) => {
@@ -106,21 +105,29 @@ const cancelOrdersWhoseLatestAttemptExpired = async (
       continue;
     }
 
-    const order = await Order.findOne({
-      _id: latestTransaction.order_id,
-      status: 'confirmed',
-      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
-      paymentStatus: { $in: ['pending', 'failed'] },
-    });
+    const order = await Order.findOneAndUpdate(
+      {
+        _id: latestTransaction.order_id,
+        status: 'confirmed',
+        paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+        paymentStatus: { $in: ['pending', 'failed'] },
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          paymentStatus: 'failed',
+        },
+      },
+      {
+        returnDocument: 'after',
+      },
+    );
 
     if (!order) {
       continue;
     }
 
     await restockCommittedOrder(order);
-    order.status = 'cancelled';
-    order.paymentStatus = 'failed';
-    await order.save();
     cancelledOrderIds.push(order._id.toString());
   }
 

@@ -9,6 +9,7 @@ jest.mock('../../../database/models', () => ({
   },
   Order: {
     findOne: jest.fn(),
+    findOneAndUpdate: jest.fn(),
   },
   Product: {
     updateOne: jest.fn(),
@@ -48,6 +49,7 @@ describe('paymentExpiryService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedOrder.findOne.mockResolvedValue(null as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(null as never);
     mockedTransaction.findOne.mockReturnValue(chainSortLeanResult(null) as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
@@ -73,7 +75,6 @@ describe('paymentExpiryService', () => {
       ],
       status: 'confirmed',
       paymentStatus: 'pending',
-      save: jest.fn(),
     };
 
     mockedTransaction.find.mockReturnValue(chainLeanResult([
@@ -91,10 +92,13 @@ describe('paymentExpiryService', () => {
       status: 'expired',
     }) as never);
     mockedTransaction.updateMany.mockResolvedValue({ modifiedCount: 1 } as never);
-    mockedOrder.findOne.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue({
+      ...order,
+      status: 'cancelled',
+      paymentStatus: 'failed',
+    } as never);
     mockedInventory.updateOne.mockResolvedValue({} as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
-    order.save.mockResolvedValue(order as never);
 
     const result = await paymentExpiryService.expireStaleTransactions(now);
 
@@ -115,12 +119,23 @@ describe('paymentExpiryService', () => {
         },
       },
     );
-    expect(mockedOrder.findOne).toHaveBeenCalledWith({
-      _id: orderId,
-      status: 'confirmed',
-      paymentMethod: { $in: ['VNPAY', 'MOMO', 'CARD', 'BANK'] },
-      paymentStatus: { $in: ['pending', 'failed'] },
-    });
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      {
+        _id: orderId,
+        status: 'confirmed',
+        paymentMethod: { $in: ['VNPAY', 'MOMO', 'CARD', 'BANK'] },
+        paymentStatus: { $in: ['pending', 'failed'] },
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          paymentStatus: 'failed',
+        },
+      },
+      {
+        returnDocument: 'after',
+      },
+    );
     expect(mockedInventory.updateOne).toHaveBeenCalledWith(
       {
         productId,
@@ -148,9 +163,6 @@ describe('paymentExpiryService', () => {
         quantity: 2,
       },
     ]);
-    expect(order.status).toBe('cancelled');
-    expect(order.paymentStatus).toBe('failed');
-    expect(order.save).toHaveBeenCalled();
     expect(result).toEqual({
       expiredCount: 1,
       orderIds: [orderId.toString()],
@@ -191,7 +203,45 @@ describe('paymentExpiryService', () => {
 
     const result = await paymentExpiryService.expireStaleTransactions(now);
 
-    expect(mockedOrder.findOne).not.toHaveBeenCalled();
+    expect(mockedOrder.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(result.cancelledOrderIds).toEqual([]);
+  });
+
+  it('does not restock when another worker already claimed the expired order', async () => {
+    const now = new Date('2026-06-11T08:00:00.000Z');
+    const transactionId = new Types.ObjectId('665000000000000000000104');
+    const orderId = new Types.ObjectId('665000000000000000000204');
+
+    mockedTransaction.find.mockReturnValue(chainLeanResult([
+      {
+        _id: transactionId,
+        order_id: orderId,
+        txnRef: 'FS123A1',
+        attemptNo: 1,
+        expiredAt: new Date('2026-06-11T07:54:00.000Z'),
+      },
+    ]) as never);
+    mockedTransaction.findOne.mockReturnValue(chainSortLeanResult({
+      _id: transactionId,
+      order_id: orderId,
+      status: 'expired',
+    }) as never);
+    mockedTransaction.updateMany.mockResolvedValue({ modifiedCount: 1 } as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(null as never);
+
+    const result = await paymentExpiryService.expireStaleTransactions(now);
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: orderId,
+        status: 'confirmed',
+      }),
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).not.toHaveBeenCalled();
     expect(result.cancelledOrderIds).toEqual([]);
   });
 
