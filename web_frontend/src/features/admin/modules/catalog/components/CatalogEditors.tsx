@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import type {
   BrandInput,
   CatalogGender,
@@ -21,6 +21,34 @@ const emptyBrandForm: BrandInput = {
   name: '',
   image: '',
   isActive: true,
+}
+
+const getCategoryDescendantIds = (
+  categories: ManagedCategory[],
+  categoryId?: string,
+) => {
+  const blockedIds = new Set<string>()
+  if (!categoryId) return blockedIds
+
+  const childrenByParentId = new Map<string, ManagedCategory[]>()
+  categories.forEach((category) => {
+    if (!category.parent_id) return
+
+    const children = childrenByParentId.get(category.parent_id) ?? []
+    children.push(category)
+    childrenByParentId.set(category.parent_id, children)
+  })
+
+  const visit = (currentId: string) => {
+    if (blockedIds.has(currentId)) return
+
+    blockedIds.add(currentId)
+    const children = childrenByParentId.get(currentId) ?? []
+    children.forEach((child) => visit(child._id))
+  }
+
+  visit(categoryId)
+  return blockedIds
 }
 
 export function CatalogSection({
@@ -158,12 +186,22 @@ export function CategoryEditor({
         }
       : emptyCategoryForm,
   )
+  const blockedParentIds = useMemo(
+    () => getCategoryDescendantIds(categories, item?._id),
+    [categories, item?._id],
+  )
   const parentOptions = categories.filter(
-    (category) => category._id !== item?._id && category.isActive,
+    (category) => !blockedParentIds.has(category._id) && category.isActive,
   )
   const hasParentCategory = Boolean(form.parent_id)
 
   const handleParentChange = (parentId: string) => {
+    if (parentId && blockedParentIds.has(parentId)) {
+      setLocalError('Không thể chọn chính danh mục này hoặc danh mục con làm danh mục cha.')
+      return
+    }
+
+    setLocalError('')
     const parent = categories.find((category) => category._id === parentId)
     setForm((current) => ({
       ...current,
@@ -177,6 +215,10 @@ export function CategoryEditor({
     event.preventDefault()
     if (!form.image.trim() && !imageFile) {
       setLocalError('Vui lòng chọn ảnh danh mục hoặc nhập URL ảnh.')
+      return
+    }
+    if (form.parent_id && blockedParentIds.has(form.parent_id)) {
+      setLocalError('Không thể chọn chính danh mục này hoặc danh mục con làm danh mục cha.')
       return
     }
     setLocalError('')
