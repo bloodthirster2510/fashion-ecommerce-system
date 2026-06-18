@@ -380,7 +380,6 @@ const updateProduct = async (req: Request, res: Response) => {
     if (input.brand_id !== undefined) updateData.brand_id = input.brand_id;
     if (input.description !== undefined) updateData.description = input.description;
     if (input.isActive !== undefined) updateData.isActive = input.isActive;
-    if (input.sold_quantity !== undefined) updateData.sold_quantity = input.sold_quantity;
     if (input.averageRating !== undefined) updateData.averageRating = input.averageRating;
     if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
 

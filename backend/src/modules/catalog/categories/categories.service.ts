@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { Category, type CategoryGender } from '../../../database/models/category.model';
 import { Coupon } from '../../../database/models/coupon.model';
 import { Product } from '../../../database/models/product.model';
+import { CatalogImageUrlError, normalizeCatalogImageUrl } from '../catalog-image';
 import type {
   CategoryListQueryInput,
   CategoryFitTypeInput,
@@ -93,6 +94,18 @@ const findCategoryByUniqueFields = (
     parent_id: normalizeParentId(parentId),
     gender,
   });
+};
+
+const normalizeCategoryImageUrl = (imageUrl: string) => {
+  try {
+    return normalizeCatalogImageUrl(imageUrl);
+  } catch (error) {
+    if (error instanceof CatalogImageUrlError) {
+      throw new CategoryServiceError(error.message, 400);
+    }
+
+    throw error;
+  }
 };
 
 const normalizeMeasurementFields = (items?: MeasurementFieldInput[]) => {
@@ -248,7 +261,7 @@ const createCategory = async (input: CreateCategoryInput) => {
     parent_id: normalizeParentId(input.parent_id),
     level,
     gender,
-    image: input.image.trim(),
+    image: normalizeCategoryImageUrl(input.image),
     description: input.description.trim(),
     isLeaf: input.isLeaf ?? false,
     isSizeTemplateSource: input.isSizeTemplateSource ?? false,
@@ -313,7 +326,7 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   if (input.parent_id !== undefined || input.gender !== undefined) {
     updateData.gender = nextGender;
   }
-  if (input.image !== undefined) updateData.image = input.image.trim();
+  if (input.image !== undefined) updateData.image = normalizeCategoryImageUrl(input.image);
   if (input.description !== undefined) updateData.description = input.description.trim();
   if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
   if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;

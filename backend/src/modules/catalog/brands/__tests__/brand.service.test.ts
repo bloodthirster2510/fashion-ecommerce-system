@@ -21,6 +21,7 @@ jest.mock('../../../../database/models/product.model', () => ({
 
 const mockedBrand = Brand as jest.Mocked<typeof Brand>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
+const brandImageUrl = 'https://res.cloudinary.com/demo/image/upload/v1/brands/nike.png';
 
 describe('brandService', () => {
   beforeEach(() => {
@@ -28,19 +29,19 @@ describe('brandService', () => {
   });
 
   it('creates a brand with trimmed data', async () => {
-    const brand = { _id: 'brand-id', name: 'Nike', image: 'https://example.com/nike.png' };
+    const brand = { _id: 'brand-id', name: 'Nike', image: brandImageUrl };
     mockedBrand.findOne.mockResolvedValue(null);
     mockedBrand.create.mockResolvedValue(brand as never);
 
     const result = await brandService.createBrand({
       name: ' Nike ',
-      image: ' https://example.com/nike.png ',
+      image: ` ${brandImageUrl} `,
     });
 
     expect(mockedBrand.findOne).toHaveBeenCalledWith({ name: /^Nike$/i });
     expect(mockedBrand.create).toHaveBeenCalledWith({
       name: 'Nike',
-      image: 'https://example.com/nike.png',
+      image: brandImageUrl,
     });
     expect(result).toBe(brand);
   });
@@ -51,11 +52,25 @@ describe('brandService', () => {
     await expect(
       brandService.createBrand({
         name: 'Nike',
-        image: 'https://example.com/nike.png',
+        image: brandImageUrl,
       }),
     ).rejects.toMatchObject({
       message: 'Brand name already exists',
       statusCode: 409,
+    });
+  });
+
+  it('throws 400 when brand image URL is not a whitelisted Cloudinary host', async () => {
+    mockedBrand.findOne.mockResolvedValue(null);
+
+    await expect(
+      brandService.createBrand({
+        name: 'Nike',
+        image: 'https://example.com/nike.png',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Image URL host is not allowed',
+      statusCode: 400,
     });
   });
 
@@ -90,7 +105,7 @@ describe('brandService', () => {
 
     await brandService.updateBrand(brandId, {
       name: ' Nike ',
-      image: ' https://example.com/nike.png ',
+      image: ` ${brandImageUrl} `,
       isActive: true,
     });
 
@@ -98,7 +113,7 @@ describe('brandService', () => {
       brandId,
       {
         name: 'Nike',
-        image: 'https://example.com/nike.png',
+        image: brandImageUrl,
         isActive: true,
       },
       {

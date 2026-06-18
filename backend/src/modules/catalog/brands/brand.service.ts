@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Brand } from '../../../database/models/brand.model';
 import { Product } from '../../../database/models/product.model';
+import { CatalogImageUrlError, normalizeCatalogImageUrl } from '../catalog-image';
 import type { CreateBrandInput, UpdateBrandInput } from './brand.types';
 
 export class BrandServiceError extends Error {
@@ -29,6 +30,18 @@ const findBrandByName = (name: string) => {
   });
 };
 
+const normalizeBrandImageUrl = (imageUrl: string) => {
+  try {
+    return normalizeCatalogImageUrl(imageUrl);
+  } catch (error) {
+    if (error instanceof CatalogImageUrlError) {
+      throw new BrandServiceError(error.message, 400);
+    }
+
+    throw error;
+  }
+};
+
 const createBrand = async (input: CreateBrandInput) => {
   const existingBrand = await findBrandByName(input.name);
 
@@ -38,7 +51,7 @@ const createBrand = async (input: CreateBrandInput) => {
 
   return Brand.create({
     name: input.name.trim(),
-    image: input.image.trim(),
+    image: normalizeBrandImageUrl(input.image),
   });
 };
 
@@ -62,7 +75,7 @@ const updateBrand = async (id: string, input: UpdateBrandInput) => {
   const updateData: UpdateBrandInput = {};
 
   if (input.name !== undefined) updateData.name = input.name.trim();
-  if (input.image !== undefined) updateData.image = input.image.trim();
+  if (input.image !== undefined) updateData.image = normalizeBrandImageUrl(input.image);
   if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
   return Brand.findByIdAndUpdate(id, updateData, {

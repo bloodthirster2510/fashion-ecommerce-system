@@ -73,6 +73,8 @@ const mockedProduct = Product as jest.Mocked<typeof Product>;
 const brandId = '665000000000000000000001';
 const categoryId = '665000000000000000000002';
 const productId = '665000000000000000000003';
+const productImageUrl = 'https://res.cloudinary.com/demo/image/upload/v1/products/product.png';
+const colorImageUrl = 'https://res.cloudinary.com/demo/image/upload/v1/products/color.png';
 
 const createProductInput: CreateProductInput = {
   category_id: categoryId,
@@ -97,13 +99,13 @@ const createProductInput: CreateProductInput = {
         {
           color: ' Black ',
           colorCode: '#000000',
-          image: ' https://example.com/color.png ',
+          image: ` ${colorImageUrl} `,
         },
       ],
     },
   ],
   description: ' A basic t-shirt for daily wear ',
-  product_image: ' https://example.com/product.png ',
+  product_image: ` ${productImageUrl} `,
 };
 
 describe('productService', () => {
@@ -167,7 +169,7 @@ describe('productService', () => {
       expect.objectContaining({
         name: 'Basic T-shirt',
         description: 'A basic t-shirt for daily wear',
-        product_image: 'https://example.com/product.png',
+        product_image: productImageUrl,
         isActive: true,
         variant: [
           expect.objectContaining({
@@ -179,7 +181,7 @@ describe('productService', () => {
               expect.objectContaining({
                 color: 'Black',
                 colorCode: '#000000',
-                image: 'https://example.com/color.png',
+                image: colorImageUrl,
               }),
             ],
           }),
@@ -221,6 +223,40 @@ describe('productService', () => {
 
     await expect(productService.createProduct(createProductInput)).rejects.toMatchObject({
       message: 'Category is inactive',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when product image URL is not a whitelisted Cloudinary host', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        product_image: 'https://example.com/product.png',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Image URL host is not allowed',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when variant color image URL is not a whitelisted Cloudinary host', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        variant: [
+          {
+            ...createProductInput.variant![0],
+            colors: [
+              {
+                ...createProductInput.variant![0].colors[0],
+                image: 'https://example.com/color.png',
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Image URL host is not allowed',
       statusCode: 400,
     });
   });

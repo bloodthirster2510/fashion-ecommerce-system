@@ -16,6 +16,7 @@ import {
   type IMeasurementField,
   type IProductVariant,
 } from '../../../database/models';
+import { CatalogImageUrlError, normalizeCatalogImageUrl } from '../catalog-image';
 import type {
   CreateProductInput,
   ProductCategoryBreadcrumbItem,
@@ -45,6 +46,18 @@ export class ProductServiceError extends Error {
 const assertValidObjectId = (id: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(id)) {
     throw new ProductServiceError(`Invalid ${fieldName}`, 400);
+  }
+};
+
+const normalizeProductImageUrl = (imageUrl: string) => {
+  try {
+    return normalizeCatalogImageUrl(imageUrl);
+  } catch (error) {
+    if (error instanceof CatalogImageUrlError) {
+      throw new ProductServiceError(error.message, 400);
+    }
+
+    throw error;
   }
 };
 
@@ -115,7 +128,7 @@ const normalizeVariants = (variants?: ProductVariantInput[]) => {
           : {}),
         color: color.color.trim(),
         colorCode: color.colorCode?.trim(),
-        image: color.image.trim(),
+        image: normalizeProductImageUrl(color.image),
       })),
       isActive: variant.isActive ?? true,
     };
@@ -1380,7 +1393,7 @@ const createProduct = async (input: CreateProductInput) => {
     brand_id: new Types.ObjectId(input.brand_id),
     variant: normalizeVariants(input.variant),
     description: input.description.trim(),
-    product_image: input.product_image.trim(),
+    product_image: normalizeProductImageUrl(input.product_image),
     isActive: input.isActive ?? true,
   });
 };
@@ -1418,7 +1431,7 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   if (input.brand_id !== undefined) updateData.brand_id = new Types.ObjectId(input.brand_id);
   if (input.variant !== undefined) updateData.variant = normalizeVariants(input.variant);
   if (input.description !== undefined) updateData.description = input.description.trim();
-  if (input.product_image !== undefined) updateData.product_image = input.product_image.trim();
+  if (input.product_image !== undefined) updateData.product_image = normalizeProductImageUrl(input.product_image);
   if (input.isActive !== undefined) {
     if (typeof input.isActive === 'boolean') {
       updateData.isActive = input.isActive;
@@ -1428,7 +1441,6 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
       throw new ProductServiceError('Invalid isActive value', 400);
     }
   }
-  if (input.sold_quantity !== undefined) updateData.sold_quantity = input.sold_quantity;
   if (input.averageRating !== undefined) updateData.averageRating = input.averageRating;
   if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
 
