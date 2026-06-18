@@ -1,11 +1,15 @@
 import { Types } from 'mongoose';
-import { Inventory, Order, Product, Transaction } from '../../../database/models';
+import { DistributedLock, Inventory, Order, Product, Transaction } from '../../../database/models';
 import { inventoryService } from '../../inventory/inventory.service';
 import { paymentExpiryService } from '../payment-expiry.service';
 
 jest.mock('../../../database/models', () => ({
   Inventory: {
     updateOne: jest.fn(),
+  },
+  DistributedLock: {
+    updateOne: jest.fn(),
+    deleteOne: jest.fn(),
   },
   Order: {
     findOne: jest.fn(),
@@ -28,6 +32,7 @@ jest.mock('../../inventory/inventory.service', () => ({
 }));
 
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
+const mockedDistributedLock = DistributedLock as jest.Mocked<typeof DistributedLock>;
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedTransaction = Transaction as jest.Mocked<typeof Transaction>;
@@ -51,6 +56,8 @@ describe('paymentExpiryService', () => {
     mockedOrder.findOne.mockResolvedValue(null as never);
     mockedOrder.findOneAndUpdate.mockResolvedValue(null as never);
     mockedTransaction.findOne.mockReturnValue(chainSortLeanResult(null) as never);
+    mockedDistributedLock.updateOne.mockResolvedValue({ modifiedCount: 1, upsertedCount: 0 } as never);
+    mockedDistributedLock.deleteOne.mockResolvedValue({} as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
 
@@ -251,6 +258,62 @@ describe('paymentExpiryService', () => {
     const result = await paymentExpiryService.expireStaleTransactions();
 
     expect(mockedTransaction.updateMany).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      expiredCount: 0,
+      orderIds: [],
+      cancelledOrderIds: [],
+      transactions: [],
+    });
+  });
+
+  it('skips expiry when another instance owns the distributed lock', async () => {
+    const duplicateKeyError = Object.assign(new Error('duplicate lock'), { code: 11000 });
+    mockedDistributedLock.updateOne.mockRejectedValue(duplicateKeyError);
+
+    const result = await paymentExpiryService.expireStaleTransactionsWithLock(
+      new Date('2026-06-11T08:00:00.000Z'),
+    );
+
+    expect(mockedTransaction.find).not.toHaveBeenCalled();
+    expect(mockedDistributedLock.deleteOne).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      expiredCount: 0,
+      orderIds: [],
+      cancelledOrderIds: [],
+      transactions: [],
+      lockSkipped: true,
+    });
+  });
+
+  it('releases the distributed lock after expiry completes', async () => {
+    const now = new Date('2026-06-11T08:00:00.000Z');
+    mockedTransaction.find.mockReturnValue(chainLeanResult([]) as never);
+
+    const result = await paymentExpiryService.expireStaleTransactionsWithLock(now);
+
+    expect(mockedDistributedLock.updateOne).toHaveBeenCalledWith(
+      {
+        name: 'payment-expiry',
+        $or: [
+          { expiresAt: { $lte: now } },
+          { ownerId: expect.any(String) },
+        ],
+      },
+      {
+        $set: {
+          ownerId: expect.any(String),
+          expiresAt: new Date('2026-06-11T08:05:00.000Z'),
+        },
+        $setOnInsert: {
+          name: 'payment-expiry',
+        },
+      },
+      { upsert: true },
+    );
+    expect(mockedDistributedLock.deleteOne).toHaveBeenCalledWith({
+      name: 'payment-expiry',
+      ownerId: expect.any(String),
+    });
     expect(result).toEqual({
       expiredCount: 0,
       orderIds: [],

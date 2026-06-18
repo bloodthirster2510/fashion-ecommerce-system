@@ -332,7 +332,7 @@ export const getOrderPaymentStatus = async (req: Request, res: Response) => {
 
 export const expireStalePaymentAttempts = async (_req: Request, res: Response) => {
   try {
-    const result = await paymentExpiryService.expireStaleTransactions();
+    const result = await paymentExpiryService.expireStaleTransactionsWithLock();
 
     return ok(res, {
       ...result,
@@ -563,6 +563,6 @@ export const handleVNPayIpn = async (req: Request, res: Response) => {
       Message: settlement.message,
     });
   } catch (err: unknown) {
-    return res.status(200).json({ RspCode: '99', Message: getErrorMessage(err) });
+    return res.status(200).json({ RspCode: '99', Message: 'Internal Server Error' });
   }
 };

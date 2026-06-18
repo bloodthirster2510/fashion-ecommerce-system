@@ -3,6 +3,7 @@ export * from './cart.model';
 export * from './category.model';
 export * from './coupon.model';
 export * from './audit-log.model';
+export * from './distributed-lock.model';
 export * from './favorites.model';
 export * from './inventory.model';
 export * from './membership-ranking.model';

@@ -1,8 +1,11 @@
+import crypto from 'crypto';
 import type { Types } from 'mongoose';
-import { Inventory, Order, Product, Transaction } from '../../database/models';
+import { DistributedLock, Inventory, Order, Product, Transaction } from '../../database/models';
 import { inventoryService } from '../inventory/inventory.service';
 
 const DEFAULT_PAYMENT_EXPIRY_GRACE_MS = 5 * 60 * 1000;
+const DEFAULT_PAYMENT_EXPIRY_LOCK_TTL_MS = 5 * 60 * 1000;
+const PAYMENT_EXPIRY_LOCK_NAME = 'payment-expiry';
 
 export type ExpireStaleTransactionsResult = {
   expiredCount: number;
@@ -15,6 +18,7 @@ export type ExpireStaleTransactionsResult = {
     attemptNo?: number | null;
     expiredAt?: Date | null;
   }>;
+  lockSkipped?: boolean;
 };
 
 const ONLINE_PAYMENT_METHODS = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
@@ -27,6 +31,75 @@ const getPaymentExpiryGraceMs = () => {
   }
 
   return DEFAULT_PAYMENT_EXPIRY_GRACE_MS;
+};
+
+const getPaymentExpiryLockTtlMs = () => {
+  const configuredTtlMs = Number(process.env.PAYMENT_EXPIRY_LOCK_TTL_MS);
+
+  if (Number.isFinite(configuredTtlMs) && configuredTtlMs >= 10_000) {
+    return configuredTtlMs;
+  }
+
+  return DEFAULT_PAYMENT_EXPIRY_LOCK_TTL_MS;
+};
+
+const createEmptyExpiryResult = (lockSkipped = false): ExpireStaleTransactionsResult => ({
+  expiredCount: 0,
+  orderIds: [],
+  cancelledOrderIds: [],
+  transactions: [],
+  ...(lockSkipped ? { lockSkipped: true } : {}),
+});
+
+const isDuplicateKeyError = (error: unknown) => (
+  Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000,
+  )
+);
+
+const acquirePaymentExpiryLock = async (now: Date) => {
+  const ownerId = `${process.pid}:${crypto.randomUUID()}`;
+  const expiresAt = new Date(now.getTime() + getPaymentExpiryLockTtlMs());
+
+  try {
+    const result = await DistributedLock.updateOne(
+      {
+        name: PAYMENT_EXPIRY_LOCK_NAME,
+        $or: [
+          { expiresAt: { $lte: now } },
+          { ownerId },
+        ],
+      },
+      {
+        $set: {
+          ownerId,
+          expiresAt,
+        },
+        $setOnInsert: {
+          name: PAYMENT_EXPIRY_LOCK_NAME,
+        },
+      },
+      { upsert: true },
+    );
+
+    return result.upsertedCount > 0 || result.modifiedCount > 0 ? ownerId : null;
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+const releasePaymentExpiryLock = async (ownerId: string) => {
+  await DistributedLock.deleteOne({
+    name: PAYMENT_EXPIRY_LOCK_NAME,
+    ownerId,
+  });
 };
 
 type ObjectIdLike = {
@@ -145,12 +218,7 @@ export const paymentExpiryService = {
       .lean();
 
     if (staleTransactions.length === 0) {
-      return {
-        expiredCount: 0,
-        orderIds: [],
-        cancelledOrderIds: [],
-        transactions: [],
-      };
+      return createEmptyExpiryResult();
     }
 
     const transactionIds = staleTransactions.map((transaction) => transaction._id);
@@ -184,5 +252,18 @@ export const paymentExpiryService = {
         expiredAt: transaction.expiredAt ?? null,
       })),
     };
+  },
+  expireStaleTransactionsWithLock: async (now = new Date()): Promise<ExpireStaleTransactionsResult> => {
+    const ownerId = await acquirePaymentExpiryLock(now);
+
+    if (!ownerId) {
+      return createEmptyExpiryResult(true);
+    }
+
+    try {
+      return await paymentExpiryService.expireStaleTransactions(now);
+    } finally {
+      await releasePaymentExpiryLock(ownerId);
+    }
   },
 };

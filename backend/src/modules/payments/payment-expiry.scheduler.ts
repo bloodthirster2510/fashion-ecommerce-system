@@ -20,7 +20,7 @@ const expireOnce = async () => {
 
   isRunning = true;
   try {
-    const result = await paymentExpiryService.expireStaleTransactions();
+    const result = await paymentExpiryService.expireStaleTransactionsWithLock();
 
     if (result.expiredCount > 0) {
       await auditLogService.recordAuditLogBestEffort({

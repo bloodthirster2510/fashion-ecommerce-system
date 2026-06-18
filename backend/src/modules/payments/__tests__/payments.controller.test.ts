@@ -1,7 +1,8 @@
+import type { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { Order } from '../../../database/models';
 import { transactionService } from '../transaction.service';
-import { settleVNPayPayment } from '../payments.controller';
+import { handleVNPayIpn, settleVNPayPayment } from '../payments.controller';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -24,6 +25,7 @@ jest.mock('../transaction.service', () => ({
 jest.mock('../payment-expiry.service', () => ({
   paymentExpiryService: {
     expireStaleTransactions: jest.fn(),
+    expireStaleTransactionsWithLock: jest.fn(),
   },
 }));
 
@@ -130,6 +132,35 @@ describe('settleVNPayPayment', () => {
       rspCode: '00',
       transactionStatus: 'failed',
       paymentStatus: 'paid',
+    });
+  });
+});
+
+describe('handleVNPayIpn', () => {
+  const originalVNPayHashSecret = process.env.VNPAY_HASH_SECRET;
+
+  afterEach(() => {
+    if (originalVNPayHashSecret === undefined) {
+      delete process.env.VNPAY_HASH_SECRET;
+    } else {
+      process.env.VNPAY_HASH_SECRET = originalVNPayHashSecret;
+    }
+  });
+
+  it('returns a generic message when VNPay verification throws', async () => {
+    delete process.env.VNPAY_HASH_SECRET;
+    const req = { query: {} } as Request;
+    const res = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Response;
+
+    await handleVNPayIpn(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      RspCode: '99',
+      Message: 'Internal Server Error',
     });
   });
 });
