@@ -23,6 +23,20 @@ const emptyBrandForm: BrandInput = {
   isActive: true,
 }
 
+const maxImageFileSizeBytes = 5 * 1024 * 1024
+const acceptedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+const getImageFileValidationError = (file: File | null) => {
+  if (!file) return ''
+  if (!acceptedImageMimeTypes.has(file.type)) {
+    return 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.'
+  }
+  if (file.size > maxImageFileSizeBytes) {
+    return 'Ảnh tải lên không được vượt quá 5MB.'
+  }
+  return ''
+}
+
 const getCategoryDescendantIds = (
   categories: ManagedCategory[],
   categoryId?: string,
@@ -211,6 +225,19 @@ export function CategoryEditor({
     }))
   }
 
+  const handleImageFileChange = (file: File | null, input: HTMLInputElement) => {
+    const validationError = getImageFileValidationError(file)
+    if (validationError) {
+      setImageFile(null)
+      setLocalError(validationError)
+      input.value = ''
+      return
+    }
+
+    setLocalError('')
+    setImageFile(file)
+  }
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (!form.image.trim() && !imageFile) {
@@ -269,7 +296,11 @@ export function CategoryEditor({
         </div>
         <label>
           <span>Ảnh danh mục</span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} />
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(event) => handleImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+          />
           <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
           <input type="url" placeholder="Hoặc nhập URL ảnh" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} />
           <ImagePreview file={imageFile} url={form.image} alt="Ảnh danh mục" />
@@ -332,6 +363,19 @@ export function BrandEditor({
     )
   }
 
+  const handleImageFileChange = (file: File | null, input: HTMLInputElement) => {
+    const validationError = getImageFileValidationError(file)
+    if (validationError) {
+      setImageFile(null)
+      setLocalError(validationError)
+      input.value = ''
+      return
+    }
+
+    setLocalError('')
+    setImageFile(file)
+  }
+
   return (
     <EditorModal title={item ? 'Sửa thương hiệu' : 'Thêm thương hiệu'} isSaving={isSaving} onClose={onClose}>
       <form className="admin-catalog-form" onSubmit={handleSubmit}>
@@ -344,7 +388,11 @@ export function BrandEditor({
         </label>
         <label>
           <span>Logo thương hiệu</span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} />
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(event) => handleImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+          />
           <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
           <input type="url" placeholder="Hoặc nhập URL logo" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} />
           <ImagePreview file={imageFile} url={form.image} alt="Logo thương hiệu" />
