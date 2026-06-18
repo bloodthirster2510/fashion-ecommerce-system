@@ -31,7 +31,9 @@ export function CustomerDetailDrawer({
     return null
   }
 
-  const canManageUser = currentUser.role === 'admin' && currentUser._id !== user._id
+  const canManageCustomers =
+    currentUser.role === 'admin' || currentUser.permissions?.includes('customers.manage') === true
+  const canManageUser = canManageCustomers && currentUser._id !== user._id
   const addresses = user.address ?? []
   const primaryAddress = addresses.find((address) => address.isDefault) ?? addresses[0]
 
@@ -139,7 +141,7 @@ export function CustomerDetailDrawer({
 
         {!canManageUser ? (
           <p className="admin-permission-note">
-            Chỉ tài khoản admin mới được đổi trạng thái hoặc yêu cầu đổi mật khẩu.
+            Cần quyền customers.manage để đổi trạng thái hoặc yêu cầu đổi mật khẩu.
           </p>
         ) : null}
       </aside>
