@@ -1266,6 +1266,130 @@ describe('orderService', () => {
     expect(result.order).toBe(order);
   });
 
+  it('cancels and restocks an order when the shipping webhook is cancelled', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000071');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-CANCEL',
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        provider: 'GHN',
+        status: 'shipping',
+        trackingCode: 'GHD-CANCEL',
+      },
+      cancellation: null,
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 2,
+        },
+      ],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+
+    const result = await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'cancelled',
+      provider: 'GHN',
+      trackingCode: 'GHD-CANCEL',
+      reason: 'GHN cancelled shipment',
+    });
+
+    expect(order.status).toBe('cancelled');
+    expect(order.shipping.status).toBe('cancelled');
+    expect(order.cancellation).toEqual(expect.objectContaining({
+      reason: 'GHN cancelled shipment',
+      actorRole: 'system',
+      cancelledAt: expect.any(Date),
+    }));
+    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+      },
+      {
+        $inc: {
+          quantity: 2,
+          availableQuantity: 2,
+        },
+      },
+    );
+    expect(mockedInventoryService.restoreImportRemainingQuantities).toHaveBeenCalledWith([
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 2,
+      },
+    ]);
+    expect(mockedProduct.updateOne).toHaveBeenCalledWith(
+      { _id: productId, sold_quantity: { $gte: 2 } },
+      { $inc: { sold_quantity: -2 } },
+    );
+    expect(result.order).toBe(order);
+  });
+
+  it('does not restock twice when a cancelled shipping webhook is replayed', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000072');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-CANCEL-REPLAY',
+      status: 'cancelled',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        provider: 'GHN',
+        status: 'shipping',
+        trackingCode: 'GHD-CANCEL-REPLAY',
+      },
+      cancellation: {
+        reason: 'Already cancelled',
+        actorRole: 'system',
+        cancelledAt: new Date('2026-06-18T00:00:00.000Z'),
+      },
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 1,
+        },
+      ],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'cancelled',
+      provider: 'GHN',
+      trackingCode: 'GHD-CANCEL-REPLAY',
+    });
+
+    expect(order.status).toBe('cancelled');
+    expect(order.shipping.status).toBe('cancelled');
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+  });
+
   it('rejects processing online orders before payment is paid', async () => {
     const orderId = new Types.ObjectId('665000000000000000000054');
     const order = {

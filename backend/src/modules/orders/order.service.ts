@@ -1506,6 +1506,7 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
   const order = await getOrderForShippingWebhook(input);
   const before = createWebhookOrderSnapshot(order);
   const webhookReason = input.reason?.trim() || `Shipping partner reported ${input.status}`;
+  let shouldRestockAfterSave = false;
   const nextShipping = {
     ...(order.shipping ?? {}),
     provider: input.provider ?? order.shipping?.provider ?? null,
@@ -1577,9 +1578,23 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
       throw new SalesServiceError('Shipment can only be cancelled after the order is packed', 400);
     }
     order.shipping = nextShipping;
+
+    if (order.status !== 'cancelled') {
+      order.status = 'cancelled';
+      order.cancellation = {
+        reason: normalizeCancelReason(webhookReason),
+        cancelledAt: new Date(),
+        cancelledBy: null,
+        actorRole: 'system',
+      };
+      shouldRestockAfterSave = true;
+    }
   }
 
   const savedOrder = await order.save();
+  if (shouldRestockAfterSave) {
+    await restockCommittedOrder(savedOrder);
+  }
 
   return {
     before,
