@@ -7,6 +7,6 @@ const adminAuditLogRouter = Router();
 
 adminAuditLogRouter.use(authenticate);
 adminAuditLogRouter.use(authorize('admin', 'staff'));
-adminAuditLogRouter.get('/', requirePermission('orders.read'), listAuditLogs);
+adminAuditLogRouter.get('/', requirePermission('audit.read'), listAuditLogs);
 
 export { adminAuditLogRouter };

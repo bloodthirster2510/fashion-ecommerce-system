@@ -1,4 +1,14 @@
-import { getMe, updateMe, getAddresses, addAddress, deleteAddress, getUsers, updateUserStatus, updateUserRole } from '../user.service';
+import {
+  addAddress,
+  deleteAddress,
+  forcePasswordReset,
+  getAddresses,
+  getMe,
+  getUsers,
+  updateMe,
+  updateUserRole,
+  updateUserStatus,
+} from '../user.service';
 import { User } from '../../../database/models/user.model';
 
 jest.mock('../../../database/models/user.model');
@@ -179,6 +189,32 @@ describe('User Service', () => {
       expect(address.deleteOne).toHaveBeenCalled();
       expect(user.save).toHaveBeenCalled();
     });
+
+    it('should assign another default address when deleting the default one', async () => {
+      const defaultAddress = {
+        _id: { toString: () => 'addr-default' },
+        isDefault: true,
+        deleteOne: jest.fn(() => {
+          user.address.splice(0, 1);
+        }),
+      };
+      const fallbackAddress = {
+        _id: { toString: () => 'addr-fallback' },
+        isDefault: false,
+      };
+      const user = {
+        address: [defaultAddress, fallbackAddress],
+        save: jest.fn(),
+      };
+      (user.address as unknown as { id: jest.Mock }).id = jest.fn().mockReturnValue(defaultAddress);
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      await deleteAddress('user123', 'addr-default');
+
+      expect(defaultAddress.deleteOne).toHaveBeenCalled();
+      expect(fallbackAddress.isDefault).toBe(true);
+      expect(user.save).toHaveBeenCalled();
+    });
   });
 
   describe('getUsers', () => {
@@ -223,6 +259,7 @@ describe('User Service', () => {
   describe('updateUserRole', () => {
     it('should update user role', async () => {
       const mockUser = { _id: 'u1', role: 'staff' };
+      (User.findById as jest.Mock).mockResolvedValue({ _id: 'u1', role: 'user', isActive: true });
       (User.findByIdAndUpdate as jest.Mock).mockReturnValue({
         select: jest.fn().mockResolvedValue(mockUser),
       });
@@ -231,11 +268,46 @@ describe('User Service', () => {
       expect(result).toEqual(mockUser);
     });
 
+    it('should reject downgrading the last active admin', async () => {
+      (User.findById as jest.Mock).mockResolvedValue({ _id: 'admin1', role: 'admin', isActive: true });
+      (User.countDocuments as jest.Mock).mockResolvedValue(0);
+
+      await expect(updateUserRole('admin1', 'staff')).rejects.toEqual({
+        status: 409,
+        message: 'KhÃ´ng thá»ƒ háº¡ quyá»n admin cuá»‘i cÃ¹ng Ä‘ang hoáº¡t Ä‘á»™ng',
+      });
+
+      expect(User.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
     it('should throw for invalid role', async () => {
       await expect(updateUserRole('u1', 'superadmin')).rejects.toEqual({
         status: 400,
         message: 'Role không hợp lệ',
       });
+    });
+  });
+
+  describe('forcePasswordReset', () => {
+    it('should revoke sessions and require password change on next login', async () => {
+      const user = {
+        refreshToken: 'hashed-refresh-token',
+        resetPasswordToken: 'hashed-reset-token',
+        resetPasswordExpires: new Date(),
+        mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        save: jest.fn(),
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(user);
+
+      await forcePasswordReset('u1');
+
+      expect(user.refreshToken).toBeNull();
+      expect(user.resetPasswordToken).toBeNull();
+      expect(user.resetPasswordExpires).toBeNull();
+      expect(user.mustChangePassword).toBe(true);
+      expect(user.passwordChangedAt).toBeNull();
+      expect(user.save).toHaveBeenCalled();
     });
   });
 });

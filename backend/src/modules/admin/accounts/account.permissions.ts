@@ -8,6 +8,7 @@ export const STAFF_PERMISSION_VALUES: StaffPermission[] = [
   'orders.read',
   'orders.update',
   'payments.adjust',
+  'audit.read',
   'inventory.read',
   'inventory.write',
   'promotions.read',

@@ -72,6 +72,30 @@ const normalizeSavedAddressesForCurrentSchema = (user: IUser) => {
   });
 };
 
+const ensureAddressDefaultInvariant = (addresses: IUserAddress[]) => {
+  if (!addresses.length || addresses.some((address) => address.isDefault)) {
+    return;
+  }
+
+  addresses[0].isDefault = true;
+};
+
+const assertNotLastActiveAdmin = async (user: IUser, nextRole: UserRole) => {
+  if (user.role !== 'admin' || user.isActive === false || nextRole === 'admin') {
+    return;
+  }
+
+  const otherActiveAdminCount = await User.countDocuments({
+    _id: { $ne: user._id },
+    role: 'admin',
+    isActive: true,
+  });
+
+  if (otherActiveAdminCount < 1) {
+    throw { status: 409, message: 'KhÃ´ng thá»ƒ háº¡ quyá»n admin cuá»‘i cÃ¹ng Ä‘ang hoáº¡t Ä‘á»™ng' };
+  }
+};
+
 const normalizeBase64Image = (imageBase64: string, fallbackMimeType?: string) => {
   const dataUriMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
   const mimeType = (dataUriMatch?.[1] || fallbackMimeType || 'image/jpeg').toLowerCase();
@@ -276,7 +300,11 @@ export const deleteAddress = async (userId: string, addressId: string) => {
     throw { status: 404, message: 'Địa chỉ không tồn tại' };
   }
 
+  const wasDefault = Boolean(toPlainAddress(address as IUserAddress).isDefault);
   address.deleteOne();
+  if (wasDefault && Array.isArray(user.address)) {
+    ensureAddressDefaultInvariant(user.address);
+  }
   syncProfileCompleted(user);
   await user.save();
 };
@@ -394,6 +422,13 @@ export const updateUserRole = async (id: string, role: string, actorUserId?: str
     throw { status: 400, message: 'Không thể tự hạ quyền tài khoản đang đăng nhập' };
   }
 
+  const currentUser = await User.findById(id);
+  if (!currentUser) {
+    throw { status: 404, message: 'NgÆ°á»i dÃ¹ng khÃ´ng tá»“n táº¡i' };
+  }
+
+  await assertNotLastActiveAdmin(currentUser, role as UserRole);
+
   const user = await User.findByIdAndUpdate(id, { role }, { returnDocument: 'after' })
     .select(safeUserSelect);
   if (!user) {
@@ -411,5 +446,7 @@ export const forcePasswordReset = async (id: string) => {
   user.refreshToken = null;
   user.resetPasswordToken = null;
   user.resetPasswordExpires = null;
+  user.mustChangePassword = true;
+  user.passwordChangedAt = null;
   await user.save();
 };
