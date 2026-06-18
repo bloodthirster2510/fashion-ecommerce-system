@@ -7,7 +7,7 @@ type AuthContextType = {
   isAuthenticated: boolean;
   isRestoringSession: boolean;
   session: AuthSession | null;
-  login: (session: AuthSession) => void;
+  login: (session: AuthSession) => Promise<void>;
   updateSessionUser: (user: Partial<SessionUser>) => void;
   runWithAuth: <T>(action: (accessToken: string) => Promise<T>) => Promise<T>;
   logout: () => void;
@@ -59,23 +59,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const persistSession = React.useCallback((nextSession: AuthSession | null) => {
-    const task = nextSession
+    return nextSession
       ? sessionStorage.setItemAsync(AUTH_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
       : sessionStorage.deleteItemAsync(AUTH_SESSION_STORAGE_KEY);
-
-    task.catch(() => undefined);
   }, []);
 
-  const login = React.useCallback((newSession: AuthSession) => {
+  const login = React.useCallback(async (newSession: AuthSession) => {
+    await persistSession(newSession);
     sessionRef.current = newSession;
     setSession(newSession);
-    persistSession(newSession);
   }, [persistSession]);
 
   const logout = React.useCallback(() => {
     sessionRef.current = null;
     setSession(null);
-    persistSession(null);
+    persistSession(null).catch(() => undefined);
   }, [persistSession]);
 
   const updateSessionUser = React.useCallback((user: Partial<SessionUser>) => {
@@ -91,7 +89,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       };
 
       sessionRef.current = nextSession;
-      persistSession(nextSession);
+      persistSession(nextSession).catch(() => undefined);
       return nextSession;
     });
   }, [persistSession]);
@@ -133,15 +131,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             refreshToken: nextTokens.refreshToken,
           };
 
+          await persistSession(nextSession);
           sessionRef.current = nextSession;
           setSession(nextSession);
-          persistSession(nextSession);
 
           return await action(nextTokens.accessToken);
         } catch (refreshError) {
           sessionRef.current = null;
           setSession(null);
-          persistSession(null);
+          persistSession(null).catch(() => undefined);
 
           throw refreshError instanceof Error
             ? refreshError
