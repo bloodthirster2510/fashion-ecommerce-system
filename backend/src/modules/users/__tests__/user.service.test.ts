@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import {
   addAddress,
   deleteAddress,
@@ -10,8 +11,12 @@ import {
   updateUserStatus,
 } from '../user.service';
 import { User } from '../../../database/models/user.model';
+import { sendResetPasswordEmail } from '../../../utils/email';
 
 jest.mock('../../../database/models/user.model');
+jest.mock('../../../utils/email', () => ({
+  sendResetPasswordEmail: jest.fn(),
+}));
 
 describe('User Service', () => {
   beforeEach(() => {
@@ -289,11 +294,13 @@ describe('User Service', () => {
   });
 
   describe('forcePasswordReset', () => {
-    it('should revoke sessions and require password change on next login', async () => {
+    it('should revoke sessions and send a reset password token', async () => {
+      const previousExpiry = new Date();
       const user = {
+        email: 'customer@test.com',
         refreshToken: 'hashed-refresh-token',
         resetPasswordToken: 'hashed-reset-token',
-        resetPasswordExpires: new Date(),
+        resetPasswordExpires: previousExpiry,
         mustChangePassword: false,
         passwordChangedAt: new Date(),
         save: jest.fn(),
@@ -303,11 +310,18 @@ describe('User Service', () => {
       await forcePasswordReset('u1');
 
       expect(user.refreshToken).toBeNull();
-      expect(user.resetPasswordToken).toBeNull();
-      expect(user.resetPasswordExpires).toBeNull();
+      expect(user.resetPasswordToken).not.toBe('hashed-reset-token');
+      expect(user.resetPasswordExpires).toBeInstanceOf(Date);
+      expect(user.resetPasswordExpires!.getTime()).toBeGreaterThan(previousExpiry.getTime());
       expect(user.mustChangePassword).toBe(true);
       expect(user.passwordChangedAt).toBeNull();
       expect(user.save).toHaveBeenCalled();
+      expect(sendResetPasswordEmail).toHaveBeenCalledTimes(1);
+
+      const [email, token] = (sendResetPasswordEmail as jest.Mock).mock.calls[0];
+      expect(email).toBe('customer@test.com');
+      expect(token).toMatch(/^[a-f0-9]{64}$/);
+      expect(user.resetPasswordToken).toBe(crypto.createHash('sha256').update(token).digest('hex'));
     });
   });
 });

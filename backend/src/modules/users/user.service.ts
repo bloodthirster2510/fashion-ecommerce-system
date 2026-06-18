@@ -1,6 +1,8 @@
+import crypto from 'crypto';
 import { User, type IUser, type IUserAddress, type UserRole } from '../../database/models/user.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
+import { sendResetPasswordEmail } from '../../utils/email';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
 const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
@@ -443,10 +445,14 @@ export const forcePasswordReset = async (id: string) => {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
   user.refreshToken = null;
-  user.resetPasswordToken = null;
-  user.resetPasswordExpires = null;
+  user.resetPasswordToken = resetTokenHash;
+  user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
   user.mustChangePassword = true;
   user.passwordChangedAt = null;
   await user.save();
+  await sendResetPasswordEmail(user.email, resetToken);
 };
