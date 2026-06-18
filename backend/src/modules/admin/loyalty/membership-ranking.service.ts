@@ -273,7 +273,7 @@ const updateMembershipRanking = async (id: string, payload: MembershipRankingPay
   await assertUniqueNameAndLevel(normalized, id);
 
   const updatedRanking = await MembershipRanking.findByIdAndUpdate(id, normalized, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   }).lean();
 

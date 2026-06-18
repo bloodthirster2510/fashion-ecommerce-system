@@ -113,7 +113,7 @@ describe('inventoryService', () => {
         },
       }),
       {
-        new: true,
+        returnDocument: 'after',
         upsert: true,
       },
     );

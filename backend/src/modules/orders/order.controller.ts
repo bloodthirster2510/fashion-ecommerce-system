@@ -209,8 +209,15 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
 
 const getUserId = (req: Request) => req.user!.userId;
 const getUserRole = (req: Request) => req.user?.role;
-const getShippingWebhookSecret = () => process.env.SHIPPING_WEBHOOK_SECRET || 'dev-secret';
-const getGhnWebhookSecret = () => process.env.GHN_WEBHOOK_SECRET || getShippingWebhookSecret();
+const getRequiredWebhookSecret = (envName: 'SHIPPING_WEBHOOK_SECRET' | 'GHN_WEBHOOK_SECRET') => {
+  const secret = process.env[envName]?.trim();
+
+  if (!secret) {
+    throw new SalesServiceError(`${envName} is not configured`, 503);
+  }
+
+  return secret;
+};
 
 const parseShippingWebhookInput = (
   value: unknown,
@@ -688,7 +695,7 @@ const syncGhnShipment = async (req: Request, res: Response) => {
 const handleSimulatedShippingWebhook = async (req: Request, res: Response) => {
   try {
     const receivedSecret = parseString(req.headers['x-webhook-secret']);
-    if (receivedSecret !== getShippingWebhookSecret()) {
+    if (receivedSecret !== getRequiredWebhookSecret('SHIPPING_WEBHOOK_SECRET')) {
       return errorResponse(res, 'Invalid shipping webhook secret', 401);
     }
 
@@ -732,7 +739,7 @@ const simulateShippingWebhook = async (req: Request, res: Response) => {
 const handleGhnShippingWebhook = async (req: Request, res: Response) => {
   try {
     const receivedSecret = parseString(req.headers['x-webhook-secret']);
-    if (receivedSecret !== getGhnWebhookSecret()) {
+    if (receivedSecret !== getRequiredWebhookSecret('GHN_WEBHOOK_SECRET')) {
       return errorResponse(res, 'Invalid GHN webhook secret', 401);
     }
 

@@ -59,7 +59,7 @@ const updateBrand = async (id: string, input: UpdateBrandInput) => {
   }
 
   return Brand.findByIdAndUpdate(id, input, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   });
 };
@@ -71,7 +71,7 @@ const deleteBrand = async (id: string) => {
     id,
     { isActive: false },
     {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     },
   );

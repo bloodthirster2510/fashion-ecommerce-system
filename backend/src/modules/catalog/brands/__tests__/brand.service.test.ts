@@ -82,7 +82,7 @@ describe('brandService', () => {
       '665000000000000000000001',
       { isActive: false },
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       },
     );

@@ -173,7 +173,7 @@ export const transactionService = {
             createdBy: reusableInitialTransaction.createdBy ?? 'user',
           },
         },
-        { new: true },
+        { returnDocument: 'after' },
       );
     }
 
@@ -219,7 +219,7 @@ export const transactionService = {
           failureReason: failureReason ?? null,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
   },
 };

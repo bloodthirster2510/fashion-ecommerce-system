@@ -128,7 +128,7 @@ export const updateMe = async (userId: string, data: {
     throw { status: 400, message: 'Không có dữ liệu để cập nhật' };
   }
 
-  const user = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true })
+  const user = await User.findByIdAndUpdate(userId, { $set: updates }, { returnDocument: 'after', runValidators: true })
     .select(safeUserSelect);
 
   if (!user) {
@@ -181,7 +181,7 @@ export const uploadAvatar = async (userId: string, data: {
   const user = await User.findByIdAndUpdate(
     userId,
     { $set: { avatarImage: uploadResult.secureUrl, avatarPublicId: uploadResult.publicId } },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).select(safeUserSelect);
 
   if (!user) {
@@ -377,7 +377,7 @@ export const updateUserStatus = async (id: string, isActive: boolean, actorUserI
     throw { status: 400, message: 'Không thể khoá tài khoản đang đăng nhập' };
   }
 
-  const user = await User.findOneAndUpdate({ _id: id, role: 'user' }, { isActive }, { new: true })
+  const user = await User.findOneAndUpdate({ _id: id, role: 'user' }, { isActive }, { returnDocument: 'after' })
     .select(safeUserSelect);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -394,7 +394,7 @@ export const updateUserRole = async (id: string, role: string, actorUserId?: str
     throw { status: 400, message: 'Không thể tự hạ quyền tài khoản đang đăng nhập' };
   }
 
-  const user = await User.findByIdAndUpdate(id, { role }, { new: true })
+  const user = await User.findByIdAndUpdate(id, { role }, { returnDocument: 'after' })
     .select(safeUserSelect);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };

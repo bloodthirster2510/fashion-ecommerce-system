@@ -1235,7 +1235,7 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
 
   return Product.findByIdAndUpdate(id, updateData, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   });
 };
@@ -1247,7 +1247,7 @@ const deleteProduct = async (id: string) => {
     id,
     { isActive: false },
     {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     },
   );

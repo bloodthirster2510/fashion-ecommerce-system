@@ -220,7 +220,7 @@ const orderCancellationSchema = new Schema<IOrderCancellation>(
 
 const orderSchema = new Schema<IOrder>(
   {
-    orderCode: { type: String, required: true, unique: true, trim: true, uppercase: true, maxlength: 40 },
+    orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
     invoiceCode: { type: String, trim: true, default: null, maxlength: 40 },
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     order_list: {

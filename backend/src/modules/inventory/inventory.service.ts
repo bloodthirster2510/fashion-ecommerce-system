@@ -275,7 +275,7 @@ const createImport = async (input: CreateInventoryImportInput) => {
           },
         },
         {
-          new: true,
+          returnDocument: 'after',
           upsert: true,
         },
       );
@@ -492,7 +492,7 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
             availableQuantity: -item.quantity,
           },
         },
-        { new: true },
+        { returnDocument: 'after' },
       );
 
       if (!inventory) {

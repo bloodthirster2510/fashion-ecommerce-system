@@ -314,7 +314,7 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
   const coupon = await Coupon.findOneAndUpdate(
     { _id: currentCoupon._id, deletedAt: null },
     { $set: data },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!coupon) {
@@ -349,7 +349,7 @@ const deleteCoupon = async (id: string, actorId?: string) => {
   const coupon = await Coupon.findOneAndUpdate(
     { _id: id, deletedAt: null },
     { $set: updateData },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!coupon) {
@@ -471,7 +471,7 @@ const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon |
       ...usageLimitFilter,
     },
     { $inc: { usedCount: 1 } },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!reservedCoupon) {

@@ -199,7 +199,7 @@ export const updateStaffStatus = async (id: string, isActive: boolean, actorUser
   const staff = await User.findOneAndUpdate(
     { _id: id, role: 'staff' },
     { isActive },
-    { new: true },
+    { returnDocument: 'after' },
   ).select(safeAccountSelect);
 
   if (!staff) {
@@ -215,7 +215,7 @@ export const updateStaffPermissions = async (id: string, permissions: unknown) =
   const staff = await User.findOneAndUpdate(
     { _id: id, role: 'staff' },
     { permissions: normalizedPermissions },
-    { new: true },
+    { returnDocument: 'after' },
   ).select(safeAccountSelect);
 
   if (!staff) {
@@ -236,7 +236,7 @@ export const resetStaffTemporaryPassword = async (id: string, temporaryPassword:
       refreshToken: null,
       passwordChangedAt: null,
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).select(safeAccountSelect);
 
   if (!staff) {

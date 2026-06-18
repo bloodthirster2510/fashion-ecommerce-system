@@ -269,7 +269,7 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
   return Category.findByIdAndUpdate(id, updateData, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   });
 };
@@ -281,7 +281,7 @@ const deleteCategory = async (id: string) => {
     id,
     { isActive: false },
     {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     },
   );

@@ -46,7 +46,7 @@ const cartItemSchema = new Schema<ICartItem>(
 
 const cartSchema = new Schema<ICart>(
   {
-    user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+    user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     product_list: { type: [cartItemSchema], default: [] },
   },
   { timestamps: true },

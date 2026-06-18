@@ -215,7 +215,7 @@ describe('User Service', () => {
       expect(User.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'u1', role: 'user' },
         { isActive: false },
-        { new: true },
+        { returnDocument: 'after' },
       );
     });
   });

@@ -230,7 +230,7 @@ describe('productService', () => {
         name: 'Updated product',
       }),
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       },
     );
@@ -247,7 +247,7 @@ describe('productService', () => {
       productId,
       { isActive: false },
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       },
     );
