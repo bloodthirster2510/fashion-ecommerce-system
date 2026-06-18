@@ -1,6 +1,6 @@
 export type ApiResponse<T> = {
-  message: string
-  data: T
+  message?: string
+  data?: T
 }
 
 export type PaginatedResponse<T> = {
