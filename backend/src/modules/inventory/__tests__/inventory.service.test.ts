@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Inventory, InventoryImport, InventoryReservation, Product } from '../../../database/models';
 import { InventoryServiceError, inventoryService } from '../inventory.service';
 
@@ -30,6 +30,19 @@ const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedInventoryImport = InventoryImport as jest.Mocked<typeof InventoryImport>;
 const mockedInventoryReservation = InventoryReservation as jest.Mocked<typeof InventoryReservation>;
+const startSessionSpy = jest.spyOn(mongoose, 'startSession');
+
+type MockSession = {
+  withTransaction: jest.Mock;
+  endSession: jest.Mock;
+};
+
+let mockSession: MockSession;
+
+const createMockSession = (): MockSession => ({
+  withTransaction: jest.fn(async (callback: () => Promise<unknown>) => callback()),
+  endSession: jest.fn().mockResolvedValue(undefined),
+});
 
 const productId = '665000000000000000000003';
 const variantId = '665000000000000000000011';
@@ -67,12 +80,14 @@ const productDocument = {
 describe('inventoryService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockSession = createMockSession();
+    startSessionSpy.mockResolvedValue(mockSession as never);
     mockedProduct.findById.mockResolvedValue(productDocument as never);
   });
 
   it('creates an import record and increments inventory quantities', async () => {
     const importRecord = { _id: new Types.ObjectId(), productId };
-    mockedInventoryImport.create.mockResolvedValue(importRecord as never);
+    mockedInventoryImport.create.mockResolvedValue([importRecord] as never);
     mockedInventory.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() } as never);
 
     const result = await inventoryService.createImport({
@@ -90,19 +105,22 @@ describe('inventoryService', () => {
 
     expect(result).toBe(importRecord);
     expect(mockedInventoryImport.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        productId: expect.any(Types.ObjectId),
-        variantId: expect.any(Types.ObjectId),
-        colorVariantId: expect.any(Types.ObjectId),
-        detail: [
-          {
-            size: 'M',
-            quantity: 20,
-            remainingQuantity: 20,
-            importPrice: 120000,
-          },
-        ],
-      }),
+      [
+        expect.objectContaining({
+          productId: expect.any(Types.ObjectId),
+          variantId: expect.any(Types.ObjectId),
+          colorVariantId: expect.any(Types.ObjectId),
+          detail: [
+            {
+              size: 'M',
+              quantity: 20,
+              remainingQuantity: 20,
+              importPrice: 120000,
+            },
+          ],
+        }),
+      ],
+      { session: mockSession },
     );
     expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -120,22 +138,24 @@ describe('inventoryService', () => {
       {
         returnDocument: 'after',
         upsert: true,
+        session: mockSession,
       },
     );
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
   });
 
-  it('rolls back inventory increments when creating an import fails midway', async () => {
+  it('aborts the import transaction when an inventory upsert fails midway', async () => {
     const importRecord = {
       _id: new Types.ObjectId(),
       productId,
       deleteOne: jest.fn().mockResolvedValue(undefined),
     };
     const upsertError = new Error('inventory write failed');
-    mockedInventoryImport.create.mockResolvedValue(importRecord as never);
+    mockedInventoryImport.create.mockResolvedValue([importRecord] as never);
     mockedInventory.findOneAndUpdate
       .mockResolvedValueOnce({ _id: new Types.ObjectId() } as never)
       .mockRejectedValueOnce(upsertError);
-    mockedInventory.updateOne.mockResolvedValue({ matchedCount: 1 } as never);
 
     await expect(
       inventoryService.createImport({
@@ -149,21 +169,10 @@ describe('inventoryService', () => {
       }),
     ).rejects.toBe(upsertError);
 
-    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
-      expect.objectContaining({
-        productId: expect.any(Types.ObjectId),
-        variantId: expect.any(Types.ObjectId),
-        colorVariantId: expect.any(Types.ObjectId),
-        size: 'M',
-      }),
-      {
-        $inc: {
-          quantity: -20,
-          availableQuantity: -20,
-        },
-      },
-    );
-    expect(importRecord.deleteOne).toHaveBeenCalled();
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(importRecord.deleteOne).not.toHaveBeenCalled();
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
   });
 
   it('deletes an import with conditional stock decrements', async () => {

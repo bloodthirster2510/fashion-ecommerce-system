@@ -1,9 +1,10 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import {
   Inventory,
   InventoryImport,
   InventoryReservation,
   Product,
+  type IInventoryImport,
   type IInventoryImportDetail,
   type IInventoryReservation,
   type IProductVariant,
@@ -241,32 +242,6 @@ const didMatchUpdate = (result: unknown) => {
   return typeof matchedCount === 'number' ? matchedCount > 0 : true;
 };
 
-const rollbackInventoryImportIncrements = async (
-  productId: Types.ObjectId,
-  variantId: Types.ObjectId,
-  colorVariantId: Types.ObjectId,
-  details: InventoryImportDetailInput[],
-) => {
-  await Promise.all(
-    details.map((item) =>
-      Inventory.updateOne(
-        {
-          productId,
-          variantId,
-          colorVariantId,
-          size: item.size,
-        },
-        {
-          $inc: {
-            quantity: -item.quantity,
-            availableQuantity: -item.quantity,
-          },
-        },
-      ),
-    ),
-  );
-};
-
 const rollbackInventoryImportDecrements = async (
   productId: Types.ObjectId,
   variantId: Types.ObjectId,
@@ -306,7 +281,7 @@ const createImport = async (input: CreateInventoryImportInput) => {
     ),
   );
 
-  const importRecord = await InventoryImport.create({
+  const importPayload = {
     importCode: buildImportCode(),
     supplierName,
     productId,
@@ -314,47 +289,54 @@ const createImport = async (input: CreateInventoryImportInput) => {
     colorVariantId,
     detail,
     totalAmount: getImportTotalAmount(detail),
-  });
-  const appliedDetails: InventoryImportDetailInput[] = [];
+  };
+  const session = await mongoose.startSession();
+  let importRecord: IInventoryImport | null = null;
 
   try {
-    for (const item of detail) {
-      const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
+    await session.withTransaction(async () => {
+      const [createdImportRecord] = await InventoryImport.create([importPayload], { session });
 
-      await Inventory.findOneAndUpdate(
-        {
-          productId,
-          variantId,
-          colorVariantId,
-          size: item.size,
-        },
-        {
-          $setOnInsert: {
+      importRecord = createdImportRecord;
+
+      for (const item of detail) {
+        const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
+
+        await Inventory.findOneAndUpdate(
+          {
             productId,
             variantId,
             colorVariantId,
             size: item.size,
-            sku,
-            reservedQuantity: 0,
           },
-          $inc: {
-            quantity: item.quantity,
-            availableQuantity: item.quantity,
+          {
+            $setOnInsert: {
+              productId,
+              variantId,
+              colorVariantId,
+              size: item.size,
+              sku,
+              reservedQuantity: 0,
+            },
+            $inc: {
+              quantity: item.quantity,
+              availableQuantity: item.quantity,
+            },
           },
-        },
-        {
-          returnDocument: 'after',
-          upsert: true,
-        },
-      );
-      appliedDetails.push(item);
-    }
-  } catch (error) {
-    await rollbackInventoryImportIncrements(productId, variantId, colorVariantId, appliedDetails).catch(() => undefined);
-    if (typeof importRecord.deleteOne === 'function') {
-      await importRecord.deleteOne().catch(() => undefined);
-    }
-    throw error;
+          {
+            returnDocument: 'after',
+            upsert: true,
+            session,
+          },
+        );
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!importRecord) {
+    throw new InventoryServiceError('Failed to create import', 500);
   }
 
   return importRecord;
