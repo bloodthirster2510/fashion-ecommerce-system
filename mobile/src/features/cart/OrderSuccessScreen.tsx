@@ -150,11 +150,6 @@ const OrderSuccessScreen = () => {
         return;
       }
 
-      const returnedStatus = getUrlParam(url, 'paymentStatus');
-      if (returnedStatus) {
-        setLatestPaymentStatus(returnedStatus);
-      }
-
       void refreshPaymentStatus(false);
     },
     [orderId, refreshPaymentStatus],
