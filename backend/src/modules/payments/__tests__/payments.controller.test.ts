@@ -134,6 +134,56 @@ describe('settleVNPayPayment', () => {
       paymentStatus: 'paid',
     });
   });
+
+  it('does not let a late successful attempt reopen an already refunded order', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000203');
+    const transactionId = new Types.ObjectId('665000000000000000000303');
+    const transaction = {
+      _id: transactionId,
+      order_id: orderId,
+      amount: 385000,
+      status: 'pending',
+    };
+    const order = {
+      _id: orderId,
+      orderCode: 'FSORDER',
+      paymentStatus: 'refunded',
+    };
+    const resolvedTransaction = {
+      ...transaction,
+      status: 'success',
+    };
+
+    mockedTransactionService.findByTxnRef.mockResolvedValue(transaction as never);
+    mockedOrder.findById.mockReturnValue(chainLeanResult(order) as never);
+    mockedTransactionService.resolveTransaction.mockResolvedValue(resolvedTransaction as never);
+    mockedTransactionService.findLatestAttemptByOrderId.mockResolvedValue(resolvedTransaction as never);
+
+    const result = await settleVNPayPayment({
+      isValidSignature: true,
+      isSuccess: true,
+      orderId: 'FSORDERA3',
+      amount: 385000,
+      responseCode: '00',
+      transactionStatus: '00',
+      transactionNo: 'VNP125',
+      bankCode: 'NCB',
+      payDate: '20260618122000',
+    });
+
+    expect(mockedTransactionService.resolveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionId: transactionId.toString(),
+        status: 'success',
+      }),
+    );
+    expect(mockedOrder.updateOne).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      rspCode: '00',
+      transactionStatus: 'success',
+      paymentStatus: 'refunded',
+    });
+  });
 });
 
 describe('handleVNPayIpn', () => {

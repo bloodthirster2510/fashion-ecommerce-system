@@ -38,6 +38,10 @@ const canCreatePaymentForOrderStatus = (status: string) =>
   !['cancelled', 'returned'].includes(status);
 
 const ADMIN_PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
+const TERMINAL_PAYMENT_STATUSES: OrderPaymentStatus[] = ['paid', 'refunded'];
+
+const isTerminalPaymentStatus = (status: OrderPaymentStatus) =>
+  TERMINAL_PAYMENT_STATUSES.includes(status);
 
 const parseAdminPaymentStatus = (value: unknown) => {
   const status = typeof value === 'string' ? value : '';
@@ -195,14 +199,14 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   const isLatestAttempt = latest?._id.toString() === resolvedTransaction._id.toString();
   let paymentStatus = order.paymentStatus;
 
-  if (isSuccess) {
+  if (isSuccess && !isTerminalPaymentStatus(order.paymentStatus)) {
     paymentStatus = 'paid';
     await Order.updateOne(
       { _id: order._id },
       { $set: { paymentStatus } },
     );
-  } else if (isLatestAttempt && order.paymentStatus !== 'paid') {
-    paymentStatus = isSuccess ? 'paid' : 'failed';
+  } else if (!isSuccess && isLatestAttempt && !isTerminalPaymentStatus(order.paymentStatus)) {
+    paymentStatus = 'failed';
     await Order.updateOne(
       { _id: order._id },
       { $set: { paymentStatus } },
@@ -239,8 +243,8 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
       return error(res, 'This order does not use VNPay', 400);
     }
 
-    if (order.paymentStatus === 'paid') {
-      return error(res, 'Order is already paid', 409);
+    if (isTerminalPaymentStatus(order.paymentStatus)) {
+      return error(res, 'Order payment is already closed', 409);
     }
 
     if (!canCreatePaymentForOrderStatus(order.status)) {
