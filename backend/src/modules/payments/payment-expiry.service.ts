@@ -1,4 +1,6 @@
+import type { Types } from 'mongoose';
 import { Inventory, Order, Product, Transaction } from '../../database/models';
+import { inventoryService } from '../inventory/inventory.service';
 
 const DEFAULT_PAYMENT_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 
@@ -34,9 +36,9 @@ type ObjectIdLike = {
 type ExpirableOrder = {
   _id: ObjectIdLike;
   order_list: Array<{
-    productId: unknown;
-    variantId: unknown;
-    colorVariantId: unknown;
+    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
+    colorVariantId: Types.ObjectId;
     size: string;
     quantity: number;
   }>;
@@ -72,6 +74,16 @@ const restockCommittedOrder = async (order: ExpirableOrder) => {
         { $inc: { sold_quantity: -item.quantity } },
       ),
     ),
+  );
+
+  await inventoryService.restoreImportRemainingQuantities(
+    order.order_list.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId,
+      colorVariantId: item.colorVariantId,
+      size: item.size,
+      quantity: item.quantity,
+    })),
   );
 };
 

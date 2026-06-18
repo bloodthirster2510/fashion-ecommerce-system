@@ -586,9 +586,9 @@ const adjustImportRemainingQuantity = async (
     await importRecord.save();
   }
 
-  if (remaining > 0) {
-    throw new InventoryServiceError('Cannot synchronize import remaining quantity', 409);
-  }
+  // Manual stock adjustments can make inventory quantity diverge from import lots.
+  // Keep lot counters bounded, but never block checkout/restock for stock that
+  // legitimately exists outside import history.
 };
 
 const consumeImportRemainingQuantities = async (

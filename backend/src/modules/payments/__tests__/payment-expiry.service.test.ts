@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { Inventory, Order, Product, Transaction } from '../../../database/models';
+import { inventoryService } from '../../inventory/inventory.service';
 import { paymentExpiryService } from '../payment-expiry.service';
 
 jest.mock('../../../database/models', () => ({
@@ -19,10 +20,17 @@ jest.mock('../../../database/models', () => ({
   },
 }));
 
+jest.mock('../../inventory/inventory.service', () => ({
+  inventoryService: {
+    restoreImportRemainingQuantities: jest.fn(),
+  },
+}));
+
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedTransaction = Transaction as jest.Mocked<typeof Transaction>;
+const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryService>;
 
 const chainLeanResult = (value: unknown) => ({
   select: jest.fn().mockReturnValue({
@@ -41,6 +49,7 @@ describe('paymentExpiryService', () => {
     jest.clearAllMocks();
     mockedOrder.findOne.mockResolvedValue(null as never);
     mockedTransaction.findOne.mockReturnValue(chainSortLeanResult(null) as never);
+    mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
 
   it('marks stale pending transactions as expired and cancels confirmed unpaid online orders when latest attempt expires', async () => {
@@ -130,6 +139,15 @@ describe('paymentExpiryService', () => {
       { _id: productId, sold_quantity: { $gte: 2 } },
       { $inc: { sold_quantity: -2 } },
     );
+    expect(mockedInventoryService.restoreImportRemainingQuantities).toHaveBeenCalledWith([
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 2,
+      },
+    ]);
     expect(order.status).toBe('cancelled');
     expect(order.paymentStatus).toBe('failed');
     expect(order.save).toHaveBeenCalled();

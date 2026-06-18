@@ -230,6 +230,47 @@ describe('inventoryService', () => {
     expect(secondImport.save).toHaveBeenCalled();
   });
 
+  it('commits reservations even when stock came from manual adjustment without import history', async () => {
+    const reservation = {
+      _id: new Types.ObjectId(),
+      productId: new Types.ObjectId(productId),
+      variantId: new Types.ObjectId(variantId),
+      colorVariantId: new Types.ObjectId(colorVariantId),
+      size: 'M',
+      quantity: 2,
+      status: 'active',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const sort = jest.fn().mockResolvedValue([]);
+
+    mockedInventoryReservation.find.mockResolvedValue([reservation] as never);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedInventoryImport.find.mockReturnValue({ sort } as never);
+
+    await inventoryService.commitReservations({
+      reservationIds: [reservation._id.toString()],
+    });
+
+    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productId: reservation.productId,
+        variantId: reservation.variantId,
+        colorVariantId: reservation.colorVariantId,
+        size: 'M',
+        reservedQuantity: { $gte: 2 },
+      }),
+      {
+        $inc: {
+          quantity: -2,
+          reservedQuantity: -2,
+        },
+      },
+    );
+    expect(sort).toHaveBeenCalledWith({ createdAt: 1 });
+    expect(reservation.status).toBe('committed');
+    expect(reservation.save).toHaveBeenCalled();
+  });
+
   it('restores import remaining quantities when committed stock is returned', async () => {
     const oldImport = {
       detail: [{ size: 'M', quantity: 10, remainingQuantity: 8 }],
