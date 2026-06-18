@@ -239,6 +239,19 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   )
 
   useEffect(() => {
+    setExpandedProducts(new Set())
+    setExpandedVariants(new Set())
+  }, [
+    activeFilter,
+    brandFilter,
+    categoryFilter,
+    fitTypeFilter,
+    keyword,
+    pagination.safePage,
+    stockFilter,
+  ])
+
+  useEffect(() => {
     if (page !== pagination.safePage) setPage(pagination.safePage)
   }, [page, pagination.safePage])
 
