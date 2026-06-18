@@ -4,10 +4,13 @@ import {
   createNavigationContainerRef,
   type NavigationAction,
 } from '@react-navigation/native';
+import * as WebBrowser from 'expo-web-browser';
 import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
 import { AuthProvider } from './features/auth/AuthContext';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
