@@ -868,11 +868,22 @@ const CartScreen = () => {
             paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
           );
 
-          void WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
-            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-          }).catch((error) => {
-            console.warn('Cannot open VNPay browser', error);
-          });
+          try {
+            await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+              presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+            });
+          } catch (openError) {
+            console.warn('Cannot open VNPay browser', openError);
+            navigation.replace('OrderSuccess', {
+              orderId: order._id,
+              orderCode: order.orderCode,
+              totalAmount: order.totalAmount,
+              paymentMethod: 'VNPAY',
+              paymentStatus: 'pending',
+              paymentMessage: 'KhÃ´ng thá»ƒ má»Ÿ trang thanh toÃ¡n VNPay. Báº¡n thá»­ láº¡i sau nha.',
+            });
+            return;
+          }
 
           navigation.replace('OrderSuccess', {
             orderId: order._id,
