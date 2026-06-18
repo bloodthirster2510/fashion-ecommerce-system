@@ -17,6 +17,10 @@ const comparePassword = async (password: string, hash: string): Promise<boolean>
   return bcrypt.compare(password, hash);
 };
 
+const hashRefreshToken = (token: string) => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
 const updateAuthFields = async (user: IUser, fields: Record<string, unknown>) => {
   await User.updateOne({ _id: user._id }, { $set: fields });
 };
@@ -70,9 +74,7 @@ const linkAuthProvider = async (user: IUser, provider: AuthProviderName, provide
 
 export const sendOtp = async (phone: string) => {
   const existingUser = await User.findOne({ phone });
-  if (existingUser) {
-    throw { status: 409, message: 'Số điện thoại đã được sử dụng' };
-  }
+  if (existingUser) return;
 
   await sendOtpSms(phone);
 };
@@ -132,7 +134,7 @@ export const registerUser = async (data: {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -164,7 +166,7 @@ export const loginUser = async (identifier: string, password: string) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -186,7 +188,8 @@ export const refreshAccessToken = async (token: string) => {
   }
 
   const user = await User.findById(payload.userId);
-  if (!user || user.refreshToken !== token) {
+  const tokenHash = hashRefreshToken(token);
+  if (!user || (user.refreshToken !== tokenHash && user.refreshToken !== token)) {
     throw { status: 401, message: 'Refresh token không hợp lệ' };
   }
 
@@ -194,7 +197,7 @@ export const refreshAccessToken = async (token: string) => {
   const newAccessToken = generateAccessToken(newPayload);
   const newRefreshToken = generateRefreshToken(newPayload);
 
-  await updateAuthFields(user, { refreshToken: newRefreshToken });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(newRefreshToken) });
 
   return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
@@ -295,7 +298,7 @@ const generateUserTokens = async (user: IUser) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -323,6 +326,7 @@ const googleLogin = async (idToken: string) => {
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
     });
     payload = ticket.getPayload();
   } catch {
@@ -360,12 +364,25 @@ const googleLogin = async (idToken: string) => {
 };
 
 const facebookLogin = async (accessToken: string) => {
-  if (!process.env.FACEBOOK_APP_ID) {
+  const appId = process.env.FACEBOOK_APP_ID?.trim();
+  const appSecret = process.env.FACEBOOK_APP_SECRET?.trim();
+
+  if (!appId || !appSecret) {
     throw { status: 500, message: 'Facebook Sign-In chưa được cấu hình' };
   }
 
   let fbUser;
   try {
+    const debugResponse = await fetch(
+      `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`,
+    );
+    const debugPayload = await debugResponse.json();
+    const debugData = debugPayload?.data;
+
+    if (!debugData?.is_valid || debugData.app_id !== appId || !debugData.user_id) {
+      throw new Error('Invalid Facebook token');
+    }
+
     const response = await fetch(
       `https://graph.facebook.com/me?fields=id,name,email&access_token=${accessToken}`,
     );
@@ -375,7 +392,7 @@ const facebookLogin = async (accessToken: string) => {
       throw new Error(fbUser.error.message);
     }
 
-    if (!fbUser.id) {
+    if (!fbUser.id || fbUser.id !== debugData.user_id) {
       throw new Error('Invalid Facebook token');
     }
   } catch {

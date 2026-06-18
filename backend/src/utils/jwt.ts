@@ -1,18 +1,15 @@
 import jwt from 'jsonwebtoken';
 
-const getJwtSecret = (envName: 'JWT_ACCESS_SECRET' | 'JWT_REFRESH_SECRET', devFallback: string) => {
+const getJwtSecret = (envName: 'JWT_ACCESS_SECRET' | 'JWT_REFRESH_SECRET') => {
   const secret = process.env[envName]?.trim();
-  if (secret) return secret;
 
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(`${envName} is required in production`);
+  if (!secret) {
+    throw new Error(`${envName} is required`);
   }
 
-  return devFallback;
+  return secret;
 };
 
-const JWT_ACCESS_SECRET = getJwtSecret('JWT_ACCESS_SECRET', 'local-access-secret');
-const JWT_REFRESH_SECRET = getJwtSecret('JWT_REFRESH_SECRET', 'local-refresh-secret');
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
 
@@ -23,17 +20,27 @@ export interface JwtPayload {
 }
 
 export const generateAccessToken = (payload: JwtPayload): string => {
-  return jwt.sign(payload, JWT_ACCESS_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret('JWT_ACCESS_SECRET'), {
+    expiresIn: ACCESS_TOKEN_EXPIRY,
+    algorithm: 'HS256',
+  });
 };
 
 export const generateRefreshToken = (payload: JwtPayload): string => {
-  return jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret('JWT_REFRESH_SECRET'), {
+    expiresIn: REFRESH_TOKEN_EXPIRY,
+    algorithm: 'HS256',
+  });
 };
 
 export const verifyAccessToken = (token: string): JwtPayload => {
-  return jwt.verify(token, JWT_ACCESS_SECRET) as JwtPayload;
+  return jwt.verify(token, getJwtSecret('JWT_ACCESS_SECRET'), {
+    algorithms: ['HS256'],
+  }) as JwtPayload;
 };
 
 export const verifyRefreshToken = (token: string): JwtPayload => {
-  return jwt.verify(token, JWT_REFRESH_SECRET) as JwtPayload;
+  return jwt.verify(token, getJwtSecret('JWT_REFRESH_SECRET'), {
+    algorithms: ['HS256'],
+  }) as JwtPayload;
 };

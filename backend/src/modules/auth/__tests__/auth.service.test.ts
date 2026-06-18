@@ -2,6 +2,7 @@ import { sendOtp, verifyOtp, registerUser, loginUser, logoutUser, refreshAccessT
 import { User } from '../../../database/models/user.model';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 jest.mock('../../../database/models/user.model');
 jest.mock('bcryptjs');
@@ -15,20 +16,22 @@ jest.mock('../../../utils/sms', () => ({
   verifyOtpToken: jest.fn(),
 }));
 
-import { verifyOtpToken, verifyOtpCode } from '../../../utils/sms';
+import { sendOtpSms, verifyOtpToken, verifyOtpCode } from '../../../utils/sms';
+
+const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
 describe('Auth Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+    process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
   });
 
   describe('sendOtp', () => {
-    it('should throw if phone already exists', async () => {
+    it('should not reveal whether phone already exists', async () => {
       (User.findOne as jest.Mock).mockResolvedValue({ phone: '0900000000' });
-      await expect(sendOtp('0900000000')).rejects.toEqual({
-        status: 409,
-        message: 'Số điện thoại đã được sử dụng',
-      });
+      await expect(sendOtp('0900000000')).resolves.toBeUndefined();
+      expect(sendOtpSms).not.toHaveBeenCalled();
     });
 
     it('should send OTP successfully', async () => {
@@ -146,7 +149,7 @@ describe('Auth Service', () => {
       expect(result.user.role).toBe('user');
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
-        { $set: expect.objectContaining({ refreshToken: 'refresh_token', lastLoginAt: expect.any(Date) }) },
+        { $set: expect.objectContaining({ refreshToken: hashToken('refresh_token'), lastLoginAt: expect.any(Date) }) },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
     });
@@ -248,7 +251,7 @@ describe('Auth Service', () => {
       expect(result.user.email).toBe('test@test.com');
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
-        { $set: expect.objectContaining({ refreshToken: 'refresh_token', lastLoginAt: expect.any(Date) }) },
+        { $set: expect.objectContaining({ refreshToken: hashToken('refresh_token'), lastLoginAt: expect.any(Date) }) },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
     });
@@ -285,7 +288,7 @@ describe('Auth Service', () => {
       expect(result.refreshToken).toBe('new_refresh');
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
-        { $set: { refreshToken: 'new_refresh' } },
+        { $set: { refreshToken: hashToken('new_refresh') } },
       );
     });
   });
