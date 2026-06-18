@@ -220,41 +220,6 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   };
 };
 
-export const createVNPayUrl = async (req: Request, res: Response) => {
-  try {
-    if (
-      process.env.ENABLE_VNPAY_LEGACY_PAYMENT_URL !== 'true' ||
-      process.env.NODE_ENV === 'production'
-    ) {
-      return error(res, 'Legacy VNPay payment URL creation is disabled', 404);
-    }
-
-    const { orderId, amount, bankCode, locale } = req.body;
-    const transactionRef = String(orderId || '');
-    const parsedAmount = Number(amount);
-
-    if (!transactionRef || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return error(res, 'orderId and a positive amount are required');
-    }
-
-    if (!isValidVNPayTransactionRef(transactionRef)) {
-      return error(res, 'orderId must be alphanumeric and at most 100 characters');
-    }
-
-    const paymentUrl = createVNPayPaymentUrl({
-      orderId: transactionRef,
-      amount: parsedAmount,
-      ipAddr: getClientIp(req),
-      bankCode: bankCode ? String(bankCode) : undefined,
-      locale: locale ? String(locale) : undefined,
-    });
-
-    return ok(res, { paymentUrl }, 'Created VNPay payment URL');
-  } catch (err: unknown) {
-    return serverError(res, getErrorMessage(err));
-  }
-};
-
 export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;

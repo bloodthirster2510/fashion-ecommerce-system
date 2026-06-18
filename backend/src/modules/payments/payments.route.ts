@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   adjustOrderPaymentStatus,
-  createVNPayUrl,
   createVNPayUrlFromOrder,
   expireStalePaymentAttempts,
   getOrderPaymentStatus,
@@ -14,16 +13,8 @@ import { authorize, requirePermission } from '../../middlewares/role.middleware'
 const router = Router();
 const adminPaymentRouter = Router();
 
-// ---------------------------------------------------------------------------
-// [Legacy sandbox test] Tạo URL thanh toán trực tiếp — không cần auth.
-// Chỉ dùng để test VNPay Sandbox; KHÔNG dùng trong checkout thật.
-// ---------------------------------------------------------------------------
-router.post('/vnpay/create-payment-url', createVNPayUrl);
-
-// ---------------------------------------------------------------------------
-// [Secure] Tạo URL thanh toán từ Order thật — yêu cầu auth.
-// Backend tự lấy amount từ Order.totalAmount, không tin amount từ client.
-// ---------------------------------------------------------------------------
+// Secure VNPay checkout: users create payment URLs only from real orders.
+// The backend always uses Order.totalAmount instead of trusting client amount.
 router.post(
   '/vnpay/orders/:orderId/create-payment-url',
   authenticate,
@@ -38,9 +29,7 @@ router.get(
   getOrderPaymentStatus,
 );
 
-// ---------------------------------------------------------------------------
-// Callback từ VNPay — không yêu cầu auth vì VNPay server gọi trực tiếp.
-// ---------------------------------------------------------------------------
+// VNPay callbacks are unauthenticated because VNPay calls them directly.
 router.get('/vnpay/return', handleVNPayReturn);
 router.get('/vnpay/ipn', handleVNPayIpn);
 
