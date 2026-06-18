@@ -143,6 +143,8 @@ vite.config.ts.timestamp-*
 .vite/
 
 # Project specific
+.codex-remote-attachments/
+Bug.md
 docs/
 .kilo/
 local-scraped-catalog/
