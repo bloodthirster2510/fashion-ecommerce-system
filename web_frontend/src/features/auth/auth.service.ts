@@ -86,6 +86,16 @@ export const authService = {
     return session
   },
 
+  async logout(accessToken: string) {
+    await fetch(`${axiosClient.baseURL}/auth/logout`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }).catch(() => undefined)
+  },
+
   getProvinces() {
     return request<Province[]>('/locations/provinces')
   },

@@ -55,7 +55,12 @@ export function LoginButton() {
     dispatch(setCurrentUser(user))
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const accessToken = tokenService.getAccessToken()
+    if (accessToken) {
+      await authService.logout(accessToken)
+    }
+
     tokenService.clearSession()
     dispatch(clearCurrentUser())
     message.success('Đã đăng xuất.')

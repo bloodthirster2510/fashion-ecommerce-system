@@ -12,6 +12,7 @@ import {
   ADMIN_DEFAULT_PATH,
   ADMIN_LOGIN_PATH,
 } from '../features/admin/config/adminRoutes'
+import { logoutAdmin } from '../features/admin/modules/auth/auth.service'
 import { AdminLayout } from '../features/admin/layouts/AdminLayout'
 import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
 import { ProductListPage } from '../features/catalog/pages/ProductListPage'
@@ -23,7 +24,12 @@ export function Router() {
   )
   const path = window.location.pathname
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const accessToken = adminSession?.accessToken
+    if (accessToken) {
+      await logoutAdmin(accessToken)
+    }
+
     clearAdminSession()
     setAdminSession(null)
     window.history.replaceState(null, '', ADMIN_LOGIN_PATH)

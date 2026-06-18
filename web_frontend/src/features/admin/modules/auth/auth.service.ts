@@ -56,3 +56,13 @@ export const changeAdminPassword = async (
     throw new Error(result.message || 'Không thể đổi mật khẩu')
   }
 }
+
+export const logoutAdmin = async (accessToken: string) => {
+  await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  }).catch(() => undefined)
+}
