@@ -27,7 +27,7 @@ const parseResponse = async <T>(response: Response, fallbackMessage: string) => 
 export const loginAdmin = async (
   credentials: AdminLoginCredentials,
 ): Promise<AdminSession> => {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  const response = await fetch(`${API_BASE_URL}/auth/admin/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

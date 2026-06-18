@@ -1,4 +1,4 @@
-import { sendOtp, verifyOtp, registerUser, loginUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword } from '../auth.service';
+import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword } from '../auth.service';
 import { User } from '../../../database/models/user.model';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -254,6 +254,55 @@ describe('Auth Service', () => {
         { $set: expect.objectContaining({ refreshToken: hashToken('refresh_token'), lastLoginAt: expect.any(Date) }) },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('loginAdminUser', () => {
+    it('should reject customer accounts before issuing admin tokens', async () => {
+      const mockUser = {
+        _id: { toString: () => 'user123' },
+        name: 'Customer',
+        email: 'customer@test.com',
+        role: 'user',
+        password: 'hash',
+        isActive: true,
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      await expect(loginAdminUser('customer@test.com', 'password')).rejects.toEqual({
+        status: 403,
+        message: 'TÃ i khoáº£n khÃ´ng cÃ³ quyá»n truy cáº­p trang quáº£n trá»‹',
+      });
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(User.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('should login staff accounts through the admin endpoint', async () => {
+      const mockUser = {
+        _id: { toString: () => 'staff123' },
+        name: 'Staff',
+        email: 'staff@test.com',
+        phone: '0900000000',
+        role: 'staff',
+        permissions: ['orders.read'],
+        password: 'hash',
+        isActive: true,
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (jwt.sign as jest.Mock).mockReturnValueOnce('admin_access_token').mockReturnValueOnce('admin_refresh_token');
+
+      const result = await loginAdminUser('staff@test.com', 'password');
+
+      expect(result.accessToken).toBe('admin_access_token');
+      expect(result.refreshToken).toBe('admin_refresh_token');
+      expect(result.user.role).toBe('staff');
+      expect(result.user.permissions).toEqual(['orders.read']);
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: mockUser._id },
+        { $set: expect.objectContaining({ refreshToken: hashToken('admin_refresh_token'), lastLoginAt: expect.any(Date) }) },
+      );
     });
   });
 

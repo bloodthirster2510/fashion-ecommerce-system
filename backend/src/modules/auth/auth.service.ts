@@ -143,7 +143,11 @@ export const registerUser = async (data: {
   };
 };
 
-export const loginUser = async (identifier: string, password: string) => {
+const loginWithPassword = async (
+  identifier: string,
+  password: string,
+  options: { allowedRoles?: Array<IUser['role']> } = {},
+) => {
   const isEmail = identifier.includes('@');
   const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
 
@@ -162,6 +166,10 @@ export const loginUser = async (identifier: string, password: string) => {
     throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
   }
 
+  if (options.allowedRoles && !options.allowedRoles.includes(user.role)) {
+    throw { status: 403, message: 'TÃ i khoáº£n khÃ´ng cÃ³ quyá»n truy cáº­p trang quáº£n trá»‹' };
+  }
+
   const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
@@ -173,6 +181,14 @@ export const loginUser = async (identifier: string, password: string) => {
     refreshToken,
     user: toSessionUser(user),
   };
+};
+
+export const loginUser = async (identifier: string, password: string) => {
+  return loginWithPassword(identifier, password);
+};
+
+export const loginAdminUser = async (identifier: string, password: string) => {
+  return loginWithPassword(identifier, password, { allowedRoles: ['admin', 'staff'] });
 };
 
 export const logoutUser = async (userId: string) => {
