@@ -42,7 +42,7 @@ type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderD
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
 
 type TimelineStep = {
-  key: 'confirmed' | 'packed' | 'shipping' | 'delivered';
+  key: CustomerOrder['status'];
   label: string;
   helper: string;
 };
@@ -90,6 +90,24 @@ const timelineSteps: TimelineStep[] = [
   { key: 'delivered', label: 'Hoàn tất', helper: 'Đã nhận hàng' },
 ];
 
+const getTimelineSteps = (order: CustomerOrder): TimelineStep[] => {
+  if (order.status === 'return_requested') {
+    return [
+      ...timelineSteps,
+      { key: 'return_requested', label: 'Chờ duyệt trả', helper: 'Shop đang kiểm tra' },
+    ];
+  }
+
+  if (order.status === 'returned') {
+    return [
+      ...timelineSteps,
+      { key: 'returned', label: 'Đã trả hàng', helper: 'Shop đã nhận trả' },
+    ];
+  }
+
+  return timelineSteps;
+};
+
 const isUnauthorizedError = (error: unknown) =>
   typeof error === 'object' &&
   error !== null &&
@@ -106,12 +124,10 @@ const getErrorMessage = (error: unknown) => {
   return 'Không thể tải chi tiết đơn hàng. Bạn thử lại sau nha.';
 };
 
-const getProgressIndex = (order: CustomerOrder) => {
+const getProgressIndex = (order: CustomerOrder, steps: TimelineStep[]) => {
   if (order.status === 'cancelled') return -1;
-  if (order.status === 'returned') return 3;
-  if (order.status === 'return_requested') return 2;
 
-  return timelineSteps.findIndex((step) => step.key === order.status);
+  return steps.findIndex((step) => step.key === order.status);
 };
 
 const getPaymentStatusColor = (status: string) => {
@@ -529,8 +545,9 @@ const OrderDetailScreen = () => {
   };
 
   const renderTimeline = (currentOrder: CustomerOrder) => {
-    const progressIndex = getProgressIndex(currentOrder);
-    const progressPercent = progressIndex <= 0 ? 0 : (progressIndex / (timelineSteps.length - 1)) * 100;
+    const currentTimelineSteps = getTimelineSteps(currentOrder);
+    const progressIndex = getProgressIndex(currentOrder, currentTimelineSteps);
+    const progressPercent = progressIndex <= 0 ? 0 : (progressIndex / (currentTimelineSteps.length - 1)) * 100;
     const isCancelled = currentOrder.status === 'cancelled';
 
     if (isCancelled) {
@@ -554,12 +571,15 @@ const OrderDetailScreen = () => {
         <View style={styles.timelineTrack}>
           <View style={styles.timelineBaseLine} />
           <View style={[styles.timelineProgressLine, { width: `${progressPercent}%` }]} />
-          {timelineSteps.map((step, index) => {
+          {currentTimelineSteps.map((step, index) => {
             const isDone = index <= progressIndex;
             const isCurrent = index === progressIndex;
 
             return (
-              <View key={step.key} style={styles.timelineStep}>
+              <View
+                key={step.key}
+                style={[styles.timelineStep, { width: `${100 / currentTimelineSteps.length}%` }]}
+              >
                 <View style={[styles.timelineDot, isDone && styles.timelineDotDone]}>
                   {isDone ? (
                     <MaterialCommunityIcons name="check" size={17} color={colors.white} />
