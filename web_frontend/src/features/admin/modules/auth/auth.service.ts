@@ -3,16 +3,12 @@ import type {
   AdminSession,
   ChangePasswordPayload,
 } from './auth.types'
+import { API_BASE_URL } from '../../../../config/api'
 
 type ApiResponse<T> = {
   message?: string
   data?: T
 }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  import.meta.env.VITE_API_URL ??
-  'http://localhost:5000/api'
 
 const parseResponse = async <T>(response: Response, fallbackMessage: string) => {
   const result = (await response.json().catch(() => ({}))) as ApiResponse<T>
