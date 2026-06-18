@@ -201,8 +201,11 @@ export const orderApi = {
     token: string,
     options: {
       status?: OrderFilterStatus;
+      statuses?: OrderStatus[];
       paymentMethod?: OrderPaymentMethod | 'all';
+      paymentMethods?: OrderPaymentMethod[];
       paymentStatus?: OrderPaymentStatus | 'all';
+      paymentStatuses?: OrderPaymentStatus[];
       keyword?: string;
       page?: number;
       limit?: number;
@@ -217,12 +220,24 @@ export const orderApi = {
       query.set('status', options.status);
     }
 
+    if (options.statuses?.length) {
+      query.set('statuses', options.statuses.join(','));
+    }
+
     if (options.paymentMethod && options.paymentMethod !== 'all') {
       query.set('paymentMethod', options.paymentMethod);
     }
 
+    if (options.paymentMethods?.length) {
+      query.set('paymentMethods', options.paymentMethods.join(','));
+    }
+
     if (options.paymentStatus && options.paymentStatus !== 'all') {
       query.set('paymentStatus', options.paymentStatus);
+    }
+
+    if (options.paymentStatuses?.length) {
+      query.set('paymentStatuses', options.paymentStatuses.join(','));
     }
 
     if (options.keyword?.trim()) {

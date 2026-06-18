@@ -202,22 +202,6 @@ const OrderDetailScreen = () => {
     setCancelReasonError('');
     setCancelEvidenceImages([]);
     setIsCancelModalVisible(true);
-    return;
-
-    Alert.alert(
-      'Hủy đơn hàng?',
-      'Đơn sẽ dừng xử lý nếu chưa bàn giao cho đơn vị vận chuyển. Với đơn đã thanh toán, hoàn tiền sẽ được xử lý theo kênh thanh toán ban đầu.',
-      [
-        { text: 'Để sau', style: 'cancel' },
-        {
-          text: 'Hủy đơn',
-          style: 'destructive',
-          onPress: () => {
-            void confirmCancelOrder();
-          },
-        },
-      ],
-    );
   };
 
   const confirmCancelOrder = async () => {
@@ -415,8 +399,8 @@ const OrderDetailScreen = () => {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
       }).catch((error) => {
         Alert.alert(
-          'KhÃ´ng thá»ƒ má»Ÿ thanh toÃ¡n',
-          error instanceof Error ? error.message : 'Báº¡n thá»­ láº¡i sau nha.',
+          'Không thể mở thanh toán',
+          error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
         );
       });
 

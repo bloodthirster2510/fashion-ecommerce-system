@@ -195,12 +195,30 @@ const parsePaymentStatus = (value: unknown) => {
   return paymentStatus as OrderPaymentStatus;
 };
 
+const parsePaymentStatuses = (value: unknown) => {
+  const paymentStatuses = parseStringList(value);
+
+  if (paymentStatuses.length === 0) {
+    return undefined;
+  }
+
+  const uniquePaymentStatuses = Array.from(new Set(paymentStatuses));
+  uniquePaymentStatuses.forEach((paymentStatus) => {
+    if (!PAYMENT_STATUSES.includes(paymentStatus as OrderPaymentStatus)) {
+      throw new SalesServiceError('Invalid payment status', 400);
+    }
+  });
+
+  return uniquePaymentStatuses as OrderPaymentStatus[];
+};
+
 const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   status: parseStatus(req.query.status),
   statuses: parseStatuses(req.query.statuses),
   paymentMethod: parsePaymentMethod(req.query.paymentMethod),
   paymentMethods: parsePaymentMethods(req.query.paymentMethods),
   paymentStatus: parsePaymentStatus(req.query.paymentStatus),
+  paymentStatuses: parsePaymentStatuses(req.query.paymentStatuses),
   keyword: parseString(req.query.keyword),
   from: parseDate(req.query.from, 'from'),
   to: parseDate(req.query.to, 'to'),

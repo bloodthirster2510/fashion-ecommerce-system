@@ -44,8 +44,6 @@ type CartNotice = {
   onAction?: () => void;
 };
 
-const COD_SHIPPING_FEE = 25000;
-
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
@@ -439,12 +437,12 @@ const CartScreen = () => {
   const localShippingDiscountAmount = 0;
   const checkoutSummary = checkoutPreview?.summary ?? {
     subTotal: localSubTotal,
-    shippingFee: COD_SHIPPING_FEE,
+    shippingFee: 0,
     couponDiscountAmount: 0,
     shippingDiscountAmount: localShippingDiscountAmount,
     membershipDiscountAmount: 0,
     taxAmount: 0,
-    totalAmount: localSubTotal + (selectedCheckoutItems.length ? COD_SHIPPING_FEE - localShippingDiscountAmount : 0),
+    totalAmount: localSubTotal,
   };
   const {
     subTotal,
@@ -828,6 +826,15 @@ const CartScreen = () => {
       return;
     }
 
+    if (paymentMethod === 'MOMO') {
+      showNotice({
+        tone: 'warning',
+        title: 'MoMo chưa sẵn sàng',
+        message: 'Cổng MoMo chưa được tích hợp. Bạn chọn COD hoặc VNPay để đặt hàng nha.',
+      });
+      return;
+    }
+
     if (!canSubmit || !validateCheckout()) {
       return;
     }
@@ -880,7 +887,7 @@ const CartScreen = () => {
               totalAmount: order.totalAmount,
               paymentMethod: 'VNPAY',
               paymentStatus: 'pending',
-              paymentMessage: 'KhÃ´ng thá»ƒ má»Ÿ trang thanh toÃ¡n VNPay. Báº¡n thá»­ láº¡i sau nha.',
+              paymentMessage: 'Không thể mở trang thanh toán VNPay. Bạn thử lại sau nha.',
             });
             return;
           }
@@ -1315,7 +1322,7 @@ const CartScreen = () => {
         <View style={styles.shippingQuoteTopRow}>
           <Text style={styles.shippingQuoteTitle}>Giao hàng tiêu chuẩn</Text>
           <Text style={styles.shippingQuoteFee}>
-            {selectedCheckoutItems.length ? formatCurrency(shippingFee) : '--'}
+            {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
           </Text>
         </View>
         <Text style={styles.shippingQuoteMeta}>{shippingProviderLabel} · {shippingStatusText}</Text>
@@ -1559,7 +1566,7 @@ const CartScreen = () => {
           <View style={styles.summaryLine}>
             <Text style={styles.summaryLabel}>Phí giao hàng:</Text>
             <Text style={styles.summaryValue}>
-              {selectedCheckoutItems.length ? formatCurrency(shippingFee) : '--'}
+              {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
             </Text>
           </View>
           <View style={styles.summaryLine}>

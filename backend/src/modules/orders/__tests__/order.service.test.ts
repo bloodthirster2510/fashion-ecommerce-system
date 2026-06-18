@@ -965,7 +965,7 @@ describe('orderService', () => {
     const result = await orderService.getOrders({
       statuses: ['cancelled', 'returned'],
       paymentMethods: ['VNPAY', 'MOMO'],
-      paymentStatus: 'refunded',
+      paymentStatuses: ['paid', 'refunded'],
       page: 2,
       limit: 5,
     });
@@ -973,15 +973,15 @@ describe('orderService', () => {
     expect(mockedOrder.find).toHaveBeenCalledWith({
       status: { $in: ['cancelled', 'returned'] },
       paymentMethod: { $in: ['VNPAY', 'MOMO'] },
-      paymentStatus: 'refunded',
+      paymentStatus: { $in: ['paid', 'refunded'] },
     });
     expect(mockedOrder.countDocuments).toHaveBeenCalledWith({
       status: { $in: ['cancelled', 'returned'] },
       paymentMethod: { $in: ['VNPAY', 'MOMO'] },
-      paymentStatus: 'refunded',
+      paymentStatus: { $in: ['paid', 'refunded'] },
     });
     expect(mockedOrder.aggregate).toHaveBeenCalledWith([
-      { $match: { paymentMethod: { $in: ['VNPAY', 'MOMO'] }, paymentStatus: 'refunded' } },
+      { $match: { paymentMethod: { $in: ['VNPAY', 'MOMO'] }, paymentStatus: { $in: ['paid', 'refunded'] } } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
     expect(findQuery.skip).toHaveBeenCalledWith(5);

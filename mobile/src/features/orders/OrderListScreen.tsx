@@ -19,7 +19,15 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
-import { orderApi, OrderApiError, type CustomerOrder, type OrderStatusSummary } from './orderApi';
+import {
+  orderApi,
+  OrderApiError,
+  type CustomerOrder,
+  type OrderListResponse,
+  type OrderPaymentMethod,
+  type OrderPaymentStatus,
+  type OrderStatusSummary,
+} from './orderApi';
 import {
   canConfirmReceived,
   formatCurrency,
@@ -30,7 +38,6 @@ import {
   getOrderItemCount,
   getOrderTab,
   getOrderTabCount,
-  getPrimaryStatusForTab,
   getPrimaryItem,
   orderNeedsPaymentAction,
   orderNeedsUserAction,
@@ -48,20 +55,41 @@ const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   { key: 'transfer', label: 'Online' },
 ];
 
-const transferPaymentMethods = new Set(['VNPAY', 'MOMO', 'BANK', 'CARD']);
+const ORDER_PAGE_LIMIT = 20;
+const onlinePaymentMethods: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
+const retryablePaymentStatuses: OrderPaymentStatus[] = ['pending', 'failed'];
+const transferPaymentMethods = new Set<OrderPaymentMethod>(onlinePaymentMethods);
 const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   paymentFilters[0],
   { key: 'needs-payment', label: 'Cần thanh toán' },
   ...paymentFilters.slice(1),
 ];
 
-const getPaymentMethodQuery = (filter: PaymentFilter) => {
-  if (filter === 'cash') return 'COD';
-  return 'all';
+const getStatusesQuery = (status: OrderTabKey) => (status === 'all' ? undefined : getOrderTab(status).statuses);
+
+const getPaymentMethodsQuery = (filter: PaymentFilter): OrderPaymentMethod[] | undefined => {
+  if (filter === 'cash') return ['COD'];
+  if (filter === 'transfer') return onlinePaymentMethods;
+  if (filter === 'needs-payment') return ['VNPAY'];
+  return undefined;
 };
 
-const getPaymentStatusQuery = () => {
-  return 'all';
+const getPaymentStatusesQuery = (filter: PaymentFilter): OrderPaymentStatus[] | undefined =>
+  filter === 'needs-payment' ? retryablePaymentStatuses : undefined;
+
+const mergeOrdersById = (current: CustomerOrder[], incoming: CustomerOrder[]) => {
+  const seenOrderIds = new Set(current.map((order) => order._id));
+  return [
+    ...current,
+    ...incoming.filter((order) => {
+      if (seenOrderIds.has(order._id)) {
+        return false;
+      }
+
+      seenOrderIds.add(order._id);
+      return true;
+    }),
+  ];
 };
 
 const getOrderMatchesPaymentFilter = (order: CustomerOrder, filter: PaymentFilter) => {
@@ -97,8 +125,10 @@ const OrderListScreen = () => {
   const [activeStatus, setActiveStatus] = React.useState<OrderTabKey>(initialStatus);
   const [orders, setOrders] = React.useState<CustomerOrder[]>([]);
   const [statusSummary, setStatusSummary] = React.useState<OrderStatusSummary | null>(null);
+  const [pagination, setPagination] = React.useState<OrderListResponse['pagination'] | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [isConfirmingId, setIsConfirmingId] = React.useState<string | null>(null);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [searchText, setSearchText] = React.useState('');
@@ -114,42 +144,48 @@ const OrderListScreen = () => {
   }, [searchText]);
 
   const loadOrders = React.useCallback(
-    async (status: OrderTabKey, mode: 'loading' | 'refresh' = 'loading') => {
+    async (status: OrderTabKey, mode: 'loading' | 'refresh' | 'more' = 'loading', page = 1) => {
       if (!session?.accessToken) {
         setOrders([]);
         setStatusSummary(null);
+        setPagination(null);
         navigation.navigate('Login');
         return;
       }
 
       if (mode === 'loading') {
         setIsLoading(true);
-      } else {
+      } else if (mode === 'refresh') {
         setIsRefreshing(true);
+      } else {
+        setIsLoadingMore(true);
       }
-      setErrorMessage('');
+      if (mode !== 'more') {
+        setErrorMessage('');
+      }
 
       try {
-        const primaryStatus = getPrimaryStatusForTab(status);
-        const paymentMethodQuery = getPaymentMethodQuery(paymentFilter);
-        const paymentStatusQuery = getPaymentStatusQuery();
+        const statusesQuery = getStatusesQuery(status);
+        const paymentMethodsQuery = getPaymentMethodsQuery(paymentFilter);
+        const paymentStatusesQuery = getPaymentStatusesQuery(paymentFilter);
         const response = await runWithAuth((accessToken) =>
           orderApi.getMyOrders(accessToken, {
-            status: primaryStatus ?? 'all',
-            paymentMethod: paymentMethodQuery,
-            paymentStatus: paymentStatusQuery,
+            statuses: statusesQuery,
+            paymentMethods: paymentMethodsQuery,
+            paymentStatuses: paymentStatusesQuery,
             keyword: debouncedSearchText || undefined,
-            page: 1,
-            limit: primaryStatus && paymentFilter === 'cash' ? 30 : 100,
+            page,
+            limit: ORDER_PAGE_LIMIT,
           }),
         );
-        setOrders(
-          response.items.filter((order) =>
-            (primaryStatus || status === 'all' ? true : getOrderMatchesTab(order, status)) &&
-            getOrderMatchesPaymentFilter(order, paymentFilter),
-          ),
+        const nextOrders = response.items.filter((order) =>
+          getOrderMatchesTab(order, status) &&
+          getOrderMatchesPaymentFilter(order, paymentFilter),
         );
+
+        setOrders((current) => (mode === 'more' ? mergeOrdersById(current, nextOrders) : nextOrders));
         setStatusSummary(response.statusSummary ?? null);
+        setPagination(response.pagination ?? null);
       } catch (error) {
         if (isUnauthorizedError(error)) {
           logout();
@@ -160,10 +196,15 @@ const OrderListScreen = () => {
           return;
         }
 
-        setErrorMessage(getErrorMessage(error));
+        if (mode === 'more') {
+          Alert.alert('Không thể tải thêm đơn', getErrorMessage(error));
+        } else {
+          setErrorMessage(getErrorMessage(error));
+        }
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
+        setIsLoadingMore(false);
       }
     },
     [debouncedSearchText, logout, navigation, paymentFilter, runWithAuth, session?.accessToken],
@@ -177,6 +218,16 @@ const OrderListScreen = () => {
 
   const handleRefresh = () => {
     void loadOrders(activeStatus, 'refresh');
+  };
+
+  const hasMoreOrders = Boolean(pagination && pagination.page < pagination.totalPages);
+
+  const handleLoadMore = () => {
+    if (!pagination || !hasMoreOrders || isLoading || isRefreshing || isLoadingMore) {
+      return;
+    }
+
+    void loadOrders(activeStatus, 'more', pagination.page + 1);
   };
 
   const handleConfirmReceived = (order: CustomerOrder) => {
@@ -470,7 +521,26 @@ const OrderListScreen = () => {
               </TouchableOpacity>
             </View>
           ) : (
-            orders.map(renderOrderCard)
+            <>
+              {orders.map(renderOrderCard)}
+              {hasMoreOrders ? (
+                <TouchableOpacity
+                  style={[styles.primaryButton, styles.loadMoreButton]}
+                  onPress={handleLoadMore}
+                  activeOpacity={0.84}
+                  disabled={isLoadingMore}
+                >
+                  {isLoadingMore ? (
+                    <ActivityIndicator size="small" color={colors.white} />
+                  ) : (
+                    <MaterialCommunityIcons name="chevron-down" size={18} color={colors.white} />
+                  )}
+                  <Text style={styles.primaryButtonText}>
+                    {isLoadingMore ? 'Đang tải thêm' : 'Tải thêm đơn'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
           )}
 
           <View style={styles.policyCard}>
@@ -927,6 +997,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.sm,
+  },
+  loadMoreButton: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    gap: spacing.sm,
   },
   primaryButtonText: {
     color: colors.white,

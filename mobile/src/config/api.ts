@@ -53,7 +53,7 @@ export const API_BASE_URL = API_BASE_URLS[0];
 let preferredApiBaseUrl: string | undefined;
 
 if (__DEV__) {
-  console.log('[API] Base URLs', API_BASE_URLS);
+  console.log('[API] Base URL candidates configured', API_BASE_URLS.length);
 }
 
 const isNetworkError = (error: unknown) =>
@@ -121,11 +121,11 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const retryOnTimeout = init?.retryOnTimeout ?? true;
   const baseUrls = hasAuthorizationHeader(init?.headers) ? [API_BASE_URL] : getOrderedApiBaseUrls();
   let lastNetworkError: unknown;
-  const attemptedUrls: string[] = [];
+  let attemptedCount = 0;
 
-  for (const baseUrl of baseUrls) {
+  for (const [index, baseUrl] of baseUrls.entries()) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
-    attemptedUrls.push(requestUrl);
+    attemptedCount += 1;
 
     try {
       const response = await fetchWithTimeout(requestUrl, init);
@@ -141,7 +141,7 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
       }
 
       if (__DEV__) {
-        console.warn(`[API] Failed ${baseUrl}${normalizedPath}`, error);
+        console.warn(`[API] Request failed for candidate ${index + 1}/${baseUrls.length}`, error);
       }
 
       lastNetworkError = error;
@@ -151,5 +151,5 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const message =
     lastNetworkError instanceof Error ? lastNetworkError.message : 'Network request failed';
 
-  throw new Error(`${message}. Tried: ${attemptedUrls.join(', ')}`);
+  throw new Error(`${message}. Tried ${attemptedCount} API endpoint${attemptedCount === 1 ? '' : 's'}.`);
 };

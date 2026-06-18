@@ -42,6 +42,7 @@ export interface OrderListQueryInput {
   paymentMethod?: OrderPaymentMethod;
   paymentMethods?: OrderPaymentMethod[];
   paymentStatus?: OrderPaymentStatus;
+  paymentStatuses?: OrderPaymentStatus[];
   keyword?: string;
   from?: Date;
   to?: Date;

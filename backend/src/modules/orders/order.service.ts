@@ -104,7 +104,9 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
     filter.paymentMethod = query.paymentMethod;
   }
 
-  if (query.paymentStatus) {
+  if (query.paymentStatuses?.length) {
+    filter.paymentStatus = { $in: query.paymentStatuses };
+  } else if (query.paymentStatus) {
     filter.paymentStatus = query.paymentStatus;
   }
 

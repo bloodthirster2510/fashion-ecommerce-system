@@ -77,21 +77,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [persistSession]);
 
   const updateSessionUser = React.useCallback((user: Partial<SessionUser>) => {
-    setSession((current) => {
-      if (!current) return current;
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
 
-      const nextSession = {
-        ...current,
-        user: {
-          ...current.user,
-          ...user,
-        },
-      };
+    const nextSession = {
+      ...currentSession,
+      user: {
+        ...currentSession.user,
+        ...user,
+      },
+    };
 
-      sessionRef.current = nextSession;
-      persistSession(nextSession).catch(() => undefined);
-      return nextSession;
-    });
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+    persistSession(nextSession).catch(() => undefined);
   }, [persistSession]);
 
   const runWithAuth = React.useCallback(
