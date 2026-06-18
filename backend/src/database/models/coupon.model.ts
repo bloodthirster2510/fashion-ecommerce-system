@@ -13,6 +13,7 @@ export interface ICoupon extends Document {
   minOrderAmount: number;
   usageLimit?: number | null;
   usedCount: number;
+  userUsageCounts?: Map<string, number>;
   perUserLimit: number;
   isPublic: boolean;
   eligibleUserTypes: CouponEligibleUserType[];
@@ -97,6 +98,18 @@ const couponSchema = new Schema<ICoupon>(
         validator: (value: number) => Number.isInteger(value) && value >= 0,
         message: 'usedCount must be an integer greater than or equal to 0',
       },
+    },
+    userUsageCounts: {
+      type: Map,
+      of: {
+        type: Number,
+        min: 0,
+        validate: {
+          validator: (value: number) => Number.isInteger(value) && value >= 0,
+          message: 'userUsageCounts values must be integers greater than or equal to 0',
+        },
+      },
+      default: {},
     },
     perUserLimit: {
       type: Number,

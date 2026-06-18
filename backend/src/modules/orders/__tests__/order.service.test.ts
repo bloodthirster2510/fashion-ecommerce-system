@@ -461,7 +461,7 @@ describe('orderService', () => {
     expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
       reservationIds: [reservationId.toString()],
     });
-    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith('');
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith('', userId);
     expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
     expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
   });

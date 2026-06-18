@@ -925,7 +925,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
       if (couponUsageRecorded) {
         await couponService.rollbackRecordedCouponUsage(orderId.toString()).catch(() => undefined);
       }
-      await couponService.rollbackCouponUsageReservation(toIdString(reservedCoupon?._id)).catch(() => undefined);
+      await couponService.rollbackCouponUsageReservation(toIdString(reservedCoupon?._id), userId).catch(() => undefined);
 
       if (createdOrder) {
         createdOrder.status = 'cancelled';
