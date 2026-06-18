@@ -364,32 +364,40 @@ describe('orderService', () => {
     expect(result).toBe(order);
   });
 
-  it('still creates a COD order when legacy client does not send quoteVersion', async () => {
-    const order = {
-      _id: new Types.ObjectId(),
-      orderCode: 'FSORDER',
-      paymentMethod: 'COD',
-      paymentStatus: 'pending',
-      status: 'confirmed',
-    };
-
-    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
-    mockedInventoryService.reserveInventory.mockResolvedValue([
-      { _id: reservationId },
-    ] as never);
-    mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
-    mockedProduct.updateOne.mockResolvedValue({} as never);
-    mockedCartService.deleteCartItems.mockResolvedValue({} as never);
-
-    const result = await orderService.createOrder(userId, {
-      cartItemIds: [cartItemId.toString()],
-      paymentMethod: 'COD',
-      shippingAddress,
+  it('rejects create order when quoteVersion is missing', async () => {
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'COD',
+        shippingAddress,
+      } as never),
+    ).rejects.toMatchObject({
+      message: 'Shipping quote is required. Please preview checkout again.',
+      statusCode: 400,
+      errorCode: 'QUOTE_REQUIRED',
     });
 
-    expect(mockedOrder.create).toHaveBeenCalled();
-    expect(result).toBe(order);
+    expect(mockedPromotionPricingService.calculateCheckout).not.toHaveBeenCalled();
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
+    expect(mockedOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects create order when quoteVersion is blank', async () => {
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'COD',
+        quoteVersion: '  ',
+        shippingAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Shipping quote is required. Please preview checkout again.',
+      statusCode: 400,
+      errorCode: 'QUOTE_REQUIRED',
+    });
+
+    expect(mockedPromotionPricingService.calculateCheckout).not.toHaveBeenCalled();
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
   });
 
   it('previews checkout with the default saved address when no address payload is sent', async () => {

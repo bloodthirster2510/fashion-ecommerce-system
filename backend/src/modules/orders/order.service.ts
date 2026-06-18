@@ -250,6 +250,17 @@ const assertSupportedPaymentMethod = (paymentMethod: OrderPaymentMethod) => {
   }
 };
 
+const requireCheckoutQuoteVersion = (quoteVersion: string | undefined) => {
+  const normalizedQuoteVersion = quoteVersion?.trim();
+  if (!normalizedQuoteVersion) {
+    throw new SalesServiceError('Shipping quote is required. Please preview checkout again.', 400, {
+      errorCode: 'QUOTE_REQUIRED',
+    });
+  }
+
+  return normalizedQuoteVersion;
+};
+
 const isOnlinePaymentMethod = (paymentMethod: OrderPaymentMethod) =>
   ONLINE_PAYMENT_METHODS.includes(paymentMethod);
 
@@ -800,6 +811,7 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
 
 const createOrder = async (userId: string, input: CreateOrderInput) => {
   assertSupportedPaymentMethod(input.paymentMethod);
+  const normalizedQuoteVersion = requireCheckoutQuoteVersion(input.quoteVersion);
   const selectedPaymentMethod = await paymentMethodService.assertUsablePaymentMethodForCheckout({
     userId,
     paymentMethodId: input.paymentMethodId,
@@ -814,8 +826,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     paymentMethod: input.paymentMethod,
     shippingAddress,
   });
-  const normalizedQuoteVersion = input.quoteVersion?.trim();
-  if (normalizedQuoteVersion && pricing.shippingComparison.quoteVersion !== normalizedQuoteVersion) {
+  if (pricing.shippingComparison.quoteVersion !== normalizedQuoteVersion) {
     throw new SalesServiceError('Shipping quote has changed. Please preview again.', 409, {
       errorCode: 'QUOTE_CHANGED',
       data: {

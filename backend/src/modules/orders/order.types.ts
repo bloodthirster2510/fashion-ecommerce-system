@@ -21,7 +21,7 @@ export interface CreateOrderInput {
   cartItemIds: string[];
   addressId?: string;
   shippingAddress?: ShippingAddressInput;
-  quoteVersion?: string;
+  quoteVersion: string;
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: string;
   couponCode?: string;
