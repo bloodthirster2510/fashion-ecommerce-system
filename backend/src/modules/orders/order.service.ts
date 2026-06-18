@@ -55,7 +55,7 @@ const DEFAULT_GHN_PACKAGE_LENGTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_WIDTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_HEIGHT_CM = 10;
 const DEFAULT_GHN_SERVICE_TYPE_ID = 2;
-const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO'];
+const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY'];
 const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
 const ORDER_STATUSES: OrderStatus[] = [
   'confirmed',

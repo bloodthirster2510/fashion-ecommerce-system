@@ -9,6 +9,38 @@ import {
 
 const PAYMENT_ATTEMPT_TTL_MS = 15 * 60 * 1000;
 
+const isDuplicateKeyError = (error: unknown) => (
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  (error as { code?: unknown }).code === 11000
+);
+
+const expirePendingAttemptsForOrder = async (
+  orderId: string,
+  excludeTransactionId?: Types.ObjectId | string | null,
+) => {
+  const filter: Record<string, unknown> = {
+    order_id: new Types.ObjectId(orderId),
+    status: 'pending',
+  };
+
+  if (excludeTransactionId) {
+    filter._id = { $ne: new Types.ObjectId(excludeTransactionId.toString()) };
+  }
+
+  await Transaction.updateMany(
+    filter,
+    {
+      $set: {
+        status: 'expired',
+        resolvedAt: new Date(),
+        failureReason: 'superseded_by_new_attempt',
+      },
+    },
+  );
+};
+
 export const transactionService = {
   /**
    * Tạo transaction pending cho đơn hàng online (VNPAY, MOMO, v.v.)
@@ -161,6 +193,8 @@ export const transactionService = {
     const expiredAt = new Date(Date.now() + PAYMENT_ATTEMPT_TTL_MS);
 
     if (reusableInitialTransaction) {
+      await expirePendingAttemptsForOrder(orderId, reusableInitialTransaction._id);
+
       return Transaction.findOneAndUpdate(
         { _id: reusableInitialTransaction._id, status: 'pending' },
         {
@@ -177,18 +211,42 @@ export const transactionService = {
       );
     }
 
-    return transactionService.createPendingTransaction({
-      userId,
-      orderId,
-      amount,
-      paymentMethod: 'VNPAY',
-      paymentMethodId: paymentMethodId ?? undefined,
-      gatewayProvider: 'vnpay',
-      txnRef,
-      attemptNo,
-      expiredAt,
-      createdBy: 'user',
-    });
+    await expirePendingAttemptsForOrder(orderId);
+
+    try {
+      return await transactionService.createPendingTransaction({
+        userId,
+        orderId,
+        amount,
+        paymentMethod: 'VNPAY',
+        paymentMethodId: paymentMethodId ?? undefined,
+        gatewayProvider: 'vnpay',
+        txnRef,
+        attemptNo,
+        expiredAt,
+        createdBy: 'user',
+      });
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) {
+        throw error;
+      }
+
+      const retryLatestAttempt = await transactionService.findLatestAttemptByOrderId(orderId);
+      const retryAttemptNo = Number(retryLatestAttempt?.attemptNo ?? attemptNo) + 1;
+
+      return transactionService.createPendingTransaction({
+        userId,
+        orderId,
+        amount,
+        paymentMethod: 'VNPAY',
+        paymentMethodId: paymentMethodId ?? undefined,
+        gatewayProvider: 'vnpay',
+        txnRef: `${orderCode}A${retryAttemptNo}`.toUpperCase(),
+        attemptNo: retryAttemptNo,
+        expiredAt: new Date(Date.now() + PAYMENT_ATTEMPT_TTL_MS),
+        createdBy: 'user',
+      });
+    }
   },
 
   /**

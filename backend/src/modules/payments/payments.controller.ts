@@ -72,7 +72,7 @@ type VNPaySettlementResult = {
   paymentStatus?: OrderPaymentStatus;
 };
 
-const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySettlementResult> => {
+export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySettlementResult> => {
   if (!result.isValidSignature) {
     return { rspCode: '97', message: 'Invalid signature' };
   }
@@ -138,7 +138,19 @@ const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySet
   }
 
   const callbackAmount = result.amount;
-  if (callbackAmount !== undefined && Math.round(callbackAmount) !== Math.round(transaction.amount)) {
+  if (callbackAmount === undefined || !Number.isFinite(callbackAmount)) {
+    return {
+      rspCode: '04',
+      message: 'Invalid amount',
+      orderId,
+      orderCode: order.orderCode,
+      transactionId: transaction._id.toString(),
+      transactionStatus: transaction.status,
+      paymentStatus: order.paymentStatus,
+    };
+  }
+
+  if (Math.round(callbackAmount) !== Math.round(transaction.amount)) {
     return {
       rspCode: '04',
       message: 'Invalid amount',
@@ -183,7 +195,13 @@ const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySet
   const isLatestAttempt = latest?._id.toString() === resolvedTransaction._id.toString();
   let paymentStatus = order.paymentStatus;
 
-  if (isSuccess || isLatestAttempt) {
+  if (isSuccess) {
+    paymentStatus = 'paid';
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { paymentStatus } },
+    );
+  } else if (isLatestAttempt && order.paymentStatus !== 'paid') {
     paymentStatus = isSuccess ? 'paid' : 'failed';
     await Order.updateOne(
       { _id: order._id },
@@ -204,7 +222,10 @@ const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySet
 
 export const createVNPayUrl = async (req: Request, res: Response) => {
   try {
-    if (process.env.ENABLE_VNPAY_LEGACY_PAYMENT_URL !== 'true') {
+    if (
+      process.env.ENABLE_VNPAY_LEGACY_PAYMENT_URL !== 'true' ||
+      process.env.NODE_ENV === 'production'
+    ) {
       return error(res, 'Legacy VNPay payment URL creation is disabled', 404);
     }
 

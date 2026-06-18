@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
 import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
@@ -217,6 +218,21 @@ const getRequiredWebhookSecret = (envName: 'SHIPPING_WEBHOOK_SECRET' | 'GHN_WEBH
   }
 
   return secret;
+};
+
+const timingSafeSecretEqual = (receivedSecret: string | undefined, expectedSecret: string) => {
+  if (!receivedSecret) {
+    return false;
+  }
+
+  const receivedBuffer = Buffer.from(receivedSecret);
+  const expectedBuffer = Buffer.from(expectedSecret);
+
+  if (receivedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
 };
 
 const parseShippingWebhookInput = (
@@ -695,7 +711,7 @@ const syncGhnShipment = async (req: Request, res: Response) => {
 const handleSimulatedShippingWebhook = async (req: Request, res: Response) => {
   try {
     const receivedSecret = parseString(req.headers['x-webhook-secret']);
-    if (receivedSecret !== getRequiredWebhookSecret('SHIPPING_WEBHOOK_SECRET')) {
+    if (!timingSafeSecretEqual(receivedSecret, getRequiredWebhookSecret('SHIPPING_WEBHOOK_SECRET'))) {
       return errorResponse(res, 'Invalid shipping webhook secret', 401);
     }
 
@@ -739,7 +755,7 @@ const simulateShippingWebhook = async (req: Request, res: Response) => {
 const handleGhnShippingWebhook = async (req: Request, res: Response) => {
   try {
     const receivedSecret = parseString(req.headers['x-webhook-secret']);
-    if (receivedSecret !== getRequiredWebhookSecret('GHN_WEBHOOK_SECRET')) {
+    if (!timingSafeSecretEqual(receivedSecret, getRequiredWebhookSecret('GHN_WEBHOOK_SECRET'))) {
       return errorResponse(res, 'Invalid GHN webhook secret', 401);
     }
 

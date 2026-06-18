@@ -195,6 +195,23 @@ describe('orderService', () => {
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
 
+  it('rejects MOMO checkout until the gateway is integrated', async () => {
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'MOMO',
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Payment method MOMO is not supported in this phase. Supported: COD, VNPAY',
+      statusCode: 400,
+    });
+
+    expect(mockedPromotionPricingService.calculateCheckout).not.toHaveBeenCalled();
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
+  });
+
   it('creates a COD order by reserving and committing inventory', async () => {
     const order = {
       _id: new Types.ObjectId(),

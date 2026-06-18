@@ -308,11 +308,10 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
   if (
     input.paymentMethod &&
     input.paymentMethod !== 'COD' &&
-    input.paymentMethod !== 'VNPAY' &&
-    input.paymentMethod !== 'MOMO'
+    input.paymentMethod !== 'VNPAY'
   ) {
     throw new SalesServiceError(
-      `Payment method ${input.paymentMethod} is not supported in this phase. Supported: COD, VNPAY, MOMO`,
+      `Payment method ${input.paymentMethod} is not supported in this phase. Supported: COD, VNPAY`,
       400,
     );
   }

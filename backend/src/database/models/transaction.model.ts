@@ -100,6 +100,7 @@ transactionSchema.index({ order_id: 1 });
 transactionSchema.index({ user_id: 1, createdAt: -1 });
 transactionSchema.index({ status: 1, paymentMethod: 1 });
 transactionSchema.index({ txnRef: 1 }, { unique: true, sparse: true });
+transactionSchema.index({ order_id: 1, attemptNo: 1 }, { unique: true, sparse: true });
 transactionSchema.index({ order_id: 1, status: 1, createdAt: -1 });
 transactionSchema.index({ user_id: 1, paymentMethod: 1, createdAt: -1 });
 
