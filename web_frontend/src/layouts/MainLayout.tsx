@@ -177,13 +177,13 @@ function Header() {
         />
 
         <nav className="header-actions" aria-label="Liên kết nhanh">
-          <Button className="client-action-button client-action-button--favorite" type="text">
+          <Button className="client-action-button client-action-button--favorite" type="text" href="/account?section=favorites">
             <span>Yêu thích</span>
             <span className="client-action-icon">
               <HeartOutlined />
             </span>
           </Button>
-          <Button className="client-action-button client-action-button--cart" type="text">
+          <Button className="client-action-button client-action-button--cart" type="text" href="/account?section=cart">
             <span>Giỏ hàng</span>
             <span className="client-action-icon">
               <ShoppingCartOutlined />
