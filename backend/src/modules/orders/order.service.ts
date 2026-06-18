@@ -295,8 +295,16 @@ const assertPaymentAllowsOrderStatus = (order: IOrder, to: OrderStatus) => {
   }
 };
 
-const runBestEffort = async (task: Promise<unknown>) => {
-  await task.catch(() => undefined);
+const logBestEffortFailure = (context: string, error: unknown) => {
+  console.error(`${context}:`, error);
+};
+
+const runBestEffort = async (context: string, task: Promise<unknown>) => {
+  try {
+    await task;
+  } catch (error) {
+    logBestEffortFailure(context, error);
+  }
 };
 
 const toOrderItem = (item: CheckoutOrderItem) => ({
@@ -910,6 +918,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     // COD không cần transaction ngay; sẽ được xử lý khi giao hàng thành công.
     if (isOnlinePaymentMethod(input.paymentMethod)) {
       await runBestEffort(
+        'Failed to create pending payment transaction',
         transactionService.createPendingTransaction({
           userId,
           orderId: orderId.toString(),
@@ -921,28 +930,46 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
       );
     }
 
-    await runBestEffort(Promise.all(
-      orderItems.map((item) =>
-        Product.updateOne(
-          { _id: item.productId },
-          { $inc: { sold_quantity: item.quantity } },
+    await runBestEffort(
+      'Failed to update product sold quantities after order creation',
+      Promise.all(
+        orderItems.map((item) =>
+          Product.updateOne(
+            { _id: item.productId },
+            { $inc: { sold_quantity: item.quantity } },
+          ),
         ),
       ),
-    ));
-    await runBestEffort(cartService.deleteCartItems(userId, input.cartItemIds));
+    );
+    await runBestEffort(
+      'Failed to delete cart items after order creation',
+      cartService.deleteCartItems(userId, input.cartItemIds),
+    );
 
     return order;
   } catch (error) {
     if (!inventoryCommitted) {
-      await inventoryService.releaseReservations({ reservationIds }).catch(() => undefined);
+      await runBestEffort(
+        'Failed to release inventory reservations after order creation failure',
+        inventoryService.releaseReservations({ reservationIds }),
+      );
       if (couponUsageRecorded) {
-        await couponService.rollbackRecordedCouponUsage(orderId.toString()).catch(() => undefined);
+        await runBestEffort(
+          'Failed to rollback recorded coupon usage after order creation failure',
+          couponService.rollbackRecordedCouponUsage(orderId.toString()),
+        );
       }
-      await couponService.rollbackCouponUsageReservation(toIdString(reservedCoupon?._id), userId).catch(() => undefined);
+      await runBestEffort(
+        'Failed to rollback coupon usage reservation after order creation failure',
+        couponService.rollbackCouponUsageReservation(toIdString(reservedCoupon?._id), userId),
+      );
 
       if (createdOrder) {
         createdOrder.status = 'cancelled';
-        await createdOrder.save().catch(() => undefined);
+        await runBestEffort(
+          'Failed to mark order cancelled after order creation failure',
+          createdOrder.save(),
+        );
       }
     }
     throw error;
@@ -1109,7 +1136,10 @@ const cancelOrder = async (
   }
 
   await restockCommittedOrder(cancelledOrder);
-  const ghnCancellation = await cancelLinkedGhnShipmentBestEffort(cancelledOrder).catch(() => null);
+  const ghnCancellation = await cancelLinkedGhnShipmentBestEffort(cancelledOrder).catch((error) => {
+    logBestEffortFailure('Failed to cancel linked GHN shipment after order cancellation', error);
+    return null;
+  });
   if (ghnCancellation) {
     await cancelledOrder.save();
   }

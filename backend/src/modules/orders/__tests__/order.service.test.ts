@@ -206,6 +206,10 @@ describe('orderService', () => {
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('rejects MOMO checkout until the gateway is integrated', async () => {
     await expect(
       orderService.createOrder(userId, {
@@ -419,6 +423,7 @@ describe('orderService', () => {
   });
 
   it('returns the order when post-commit cart cleanup fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const order = {
       _id: new Types.ObjectId(),
       orderCode: 'FSORDER',
@@ -447,6 +452,10 @@ describe('orderService', () => {
     expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
     expect(mockedCouponService.rollbackCouponUsageReservation).not.toHaveBeenCalled();
     expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Failed to delete cart items after order creation:',
+      expect.any(Error),
+    );
   });
 
   it('releases reservations when order creation fails after inventory is reserved', async () => {
