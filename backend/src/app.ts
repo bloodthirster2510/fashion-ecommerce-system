@@ -2,7 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import routes from './routes';
-import { createCorsOptions, createSecurityHeadersMiddleware } from './middlewares/security.middleware';
+import {
+  createApiRateLimitMiddleware,
+  createCorsOptions,
+  createSecurityHeadersMiddleware,
+} from './middlewares/security.middleware';
 
 const app = express();
 const defaultBodyLimit = process.env.REQUEST_BODY_LIMIT?.trim() || '2mb';
@@ -10,6 +14,7 @@ const orderEvidenceBodyLimit = process.env.ORDER_EVIDENCE_BODY_LIMIT?.trim() || 
 
 app.use(createSecurityHeadersMiddleware());
 app.use(cors(createCorsOptions()));
+app.use('/api', createApiRateLimitMiddleware());
 app.use(
   [
     '/api/orders/:id/cancel',

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import {
+  createApiRateLimitMiddleware,
   createCouponValidateRateLimitMiddleware,
   createRateLimitMiddleware,
   createSecurityHeadersMiddleware,
@@ -148,5 +149,36 @@ describe('security middleware', () => {
     const otherUserNext: NextFunction = jest.fn();
     limiter(createAuthenticatedRequest('user-2'), createMockResponse(), otherUserNext);
     expect(otherUserNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('rate limits API requests per client across routes', () => {
+    const limiter = createApiRateLimitMiddleware({
+      API_RATE_LIMIT_WINDOW_MS: '1000',
+      API_RATE_LIMIT_MAX: '2',
+    });
+    const firstRequest = createMockRequest('203.0.113.10');
+    firstRequest.originalUrl = '/api/products';
+    const secondRequest = createMockRequest('203.0.113.10');
+    secondRequest.originalUrl = '/api/orders';
+    const blockedRequest = createMockRequest('203.0.113.10');
+    blockedRequest.originalUrl = '/api/cart';
+
+    const firstNext: NextFunction = jest.fn();
+    limiter(firstRequest, createMockResponse(), firstNext);
+    expect(firstNext).toHaveBeenCalledTimes(1);
+
+    const secondNext: NextFunction = jest.fn();
+    limiter(secondRequest, createMockResponse(), secondNext);
+    expect(secondNext).toHaveBeenCalledTimes(1);
+
+    const blockedRes = createMockResponse();
+    const blockedNext: NextFunction = jest.fn();
+    limiter(blockedRequest, blockedRes, blockedNext);
+    expect(blockedNext).not.toHaveBeenCalled();
+    expect(blockedRes.status).toHaveBeenCalledWith(429);
+
+    const otherClientNext: NextFunction = jest.fn();
+    limiter(createMockRequest('203.0.113.11'), createMockResponse(), otherClientNext);
+    expect(otherClientNext).toHaveBeenCalledTimes(1);
   });
 });

@@ -18,6 +18,8 @@ const DEFAULT_DEV_CORS_ORIGINS = [
 
 const DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_AUTH_RATE_LIMIT_MAX = 60;
+const DEFAULT_API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const DEFAULT_API_RATE_LIMIT_MAX = 600;
 const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_MAX = 30;
 
@@ -188,6 +190,14 @@ export const createAuthRateLimitMiddleware = (env: Env = process.env) =>
     windowMs: parsePositiveInteger(env.AUTH_RATE_LIMIT_WINDOW_MS, DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS),
     max: parsePositiveInteger(env.AUTH_RATE_LIMIT_MAX, DEFAULT_AUTH_RATE_LIMIT_MAX),
     keyPrefix: 'auth',
+  });
+
+export const createApiRateLimitMiddleware = (env: Env = process.env) =>
+  createRateLimitMiddleware({
+    windowMs: parsePositiveInteger(env.API_RATE_LIMIT_WINDOW_MS, DEFAULT_API_RATE_LIMIT_WINDOW_MS),
+    max: parsePositiveInteger(env.API_RATE_LIMIT_MAX, DEFAULT_API_RATE_LIMIT_MAX),
+    keyPrefix: 'api',
+    keyGenerator: (req) => `api:${getClientIp(req)}`,
   });
 
 export const createCouponValidateRateLimitMiddleware = (env: Env = process.env) =>
