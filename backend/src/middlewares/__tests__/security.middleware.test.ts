@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import {
+  createCouponValidateRateLimitMiddleware,
   createRateLimitMiddleware,
   createSecurityHeadersMiddleware,
   getAllowedCorsOrigins,
@@ -32,6 +33,17 @@ const createMockRequest = (ip = '203.0.113.10') =>
     method: 'POST',
     originalUrl: '/api/auth/login',
     socket: {},
+  }) as Request;
+
+const createAuthenticatedRequest = (userId: string, ip = '203.0.113.10') =>
+  ({
+    ...createMockRequest(ip),
+    originalUrl: '/api/coupons/validate',
+    user: {
+      userId,
+      email: `${userId}@example.com`,
+      role: 'user',
+    },
   }) as Request;
 
 describe('security middleware', () => {
@@ -116,5 +128,25 @@ describe('security middleware', () => {
     limiter(createMockRequest(), createMockResponse(), afterWindowNext);
     expect(afterWindowNext).toHaveBeenCalledTimes(1);
   });
-});
 
+  it('rate limits coupon validation per authenticated user', () => {
+    const limiter = createCouponValidateRateLimitMiddleware({
+      COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS: '1000',
+      COUPON_VALIDATE_RATE_LIMIT_MAX: '1',
+    });
+
+    const firstNext: NextFunction = jest.fn();
+    limiter(createAuthenticatedRequest('user-1'), createMockResponse(), firstNext);
+    expect(firstNext).toHaveBeenCalledTimes(1);
+
+    const blockedRes = createMockResponse();
+    const blockedNext: NextFunction = jest.fn();
+    limiter(createAuthenticatedRequest('user-1', '203.0.113.99'), blockedRes, blockedNext);
+    expect(blockedNext).not.toHaveBeenCalled();
+    expect(blockedRes.status).toHaveBeenCalledWith(429);
+
+    const otherUserNext: NextFunction = jest.fn();
+    limiter(createAuthenticatedRequest('user-2'), createMockResponse(), otherUserNext);
+    expect(otherUserNext).toHaveBeenCalledTimes(1);
+  });
+});

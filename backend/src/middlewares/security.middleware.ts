@@ -18,6 +18,8 @@ const DEFAULT_DEV_CORS_ORIGINS = [
 
 const DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_AUTH_RATE_LIMIT_MAX = 60;
+const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_MAX = 30;
 
 const parseCsv = (value?: string) =>
   (value ?? '')
@@ -186,4 +188,18 @@ export const createAuthRateLimitMiddleware = (env: Env = process.env) =>
     windowMs: parsePositiveInteger(env.AUTH_RATE_LIMIT_WINDOW_MS, DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS),
     max: parsePositiveInteger(env.AUTH_RATE_LIMIT_MAX, DEFAULT_AUTH_RATE_LIMIT_MAX),
     keyPrefix: 'auth',
+  });
+
+export const createCouponValidateRateLimitMiddleware = (env: Env = process.env) =>
+  createRateLimitMiddleware({
+    windowMs: parsePositiveInteger(
+      env.COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(env.COUPON_VALIDATE_RATE_LIMIT_MAX, DEFAULT_COUPON_VALIDATE_RATE_LIMIT_MAX),
+    keyPrefix: 'coupon-validate',
+    keyGenerator: (req) => {
+      const clientKey = req.user?.userId ?? getClientIp(req);
+      return `coupon-validate:${clientKey}`;
+    },
   });

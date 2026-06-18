@@ -4,7 +4,11 @@ import {
   PromotionPricingError,
   promotionPricingService,
 } from '../../pricing/promotion-pricing.service';
-import { CouponServiceError, couponService } from '../coupon.service';
+import {
+  CouponServiceError,
+  clearCouponValidationCacheForTests,
+  couponService,
+} from '../coupon.service';
 
 jest.mock('../../../../database/models', () => ({
   Coupon: {
@@ -79,8 +83,19 @@ const appliedCoupon = {
   eligibleSubTotal: 100000,
 };
 
+const pricingSummary = {
+  subTotal: 100000,
+  shippingFee: 20000,
+  couponDiscountAmount: 10000,
+  shippingDiscountAmount: 0,
+  membershipDiscountAmount: 0,
+  taxAmount: 0,
+  totalAmount: 110000,
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
+  clearCouponValidationCacheForTests();
 });
 
 describe('couponService usage reservation', () => {
@@ -171,5 +186,35 @@ describe('couponService customer availability', () => {
       isApplicable: false,
       reason: 'Coupon is not available',
     }));
+  });
+});
+
+describe('couponService customer validation', () => {
+  it('caches successful validation results for the same coupon context', async () => {
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue({
+      appliedCoupon,
+      summary: pricingSummary,
+      appliedMembership: null,
+    } as never);
+
+    const firstResult = await couponService.validateCoupon(userId, {
+      couponCode: 'save10',
+      cartItemIds: ['665000000000000000000031', '665000000000000000000030'],
+      paymentMethod: 'COD',
+    });
+    const secondResult = await couponService.validateCoupon(userId, {
+      couponCode: 'SAVE10',
+      cartItemIds: ['665000000000000000000030', '665000000000000000000031'],
+      paymentMethod: 'COD',
+    });
+
+    expect(mockedPromotionPricingService.calculateCheckout).toHaveBeenCalledTimes(1);
+    expect(mockedPromotionPricingService.calculateCheckout).toHaveBeenCalledWith({
+      userId,
+      cartItemIds: ['665000000000000000000031', '665000000000000000000030'],
+      couponCode: 'SAVE10',
+      paymentMethod: 'COD',
+    });
+    expect(secondResult).toBe(firstResult);
   });
 });

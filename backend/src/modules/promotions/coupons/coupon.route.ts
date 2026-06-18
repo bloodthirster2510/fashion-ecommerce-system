@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../../middlewares/role.middleware';
+import { createCouponValidateRateLimitMiddleware } from '../../../middlewares/security.middleware';
 import {
   createCoupon,
   deleteCoupon,
@@ -14,11 +15,12 @@ import {
 
 const customerCouponRouter = Router();
 const adminCouponRouter = Router();
+const couponValidateRateLimit = createCouponValidateRateLimitMiddleware();
 
 customerCouponRouter.use(authenticate);
 customerCouponRouter.use(authorize('user'));
 customerCouponRouter.post('/available', listAvailableCoupons);
-customerCouponRouter.post('/validate', validateCoupon);
+customerCouponRouter.post('/validate', couponValidateRateLimit, validateCoupon);
 
 adminCouponRouter.use(authenticate);
 adminCouponRouter.use(authorize('admin', 'staff'));
