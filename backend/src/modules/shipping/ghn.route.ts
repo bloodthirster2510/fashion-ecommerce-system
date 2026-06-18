@@ -9,8 +9,8 @@ router.get('/provinces', ghnController.getProvinces);
 router.get('/districts', ghnController.getDistricts);
 router.get('/wards', ghnController.getWards);
 
-router.get('/services', ghnController.getAvailableServices);
-router.post('/fee', ghnController.calculateFee);
+router.get('/services', authenticate, ghnController.getAvailableServices);
+router.post('/fee', authenticate, ghnController.calculateFee);
 
 router.post(
   '/orders',
