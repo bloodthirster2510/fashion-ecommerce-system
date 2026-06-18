@@ -221,25 +221,6 @@ const buildImportFilter = (query: InventoryImportListQueryInput) => {
   return filter;
 };
 
-const buildImportSyncFilter = (filter: Record<string, unknown>) => {
-  const syncFilter: Record<string, unknown> = {};
-
-  ['productId', 'variantId', 'colorVariantId'].forEach((key) => {
-    if (filter[key]) {
-      syncFilter[key] = filter[key];
-    }
-  });
-
-  return syncFilter;
-};
-
-const getImportInventoryKey = (
-  productId: Types.ObjectId,
-  variantId: Types.ObjectId,
-  colorVariantId: Types.ObjectId,
-  size: string,
-) => [productId.toString(), variantId.toString(), colorVariantId.toString(), size.trim().toLowerCase()].join(':');
-
 const getInventoryByIdOrThrow = async (id: string) => {
   assertValidObjectId(id, 'inventory id');
 
@@ -249,6 +230,67 @@ const getInventoryByIdOrThrow = async (id: string) => {
   }
 
   return inventory;
+};
+
+const didMatchUpdate = (result: unknown) => {
+  if (typeof result !== 'object' || result === null) {
+    return true;
+  }
+
+  const matchedCount = (result as { matchedCount?: unknown }).matchedCount;
+  return typeof matchedCount === 'number' ? matchedCount > 0 : true;
+};
+
+const rollbackInventoryImportIncrements = async (
+  productId: Types.ObjectId,
+  variantId: Types.ObjectId,
+  colorVariantId: Types.ObjectId,
+  details: InventoryImportDetailInput[],
+) => {
+  await Promise.all(
+    details.map((item) =>
+      Inventory.updateOne(
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: item.size,
+        },
+        {
+          $inc: {
+            quantity: -item.quantity,
+            availableQuantity: -item.quantity,
+          },
+        },
+      ),
+    ),
+  );
+};
+
+const rollbackInventoryImportDecrements = async (
+  productId: Types.ObjectId,
+  variantId: Types.ObjectId,
+  colorVariantId: Types.ObjectId,
+  details: InventoryImportDetailInput[],
+) => {
+  await Promise.all(
+    details.map((item) =>
+      Inventory.updateOne(
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: item.size,
+        },
+        {
+          $inc: {
+            quantity: item.quantity,
+            availableQuantity: item.quantity,
+          },
+        },
+      ),
+    ),
+  );
 };
 
 const createImport = async (input: CreateInventoryImportInput) => {
@@ -273,12 +315,13 @@ const createImport = async (input: CreateInventoryImportInput) => {
     detail,
     totalAmount: getImportTotalAmount(detail),
   });
+  const appliedDetails: InventoryImportDetailInput[] = [];
 
-  await Promise.all(
-    detail.map((item) => {
+  try {
+    for (const item of detail) {
       const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
 
-      return Inventory.findOneAndUpdate(
+      await Inventory.findOneAndUpdate(
         {
           productId,
           variantId,
@@ -304,8 +347,15 @@ const createImport = async (input: CreateInventoryImportInput) => {
           upsert: true,
         },
       );
-    }),
-  );
+      appliedDetails.push(item);
+    }
+  } catch (error) {
+    await rollbackInventoryImportIncrements(productId, variantId, colorVariantId, appliedDetails).catch(() => undefined);
+    if (typeof importRecord.deleteOne === 'function') {
+      await importRecord.deleteOne().catch(() => undefined);
+    }
+    throw error;
+  }
 
   return importRecord;
 };
@@ -362,61 +412,9 @@ const getLowStockInventory = async (threshold: number, query: InventoryListQuery
   };
 };
 
-const synchronizeImportRemainingQuantities = async (filter: Record<string, unknown>) => {
-  const syncFilter = buildImportSyncFilter(filter);
-  const imports = await InventoryImport.find(syncFilter).sort({ createdAt: -1 });
-
-  if (!imports.length) {
-    return;
-  }
-
-  const inventoryItems = await Inventory.find(syncFilter)
-    .select('productId variantId colorVariantId size availableQuantity')
-    .lean<Array<{
-      productId: Types.ObjectId;
-      variantId: Types.ObjectId;
-      colorVariantId: Types.ObjectId;
-      size: string;
-      availableQuantity: number;
-    }>>();
-  const remainingByKey = new Map(
-    inventoryItems.map((item) => [
-      getImportInventoryKey(item.productId, item.variantId, item.colorVariantId, item.size),
-      item.availableQuantity,
-    ]),
-  );
-
-  for (const importRecord of imports) {
-    let hasChanged = false;
-
-    importRecord.detail.forEach((detail: IInventoryImportDetail) => {
-      const key = getImportInventoryKey(
-        importRecord.productId,
-        importRecord.variantId,
-        importRecord.colorVariantId,
-        detail.size,
-      );
-      const availableForImport = remainingByKey.get(key) ?? 0;
-      const nextRemainingQuantity = Math.min(detail.quantity, availableForImport);
-
-      if (detail.remainingQuantity !== nextRemainingQuantity) {
-        detail.remainingQuantity = nextRemainingQuantity;
-        hasChanged = true;
-      }
-
-      remainingByKey.set(key, Math.max(0, availableForImport - nextRemainingQuantity));
-    });
-
-    if (hasChanged) {
-      await importRecord.save();
-    }
-  }
-};
-
 const getImports = async (query: InventoryImportListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildImportFilter(query);
-  await synchronizeImportRemainingQuantities(filter);
 
   const [items, totalItems] = await Promise.all([
     InventoryImport.find(filter)
@@ -470,28 +468,11 @@ const deleteImport = async (id: string) => {
     throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
   }
 
-  const stockChecks = await Promise.all(
-    importDetails.map((item) =>
-      Inventory.countDocuments(
-        {
-          productId: importRecord.productId,
-          variantId: importRecord.variantId,
-          colorVariantId: importRecord.colorVariantId,
-          size: item.size,
-          quantity: { $gte: item.quantity },
-          availableQuantity: { $gte: item.quantity },
-        },
-      ),
-    ),
-  );
+  const decrementedDetails: InventoryImportDetailInput[] = [];
 
-  if (stockChecks.some((count) => count < 1)) {
-    throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
-  }
-
-  await Promise.all(
-    importDetails.map((item) =>
-      Inventory.updateOne(
+  try {
+    for (const item of importDetails) {
+      const updateResult = await Inventory.updateOne(
         {
           productId: importRecord.productId,
           variantId: importRecord.variantId,
@@ -506,16 +487,30 @@ const deleteImport = async (id: string) => {
             availableQuantity: -item.quantity,
           },
         },
-      ),
-    ),
-  );
+      );
 
-  await importRecord.deleteOne();
-  return importRecord;
+      if (!didMatchUpdate(updateResult)) {
+        throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+      }
+
+      decrementedDetails.push(item);
+    }
+
+    await importRecord.deleteOne();
+    return importRecord;
+  } catch (error) {
+    await rollbackInventoryImportDecrements(
+      importRecord.productId,
+      importRecord.variantId,
+      importRecord.colorVariantId,
+      decrementedDetails,
+    ).catch(() => undefined);
+    throw error;
+  }
 };
 
 const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
-  const inventory = await getInventoryByIdOrThrow(id);
+  assertValidObjectId(id, 'inventory id');
 
   if (input.quantity === undefined && input.deltaQuantity === undefined) {
     throw new InventoryServiceError('quantity or deltaQuantity is required', 400);
@@ -525,19 +520,76 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
     throw new InventoryServiceError('Use either quantity or deltaQuantity, not both', 400);
   }
 
-  const nextQuantity =
-    input.quantity !== undefined ? input.quantity : inventory.quantity + Number(input.deltaQuantity);
+  const inventoryId = new Types.ObjectId(id);
+  const updateFilter: Record<string, unknown> = { _id: inventoryId };
+  let updatePipeline: Record<string, unknown>[];
+  let deltaQuantity = 0;
 
-  assertPositiveInteger(nextQuantity, 'quantity', 0);
+  if (input.quantity !== undefined) {
+    assertPositiveInteger(input.quantity, 'quantity', 0);
+    updateFilter.reservedQuantity = { $lte: input.quantity };
+    updatePipeline = [
+      {
+        $set: {
+          quantity: input.quantity,
+          availableQuantity: { $subtract: [input.quantity, '$reservedQuantity'] },
+        },
+      },
+    ];
+  } else {
+    deltaQuantity = Number(input.deltaQuantity);
+    if (!Number.isInteger(deltaQuantity)) {
+      throw new InventoryServiceError('deltaQuantity must be an integer', 400);
+    }
+    updateFilter.$expr = {
+      $gte: [{ $add: ['$quantity', deltaQuantity] }, '$reservedQuantity'],
+    };
+    updatePipeline = [
+      {
+        $set: {
+          quantity: { $add: ['$quantity', deltaQuantity] },
+          availableQuantity: { $add: ['$availableQuantity', deltaQuantity] },
+        },
+      },
+    ];
+  }
 
-  if (nextQuantity < inventory.reservedQuantity) {
+  const previousInventory = await Inventory.findOneAndUpdate(
+    updateFilter,
+    updatePipeline,
+    {
+      returnDocument: 'before',
+      runValidators: true,
+    },
+  );
+
+  if (!previousInventory) {
+    const existingInventory = await Inventory.findById(id);
+    if (!existingInventory) {
+      throw new InventoryServiceError('Inventory item not found', 404);
+    }
+
     throw new InventoryServiceError('quantity cannot be lower than reservedQuantity', 400);
   }
 
-  inventory.quantity = nextQuantity;
-  inventory.availableQuantity = nextQuantity - inventory.reservedQuantity;
+  if (input.quantity !== undefined) {
+    deltaQuantity = input.quantity - previousInventory.quantity;
+  }
 
-  return inventory.save();
+  if (deltaQuantity !== 0) {
+    await adjustImportRemainingQuantity(
+      {
+        productId: previousInventory.productId,
+        variantId: previousInventory.variantId,
+        colorVariantId: previousInventory.colorVariantId,
+        size: previousInventory.size,
+      },
+      Math.abs(deltaQuantity),
+      deltaQuantity < 0 ? 'consume' : 'restore',
+    );
+  }
+
+  return getInventoryByIdOrThrow(id);
 };
 
 const buildImportCode = () => {

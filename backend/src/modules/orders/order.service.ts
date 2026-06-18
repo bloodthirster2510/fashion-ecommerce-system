@@ -1066,20 +1066,42 @@ const cancelOrder = async (
 
   assertOrderStatusTransition(order.status, 'cancelled');
 
-  await restockCommittedOrder(order);
   const evidenceImageUrls = await resolveEvidenceImageUrls(order._id.toString(), 'cancel', input);
-  order.status = 'cancelled';
-  order.cancellation = {
+  const cancellation = {
     reason: normalizeCancelReason(input?.reason),
     ...(evidenceImageUrls.length ? { imageUrls: evidenceImageUrls } : {}),
     cancelledAt: new Date(),
     cancelledBy: toObjectId(userId, 'userId'),
     actorRole: role === 'admin' || role === 'staff' ? role : 'user',
   };
+  const cancelledOrder = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      status: order.status,
+    },
+    {
+      $set: {
+        status: 'cancelled',
+        cancellation,
+      },
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  );
 
-  await cancelLinkedGhnShipmentBestEffort(order).catch(() => null);
+  if (!cancelledOrder) {
+    throw new SalesServiceError('Order status changed. Please reload and try again.', 409);
+  }
 
-  return order.save();
+  await restockCommittedOrder(cancelledOrder);
+  const ghnCancellation = await cancelLinkedGhnShipmentBestEffort(cancelledOrder).catch(() => null);
+  if (ghnCancellation) {
+    await cancelledOrder.save();
+  }
+
+  return cancelledOrder;
 };
 
 const confirmOrderReceived = async (userId: string, id: string) => {
@@ -1387,12 +1409,13 @@ const syncGhnShipment = async (id: string) => {
 
 const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) => {
   const order = await getOrderByIdOrThrow(id);
+  const nextCustomerFee = input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null;
 
   order.shipping = {
     provider: input.provider ?? order.shipping?.provider ?? null,
     serviceId: input.serviceId ?? order.shipping?.serviceId ?? null,
     serviceTypeId: input.serviceTypeId ?? order.shipping?.serviceTypeId ?? null,
-    customerFee: input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null,
+    customerFee: nextCustomerFee,
     quotedProviderCost: input.quotedProviderCost ?? order.shipping?.quotedProviderCost ?? null,
     actualProviderCost: input.actualProviderCost ?? input.fee ?? order.shipping?.actualProviderCost ?? null,
     comparisonStatus: input.comparisonStatus ?? order.shipping?.comparisonStatus ?? null,
@@ -1408,6 +1431,19 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
     rawQuote: input.rawQuote ?? order.shipping?.rawQuote ?? null,
     rawShipment: input.rawShipment ?? order.shipping?.rawShipment ?? null,
   };
+
+  if (typeof nextCustomerFee === 'number' && Number.isFinite(nextCustomerFee)) {
+    order.shippingFee = nextCustomerFee;
+    order.totalAmount = Math.max(
+      0,
+      order.subTotal +
+        order.shippingFee +
+        order.taxAmount -
+        order.couponDiscountAmount -
+        order.shippingDiscountAmount -
+        order.membershipDiscountAmount,
+    );
+  }
 
   return order.save();
 };

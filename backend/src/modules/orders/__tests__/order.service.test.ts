@@ -13,6 +13,7 @@ jest.mock('../../../database/models', () => ({
     aggregate: jest.fn(),
     create: jest.fn(),
     findById: jest.fn(),
+    findOneAndUpdate: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
     countDocuments: jest.fn(),
@@ -75,6 +76,16 @@ const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
+
+const mockAtomicCancel = <T extends { status: string }>(order: T) => {
+  (mockedOrder.findOneAndUpdate as unknown as jest.Mock).mockImplementation((_filter: unknown, update: unknown) => {
+    const set = (update as { $set?: Partial<T> }).$set;
+    if (set) {
+      Object.assign(order, set);
+    }
+    return Promise.resolve(order as never);
+  });
+};
 
 const userId = '665000000000000000000020';
 const productId = new Types.ObjectId('665000000000000000000003');
@@ -496,6 +507,7 @@ describe('orderService', () => {
     };
     order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
+    mockAtomicCancel(order);
     mockedInventory.updateOne.mockResolvedValue({} as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
 
@@ -528,9 +540,28 @@ describe('orderService', () => {
         quantity: 2,
       },
     ]);
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      {
+        _id: orderId,
+        status: 'confirmed',
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          cancellation: expect.objectContaining({
+            actorRole: 'user',
+            cancelledAt: expect.any(Date),
+          }),
+        },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
     expect(order.status).toBe('cancelled');
     expect(order.paymentStatus).toBe('paid');
-    expect(order.save).toHaveBeenCalled();
+    expect(order.save).not.toHaveBeenCalled();
     expect(result).toBe(order);
   });
 
@@ -560,6 +591,7 @@ describe('orderService', () => {
     };
     order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
+    mockAtomicCancel(order);
     mockedInventory.updateOne.mockResolvedValue({} as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
 
@@ -588,7 +620,7 @@ describe('orderService', () => {
       actorRole: 'user',
       cancelledAt: expect.any(Date),
     }));
-    expect(order.save).toHaveBeenCalled();
+    expect(order.save).not.toHaveBeenCalled();
     expect(result).toBe(order);
   });
 
@@ -609,6 +641,7 @@ describe('orderService', () => {
     };
     order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
+    mockAtomicCancel(order);
 
     const result = await orderService.cancelOrder(userId, undefined, orderId.toString(), {
       reason: 'Customer cancelled after payment',
@@ -620,7 +653,42 @@ describe('orderService', () => {
       reason: 'Customer cancelled after payment',
       actorRole: 'user',
     }));
+    expect(order.save).not.toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('does not restock when a concurrent cancellation already changed the order status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000069');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 1,
+        },
+      ],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(
+      orderService.cancelOrder(userId, undefined, orderId.toString()),
+    ).rejects.toMatchObject({
+      message: 'Order status changed. Please reload and try again.',
+      statusCode: 409,
+    });
+
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
   });
 
   it('does not allow cancelling an order that is already shipping', async () => {
@@ -1041,6 +1109,45 @@ describe('orderService', () => {
     expect(order.shipping.status).toBe('failed');
     expect(result.reason).toBe('Customer was not available');
     expect(result.order).toBe(order);
+  });
+
+  it('recalculates total amount when customer shipping fee is updated', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000070');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      subTotal: 200000,
+      shippingFee: 25000,
+      couponDiscountAmount: 10000,
+      shippingDiscountAmount: 5000,
+      membershipDiscountAmount: 2000,
+      taxAmount: 0,
+      totalAmount: 208000,
+      shipping: {
+        provider: 'GHN',
+        customerFee: 25000,
+        actualProviderCost: null as number | null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.updateOrderShipping(orderId.toString(), {
+      customerFee: 30000,
+      actualProviderCost: 28000,
+    });
+
+    expect(order.shipping.customerFee).toBe(30000);
+    expect(order.shipping.actualProviderCost).toBe(28000);
+    expect(order.shippingFee).toBe(30000);
+    expect(order.totalAmount).toBe(213000);
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
   });
 
   it('creates a GHN shipment from a packed order and stores the GHN order code', async () => {
