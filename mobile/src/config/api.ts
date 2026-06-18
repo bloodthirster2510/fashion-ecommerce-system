@@ -65,6 +65,22 @@ const isAbortError = (error: unknown) =>
   (error instanceof Error && /AbortError|aborted/i.test(error.message)) ||
   (typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError');
 
+const hasAuthorizationHeader = (headers: ApiFetchInit['headers']) => {
+  if (!headers) {
+    return false;
+  }
+
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    return headers.has('authorization');
+  }
+
+  if (Array.isArray(headers)) {
+    return headers.some(([key]) => key.toLowerCase() === 'authorization');
+  }
+
+  return Object.keys(headers).some((key) => key.toLowerCase() === 'authorization');
+};
+
 const fetchWithTimeout = async (url: string, init?: ApiFetchInit) => {
   const { timeoutMs = requestTimeoutMs, retryOnTimeout: _retryOnTimeout, ...fetchInit } = init ?? {};
   const controller = new AbortController();
@@ -103,10 +119,11 @@ const getOrderedApiBaseUrls = () => {
 export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const retryOnTimeout = init?.retryOnTimeout ?? true;
+  const baseUrls = hasAuthorizationHeader(init?.headers) ? [API_BASE_URL] : getOrderedApiBaseUrls();
   let lastNetworkError: unknown;
   const attemptedUrls: string[] = [];
 
-  for (const baseUrl of getOrderedApiBaseUrls()) {
+  for (const baseUrl of baseUrls) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
     attemptedUrls.push(requestUrl);
 

@@ -117,15 +117,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         try {
+          const refreshSession = sessionRef.current ?? currentSession;
+
           if (!refreshPromiseRef.current) {
-            refreshPromiseRef.current = authApi.refreshToken(currentSession.refreshToken).finally(() => {
+            refreshPromiseRef.current = authApi.refreshToken(refreshSession.refreshToken).finally(() => {
               refreshPromiseRef.current = null;
             });
           }
 
           const nextTokens = await refreshPromiseRef.current;
+          const baseSession = sessionRef.current ?? refreshSession;
           const nextSession = {
-            ...currentSession,
+            ...baseSession,
             accessToken: nextTokens.accessToken,
             refreshToken: nextTokens.refreshToken,
           };
