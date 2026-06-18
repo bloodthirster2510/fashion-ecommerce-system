@@ -181,6 +181,57 @@ a {
   background: var(--admin-danger-bg);
 }
 
+.admin-toast-container {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  display: grid;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.admin-toast {
+  min-width: 260px;
+  max-width: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(31, 45, 61, 0.18);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+
+.admin-toast.is-success {
+  border-color: #a7d9bd;
+  color: #276140;
+  background: #eef9f2;
+}
+
+.admin-toast.is-error {
+  border-color: #efb5a7;
+  color: var(--admin-danger);
+  background: var(--admin-danger-bg);
+}
+
+.admin-toast-close {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .admin-empty-state {
   min-height: 260px;
   display: grid;
@@ -327,26 +378,57 @@ a {
   background: #fff6d8;
 }
 
+.admin-row-actions-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .admin-row-actions {
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .admin-link-button,
 .admin-danger-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
   border: 0;
-  background: transparent;
   cursor: pointer;
   font: inherit;
   font-size: 13px;
   font-weight: 900;
+  border-radius: 6px;
+  transition: all 0.2s ease;
 }
 
 .admin-link-button {
-  color: var(--admin-accent-dark);
+  color: #1e3a52;
+  background: #d8e9f7;
+}
+
+.admin-link-button:hover:not(:disabled) {
+  background: #c0ddf4;
+  box-shadow: 0 2px 8px rgba(30, 58, 82, 0.15);
 }
 
 .admin-danger-link {
-  color: var(--admin-danger);
+  color: #c8694a;
+  background: #ffe8dc;
+}
+
+.admin-danger-link:hover:not(:disabled) {
+  background: #ffd9ca;
+  box-shadow: 0 2px 8px rgba(200, 105, 74, 0.15);
+}
+
+.admin-action-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
 .admin-link-button:disabled,
@@ -379,6 +461,50 @@ a {
 .admin-table-footer div {
   display: flex;
   gap: 8px;
+}
+
+.admin-page-numbers {
+  display: flex;
+  gap: 6px;
+  max-width: min(50vw, 420px);
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.admin-page-button {
+  width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-page-button.is-active {
+  border-color: #1f2d3d;
+  color: #fff;
+  background: #1f2d3d;
+}
+
+.admin-page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.admin-page-ellipsis {
+  min-width: 28px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--admin-muted);
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .admin-primary-button,

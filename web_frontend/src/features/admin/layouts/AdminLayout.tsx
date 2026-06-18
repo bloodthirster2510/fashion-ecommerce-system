@@ -8,10 +8,13 @@ import {
   type AdminRouteId,
 } from '../config/adminRoutes'
 import { ManagerListPage } from '../modules/managers/ManagerListPage'
+import { CatalogManagementPage } from '../modules/catalog/CatalogManagementPage'
 import { CustomerListPage } from '../modules/customers/CustomerListPage'
 import { LoyaltyPage } from '../modules/loyalty/LoyaltyPage'
 import { PromotionsPage } from '../modules/promotions/PromotionsPage'
 import { OrderListPage } from '../modules/orders/OrderListPage'
+import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
+import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -159,14 +162,15 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'catalog') {
-      return (
-        <section className="admin-placeholder-page">
-          <p>
-            Quản lý Catalog tạm thời bị ẩn. TODO: thêm lại
-            <code>CatalogManagementPage</code> tại đây khi module đã sẵn sàng.
-          </p>
-        </section>
-      )
+      return <CatalogManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'products') {
+      return <ProductManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'inventory') {
+      return <InventoryManagementPage currentUser={currentUser} />
     }
 
     return (

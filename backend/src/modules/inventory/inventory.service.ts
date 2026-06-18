@@ -4,6 +4,7 @@ import {
   InventoryImport,
   InventoryReservation,
   Product,
+  type IInventoryImportDetail,
   type IInventoryReservation,
   type IProductVariant,
   type InventoryReservationStatus,
@@ -50,6 +51,7 @@ const toIdString = (value: Types.ObjectId | string | { toString(): string } | nu
 };
 
 const normalizeSize = (value: string) => value.trim();
+const normalizeSupplierName = (value: string | undefined) => value?.trim().slice(0, 120) ?? '';
 
 const assertPositiveInteger = (value: number, fieldName: string, min = 1) => {
   if (!Number.isInteger(value) || value < min) {
@@ -219,6 +221,25 @@ const buildImportFilter = (query: InventoryImportListQueryInput) => {
   return filter;
 };
 
+const buildImportSyncFilter = (filter: Record<string, unknown>) => {
+  const syncFilter: Record<string, unknown> = {};
+
+  ['productId', 'variantId', 'colorVariantId'].forEach((key) => {
+    if (filter[key]) {
+      syncFilter[key] = filter[key];
+    }
+  });
+
+  return syncFilter;
+};
+
+const getImportInventoryKey = (
+  productId: Types.ObjectId,
+  variantId: Types.ObjectId,
+  colorVariantId: Types.ObjectId,
+  size: string,
+) => [productId.toString(), variantId.toString(), colorVariantId.toString(), size.trim().toLowerCase()].join(':');
+
 const getInventoryByIdOrThrow = async (id: string) => {
   assertValidObjectId(id, 'inventory id');
 
@@ -235,6 +256,7 @@ const createImport = async (input: CreateInventoryImportInput) => {
   const variantId = toObjectId(input.variantId, 'variantId');
   const colorVariantId = toObjectId(input.colorVariantId, 'colorVariantId');
   const detail = normalizeImportDetails(input.detail);
+  const supplierName = normalizeSupplierName(input.supplierName);
 
   await Promise.all(
     detail.map((item) =>
@@ -243,10 +265,13 @@ const createImport = async (input: CreateInventoryImportInput) => {
   );
 
   const importRecord = await InventoryImport.create({
+    importCode: buildImportCode(),
+    supplierName,
     productId,
     variantId,
     colorVariantId,
     detail,
+    totalAmount: getImportTotalAmount(detail),
   });
 
   await Promise.all(
@@ -337,9 +362,61 @@ const getLowStockInventory = async (threshold: number, query: InventoryListQuery
   };
 };
 
+const synchronizeImportRemainingQuantities = async (filter: Record<string, unknown>) => {
+  const syncFilter = buildImportSyncFilter(filter);
+  const imports = await InventoryImport.find(syncFilter).sort({ createdAt: -1 });
+
+  if (!imports.length) {
+    return;
+  }
+
+  const inventoryItems = await Inventory.find(syncFilter)
+    .select('productId variantId colorVariantId size availableQuantity')
+    .lean<Array<{
+      productId: Types.ObjectId;
+      variantId: Types.ObjectId;
+      colorVariantId: Types.ObjectId;
+      size: string;
+      availableQuantity: number;
+    }>>();
+  const remainingByKey = new Map(
+    inventoryItems.map((item) => [
+      getImportInventoryKey(item.productId, item.variantId, item.colorVariantId, item.size),
+      item.availableQuantity,
+    ]),
+  );
+
+  for (const importRecord of imports) {
+    let hasChanged = false;
+
+    importRecord.detail.forEach((detail: IInventoryImportDetail) => {
+      const key = getImportInventoryKey(
+        importRecord.productId,
+        importRecord.variantId,
+        importRecord.colorVariantId,
+        detail.size,
+      );
+      const availableForImport = remainingByKey.get(key) ?? 0;
+      const nextRemainingQuantity = Math.min(detail.quantity, availableForImport);
+
+      if (detail.remainingQuantity !== nextRemainingQuantity) {
+        detail.remainingQuantity = nextRemainingQuantity;
+        hasChanged = true;
+      }
+
+      remainingByKey.set(key, Math.max(0, availableForImport - nextRemainingQuantity));
+    });
+
+    if (hasChanged) {
+      await importRecord.save();
+    }
+  }
+};
+
 const getImports = async (query: InventoryImportListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildImportFilter(query);
+  await synchronizeImportRemainingQuantities(filter);
 
   const [items, totalItems] = await Promise.all([
     InventoryImport.find(filter)
@@ -361,6 +438,14 @@ const getImports = async (query: InventoryImportListQueryInput) => {
   };
 };
 
+const getImportSuppliers = async () => {
+  const suppliers = await InventoryImport.distinct('supplierName', {
+    supplierName: { $nin: [null, ''] },
+  });
+
+  return suppliers.sort((left: string, right: string) => left.localeCompare(right));
+};
+
 const getImportById = async (id: string) => {
   assertValidObjectId(id, 'import id');
 
@@ -369,6 +454,63 @@ const getImportById = async (id: string) => {
     throw new InventoryServiceError('Import not found', 404);
   }
 
+  return importRecord;
+};
+
+const deleteImport = async (id: string) => {
+  assertValidObjectId(id, 'import id');
+
+  const importRecord = await InventoryImport.findById(id);
+  if (!importRecord) {
+    throw new InventoryServiceError('Import not found', 404);
+  }
+  const importDetails = importRecord.detail as InventoryImportDetailInput[];
+
+  if (importDetails.some((item) => (item.remainingQuantity ?? item.quantity) < item.quantity)) {
+    throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+  }
+
+  const stockChecks = await Promise.all(
+    importDetails.map((item) =>
+      Inventory.countDocuments(
+        {
+          productId: importRecord.productId,
+          variantId: importRecord.variantId,
+          colorVariantId: importRecord.colorVariantId,
+          size: item.size,
+          quantity: { $gte: item.quantity },
+          availableQuantity: { $gte: item.quantity },
+        },
+      ),
+    ),
+  );
+
+  if (stockChecks.some((count) => count < 1)) {
+    throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+  }
+
+  await Promise.all(
+    importDetails.map((item) =>
+      Inventory.updateOne(
+        {
+          productId: importRecord.productId,
+          variantId: importRecord.variantId,
+          colorVariantId: importRecord.colorVariantId,
+          size: item.size,
+          quantity: { $gte: item.quantity },
+          availableQuantity: { $gte: item.quantity },
+        },
+        {
+          $inc: {
+            quantity: -item.quantity,
+            availableQuantity: -item.quantity,
+          },
+        },
+      ),
+    ),
+  );
+
+  await importRecord.deleteOne();
   return importRecord;
 };
 
@@ -396,6 +538,96 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
   inventory.availableQuantity = nextQuantity - inventory.reservedQuantity;
 
   return inventory.save();
+};
+
+const buildImportCode = () => {
+  const timestamp = new Date().toISOString().slice(2, 10).replace(/\D/g, '');
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  return `IMP-${timestamp}-${suffix}`;
+};
+
+const getImportTotalAmount = (details: Array<{ quantity: number; importPrice?: number }>) =>
+  details.reduce((sum, detail) => sum + detail.quantity * (detail.importPrice ?? 0), 0);
+
+const adjustImportRemainingQuantity = async (
+  selector: {
+    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
+    colorVariantId: Types.ObjectId;
+    size: string;
+  },
+  quantity: number,
+  mode: 'consume' | 'restore',
+) => {
+  let remaining = quantity;
+  const imports = await InventoryImport.find({
+    productId: selector.productId,
+    variantId: selector.variantId,
+    colorVariantId: selector.colorVariantId,
+    'detail.size': selector.size,
+  }).sort({ createdAt: mode === 'consume' ? 1 : -1 });
+
+  for (const importRecord of imports) {
+    if (remaining <= 0) break;
+
+    const detail = importRecord.detail.find((item: IInventoryImportDetail) => item.size === selector.size);
+    if (!detail) continue;
+
+    const adjustable =
+      mode === 'consume'
+        ? detail.remainingQuantity
+        : detail.quantity - detail.remainingQuantity;
+    const delta = Math.min(adjustable, remaining);
+    if (delta <= 0) continue;
+
+    detail.remainingQuantity += mode === 'consume' ? -delta : delta;
+    remaining -= delta;
+    await importRecord.save();
+  }
+
+  if (remaining > 0) {
+    throw new InventoryServiceError('Cannot synchronize import remaining quantity', 409);
+  }
+};
+
+const consumeImportRemainingQuantities = async (
+  items: Array<{
+    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
+    colorVariantId: Types.ObjectId;
+    size: string;
+    quantity: number;
+  }>,
+) => {
+  for (const item of items) {
+    await adjustImportRemainingQuantity(item, item.quantity, 'consume');
+  }
+};
+
+const restoreImportRemainingQuantities = async (
+  items: Array<{
+    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
+    colorVariantId: Types.ObjectId;
+    size: string;
+    quantity: number;
+  }>,
+) => {
+  for (const item of items) {
+    await adjustImportRemainingQuantity(item, item.quantity, 'restore');
+  }
+};
+
+const deleteInventory = async (id: string) => {
+  const inventory = await getInventoryByIdOrThrow(id);
+
+  if (inventory.reservedQuantity > 0) {
+    throw new InventoryServiceError('Cannot delete inventory with active reservations', 409);
+  }
+
+  await inventory.deleteOne();
+  return inventory;
 };
 
 const normalizeReservationItem = async (item: InventoryReservationItemInput) => {
@@ -550,6 +782,13 @@ const transitionReservations = async (
   options: { allowEmpty?: boolean } = {},
 ) => {
   const reservations = await InventoryReservation.find(buildReservationFilter(selector));
+  const committedItems: Array<{
+    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
+    colorVariantId: Types.ObjectId;
+    size: string;
+    quantity: number;
+  }> = [];
 
   if (!reservations.length && !options.allowEmpty) {
     throw new InventoryServiceError('Active reservation not found', 404);
@@ -572,6 +811,13 @@ const transitionReservations = async (
           },
         },
       );
+      committedItems.push({
+        productId: reservation.productId,
+        variantId: reservation.variantId,
+        colorVariantId: reservation.colorVariantId,
+        size: reservation.size,
+        quantity: reservation.quantity,
+      });
     } else {
       await Inventory.updateOne(
         {
@@ -592,6 +838,10 @@ const transitionReservations = async (
 
     reservation.status = status;
     await reservation.save();
+  }
+
+  if (committedItems.length) {
+    await consumeImportRemainingQuantities(committedItems);
   }
 
   return reservations;
@@ -627,8 +877,12 @@ export const inventoryService = {
   getInventory,
   getLowStockInventory,
   getImports,
+  getImportSuppliers,
   getImportById,
+  deleteImport,
   adjustInventory,
+  deleteInventory,
+  restoreImportRemainingQuantities,
   reserveInventory,
   releaseReservations,
   commitReservations,

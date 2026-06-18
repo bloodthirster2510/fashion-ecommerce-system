@@ -28,6 +28,13 @@ const getInventoryKey = (variantId: Types.ObjectId, colorVariantId: Types.Object
     normalizeSize(size).toLowerCase(),
   ].join(':');
 
+const buildImportCode = () => {
+  const timestamp = new Date().toISOString().slice(2, 10).replace(/\D/g, '');
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  return `IMP-${timestamp}-${suffix}`;
+};
+
 export const seedInventoryForExistingProducts = async () => {
   const seedQuantity = getSeedQuantity();
 
@@ -105,10 +112,12 @@ export const seedInventoryForExistingProducts = async () => {
 
         if (insertedDetails.length > 0) {
           await InventoryImport.create({
+            importCode: buildImportCode(),
             productId: product._id,
             variantId: variant._id,
             colorVariantId: color._id,
             detail: insertedDetails,
+            totalAmount: 0,
           });
         }
 

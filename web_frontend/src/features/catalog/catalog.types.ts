@@ -7,7 +7,6 @@ export type CatalogCategory = {
   level: number
   gender: CategoryGender
   image: string
-  bannerImage?: string | null
   description: string
   isLeaf: boolean
   isActive: boolean
@@ -72,7 +71,6 @@ export type ProductListItem = {
     name: string
     gender?: CategoryGender
     image?: string
-    bannerImage?: string | null
   } | null
 }
 
@@ -84,20 +82,22 @@ export type ProductListResponse = {
     totalItems: number
     totalPages: number
   }
-  filters: {
-    brands: Array<{ _id: string; name: string; image?: string }>
-    colors: string[]
-    fitTypes: string[]
-    categories: Array<{
-      _id: string
-      name: string
-      gender?: CategoryGender
-      parent_id?: string | null
-      level?: number
-      image?: string
-      bannerImage?: string | null
-    }>
-  }
+  filters?: ProductListFilters
+}
+
+export type ProductListFilters = {
+  brands: Array<{ _id: string; name: string; image?: string }>
+  colors: string[]
+  fitTypes: string[]
+  sizes: string[]
+  categories: Array<{
+    _id: string
+    name: string
+    gender?: CategoryGender
+    parent_id?: string | null
+    level?: number
+    image?: string
+  }>
 }
 
 export type ProductMeasurementValue = {
@@ -108,6 +108,8 @@ export type ProductMeasurementValue = {
 export type ProductSizeMeasurement = {
   size: string
   measurements: ProductMeasurementValue[]
+  isAvailable: boolean
+  availableQuantity?: number
 }
 
 export type ProductColorVariant = {
@@ -120,47 +122,72 @@ export type ProductColorVariant = {
 export type ProductVariant = {
   _id: string
   fitTypeId: string
+  fitType: {
+    _id: string
+    key: string
+    label: string
+  } | null
   price: number
+  originalPrice: number
   discount: number
-  sizeMeasurements: ProductSizeMeasurement[]
+  finalPrice: number
+  isSale: boolean
+  sizes: ProductSizeMeasurement[]
   colors: ProductColorVariant[]
   isActive: boolean
+  inventory: ProductSourceInventory[]
 }
 
 export type ProductSourceInventory = {
+  colorVariantId: string
   sku: string
-  color: string
   size: string
-  quantity: number
+  availableQuantity: number
+  isAvailable: boolean
 }
 
 export type ProductDetail = {
   _id: string
-  category_id: CatalogCategory
   name: string
-  brand_id: {
+  description: string
+  productImage: string
+  gallery: string[]
+  price: number
+  originalPrice: number
+  discount: number
+  finalPrice: number
+  isSale: boolean
+  isNew: boolean
+  isAvailable: boolean
+  soldQuantity: number
+  averageRating: number
+  reviewCount: number
+  brand: {
     _id: string
     name: string
     image?: string
-    isActive?: boolean
+  } | null
+  category: {
+    _id: string
+    name: string
+    gender?: CategoryGender
+    image?: string
+  } | null
+  categoryBreadcrumb: Array<{
+    _id: string
+    name: string
+    gender?: CategoryGender
+    parent_id?: string | null
+    level?: number
+  }>
+  variants: ProductVariant[]
+  selectedVariantId?: string
+  colors: ProductColorVariant[]
+  sizes: string[]
+  ratingSummary: {
+    averageRating: number
+    reviewCount: number
+    distribution: Array<{ rating: 1 | 2 | 3 | 4 | 5; count: number; percent: number }>
   }
-  variant: ProductVariant[]
-  description: string
-  product_image: string
-  isActive: boolean
-  sold_quantity: number
-  averageRating: number
-  reviewCount: number
-  createdAt: string
-  updatedAt: string
-  source?: {
-    sourceInventory?: ProductSourceInventory[]
-    sourceProductId?: number
-    sourceUrl?: string
-    taxonomy?: {
-      root?: { _id: string; name: string }
-      group?: { _id: string; name: string }
-      leaf?: { _id: string; name: string }
-    }
-  }
+  policies: Array<{ icon: string; title: string; description: string }>
 }

@@ -24,7 +24,6 @@ export interface ICategory extends Document {
   level: number;
   gender: CategoryGender;
   image: string;
-  bannerImage?: string | null;
   description: string;
   isLeaf: boolean;
   isSizeTemplateSource: boolean;
@@ -65,7 +64,6 @@ const categorySchema = new Schema<ICategory>(
     level: { type: Number, required: true, min: 1, max: 10 },
     gender: { type: String, enum: ['male', 'female', 'unisex'], required: true },
     image: { type: String, required: true, trim: true, maxlength: 500 },
-    bannerImage: { type: String, default: null, trim: true, maxlength: 500 },
     description: { type: String, required: true, trim: true, minlength: 5, maxlength: 1000 },
     isLeaf: { type: Boolean, default: false },
     isSizeTemplateSource: { type: Boolean, default: false },

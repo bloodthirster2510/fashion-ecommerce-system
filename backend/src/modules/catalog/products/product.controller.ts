@@ -88,6 +88,18 @@ const parseStringList = (value: unknown) => {
     .filter(Boolean);
 };
 
+const parseIntegerList = (value: unknown, fieldName: string) => {
+  return parseStringList(value).map((item) => {
+    const numericValue = Number(item);
+
+    if (!Number.isInteger(numericValue) || numericValue < 0) {
+      throw new ProductServiceError(`Invalid ${fieldName}`, 400);
+    }
+
+    return numericValue;
+  });
+};
+
 const parsePositiveNumber = (value: unknown, fieldName: string) => {
   const stringValue = parseString(value);
 
@@ -119,9 +131,13 @@ const parsePositiveInteger = (value: unknown, fieldName: string) => {
 };
 
 const parseBoolean = (value: unknown, fieldName: string) => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
   const stringValue = parseString(value);
 
-  if (!stringValue) {
+  if (stringValue === undefined) {
     return undefined;
   }
 
@@ -185,6 +201,7 @@ const parseProductListQuery = (req: Request): ProductListQueryInput => {
   const size = parseStringList(req.query.size);
   const minPrice = parsePositiveNumber(req.query.minPrice, 'minPrice');
   const maxPrice = parsePositiveNumber(req.query.maxPrice, 'maxPrice');
+  const includeFilters = parseBoolean(req.query.includeFilters, 'includeFilters');
 
   if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
     throw new ProductServiceError('minPrice cannot be greater than maxPrice', 400);
@@ -205,6 +222,7 @@ const parseProductListQuery = (req: Request): ProductListQueryInput => {
     sort: parseSort(req.query.sort),
     page: parsePositiveInteger(req.query.page, 'page'),
     limit: parsePositiveInteger(req.query.limit, 'limit'),
+    ...(includeFilters !== undefined ? { includeFilters } : {}),
   };
 };
 
@@ -221,6 +239,7 @@ const uploadProductImage = async (file: Express.Multer.File) => {
 const uploadVariantImages = async (
   variants: ProductVariantInput[] | undefined,
   variantImageFiles: Express.Multer.File[],
+  variantImageIndexes: number[] = [],
 ) => {
   if (!variantImageFiles.length) {
     return variants;
@@ -230,10 +249,45 @@ const uploadVariantImages = async (
     throw new ProductServiceError('Variant data is required when uploading variant images', 400);
   }
 
-  throw new ProductServiceError(
-    'Uploading variant images is not supported in the current catalog design. Provide color image URLs inside each variant color object.',
-    400,
+  const colorCount = variants.reduce((total, variant) => total + variant.colors.length, 0);
+
+  if (variantImageIndexes.length && variantImageIndexes.length !== variantImageFiles.length) {
+    throw new ProductServiceError('Each uploaded variant image must include a matching index', 400);
+  }
+
+  if (!variantImageIndexes.length && variantImageFiles.length !== colorCount) {
+    throw new ProductServiceError('Each product color must have exactly one uploaded image', 400);
+  }
+
+  if (variantImageIndexes.some((index) => index >= colorCount)) {
+    throw new ProductServiceError('Variant image index is out of range', 400);
+  }
+
+  const uploadedImageUrls = await Promise.all(
+    variantImageFiles.map((file) => uploadProductImage(file)),
   );
+
+  let imageIndex = 0;
+  const uploadedImagesByIndex = new Map<number, string>();
+
+  if (variantImageIndexes.length) {
+    variantImageIndexes.forEach((index, currentIndex) => {
+      uploadedImagesByIndex.set(index, uploadedImageUrls[currentIndex]);
+    });
+  }
+
+  return variants.map((variant) => ({
+      ...variant,
+      colors: variant.colors.map((color) => {
+        const currentImageIndex = imageIndex++;
+        return {
+          ...color,
+          image:
+            uploadedImagesByIndex.get(currentImageIndex) ??
+            (variantImageIndexes.length ? color.image : uploadedImageUrls[currentImageIndex]),
+        };
+      }),
+    }));
 };
 
 const deleteCloudinaryImage = async (imageUrl?: string | null) => {
@@ -268,9 +322,11 @@ const createProduct = async (req: Request, res: Response) => {
     const input = {
       ...(req.body as CreateProductInput),
       variant: parseVariants(req.body.variant ?? req.body.version),
+      isActive: parseBoolean(req.body.isActive, 'isActive'),
     };
     const productImageFile = getUploadedFiles(req, 'product_image')[0];
     const variantImageFiles = getUploadedFiles(req, 'version_images');
+    const variantImageIndexes = parseIntegerList(req.body.version_image_indexes, 'version_image_indexes');
 
     if (!input.category_id || !input.name || !input.brand_id || !input.description) {
       return errorResponse(res, 'Category, name, brand, and description are required', 400);
@@ -285,13 +341,12 @@ const createProduct = async (req: Request, res: Response) => {
       return errorResponse(res, 'Product image is required (upload file or provide image URL)', 400);
     }
 
-    if (variantImageFiles.length > 0) {
-      await uploadVariantImages(input.variant, variantImageFiles);
-    }
+    const variant = await uploadVariantImages(input.variant, variantImageFiles, variantImageIndexes);
 
     const productInput: CreateProductInput = {
       ...input,
       product_image: productImageUrl,
+      variant,
     };
 
     const product = await productService.createProduct(productInput);
@@ -313,9 +368,11 @@ const updateProduct = async (req: Request, res: Response) => {
     const input = {
       ...(req.body as UpdateProductInput),
       variant: parseVariants(req.body.variant ?? req.body.version),
+      isActive: parseBoolean(req.body.isActive, 'isActive'),
     };
     const productImageFile = getUploadedFiles(req, 'product_image')[0];
     const variantImageFiles = getUploadedFiles(req, 'version_images');
+    const variantImageIndexes = parseIntegerList(req.body.version_image_indexes, 'version_image_indexes');
     const updateData: UpdateProductInput = {};
 
     if (input.category_id !== undefined) updateData.category_id = input.category_id;
@@ -341,12 +398,10 @@ const updateProduct = async (req: Request, res: Response) => {
       updateData.product_image = input.product_image;
     }
 
-    if (variantImageFiles.length > 0) {
-      await uploadVariantImages(input.variant, variantImageFiles);
-    }
+    const variant = await uploadVariantImages(input.variant, variantImageFiles, variantImageIndexes);
 
     if (input.variant !== undefined) {
-      updateData.variant = input.variant;
+      updateData.variant = variant;
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -366,9 +421,6 @@ const deleteProduct = async (req: Request, res: Response) => {
   try {
     const productId = req.params.id as string;
 
-    const product = await productService.getProductById(productId);
-    await deleteProductImages(product);
-
     const updatedProduct = await productService.deleteProduct(productId);
 
     return ok(res, updatedProduct);
@@ -380,7 +432,7 @@ const deleteProduct = async (req: Request, res: Response) => {
 
 const getProducts = async (_req: Request, res: Response) => {
   try {
-    const products = await productService.getProducts();
+    const products = await productService.getManagementProducts();
 
     return ok(res, products);
   } catch (e: unknown) {
@@ -401,10 +453,38 @@ const getProductList = async (req: Request, res: Response) => {
   }
 };
 
+const permanentlyDeleteProduct = async (req: Request, res: Response) => {
+  try {
+    const productId = req.params.id as string;
+
+    const product = await productService.getProductById(productId);
+    const deletedProduct = await productService.permanentlyDeleteProduct(productId);
+    await deleteProductImages(product);
+
+    return ok(res, deletedProduct);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getProductFilters = async (req: Request, res: Response) => {
+  try {
+    const filters = await productService.getProductFilters(parseProductListQuery(req));
+    return ok(res, filters);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const getProductById = async (req: Request, res: Response) => {
   try {
     const productId = req.params.id as string;
-    const product = await productService.getProductDetailById(productId);
+    const isAdminRequest = req.originalUrl.includes('/admin/products');
+    const product = await productService.getProductDetailById(productId, {
+      activeOnly: !isAdminRequest,
+    });
 
     return ok(res, product);
   } catch (e: unknown) {
@@ -413,4 +493,4 @@ const getProductById = async (req: Request, res: Response) => {
   }
 };
 
-export { createProduct, updateProduct, deleteProduct, getProducts, getProductList, getProductById };
+export { createProduct, updateProduct, deleteProduct, permanentlyDeleteProduct, getProducts, getProductList, getProductFilters, getProductById };

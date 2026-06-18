@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { Brand } from '../../../database/models/brand.model';
+import { Product } from '../../../database/models/product.model';
 import type { CreateBrandInput, UpdateBrandInput } from './brand.types';
 
 export class BrandServiceError extends Error {
@@ -58,7 +59,13 @@ const updateBrand = async (id: string, input: UpdateBrandInput) => {
     }
   }
 
-  return Brand.findByIdAndUpdate(id, input, {
+  const updateData: UpdateBrandInput = {};
+
+  if (input.name !== undefined) updateData.name = input.name.trim();
+  if (input.image !== undefined) updateData.image = input.image.trim();
+  if (input.isActive !== undefined) updateData.isActive = input.isActive;
+
+  return Brand.findByIdAndUpdate(id, updateData, {
     returnDocument: 'after',
     runValidators: true,
   });
@@ -87,6 +94,55 @@ const getBrands = () => {
   return Brand.find().sort({ createdAt: -1 });
 };
 
+const getBrandById = async (id: string) => {
+  assertValidBrandId(id);
+  const brand = await Brand.findById(id);
+
+  if (!brand) {
+    throw new BrandServiceError('Brand not found', 404);
+  }
+
+  return brand;
+};
+
+const deleteBrandPermanently = async (id: string) => {
+  assertValidBrandId(id);
+
+  const productCount = await Product.countDocuments({ brand_id: new Types.ObjectId(id) });
+
+  if (productCount > 0) {
+    throw new BrandServiceError('Cannot permanently delete a brand with products', 409);
+  }
+
+  const brand = await Brand.findByIdAndDelete(id);
+
+  if (!brand) {
+    throw new BrandServiceError('Brand not found', 404);
+  }
+
+  return brand;
+};
+
+const getBrandsForManagement = async () => {
+  const [brands, productCounts] = await Promise.all([
+    Brand.find()
+      .select('_id name image isActive createdAt updatedAt')
+      .sort({ name: 1 })
+      .lean(),
+    Product.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $group: { _id: '$brand_id', count: { $sum: 1 } } },
+    ]),
+  ]);
+  const countByBrandId = new Map(
+    productCounts.map((item) => [item._id.toString(), item.count]),
+  );
+
+  return brands.map((brand) => ({
+    ...brand,
+    productCount: countByBrandId.get(brand._id.toString()) ?? 0,
+  }));
+};
+
 const getActiveBrands = () => {
   return Brand.find({ isActive: true }).sort({ createdAt: -1 });
 };
@@ -95,6 +151,9 @@ export const brandService = {
   createBrand,
   updateBrand,
   deleteBrand,
+  deleteBrandPermanently,
   getBrands,
+  getBrandById,
+  getBrandsForManagement,
   getActiveBrands,
 };

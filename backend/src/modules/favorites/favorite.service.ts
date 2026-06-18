@@ -35,7 +35,6 @@ type PopulatedCategory = {
   name: string;
   gender?: 'male' | 'female' | 'unisex';
   image?: string;
-  bannerImage?: string | null;
 };
 
 type FavoriteProductDocument = {
@@ -303,7 +302,6 @@ const mapFavoriteProductItem = (
         name: product.category_id.name,
         gender: product.category_id.gender,
         image: product.category_id.image,
-        bannerImage: product.category_id.bannerImage ?? null,
       }
     : null;
 
@@ -373,7 +371,7 @@ const listFavorites = async (
   const [products, inventoryItems] = await Promise.all([
     Product.find({ _id: { $in: productIds }, isActive: true })
       .populate('brand_id', '_id name image')
-      .populate('category_id', '_id name gender image bannerImage')
+      .populate('category_id', '_id name gender image')
       .lean<FavoriteProductDocument[]>(),
     Inventory.find({
       productId: { $in: productIds },

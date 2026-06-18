@@ -36,7 +36,6 @@ export type CatalogProduct = {
     name: string;
     gender?: CatalogGender;
     image?: string;
-    bannerImage?: string | null;
   } | null;
 };
 
@@ -120,7 +119,6 @@ export type CatalogProductDetail = {
     name: string;
     gender?: CatalogGender;
     image?: string;
-    bannerImage?: string | null;
   } | null;
   categoryBreadcrumb: ProductCategoryBreadcrumbItem[];
   variants: ProductDetailVariant[];
@@ -142,7 +140,6 @@ export type CatalogCategory = {
   level: number;
   gender: CatalogGender;
   image: string;
-  bannerImage?: string | null;
   description?: string;
   isActive?: boolean;
 };

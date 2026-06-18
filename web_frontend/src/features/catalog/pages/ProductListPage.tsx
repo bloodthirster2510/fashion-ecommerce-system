@@ -6,7 +6,13 @@ import { Pagination } from '../../../components/Pagination'
 import { CatalogHero } from '../components/CatalogHero'
 import { CatalogToolbar } from '../components/CatalogToolbar'
 import { catalogService } from '../catalog.service'
-import type { CatalogCategory, ProductListQuery, ProductListResponse, ProductSortOption } from '../catalog.types'
+import type {
+  CatalogCategory,
+  ProductListFilters,
+  ProductListQuery,
+  ProductListResponse,
+  ProductSortOption,
+} from '../catalog.types'
 import '../catalog.css'
 
 const LIMIT = 10
@@ -91,6 +97,7 @@ export function ProductListPage({ showSlider = false }: { showSlider?: boolean }
   const [search, setSearch] = useState(window.location.search)
   const query = useMemo(() => parseQuery(search), [search])
   const [productList, setProductList] = useState<ProductListResponse | null>(null)
+  const [filters, setFilters] = useState<ProductListFilters>()
   const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -109,15 +116,24 @@ export function ProductListPage({ showSlider = false }: { showSlider?: boolean }
       setIsLoading(true)
       setError('')
 
-      const [products, activeCategories] = await Promise.all([
-        catalogService.getProducts(query),
-        catalogService.getActiveCategories()
-      ])
+      const productsPromise = catalogService.getProducts(query, false)
+      const filtersPromise = catalogService.getProductFilters(query)
+      const categoriesPromise = catalogService.getActiveCategories()
+      void Promise.all([filtersPromise, categoriesPromise])
+        .then(([nextFilters, activeCategories]) => {
+          if (!isMounted) return
+          setFilters(nextFilters)
+          setCategories(activeCategories)
+        })
+        .catch(() => {
+          // Dữ liệu bộ lọc không được phép chặn việc hiển thị lưới sản phẩm.
+        })
+
+      const products = await productsPromise
 
       if (!isMounted) return
 
       setProductList(products)
-      setCategories(activeCategories)
     } catch (loadError: unknown) {
       if (!isMounted) return
 
@@ -199,8 +215,6 @@ export function ProductListPage({ showSlider = false }: { showSlider?: boolean }
   }
 
   const selectedSort = sortOptions.find((option) => option.value === query.sort) ?? sortOptions[0]
-  const filterData = productList?.filters
-
   return (
     <MainLayout showSlider={showSlider}>
       <main className="catalog-page">
@@ -208,7 +222,7 @@ export function ProductListPage({ showSlider = false }: { showSlider?: boolean }
 
         <CatalogToolbar
           query={query}
-          filters={filterData}
+          filters={filters}
           fitTypeLabelById={fitTypeLabelById}
           sortOptions={sortOptions}
           selectedSort={selectedSort}

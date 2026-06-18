@@ -21,7 +21,6 @@ export interface CreateCategoryInput {
   level: number;
   gender: CategoryGender;
   image: string;
-  bannerImage?: string | null;
   description: string;
   isLeaf?: boolean;
   isSizeTemplateSource?: boolean;
@@ -38,7 +37,6 @@ export interface UpdateCategoryInput {
   level?: number;
   gender?: CategoryGender;
   image?: string;
-  bannerImage?: string | null;
   description?: string;
   isLeaf?: boolean;
   isSizeTemplateSource?: boolean;

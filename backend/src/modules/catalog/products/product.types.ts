@@ -9,12 +9,14 @@ export interface ProductSizeMeasurementInput {
 }
 
 export interface ProductColorVariantInput {
+  _id?: string;
   color: string;
   colorCode?: string;
   image: string;
 }
 
 export interface ProductVariantInput {
+  _id?: string;
   fitTypeId: string;
   price: number;
   discount: number;
@@ -72,6 +74,7 @@ export interface ProductListQueryInput {
   sort?: ProductSortOption;
   page?: number;
   limit?: number;
+  includeFilters?: boolean;
 }
 
 export interface ProductListItem {
@@ -98,8 +101,22 @@ export interface ProductListItem {
     name: string;
     gender?: ProductGenderFilter;
     image?: string;
-    bannerImage?: string | null;
   } | null;
+}
+
+export interface ProductListFilters {
+  brands: Array<{ _id: string; name: string; image?: string }>;
+  colors: string[];
+  fitTypes: string[];
+  sizes: string[];
+  categories: Array<{
+    _id: string;
+    name: string;
+    gender?: ProductGenderFilter;
+    parent_id?: string | null;
+    level?: number;
+    image?: string;
+  }>;
 }
 
 export interface ProductListResponse {
@@ -110,21 +127,44 @@ export interface ProductListResponse {
     totalItems: number;
     totalPages: number;
   };
-  filters: {
-    brands: Array<{ _id: string; name: string; image?: string }>;
-    colors: string[];
-    fitTypes: string[];
-    sizes: string[];
-    categories: Array<{
-      _id: string;
-      name: string;
-      gender?: ProductGenderFilter;
-      parent_id?: string | null;
-      level?: number;
-      image?: string;
-      bannerImage?: string | null;
-    }>;
-  };
+  filters?: ProductListFilters;
+}
+
+export interface ProductManagementInventoryItem {
+  size: string;
+  sku: string;
+  availableQuantity: number;
+}
+
+export interface ProductManagementColor {
+  _id: string;
+  color: string;
+  colorCode?: string;
+  image: string;
+  inventory: ProductManagementInventoryItem[];
+}
+
+export interface ProductManagementVariant {
+  _id: string;
+  fitTypeId: string;
+  fitTypeLabel: string;
+  price: number;
+  discount: number;
+  isActive: boolean;
+  colors: ProductManagementColor[];
+}
+
+export interface ProductManagementItem {
+  _id: string;
+  name: string;
+  productImage: string;
+  isActive: boolean;
+  soldQuantity: number;
+  brandName: string;
+  categoryName: string;
+  canDeletePermanently: boolean;
+  permanentDeleteBlockReason?: string;
+  variants: ProductManagementVariant[];
 }
 
 export interface ProductDetailColor {
@@ -190,6 +230,7 @@ export interface ProductDetailResponse {
   name: string;
   description: string;
   productImage: string;
+  isActive: boolean;
   gallery: string[];
   price: number;
   originalPrice: number;
@@ -211,7 +252,6 @@ export interface ProductDetailResponse {
     name: string;
     gender?: ProductGenderFilter;
     image?: string;
-    bannerImage?: string | null;
   } | null;
   categoryBreadcrumb: ProductCategoryBreadcrumbItem[];
   variants: ProductDetailVariant[];
