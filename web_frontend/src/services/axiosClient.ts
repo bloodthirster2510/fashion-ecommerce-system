@@ -8,6 +8,9 @@ export const axiosClient = {
   baseURL: API_BASE_URL,
   buildUrl,
   fetch(path: string, init?: RequestInit) {
-    return fetch(buildUrl(path), init)
+    return fetch(buildUrl(path), {
+      credentials: 'include',
+      ...init,
+    })
   },
 }

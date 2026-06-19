@@ -2,6 +2,8 @@ const ACCESS_TOKEN_KEY = 'accessToken'
 const REFRESH_TOKEN_KEY = 'refreshToken'
 const CURRENT_USER_KEY = 'currentUser'
 
+let runtimeAccessToken: string | null = null
+
 type StoredUser = {
   _id: string
   name: string
@@ -13,26 +15,36 @@ type StoredUser = {
   avatarImage?: string | null
 }
 
-// Bọc localStorage trong một service nhỏ để component không phụ thuộc trực tiếp
-// vào key lưu trữ. Sau này đổi nơi lưu token chỉ cần sửa tại file này.
+const clearLegacyTokenStorage = () => {
+  localStorage.removeItem(ACCESS_TOKEN_KEY)
+  localStorage.removeItem(REFRESH_TOKEN_KEY)
+}
+
+// Bọc session trong một service nhỏ để component không phụ thuộc trực tiếp
+// vào key lưu trữ. Token chỉ giữ trong memory; localStorage chỉ còn user profile.
 export const tokenService = {
   getAccessToken() {
-    return localStorage.getItem(ACCESS_TOKEN_KEY)
+    clearLegacyTokenStorage()
+    return runtimeAccessToken
   },
   setAccessToken(token: string) {
-    localStorage.setItem(ACCESS_TOKEN_KEY, token)
+    runtimeAccessToken = token
+    clearLegacyTokenStorage()
   },
   clearAccessToken() {
-    localStorage.removeItem(ACCESS_TOKEN_KEY)
+    runtimeAccessToken = null
+    clearLegacyTokenStorage()
   },
   getRefreshToken() {
-    return localStorage.getItem(REFRESH_TOKEN_KEY)
+    clearLegacyTokenStorage()
+    return null
   },
   setRefreshToken(token: string) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, token)
+    void token
+    clearLegacyTokenStorage()
   },
   clearRefreshToken() {
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    clearLegacyTokenStorage()
   },
   getCurrentUser(): StoredUser | null {
     const rawUser = localStorage.getItem(CURRENT_USER_KEY)
@@ -53,9 +65,9 @@ export const tokenService = {
     localStorage.removeItem(CURRENT_USER_KEY)
   },
   clearSession() {
-    // Đăng xuất cần xóa token và user để header quay lại trạng thái "Đăng nhập".
-    localStorage.removeItem(ACCESS_TOKEN_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    // Đăng xuất cần xóa access token runtime và user để header quay lại trạng thái "Đăng nhập".
+    runtimeAccessToken = null
+    clearLegacyTokenStorage()
     localStorage.removeItem(CURRENT_USER_KEY)
   },
 }

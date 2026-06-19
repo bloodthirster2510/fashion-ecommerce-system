@@ -6,19 +6,25 @@ const ACCESS_TOKEN_KEY = 'admin_access_token'
 const REFRESH_TOKEN_KEY = 'admin_refresh_token'
 const USER_KEY = 'admin_user'
 
+let runtimeAdminAccessToken: string | null = null
+
 export const isAdminRole = (role?: string): role is AdminRole =>
   role === 'admin' || role === 'staff'
 
-export const getAdminSession = (): AdminSession | null => {
+const clearLegacyAdminTokens = () => {
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY)
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY)
+}
+
+export const getStoredAdminUser = (): AdminUser | null => {
   if (typeof window === 'undefined') {
     return null
   }
 
-  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY)
-  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY)
+  clearLegacyAdminTokens()
   const rawUser = window.localStorage.getItem(USER_KEY)
 
-  if (!accessToken || !refreshToken || !rawUser) {
+  if (!rawUser) {
     return null
   }
 
@@ -30,20 +36,33 @@ export const getAdminSession = (): AdminSession | null => {
       return null
     }
 
-    return { accessToken, refreshToken, user }
+    return user
   } catch {
     clearAdminSession()
     return null
   }
 }
 
+export const hasStoredAdminUser = () => getStoredAdminUser() !== null
+
+export const getAdminSession = (): AdminSession | null => {
+  const user = getStoredAdminUser()
+
+  if (!runtimeAdminAccessToken || !user) {
+    return null
+  }
+
+  return { accessToken: runtimeAdminAccessToken, user }
+}
+
 export const saveAdminSession = (session: AdminSession) => {
-  window.localStorage.setItem(ACCESS_TOKEN_KEY, session.accessToken)
-  window.localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken)
+  runtimeAdminAccessToken = session.accessToken
+  clearLegacyAdminTokens()
   window.localStorage.setItem(USER_KEY, JSON.stringify(session.user))
 }
 
 export const updateStoredAdminUser = (user: AdminUser) => {
+  clearLegacyAdminTokens()
   window.localStorage.setItem(USER_KEY, JSON.stringify(user))
 }
 
@@ -52,7 +71,7 @@ export const clearAdminSession = () => {
     return
   }
 
-  window.localStorage.removeItem(ACCESS_TOKEN_KEY)
-  window.localStorage.removeItem(REFRESH_TOKEN_KEY)
+  runtimeAdminAccessToken = null
+  clearLegacyAdminTokens()
   window.localStorage.removeItem(USER_KEY)
 }

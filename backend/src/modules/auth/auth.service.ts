@@ -2,7 +2,13 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { User, type AuthProviderName, type IUser } from '../../database/models/user.model';
-import { generateAccessToken, generateRefreshToken, verifyRefreshToken, JwtPayload } from '../../utils/jwt';
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  JwtPayload,
+} from '../../utils/jwt';
 import { sendResetPasswordEmail } from '../../utils/email';
 import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
@@ -266,6 +272,16 @@ export const loginAdminUser = async (identifier: string, password: string) => {
 
 export const logoutUser = async (userId: string) => {
   await User.updateOne({ _id: userId }, { $set: { refreshToken: null } });
+};
+
+export const logoutWithAccessToken = async (token: string) => {
+  const payload = verifyAccessToken(token);
+  await logoutUser(payload.userId);
+};
+
+export const logoutWithRefreshToken = async (token: string) => {
+  const payload = verifyRefreshToken(token);
+  await logoutUser(payload.userId);
 };
 
 export const refreshAccessToken = async (token: string) => {

@@ -14,7 +14,7 @@ export type AdminUser = {
 
 export type AdminSession = {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
   user: AdminUser
 }
 

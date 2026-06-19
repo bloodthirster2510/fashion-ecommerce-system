@@ -25,7 +25,6 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
     const session: AdminSession = {
       accessToken: 'demo-admin-access-token',
-      refreshToken: 'demo-admin-refresh-token',
       user: {
         _id: 'demo-admin',
         name: 'Quản trị viên',

@@ -4,8 +4,10 @@ import { tokenService } from './tokenService'
 
 type RefreshTokenResponse = {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
 }
+
+const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
 
 let refreshPromise: Promise<string> | null = null
 
@@ -20,13 +22,6 @@ const getAccessToken = () => {
 }
 
 const refreshCustomerSession = async () => {
-  const refreshToken = tokenService.getRefreshToken()
-
-  if (!refreshToken) {
-    tokenService.clearSession()
-    throw new AuthApiError('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.')
-  }
-
   let response: Response
 
   try {
@@ -34,8 +29,8 @@ const refreshCustomerSession = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        [REFRESH_TOKEN_COOKIE_MODE_HEADER]: 'cookie',
       },
-      body: JSON.stringify({ refreshToken }),
     })
   } catch {
     throw new AuthApiError('Không thể làm mới phiên đăng nhập. Vui lòng thử lại.')
@@ -48,7 +43,6 @@ const refreshCustomerSession = async () => {
   }
 
   tokenService.setAccessToken(result.data.accessToken)
-  tokenService.setRefreshToken(result.data.refreshToken)
   return result.data.accessToken
 }
 
@@ -80,7 +74,8 @@ export const requestCustomer = async <T>(path: string, init?: RequestInit): Prom
   let response: Response
 
   try {
-    response = await fetchWithToken(path, init)
+    const accessToken = tokenService.getAccessToken() ?? await getRefreshedAccessToken()
+    response = await fetchWithToken(path, init, accessToken)
   } catch (error) {
     if (error instanceof AuthApiError) {
       throw error

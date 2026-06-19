@@ -24,7 +24,7 @@ export type AuthUser = {
 // Sau login hoặc register thành công, backend trả phiên đăng nhập mới.
 export type AuthSession = {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
   user: AuthUser
 }
 
