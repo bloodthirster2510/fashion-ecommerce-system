@@ -134,6 +134,18 @@ const getCouponById = async (req: Request, res: Response) => {
   }
 };
 
+const checkCouponCodeAvailability = async (req: Request, res: Response) => {
+  try {
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const excludeId = typeof req.query.excludeId === 'string' ? req.query.excludeId : undefined;
+    const result = await couponService.checkCouponCodeAvailability(code, excludeId);
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const listCouponUsage = async (req: Request, res: Response) => {
   try {
     const query: CouponUsageListQueryInput = {
@@ -202,6 +214,7 @@ const deleteCoupon = async (req: Request, res: Response) => {
 
 export {
   createCoupon,
+  checkCouponCodeAvailability,
   deleteCoupon,
   getCouponById,
   listCouponUsage,

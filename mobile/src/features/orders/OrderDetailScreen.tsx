@@ -844,7 +844,7 @@ const OrderDetailScreen = () => {
 
             {renderSummaryRow('Tạm tính', formatCurrency(order.subTotal))}
             {order.couponDiscountAmount > 0
-              ? renderSummaryRow('Voucher', `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
+              ? renderSummaryRow(`Voucher${order.couponCodes?.length ? ` ${order.couponCodes.join(' + ')}` : ''}`, `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
               : null}
             {order.membershipDiscountAmount > 0
               ? renderSummaryRow('Hạng thành viên', `-${formatCurrency(order.membershipDiscountAmount)}`, 'discount')
@@ -1062,7 +1062,7 @@ const OrderDetailScreen = () => {
           <Text style={styles.sectionTitle}>Tóm tắt đơn hàng</Text>
           {renderSummaryRow('Tạm tính', formatCurrency(order.subTotal))}
           {order.couponDiscountAmount > 0
-            ? renderSummaryRow(`Voucher${order.couponCode ? ` ${order.couponCode}` : ''}`, `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
+            ? renderSummaryRow(`Voucher${order.couponCodes?.length ? ` ${order.couponCodes.join(' + ')}` : order.couponCode ? ` ${order.couponCode}` : ''}`, `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
             : null}
           {order.membershipDiscountAmount > 0
             ? renderSummaryRow('Hạng thẻ thành viên', `-${formatCurrency(order.membershipDiscountAmount)}`, 'discount')

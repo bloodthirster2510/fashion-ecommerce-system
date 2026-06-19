@@ -25,6 +25,7 @@ export interface CreateOrderInput {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: string;
   couponCode?: string;
+  couponCodes?: string[];
   orderNote?: string;
 }
 
@@ -34,6 +35,7 @@ export interface PreviewCheckoutInput {
   shippingAddress?: ShippingAddressInput;
   paymentMethod?: OrderPaymentMethod;
   couponCode?: string;
+  couponCodes?: string[];
 }
 
 export interface OrderListQueryInput {

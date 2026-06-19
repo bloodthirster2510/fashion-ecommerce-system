@@ -163,6 +163,276 @@
   line-height: 1.45;
 }
 
+.admin-loyalty-points {
+  margin-top: 16px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-loyalty-points-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr);
+  min-height: 420px;
+}
+
+.admin-loyalty-user-search {
+  padding: 16px;
+  border-right: 1px solid var(--admin-line);
+}
+
+.admin-loyalty-member-link {
+  min-width: 32px;
+  text-align: left;
+}
+
+.admin-loyalty-tier-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  color: var(--admin-accent-dark);
+  background: #eef6fb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-loyalty-user-search form,
+.admin-loyalty-adjust-form,
+.admin-loyalty-user-search label,
+.admin-loyalty-adjust-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.admin-loyalty-user-search label,
+.admin-loyalty-adjust-form label > span {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.admin-loyalty-user-search form > div {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-loyalty-user-search input,
+.admin-loyalty-adjust-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 7px;
+  color: var(--admin-text);
+  background: #fff;
+  font: inherit;
+}
+
+.admin-loyalty-user-results {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.admin-loyalty-user-results > p,
+.admin-loyalty-history > p {
+  margin: 0;
+  padding: 16px 0;
+  color: var(--admin-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-loyalty-user-results > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #e6edf2;
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fbfcfd;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-loyalty-user-results > button:hover,
+.admin-loyalty-user-results > button.is-selected {
+  border-color: var(--admin-accent-dark);
+  background: #eef6fb;
+}
+
+.admin-loyalty-user-results span,
+.admin-loyalty-selected-user span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-loyalty-user-results small,
+.admin-loyalty-selected-user small,
+.admin-loyalty-history-list small {
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-loyalty-user-results b,
+.admin-loyalty-selected-user b {
+  flex: 0 0 auto;
+  color: var(--admin-accent-dark);
+  font-size: 13px;
+}
+
+.admin-loyalty-point-detail {
+  min-width: 0;
+  padding: 16px;
+}
+
+.admin-loyalty-selected-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #eef6fb;
+}
+
+.admin-loyalty-adjust-form {
+  grid-template-columns: minmax(130px, 0.5fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  margin-top: 14px;
+}
+
+.admin-loyalty-history {
+  margin-top: 20px;
+}
+
+.admin-loyalty-history h3 {
+  margin: 0 0 10px;
+  color: var(--admin-text);
+  font-size: 14px;
+}
+
+.admin-loyalty-history-list {
+  display: grid;
+}
+
+.admin-loyalty-history-list article {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid #edf1f4;
+}
+
+.admin-loyalty-history-list article > span {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-loyalty-history-list .is-positive {
+  color: #18794e;
+}
+
+.admin-loyalty-history-list .is-negative {
+  color: #b42318;
+}
+
+.admin-loyalty-history-list article > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-loyalty-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-loyalty-rules {
+  margin-top: 16px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-loyalty-rule-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid var(--admin-line);
+  background: #f8fbfd;
+}
+
+.admin-loyalty-rule-form label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-loyalty-rule-form label > span {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-loyalty-rule-form input,
+.admin-loyalty-rule-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 9px;
+  border: 1px solid var(--admin-line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.admin-loyalty-rule-list {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+}
+
+.admin-loyalty-rule-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #edf1f4;
+  border-radius: 8px;
+}
+
+.admin-loyalty-rule-list article > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-loyalty-rule-list article span,
+.admin-loyalty-rule-list > p {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .admin-loyalty-impact {
   margin-top: 16px;
 }
@@ -190,7 +460,22 @@
 
 @media (max-width: 980px) {
   .admin-loyalty-grid,
-  .admin-loyalty-impact-list {
+  .admin-loyalty-impact-list,
+  .admin-loyalty-points-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-loyalty-user-search {
+    border-right: 0;
+    border-bottom: 1px solid var(--admin-line);
+  }
+
+  .admin-loyalty-adjust-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-loyalty-rule-form,
+  .admin-loyalty-rule-list article {
     grid-template-columns: 1fr;
   }
 }

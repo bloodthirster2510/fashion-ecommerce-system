@@ -2,12 +2,16 @@ import { requestAdmin } from '../../services/adminHttp'
 import type {
   AdminCoupon,
   CategoryOption,
+  CouponCodeAvailability,
   CouponDetailResponse,
   CouponListFilters,
   CouponListResponse,
   CouponPayload,
   CouponUsageListResponse,
   ProductOption,
+  PromotionAnalytics,
+  PromotionCampaign,
+  PromotionCampaignPayload,
 } from './promotion.types'
 
 type ProductListResponse = {
@@ -41,6 +45,15 @@ export const listCoupons = (filters: CouponListFilters) =>
 
 export const getCoupon = (id: string) =>
   requestAdmin<CouponDetailResponse>(`/admin/coupons/${id}`)
+
+export const checkCouponCodeAvailability = (code: string, excludeId?: string) => {
+  const params = new URLSearchParams({ code })
+  if (excludeId) {
+    params.set('excludeId', excludeId)
+  }
+
+  return requestAdmin<CouponCodeAvailability>(`/admin/coupons/check-code?${params.toString()}`)
+}
 
 export const listCouponUsage = (id: string, page = 1, limit = 10) =>
   requestAdmin<CouponUsageListResponse>(`/admin/coupons/${id}/usage?page=${page}&limit=${limit}`)
@@ -79,4 +92,30 @@ export const listCouponProducts = (keyword = '', page = 1, limit = 20) => {
 
   return requestAdmin<ProductListResponse>(`/admin/products/list?${params.toString()}`)
     .then((response) => response.items)
+}
+
+export const listPromotionCampaigns = () =>
+  requestAdmin<PromotionCampaign[]>('/admin/promotion-campaigns')
+
+export const createPromotionCampaign = (payload: PromotionCampaignPayload) =>
+  requestAdmin<PromotionCampaign>('/admin/promotion-campaigns', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+export const updatePromotionCampaign = (id: string, payload: Partial<PromotionCampaignPayload>) =>
+  requestAdmin<PromotionCampaign>(`/admin/promotion-campaigns/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+
+export const deletePromotionCampaign = (id: string) =>
+  requestAdmin<PromotionCampaign>(`/admin/promotion-campaigns/${id}`, { method: 'DELETE' })
+
+export const getPromotionAnalytics = (from?: string, to?: string) => {
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const query = params.toString()
+  return requestAdmin<PromotionAnalytics>(`/admin/promotion-analytics${query ? `?${query}` : ''}`)
 }

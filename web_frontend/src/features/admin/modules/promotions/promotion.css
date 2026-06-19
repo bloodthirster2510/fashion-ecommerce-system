@@ -479,6 +479,31 @@
   padding-right: 2px;
 }
 
+.admin-option-list-content {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-option-list.is-virtualized {
+  display: block;
+  position: relative;
+  height: 196px;
+  padding-right: 2px;
+}
+
+.admin-option-list.is-virtualized .admin-option-list-content {
+  position: relative;
+  display: block;
+}
+
+.admin-option-list.is-virtualized .admin-option-item {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  left: 0;
+  height: 42px;
+}
+
 .admin-option-item {
   min-width: 0;
   min-height: 42px;
@@ -764,6 +789,123 @@
   font-weight: 700;
 }
 
+.admin-growth-panel {
+  margin-bottom: 16px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-growth-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px;
+}
+
+.admin-growth-metrics > div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #e6edf2;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-growth-metrics span,
+.admin-campaign-list article span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-growth-metrics strong {
+  color: var(--admin-text);
+  font-size: 18px;
+}
+
+.admin-campaign-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 16px 16px;
+  padding: 14px;
+  border: 1px solid #dbe6ed;
+  border-radius: 8px;
+  background: #f8fbfd;
+}
+
+.admin-campaign-form label,
+.admin-campaign-form fieldset {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-campaign-form label > span,
+.admin-campaign-form legend {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-campaign-form input:not([type='checkbox']) {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: 7px;
+}
+
+.admin-campaign-form fieldset {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.admin-campaign-coupon-list {
+  max-height: 150px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.admin-campaign-coupon-list label {
+  display: flex;
+  align-items: center;
+  padding: 7px;
+  border: 1px solid #e6edf2;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.admin-campaign-list {
+  display: grid;
+  gap: 7px;
+  padding: 0 16px 16px;
+}
+
+.admin-campaign-list > p {
+  color: var(--admin-muted);
+}
+
+.admin-campaign-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #edf1f4;
+  border-radius: 8px;
+}
+
+.admin-campaign-list article > div {
+  display: grid;
+  gap: 3px;
+}
+
 @media (max-width: 980px) {
   .admin-coupon-dialog-body,
   .admin-coupon-type-grid,
@@ -783,6 +925,16 @@
 
   .admin-coupon-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-growth-metrics,
+  .admin-campaign-form,
+  .admin-campaign-coupon-list {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-campaign-list article {
+    grid-template-columns: 1fr auto;
   }
 }
 

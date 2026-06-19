@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { AdminUser } from '../auth/adminSession'
+import { useDialogAccessibility } from '../../hooks/useDialogAccessibility'
 import {
+  adjustLoyaltyPoints,
   createMembershipRanking,
   deleteMembershipRanking,
+  listLoyaltyPointHistory,
+  listLoyaltyUsers,
   listMembershipRankings,
   updateMembershipRanking,
   updateMembershipRankingStatus,
 } from './loyalty.service'
-import type { MembershipRanking, MembershipRankingPayload } from './loyalty.types'
+import type {
+  LoyaltyPagination,
+  LoyaltyPointHistory,
+  LoyaltyUser,
+  MembershipRanking,
+  MembershipRankingPayload,
+} from './loyalty.types'
 import './loyalty.css'
+import { LoyaltyRulesPanel } from './components/LoyaltyRulesPanel'
 
 type LoyaltyPageProps = {
   currentUser: AdminUser
@@ -42,6 +53,32 @@ type DialogState =
 
 const formatNumber = (value: number | null | undefined) =>
   typeof value === 'number' ? new Intl.NumberFormat('vi-VN').format(value) : 'Không giới hạn'
+
+const emptyPagination: LoyaltyPagination = {
+  page: 1,
+  limit: 10,
+  totalItems: 0,
+  totalPages: 0,
+}
+
+const formatHistoryDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
+  dateStyle: 'short',
+  timeStyle: 'short',
+}).format(new Date(value))
+
+const getHistoryActor = (history: LoyaltyPointHistory) => {
+  if (history.actorId && typeof history.actorId === 'object') {
+    return history.actorId.name
+  }
+
+  const roleLabels: Record<LoyaltyPointHistory['actorRole'], string> = {
+    admin: 'Admin',
+    staff: 'Nhân viên',
+    system: 'Hệ thống',
+    user: 'Khách hàng',
+  }
+  return roleLabels[history.actorRole]
+}
 
 const emptyTierForm: TierFormState = {
   name: '',
@@ -186,6 +223,17 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [tierForm, setTierForm] = useState<TierFormState>(emptyTierForm)
+  const [userKeyword, setUserKeyword] = useState('')
+  const [loyaltyUsers, setLoyaltyUsers] = useState<LoyaltyUser[]>([])
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false)
+  const [selectedTierFilter, setSelectedTierFilter] = useState<MembershipRanking | null>(null)
+  const [selectedLoyaltyUser, setSelectedLoyaltyUser] = useState<LoyaltyUser | null>(null)
+  const [pointHistory, setPointHistory] = useState<LoyaltyPointHistory[]>([])
+  const [historyPagination, setHistoryPagination] = useState<LoyaltyPagination>(emptyPagination)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [adjustmentDelta, setAdjustmentDelta] = useState('')
+  const [adjustmentReason, setAdjustmentReason] = useState('')
+  const [isAdjustingPoints, setIsAdjustingPoints] = useState(false)
 
   const canManageLoyalty =
     currentUser.role === 'admin' || currentUser.permissions?.includes('loyalty.write') === true
@@ -350,6 +398,127 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     }
   }
 
+  const dialogRef = useDialogAccessibility(Boolean(dialog), closeDialog, !actionLoading)
+
+  const loadPointHistory = useCallback(async (userId: string, page = 1) => {
+    setIsLoadingHistory(true)
+
+    try {
+      const result = await listLoyaltyPointHistory(userId, page)
+      setPointHistory(result.items)
+      setHistoryPagination(result.pagination)
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+      setPointHistory([])
+      setHistoryPagination(emptyPagination)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }, [])
+
+  const handleSearchLoyaltyUsers = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setIsSearchingUsers(true)
+    setNotice(null)
+
+    try {
+      const result = await listLoyaltyUsers(userKeyword, 1, 10, selectedTierFilter?._id)
+      setLoyaltyUsers(result.items)
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+      setLoyaltyUsers([])
+    } finally {
+      setIsSearchingUsers(false)
+    }
+  }
+
+  const handleViewTierMembers = async (tier: MembershipRanking) => {
+    if (!tier._id) {
+      return
+    }
+
+    setSelectedTierFilter(tier)
+    setUserKeyword('')
+    setIsSearchingUsers(true)
+    setNotice(null)
+
+    try {
+      const result = await listLoyaltyUsers('', 1, 10, tier._id)
+      setLoyaltyUsers(result.items)
+      document.getElementById('loyalty-point-management')?.scrollIntoView({ behavior: 'smooth' })
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+      setLoyaltyUsers([])
+    } finally {
+      setIsSearchingUsers(false)
+    }
+  }
+
+  const handleClearTierFilter = async () => {
+    setSelectedTierFilter(null)
+    setIsSearchingUsers(true)
+
+    try {
+      const result = await listLoyaltyUsers(userKeyword)
+      setLoyaltyUsers(result.items)
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+    } finally {
+      setIsSearchingUsers(false)
+    }
+  }
+
+  const handleSelectLoyaltyUser = (user: LoyaltyUser) => {
+    setSelectedLoyaltyUser(user)
+    setAdjustmentDelta('')
+    setAdjustmentReason('')
+    void loadPointHistory(user._id)
+  }
+
+  const handleAdjustPoints = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedLoyaltyUser) {
+      return
+    }
+
+    const delta = Number(adjustmentDelta)
+    const reason = adjustmentReason.trim()
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 1000000) {
+      setNotice({ type: 'error', message: 'Điểm điều chỉnh phải là số nguyên khác 0, tối đa 1.000.000 điểm' })
+      return
+    }
+    if (reason.length < 2 || reason.length > 200) {
+      setNotice({ type: 'error', message: 'Lý do phải có từ 2 đến 200 ký tự' })
+      return
+    }
+
+    setIsAdjustingPoints(true)
+    setNotice(null)
+
+    try {
+      const result = await adjustLoyaltyPoints({
+        userId: selectedLoyaltyUser._id,
+        delta,
+        reason,
+      })
+      setSelectedLoyaltyUser((current) => current ? { ...current, ...result.user } : current)
+      setLoyaltyUsers((users) => users.map((user) => (
+        user._id === result.user._id ? { ...user, ...result.user } : user
+      )))
+      setAdjustmentDelta('')
+      setAdjustmentReason('')
+      setNotice({
+        type: 'success',
+        message: `Đã điều chỉnh từ ${formatNumber(result.balanceBefore)} thành ${formatNumber(result.balanceAfter)} điểm`,
+      })
+      await Promise.all([loadPointHistory(selectedLoyaltyUser._id), loadTiers()])
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+    } finally {
+      setIsAdjustingPoints(false)
+    }
+  }
+
   return (
     <section className="admin-loyalty-page">
       <div className="admin-page-heading">
@@ -476,7 +645,16 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                     </td>
                     <td>{tier.discountPercent}%</td>
                     <td>{tier.benefitDescription || 'Chưa mô tả'}</td>
-                    <td>{formatNumber(tier.memberCount ?? 0)}</td>
+                    <td>
+                      <button
+                        className="admin-link-button admin-loyalty-member-link"
+                        type="button"
+                        disabled={!hasPersistedTier}
+                        onClick={() => void handleViewTierMembers(tier)}
+                      >
+                        {formatNumber(tier.memberCount ?? 0)}
+                      </button>
+                    </td>
                     <td>
                       <div
                         className="admin-loyalty-visual-preview"
@@ -556,6 +734,161 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
         </aside>
       </div>
 
+      <section className="admin-loyalty-points" id="loyalty-point-management">
+        <div className="admin-section-heading">
+          <div>
+            <p>Quản lý điểm</p>
+            <h2>Điều chỉnh và lịch sử điểm khách hàng</h2>
+          </div>
+        </div>
+
+        <div className="admin-loyalty-points-grid">
+          <div className="admin-loyalty-user-search">
+            {selectedTierFilter ? (
+              <div className="admin-loyalty-tier-filter">
+                <span>Đang xem hạng <strong>{selectedTierFilter.name}</strong></span>
+                <button className="admin-link-button" type="button" onClick={() => void handleClearTierFilter()}>
+                  Bỏ lọc
+                </button>
+              </div>
+            ) : null}
+            <form onSubmit={handleSearchLoyaltyUsers}>
+              <label htmlFor="loyalty-user-keyword">Tìm khách hàng</label>
+              <div>
+                <input
+                  id="loyalty-user-keyword"
+                  value={userKeyword}
+                  onChange={(event) => setUserKeyword(event.target.value)}
+                  placeholder="Tên, email hoặc số điện thoại"
+                  maxLength={80}
+                />
+                <button className="admin-secondary-button" type="submit" disabled={isSearchingUsers}>
+                  {isSearchingUsers ? 'Đang tìm...' : 'Tìm kiếm'}
+                </button>
+              </div>
+            </form>
+
+            <div className="admin-loyalty-user-results">
+              {loyaltyUsers.length === 0 ? (
+                <p>{isSearchingUsers ? 'Đang tìm khách hàng...' : 'Tìm và chọn khách hàng để quản lý điểm.'}</p>
+              ) : loyaltyUsers.map((user) => (
+                <button
+                  className={selectedLoyaltyUser?._id === user._id ? 'is-selected' : ''}
+                  type="button"
+                  key={user._id}
+                  onClick={() => handleSelectLoyaltyUser(user)}
+                >
+                  <span>
+                    <strong>{user.name}</strong>
+                    <small>{user.email}{user.phone ? ` · ${user.phone}` : ''}</small>
+                  </span>
+                  <b>{formatNumber(user.loyaltyPoint)} điểm</b>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="admin-loyalty-point-detail">
+            {!selectedLoyaltyUser ? (
+              <div className="admin-loyalty-empty-state">
+                <strong>Chưa chọn khách hàng</strong>
+                <span>Chọn một khách hàng ở danh sách bên trái để xem lịch sử và điều chỉnh điểm.</span>
+              </div>
+            ) : (
+              <>
+                <div className="admin-loyalty-selected-user">
+                  <span>
+                    <strong>{selectedLoyaltyUser.name}</strong>
+                    <small>{selectedLoyaltyUser.email}</small>
+                  </span>
+                  <b>{formatNumber(selectedLoyaltyUser.loyaltyPoint)} điểm</b>
+                </div>
+
+                <form className="admin-loyalty-adjust-form" onSubmit={handleAdjustPoints}>
+                  <label>
+                    <span>Điểm điều chỉnh</span>
+                    <input
+                      type="number"
+                      value={adjustmentDelta}
+                      onChange={(event) => setAdjustmentDelta(event.target.value)}
+                      placeholder="Ví dụ: 500 hoặc -200"
+                      min={-1000000}
+                      max={1000000}
+                      step={1}
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span>Lý do</span>
+                    <input
+                      value={adjustmentReason}
+                      onChange={(event) => setAdjustmentReason(event.target.value)}
+                      placeholder="Lý do hỗ trợ/điều chỉnh"
+                      minLength={2}
+                      maxLength={200}
+                      required
+                    />
+                  </label>
+                  <button
+                    className="admin-primary-button"
+                    type="submit"
+                    disabled={!canManageLoyalty || isAdjustingPoints}
+                  >
+                    {isAdjustingPoints ? 'Đang cập nhật...' : 'Xác nhận điều chỉnh'}
+                  </button>
+                </form>
+
+                <div className="admin-loyalty-history">
+                  <h3>Lịch sử điểm</h3>
+                  {isLoadingHistory ? <p>Đang tải lịch sử...</p> : null}
+                  {!isLoadingHistory && pointHistory.length === 0 ? <p>Chưa có giao dịch điểm.</p> : null}
+                  {!isLoadingHistory && pointHistory.length > 0 ? (
+                    <div className="admin-loyalty-history-list">
+                      {pointHistory.map((history) => (
+                        <article key={history._id}>
+                          <span className={history.delta > 0 ? 'is-positive' : 'is-negative'}>
+                            {history.delta > 0 ? '+' : ''}{formatNumber(history.delta)}
+                          </span>
+                          <div>
+                            <strong>{history.reason}</strong>
+                            <small>
+                              {formatHistoryDate(history.createdAt)} · {getHistoryActor(history)} · Số dư {formatNumber(history.balanceAfter)}
+                            </small>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+                  {historyPagination.totalPages > 1 ? (
+                    <div className="admin-loyalty-pagination">
+                      <button
+                        className="admin-link-button"
+                        type="button"
+                        disabled={isLoadingHistory || historyPagination.page <= 1}
+                        onClick={() => void loadPointHistory(selectedLoyaltyUser._id, historyPagination.page - 1)}
+                      >
+                        Trang trước
+                      </button>
+                      <span>{historyPagination.page}/{historyPagination.totalPages}</span>
+                      <button
+                        className="admin-link-button"
+                        type="button"
+                        disabled={isLoadingHistory || historyPagination.page >= historyPagination.totalPages}
+                        onClick={() => void loadPointHistory(selectedLoyaltyUser._id, historyPagination.page + 1)}
+                      >
+                        Trang sau
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <LoyaltyRulesPanel currentUser={currentUser} />
+
       <section className="admin-loyalty-impact">
         <div className="admin-section-heading">
           <div>
@@ -572,7 +905,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       </section>
 
       {dialog?.type === 'create' || dialog?.type === 'edit' ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-dialog-title">
+        <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-dialog-title">
           <form className="admin-account-dialog" onSubmit={handleSubmitTier}>
             <h2 id="admin-tier-dialog-title">
               {dialog.type === 'create' ? 'Thêm hạng thành viên' : 'Sửa hạng thành viên'}
@@ -708,7 +1041,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       ) : null}
 
       {dialog?.type === 'status' ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-status-title">
+        <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-status-title">
           <div className="admin-confirm-box">
             <h2 id="admin-tier-status-title">
               {dialog.nextActive ? 'Bật lại hạng?' : 'Tạm tắt hạng?'}
@@ -734,7 +1067,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       ) : null}
 
       {dialog?.type === 'delete' ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-delete-title">
+        <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-delete-title">
           <div className="admin-confirm-box">
             <h2 id="admin-tier-delete-title">Xóa hạng thành viên?</h2>
             <p>

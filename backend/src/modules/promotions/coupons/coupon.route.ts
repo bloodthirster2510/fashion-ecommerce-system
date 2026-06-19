@@ -4,6 +4,7 @@ import { authorize, requirePermission } from '../../../middlewares/role.middlewa
 import { createCouponValidateRateLimitMiddleware } from '../../../middlewares/security.middleware';
 import {
   createCoupon,
+  checkCouponCodeAvailability,
   deleteCoupon,
   getCouponById,
   listAvailableCoupons,
@@ -26,6 +27,7 @@ customerCouponRouter.post('/validate', couponValidateRateLimit, validateCoupon);
 adminCouponRouter.use(authenticate);
 adminCouponRouter.use(authorize('admin', 'staff'));
 adminCouponRouter.get('/', requirePermission('promotions.read'), listCoupons);
+adminCouponRouter.get('/check-code', requirePermission('promotions.read'), checkCouponCodeAvailability);
 adminCouponRouter.get('/:id/usage', requirePermission('promotions.read'), listCouponUsage);
 adminCouponRouter.get('/:id', requirePermission('promotions.read'), getCouponById);
 

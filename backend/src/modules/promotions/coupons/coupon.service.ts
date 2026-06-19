@@ -5,6 +5,7 @@ import {
   Category,
   MembershipRanking,
   Product,
+  User,
   type CouponDiscountType,
   type CouponEligibleUserType,
   type ICoupon,
@@ -52,6 +53,17 @@ const ELIGIBLE_USER_TYPES = new Set<CouponEligibleUserType>(['all', 'new_user', 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizeCode = (value: string) => value.trim().toUpperCase();
+
+const resolveCouponLifecycleStatus = (coupon: {
+  startAt: Date;
+  endAt: Date;
+  isActive: boolean;
+}, now = new Date()) => {
+  if (coupon.endAt < now) return 'expired';
+  if (!coupon.isActive) return 'paused';
+  if (coupon.startAt > now) return 'upcoming';
+  return 'active';
+};
 
 const getCouponUserUsagePath = (userId: string) => `userUsageCounts.${userId}`;
 
@@ -278,6 +290,11 @@ const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCr
         throw new CouponServiceError(`${field} is required`, 400);
       }
     });
+    data.lifecycleStatus = resolveCouponLifecycleStatus({
+      startAt: data.startAt as Date,
+      endAt: data.endAt as Date,
+      isActive: data.isActive === undefined ? true : Boolean(data.isActive),
+    });
   }
 
   assertCouponPatchIsConsistent(data);
@@ -452,7 +469,43 @@ const getCouponById = async (id: string) => {
   delete safeCoupon.userUsageCounts;
   delete safeCoupon.deletedAt;
   delete safeCoupon.__v;
-  return { coupon: safeCoupon, usageCount };
+
+  const actorIds = [coupon.createdBy, coupon.updatedBy]
+    .filter((actorId): actorId is Types.ObjectId => Boolean(actorId));
+  const actors = actorIds.length
+    ? await User.find({ _id: { $in: actorIds } }).select('_id name email role').lean()
+    : [];
+  const actorsById = new Map(actors.map((actor) => [actor._id.toString(), actor]));
+
+  return {
+    coupon: {
+      ...safeCoupon,
+      createdBy: coupon.createdBy ? actorsById.get(coupon.createdBy.toString()) ?? null : null,
+      updatedBy: coupon.updatedBy ? actorsById.get(coupon.updatedBy.toString()) ?? null : null,
+    },
+    usageCount,
+  };
+};
+
+const checkCouponCodeAvailability = async (code: string, excludeId?: string) => {
+  const normalizedCode = normalizeCode(code);
+  if (!/^[A-Z0-9_-]{2,40}$/.test(normalizedCode)) {
+    throw new CouponServiceError('Invalid coupon code', 400);
+  }
+
+  const filter: Record<string, unknown> = {
+    code: normalizedCode,
+    deletedAt: null,
+  };
+  if (excludeId) {
+    assertValidObjectId(excludeId, 'excluded coupon id');
+    filter._id = { $ne: new Types.ObjectId(excludeId) };
+  }
+
+  return {
+    code: normalizedCode,
+    available: await Coupon.countDocuments(filter) === 0,
+  };
 };
 
 const listCouponUsage = async (id: string, query: CouponUsageListQueryInput = {}) => {
@@ -524,6 +577,11 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
   }
 
   assertCouponPatchIsConsistent(data, currentCoupon);
+  data.lifecycleStatus = resolveCouponLifecycleStatus({
+    startAt: data.startAt as Date | undefined ?? currentCoupon.startAt,
+    endAt: data.endAt as Date | undefined ?? currentCoupon.endAt,
+    isActive: data.isActive as boolean | undefined ?? currentCoupon.isActive,
+  });
   assertUsageLimitCanCoverCurrentUsage(data, currentCoupon);
   await assertCouponReferencesExist(data);
 
@@ -567,7 +625,14 @@ const updateCouponStatus = async (id: string, isActive: boolean, actorId?: strin
     throw new CouponServiceError('Expired coupon cannot be activated', 409);
   }
 
-  const data: Record<string, unknown> = { isActive: Boolean(isActive) };
+  const data: Record<string, unknown> = {
+    isActive: Boolean(isActive),
+    lifecycleStatus: resolveCouponLifecycleStatus({
+      startAt: currentCoupon.startAt,
+      endAt: currentCoupon.endAt,
+      isActive: Boolean(isActive),
+    }),
+  };
   if (actorId) {
     assertValidObjectId(actorId, 'actor id');
     data.updatedBy = new Types.ObjectId(actorId);
@@ -846,12 +911,12 @@ const rollbackRecordedCouponUsage = async (orderId?: string, options: SessionOpt
   }
 
   if (options.session) {
-    await CouponUsage.deleteOne(
+    await CouponUsage.deleteMany(
       { orderId: new Types.ObjectId(orderId) },
       { session: options.session },
     );
   } else {
-    await CouponUsage.deleteOne({ orderId: new Types.ObjectId(orderId) });
+    await CouponUsage.deleteMany({ orderId: new Types.ObjectId(orderId) });
   }
 };
 
@@ -887,6 +952,7 @@ const recordCouponUsage = async (input: {
 export const couponService = {
   listCoupons,
   getCouponById,
+  checkCouponCodeAvailability,
   listCouponUsage,
   createCoupon,
   updateCoupon,

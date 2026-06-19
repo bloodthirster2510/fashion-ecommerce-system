@@ -28,6 +28,11 @@ const normalizeSearchText = (value: string) =>
 const formatPickerCount = (count: number, emptyLabel: string) =>
   count > 0 ? `Đã chọn ${count}` : emptyLabel
 
+const virtualizeThreshold = 40
+const optionRowHeight = 48
+const optionViewportHeight = 196
+const optionOverscan = 3
+
 export function OptionPicker({
   title,
   emptyLabel,
@@ -39,6 +44,7 @@ export function OptionPicker({
   isSearching = false,
 }: OptionPickerProps) {
   const [query, setQuery] = useState('')
+  const [scrollTop, setScrollTop] = useState(0)
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues])
   const normalizedQuery = normalizeSearchText(query.trim())
   const filteredOptions = useMemo(
@@ -54,6 +60,17 @@ export function OptionPicker({
     () => options.filter((option) => selectedSet.has(option.value)),
     [options, selectedSet],
   )
+  const shouldVirtualize = filteredOptions.length > virtualizeThreshold
+  const virtualStartIndex = shouldVirtualize
+    ? Math.max(0, Math.floor(scrollTop / optionRowHeight) - optionOverscan)
+    : 0
+  const virtualEndIndex = shouldVirtualize
+    ? Math.min(
+        filteredOptions.length,
+        virtualStartIndex + Math.ceil(optionViewportHeight / optionRowHeight) + optionOverscan * 2,
+      )
+    : filteredOptions.length
+  const visibleOptions = filteredOptions.slice(virtualStartIndex, virtualEndIndex)
 
   useEffect(() => {
     if (!onSearch) {
@@ -63,6 +80,10 @@ export function OptionPicker({
     const handle = window.setTimeout(() => onSearch(query.trim()), 320)
     return () => window.clearTimeout(handle)
   }, [onSearch, query])
+
+  useEffect(() => {
+    setScrollTop(0)
+  }, [normalizedQuery, options])
 
   const toggleValue = (value: string) => {
     if (selectedSet.has(value)) {
@@ -97,23 +118,38 @@ export function OptionPicker({
         />
       ) : null}
 
-      <div className="admin-option-list">
+      <div
+        className={`admin-option-list${shouldVirtualize ? ' is-virtualized' : ''}`}
+        onScroll={shouldVirtualize ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
+      >
         {isSearching ? (
           <div className="admin-option-empty">Đang tìm sản phẩm...</div>
         ) : filteredOptions.length ? (
-          filteredOptions.map((option) => (
-            <label key={option.value} className="admin-option-item">
-              <input
-                type="checkbox"
-                checked={selectedSet.has(option.value)}
-                onChange={() => toggleValue(option.value)}
-              />
-              <span>
-                <strong>{option.label}</strong>
-                {option.meta ? <small>{option.meta}</small> : null}
-              </span>
-            </label>
-          ))
+          <div
+            className="admin-option-list-content"
+            style={shouldVirtualize ? { height: filteredOptions.length * optionRowHeight } : undefined}
+          >
+            {visibleOptions.map((option, visibleIndex) => {
+              const optionIndex = virtualStartIndex + visibleIndex
+              return (
+                <label
+                  key={option.value}
+                  className="admin-option-item"
+                  style={shouldVirtualize ? { transform: `translateY(${optionIndex * optionRowHeight}px)` } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(option.value)}
+                    onChange={() => toggleValue(option.value)}
+                  />
+                  <span>
+                    <strong>{option.label}</strong>
+                    {option.meta ? <small>{option.meta}</small> : null}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
         ) : (
           <div className="admin-option-empty">Không có mục phù hợp</div>
         )}

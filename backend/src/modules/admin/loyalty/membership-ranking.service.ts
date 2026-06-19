@@ -1,6 +1,7 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { MembershipRanking } from '../../../database/models/membership-ranking.model';
 import { Coupon } from '../../../database/models/coupon.model';
+import { LoyaltyPointHistory } from '../../../database/models/loyalty-point-history.model';
 import { User } from '../../../database/models/user.model';
 import {
   getMembershipVisualPreset,
@@ -23,13 +24,32 @@ export type MembershipRankingPayload = {
   isActive?: unknown;
 };
 
+export type LoyaltyPointAdjustmentPayload = {
+  userId?: unknown;
+  delta?: unknown;
+  reason?: unknown;
+};
+
+export type LoyaltyPointAdjustmentActor = {
+  actorId?: string | null;
+  actorRole: 'admin' | 'staff';
+};
+
+type LoyaltyPointQuery = {
+  userId?: unknown;
+  tierId?: unknown;
+  keyword?: unknown;
+  page?: unknown;
+  limit?: unknown;
+};
+
 type NormalizedMembershipRanking = {
   name: string;
   level: number;
   minPoint: number;
   maxPoint: number | null;
   discountPercent: number;
-  benefitDescription?: string;
+  benefitDescription: string;
   cardColor: string;
   textColor: string;
   badgeColor: string;
@@ -56,6 +76,26 @@ const assertValidId = (id: string) => {
 };
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const firstString = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return firstString(value[0]);
+  }
+
+  return typeof value === 'string' ? value.trim() : undefined;
+};
+
+const parsePositiveInteger = (value: unknown, fallback: number, max: number) => {
+  const rawValue = firstString(value);
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? Math.min(parsedValue, max)
+    : fallback;
+};
 
 const parseString = (value: unknown, field: string, required: boolean) => {
   if (value === undefined || value === null) {
@@ -149,7 +189,7 @@ function normalizePayload(payload: MembershipRankingPayload, mode: 'create' | 'u
   const minPoint = parseNumber(payload.minPoint, 'minPoint', required);
   const maxPoint = payload.maxPoint === null ? null : parseNumber(payload.maxPoint, 'maxPoint', false);
   const discountPercent = parseNumber(payload.discountPercent, 'discountPercent', required);
-  const benefitDescription = parseString(payload.benefitDescription, 'benefitDescription', false);
+  const benefitDescription = parseString(payload.benefitDescription, 'benefitDescription', required);
   const cardColor = parseHexColor(payload.cardColor, 'cardColor');
   const textColor = parseHexColor(payload.textColor, 'textColor');
   const badgeColor = parseHexColor(payload.badgeColor, 'badgeColor');
@@ -429,10 +469,185 @@ const deleteMembershipRanking = async (id: string) => {
   return MembershipRanking.findByIdAndDelete(id);
 };
 
+const listLoyaltyUsers = async (query: LoyaltyPointQuery) => {
+  const keyword = firstString(query.keyword)?.slice(0, 80);
+  const tierId = firstString(query.tierId);
+  const page = parsePositiveInteger(query.page, 1, 10000);
+  const limit = parsePositiveInteger(query.limit, 10, 50);
+  const filter: Record<string, unknown> = { role: 'user' };
+
+  if (tierId) {
+    assertValidId(tierId);
+    const tier = await MembershipRanking.findById(tierId).select('minPoint').lean();
+    if (!tier) {
+      throw new MembershipRankingServiceError('Membership ranking not found', 404);
+    }
+
+    const nextTier = await MembershipRanking.findOne({ minPoint: { $gt: tier.minPoint } })
+      .sort({ minPoint: 1 })
+      .select('minPoint')
+      .lean();
+    const loyaltyPointFilter: Record<string, unknown> = { $gte: tier.minPoint };
+    if (nextTier) {
+      loyaltyPointFilter.$lt = nextTier.minPoint;
+    }
+    filter.loyaltyPoint = loyaltyPointFilter;
+  }
+
+  if (keyword) {
+    const escapedKeyword = escapeRegex(keyword);
+    filter.$or = [
+      { name: { $regex: escapedKeyword, $options: 'i' } },
+      { email: { $regex: escapedKeyword, $options: 'i' } },
+      { phone: { $regex: escapedKeyword, $options: 'i' } },
+    ];
+  }
+
+  const [items, totalItems] = await Promise.all([
+    User.find(filter)
+      .select('_id name email phone loyaltyPoint isActive')
+      .sort({ updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    User.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const listLoyaltyPointHistory = async (query: LoyaltyPointQuery) => {
+  const userId = firstString(query.userId);
+  const page = parsePositiveInteger(query.page, 1, 10000);
+  const limit = parsePositiveInteger(query.limit, 10, 50);
+  const filter: Record<string, unknown> = {};
+
+  if (userId) {
+    assertValidId(userId);
+    filter.userId = new Types.ObjectId(userId);
+  }
+
+  const [items, totalItems] = await Promise.all([
+    LoyaltyPointHistory.find(filter)
+      .populate('userId', 'name email')
+      .populate('actorId', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    LoyaltyPointHistory.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const adjustLoyaltyPoints = async (
+  payload: LoyaltyPointAdjustmentPayload,
+  actor: LoyaltyPointAdjustmentActor,
+) => {
+  const userId = parseString(payload.userId, 'userId', true) as string;
+  const delta = parseNumber(payload.delta, 'delta', true) as number;
+  const reason = parseString(payload.reason, 'reason', true) as string;
+
+  assertValidId(userId);
+  if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 1000000) {
+    throw new MembershipRankingServiceError(
+      'delta must be a non-zero integer from -1000000 to 1000000',
+      400,
+    );
+  }
+  if (reason.length < 2 || reason.length > 200) {
+    throw new MembershipRankingServiceError('reason must be from 2 to 200 characters', 400);
+  }
+
+  const session = await mongoose.startSession();
+  let result: {
+    user: { _id: unknown; name: string; email: string; loyaltyPoint: number };
+    history: unknown;
+    balanceBefore: number;
+    balanceAfter: number;
+  } | null = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const user = await User.findOne({ _id: userId, role: 'user' }).session(session);
+      if (!user) {
+        throw new MembershipRankingServiceError('Loyalty user not found', 404);
+      }
+
+      const balanceBefore = Math.max(0, Number(user.loyaltyPoint) || 0);
+      const balanceAfter = balanceBefore + delta;
+      if (balanceAfter < 0) {
+        throw new MembershipRankingServiceError(
+          `Cannot subtract more than the current balance of ${balanceBefore} points`,
+          409,
+        );
+      }
+
+      user.loyaltyPoint = balanceAfter;
+      user.membershipUpdatedAt = new Date();
+      await user.save({ session });
+
+      const [history] = await LoyaltyPointHistory.create([
+        {
+          userId: user._id,
+          type: 'adjust',
+          delta,
+          balanceAfter,
+          reason,
+          actorId: actor.actorId && Types.ObjectId.isValid(actor.actorId)
+            ? new Types.ObjectId(actor.actorId)
+            : null,
+          actorRole: actor.actorRole,
+        },
+      ], { session });
+
+      result = {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          loyaltyPoint: user.loyaltyPoint,
+        },
+        history,
+        balanceBefore,
+        balanceAfter,
+      };
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!result) {
+    throw new MembershipRankingServiceError('Loyalty point adjustment was not committed', 500);
+  }
+
+  return result;
+};
+
 export const membershipRankingAdminService = {
   listMembershipRankings,
   createMembershipRanking,
   updateMembershipRanking,
   updateMembershipRankingStatus,
   deleteMembershipRanking,
+  listLoyaltyUsers,
+  listLoyaltyPointHistory,
+  adjustLoyaltyPoints,
 };

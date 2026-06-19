@@ -4,6 +4,7 @@ import { auditLogService } from '../../audit-logs/audit-log.service';
 import {
   MembershipRankingServiceError,
   membershipRankingAdminService,
+  type LoyaltyPointAdjustmentPayload,
   type MembershipRankingPayload,
 } from './membership-ranking.service';
 
@@ -57,6 +58,41 @@ export const listMembershipRankings = async (_req: Request, res: Response) => {
     const rankings = await membershipRankingAdminService.listMembershipRankings();
 
     return ok(res, rankings);
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const listLoyaltyUsers = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await membershipRankingAdminService.listLoyaltyUsers(req.query));
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const listLoyaltyPointHistory = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await membershipRankingAdminService.listLoyaltyPointHistory(req.query));
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const adjustLoyaltyPoints = async (req: Request, res: Response) => {
+  try {
+    const result = await membershipRankingAdminService.adjustLoyaltyPoints(
+      req.body as LoyaltyPointAdjustmentPayload,
+      {
+        actorId: req.user?.userId ?? null,
+        actorRole: getAuditActorRole(req),
+      },
+    );
+
+    return created(res, result, 'Loyalty points adjusted');
   } catch (error) {
     const { statusCode, message } = getErrorResponse(error);
     return errorResponse(res, message, statusCode);

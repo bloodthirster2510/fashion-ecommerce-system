@@ -1,6 +1,13 @@
 export type CouponDiscountType = 'percent' | 'fixed' | 'free_shipping'
 export type CouponEligibleUserType = 'all' | 'new_user' | 'member'
 
+export type CouponActor = {
+  _id: string
+  name?: string
+  email?: string
+  role?: 'admin' | 'staff' | 'user'
+}
+
 export type AdminCoupon = {
   _id: string
   code: string
@@ -21,8 +28,69 @@ export type AdminCoupon = {
   startAt: string
   endAt: string
   isActive: boolean
+  createdBy?: string | CouponActor | null
+  updatedBy?: string | CouponActor | null
   createdAt?: string
   updatedAt?: string
+}
+
+export type CouponCodeAvailability = {
+  code: string
+  available: boolean
+}
+
+export type PromotionCampaign = {
+  _id: string
+  code: string
+  name: string
+  description?: string | null
+  couponIds: Array<string | Pick<AdminCoupon, '_id' | 'code' | 'name' | 'isActive' | 'startAt' | 'endAt'>>
+  allowCouponStacking: boolean
+  maxCouponsPerOrder: number
+  startAt: string
+  endAt: string
+  isActive: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type PromotionCampaignPayload = {
+  code: string
+  name: string
+  description?: string | null
+  couponIds: string[]
+  allowCouponStacking: boolean
+  maxCouponsPerOrder: number
+  startAt: string
+  endAt: string
+  isActive: boolean
+}
+
+export type PromotionAnalytics = {
+  range: { from: string; to: string }
+  orders: {
+    orderCount: number
+    grossMerchandiseValue: number
+    netRevenue: number
+    couponDiscount: number
+    membershipDiscount: number
+  }
+  coupons: {
+    usageCount: number
+    productDiscount: number
+    shippingDiscount: number
+    totalDiscount: number
+    topCoupons: Array<{ code: string; usageCount: number; totalDiscount: number }>
+  }
+  loyalty: Array<{ type: 'earn' | 'redeem' | 'adjust'; transactionCount: number; points: number }>
+  campaigns: Array<{
+    campaignId: string
+    code?: string
+    name?: string
+    orderCount: number
+    netRevenue: number
+    discountAmount: number
+  }>
 }
 
 export type CouponPayload = {

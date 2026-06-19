@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Coupon, CouponUsage } from '../../../../database/models';
+import { Coupon, CouponUsage, User } from '../../../../database/models';
 import {
   PromotionPricingError,
   promotionPricingService,
@@ -15,6 +15,7 @@ jest.mock('../../../../database/models', () => ({
     countDocuments: jest.fn(),
     create: jest.fn(),
     find: jest.fn(),
+    findById: jest.fn(),
     findOne: jest.fn(),
     findOneAndUpdate: jest.fn(),
     updateOne: jest.fn(),
@@ -22,7 +23,10 @@ jest.mock('../../../../database/models', () => ({
   CouponUsage: {
     countDocuments: jest.fn(),
     create: jest.fn(),
-    deleteOne: jest.fn(),
+    deleteMany: jest.fn(),
+    find: jest.fn(),
+  },
+  User: {
     find: jest.fn(),
   },
 }));
@@ -48,10 +52,12 @@ jest.mock('../../pricing/promotion-pricing.service', () => {
 
 const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
 const mockedCouponUsage = CouponUsage as jest.Mocked<typeof CouponUsage>;
+const mockedUser = User as jest.Mocked<typeof User>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 
 const couponId = new Types.ObjectId('665000000000000000000201');
 const userId = '665000000000000000000020';
+const actorId = new Types.ObjectId('665000000000000000000021');
 const userUsagePath = `userUsageCounts.${userId}`;
 
 const baseCoupon = {
@@ -157,6 +163,44 @@ describe('couponService usage reservation', () => {
 });
 
 describe('couponService admin safeguards', () => {
+  it('returns creator and updater identities in coupon detail', async () => {
+    mockedCoupon.findById.mockResolvedValue({
+      ...baseCoupon,
+      createdBy: actorId,
+      updatedBy: actorId,
+      toObject: () => ({ ...baseCoupon, createdBy: actorId, updatedBy: actorId }),
+    } as never);
+    mockedCouponUsage.countDocuments.mockResolvedValue(0);
+    mockedUser.find.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { _id: actorId, name: 'Promotion Admin', email: 'admin@example.com', role: 'admin' },
+        ]),
+      }),
+    } as never);
+
+    const result = await couponService.getCouponById(couponId.toString());
+
+    expect(result.coupon).toMatchObject({
+      createdBy: { _id: actorId, name: 'Promotion Admin' },
+      updatedBy: { _id: actorId, name: 'Promotion Admin' },
+    });
+  });
+
+  it('checks coupon code availability while excluding the coupon being edited', async () => {
+    mockedCoupon.countDocuments.mockResolvedValue(0);
+
+    await expect(
+      couponService.checkCouponCodeAvailability(' save10 ', couponId.toString()),
+    ).resolves.toEqual({ code: 'SAVE10', available: true });
+
+    expect(mockedCoupon.countDocuments).toHaveBeenCalledWith({
+      code: 'SAVE10',
+      deletedAt: null,
+      _id: { $ne: couponId },
+    });
+  });
+
   it('maps duplicate coupon codes to a conflict response', async () => {
     mockedCoupon.create.mockRejectedValue({ code: 11000 });
 

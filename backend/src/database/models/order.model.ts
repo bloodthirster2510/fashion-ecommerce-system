@@ -84,6 +84,15 @@ export interface IOrderCancellation {
   actorRole?: 'user' | 'admin' | 'staff' | 'system' | null;
 }
 
+export interface IOrderLoyaltyRuleSnapshot {
+  ruleId?: Types.ObjectId | null;
+  name: string;
+  spendAmount: number;
+  pointsEarned: number;
+  minOrderAmount: number;
+  roundMode: 'floor' | 'round' | 'ceil';
+}
+
 export interface IOrder extends Document {
   orderCode: string;
   invoiceCode?: string | null;
@@ -93,6 +102,9 @@ export interface IOrder extends Document {
   shippingFee: number;
   couponCode?: string | null;
   couponId?: Types.ObjectId | null;
+  couponCodes: string[];
+  couponIds: Types.ObjectId[];
+  promotionCampaignId?: Types.ObjectId | null;
   couponDiscountAmount: number;
   shippingDiscountAmount: number;
   appliedMembershipTierId?: Types.ObjectId | null;
@@ -100,6 +112,7 @@ export interface IOrder extends Document {
   membershipDiscountAmount: number;
   loyaltyPointsAwarded: number;
   loyaltyPointsClawedBack: number;
+  loyaltyRuleSnapshot?: IOrderLoyaltyRuleSnapshot | null;
   taxAmount: number;
   totalAmount: number;
   status: OrderStatus;
@@ -222,6 +235,18 @@ const orderCancellationSchema = new Schema<IOrderCancellation>(
   { _id: false },
 );
 
+const orderLoyaltyRuleSnapshotSchema = new Schema<IOrderLoyaltyRuleSnapshot>(
+  {
+    ruleId: { type: Schema.Types.ObjectId, ref: 'LoyaltyRule', default: null },
+    name: { type: String, required: true, trim: true, maxlength: 120 },
+    spendAmount: { type: Number, required: true, min: 1 },
+    pointsEarned: { type: Number, required: true, min: 1 },
+    minOrderAmount: { type: Number, required: true, min: 0 },
+    roundMode: { type: String, enum: ['floor', 'round', 'ceil'], required: true },
+  },
+  { _id: false },
+);
+
 const orderSchema = new Schema<IOrder>(
   {
     orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
@@ -239,6 +264,23 @@ const orderSchema = new Schema<IOrder>(
     shippingFee: { type: Number, required: true, default: 0, min: 0 },
     couponCode: { type: String, trim: true, default: null, maxlength: 60 },
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon', default: null },
+    couponCodes: {
+      type: [{ type: String, trim: true, uppercase: true, maxlength: 60 }],
+      default: [],
+      validate: {
+        validator: (value: string[]) => value.length <= 3,
+        message: 'Order can include at most 3 coupons',
+      },
+    },
+    couponIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: 'Coupon' }],
+      default: [],
+      validate: {
+        validator: (value: Types.ObjectId[]) => value.length <= 3,
+        message: 'Order can include at most 3 coupons',
+      },
+    },
+    promotionCampaignId: { type: Schema.Types.ObjectId, ref: 'PromotionCampaign', default: null },
     couponDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
     shippingDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
     appliedMembershipTierId: { type: Schema.Types.ObjectId, ref: 'MembershipRanking', default: null },
@@ -258,6 +300,7 @@ const orderSchema = new Schema<IOrder>(
       min: 0,
       validate: integerMinValidator(0),
     },
+    loyaltyRuleSnapshot: { type: orderLoyaltyRuleSnapshotSchema, default: null },
     taxAmount: { type: Number, required: true, default: 0, min: 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     status: {

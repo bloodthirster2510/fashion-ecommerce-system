@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { AdminUser } from '../auth/adminSession'
+import { useDialogAccessibility } from '../../hooks/useDialogAccessibility'
 import { listMembershipRankings } from '../loyalty/loyalty.service'
 import type { MembershipRanking } from '../loyalty/loyalty.types'
 import {
+  checkCouponCodeAvailability,
   createCoupon,
   deleteCoupon,
   getCoupon,
@@ -24,6 +26,7 @@ import type {
   ProductOption,
 } from './promotion.types'
 import { OptionPicker, type PickerOption } from './components/OptionPicker'
+import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import './promotion.css'
 
 type PromotionsPageProps = {
@@ -200,6 +203,18 @@ const getCouponUsageOrder = (usage: CouponUsageItem) => {
   }
 
   return usage.orderId.orderCode || usage.orderId._id
+}
+
+const getCouponActorLabel = (actor: AdminCoupon['createdBy']) => {
+  if (!actor) {
+    return 'Không có dữ liệu'
+  }
+
+  if (typeof actor === 'string') {
+    return actor
+  }
+
+  return actor.name || actor.email || actor._id
 }
 
 const normalizeSearchText = (value: string) =>
@@ -632,6 +647,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     }
   }
 
+  const dialogRef = useDialogAccessibility(Boolean(dialog), closeDialog, !actionLoading)
+
   const handleDiscountTypeChange = (discountType: CouponDiscountType) => {
     setCouponForm((form) => ({
       ...form,
@@ -710,6 +727,13 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
     try {
       const payload = toCouponPayload(couponForm)
+      const availability = await checkCouponCodeAvailability(
+        payload.code,
+        dialog.type === 'edit' ? dialog.coupon._id : undefined,
+      )
+      if (!availability.available) {
+        throw new Error(`Mã voucher ${availability.code} đã tồn tại`)
+      }
 
       if (dialog.type === 'create') {
         await createCoupon(payload)
@@ -876,6 +900,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           <strong>{usedCount}</strong>
         </div>
       </div>
+
+      <CampaignAnalyticsPanel currentUser={currentUser} />
 
       <div className="admin-table-toolbar">
         <label className="admin-user-search">
@@ -1125,7 +1151,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       </footer>
 
       {dialog?.type === 'detail' ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-detail-title">
+        <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-detail-title">
           <div className="admin-account-dialog admin-coupon-detail-dialog">
             <header className="admin-coupon-dialog-header">
               <div>
@@ -1148,6 +1174,10 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                 <div><dt>Kết thúc</dt><dd>{formatDateTime(dialog.coupon.endAt)}</dd></div>
                 <div><dt>Giới hạn mỗi khách</dt><dd>{dialog.coupon.perUserLimit}</dd></div>
                 <div><dt>Tổng lượt dùng</dt><dd>{dialog.usage.pagination.totalItems}</dd></div>
+                <div><dt>Người tạo</dt><dd>{getCouponActorLabel(dialog.coupon.createdBy)}</dd></div>
+                <div><dt>Người cập nhật</dt><dd>{getCouponActorLabel(dialog.coupon.updatedBy)}</dd></div>
+                <div><dt>Ngày tạo</dt><dd>{dialog.coupon.createdAt ? formatDateTime(dialog.coupon.createdAt) : 'Không có dữ liệu'}</dd></div>
+                <div><dt>Cập nhật gần nhất</dt><dd>{dialog.coupon.updatedAt ? formatDateTime(dialog.coupon.updatedAt) : 'Không có dữ liệu'}</dd></div>
               </dl>
 
               <section className="admin-coupon-usage-section">
@@ -1218,7 +1248,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       ) : null}
 
       {dialog?.type === 'create' || dialog?.type === 'edit' ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-dialog-title">
+        <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-dialog-title">
           <form className="admin-account-dialog admin-coupon-dialog" onSubmit={handleSubmitCoupon}>
             <header className="admin-coupon-dialog-header">
               <div>
@@ -1572,7 +1602,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       ) : null}
 
       {dialog?.type === 'delete' ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-delete-title">
+        <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-delete-title">
           <div className="admin-confirm-box">
             <h2 id="admin-coupon-delete-title">Xóa voucher?</h2>
             <p>
