@@ -47,10 +47,20 @@ const recordAuditLog = async (input: RecordAuditLogInput) => {
 };
 
 const recordAuditLogBestEffort = async (input: RecordAuditLogInput) => {
-  await recordAuditLog(input).catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('Failed to record audit log:', message);
-  });
+  try {
+    await recordAuditLog(input);
+  } catch (firstError) {
+    try {
+      await recordAuditLog(input);
+    } catch (retryError) {
+      const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
+      const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      console.error('Failed to record audit log after retry:', {
+        firstError: firstMessage,
+        retryError: retryMessage,
+      });
+    }
+  }
 };
 
 const listAuditLogs = async ({
