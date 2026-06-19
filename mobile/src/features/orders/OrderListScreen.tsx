@@ -26,6 +26,7 @@ import {
   type OrderListResponse,
   type OrderPaymentMethod,
   type OrderPaymentStatus,
+  type OrderStatus,
   type OrderStatusSummary,
 } from './orderApi';
 import {
@@ -58,6 +59,7 @@ const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
 const ORDER_PAGE_LIMIT = 20;
 const onlinePaymentMethods: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
 const retryablePaymentStatuses: OrderPaymentStatus[] = ['pending', 'failed'];
+const closedPaymentActionStatuses = new Set<OrderStatus>(['cancelled', 'returned']);
 const transferPaymentMethods = new Set<OrderPaymentMethod>(onlinePaymentMethods);
 const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   paymentFilters[0],
@@ -65,7 +67,15 @@ const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   ...paymentFilters.slice(1),
 ];
 
-const getStatusesQuery = (status: OrderTabKey) => (status === 'all' ? undefined : getOrderTab(status).statuses);
+const getStatusesQuery = (status: OrderTabKey, filter: PaymentFilter) => {
+  const tabStatuses = getOrderTab(status).statuses;
+
+  if (filter !== 'needs-payment') {
+    return status === 'all' ? undefined : tabStatuses;
+  }
+
+  return tabStatuses.filter((orderStatus) => !closedPaymentActionStatuses.has(orderStatus));
+};
 
 const getPaymentMethodsQuery = (filter: PaymentFilter): OrderPaymentMethod[] | undefined => {
   if (filter === 'cash') return ['COD'];
@@ -165,7 +175,7 @@ const OrderListScreen = () => {
       }
 
       try {
-        const statusesQuery = getStatusesQuery(status);
+        const statusesQuery = getStatusesQuery(status, paymentFilter);
         const paymentMethodsQuery = getPaymentMethodsQuery(paymentFilter);
         const paymentStatusesQuery = getPaymentStatusesQuery(paymentFilter);
         const response = await runWithAuth((accessToken) =>
