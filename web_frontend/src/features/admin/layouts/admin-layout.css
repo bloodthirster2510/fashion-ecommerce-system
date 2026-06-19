@@ -329,35 +329,6 @@
   font-weight: 700;
 }
 
-.admin-placeholder-page {
-  width: min(100%, 1180px);
-  min-height: 360px;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 4px;
-  margin: 0 auto;
-  text-align: center;
-}
-
-.admin-placeholder-page p {
-  margin: 0;
-  color: var(--admin-accent-dark);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.admin-placeholder-page h1 {
-  margin: 0;
-  color: var(--admin-text);
-  font-size: 28px;
-  font-weight: 900;
-  line-height: 1.12;
-  letter-spacing: 0;
-}
-
 @media (max-width: 980px) {
   .admin-topbar {
     align-items: flex-start;

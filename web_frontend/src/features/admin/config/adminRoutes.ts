@@ -39,7 +39,20 @@ export type AdminRouteGroup = {
 }
 
 export const ADMIN_LOGIN_PATH = '/admin/login'
-export const ADMIN_DEFAULT_PATH = '/admin/dashboard'
+export const ADMIN_DEFAULT_PATH = '/admin/orders'
+
+export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
+  'accounts',
+  'customers',
+  'loyalty',
+  'products',
+  'catalog',
+  'orders',
+  'ordersOnline',
+  'ordersCod',
+  'inventory',
+  'promotions',
+]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
   { id: 'dashboard', label: 'Tổng quan' },
@@ -55,7 +68,7 @@ export const adminRouteGroups: AdminRouteGroup[] = [
 export const adminRoutes: AdminRoute[] = [
   {
     id: 'overview',
-    path: ADMIN_DEFAULT_PATH,
+    path: '/admin/dashboard',
     label: 'Tổng quan',
     helper: 'Tình hình vận hành',
     group: 'dashboard',

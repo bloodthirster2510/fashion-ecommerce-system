@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { AdminUser } from '../modules/auth/adminSession'
 import {
+  IMPLEMENTED_ADMIN_ROUTE_IDS,
   adminRouteGroups,
   adminRoutes,
   getAdminRouteByPath,
@@ -46,10 +47,16 @@ const navIcons: Record<NavId, () => ReactNode> = {
   settings: SettingsIcon,
 }
 
-const navItems: NavItem[] = adminRoutes.map((route) => ({
-  ...route,
-  icon: navIcons[route.id],
-}))
+const implementedAdminRouteIds = new Set<NavId>(IMPLEMENTED_ADMIN_ROUTE_IDS)
+
+const isImplementedRoute = (routeId: NavId) => implementedAdminRouteIds.has(routeId)
+
+const navItems: NavItem[] = adminRoutes
+  .filter((route) => isImplementedRoute(route.id))
+  .map((route) => ({
+    ...route,
+    icon: navIcons[route.id],
+  }))
 
 const routePermissions: Partial<Record<NavId, string>> = {
   accounts: 'admin',
@@ -69,10 +76,6 @@ const routePermissions: Partial<Record<NavId, string>> = {
 }
 
 const canAccessRoute = (user: AdminUser, route: NavItem) => {
-  if (route.id === 'overview') {
-    return true
-  }
-
   if (user.role === 'admin') {
     return true
   }
@@ -85,8 +88,11 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
   return user.permissions?.includes(requiredPermission) ?? false
 }
 
-const getActiveSectionFromPath = () =>
-  getAdminRouteByPath(window.location.pathname)?.id ?? 'overview'
+const getActiveSectionFromPath = () => {
+  const route = getAdminRouteByPath(window.location.pathname)
+
+  return route && isImplementedRoute(route.id) ? route.id : 'orders'
+}
 
 const notifyAdminNavigation = () => {
   window.dispatchEvent(new Event(ADMIN_NAVIGATION_EVENT))
@@ -103,25 +109,35 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       items: visibleNavItems.filter((item) => item.group === group.id),
     }))
     .filter((group) => group.items.length > 0)
-  const fallbackRoute = visibleNavItems[0] ?? navItems[0]
+  const fallbackRoute = visibleNavItems[0]
   const activeRoute = visibleNavItems.find((item) => item.id === activeSection) ?? fallbackRoute
-  const renderedSection = activeRoute.id
+  const fallbackRouteId = fallbackRoute?.id
+  const fallbackRoutePath = fallbackRoute?.path
+  const renderedSection = activeRoute?.id
 
   useEffect(() => {
     const syncSectionWithPath = () => {
       const currentRoute = getAdminRouteByPath(window.location.pathname)
 
-      if (currentRoute && canAccessRoute(currentUser, { ...currentRoute, icon: navIcons[currentRoute.id] })) {
+      if (
+        currentRoute &&
+        isImplementedRoute(currentRoute.id) &&
+        canAccessRoute(currentUser, { ...currentRoute, icon: navIcons[currentRoute.id] })
+      ) {
         setActiveSection(currentRoute.id)
         return
       }
 
-      if (window.location.pathname !== fallbackRoute.path) {
-        window.history.replaceState(null, '', fallbackRoute.path)
+      if (!fallbackRouteId || !fallbackRoutePath) {
+        return
+      }
+
+      if (window.location.pathname !== fallbackRoutePath) {
+        window.history.replaceState(null, '', fallbackRoutePath)
         notifyAdminNavigation()
       }
 
-      setActiveSection(fallbackRoute.id)
+      setActiveSection(fallbackRouteId)
     }
 
     syncSectionWithPath()
@@ -132,7 +148,7 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       window.removeEventListener('popstate', syncSectionWithPath)
       window.removeEventListener(ADMIN_NAVIGATION_EVENT, syncSectionWithPath)
     }
-  }, [currentUser, fallbackRoute.id, fallbackRoute.path])
+  }, [currentUser, fallbackRouteId, fallbackRoutePath])
 
   const handleNavigate = (item: NavItem) => {
     setActiveSection(item.id)
@@ -144,6 +160,15 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
   }
 
   const renderContent = () => {
+    if (!renderedSection) {
+      return (
+        <div className="admin-empty-state" role="alert">
+          <strong>Không có quyền truy cập</strong>
+          <span>Liên hệ quản trị viên để được cấp quyền vào khu vực phù hợp.</span>
+        </div>
+      )
+    }
+
     if (renderedSection === 'accounts') {
       return <ManagerListPage />
     }
@@ -184,12 +209,7 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       return <InventoryManagementPage currentUser={currentUser} />
     }
 
-    return (
-      <section className="admin-placeholder-page">
-        <p>{activeRoute.helper}</p>
-        <h1>{activeRoute.label}</h1>
-      </section>
-    )
+    return null
   }
 
   return (
@@ -233,8 +253,8 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       <section className="admin-shell" aria-label="Admin workspace">
         <header className="admin-topbar">
           <div className="admin-topbar-title">
-            <strong>{activeRoute.label}</strong>
-            <span>{activeRoute.helper}</span>
+            <strong>{activeRoute?.label ?? 'Không có quyền truy cập'}</strong>
+            <span>{activeRoute?.helper ?? 'Liên hệ quản trị viên để được cấp quyền'}</span>
           </div>
 
           <div className="admin-topbar-actions">
