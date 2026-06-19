@@ -861,6 +861,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   let couponUsageRecorded = false;
   let inventoryCommitted = false;
   let createdOrder: IOrder | null = null;
+  let pendingPaymentTransactionId = '';
 
   try {
     reservedCoupon = await couponService.reserveCouponUsage(userId, pricing.appliedCoupon);
@@ -911,24 +912,22 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     });
     createdOrder = order;
 
-    await inventoryService.commitReservations({ reservationIds });
-    inventoryCommitted = true;
-
     // Tạo Transaction pending cho phương thức thanh toán online.
     // COD không cần transaction ngay; sẽ được xử lý khi giao hàng thành công.
     if (isOnlinePaymentMethod(input.paymentMethod)) {
-      await runBestEffort(
-        'Failed to create pending payment transaction',
-        transactionService.createPendingTransaction({
-          userId,
-          orderId: orderId.toString(),
-          amount: totalAmount,
-          paymentMethod: input.paymentMethod,
-          paymentMethodId: selectedPaymentMethod?._id?.toString(),
-          gatewayProvider: getGatewayProvider(input.paymentMethod),
-        }),
-      );
+      const pendingPaymentTransaction = await transactionService.createPendingTransaction({
+        userId,
+        orderId: orderId.toString(),
+        amount: totalAmount,
+        paymentMethod: input.paymentMethod,
+        paymentMethodId: selectedPaymentMethod?._id?.toString(),
+        gatewayProvider: getGatewayProvider(input.paymentMethod),
+      });
+      pendingPaymentTransactionId = toIdString(pendingPaymentTransaction?._id);
     }
+
+    await inventoryService.commitReservations({ reservationIds });
+    inventoryCommitted = true;
 
     await runBestEffort(
       'Failed to update product sold quantities after order creation',
@@ -949,6 +948,16 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     return order;
   } catch (error) {
     if (!inventoryCommitted) {
+      if (pendingPaymentTransactionId) {
+        await runBestEffort(
+          'Failed to mark pending payment transaction failed after order creation failure',
+          transactionService.resolveTransaction({
+            transactionId: pendingPaymentTransactionId,
+            status: 'failed',
+            failureReason: 'order_creation_failed',
+          }),
+        );
+      }
       await runBestEffort(
         'Failed to release inventory reservations after order creation failure',
         inventoryService.releaseReservations({ reservationIds }),

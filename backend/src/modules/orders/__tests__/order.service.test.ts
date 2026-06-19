@@ -4,6 +4,7 @@ import { inventoryService } from '../../inventory/inventory.service';
 import { cartService } from '../../cart/cart.service';
 import { promotionPricingService } from '../../promotions/pricing/promotion-pricing.service';
 import { couponService } from '../../promotions/coupons/coupon.service';
+import { transactionService } from '../../payments/transaction.service';
 import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-pricing.types';
 import { GHNService } from '../../shipping/ghn.service';
 import { orderService } from '../order.service';
@@ -59,6 +60,13 @@ jest.mock('../../promotions/coupons/coupon.service', () => ({
   },
 }));
 
+jest.mock('../../payments/transaction.service', () => ({
+  transactionService: {
+    createPendingTransaction: jest.fn(),
+    resolveTransaction: jest.fn(),
+  },
+}));
+
 jest.mock('../../shipping/ghn.service', () => ({
   GHNService: {
     cancelOrder: jest.fn(),
@@ -75,6 +83,7 @@ const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryS
 const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
+const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
 
 const mockAtomicCancel = <T extends { status: string }>(order: T) => {
@@ -203,6 +212,10 @@ describe('orderService', () => {
     mockedCouponService.recordCouponUsage.mockResolvedValue(null);
     mockedCouponService.rollbackRecordedCouponUsage.mockResolvedValue(undefined);
     mockedCouponService.rollbackCouponUsageReservation.mockResolvedValue(undefined);
+    mockedTransactionService.createPendingTransaction.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000091'),
+    } as never);
+    mockedTransactionService.resolveTransaction.mockResolvedValue(null as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
   });
 
@@ -366,6 +379,90 @@ describe('orderService', () => {
       }),
     );
     expect(result).toBe(order);
+  });
+
+  it('rolls back an online order when pending transaction creation fails before inventory commit', async () => {
+    const order = {
+      _id: new Types.ObjectId(),
+      orderCode: 'FSORDER',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      status: 'confirmed',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    mockedInventoryService.reserveInventory.mockResolvedValue([
+      { _id: reservationId },
+    ] as never);
+    mockedOrder.create.mockResolvedValue(order as never);
+    mockedTransactionService.createPendingTransaction.mockRejectedValue(new Error('transaction create failed'));
+    mockedInventoryService.releaseReservations.mockResolvedValue([] as never);
+
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'VNPAY',
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
+      }),
+    ).rejects.toThrow('transaction create failed');
+
+    expect(mockedTransactionService.createPendingTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      userId,
+      orderId: expect.any(String),
+      amount: 385000,
+      paymentMethod: 'VNPAY',
+      gatewayProvider: 'vnpay',
+    }));
+    expect(mockedInventoryService.commitReservations).not.toHaveBeenCalled();
+    expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
+      reservationIds: [reservationId.toString()],
+    });
+    expect(order.status).toBe('cancelled');
+    expect(order.save).toHaveBeenCalled();
+    expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
+  });
+
+  it('marks the pending payment transaction failed when inventory commit fails', async () => {
+    const transactionId = new Types.ObjectId('665000000000000000000092');
+    const order = {
+      _id: new Types.ObjectId(),
+      orderCode: 'FSORDER',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      status: 'confirmed',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    mockedInventoryService.reserveInventory.mockResolvedValue([
+      { _id: reservationId },
+    ] as never);
+    mockedOrder.create.mockResolvedValue(order as never);
+    mockedTransactionService.createPendingTransaction.mockResolvedValue({ _id: transactionId } as never);
+    mockedInventoryService.commitReservations.mockRejectedValue(new Error('commit failed'));
+    mockedInventoryService.releaseReservations.mockResolvedValue([] as never);
+
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'VNPAY',
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
+      }),
+    ).rejects.toThrow('commit failed');
+
+    expect(mockedTransactionService.resolveTransaction).toHaveBeenCalledWith({
+      transactionId: transactionId.toString(),
+      status: 'failed',
+      failureReason: 'order_creation_failed',
+    });
+    expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
+      reservationIds: [reservationId.toString()],
+    });
+    expect(order.status).toBe('cancelled');
+    expect(order.save).toHaveBeenCalled();
   });
 
   it('rejects create order when quoteVersion is missing', async () => {
