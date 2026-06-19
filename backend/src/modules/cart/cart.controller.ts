@@ -20,15 +20,24 @@ const hasStatusCode = (value: unknown): value is { statusCode: number } => {
 
 const getErrorResponse = (e: unknown) => {
   if (e instanceof SalesServiceError || hasStatusCode(e)) {
+    if (e.statusCode >= 500) {
+      console.error('Cart controller error:', e);
+      return {
+        statusCode: e.statusCode,
+        message: 'Internal Server Error',
+      };
+    }
+
     return {
       statusCode: e.statusCode,
       message: e instanceof Error ? e.message : 'An error occurred',
     };
   }
 
+  console.error('Cart controller error:', e);
   return {
     statusCode: 500,
-    message: e instanceof Error ? e.message : 'An error occurred',
+    message: 'Internal Server Error',
   };
 };
 

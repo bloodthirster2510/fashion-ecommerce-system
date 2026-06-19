@@ -6,6 +6,7 @@ import type {
   CouponListFilters,
   CouponListResponse,
   CouponPayload,
+  CouponUsageListResponse,
   ProductOption,
 } from './promotion.types'
 
@@ -25,6 +26,10 @@ const buildCouponListQuery = (filters: CouponListFilters) => {
     params.set('status', filters.status)
   }
 
+  if (filters.sort) {
+    params.set('sort', filters.sort)
+  }
+
   params.set('page', String(filters.page ?? 1))
   params.set('limit', String(filters.limit ?? 10))
 
@@ -36,6 +41,9 @@ export const listCoupons = (filters: CouponListFilters) =>
 
 export const getCoupon = (id: string) =>
   requestAdmin<CouponDetailResponse>(`/admin/coupons/${id}`)
+
+export const listCouponUsage = (id: string, page = 1, limit = 10) =>
+  requestAdmin<CouponUsageListResponse>(`/admin/coupons/${id}/usage?page=${page}&limit=${limit}`)
 
 export const createCoupon = (payload: CouponPayload) =>
   requestAdmin<AdminCoupon>('/admin/coupons', {
@@ -63,6 +71,12 @@ export const deleteCoupon = (id: string) =>
 export const listCouponCategories = () =>
   requestAdmin<CategoryOption[]>('/admin/categories/list?activeOnly=true')
 
-export const listCouponProducts = () =>
-  requestAdmin<ProductListResponse>('/admin/products/list?limit=60')
+export const listCouponProducts = (keyword = '', page = 1, limit = 20) => {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  if (keyword.trim()) {
+    params.set('keyword', keyword.trim())
+  }
+
+  return requestAdmin<ProductListResponse>(`/admin/products/list?${params.toString()}`)
     .then((response) => response.items)
+}

@@ -2,11 +2,9 @@ export const sendResetPasswordEmail = async (to: string, token: string) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
-  console.log('=== RESET PASSWORD EMAIL ===');
-  console.log(`To: ${to}`);
-  console.log(`Reset URL: ${resetUrl}`);
-  console.log(`Token: ${token}`);
-  console.log('============================');
+  if (process.env.NODE_ENV !== 'production') {
+    console.info(`Reset password email prepared for ${to}; configure SMTP to deliver it.`);
+  }
 
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
     try {

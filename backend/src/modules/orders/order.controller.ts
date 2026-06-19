@@ -1,12 +1,18 @@
+import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
-import type { OrderPaymentMethod, OrderStatus } from '../../database/models';
+import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
+import { auditLogService } from '../audit-logs/audit-log.service';
 import { SalesServiceError } from '../sales/sales.helpers';
 import { orderService } from './order.service';
 import type {
+  CancelOrderInput,
   CreateOrderInput,
   OrderListQueryInput,
   PreviewCheckoutInput,
+  RequestReturnInput,
+  ReviewReturnRequestInput,
+  SimulatedShippingWebhookInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -21,6 +27,7 @@ const ORDER_STATUSES: OrderStatus[] = [
   'returned',
 ];
 const PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'];
+const PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   return (
@@ -64,6 +71,21 @@ const parseString = (value: unknown) => {
 
   const trimmedValue = value.trim();
   return trimmedValue || undefined;
+};
+
+const parseStringList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap(parseStringList);
+  }
+
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 };
 
 const parsePositiveInteger = (value: unknown, fieldName: string) => {
@@ -111,6 +133,23 @@ const parseStatus = (value: unknown) => {
   return status as OrderStatus;
 };
 
+const parseStatuses = (value: unknown) => {
+  const statuses = parseStringList(value);
+
+  if (statuses.length === 0) {
+    return undefined;
+  }
+
+  const uniqueStatuses = Array.from(new Set(statuses));
+  uniqueStatuses.forEach((status) => {
+    if (!ORDER_STATUSES.includes(status as OrderStatus)) {
+      throw new SalesServiceError('Invalid order status', 400);
+    }
+  });
+
+  return uniqueStatuses as OrderStatus[];
+};
+
 const parsePaymentMethod = (value: unknown) => {
   const paymentMethod = parseString(value);
 
@@ -125,9 +164,61 @@ const parsePaymentMethod = (value: unknown) => {
   return paymentMethod as OrderPaymentMethod;
 };
 
+const parsePaymentMethods = (value: unknown) => {
+  const paymentMethods = parseStringList(value);
+
+  if (paymentMethods.length === 0) {
+    return undefined;
+  }
+
+  const uniquePaymentMethods = Array.from(new Set(paymentMethods));
+  uniquePaymentMethods.forEach((paymentMethod) => {
+    if (!PAYMENT_METHODS.includes(paymentMethod as OrderPaymentMethod)) {
+      throw new SalesServiceError('Invalid payment method', 400);
+    }
+  });
+
+  return uniquePaymentMethods as OrderPaymentMethod[];
+};
+
+const parsePaymentStatus = (value: unknown) => {
+  const paymentStatus = parseString(value);
+
+  if (!paymentStatus) {
+    return undefined;
+  }
+
+  if (!PAYMENT_STATUSES.includes(paymentStatus as OrderPaymentStatus)) {
+    throw new SalesServiceError('Invalid payment status', 400);
+  }
+
+  return paymentStatus as OrderPaymentStatus;
+};
+
+const parsePaymentStatuses = (value: unknown) => {
+  const paymentStatuses = parseStringList(value);
+
+  if (paymentStatuses.length === 0) {
+    return undefined;
+  }
+
+  const uniquePaymentStatuses = Array.from(new Set(paymentStatuses));
+  uniquePaymentStatuses.forEach((paymentStatus) => {
+    if (!PAYMENT_STATUSES.includes(paymentStatus as OrderPaymentStatus)) {
+      throw new SalesServiceError('Invalid payment status', 400);
+    }
+  });
+
+  return uniquePaymentStatuses as OrderPaymentStatus[];
+};
+
 const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   status: parseStatus(req.query.status),
+  statuses: parseStatuses(req.query.statuses),
   paymentMethod: parsePaymentMethod(req.query.paymentMethod),
+  paymentMethods: parsePaymentMethods(req.query.paymentMethods),
+  paymentStatus: parsePaymentStatus(req.query.paymentStatus),
+  paymentStatuses: parsePaymentStatuses(req.query.paymentStatuses),
   keyword: parseString(req.query.keyword),
   from: parseDate(req.query.from, 'from'),
   to: parseDate(req.query.to, 'to'),
@@ -137,6 +228,123 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
 
 const getUserId = (req: Request) => req.user!.userId;
 const getUserRole = (req: Request) => req.user?.role;
+const getRequiredWebhookSecret = (envName: 'SHIPPING_WEBHOOK_SECRET' | 'GHN_WEBHOOK_SECRET') => {
+  const secret = process.env[envName]?.trim();
+
+  if (!secret) {
+    throw new SalesServiceError(`${envName} is not configured`, 503);
+  }
+
+  return secret;
+};
+
+const timingSafeSecretEqual = (receivedSecret: string | undefined, expectedSecret: string) => {
+  if (!receivedSecret) {
+    return false;
+  }
+
+  const receivedBuffer = Buffer.from(receivedSecret);
+  const expectedBuffer = Buffer.from(expectedSecret);
+
+  if (receivedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
+};
+
+const parseShippingWebhookInput = (
+  value: unknown,
+  overrides: Partial<SimulatedShippingWebhookInput> = {},
+): SimulatedShippingWebhookInput => {
+  const body = typeof value === 'object' && value !== null
+    ? value as Record<string, unknown>
+    : {};
+  const status = parseString(body.status);
+  const deliveredAt = parseDate(body.deliveredAt, 'deliveredAt');
+
+  if (!status) {
+    throw new SalesServiceError('status is required', 400);
+  }
+
+  return {
+    orderId: parseString(body.orderId),
+    trackingCode: parseString(body.trackingCode),
+    status: status as SimulatedShippingWebhookInput['status'],
+    reason: parseString(body.reason),
+    provider: parseString(body.provider) ?? null,
+    deliveredAt: deliveredAt ?? null,
+    rawPayload: body,
+    ...overrides,
+  };
+};
+
+const recordShippingWebhookAudit = async ({
+  actorId,
+  actorRole,
+  source,
+  result,
+}: {
+  actorId?: string | null;
+  actorRole: 'admin' | 'staff' | 'system';
+  source: 'external_webhook' | 'admin_simulation';
+  result: Awaited<ReturnType<typeof orderService.applyShippingWebhook>>;
+}) => {
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: actorId ?? null,
+    actorRole,
+    action: 'order.shipping_webhook',
+    targetType: 'Order',
+    targetId: result.order._id.toString(),
+    reason: result.reason,
+    before: result.before,
+    after: {
+      status: result.order.status,
+      paymentStatus: result.order.paymentStatus,
+      deliveredAt: result.order.deliveredAt ?? null,
+      shipping: result.order.shipping ?? null,
+    },
+    metadata: {
+      orderCode: result.order.orderCode,
+      webhookSource: source,
+      shippingStatus: result.order.shipping?.status ?? null,
+      trackingCode: result.order.shipping?.trackingCode ?? null,
+    },
+  });
+};
+
+const recordOrderShippingUpdateAudit = async ({
+  req,
+  beforeOrder,
+  order,
+  reason,
+}: {
+  req: Request;
+  beforeOrder: Awaited<ReturnType<typeof orderService.getOrderById>>;
+  order: Awaited<ReturnType<typeof orderService.updateOrderShipping>>;
+  reason: string;
+}) => {
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: req.user?.userId ?? null,
+    actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+    action: 'order.shipping_update',
+    targetType: 'Order',
+    targetId: order._id.toString(),
+    reason,
+    before: {
+      shipping: beforeOrder.shipping ?? null,
+    },
+    after: {
+      shipping: order.shipping ?? null,
+    },
+    metadata: {
+      orderCode: order.orderCode,
+      provider: order.shipping?.provider ?? null,
+      trackingCode: order.shipping?.trackingCode ?? null,
+      shippingStatus: order.shipping?.status ?? null,
+    },
+  });
+};
 
 const createOrder = async (req: Request, res: Response) => {
   try {
@@ -200,9 +408,162 @@ const getOrderById = async (req: Request, res: Response) => {
   }
 };
 
+const getOrderTransactions = async (req: Request, res: Response) => {
+  try {
+    const transactions = await orderService.getOrderTransactions(
+      getUserId(req),
+      getUserRole(req),
+      req.params.id as string,
+    );
+    return ok(res, transactions);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
 const cancelOrder = async (req: Request, res: Response) => {
   try {
-    const order = await orderService.cancelOrder(getUserId(req), getUserRole(req), req.params.id as string);
+    const input = req.body as CancelOrderInput;
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.cancelOrder(getUserId(req), getUserRole(req), req.params.id as string, input);
+    const actorRole = req.user?.role === 'admin' || req.user?.role === 'staff' ? req.user.role : 'user';
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole,
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: order.cancellation?.reason ?? 'Order cancelled',
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        cancellationReason: order.cancellation?.reason ?? null,
+        cancellationImageCount: order.cancellation?.imageUrls?.length ?? 0,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const confirmOrderReceived = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.confirmOrderReceived(getUserId(req), req.params.id as string);
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: 'user',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: 'Customer confirmed order received',
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+        shippingStatus: beforeOrder.shipping?.status ?? null,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        shippingStatus: order.shipping?.status ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const requestReturn = async (req: Request, res: Response) => {
+  try {
+    const input = req.body as RequestReturnInput;
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.requestReturn(getUserId(req), req.params.id as string, input);
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: 'user',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: order.returnRequest?.reason ?? 'Customer requested return',
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        returnReason: order.returnRequest?.reason ?? null,
+        returnImageCount: order.returnRequest?.imageUrls?.length ?? 0,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const reviewReturnRequest = async (req: Request, res: Response) => {
+  try {
+    const input = req.body as ReviewReturnRequestInput;
+    if (input.decision !== 'approved' && input.decision !== 'rejected') {
+      return errorResponse(res, 'decision must be approved or rejected', 400);
+    }
+
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.reviewReturnRequest(req.params.id as string, getUserId(req), input);
+    const decisionReason = typeof input.reason === 'string' && input.reason.trim()
+      ? input.reason.trim()
+      : (input.decision === 'approved' ? 'Return request approved' : 'Return request rejected');
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: decisionReason,
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+        returnRequestStatus: beforeOrder.returnRequest?.status ?? null,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        returnRequestStatus: order.returnRequest?.status ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        returnDecision: input.decision,
+        returnReason: beforeOrder.returnRequest?.reason ?? null,
+      },
+    });
+
     return ok(res, order);
   } catch (e: unknown) {
     const { statusCode, message, errorCode, data } = getErrorResponse(e);
@@ -218,7 +579,34 @@ const updateOrderStatus = async (req: Request, res: Response) => {
       return errorResponse(res, 'status is required', 400);
     }
 
-    const order = await orderService.updateOrderStatus(req.params.id as string, input);
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = input.status === 'cancelled'
+      ? await orderService.cancelOrder(
+        getUserId(req),
+        getUserRole(req),
+        req.params.id as string,
+        input as CancelOrderInput,
+      )
+      : await orderService.updateOrderStatus(req.params.id as string, input);
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'order.status_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: typeof req.body?.reason === 'string' ? req.body.reason : null,
+      before: {
+        status: beforeOrder.status,
+        paymentStatus: beforeOrder.paymentStatus,
+      },
+      after: {
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+      },
+    });
     return ok(res, order);
   } catch (e: unknown) {
     const { statusCode, message, errorCode, data } = getErrorResponse(e);
@@ -229,6 +617,7 @@ const updateOrderStatus = async (req: Request, res: Response) => {
 const updateOrderShipping = async (req: Request, res: Response) => {
   try {
     const body = req.body as UpdateOrderShippingInput & { estimatedDeliveryDate?: string | Date | null };
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
     const order = await orderService.updateOrderShipping(req.params.id as string, {
       provider: body.provider,
       serviceId: body.serviceId,
@@ -253,6 +642,24 @@ const updateOrderShipping = async (req: Request, res: Response) => {
       rawShipment: body.rawShipment,
     });
 
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'order.shipping_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: typeof req.body?.reason === 'string' ? req.body.reason : null,
+      before: {
+        shipping: beforeOrder.shipping ?? null,
+      },
+      after: {
+        shipping: order.shipping ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+      },
+    });
+
     return ok(res, order);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
@@ -260,13 +667,148 @@ const updateOrderShipping = async (req: Request, res: Response) => {
   }
 };
 
+const createGhnShipment = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.createGhnShipment(req.params.id as string);
+
+    await recordOrderShippingUpdateAudit({
+      req,
+      beforeOrder,
+      order,
+      reason: 'Created GHN shipment',
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const cancelGhnShipment = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const order = await orderService.cancelGhnShipment(req.params.id as string);
+
+    await recordOrderShippingUpdateAudit({
+      req,
+      beforeOrder,
+      order,
+      reason: typeof req.body?.reason === 'string' && req.body.reason.trim()
+        ? req.body.reason.trim()
+        : 'Cancelled GHN shipment',
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const syncGhnShipment = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
+    const result = await orderService.syncGhnShipment(req.params.id as string);
+
+    await recordOrderShippingUpdateAudit({
+      req,
+      beforeOrder,
+      order: result.order,
+      reason: result.reason || 'Synced GHN shipment',
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const handleSimulatedShippingWebhook = async (req: Request, res: Response) => {
+  try {
+    const receivedSecret = parseString(req.headers['x-webhook-secret']);
+    if (!timingSafeSecretEqual(receivedSecret, getRequiredWebhookSecret('SHIPPING_WEBHOOK_SECRET'))) {
+      return errorResponse(res, 'Invalid shipping webhook secret', 401);
+    }
+
+    const input = parseShippingWebhookInput(req.body);
+    const result = await orderService.applyShippingWebhook(input);
+
+    await recordShippingWebhookAudit({
+      actorRole: 'system',
+      source: 'external_webhook',
+      result,
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const simulateShippingWebhook = async (req: Request, res: Response) => {
+  try {
+    const input = parseShippingWebhookInput(req.body, {
+      orderId: req.params.id as string,
+    });
+    const result = await orderService.applyShippingWebhook(input);
+
+    await recordShippingWebhookAudit({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      source: 'admin_simulation',
+      result,
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const handleGhnShippingWebhook = async (req: Request, res: Response) => {
+  try {
+    const receivedSecret = parseString(req.headers['x-webhook-secret']);
+    if (!timingSafeSecretEqual(receivedSecret, getRequiredWebhookSecret('GHN_WEBHOOK_SECRET'))) {
+      return errorResponse(res, 'Invalid GHN webhook secret', 401);
+    }
+
+    const result = await orderService.applyGhnShippingWebhook(req.body);
+
+    await recordShippingWebhookAudit({
+      actorRole: 'system',
+      source: 'external_webhook',
+      result,
+    });
+
+    return ok(res, result.order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
 export {
   cancelOrder,
+  cancelGhnShipment,
+  confirmOrderReceived,
+  createGhnShipment,
   createOrder,
   getMyOrders,
   getOrderById,
+  getOrderTransactions,
   getOrders,
+  handleGhnShippingWebhook,
+  handleSimulatedShippingWebhook,
   previewCheckout,
+  requestReturn,
+  reviewReturnRequest,
+  simulateShippingWebhook,
+  syncGhnShipment,
   updateOrderShipping,
   updateOrderStatus,
 };

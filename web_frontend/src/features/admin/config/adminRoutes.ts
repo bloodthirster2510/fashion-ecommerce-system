@@ -6,6 +6,8 @@ export type AdminRouteId =
   | 'products'
   | 'catalog'
   | 'orders'
+  | 'ordersOnline'
+  | 'ordersCod'
   | 'inventory'
   | 'promotions'
   | 'reviews'
@@ -19,6 +21,7 @@ export type AdminRoute = {
   label: string
   helper: string
   group: AdminRouteGroupId
+  isImplemented?: boolean
 }
 
 export type AdminRouteGroupId =
@@ -37,7 +40,20 @@ export type AdminRouteGroup = {
 }
 
 export const ADMIN_LOGIN_PATH = '/admin/login'
-export const ADMIN_DEFAULT_PATH = '/admin/dashboard'
+export const ADMIN_DEFAULT_PATH = '/admin/orders'
+
+export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
+  'accounts',
+  'customers',
+  'loyalty',
+  'products',
+  'catalog',
+  'orders',
+  'ordersOnline',
+  'ordersCod',
+  'inventory',
+  'promotions',
+]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
   { id: 'dashboard', label: 'Tổng quan' },
@@ -50,10 +66,12 @@ export const adminRouteGroups: AdminRouteGroup[] = [
   { id: 'system', label: 'Hệ thống' },
 ]
 
-export const adminRoutes: AdminRoute[] = [
+const implementedAdminRouteIdSet = new Set<AdminRouteId>(IMPLEMENTED_ADMIN_ROUTE_IDS)
+
+const adminRouteRecords: AdminRoute[] = [
   {
     id: 'overview',
-    path: ADMIN_DEFAULT_PATH,
+    path: '/admin/dashboard',
     label: 'Tổng quan',
     helper: 'Tình hình vận hành',
     group: 'dashboard',
@@ -96,8 +114,22 @@ export const adminRoutes: AdminRoute[] = [
   {
     id: 'orders',
     path: '/admin/orders',
-    label: 'Đơn hàng',
-    helper: 'Thanh toán & vận chuyển',
+    label: 'Hóa đơn & đơn hàng',
+    helper: 'Tra cứu mã đơn, hóa đơn & lịch sử',
+    group: 'sales',
+  },
+  {
+    id: 'ordersOnline',
+    path: '/admin/orders/online',
+    label: 'Thanh toán online',
+    helper: 'Đối soát VNPay, MoMo & thẻ',
+    group: 'sales',
+  },
+  {
+    id: 'ordersCod',
+    path: '/admin/orders/cod',
+    label: 'Thanh toán COD',
+    helper: 'Thu tiền khi nhận hàng',
     group: 'sales',
   },
   {
@@ -143,6 +175,11 @@ export const adminRoutes: AdminRoute[] = [
     group: 'system',
   },
 ]
+
+export const adminRoutes: AdminRoute[] = adminRouteRecords.map((route) => ({
+  ...route,
+  isImplemented: implementedAdminRouteIdSet.has(route.id),
+}))
 
 const normalizePathname = (pathname: string) => {
   if (pathname.length > 1 && pathname.endsWith('/')) {

@@ -80,7 +80,7 @@ const buildFallbackOption = (reason: string, note: string | null): ShippingOptio
   provider: 'FIXED',
   serviceId: null,
   serviceTypeId: null,
-  serviceName: 'Tam tinh',
+  serviceName: 'Tạm tính',
   providerCost: DEFAULT_SHIPPING_FEE,
   customerFee: DEFAULT_SHIPPING_FEE,
   estimatedDeliveryDate: null,
@@ -240,7 +240,7 @@ const quoteGhnOptions = async (input: {
     return { options: [], hadUnavailable: false };
   }
 
-  const hasValidCodes = toDistrictId > 0 && toWardCode.length > 0 && !toWardCode.includes('khÃ´ng Ã¡p dá»¥ng');
+  const hasValidCodes = toDistrictId > 0 && toWardCode.length > 0 && !toWardCode.includes('không áp dụng');
   if (!hasValidCodes) {
     return { options: [], hadUnavailable: false };
   }
@@ -373,7 +373,7 @@ const compareCheckout = async (input: {
     selectedOptionKey: recommendedOption.key,
     quoteVersion,
     note: comparisonStatus === 'fallback'
-      ? 'Khu vuc nay chua co mapping van chuyen, he thong dang dung phi tam tinh.'
+      ? 'Khu vực này chưa có mapping vận chuyển, hệ thống đang dùng phí tạm tính.'
       : null,
     options: allOptions,
     shippingQuote: toShippingQuote(recommendedOption),

@@ -1,26 +1,144 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AdminLogin } from '../features/admin/modules/auth/AdminLogin'
+import { ForcePasswordChange } from '../features/admin/modules/auth/ForcePasswordChange'
 import '../features/admin/styles/admin.css'
 import '../features/admin/layouts/admin-layout.css'
 import {
   clearAdminSession,
   getAdminSession,
+  hasStoredAdminUser,
   type AdminSession,
 } from '../features/admin/modules/auth/adminSession'
 import {
   ADMIN_DEFAULT_PATH,
   ADMIN_LOGIN_PATH,
 } from '../features/admin/config/adminRoutes'
+import { logoutAdmin, refreshAdminSession } from '../features/admin/modules/auth/auth.service'
 import { AdminLayout } from '../features/admin/layouts/AdminLayout'
 import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
 import { ProductListPage } from '../features/catalog/pages/ProductListPage'
 import { ProfilePage } from '../features/profile/pages/ProfilePage'
 
+const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
+
 export function Router() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>
     getAdminSession(),
   )
-  const path = window.location.pathname
+  const [path, setPath] = useState(() => window.location.pathname)
+  const [isRestoringAdminSession, setIsRestoringAdminSession] = useState(
+    () => window.location.pathname.startsWith('/admin') && !getAdminSession() && hasStoredAdminUser(),
+  )
+  const replacePath = useCallback((nextPath: string) => {
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(null, '', nextPath)
+    }
+
+    setPath(nextPath)
+  }, [])
+
+  const handleLogout = async () => {
+    const accessToken = adminSession?.accessToken
+    if (accessToken) {
+      await logoutAdmin(accessToken)
+    }
+
+    clearAdminSession()
+    setAdminSession(null)
+    replacePath(ADMIN_LOGIN_PATH)
+  }
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      clearAdminSession()
+      setAdminSession(null)
+      setIsRestoringAdminSession(false)
+      replacePath(ADMIN_LOGIN_PATH)
+    }
+
+    window.addEventListener('admin-session-expired', handleSessionExpired)
+
+    return () => window.removeEventListener('admin-session-expired', handleSessionExpired)
+  }, [replacePath])
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setPath(window.location.pathname)
+    }
+
+    window.addEventListener('popstate', handleLocationChange)
+    window.addEventListener(ADMIN_NAVIGATION_EVENT, handleLocationChange)
+
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange)
+      window.removeEventListener(ADMIN_NAVIGATION_EVENT, handleLocationChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!path.startsWith('/admin') || adminSession || !hasStoredAdminUser()) {
+      setIsRestoringAdminSession(false)
+      return
+    }
+
+    let isCancelled = false
+    setIsRestoringAdminSession(true)
+
+    void refreshAdminSession()
+      .then((session) => {
+        if (isCancelled) return
+
+        setAdminSession(session)
+
+        if (path === ADMIN_LOGIN_PATH || path === '/admin' || path === '/admin/') {
+          replacePath(session.user.mustChangePassword ? '/admin/change-password' : ADMIN_DEFAULT_PATH)
+        }
+      })
+      .catch(() => {
+        if (isCancelled) return
+
+        clearAdminSession()
+        setAdminSession(null)
+        replacePath(ADMIN_LOGIN_PATH)
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsRestoringAdminSession(false)
+        }
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [adminSession, path, replacePath])
+
+  useEffect(() => {
+    if (!path.startsWith('/admin')) {
+      return
+    }
+
+    if (!adminSession) {
+      if (isRestoringAdminSession) {
+        return
+      }
+
+      if (path !== ADMIN_LOGIN_PATH) {
+        replacePath(ADMIN_LOGIN_PATH)
+      }
+      return
+    }
+
+    if (adminSession.user.mustChangePassword) {
+      if (path !== '/admin/change-password') {
+        replacePath('/admin/change-password')
+      }
+      return
+    }
+
+    if (path === ADMIN_LOGIN_PATH || path === '/admin' || path === '/admin/') {
+      replacePath(ADMIN_DEFAULT_PATH)
+    }
+  }, [adminSession, isRestoringAdminSession, path, replacePath])
 
   if (!path.startsWith('/admin')) {
     if (path === '/account') {
@@ -34,27 +152,36 @@ export function Router() {
     return <ProductListPage showSlider={path === '/'} />
   }
 
-  const isLoginRoute = path === ADMIN_LOGIN_PATH
   const handleLoginSuccess = (session: AdminSession) => {
     setAdminSession(session)
-    window.history.replaceState(null, '', ADMIN_DEFAULT_PATH)
-  }
-  const handleLogout = () => {
-    clearAdminSession()
-    setAdminSession(null)
-    window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
+    replacePath(session.user.mustChangePassword ? '/admin/change-password' : ADMIN_DEFAULT_PATH)
   }
 
   if (!adminSession) {
-    if (!isLoginRoute) {
-      window.history.replaceState(null, '', ADMIN_LOGIN_PATH)
+    if (isRestoringAdminSession) {
+      return (
+        <main className="admin-login-page">
+          <section className="admin-login-panel" aria-label="Đang khôi phục phiên quản trị">
+            <div className="admin-login-heading">
+              <p>Admin Portal</p>
+              <h1>Đang khôi phục phiên...</h1>
+            </div>
+          </section>
+        </main>
+      )
     }
 
     return <AdminLogin onLoginSuccess={handleLoginSuccess} />
   }
 
-  if (isLoginRoute || path === '/admin' || path === '/admin/') {
-    window.history.replaceState(null, '', ADMIN_DEFAULT_PATH)
+  if (adminSession.user.mustChangePassword) {
+    return (
+      <ForcePasswordChange
+        session={adminSession}
+        onPasswordChanged={handleLogout}
+        onLogout={handleLogout}
+      />
+    )
   }
 
   return <AdminLayout currentUser={adminSession.user} onLogout={handleLogout} />

@@ -81,11 +81,13 @@ const CouponsScreen = () => {
   const [activeCategory, setActiveCategory] = React.useState<CouponCategory>('all');
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [applyingCouponCode, setApplyingCouponCode] = React.useState<string | null>(null);
   const hasLoadedOnceRef = React.useRef(false);
 
   const routeCartItemIds = route.params?.cartItemIds;
   const cartItemIds = React.useMemo(() => routeCartItemIds ?? [], [routeCartItemIds]);
   const hasCartContext = cartItemIds.length > 0;
+  const paymentMethod = route.params?.paymentMethod ?? 'COD';
 
   const loadCoupons = React.useCallback(
     async (silent = false) => {
@@ -105,7 +107,7 @@ const CouponsScreen = () => {
         const response = await runWithAuth((accessToken) =>
           couponApi.getAvailableCoupons(accessToken, {
             cartItemIds: hasCartContext ? cartItemIds : undefined,
-            paymentMethod: 'COD',
+            paymentMethod,
           }),
         );
         setItems(response.items);
@@ -120,7 +122,7 @@ const CouponsScreen = () => {
         setIsRefreshing(false);
       }
     },
-    [cartItemIds, hasCartContext, runWithAuth, session?.accessToken],
+    [cartItemIds, hasCartContext, paymentMethod, runWithAuth, session?.accessToken],
   );
 
   React.useEffect(() => {
@@ -137,10 +139,29 @@ const CouponsScreen = () => {
       ? items.length
       : items.filter((item) => getCouponCategory(item) === category).length;
 
-  const handleUseCoupon = (item: AvailableCouponItem) => {
+  const handleUseCoupon = async (item: AvailableCouponItem) => {
     if (item.isApplicable === false) {
       Alert.alert('Voucher chưa dùng được', item.reason || 'Voucher chưa phù hợp với đơn hàng này.');
       return;
+    }
+
+    if (hasCartContext && session?.accessToken) {
+      try {
+        setApplyingCouponCode(item.coupon.code);
+        await runWithAuth((accessToken) => couponApi.validateCoupon(accessToken, {
+          couponCode: item.coupon.code,
+          cartItemIds,
+          paymentMethod,
+        }));
+      } catch (error) {
+        Alert.alert(
+          'Voucher chưa dùng được',
+          error instanceof Error ? error.message : 'Voucher không còn phù hợp với đơn hàng này.',
+        );
+        return;
+      } finally {
+        setApplyingCouponCode(null);
+      }
     }
 
     navigation.navigate('Cart', { couponCode: item.coupon.code });
@@ -149,6 +170,7 @@ const CouponsScreen = () => {
   const renderCoupon = (item: AvailableCouponItem) => {
     const estimateText = getEstimateText(item);
     const isDisabled = item.isApplicable === false;
+    const isApplying = applyingCouponCode === item.coupon.code;
     const isSelected = route.params?.selectedCouponCode === item.coupon.code;
     const couponCategory = getCouponCategory(item);
     const typeColor = couponCategory === 'freeship' ? colors.success : colors.brand;
@@ -171,11 +193,16 @@ const CouponsScreen = () => {
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.useButton, isDisabled && styles.useButtonDisabled]}
-            onPress={() => handleUseCoupon(item)}
+            style={[styles.useButton, (isDisabled || isApplying) && styles.useButtonDisabled]}
+            onPress={() => void handleUseCoupon(item)}
+            disabled={isDisabled || isApplying}
             activeOpacity={0.82}
           >
-            <Text style={styles.useButtonText}>{isSelected ? 'Đang dùng' : 'Sử dụng'}</Text>
+            {isApplying ? (
+              <ActivityIndicator color={colors.white} size="small" />
+            ) : (
+              <Text style={styles.useButtonText}>{isSelected ? 'Đang dùng' : 'Sử dụng'}</Text>
+            )}
           </TouchableOpacity>
         </View>
 

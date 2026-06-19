@@ -48,6 +48,7 @@ const impliedPermissions: Partial<Record<StaffPermission, StaffPermission>> = {
   'products.write': 'products.read',
   'catalog.write': 'catalog.read',
   'orders.update': 'orders.read',
+  'payments.adjust': 'orders.read',
   'inventory.write': 'inventory.read',
   'promotions.write': 'promotions.read',
   'loyalty.write': 'loyalty.read',

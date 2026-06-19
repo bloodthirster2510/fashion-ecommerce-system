@@ -3,13 +3,15 @@ import { tokenService } from '../../services/tokenService'
 import type { ApiResponse, AuthSession, Province, RegisterPayload, Ward } from './auth.types'
 import { AuthApiError } from './auth.types'
 
+const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
+
 // Tất cả API auth và location đều trả về dạng { message, data, errors }.
 // Gom logic parse response tại đây giúp component chỉ xử lý dữ liệu thành công hoặc AuthApiError.
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   let response: Response
 
   try {
-    response = await fetch(`${axiosClient.baseURL}${path}`, {
+    response = await axiosClient.fetch(path, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
@@ -43,11 +45,9 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return body.data
 }
 
-// Backend trả cả hai token sau khi đăng nhập hoặc đăng ký.
-// accessToken dùng cho request cần xác thực; refreshToken dùng để xin accessToken mới khi hết hạn.
+// Web chỉ giữ accessToken trong memory. Refresh token nằm trong httpOnly cookie do backend set.
 const saveSession = (session: AuthSession) => {
   tokenService.setAccessToken(session.accessToken)
-  tokenService.setRefreshToken(session.refreshToken)
   tokenService.setCurrentUser(session.user)
 }
 
@@ -55,6 +55,9 @@ export const authService = {
   async login(identifier: string, password: string) {
     const session = await request<AuthSession>('/auth/login', {
       method: 'POST',
+      headers: {
+        [REFRESH_TOKEN_COOKIE_MODE_HEADER]: 'cookie',
+      },
       body: JSON.stringify({ identifier, password }),
     })
 
@@ -79,11 +82,25 @@ export const authService = {
   async register(payload: RegisterPayload) {
     const session = await request<AuthSession>('/auth/register', {
       method: 'POST',
+      headers: {
+        [REFRESH_TOKEN_COOKIE_MODE_HEADER]: 'cookie',
+      },
       body: JSON.stringify(payload),
     })
 
     saveSession(session)
     return session
+  },
+
+  async logout(accessToken?: string | null) {
+    await axiosClient.fetch('/auth/logout', {
+      method: 'POST',
+      headers: {
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        'Content-Type': 'application/json',
+        [REFRESH_TOKEN_COOKIE_MODE_HEADER]: 'cookie',
+      },
+    }).catch(() => undefined)
   },
 
   getProvinces() {

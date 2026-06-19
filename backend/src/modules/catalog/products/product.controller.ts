@@ -24,15 +24,24 @@ const hasStatusCode = (value: unknown): value is { statusCode: number } => {
 
 const getErrorResponse = (e: unknown) => {
   if (e instanceof ProductServiceError || hasStatusCode(e)) {
+    if (e.statusCode >= 500) {
+      console.error('Product controller error:', e);
+      return {
+        statusCode: e.statusCode,
+        message: 'Internal Server Error',
+      };
+    }
+
     return {
       statusCode: e.statusCode,
       message: e instanceof Error ? e.message : 'An error occurred',
     };
   }
 
+  console.error('Product controller error:', e);
   return {
     statusCode: 500,
-    message: e instanceof Error ? e.message : 'An error occurred',
+    message: 'Internal Server Error',
   };
 };
 
@@ -380,9 +389,6 @@ const updateProduct = async (req: Request, res: Response) => {
     if (input.brand_id !== undefined) updateData.brand_id = input.brand_id;
     if (input.description !== undefined) updateData.description = input.description;
     if (input.isActive !== undefined) updateData.isActive = input.isActive;
-    if (input.sold_quantity !== undefined) updateData.sold_quantity = input.sold_quantity;
-    if (input.averageRating !== undefined) updateData.averageRating = input.averageRating;
-    if (input.reviewCount !== undefined) updateData.reviewCount = input.reviewCount;
 
     const shouldReplaceProductImage = Boolean(productImageFile);
     const shouldReplaceVariants = input.variant !== undefined || variantImageFiles.length > 0;

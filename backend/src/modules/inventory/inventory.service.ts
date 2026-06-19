@@ -1,9 +1,10 @@
-import { Types } from 'mongoose';
+import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
   InventoryImport,
   InventoryReservation,
   Product,
+  type IInventoryImport,
   type IInventoryImportDetail,
   type IInventoryReservation,
   type IProductVariant,
@@ -34,6 +35,10 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_RESERVATION_TTL_MINUTES = 15;
+
+type SessionOptions = {
+  session?: ClientSession;
+};
 
 const assertValidObjectId = (id: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -126,12 +131,13 @@ const findProductSelection = async (
   variantId: string,
   colorVariantId: string,
   size: string,
-  options: { requireSellable?: boolean } = {},
+  options: { requireSellable?: boolean; session?: ClientSession } = {},
 ) => {
   const productObjectId = toObjectId(productId, 'productId');
   assertValidObjectId(variantId, 'variantId');
   assertValidObjectId(colorVariantId, 'colorVariantId');
-  const product = await Product.findById(productObjectId);
+  const query = Product.findById(productObjectId);
+  const product = await (options.session ? query.session(options.session) : query);
 
   if (!product) {
     throw new InventoryServiceError('Product not found', 404);
@@ -221,25 +227,6 @@ const buildImportFilter = (query: InventoryImportListQueryInput) => {
   return filter;
 };
 
-const buildImportSyncFilter = (filter: Record<string, unknown>) => {
-  const syncFilter: Record<string, unknown> = {};
-
-  ['productId', 'variantId', 'colorVariantId'].forEach((key) => {
-    if (filter[key]) {
-      syncFilter[key] = filter[key];
-    }
-  });
-
-  return syncFilter;
-};
-
-const getImportInventoryKey = (
-  productId: Types.ObjectId,
-  variantId: Types.ObjectId,
-  colorVariantId: Types.ObjectId,
-  size: string,
-) => [productId.toString(), variantId.toString(), colorVariantId.toString(), size.trim().toLowerCase()].join(':');
-
 const getInventoryByIdOrThrow = async (id: string) => {
   assertValidObjectId(id, 'inventory id');
 
@@ -249,6 +236,41 @@ const getInventoryByIdOrThrow = async (id: string) => {
   }
 
   return inventory;
+};
+
+const didMatchUpdate = (result: unknown) => {
+  if (typeof result !== 'object' || result === null) {
+    return true;
+  }
+
+  const matchedCount = (result as { matchedCount?: unknown }).matchedCount;
+  return typeof matchedCount === 'number' ? matchedCount > 0 : true;
+};
+
+const rollbackInventoryImportDecrements = async (
+  productId: Types.ObjectId,
+  variantId: Types.ObjectId,
+  colorVariantId: Types.ObjectId,
+  details: InventoryImportDetailInput[],
+) => {
+  await Promise.all(
+    details.map((item) =>
+      Inventory.updateOne(
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: item.size,
+        },
+        {
+          $inc: {
+            quantity: item.quantity,
+            availableQuantity: item.quantity,
+          },
+        },
+      ),
+    ),
+  );
 };
 
 const createImport = async (input: CreateInventoryImportInput) => {
@@ -264,7 +286,7 @@ const createImport = async (input: CreateInventoryImportInput) => {
     ),
   );
 
-  const importRecord = await InventoryImport.create({
+  const importPayload = {
     importCode: buildImportCode(),
     supplierName,
     productId,
@@ -272,40 +294,55 @@ const createImport = async (input: CreateInventoryImportInput) => {
     colorVariantId,
     detail,
     totalAmount: getImportTotalAmount(detail),
-  });
+  };
+  const session = await mongoose.startSession();
+  let importRecord: IInventoryImport | null = null;
 
-  await Promise.all(
-    detail.map((item) => {
-      const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
+  try {
+    await session.withTransaction(async () => {
+      const [createdImportRecord] = await InventoryImport.create([importPayload], { session });
 
-      return Inventory.findOneAndUpdate(
-        {
-          productId,
-          variantId,
-          colorVariantId,
-          size: item.size,
-        },
-        {
-          $setOnInsert: {
+      importRecord = createdImportRecord;
+
+      for (const item of detail) {
+        const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
+
+        await Inventory.findOneAndUpdate(
+          {
             productId,
             variantId,
             colorVariantId,
             size: item.size,
-            sku,
-            reservedQuantity: 0,
           },
-          $inc: {
-            quantity: item.quantity,
-            availableQuantity: item.quantity,
+          {
+            $setOnInsert: {
+              productId,
+              variantId,
+              colorVariantId,
+              size: item.size,
+              sku,
+              reservedQuantity: 0,
+            },
+            $inc: {
+              quantity: item.quantity,
+              availableQuantity: item.quantity,
+            },
           },
-        },
-        {
-          new: true,
-          upsert: true,
-        },
-      );
-    }),
-  );
+          {
+            returnDocument: 'after',
+            upsert: true,
+            session,
+          },
+        );
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!importRecord) {
+    throw new InventoryServiceError('Failed to create import', 500);
+  }
 
   return importRecord;
 };
@@ -362,61 +399,9 @@ const getLowStockInventory = async (threshold: number, query: InventoryListQuery
   };
 };
 
-const synchronizeImportRemainingQuantities = async (filter: Record<string, unknown>) => {
-  const syncFilter = buildImportSyncFilter(filter);
-  const imports = await InventoryImport.find(syncFilter).sort({ createdAt: -1 });
-
-  if (!imports.length) {
-    return;
-  }
-
-  const inventoryItems = await Inventory.find(syncFilter)
-    .select('productId variantId colorVariantId size availableQuantity')
-    .lean<Array<{
-      productId: Types.ObjectId;
-      variantId: Types.ObjectId;
-      colorVariantId: Types.ObjectId;
-      size: string;
-      availableQuantity: number;
-    }>>();
-  const remainingByKey = new Map(
-    inventoryItems.map((item) => [
-      getImportInventoryKey(item.productId, item.variantId, item.colorVariantId, item.size),
-      item.availableQuantity,
-    ]),
-  );
-
-  for (const importRecord of imports) {
-    let hasChanged = false;
-
-    importRecord.detail.forEach((detail: IInventoryImportDetail) => {
-      const key = getImportInventoryKey(
-        importRecord.productId,
-        importRecord.variantId,
-        importRecord.colorVariantId,
-        detail.size,
-      );
-      const availableForImport = remainingByKey.get(key) ?? 0;
-      const nextRemainingQuantity = Math.min(detail.quantity, availableForImport);
-
-      if (detail.remainingQuantity !== nextRemainingQuantity) {
-        detail.remainingQuantity = nextRemainingQuantity;
-        hasChanged = true;
-      }
-
-      remainingByKey.set(key, Math.max(0, availableForImport - nextRemainingQuantity));
-    });
-
-    if (hasChanged) {
-      await importRecord.save();
-    }
-  }
-};
-
 const getImports = async (query: InventoryImportListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildImportFilter(query);
-  await synchronizeImportRemainingQuantities(filter);
 
   const [items, totalItems] = await Promise.all([
     InventoryImport.find(filter)
@@ -470,28 +455,11 @@ const deleteImport = async (id: string) => {
     throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
   }
 
-  const stockChecks = await Promise.all(
-    importDetails.map((item) =>
-      Inventory.countDocuments(
-        {
-          productId: importRecord.productId,
-          variantId: importRecord.variantId,
-          colorVariantId: importRecord.colorVariantId,
-          size: item.size,
-          quantity: { $gte: item.quantity },
-          availableQuantity: { $gte: item.quantity },
-        },
-      ),
-    ),
-  );
+  const decrementedDetails: InventoryImportDetailInput[] = [];
 
-  if (stockChecks.some((count) => count < 1)) {
-    throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
-  }
-
-  await Promise.all(
-    importDetails.map((item) =>
-      Inventory.updateOne(
+  try {
+    for (const item of importDetails) {
+      const updateResult = await Inventory.updateOne(
         {
           productId: importRecord.productId,
           variantId: importRecord.variantId,
@@ -506,16 +474,30 @@ const deleteImport = async (id: string) => {
             availableQuantity: -item.quantity,
           },
         },
-      ),
-    ),
-  );
+      );
 
-  await importRecord.deleteOne();
-  return importRecord;
+      if (!didMatchUpdate(updateResult)) {
+        throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+      }
+
+      decrementedDetails.push(item);
+    }
+
+    await importRecord.deleteOne();
+    return importRecord;
+  } catch (error) {
+    await rollbackInventoryImportDecrements(
+      importRecord.productId,
+      importRecord.variantId,
+      importRecord.colorVariantId,
+      decrementedDetails,
+    ).catch(() => undefined);
+    throw error;
+  }
 };
 
 const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
-  const inventory = await getInventoryByIdOrThrow(id);
+  assertValidObjectId(id, 'inventory id');
 
   if (input.quantity === undefined && input.deltaQuantity === undefined) {
     throw new InventoryServiceError('quantity or deltaQuantity is required', 400);
@@ -525,19 +507,76 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
     throw new InventoryServiceError('Use either quantity or deltaQuantity, not both', 400);
   }
 
-  const nextQuantity =
-    input.quantity !== undefined ? input.quantity : inventory.quantity + Number(input.deltaQuantity);
+  const inventoryId = new Types.ObjectId(id);
+  const updateFilter: Record<string, unknown> = { _id: inventoryId };
+  let updatePipeline: Record<string, unknown>[];
+  let deltaQuantity = 0;
 
-  assertPositiveInteger(nextQuantity, 'quantity', 0);
+  if (input.quantity !== undefined) {
+    assertPositiveInteger(input.quantity, 'quantity', 0);
+    updateFilter.reservedQuantity = { $lte: input.quantity };
+    updatePipeline = [
+      {
+        $set: {
+          quantity: input.quantity,
+          availableQuantity: { $subtract: [input.quantity, '$reservedQuantity'] },
+        },
+      },
+    ];
+  } else {
+    deltaQuantity = Number(input.deltaQuantity);
+    if (!Number.isInteger(deltaQuantity)) {
+      throw new InventoryServiceError('deltaQuantity must be an integer', 400);
+    }
+    updateFilter.$expr = {
+      $gte: [{ $add: ['$quantity', deltaQuantity] }, '$reservedQuantity'],
+    };
+    updatePipeline = [
+      {
+        $set: {
+          quantity: { $add: ['$quantity', deltaQuantity] },
+          availableQuantity: { $add: ['$availableQuantity', deltaQuantity] },
+        },
+      },
+    ];
+  }
 
-  if (nextQuantity < inventory.reservedQuantity) {
+  const previousInventory = await Inventory.findOneAndUpdate(
+    updateFilter,
+    updatePipeline,
+    {
+      returnDocument: 'before',
+      runValidators: true,
+    },
+  );
+
+  if (!previousInventory) {
+    const existingInventory = await Inventory.findById(id);
+    if (!existingInventory) {
+      throw new InventoryServiceError('Inventory item not found', 404);
+    }
+
     throw new InventoryServiceError('quantity cannot be lower than reservedQuantity', 400);
   }
 
-  inventory.quantity = nextQuantity;
-  inventory.availableQuantity = nextQuantity - inventory.reservedQuantity;
+  if (input.quantity !== undefined) {
+    deltaQuantity = input.quantity - previousInventory.quantity;
+  }
 
-  return inventory.save();
+  if (deltaQuantity !== 0) {
+    await adjustImportRemainingQuantity(
+      {
+        productId: previousInventory.productId,
+        variantId: previousInventory.variantId,
+        colorVariantId: previousInventory.colorVariantId,
+        size: previousInventory.size,
+      },
+      Math.abs(deltaQuantity),
+      deltaQuantity < 0 ? 'consume' : 'restore',
+    );
+  }
+
+  return getInventoryByIdOrThrow(id);
 };
 
 const buildImportCode = () => {
@@ -559,14 +598,16 @@ const adjustImportRemainingQuantity = async (
   },
   quantity: number,
   mode: 'consume' | 'restore',
+  options: SessionOptions = {},
 ) => {
   let remaining = quantity;
-  const imports = await InventoryImport.find({
+  const query = InventoryImport.find({
     productId: selector.productId,
     variantId: selector.variantId,
     colorVariantId: selector.colorVariantId,
     'detail.size': selector.size,
   }).sort({ createdAt: mode === 'consume' ? 1 : -1 });
+  const imports = await (options.session ? query.session(options.session) : query);
 
   for (const importRecord of imports) {
     if (remaining <= 0) break;
@@ -583,12 +624,16 @@ const adjustImportRemainingQuantity = async (
 
     detail.remainingQuantity += mode === 'consume' ? -delta : delta;
     remaining -= delta;
-    await importRecord.save();
+    if (options.session) {
+      await importRecord.save({ session: options.session });
+    } else {
+      await importRecord.save();
+    }
   }
 
-  if (remaining > 0) {
-    throw new InventoryServiceError('Cannot synchronize import remaining quantity', 409);
-  }
+  // Manual stock adjustments can make inventory quantity diverge from import lots.
+  // Keep lot counters bounded, but never block checkout/restock for stock that
+  // legitimately exists outside import history.
 };
 
 const consumeImportRemainingQuantities = async (
@@ -599,9 +644,10 @@ const consumeImportRemainingQuantities = async (
     size: string;
     quantity: number;
   }>,
+  options: SessionOptions = {},
 ) => {
   for (const item of items) {
-    await adjustImportRemainingQuantity(item, item.quantity, 'consume');
+    await adjustImportRemainingQuantity(item, item.quantity, 'consume', options);
   }
 };
 
@@ -630,7 +676,7 @@ const deleteInventory = async (id: string) => {
   return inventory;
 };
 
-const normalizeReservationItem = async (item: InventoryReservationItemInput) => {
+const normalizeReservationItem = async (item: InventoryReservationItemInput, options: SessionOptions = {}) => {
   assertPositiveInteger(item.quantity, 'Reservation quantity');
 
   const selection = await findProductSelection(
@@ -638,7 +684,7 @@ const normalizeReservationItem = async (item: InventoryReservationItemInput) => 
     item.variantId,
     item.colorVariantId,
     item.size,
-    { requireSellable: true },
+    { requireSellable: true, session: options.session },
   );
 
   return {
@@ -670,28 +716,31 @@ const rollbackReservedItems = async (
     size: string;
     quantity: number;
   }>,
+  options: SessionOptions = {},
 ) => {
   await Promise.all(
-    reservedItems.map((item) =>
-      Inventory.updateOne(
-        {
-          productId: item.productId,
-          variantId: item.variantId,
-          colorVariantId: item.colorVariantId,
-          size: item.size,
+    reservedItems.map((item) => {
+      const filter = {
+        productId: item.productId,
+        variantId: item.variantId,
+        colorVariantId: item.colorVariantId,
+        size: item.size,
+      };
+      const update = {
+        $inc: {
+          reservedQuantity: -item.quantity,
+          availableQuantity: item.quantity,
         },
-        {
-          $inc: {
-            reservedQuantity: -item.quantity,
-            availableQuantity: item.quantity,
-          },
-        },
-      ),
-    ),
+      };
+
+      return options.session
+        ? Inventory.updateOne(filter, update, { session: options.session })
+        : Inventory.updateOne(filter, update);
+    }),
   );
 };
 
-const reserveInventory = async (input: ReserveInventoryInput) => {
+const reserveInventory = async (input: ReserveInventoryInput, options: SessionOptions = {}) => {
   const userId = toObjectId(input.userId, 'userId');
   const orderId = input.orderId ? toObjectId(input.orderId, 'orderId') : null;
 
@@ -704,7 +753,7 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
     throw new InventoryServiceError('expiresAt must be in the future', 400);
   }
 
-  const normalizedItems = await Promise.all(input.items.map(normalizeReservationItem));
+  const normalizedItems = await Promise.all(input.items.map((item) => normalizeReservationItem(item, options)));
   const reservedItems: typeof normalizedItems = [];
   const reservations: IInventoryReservation[] = [];
 
@@ -724,7 +773,10 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
             availableQuantity: -item.quantity,
           },
         },
-        { new: true },
+        {
+          returnDocument: 'after',
+          ...(options.session ? { session: options.session } : {}),
+        },
       );
 
       if (!inventory) {
@@ -733,7 +785,7 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
 
       reservedItems.push(item);
 
-      const reservation = await InventoryReservation.create({
+      const reservationPayload = {
         userId,
         orderId,
         productId: item.productId,
@@ -744,12 +796,15 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
         quantity: item.quantity,
         status: 'active',
         expiresAt,
-      });
+      };
+      const reservation = options.session
+        ? (await InventoryReservation.create([reservationPayload], { session: options.session }))[0]
+        : await InventoryReservation.create(reservationPayload);
 
       reservations.push(reservation);
     }
   } catch (error) {
-    await rollbackReservedItems(reservedItems);
+    await rollbackReservedItems(reservedItems, options);
     throw error;
   }
 
@@ -779,9 +834,10 @@ const buildReservationFilter = (selector: ReservationSelectorInput): Record<stri
 const transitionReservations = async (
   selector: ReservationSelectorInput,
   status: Exclude<InventoryReservationStatus, 'active'>,
-  options: { allowEmpty?: boolean } = {},
+  options: { allowEmpty?: boolean; session?: ClientSession } = {},
 ) => {
-  const reservations = await InventoryReservation.find(buildReservationFilter(selector));
+  const query = InventoryReservation.find(buildReservationFilter(selector));
+  const reservations = await (options.session ? query.session(options.session) : query);
   const committedItems: Array<{
     productId: Types.ObjectId;
     variantId: Types.ObjectId;
@@ -796,21 +852,25 @@ const transitionReservations = async (
 
   for (const reservation of reservations) {
     if (status === 'committed') {
-      await Inventory.updateOne(
-        {
-          productId: reservation.productId,
-          variantId: reservation.variantId,
-          colorVariantId: reservation.colorVariantId,
-          size: reservation.size,
-          reservedQuantity: { $gte: reservation.quantity },
+      const filter = {
+        productId: reservation.productId,
+        variantId: reservation.variantId,
+        colorVariantId: reservation.colorVariantId,
+        size: reservation.size,
+        reservedQuantity: { $gte: reservation.quantity },
+      };
+      const update = {
+        $inc: {
+          quantity: -reservation.quantity,
+          reservedQuantity: -reservation.quantity,
         },
-        {
-          $inc: {
-            quantity: -reservation.quantity,
-            reservedQuantity: -reservation.quantity,
-          },
-        },
-      );
+      };
+
+      if (options.session) {
+        await Inventory.updateOne(filter, update, { session: options.session });
+      } else {
+        await Inventory.updateOne(filter, update);
+      }
       committedItems.push({
         productId: reservation.productId,
         variantId: reservation.variantId,
@@ -819,40 +879,48 @@ const transitionReservations = async (
         quantity: reservation.quantity,
       });
     } else {
-      await Inventory.updateOne(
-        {
-          productId: reservation.productId,
-          variantId: reservation.variantId,
-          colorVariantId: reservation.colorVariantId,
-          size: reservation.size,
-          reservedQuantity: { $gte: reservation.quantity },
+      const filter = {
+        productId: reservation.productId,
+        variantId: reservation.variantId,
+        colorVariantId: reservation.colorVariantId,
+        size: reservation.size,
+        reservedQuantity: { $gte: reservation.quantity },
+      };
+      const update = {
+        $inc: {
+          reservedQuantity: -reservation.quantity,
+          availableQuantity: reservation.quantity,
         },
-        {
-          $inc: {
-            reservedQuantity: -reservation.quantity,
-            availableQuantity: reservation.quantity,
-          },
-        },
-      );
+      };
+
+      if (options.session) {
+        await Inventory.updateOne(filter, update, { session: options.session });
+      } else {
+        await Inventory.updateOne(filter, update);
+      }
     }
 
     reservation.status = status;
-    await reservation.save();
+    if (options.session) {
+      await reservation.save({ session: options.session });
+    } else {
+      await reservation.save();
+    }
   }
 
   if (committedItems.length) {
-    await consumeImportRemainingQuantities(committedItems);
+    await consumeImportRemainingQuantities(committedItems, options);
   }
 
   return reservations;
 };
 
-const releaseReservations = (selector: ReservationSelectorInput) => {
-  return transitionReservations(selector, 'released');
+const releaseReservations = (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
+  return transitionReservations(selector, 'released', options);
 };
 
-const commitReservations = (selector: ReservationSelectorInput) => {
-  return transitionReservations(selector, 'committed');
+const commitReservations = (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
+  return transitionReservations(selector, 'committed', options);
 };
 
 const expireReservations = async (now = new Date()) => {

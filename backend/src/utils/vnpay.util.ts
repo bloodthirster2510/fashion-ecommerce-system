@@ -24,7 +24,7 @@ export const sanitizeVNPayOrderInfo = (info: string) => {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return (sanitized || 'Thanh toan don hang').slice(0, 255);
+  return (sanitized || 'Thanh toán đơn hàng').slice(0, 255);
 };
 
 export const normalizeVNPayParams = (params: Record<string, unknown>) => {

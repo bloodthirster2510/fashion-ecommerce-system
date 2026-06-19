@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import * as WebBrowser from 'expo-web-browser';
 import * as Facebook from 'expo-auth-session/providers/facebook';
 import { authApi, type AuthSession } from './authApi';
-
-WebBrowser.maybeCompleteAuthSession();
 
 export const useFacebookAuth = (onSuccess: (session: AuthSession) => void) => {
   const [loading, setLoading] = useState(false);

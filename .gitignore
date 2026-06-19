@@ -141,3 +141,15 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Project specific
+.codex-remote-attachments/
+
+# Local audit/fix notes
+BugList.md
+LoyaltyPromotions-Fix.md
+Bug.md
+docs/
+.kilo/
+local-scraped-catalog/
+tools/

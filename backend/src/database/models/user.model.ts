@@ -10,6 +10,8 @@ export type StaffPermission =
   | 'catalog.write'
   | 'orders.read'
   | 'orders.update'
+  | 'payments.adjust'
+  | 'audit.read'
   | 'inventory.read'
   | 'inventory.write'
   | 'promotions.read'
@@ -115,7 +117,6 @@ const userSchema = new Schema<IUser>(
     email: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       lowercase: true,
       maxlength: 254,

@@ -3,7 +3,7 @@ export type MembershipRanking = {
   name: string
   level: number
   minPoint: number
-  maxPoint: number | null
+  maxPoint?: number | null
   discountPercent: number
   benefitDescription?: string
   cardColor?: string
@@ -11,13 +11,14 @@ export type MembershipRanking = {
   badgeColor?: string
   iconName?: string
   isActive?: boolean
+  memberCount?: number
 }
 
 export type MembershipRankingPayload = {
   name: string
   level: number
   minPoint: number
-  maxPoint: number | null
+  maxPoint?: number | null
   discountPercent: number
   benefitDescription: string
   cardColor: string

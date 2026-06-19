@@ -2,7 +2,7 @@ name: Mobile Frontend CI
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, "feature/*"]
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-frontend-ci.yml"

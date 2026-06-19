@@ -21,7 +21,7 @@ const request = async <T>(path: string): Promise<T> => {
   let response: Response
 
   try {
-    response = await fetch(`${axiosClient.baseURL}${path}`)
+    response = await axiosClient.fetch(path)
   } catch {
     throw new CatalogApiError('Không thể kết nối tới server danh mục.')
   }

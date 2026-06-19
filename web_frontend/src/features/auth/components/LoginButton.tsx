@@ -51,11 +51,16 @@ export function LoginButton() {
 
   const handleAuthenticated = (user: AuthUser) => {
     // Khi login hoặc register thành công, cập nhật state ngay để header đổi UI tức thì.
-    // User cũng đã được authService lưu vào localStorage để vẫn hiển thị sau khi refresh trang.
+    // User được lưu lại để header vẫn hiển thị sau refresh; token không lưu localStorage.
     dispatch(setCurrentUser(user))
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const accessToken = tokenService.getAccessToken()
+    if (accessToken) {
+      await authService.logout(accessToken)
+    }
+
     tokenService.clearSession()
     dispatch(clearCurrentUser())
     message.success('Đã đăng xuất.')
@@ -72,7 +77,7 @@ export function LoginButton() {
     setLoginError('')
 
     try {
-      // authService chịu trách nhiệm gọi API và lưu access token, refresh token.
+      // authService chịu trách nhiệm gọi API và giữ access token trong memory.
       const session = await authService.login(values.identifier.trim(), values.password)
       handleAuthenticated(session.user)
       message.success('Đăng nhập thành công.')

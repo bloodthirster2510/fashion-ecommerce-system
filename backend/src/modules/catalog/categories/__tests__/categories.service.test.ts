@@ -32,6 +32,7 @@ jest.mock('../../../../database/models/coupon.model', () => ({
 const mockedCategory = Category as jest.Mocked<typeof Category>;
 const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
+const categoryImageUrl = 'https://res.cloudinary.com/demo/image/upload/v1/categories/shirts.png';
 
 describe('categoryService', () => {
   beforeEach(() => {
@@ -50,7 +51,7 @@ describe('categoryService', () => {
       parent_id: null,
       level: 1,
       gender: 'male',
-      image: ' https://example.com/category.png ',
+      image: ` ${categoryImageUrl} `,
       description: ' Men shirts category ',
     });
 
@@ -60,7 +61,7 @@ describe('categoryService', () => {
       parent_id: null,
       level: 1,
       gender: 'male',
-      image: 'https://example.com/category.png',
+      image: categoryImageUrl,
       description: 'Men shirts category',
       isLeaf: false,
       isSizeTemplateSource: false,
@@ -83,7 +84,7 @@ describe('categoryService', () => {
       parent_id: null,
       level: 1,
       gender: 'male',
-      image: ' https://example.com/category.png ',
+      image: ` ${categoryImageUrl} `,
       description: ' Men shirts category ',
       isSizeTemplateSource: true,
       sizes: ['S', 'M', 'L'],
@@ -130,11 +131,11 @@ describe('categoryService', () => {
     await expect(
       categoryService.createCategory({
         name: 'Shirts',
-        parent_id: 'invalid-id',
-        level: 2,
-        gender: 'male',
-        image: 'https://example.com/category.png',
-        description: 'Men shirts category',
+      parent_id: 'invalid-id',
+      level: 2,
+      gender: 'male',
+      image: categoryImageUrl,
+      description: 'Men shirts category',
       }),
     ).rejects.toMatchObject({
       message: 'Invalid category id',
@@ -148,15 +149,33 @@ describe('categoryService', () => {
     await expect(
       categoryService.createCategory({
         name: 'Shirts',
-        parent_id: '665000000000000000000001',
-        level: 2,
+      parent_id: '665000000000000000000001',
+      level: 2,
+      gender: 'male',
+      image: categoryImageUrl,
+      description: 'Men shirts category',
+    }),
+    ).rejects.toMatchObject({
+      message: 'Parent category not found',
+      statusCode: 404,
+    });
+  });
+
+  it('throws 400 when category image URL is not a whitelisted Cloudinary host', async () => {
+    mockedCategory.findOne.mockResolvedValue(null);
+
+    await expect(
+      categoryService.createCategory({
+        name: 'Shirts',
+        parent_id: null,
+        level: 1,
         gender: 'male',
         image: 'https://example.com/category.png',
         description: 'Men shirts category',
       }),
     ).rejects.toMatchObject({
-      message: 'Parent category not found',
-      statusCode: 404,
+      message: 'Image URL host is not allowed',
+      statusCode: 400,
     });
   });
 
@@ -203,7 +222,7 @@ describe('categoryService', () => {
       parent_id: '665000000000000000000001',
       level: 9,
       gender: 'male',
-      image: 'https://example.com/category.png',
+      image: categoryImageUrl,
       description: 'Men t-shirts category',
     });
 
@@ -230,7 +249,7 @@ describe('categoryService', () => {
       parent_id: '665000000000000000000001',
       level: 2,
       gender: 'male',
-      image: 'https://example.com/category.png',
+      image: categoryImageUrl,
       description: 'Women sneakers category',
     });
 
@@ -281,7 +300,7 @@ describe('categoryService', () => {
         gender: 'female',
       }),
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       },
     );
@@ -326,7 +345,7 @@ describe('categoryService', () => {
       '665000000000000000000001',
       { isActive: false },
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       },
     );

@@ -28,7 +28,7 @@ export type MembershipTier = {
   minPoint: number;
   maxPoint: number | null;
   discountPercent: number;
-  benefitDescription: string;
+  benefitDescription?: string;
   cardColor?: string;
   textColor?: string;
   badgeColor?: string;
@@ -36,10 +36,10 @@ export type MembershipTier = {
 };
 
 export type MembershipResponse = {
-  currentTier: MembershipTier;
+  currentTier: MembershipTier | null;
   nextTier: MembershipTier | null;
   loyaltyPoint: number;
-  pointToNextTier: number;
+  pointToNextTier: number | null;
   progressPercent: number;
   tiers: MembershipTier[];
 };

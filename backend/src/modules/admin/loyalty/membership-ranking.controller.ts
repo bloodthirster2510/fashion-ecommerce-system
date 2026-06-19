@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../../utils/response';
+import { auditLogService } from '../../audit-logs/audit-log.service';
 import {
   MembershipRankingServiceError,
   membershipRankingAdminService,
@@ -26,6 +27,31 @@ const getParamId = (req: Request) => {
   return Array.isArray(id) ? id[0] : id;
 };
 
+const getAuditActorRole = (req: Request) => req.user?.role === 'admin' ? 'admin' : 'staff';
+
+const toAuditSnapshot = (ranking: unknown) => {
+  if (ranking && typeof ranking === 'object' && 'toObject' in ranking) {
+    return (ranking as { toObject(): Record<string, unknown> }).toObject();
+  }
+
+  return ranking as Record<string, unknown>;
+};
+
+const recordRankingAudit = async (
+  req: Request,
+  action: 'membership_ranking.create' | 'membership_ranking.update' | 'membership_ranking.status_update' | 'membership_ranking.delete',
+  ranking: { _id: unknown },
+) => {
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: req.user?.userId ?? null,
+    actorRole: getAuditActorRole(req),
+    action,
+    targetType: 'MembershipRanking',
+    targetId: String(ranking._id),
+    after: toAuditSnapshot(ranking),
+  });
+};
+
 export const listMembershipRankings = async (_req: Request, res: Response) => {
   try {
     const rankings = await membershipRankingAdminService.listMembershipRankings();
@@ -42,6 +68,7 @@ export const createMembershipRanking = async (req: Request, res: Response) => {
     const ranking = await membershipRankingAdminService.createMembershipRanking(
       req.body as MembershipRankingPayload,
     );
+    await recordRankingAudit(req, 'membership_ranking.create', ranking);
 
     return created(res, ranking);
   } catch (error) {
@@ -56,6 +83,9 @@ export const updateMembershipRanking = async (req: Request, res: Response) => {
       getParamId(req),
       req.body as MembershipRankingPayload,
     );
+    if (ranking) {
+      await recordRankingAudit(req, 'membership_ranking.update', ranking);
+    }
 
     return ok(res, ranking);
   } catch (error) {
@@ -70,6 +100,9 @@ export const updateMembershipRankingStatus = async (req: Request, res: Response)
       getParamId(req),
       req.body.isActive,
     );
+    if (ranking) {
+      await recordRankingAudit(req, 'membership_ranking.status_update', ranking);
+    }
 
     return ok(res, ranking);
   } catch (error) {
@@ -81,6 +114,9 @@ export const updateMembershipRankingStatus = async (req: Request, res: Response)
 export const deleteMembershipRanking = async (req: Request, res: Response) => {
   try {
     const ranking = await membershipRankingAdminService.deleteMembershipRanking(getParamId(req));
+    if (ranking) {
+      await recordRankingAudit(req, 'membership_ranking.delete', ranking);
+    }
 
     return ok(res, ranking);
   } catch (error) {

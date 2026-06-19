@@ -61,7 +61,8 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
 
-  const canEditUsers = currentUser.role === 'admin'
+  const canEditUsers =
+    currentUser.role === 'admin' || currentUser.permissions?.includes('customers.manage') === true
 
   const activeCount = useMemo(
     () => users.filter((user) => user.isActive).length,

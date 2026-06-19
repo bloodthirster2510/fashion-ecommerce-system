@@ -33,8 +33,9 @@ export function ProductCard({ product }: ProductCardProps) {
           <Button
             className="product-cart-button"
             type="text"
+            href={`/products/${product._id}`}
             icon={<ShoppingCartOutlined />}
-            aria-label={`Thêm ${product.name} vào giỏ hàng`}
+            aria-label={`Chọn phân loại ${product.name}`}
           />
         </div>
       </div>

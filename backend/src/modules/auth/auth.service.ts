@@ -2,12 +2,31 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { User, type AuthProviderName, type IUser } from '../../database/models/user.model';
-import { generateAccessToken, generateRefreshToken, verifyRefreshToken, JwtPayload } from '../../utils/jwt';
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  JwtPayload,
+} from '../../utils/jwt';
 import { sendResetPasswordEmail } from '../../utils/email';
 import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 
 const SALT_ROUNDS = 10;
+const DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS = 60_000;
+const DEFAULT_AUTH_IDENTIFIER_WINDOW_MS = 15 * 60 * 1000;
+const DEFAULT_AUTH_IDENTIFIER_MAX_ATTEMPTS = 5;
+const DEFAULT_AUTH_IDENTIFIER_LOCK_MS = 15 * 60 * 1000;
+
+type AuthIdentifierThrottleBucket = {
+  count: number;
+  resetAt: number;
+  lastRequestedAt: number;
+  lockedUntil?: number;
+};
+
+const authIdentifierThrottleStore = new Map<string, AuthIdentifierThrottleBucket>();
 
 const hashPassword = async (password: string): Promise<string> => {
   return bcrypt.hash(password, SALT_ROUNDS);
@@ -15,6 +34,69 @@ const hashPassword = async (password: string): Promise<string> => {
 
 const comparePassword = async (password: string, hash: string): Promise<boolean> => {
   return bcrypt.compare(password, hash);
+};
+
+const hashRefreshToken = (token: string) => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const parsePositiveIntegerEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+};
+
+const createAuthThrottleError = () => ({
+  status: 429,
+  message: 'Vui lòng chờ trước khi yêu cầu mã mới',
+});
+
+const normalizeThrottleIdentifier = (identifier: string) => identifier.trim().toLowerCase();
+
+const assertAuthIdentifierNotThrottled = (flow: 'send-otp' | 'forgot-password', identifier: string) => {
+  const now = Date.now();
+  const key = `${flow}:${normalizeThrottleIdentifier(identifier)}`;
+  const cooldownMs = parsePositiveIntegerEnv(
+    'AUTH_IDENTIFIER_COOLDOWN_MS',
+    DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS,
+  );
+  const windowMs = parsePositiveIntegerEnv('AUTH_IDENTIFIER_WINDOW_MS', DEFAULT_AUTH_IDENTIFIER_WINDOW_MS);
+  const maxAttempts = parsePositiveIntegerEnv(
+    'AUTH_IDENTIFIER_MAX_ATTEMPTS',
+    DEFAULT_AUTH_IDENTIFIER_MAX_ATTEMPTS,
+  );
+  const lockMs = parsePositiveIntegerEnv('AUTH_IDENTIFIER_LOCK_MS', DEFAULT_AUTH_IDENTIFIER_LOCK_MS);
+  const existingBucket = authIdentifierThrottleStore.get(key);
+
+  if (existingBucket?.lockedUntil && existingBucket.lockedUntil > now) {
+    throw createAuthThrottleError();
+  }
+
+  if (existingBucket && now - existingBucket.lastRequestedAt < cooldownMs) {
+    throw createAuthThrottleError();
+  }
+
+  const bucket =
+    existingBucket && existingBucket.resetAt > now
+      ? existingBucket
+      : { count: 0, resetAt: now + windowMs, lastRequestedAt: 0 };
+
+  bucket.count += 1;
+  bucket.lastRequestedAt = now;
+
+  if (bucket.count > maxAttempts) {
+    bucket.lockedUntil = now + lockMs;
+    authIdentifierThrottleStore.set(key, bucket);
+    throw createAuthThrottleError();
+  }
+
+  delete bucket.lockedUntil;
+  authIdentifierThrottleStore.set(key, bucket);
+};
+
+export const clearAuthRequestThrottleForTests = () => {
+  if (process.env.NODE_ENV === 'test') {
+    authIdentifierThrottleStore.clear();
+  }
 };
 
 const updateAuthFields = async (user: IUser, fields: Record<string, unknown>) => {
@@ -69,16 +151,15 @@ const linkAuthProvider = async (user: IUser, provider: AuthProviderName, provide
 };
 
 export const sendOtp = async (phone: string) => {
+  assertAuthIdentifierNotThrottled('send-otp', phone);
   const existingUser = await User.findOne({ phone });
-  if (existingUser) {
-    throw { status: 409, message: 'Số điện thoại đã được sử dụng' };
-  }
+  if (existingUser) return;
 
   await sendOtpSms(phone);
 };
 
-export const verifyOtp = (phone: string, otp: string): string => {
-  const token = verifyOtpCode(phone, otp);
+export const verifyOtp = async (phone: string, otp: string): Promise<string> => {
+  const token = await verifyOtpCode(phone, otp);
   if (!token) {
     throw { status: 400, message: 'Mã OTP không hợp lệ hoặc đã hết hạn' };
   }
@@ -95,7 +176,7 @@ export const registerUser = async (data: {
   address: UserAddressInput;
   otpToken: string;
 }) => {
-  if (!verifyOtpToken(data.phone, data.otpToken)) {
+  if (!(await verifyOtpToken(data.phone, data.otpToken))) {
     throw { status: 400, message: 'Số điện thoại chưa được xác thực' };
   }
 
@@ -132,7 +213,7 @@ export const registerUser = async (data: {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -141,7 +222,11 @@ export const registerUser = async (data: {
   };
 };
 
-export const loginUser = async (identifier: string, password: string) => {
+const loginWithPassword = async (
+  identifier: string,
+  password: string,
+  options: { allowedRoles?: Array<IUser['role']> } = {},
+) => {
   const isEmail = identifier.includes('@');
   const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
 
@@ -160,11 +245,15 @@ export const loginUser = async (identifier: string, password: string) => {
     throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
   }
 
+  if (options.allowedRoles && !options.allowedRoles.includes(user.role)) {
+    throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
+  }
+
   const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -173,8 +262,26 @@ export const loginUser = async (identifier: string, password: string) => {
   };
 };
 
+export const loginUser = async (identifier: string, password: string) => {
+  return loginWithPassword(identifier, password);
+};
+
+export const loginAdminUser = async (identifier: string, password: string) => {
+  return loginWithPassword(identifier, password, { allowedRoles: ['admin', 'staff'] });
+};
+
 export const logoutUser = async (userId: string) => {
   await User.updateOne({ _id: userId }, { $set: { refreshToken: null } });
+};
+
+export const logoutWithAccessToken = async (token: string) => {
+  const payload = verifyAccessToken(token);
+  await logoutUser(payload.userId);
+};
+
+export const logoutWithRefreshToken = async (token: string) => {
+  const payload = verifyRefreshToken(token);
+  await logoutUser(payload.userId);
 };
 
 export const refreshAccessToken = async (token: string) => {
@@ -186,7 +293,8 @@ export const refreshAccessToken = async (token: string) => {
   }
 
   const user = await User.findById(payload.userId);
-  if (!user || user.refreshToken !== token) {
+  const tokenHash = hashRefreshToken(token);
+  if (!user || (user.refreshToken !== tokenHash && user.refreshToken !== token)) {
     throw { status: 401, message: 'Refresh token không hợp lệ' };
   }
 
@@ -194,12 +302,18 @@ export const refreshAccessToken = async (token: string) => {
   const newAccessToken = generateAccessToken(newPayload);
   const newRefreshToken = generateRefreshToken(newPayload);
 
-  await updateAuthFields(user, { refreshToken: newRefreshToken });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(newRefreshToken) });
 
   return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
 
 export const forgotPassword = async (identifier: string) => {
+  try {
+    assertAuthIdentifierNotThrottled('forgot-password', identifier);
+  } catch {
+    return;
+  }
+
   const isEmail = identifier.includes('@');
   const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
 
@@ -238,7 +352,7 @@ export const resetPassword = async (identifier: string, token: string, newPasswo
       throw { status: 400, message: 'Token không hợp lệ hoặc đã hết hạn' };
     }
   } else {
-    if (!verifyOtpToken(identifier, token)) {
+    if (!(await verifyOtpToken(identifier, token))) {
       throw { status: 400, message: 'Mã xác thực không hợp lệ hoặc đã hết hạn' };
     }
     user = await User.findOne({ phone: identifier });
@@ -295,7 +409,7 @@ const generateUserTokens = async (user: IUser) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken, lastLoginAt: new Date() });
+  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
 
   return {
     accessToken,
@@ -323,6 +437,7 @@ const googleLogin = async (idToken: string) => {
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
     });
     payload = ticket.getPayload();
   } catch {
@@ -360,12 +475,25 @@ const googleLogin = async (idToken: string) => {
 };
 
 const facebookLogin = async (accessToken: string) => {
-  if (!process.env.FACEBOOK_APP_ID) {
+  const appId = process.env.FACEBOOK_APP_ID?.trim();
+  const appSecret = process.env.FACEBOOK_APP_SECRET?.trim();
+
+  if (!appId || !appSecret) {
     throw { status: 500, message: 'Facebook Sign-In chưa được cấu hình' };
   }
 
   let fbUser;
   try {
+    const debugResponse = await fetch(
+      `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`,
+    );
+    const debugPayload = await debugResponse.json();
+    const debugData = debugPayload?.data;
+
+    if (!debugData?.is_valid || debugData.app_id !== appId || !debugData.user_id) {
+      throw new Error('Invalid Facebook token');
+    }
+
     const response = await fetch(
       `https://graph.facebook.com/me?fields=id,name,email&access_token=${accessToken}`,
     );
@@ -375,7 +503,7 @@ const facebookLogin = async (accessToken: string) => {
       throw new Error(fbUser.error.message);
     }
 
-    if (!fbUser.id) {
+    if (!fbUser.id || fbUser.id !== debugData.user_id) {
       throw new Error('Invalid Facebook token');
     }
   } catch {

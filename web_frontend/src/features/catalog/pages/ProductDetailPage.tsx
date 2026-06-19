@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Empty, Spin } from 'antd'
+import { Alert, Button, Empty, Spin, message } from 'antd'
 import {
   CarOutlined,
   HeartOutlined,
@@ -13,6 +13,7 @@ import {
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
 import { catalogService } from '../catalog.service'
+import { customerProductActionsService } from '../customerProductActions.service'
 import type { ProductColorVariant, ProductDetail, ProductVariant } from '../catalog.types'
 import '../catalog.css'
 
@@ -47,6 +48,10 @@ export function ProductDetailPage() {
   const [thumbnailStart, setThumbnailStart] = useState(0)
   const [quantity, setQuantity] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
+  const [isAddingToCart, setIsAddingToCart] = useState(false)
+  const [isBuyingNow, setIsBuyingNow] = useState(false)
+  const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false)
+  const [isFavorited, setIsFavorited] = useState(false)
   const [error, setError] = useState('')
 
  useEffect(() => {
@@ -101,6 +106,25 @@ export function ProductDetailPage() {
   }
 }, [productId])
 
+  useEffect(() => {
+    let isMounted = true
+
+    customerProductActionsService
+      .getFavoriteStatus(productId)
+      .then((status) => {
+        if (!isMounted) return
+        setIsFavorited(status.isFavorited)
+      })
+      .catch(() => {
+        if (!isMounted) return
+        setIsFavorited(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [productId])
+
   const selectedVariant = useMemo(() => {
     return product?.variants.find((variant) => variant._id === selectedVariantId) ?? product?.variants[0]
   }, [product, selectedVariantId])
@@ -113,11 +137,15 @@ export function ProductDetailPage() {
     (item) => item.colorVariantId === selectedColor?._id && item.size === selectedSize,
   )
   const sku = stockItem?.sku ?? product?._id.slice(-8).toUpperCase()
+  const availableQuantity = stockItem?.availableQuantity ?? 0
   const isAvailable = Boolean(
     product?.isAvailable &&
     selectedVariant?.isActive &&
-    stockItem?.isAvailable,
+    stockItem?.isAvailable &&
+    availableQuantity > 0,
   )
+  const maxQuantity = Math.max(availableQuantity, 1)
+  const canPurchase = Boolean(isAvailable && selectedVariant && selectedColor && selectedSize && quantity <= maxQuantity)
   const images = product ? getUniqueImages(product) : []
   const maxThumbnailStart = Math.max(images.length - 5, 0)
   const visibleImages = images.slice(thumbnailStart, thumbnailStart + 5)
@@ -133,6 +161,58 @@ export function ProductDetailPage() {
     setSelectedSize(variant.sizes.find((size) => size.isAvailable)?.size ?? variant.sizes[0]?.size ?? '')
     setThumbnailStart(colorImageIndex >= 0 ? Math.min(colorImageIndex, maxThumbnailStart) : 0)
     setQuantity(1)
+  }
+
+  const handleAddToCart = async (redirectToCart = false) => {
+    if (!product || !selectedVariant || !selectedColor || !selectedSize || !canPurchase) {
+      message.warning('Vui lòng chọn sản phẩm còn hàng trước khi thêm vào giỏ.')
+      return
+    }
+
+    if (redirectToCart) {
+      setIsBuyingNow(true)
+    } else {
+      setIsAddingToCart(true)
+    }
+
+    try {
+      await customerProductActionsService.addCartItem({
+        productId: product._id,
+        variantId: selectedVariant._id,
+        colorVariantId: selectedColor._id,
+        size: selectedSize,
+        quantity,
+      })
+      message.success(redirectToCart ? 'Đã thêm vào giỏ hàng.' : 'Đã thêm sản phẩm vào giỏ hàng.')
+
+      if (redirectToCart) {
+        window.location.assign('/account?section=cart')
+      }
+    } catch (addError) {
+      message.error(addError instanceof Error ? addError.message : 'Không thể thêm sản phẩm vào giỏ hàng.')
+    } finally {
+      setIsAddingToCart(false)
+      setIsBuyingNow(false)
+    }
+  }
+
+  const handleToggleFavorite = async () => {
+    if (!product) return
+
+    setIsUpdatingFavorite(true)
+
+    try {
+      const status = isFavorited
+        ? await customerProductActionsService.removeFavorite(product._id)
+        : await customerProductActionsService.addFavorite(product._id)
+
+      setIsFavorited(status.isFavorited)
+      message.success(status.isFavorited ? 'Đã thêm vào sản phẩm yêu thích.' : 'Đã bỏ khỏi sản phẩm yêu thích.')
+    } catch (favoriteError) {
+      message.error(favoriteError instanceof Error ? favoriteError.message : 'Không thể cập nhật sản phẩm yêu thích.')
+    } finally {
+      setIsUpdatingFavorite(false)
+    }
   }
 
   return (
@@ -266,21 +346,42 @@ export function ProductDetailPage() {
                             <MinusOutlined />
                           </button>
                           <span>{quantity}</span>
-                          <button type="button" onClick={() => setQuantity((value) => value + 1)}>
+                          <button
+                            type="button"
+                            disabled={!isAvailable || quantity >= maxQuantity}
+                            onClick={() => setQuantity((value) => Math.min(maxQuantity, value + 1))}
+                          >
                             <PlusOutlined />
                           </button>
                         </div>
-                        <Button type="text" icon={<HeartOutlined />}>
-                          Thêm Vào Sản Phẩm Yêu Thích
+                        <Button
+                          type="text"
+                          icon={<HeartOutlined />}
+                          loading={isUpdatingFavorite}
+                          onClick={() => void handleToggleFavorite()}
+                        >
+                          {isFavorited ? 'Bỏ khỏi sản phẩm yêu thích' : 'Thêm vào sản phẩm yêu thích'}
                         </Button>
                       </div>
                     </section>
 
                     <div className="detail-actions">
-                      <Button type="primary" icon={<ShoppingCartOutlined />} disabled={!isAvailable}>
+                      <Button
+                        type="primary"
+                        icon={<ShoppingCartOutlined />}
+                        disabled={!canPurchase || isBuyingNow}
+                        loading={isAddingToCart}
+                        onClick={() => void handleAddToCart()}
+                      >
                         Thêm vào giỏ
                       </Button>
-                      <Button disabled={!isAvailable}>Mua ngay</Button>
+                      <Button
+                        disabled={!canPurchase || isAddingToCart}
+                        loading={isBuyingNow}
+                        onClick={() => void handleAddToCart(true)}
+                      >
+                        Mua ngay
+                      </Button>
                     </div>
 
                     <div className="purchase-benefits">

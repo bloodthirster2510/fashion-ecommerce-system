@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -16,38 +17,96 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import * as ImagePicker from 'expo-image-picker';
+import * as WebBrowser from 'expo-web-browser';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
-import { orderApi, OrderApiError, type CustomerOrder, type OrderItem } from './orderApi';
+import { paymentApi, PaymentApiError } from '../payments/paymentApi';
+import { orderApi, OrderApiError, type CustomerOrder, type OrderEvidenceImageAttachment, type OrderItem } from './orderApi';
 import {
   canCancelOrder,
+  canConfirmReceived,
   canRequestReturn,
   formatAddress,
   formatCurrency,
   formatDate,
   formatShortDate,
-  getDeliveryLine,
+  getOrderDisplayState,
+  getShippingStatusLabel,
   paymentMethodLabels,
   paymentStatusLabels,
-  statusMeta,
 } from './orderPresentation';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
 
 type TimelineStep = {
-  key: 'confirmed' | 'packed' | 'shipping' | 'delivered';
+  key: CustomerOrder['status'];
   label: string;
   helper: string;
 };
 
+type EvidenceDraft = OrderEvidenceImageAttachment & {
+  uri: string;
+};
+
+const maxEvidenceImageBytes = 5 * 1024 * 1024;
+const supportedEvidenceMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const getImageAssetByteSize = (asset: ImagePicker.ImagePickerAsset) =>
+  asset.fileSize ?? Math.ceil(((asset.base64?.length ?? 0) * 3) / 4);
+
+const getImageAssetMimeType = (asset: ImagePicker.ImagePickerAsset) => {
+  const mimeType = asset.mimeType?.toLowerCase();
+  if (mimeType) return mimeType;
+
+  const uri = asset.uri.toLowerCase();
+  if (/\.(jpe?g)(?:\?|$)/.test(uri)) return 'image/jpeg';
+  if (/\.png(?:\?|$)/.test(uri)) return 'image/png';
+  if (/\.webp(?:\?|$)/.test(uri)) return 'image/webp';
+
+  return '';
+};
+
+const validateEvidenceImage = (asset: ImagePicker.ImagePickerAsset): { mimeType: string } | { error: string } => {
+  const mimeType = getImageAssetMimeType(asset);
+
+  if (!supportedEvidenceMimeTypes.has(mimeType)) {
+    return { error: 'Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.' };
+  }
+
+  if (getImageAssetByteSize(asset) > maxEvidenceImageBytes) {
+    return { error: 'Mỗi ảnh minh chứng tối đa 5MB. Bạn chọn ảnh nhẹ hơn nha.' };
+  }
+
+  return { mimeType };
+};
+
 const timelineSteps: TimelineStep[] = [
-  { key: 'confirmed', label: 'Đã xác nhận', helper: 'Đã ghi nhận đơn' },
-  { key: 'packed', label: 'Đã rời kho', helper: 'Đóng gói xong' },
-  { key: 'shipping', label: 'Đang giao', helper: 'Đơn trên đường tới bạn' },
-  { key: 'delivered', label: 'Đã giao', helper: 'Hoàn tất' },
+  { key: 'confirmed', label: 'Đã đặt đơn', helper: 'Shop tiếp nhận' },
+  { key: 'packed', label: 'Chuẩn bị hàng', helper: 'Đóng gói' },
+  { key: 'shipping', label: 'Đang giao', helper: 'Theo dõi vận chuyển' },
+  { key: 'delivered', label: 'Hoàn tất', helper: 'Đã nhận hàng' },
 ];
+
+const getTimelineSteps = (order: CustomerOrder): TimelineStep[] => {
+  if (order.status === 'return_requested') {
+    return [
+      ...timelineSteps,
+      { key: 'return_requested', label: 'Chờ duyệt trả', helper: 'Shop đang kiểm tra' },
+    ];
+  }
+
+  if (order.status === 'returned') {
+    return [
+      ...timelineSteps,
+      { key: 'returned', label: 'Đã trả hàng', helper: 'Shop đã nhận trả' },
+    ];
+  }
+
+  return timelineSteps;
+};
 
 const isUnauthorizedError = (error: unknown) =>
   typeof error === 'object' &&
@@ -65,11 +124,10 @@ const getErrorMessage = (error: unknown) => {
   return 'Không thể tải chi tiết đơn hàng. Bạn thử lại sau nha.';
 };
 
-const getProgressIndex = (order: CustomerOrder) => {
+const getProgressIndex = (order: CustomerOrder, steps: TimelineStep[]) => {
   if (order.status === 'cancelled') return -1;
-  if (order.status === 'returned' || order.status === 'return_requested') return 3;
 
-  return timelineSteps.findIndex((step) => step.key === order.status);
+  return steps.findIndex((step) => step.key === order.status);
 };
 
 const getPaymentStatusColor = (status: string) => {
@@ -77,6 +135,48 @@ const getPaymentStatusColor = (status: string) => {
   if (status === 'failed' || status === 'refunded') return colors.danger;
   return colors.goldText;
 };
+
+const getShippingStatusColor = (status?: string | null) => {
+  if (status === 'failed' || status === 'cancelled') return colors.danger;
+  if (status === 'delivered') return colors.success;
+  if (status === 'picking' || status === 'picked' || status === 'shipping' || status === 'delivering') {
+    return colors.action;
+  }
+
+  return colors.goldText;
+};
+
+const getShippingStatusBackground = (status?: string | null) => {
+  if (status === 'failed' || status === 'cancelled') return colors.dangerSoft;
+  if (status === 'delivered') return colors.successSoft;
+  if (status === 'picking' || status === 'picked' || status === 'shipping' || status === 'delivering') {
+    return '#EAF3FF';
+  }
+
+  return colors.goldSoft;
+};
+
+const returnRequestStatusLabels: Record<string, string> = {
+  requested: 'Chờ duyệt',
+  approved: 'Đã duyệt',
+  rejected: 'Đã từ chối',
+};
+
+const getAttentionToneColor = (tone: 'danger' | 'warning' | 'info' | 'success') => {
+  if (tone === 'danger') return colors.danger;
+  if (tone === 'warning') return colors.goldText;
+  if (tone === 'success') return colors.success;
+  return colors.action;
+};
+
+const getAttentionToneBackground = (tone: 'danger' | 'warning' | 'info' | 'success') => {
+  if (tone === 'danger') return colors.dangerSoft;
+  if (tone === 'warning') return colors.goldSoft;
+  if (tone === 'success') return colors.successSoft;
+  return '#EAF3FF';
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const OrderDetailScreen = () => {
   const navigation = useNavigation<OrderDetailNavigationProp>();
@@ -88,8 +188,19 @@ const OrderDetailScreen = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isCancelling, setIsCancelling] = React.useState(false);
+  const [isConfirmingReceived, setIsConfirmingReceived] = React.useState(false);
+  const [isRequestingReturn, setIsRequestingReturn] = React.useState(false);
+  const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
   const [isInvoiceVisible, setIsInvoiceVisible] = React.useState(false);
+  const [isCancelModalVisible, setIsCancelModalVisible] = React.useState(false);
+  const [cancelReason, setCancelReason] = React.useState('');
+  const [cancelReasonError, setCancelReasonError] = React.useState('');
+  const [cancelEvidenceImages, setCancelEvidenceImages] = React.useState<EvidenceDraft[]>([]);
+  const [isReturnModalVisible, setIsReturnModalVisible] = React.useState(false);
+  const [returnReason, setReturnReason] = React.useState('');
+  const [returnReasonError, setReturnReasonError] = React.useState('');
+  const [returnEvidenceImages, setReturnEvidenceImages] = React.useState<EvidenceDraft[]>([]);
 
   const loadOrder = React.useCallback(
     async (mode: 'loading' | 'refresh' = 'loading') => {
@@ -136,34 +247,242 @@ const OrderDetailScreen = () => {
   const handleCancelOrder = () => {
     if (!order) return;
 
+    setCancelReason(order.cancellation?.reason ?? '');
+    setCancelReasonError('');
+    setCancelEvidenceImages([]);
+    setIsCancelModalVisible(true);
+  };
+
+  const confirmCancelOrder = async () => {
+    if (!order) return;
+
+    const normalizedReason = cancelReason.trim();
+    if (!normalizedReason) {
+      setCancelReasonError('Vui lòng nhập lý do hủy đơn.');
+      return;
+    }
+
+    try {
+      setIsCancelling(true);
+      const nextOrder = await runWithAuth((accessToken) =>
+        orderApi.cancelOrder(accessToken, order._id, {
+          reason: normalizedReason,
+          imageAttachments: cancelEvidenceImages.map(({ imageBase64, mimeType }) => ({
+            imageBase64,
+            mimeType,
+          })),
+        }),
+      );
+      setOrder(nextOrder);
+      setIsCancelModalVisible(false);
+      Alert.alert('Đã hủy đơn', 'Đơn hàng đã được cập nhật sang trạng thái đã hủy.');
+    } catch (error) {
+      Alert.alert('Không thể hủy đơn', getErrorMessage(error));
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleConfirmReceived = () => {
+    if (!order) return;
+
     Alert.alert(
-      'Hủy đơn hàng?',
-      'Đơn sẽ dừng xử lý nếu chưa bàn giao cho đơn vị vận chuyển. Với đơn đã thanh toán, hoàn tiền sẽ được xử lý theo kênh thanh toán ban đầu.',
+      'Xác nhận đã nhận hàng?',
+      'Khi xác nhận, đơn sẽ chuyển sang hoàn thành. Nếu thanh toán COD, hệ thống sẽ ghi nhận đơn đã thanh toán.',
       [
         { text: 'Để sau', style: 'cancel' },
         {
-          text: 'Hủy đơn',
-          style: 'destructive',
+          text: 'Đã nhận hàng',
           onPress: () => {
-            void confirmCancelOrder();
+            void confirmReceived();
           },
         },
       ],
     );
   };
 
-  const confirmCancelOrder = async () => {
+  const confirmReceived = async () => {
     if (!order) return;
 
     try {
-      setIsCancelling(true);
-      const nextOrder = await runWithAuth((accessToken) => orderApi.cancelOrder(accessToken, order._id));
+      setIsConfirmingReceived(true);
+      const nextOrder = await runWithAuth((accessToken) => orderApi.confirmReceived(accessToken, order._id));
       setOrder(nextOrder);
-      Alert.alert('Đã hủy đơn', 'Đơn hàng đã được cập nhật sang trạng thái đã hủy.');
+      Alert.alert('Đã xác nhận nhận hàng', 'Đơn hàng đã được chuyển sang trạng thái hoàn thành.');
     } catch (error) {
-      Alert.alert('Không thể hủy đơn', getErrorMessage(error));
+      Alert.alert('Không thể xác nhận', getErrorMessage(error));
     } finally {
-      setIsCancelling(false);
+      setIsConfirmingReceived(false);
+    }
+  };
+
+  const handleRequestReturn = () => {
+    if (!order) return;
+
+    if (!canRequestReturn(order.status)) {
+      Alert.alert(
+        'Chưa thể trả hàng',
+        'Luồng trả hàng chỉ mở sau khi đơn được giao thành công. Nếu có vấn đề khẩn cấp, bạn liên hệ hỗ trợ đơn hàng để shop kiểm tra.',
+      );
+      return;
+    }
+
+    setReturnReason(order.returnRequest?.reason ?? '');
+    setReturnReasonError('');
+    setReturnEvidenceImages([]);
+    setIsReturnModalVisible(true);
+  };
+
+  const requestReturn = async () => {
+    if (!order) return;
+
+    const normalizedReason = returnReason.trim();
+    if (!normalizedReason) {
+      setReturnReasonError('Vui lòng nhập lý do trả hàng.');
+      return;
+    }
+
+    try {
+      setIsRequestingReturn(true);
+      const nextOrder = await runWithAuth((accessToken) =>
+        orderApi.requestReturn(accessToken, order._id, normalizedReason, {
+          imageAttachments: returnEvidenceImages.map(({ imageBase64, mimeType }) => ({
+            imageBase64,
+            mimeType,
+          })),
+        }),
+      );
+      setOrder(nextOrder);
+      setIsReturnModalVisible(false);
+      Alert.alert('Đã gửi yêu cầu trả hàng', 'Shop đã ghi nhận yêu cầu và sẽ phản hồi trong thời gian sớm nhất.');
+    } catch (error) {
+      Alert.alert('Không thể gửi yêu cầu', getErrorMessage(error));
+    } finally {
+      setIsRequestingReturn(false);
+    }
+  };
+
+  const pickEvidenceImage = async (
+    currentImages: EvidenceDraft[],
+    setImages: React.Dispatch<React.SetStateAction<EvidenceDraft[]>>,
+    setError?: React.Dispatch<React.SetStateAction<string>>,
+  ) => {
+    if (currentImages.length >= 3) {
+      setError?.('Tối đa 3 ảnh minh chứng.');
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError?.('Cần quyền truy cập thư viện ảnh để chọn ảnh minh chứng.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.65,
+      base64: true,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    if (!asset?.base64) {
+      setError?.('Không đọc được ảnh đã chọn. Bạn thử ảnh khác nha.');
+      return;
+    }
+
+    const validation = validateEvidenceImage(asset);
+    if ('error' in validation) {
+      setError?.(validation.error);
+      return;
+    }
+
+    setError?.('');
+    setImages((images) => [
+      ...images,
+      {
+        uri: asset.uri,
+        imageBase64: asset.base64!,
+        mimeType: validation.mimeType,
+      },
+    ]);
+  };
+
+  const removeEvidenceImage = (
+    index: number,
+    setImages: React.Dispatch<React.SetStateAction<EvidenceDraft[]>>,
+  ) => {
+    setImages((images) => images.filter((_, imageIndex) => imageIndex !== index));
+  };
+
+  const refreshOrderAfterPayment = async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (attempt > 0) {
+        await wait(2500);
+      }
+
+      const paymentStatus = await runWithAuth((accessToken) =>
+        paymentApi.getOrderPaymentStatus(accessToken, orderId),
+      );
+
+      if (paymentStatus.paymentStatus === 'paid') {
+        const latestOrder = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
+        setOrder(latestOrder);
+        return latestOrder;
+      }
+    }
+
+    const latestOrder = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
+    setOrder(latestOrder);
+
+    return latestOrder.paymentStatus === 'paid' ? latestOrder : null;
+  };
+
+  const handleRetryPayment = async () => {
+    if (!order) return;
+
+    try {
+      setIsRetryingPayment(true);
+      const paymentData = await runWithAuth((accessToken) =>
+        paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
+      );
+
+      void WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      }).catch((error) => {
+        Alert.alert(
+          'Không thể mở thanh toán',
+          error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
+        );
+      });
+
+      const latestOrder = await refreshOrderAfterPayment();
+
+      if (latestOrder?.paymentStatus === 'paid') {
+        Alert.alert('Đã ghi nhận thanh toán', 'Đơn hàng của bạn đã được cập nhật thành đã thanh toán.');
+        return;
+      }
+
+      Alert.alert(
+        'Chưa ghi nhận thanh toán',
+        'Bạn có thể thử lại hoặc đợi hệ thống cập nhật trong vài phút.',
+      );
+    } catch (error) {
+      if (error instanceof PaymentApiError && error.status === 409) {
+        await loadOrder('refresh');
+        Alert.alert('Đơn hàng đã thanh toán', 'Hệ thống vừa cập nhật lại trạng thái đơn hàng.');
+        return;
+      }
+
+      Alert.alert(
+        'Không thể mở thanh toán',
+        error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
+      );
+    } finally {
+      setIsRetryingPayment(false);
     }
   };
 
@@ -176,6 +495,7 @@ const OrderDetailScreen = () => {
         [
           `Đơn vị: ${order.shipping?.provider || 'Fashionista Delivery'}`,
           `Mã vận đơn: ${order.shipping?.trackingCode || 'Đang cập nhật'}`,
+          `Trạng thái: ${getShippingStatusLabel(order.shipping?.status)}`,
           `Địa chỉ: ${formatAddress(order)}`,
         ].join('\n'),
       );
@@ -183,12 +503,7 @@ const OrderDetailScreen = () => {
     }
 
     if (type === 'return') {
-      Alert.alert(
-        canRequestReturn(order.status) ? 'Chính sách trả hàng' : 'Chưa thể trả hàng',
-        canRequestReturn(order.status)
-          ? 'Bạn có thể gửi yêu cầu trả hàng trong 7 ngày từ khi nhận hàng. Sản phẩm cần còn tem mác, chưa qua sử dụng và có hóa đơn.'
-          : 'Luồng trả hàng chỉ mở sau khi đơn được giao thành công. Nếu có vấn đề khẩn cấp, bạn liên hệ hỗ trợ đơn hàng để shop kiểm tra.',
-      );
+      handleRequestReturn();
       return;
     }
 
@@ -230,8 +545,9 @@ const OrderDetailScreen = () => {
   };
 
   const renderTimeline = (currentOrder: CustomerOrder) => {
-    const progressIndex = getProgressIndex(currentOrder);
-    const progressPercent = progressIndex <= 0 ? 0 : (progressIndex / (timelineSteps.length - 1)) * 100;
+    const currentTimelineSteps = getTimelineSteps(currentOrder);
+    const progressIndex = getProgressIndex(currentOrder, currentTimelineSteps);
+    const progressPercent = progressIndex <= 0 ? 0 : (progressIndex / (currentTimelineSteps.length - 1)) * 100;
     const isCancelled = currentOrder.status === 'cancelled';
 
     if (isCancelled) {
@@ -255,12 +571,15 @@ const OrderDetailScreen = () => {
         <View style={styles.timelineTrack}>
           <View style={styles.timelineBaseLine} />
           <View style={[styles.timelineProgressLine, { width: `${progressPercent}%` }]} />
-          {timelineSteps.map((step, index) => {
+          {currentTimelineSteps.map((step, index) => {
             const isDone = index <= progressIndex;
             const isCurrent = index === progressIndex;
 
             return (
-              <View key={step.key} style={styles.timelineStep}>
+              <View
+                key={step.key}
+                style={[styles.timelineStep, { width: `${100 / currentTimelineSteps.length}%` }]}
+              >
                 <View style={[styles.timelineDot, isDone && styles.timelineDotDone]}>
                   {isDone ? (
                     <MaterialCommunityIcons name="check" size={17} color={colors.white} />
@@ -295,6 +614,207 @@ const OrderDetailScreen = () => {
         {value}
       </Text>
     </View>
+  );
+
+  const renderEvidencePicker = (
+    images: EvidenceDraft[],
+    onPick: () => void,
+    onRemove: (index: number) => void,
+    disabled: boolean,
+  ) => (
+    <View style={styles.evidencePicker}>
+      <View style={styles.evidenceHeader}>
+        <Text style={styles.evidenceTitle}>Ảnh minh chứng</Text>
+        <Text style={styles.evidenceHint}>Không bắt buộc, tối đa 3 ảnh</Text>
+      </View>
+      <View style={styles.evidenceImageRow}>
+        {images.map((image, index) => (
+          <View style={styles.evidenceImageFrame} key={`${image.uri}-${index}`}>
+            <Image source={{ uri: image.uri }} style={styles.evidenceImage} resizeMode="cover" />
+            <TouchableOpacity
+              style={styles.evidenceRemoveButton}
+              onPress={() => onRemove(index)}
+              disabled={disabled}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="close" size={14} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+        ))}
+        {images.length < 3 ? (
+          <TouchableOpacity
+            style={styles.evidenceAddButton}
+            onPress={onPick}
+            disabled={disabled}
+            activeOpacity={0.84}
+          >
+            <MaterialCommunityIcons name="image-plus" size={22} color={colors.brand} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const renderCancelOrderModal = () => (
+    <Modal
+      visible={isCancelModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setIsCancelModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.returnModal}>
+          <View style={styles.invoiceHeader}>
+            <View>
+              <Text style={styles.invoiceEyebrow}>CANCEL ORDER</Text>
+              <Text style={styles.invoiceTitle}>Lý do hủy đơn</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setIsCancelModalVisible(false)}
+              disabled={isCancelling}
+            >
+              <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.returnModalHint}>
+            Sau khi hủy, đơn đã thanh toán trước sẽ được chuyển sang trạng thái cần hoàn tiền để shop xử lý.
+          </Text>
+          <TextInput
+            style={styles.returnReasonInput}
+            value={cancelReason}
+            onChangeText={(value) => {
+              setCancelReason(value);
+              if (cancelReasonError) {
+                setCancelReasonError('');
+              }
+            }}
+            placeholder="Nhập lý do hủy đơn"
+            placeholderTextColor={colors.textSubtle}
+            multiline
+            maxLength={500}
+            textAlignVertical="top"
+            editable={!isCancelling}
+          />
+          <View style={styles.returnModalMetaRow}>
+            <Text style={styles.returnReasonCounter}>{cancelReason.trim().length}/500</Text>
+            {cancelReasonError ? <Text style={styles.returnReasonError}>{cancelReasonError}</Text> : null}
+          </View>
+          {renderEvidencePicker(
+            cancelEvidenceImages,
+            () => void pickEvidenceImage(cancelEvidenceImages, setCancelEvidenceImages, setCancelReasonError),
+            (index) => removeEvidenceImage(index, setCancelEvidenceImages),
+            isCancelling,
+          )}
+
+          <View style={styles.returnModalActions}>
+            <TouchableOpacity
+              style={styles.returnModalSecondaryButton}
+              onPress={() => setIsCancelModalVisible(false)}
+              activeOpacity={0.84}
+              disabled={isCancelling}
+            >
+              <Text style={styles.returnModalSecondaryText}>Để sau</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.returnModalPrimaryButton, styles.cancelModalPrimaryButton]}
+              onPress={() => void confirmCancelOrder()}
+              activeOpacity={0.84}
+              disabled={isCancelling}
+            >
+              {isCancelling ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <MaterialCommunityIcons name="close-circle-outline" size={18} color={colors.white} />
+              )}
+              <Text style={styles.returnModalPrimaryText}>Hủy đơn</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const renderReturnRequestModal = () => (
+    <Modal
+      visible={isReturnModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setIsReturnModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.returnModal}>
+          <View style={styles.invoiceHeader}>
+            <View>
+              <Text style={styles.invoiceEyebrow}>RETURN REQUEST</Text>
+              <Text style={styles.invoiceTitle}>Lý do trả hàng</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setIsReturnModalVisible(false)}
+              disabled={isRequestingReturn}
+            >
+              <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.returnModalHint}>
+            Shop sẽ xem lý do, hình ảnh minh chứng và phản hồi trên trạng thái đơn hàng. Yêu cầu trả hàng chỉ mở trong 7 ngày sau khi giao thành công.
+          </Text>
+          <TextInput
+            style={styles.returnReasonInput}
+            value={returnReason}
+            onChangeText={(value) => {
+              setReturnReason(value);
+              if (returnReasonError) {
+                setReturnReasonError('');
+              }
+            }}
+            placeholder="Nhập lý do trả hàng"
+            placeholderTextColor={colors.textSubtle}
+            multiline
+            maxLength={500}
+            textAlignVertical="top"
+            editable={!isRequestingReturn}
+          />
+          <View style={styles.returnModalMetaRow}>
+            <Text style={styles.returnReasonCounter}>{returnReason.trim().length}/500</Text>
+            {returnReasonError ? <Text style={styles.returnReasonError}>{returnReasonError}</Text> : null}
+          </View>
+          {renderEvidencePicker(
+            returnEvidenceImages,
+            () => void pickEvidenceImage(returnEvidenceImages, setReturnEvidenceImages, setReturnReasonError),
+            (index) => removeEvidenceImage(index, setReturnEvidenceImages),
+            isRequestingReturn,
+          )}
+
+          <View style={styles.returnModalActions}>
+            <TouchableOpacity
+              style={styles.returnModalSecondaryButton}
+              onPress={() => setIsReturnModalVisible(false)}
+              activeOpacity={0.84}
+              disabled={isRequestingReturn}
+            >
+              <Text style={styles.returnModalSecondaryText}>Để sau</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.returnModalPrimaryButton}
+              onPress={() => void requestReturn()}
+              activeOpacity={0.84}
+              disabled={isRequestingReturn}
+            >
+              {isRequestingReturn ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <MaterialCommunityIcons name="send-outline" size={18} color={colors.white} />
+              )}
+              <Text style={styles.returnModalPrimaryText}>Gửi yêu cầu</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 
   const renderInvoiceModal = () => {
@@ -379,11 +899,21 @@ const OrderDetailScreen = () => {
     );
   }
 
-  const meta = statusMeta[order.status];
+  const displayState = getOrderDisplayState(order);
+  const actionState = displayState.requiresUserAction ? displayState : null;
   const shippingPayable = Math.max(0, order.shippingFee - order.shippingDiscountAmount);
   const paymentStatusColor = getPaymentStatusColor(order.paymentStatus);
   const canCancel = canCancelOrder(order.status);
+  const canConfirmDelivery = canConfirmReceived(order);
   const canReturn = canRequestReturn(order.status);
+  const shippingStatusColor = getShippingStatusColor(order.shipping?.status);
+  const shippingStatusBackground = getShippingStatusBackground(order.shipping?.status);
+  const canRetryVNPayPayment =
+    order.paymentMethod === 'VNPAY' &&
+    order.paymentStatus !== 'paid' &&
+    order.paymentStatus !== 'refunded' &&
+    order.status !== 'cancelled' &&
+    order.status !== 'returned';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -421,13 +951,13 @@ const OrderDetailScreen = () => {
             <Text style={styles.heroLabel}>Mã đơn hàng</Text>
             <View style={styles.heroCodeRow}>
               <Text style={styles.heroCode}>{order.orderCode}</Text>
-              <View style={[styles.heroStatusBadge, { backgroundColor: meta.backgroundColor }]}>
-                <Text style={[styles.heroStatusText, { color: meta.color }]}>{meta.label}</Text>
+              <View style={[styles.heroStatusBadge, { backgroundColor: displayState.backgroundColor }]}>
+                <Text style={[styles.heroStatusText, { color: displayState.color }]}>{displayState.label}</Text>
               </View>
             </View>
             <Text style={styles.heroDate}>Ngày đặt: {formatDate(order.createdAt)}</Text>
             <Text style={styles.heroDelivery}>
-              {getDeliveryLine(order)}
+              {displayState.deliveryLine}
             </Text>
           </View>
 
@@ -437,15 +967,92 @@ const OrderDetailScreen = () => {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.statusCallout, { backgroundColor: meta.backgroundColor }]}>
-          <MaterialCommunityIcons name="information-outline" size={20} color={meta.color} />
-          <View style={styles.statusCalloutCopy}>
-            <Text style={[styles.statusCalloutTitle, { color: meta.color }]}>{meta.label}</Text>
-            <Text style={styles.statusCalloutText}>{meta.description}</Text>
+        {actionState ? (
+          <View
+            style={[
+              styles.attentionCallout,
+              { backgroundColor: displayState.backgroundColor, borderColor: displayState.color },
+            ]}
+          >
+            <View style={[styles.attentionDot, { backgroundColor: displayState.color }]} />
+            <MaterialCommunityIcons
+              name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
+              size={22}
+              color={displayState.color}
+            />
+            <View style={styles.attentionCopy}>
+              <Text style={[styles.attentionTitle, { color: displayState.color }]}>
+                {displayState.label}
+              </Text>
+              <Text style={styles.attentionText}>{displayState.description}</Text>
+            </View>
           </View>
-        </View>
+        ) : null}
+
+        {!actionState ? (
+          <View style={[styles.statusCallout, { backgroundColor: displayState.backgroundColor }]}>
+            <MaterialCommunityIcons
+              name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
+              size={20}
+              color={displayState.color}
+            />
+            <View style={styles.statusCalloutCopy}>
+              <Text style={[styles.statusCalloutTitle, { color: displayState.color }]}>{displayState.label}</Text>
+              <Text style={styles.statusCalloutText}>{displayState.description}</Text>
+            </View>
+          </View>
+        ) : null}
 
         {renderTimeline(order)}
+
+        {order.cancellation ? (
+          <View style={styles.returnRequestCard}>
+            <View style={styles.returnRequestHeader}>
+              <MaterialCommunityIcons name="close-circle-outline" size={22} color={colors.danger} />
+              <View style={styles.returnRequestTitleGroup}>
+                <Text style={styles.returnRequestTitle}>Thông tin hủy đơn</Text>
+                <Text style={styles.returnRequestStatus}>
+                  {order.paymentStatus === 'paid' ? 'Chờ hoàn tiền' : 'Đã ghi nhận'}
+                </Text>
+              </View>
+            </View>
+            {order.cancellation.reason ? (
+              <Text style={styles.returnRequestReason}>{order.cancellation.reason}</Text>
+            ) : null}
+            {order.cancellation.imageUrls?.length ? (
+              <View style={styles.evidenceUrlGrid}>
+                {order.cancellation.imageUrls.map((imageUrl) => (
+                  <Image key={imageUrl} source={{ uri: imageUrl }} style={styles.evidenceUrlImage} resizeMode="cover" />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {order.returnRequest ? (
+          <View style={styles.returnRequestCard}>
+            <View style={styles.returnRequestHeader}>
+              <MaterialCommunityIcons name="archive-refresh-outline" size={22} color={colors.brand} />
+              <View style={styles.returnRequestTitleGroup}>
+                <Text style={styles.returnRequestTitle}>Yêu cầu trả hàng</Text>
+                <Text style={styles.returnRequestStatus}>
+                  {returnRequestStatusLabels[order.returnRequest.status] ?? order.returnRequest.status}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.returnRequestReason}>{order.returnRequest.reason}</Text>
+            {order.returnRequest.reviewReason ? (
+              <Text style={styles.returnRequestReview}>{order.returnRequest.reviewReason}</Text>
+            ) : null}
+            {order.returnRequest.imageUrls?.length ? (
+              <View style={styles.evidenceUrlGrid}>
+                {order.returnRequest.imageUrls.map((imageUrl) => (
+                  <Image key={imageUrl} source={{ uri: imageUrl }} style={styles.evidenceUrlImage} resizeMode="cover" />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           {order.order_list.map(renderProduct)}
@@ -479,6 +1086,23 @@ const OrderDetailScreen = () => {
             <Text style={[styles.infoHint, { color: paymentStatusColor }]}>
               {paymentStatusLabels[order.paymentStatus] ?? order.paymentStatus}
             </Text>
+            {canRetryVNPayPayment ? (
+              <TouchableOpacity
+                style={styles.paymentRetryButton}
+                onPress={handleRetryPayment}
+                activeOpacity={0.84}
+                disabled={isRetryingPayment}
+              >
+                {isRetryingPayment ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <MaterialCommunityIcons name="credit-card-refresh-outline" size={18} color={colors.white} />
+                )}
+                <Text style={styles.paymentRetryButtonText}>
+                  {order.paymentStatus === 'failed' ? 'Thanh toán lại' : 'Thanh toán ngay'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <View style={styles.infoCard}>
@@ -486,8 +1110,21 @@ const OrderDetailScreen = () => {
               <MaterialCommunityIcons name="cube-outline" size={20} color={colors.text} />
               <Text style={styles.infoTitle}>Giao hàng</Text>
             </View>
+            <View
+              style={[
+                styles.shippingStatusPill,
+                { backgroundColor: shippingStatusBackground, borderColor: shippingStatusColor },
+              ]}
+            >
+              <MaterialCommunityIcons name="truck-delivery-outline" size={15} color={shippingStatusColor} />
+              <Text style={[styles.shippingStatusText, { color: shippingStatusColor }]}>
+                {getShippingStatusLabel(order.shipping?.status)}
+              </Text>
+            </View>
             <Text style={styles.infoValue}>{formatAddress(order)}</Text>
             <Text style={styles.infoHint}>{order.shippingAddress.phoneNumber}</Text>
+            <Text style={styles.infoHint}>Đơn vị: {order.shipping?.provider || 'Fashionista Delivery'}</Text>
+            <Text style={styles.infoHint}>Mã vận đơn: {order.shipping?.trackingCode || 'Đang cập nhật'}</Text>
           </View>
         </View>
 
@@ -516,7 +1153,7 @@ const OrderDetailScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {canCancel || canReturn ? (
+        {canCancel || canConfirmDelivery || canReturn ? (
           <View style={styles.bottomActions}>
             {canCancel ? (
               <TouchableOpacity
@@ -534,9 +1171,34 @@ const OrderDetailScreen = () => {
               </TouchableOpacity>
             ) : null}
 
+            {canConfirmDelivery ? (
+              <TouchableOpacity
+                style={styles.confirmReceivedButton}
+                onPress={handleConfirmReceived}
+                activeOpacity={0.84}
+                disabled={isConfirmingReceived}
+              >
+                {isConfirmingReceived ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <MaterialCommunityIcons name="package-variant-closed-check" size={20} color={colors.white} />
+                )}
+                <Text style={styles.confirmReceivedButtonText}>Đã nhận hàng</Text>
+              </TouchableOpacity>
+            ) : null}
+
             {canReturn ? (
-              <TouchableOpacity style={styles.returnButton} onPress={() => handleSupportAction('return')} activeOpacity={0.84}>
-                <MaterialCommunityIcons name="archive-refresh-outline" size={20} color={colors.brand} />
+              <TouchableOpacity
+                style={styles.returnButton}
+                onPress={handleRequestReturn}
+                activeOpacity={0.84}
+                disabled={isRequestingReturn}
+              >
+                {isRequestingReturn ? (
+                  <ActivityIndicator size="small" color={colors.brand} />
+                ) : (
+                  <MaterialCommunityIcons name="archive-refresh-outline" size={20} color={colors.brand} />
+                )}
                 <Text style={styles.returnButtonText}>Yêu cầu trả hàng</Text>
               </TouchableOpacity>
             ) : null}
@@ -544,6 +1206,8 @@ const OrderDetailScreen = () => {
         ) : null}
       </ScrollView>
 
+      {renderCancelOrderModal()}
+      {renderReturnRequestModal()}
       {renderInvoiceModal()}
     </SafeAreaView>
   );
@@ -790,6 +1454,45 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 4,
   },
+  returnRequestCard: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    ...shadows.card,
+  },
+  returnRequestHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  returnRequestTitleGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  returnRequestTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  returnRequestStatus: {
+    color: colors.brand,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  returnRequestReason: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  returnRequestReview: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   section: {
     gap: spacing.md,
   },
@@ -942,6 +1645,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
+  shippingStatusPill: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    borderWidth: 1,
+    borderRadius: radii.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  shippingStatusText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  paymentRetryButton: {
+    minHeight: 42,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.xs,
+  },
+  paymentRetryButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   supportCard: {
     borderRadius: radii.sm,
     backgroundColor: colors.surface,
@@ -987,6 +1720,20 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     color: colors.danger,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  confirmReceivedButton: {
+    minHeight: 50,
+    borderRadius: radii.sm,
+    backgroundColor: colors.success,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  confirmReceivedButtonText: {
+    color: colors.white,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -1067,6 +1814,86 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
+  returnModal: {
+    width: '100%',
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  returnModalHint: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  returnReasonInput: {
+    minHeight: 132,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    color: colors.text,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  returnModalMetaRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  returnReasonCounter: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  returnReasonError: {
+    flex: 1,
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  returnModalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  returnModalSecondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  returnModalSecondaryText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  returnModalPrimaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  cancelModalPrimaryButton: {
+    backgroundColor: colors.danger,
+  },
+  returnModalPrimaryText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
+  },
   invoiceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1134,6 +1961,109 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 24,
     fontWeight: '900',
+  },
+  attentionCallout: {
+    position: 'relative',
+    borderWidth: 1,
+    borderRadius: radii.sm,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    overflow: 'hidden',
+  },
+  attentionDot: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  attentionCopy: {
+    flex: 1,
+    gap: 3,
+    paddingRight: spacing.md,
+  },
+  attentionTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  attentionText: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  evidencePicker: {
+    gap: spacing.sm,
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  evidenceTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  evidenceHint: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  evidenceImageRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  evidenceImageFrame: {
+    position: 'relative',
+    width: 64,
+    height: 64,
+    borderRadius: radii.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.brandSoft,
+  },
+  evidenceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  evidenceRemoveButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  evidenceAddButton: {
+    width: 64,
+    height: 64,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandSoft,
+  },
+  evidenceUrlGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  evidenceUrlImage: {
+    width: 70,
+    height: 70,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brandSoft,
   },
 });
 

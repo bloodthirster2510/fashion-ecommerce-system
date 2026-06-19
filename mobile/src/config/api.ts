@@ -1,6 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 
-const DEFAULT_DEV_API_PORT = '3000';
+const DEFAULT_DEV_API_PORT = '5000';
 const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
 
 type ApiFetchInit = Parameters<typeof fetch>[1] & {
@@ -53,7 +53,7 @@ export const API_BASE_URL = API_BASE_URLS[0];
 let preferredApiBaseUrl: string | undefined;
 
 if (__DEV__) {
-  console.log('[API] Base URLs', API_BASE_URLS);
+  console.log('[API] Base URL candidates configured', API_BASE_URLS.length);
 }
 
 const isNetworkError = (error: unknown) =>
@@ -64,6 +64,22 @@ const isNetworkError = (error: unknown) =>
 const isAbortError = (error: unknown) =>
   (error instanceof Error && /AbortError|aborted/i.test(error.message)) ||
   (typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError');
+
+const hasAuthorizationHeader = (headers: ApiFetchInit['headers']) => {
+  if (!headers) {
+    return false;
+  }
+
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    return headers.has('authorization');
+  }
+
+  if (Array.isArray(headers)) {
+    return headers.some(([key]) => key.toLowerCase() === 'authorization');
+  }
+
+  return Object.keys(headers).some((key) => key.toLowerCase() === 'authorization');
+};
 
 const fetchWithTimeout = async (url: string, init?: ApiFetchInit) => {
   const { timeoutMs = requestTimeoutMs, retryOnTimeout: _retryOnTimeout, ...fetchInit } = init ?? {};
@@ -103,12 +119,13 @@ const getOrderedApiBaseUrls = () => {
 export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const retryOnTimeout = init?.retryOnTimeout ?? true;
+  const baseUrls = hasAuthorizationHeader(init?.headers) ? [API_BASE_URL] : getOrderedApiBaseUrls();
   let lastNetworkError: unknown;
-  const attemptedUrls: string[] = [];
+  let attemptedCount = 0;
 
-  for (const baseUrl of getOrderedApiBaseUrls()) {
+  for (const [index, baseUrl] of baseUrls.entries()) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
-    attemptedUrls.push(requestUrl);
+    attemptedCount += 1;
 
     try {
       const response = await fetchWithTimeout(requestUrl, init);
@@ -124,7 +141,7 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
       }
 
       if (__DEV__) {
-        console.warn(`[API] Failed ${baseUrl}${normalizedPath}`, error);
+        console.warn(`[API] Request failed for candidate ${index + 1}/${baseUrls.length}`, error);
       }
 
       lastNetworkError = error;
@@ -134,5 +151,5 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const message =
     lastNetworkError instanceof Error ? lastNetworkError.message : 'Network request failed';
 
-  throw new Error(`${message}. Tried: ${attemptedUrls.join(', ')}`);
+  throw new Error(`${message}. Tried ${attemptedCount} API endpoint${attemptedCount === 1 ? '' : 's'}.`);
 };

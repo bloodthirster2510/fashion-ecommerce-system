@@ -61,6 +61,11 @@ type Notice = {
   message: string
 } | null
 
+type ImportConfirmation = {
+  input: CreateInventoryImportInput
+  lines: string[]
+} | null
+
 const lowStockPercentage = 0.15
 const pageSize = 10
 const formatNumber = (value: number) => value.toLocaleString('vi-VN')
@@ -112,7 +117,6 @@ export function InventoryManagementPage({
   const [brand, setBrand] = useState('all')
   const [fitType, setFitType] = useState('all')
   const [status, setStatus] = useState<StockStatus>('all')
-  const [warehouse, setWarehouse] = useState('default')
   const [page, setPage] = useState(1)
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set())
@@ -261,7 +265,12 @@ export function InventoryManagementPage({
     }
   }, [brand, category, fitType, keyword, page, rows, status, productTotals])
 
-  useEffect(() => setPage(1), [brand, category, fitType, keyword, status, warehouse])
+  useEffect(() => setPage(1), [brand, category, fitType, keyword, status])
+
+  useEffect(() => {
+    setExpandedProducts(new Set())
+    setExpandedVariants(new Set())
+  }, [pagination.safePage, brand, category, fitType, keyword, status])
 
   useEffect(() => {
     const tableShell = tableShellRef.current
@@ -328,7 +337,6 @@ export function InventoryManagementPage({
     setBrand('all')
     setFitType('all')
     setStatus('all')
-    setWarehouse('default')
   }
 
   const toggleExpanded = (
@@ -443,9 +451,6 @@ export function InventoryManagementPage({
             <option value="available">Còn hàng</option>
             <option value="low">Sắp hết</option>
             <option value="out">Hết hàng</option>
-          </select>
-          <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} aria-label="Kho hàng">
-            <option value="default">Kho mặc định</option>
           </select>
           <button className="admin-secondary-button" type="button" onClick={resetFilters}>Đặt lại</button>
         </div>
@@ -772,43 +777,48 @@ function ImportDialog({
   )
   const [importPrice, setImportPrice] = useState('')
   const [supplierName, setSupplierName] = useState('')
+  const [pendingConfirmation, setPendingConfirmation] = useState<ImportConfirmation>(null)
   const totalImport = Object.values(quantities).reduce(
     (sum, quantity) => sum + Math.max(0, quantity),
     0,
   )
-  const numericImportPrice = importPrice ? Number(importPrice) : 0
-  const totalAmount = totalImport * (Number.isFinite(numericImportPrice) ? numericImportPrice : 0)
+  const hasImportPrice = importPrice.trim().length > 0
+  const parsedImportPrice = hasImportPrice ? Number(importPrice) : null
+  const isImportPriceValid =
+    parsedImportPrice === null || (Number.isFinite(parsedImportPrice) && parsedImportPrice >= 0)
+  const totalAmount = totalImport * (isImportPriceValid && parsedImportPrice ? parsedImportPrice : 0)
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
+    if (!isImportPriceValid) return
+
     const detail = group.rows
       .filter((row) => (quantities[row.size] ?? 0) > 0)
       .map((row) => ({
         size: row.size,
         quantity: quantities[row.size] ?? 0,
-        ...(importPrice ? { importPrice: Number(importPrice) } : {}),
+        ...(parsedImportPrice !== null ? { importPrice: parsedImportPrice } : {}),
       }))
 
     if (!detail.length) return
 
-    const confirmation = [
-      'Xác nhận tạo phiếu nhập kho?',
+    const lines = [
       `Sản phẩm: ${group.product?.name || '-'}`,
       `Màu: ${group.color?.color || '-'}`,
       `Nhà cung cấp: ${supplierName.trim() || '-'}`,
       `Số lượng: ${formatNumber(totalImport)} sản phẩm`,
       `Thành tiền: ${formatPrice(totalAmount)}`,
-    ].join('\n')
+    ]
 
-    if (!window.confirm(confirmation)) return
-
-    void onSave({
+    const input = {
       productId: group.productId,
       variantId: group.variantId,
       colorVariantId: group.colorVariantId,
       supplierName: supplierName.trim(),
       detail,
-    })
+    }
+
+    setPendingConfirmation({ input, lines })
   }
 
   return (
@@ -879,9 +889,34 @@ function ImportDialog({
           <label><span>Giá nhập (VND)</span><input type="number" min={0} step={1000} value={importPrice} placeholder="Không bắt buộc, áp dụng cho các size được nhập" onChange={(event) => setImportPrice(event.target.value)} /></label>
           <label><span>Thành tiền</span><input type="text" disabled value={formatPrice(totalAmount)} /></label>
         </div>
+        {pendingConfirmation ? (
+          <section className="admin-inventory-confirm-panel" role="alertdialog" aria-label="Xác nhận tạo phiếu nhập kho">
+            <div>
+              <strong>Xác nhận tạo phiếu nhập kho?</strong>
+              {pendingConfirmation.lines.map((line) => <span key={line}>{line}</span>)}
+            </div>
+            <div>
+              <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={() => setPendingConfirmation(null)}>
+                Kiểm tra lại
+              </button>
+              <button
+                className="admin-primary-button"
+                type="button"
+                disabled={isSaving}
+                onClick={() => {
+                  const input = pendingConfirmation.input
+                  setPendingConfirmation(null)
+                  void onSave(input)
+                }}
+              >
+                Xác nhận nhập kho
+              </button>
+            </div>
+          </section>
+        ) : null}
         <footer>
           <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={onClose}>Hủy</button>
-          <button className="admin-primary-button" type="submit" disabled={isSaving || totalImport < 1}>{isSaving ? 'Đang tạo...' : `Nhập ${formatNumber(totalImport)} sản phẩm`}</button>
+          <button className="admin-primary-button" type="submit" disabled={isSaving || Boolean(pendingConfirmation) || totalImport < 1 || !isImportPriceValid}>{isSaving ? 'Đang tạo...' : `Nhập ${formatNumber(totalImport)} sản phẩm`}</button>
         </footer>
       </form>
     </div>
@@ -906,6 +941,8 @@ function InventoryHistoryDialog({
   onClose: () => void
 }) {
   const total = group.rows.reduce((sum, row) => sum + row.availableQuantity, 0)
+  const [pendingDeleteImport, setPendingDeleteImport] = useState<InventoryImport | null>(null)
+
   return (
     <div className="admin-inventory-dialog-layer" role="dialog" aria-modal="true" aria-labelledby="inventory-history-title">
       <button className="admin-inventory-dialog-backdrop" type="button" aria-label="Đóng" onClick={onClose} />
@@ -926,6 +963,32 @@ function InventoryHistoryDialog({
             <div><dt>Tổng có thể bán</dt><dd>{formatNumber(total)}</dd></div>
           </dl>
         </div>
+        {pendingDeleteImport ? (
+          <section className="admin-inventory-confirm-panel is-danger" role="alertdialog" aria-label="Xác nhận xóa phiếu nhập kho">
+            <div>
+              <strong>Xóa phiếu nhập kho này?</strong>
+              <span>Mã phiếu: {pendingDeleteImport.importCode || pendingDeleteImport._id.slice(-8).toUpperCase()}</span>
+              <span>Hệ thống sẽ trừ lại tồn kho theo lượng còn lại của phiếu nhập.</span>
+            </div>
+            <div>
+              <button className="admin-secondary-button" type="button" disabled={isDeleting} onClick={() => setPendingDeleteImport(null)}>
+                Giữ lại
+              </button>
+              <button
+                className="admin-danger-button"
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  const importId = pendingDeleteImport._id
+                  setPendingDeleteImport(null)
+                  void onDeleteImport(importId)
+                }}
+              >
+                Xóa phiếu nhập
+              </button>
+            </div>
+          </section>
+        ) : null}
         <div className="admin-import-history">
           <header>
             <span>Mã phiếu</span>
@@ -970,11 +1033,7 @@ function InventoryHistoryDialog({
                   className="admin-danger-link"
                   type="button"
                   disabled={isDeleting}
-                  onClick={() => {
-                    if (window.confirm('Xóa phiếu nhập kho này và trừ lại tồn kho?')) {
-                      void onDeleteImport(item._id)
-                    }
-                  }}
+                  onClick={() => setPendingDeleteImport(item)}
                 >
                   Xóa
                 </button>

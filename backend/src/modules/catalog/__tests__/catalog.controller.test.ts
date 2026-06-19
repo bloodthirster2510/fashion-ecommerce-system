@@ -310,6 +310,21 @@ describe('catalog controllers', () => {
       expect(res.json).toHaveBeenCalledWith({ message: 'Success', data: response });
     });
 
+    it('hides unexpected product list errors from API responses', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockedProductService.getProductList.mockRejectedValue(new Error('database schema details') as never);
+      const req = createRequest();
+      const res = createResponse();
+
+      await getProductList(req, res);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Product controller error:', expect.any(Error));
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ message: 'Internal Server Error' });
+
+      consoleErrorSpy.mockRestore();
+    });
+
     it('returns 400 when create product payload is missing required fields', async () => {
       const req = createRequest({ name: 'T-shirt' });
       const res = createResponse();

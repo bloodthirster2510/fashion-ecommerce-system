@@ -77,6 +77,7 @@ export type CreateOrderPayload = {
   };
   quoteVersion: string;
   paymentMethod: CartPaymentMethod;
+  paymentMethodId?: string;
   couponCode?: string;
   orderNote?: string;
 };
@@ -206,6 +207,7 @@ export type OrderResponse = {
   totalAmount: number;
   status: string;
   paymentMethod: string;
+  paymentMethodId?: string | null;
   paymentStatus: string;
 };
 
@@ -276,7 +278,7 @@ const request = async <T>(
   if (!response.ok) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new CartApiError(
-      validationMessage || payload.message || 'Khong the cap nhat gio hang',
+      validationMessage || payload.message || 'Không thể cập nhật giỏ hàng',
       payload.errors,
       response.status,
       payload.errorCode,

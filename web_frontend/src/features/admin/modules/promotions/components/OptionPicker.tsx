@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 export type PickerOption = {
   value: string
@@ -13,6 +13,8 @@ type OptionPickerProps = {
   options: PickerOption[]
   selectedValues: string[]
   onChange: (values: string[]) => void
+  onSearch?: (query: string) => void
+  isSearching?: boolean
 }
 
 const normalizeSearchText = (value: string) =>
@@ -33,6 +35,8 @@ export function OptionPicker({
   options,
   selectedValues,
   onChange,
+  onSearch,
+  isSearching = false,
 }: OptionPickerProps) {
   const [query, setQuery] = useState('')
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues])
@@ -50,6 +54,15 @@ export function OptionPicker({
     () => options.filter((option) => selectedSet.has(option.value)),
     [options, selectedSet],
   )
+
+  useEffect(() => {
+    if (!onSearch) {
+      return
+    }
+
+    const handle = window.setTimeout(() => onSearch(query.trim()), 320)
+    return () => window.clearTimeout(handle)
+  }, [onSearch, query])
 
   const toggleValue = (value: string) => {
     if (selectedSet.has(value)) {
@@ -74,7 +87,7 @@ export function OptionPicker({
         ) : null}
       </header>
 
-      {options.length > 8 ? (
+      {onSearch || options.length > 8 ? (
         <input
           className="admin-option-picker-search"
           type="search"
@@ -85,7 +98,9 @@ export function OptionPicker({
       ) : null}
 
       <div className="admin-option-list">
-        {filteredOptions.length ? (
+        {isSearching ? (
+          <div className="admin-option-empty">Đang tìm sản phẩm...</div>
+        ) : filteredOptions.length ? (
           filteredOptions.map((option) => (
             <label key={option.value} className="admin-option-item">
               <input

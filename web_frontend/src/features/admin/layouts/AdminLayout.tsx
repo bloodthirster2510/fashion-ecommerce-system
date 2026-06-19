@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { AdminUser } from '../modules/auth/adminSession'
 import {
+  IMPLEMENTED_ADMIN_ROUTE_IDS,
   adminRouteGroups,
   adminRoutes,
   getAdminRouteByPath,
@@ -12,6 +13,7 @@ import { CatalogManagementPage } from '../modules/catalog/CatalogManagementPage'
 import { CustomerListPage } from '../modules/customers/CustomerListPage'
 import { LoyaltyPage } from '../modules/loyalty/LoyaltyPage'
 import { PromotionsPage } from '../modules/promotions/PromotionsPage'
+import { OrderListPage } from '../modules/orders/OrderListPage'
 import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
 
@@ -21,9 +23,11 @@ type AdminLayoutProps = {
 }
 
 type NavId = AdminRouteId
+const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
 type NavItem = AdminRoute & {
   icon: () => ReactNode
+  isImplemented: boolean
 }
 
 const navIcons: Record<NavId, () => ReactNode> = {
@@ -34,6 +38,8 @@ const navIcons: Record<NavId, () => ReactNode> = {
   products: ProductsIcon,
   catalog: TagsIcon,
   orders: OrdersIcon,
+  ordersOnline: PaymentOnlineIcon,
+  ordersCod: PaymentCodIcon,
   inventory: InventoryIcon,
   promotions: CouponIcon,
   reviews: ReviewIcon,
@@ -42,9 +48,14 @@ const navIcons: Record<NavId, () => ReactNode> = {
   settings: SettingsIcon,
 }
 
+const implementedAdminRouteIds = new Set<NavId>(IMPLEMENTED_ADMIN_ROUTE_IDS)
+
+const isImplementedRoute = (routeId: NavId) => implementedAdminRouteIds.has(routeId)
+
 const navItems: NavItem[] = adminRoutes.map((route) => ({
   ...route,
   icon: navIcons[route.id],
+  isImplemented: isImplementedRoute(route.id),
 }))
 
 const routePermissions: Partial<Record<NavId, string>> = {
@@ -54,6 +65,8 @@ const routePermissions: Partial<Record<NavId, string>> = {
   products: 'products.read',
   catalog: 'catalog.read',
   orders: 'orders.read',
+  ordersOnline: 'orders.read',
+  ordersCod: 'orders.read',
   inventory: 'inventory.read',
   promotions: 'promotions.read',
   reviews: 'reviews.moderate',
@@ -63,10 +76,6 @@ const routePermissions: Partial<Record<NavId, string>> = {
 }
 
 const canAccessRoute = (user: AdminUser, route: NavItem) => {
-  if (route.id === 'overview') {
-    return true
-  }
-
   if (user.role === 'admin') {
     return true
   }
@@ -79,55 +88,91 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
   return user.permissions?.includes(requiredPermission) ?? false
 }
 
-const getActiveSectionFromPath = () =>
-  getAdminRouteByPath(window.location.pathname)?.id ?? 'overview'
+const canEnterRoute = (user: AdminUser, route: NavItem) =>
+  route.isImplemented && canAccessRoute(user, route)
+
+const getActiveSectionFromPath = () => {
+  const route = getAdminRouteByPath(window.location.pathname)
+
+  return route && isImplementedRoute(route.id) ? route.id : 'orders'
+}
+
+const notifyAdminNavigation = () => {
+  window.dispatchEvent(new Event(ADMIN_NAVIGATION_EVENT))
+}
 
 export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
   const [activeSection, setActiveSection] = useState<NavId>(() => getActiveSectionFromPath())
   const displayName = currentUser.name || currentUser.email
   const avatarText = displayName.trim().charAt(0).toUpperCase() || 'A'
   const visibleNavItems = navItems.filter((item) => canAccessRoute(currentUser, item))
+  const enterableNavItems = visibleNavItems.filter((item) => canEnterRoute(currentUser, item))
   const visibleNavGroups = adminRouteGroups
     .map((group) => ({
       ...group,
       items: visibleNavItems.filter((item) => item.group === group.id),
     }))
     .filter((group) => group.items.length > 0)
-  const fallbackRoute = visibleNavItems[0] ?? navItems[0]
-  const activeRoute = visibleNavItems.find((item) => item.id === activeSection) ?? fallbackRoute
-  const renderedSection = activeRoute.id
+  const fallbackRoute = enterableNavItems[0]
+  const activeRoute = enterableNavItems.find((item) => item.id === activeSection) ?? fallbackRoute
+  const fallbackRouteId = fallbackRoute?.id
+  const fallbackRoutePath = fallbackRoute?.path
+  const renderedSection = activeRoute?.id
 
   useEffect(() => {
     const syncSectionWithPath = () => {
       const currentRoute = getAdminRouteByPath(window.location.pathname)
 
-      if (currentRoute && canAccessRoute(currentUser, { ...currentRoute, icon: navIcons[currentRoute.id] })) {
+      if (
+        currentRoute &&
+        isImplementedRoute(currentRoute.id) &&
+        canAccessRoute(currentUser, { ...currentRoute, icon: navIcons[currentRoute.id], isImplemented: true })
+      ) {
         setActiveSection(currentRoute.id)
         return
       }
 
-      if (window.location.pathname !== fallbackRoute.path) {
-        window.history.replaceState(null, '', fallbackRoute.path)
+      if (!fallbackRouteId || !fallbackRoutePath) {
+        return
       }
 
-      setActiveSection(fallbackRoute.id)
+      if (window.location.pathname !== fallbackRoutePath) {
+        window.history.replaceState(null, '', fallbackRoutePath)
+        notifyAdminNavigation()
+      }
+
+      setActiveSection(fallbackRouteId)
     }
 
     syncSectionWithPath()
     window.addEventListener('popstate', syncSectionWithPath)
+    window.addEventListener(ADMIN_NAVIGATION_EVENT, syncSectionWithPath)
 
-    return () => window.removeEventListener('popstate', syncSectionWithPath)
-  }, [currentUser, fallbackRoute.id, fallbackRoute.path])
+    return () => {
+      window.removeEventListener('popstate', syncSectionWithPath)
+      window.removeEventListener(ADMIN_NAVIGATION_EVENT, syncSectionWithPath)
+    }
+  }, [currentUser, fallbackRouteId, fallbackRoutePath])
 
   const handleNavigate = (item: NavItem) => {
     setActiveSection(item.id)
 
     if (window.location.pathname !== item.path) {
       window.history.pushState(null, '', item.path)
+      notifyAdminNavigation()
     }
   }
 
   const renderContent = () => {
+    if (!renderedSection) {
+      return (
+        <div className="admin-empty-state" role="alert">
+          <strong>Không có quyền truy cập</strong>
+          <span>Liên hệ quản trị viên để được cấp quyền vào khu vực phù hợp.</span>
+        </div>
+      )
+    }
+
     if (renderedSection === 'accounts') {
       return <ManagerListPage />
     }
@@ -144,6 +189,18 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       return <PromotionsPage currentUser={currentUser} />
     }
 
+    if (renderedSection === 'orders') {
+      return <OrderListPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'ordersOnline') {
+      return <OrderListPage currentUser={currentUser} paymentSection="online" lockPaymentSection />
+    }
+
+    if (renderedSection === 'ordersCod') {
+      return <OrderListPage currentUser={currentUser} paymentSection="cod" lockPaymentSection />
+    }
+
     if (renderedSection === 'catalog') {
       return <CatalogManagementPage currentUser={currentUser} />
     }
@@ -156,12 +213,30 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       return <InventoryManagementPage currentUser={currentUser} />
     }
 
-    return (
-      <section className="admin-placeholder-page">
-        <p>{activeRoute.helper}</p>
-        <h1>{activeRoute.label}</h1>
-      </section>
-    )
+    const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
+    const pendingRoute = visibleNavItems.find((item) => item.id === renderedSection)
+
+    if (pendingRoute && !pendingRoute.isImplemented) {
+      return (
+        <section className="admin-placeholder-page">
+          <p>{pendingRoute.helper}</p>
+          <h1>{pendingRoute.label}</h1>
+          <span className="admin-placeholder-note">Khu vực này đang được hoàn thiện. Vui lòng quay lại sau.</span>
+        </section>
+      )
+    }
+
+    if (!enterableRoute && pendingRoute) {
+      return (
+        <section className="admin-placeholder-page">
+          <p>{pendingRoute.helper}</p>
+          <h1>{pendingRoute.label}</h1>
+          <span className="admin-placeholder-note">Bạn không có quyền truy cập khu vực này.</span>
+        </section>
+      )
+    }
+
+    return null
   }
 
   return (
@@ -179,18 +254,24 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
               {group.items.map((item) => {
                 const Icon = item.icon
                 const isActive = item.id === renderedSection
+                const isOrderPaymentRoute = item.id === 'ordersOnline' || item.id === 'ordersCod'
+                const isDisabled = !item.isImplemented
 
                 return (
                   <button
                     aria-current={isActive ? 'page' : undefined}
-                    className={`admin-nav-item${isActive ? ' is-active' : ''}`}
+                    aria-disabled={isDisabled || undefined}
+                    className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
                     type="button"
                     key={item.id}
-                    onClick={() => handleNavigate(item)}
+                    onClick={() => (isDisabled ? undefined : handleNavigate(item))}
                   >
                     <Icon />
                     <span>
-                      <strong>{item.label}</strong>
+                      <strong>
+                        {item.label}
+                        {isDisabled ? <em className="admin-nav-badge">Sắp ra mắt</em> : null}
+                      </strong>
                       <small>{item.helper}</small>
                     </span>
                   </button>
@@ -204,8 +285,8 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       <section className="admin-shell" aria-label="Admin workspace">
         <header className="admin-topbar">
           <div className="admin-topbar-title">
-            <strong>{activeRoute.label}</strong>
-            <span>{activeRoute.helper}</span>
+            <strong>{activeRoute?.label ?? 'Không có quyền truy cập'}</strong>
+            <span>{activeRoute?.helper ?? 'Liên hệ quản trị viên để được cấp quyền'}</span>
           </div>
 
           <div className="admin-topbar-actions">
@@ -295,6 +376,22 @@ function OrdersIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3 4h2.3l1.1 10.2A3 3 0 0 0 9.4 17H18v-2H9.4a1 1 0 0 1-1-.9L8.3 13h9.9a2 2 0 0 0 1.9-1.4L22 6H7.1L6.8 4H3v2Zm6 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm9 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
+    </svg>
+  )
+}
+
+function PaymentOnlineIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 6h18v12H3V6Zm2 2v2h14V8H5Zm0 5v3h14v-3H5Zm2 1h5v1H7v-1Zm10-9h2v2h-2V5Zm-4 0h2v2h-2V5Z" />
+    </svg>
+  )
+}
+
+function PaymentCodIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 6h16v12H4V6Zm2 2v8h12V8H6Zm6 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Zm-4 0h2v1H8v-1Zm6 5h2v1h-2v-1ZM3 10h2v4H3v-4Zm16 0h2v4h-2v-4Z" />
     </svg>
   )
 }

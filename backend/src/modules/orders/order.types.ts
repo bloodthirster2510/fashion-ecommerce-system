@@ -1,4 +1,4 @@
-import type { OrderPaymentMethod, OrderStatus } from '../../database/models';
+import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
 
 export interface ShippingAddressInput {
   customerName: string;
@@ -21,8 +21,9 @@ export interface CreateOrderInput {
   cartItemIds: string[];
   addressId?: string;
   shippingAddress?: ShippingAddressInput;
-  quoteVersion?: string;
+  quoteVersion: string;
   paymentMethod: OrderPaymentMethod;
+  paymentMethodId?: string;
   couponCode?: string;
   orderNote?: string;
 }
@@ -37,7 +38,11 @@ export interface PreviewCheckoutInput {
 
 export interface OrderListQueryInput {
   status?: OrderStatus;
+  statuses?: OrderStatus[];
   paymentMethod?: OrderPaymentMethod;
+  paymentMethods?: OrderPaymentMethod[];
+  paymentStatus?: OrderPaymentStatus;
+  paymentStatuses?: OrderPaymentStatus[];
   keyword?: string;
   from?: Date;
   to?: Date;
@@ -47,6 +52,31 @@ export interface OrderListQueryInput {
 
 export interface UpdateOrderStatusInput {
   status: OrderStatus;
+  reason?: string;
+}
+
+export interface OrderEvidenceImageInput {
+  imageBase64: string;
+  mimeType?: string;
+}
+
+export interface CancelOrderInput {
+  reason?: string;
+  imageUrls?: string[];
+  imageAttachments?: OrderEvidenceImageInput[];
+}
+
+export interface RequestReturnInput {
+  reason: string;
+  imageUrls?: string[];
+  imageAttachments?: OrderEvidenceImageInput[];
+}
+
+export type ReviewReturnDecision = 'approved' | 'rejected';
+
+export interface ReviewReturnRequestInput {
+  decision: ReviewReturnDecision;
+  reason?: string;
 }
 
 export interface UpdateOrderShippingInput {
@@ -69,4 +99,24 @@ export interface UpdateOrderShippingInput {
   estimatedDeliveryDate?: Date | null;
   rawQuote?: Record<string, unknown> | null;
   rawShipment?: Record<string, unknown> | null;
+}
+
+export type SimulatedShippingWebhookStatus =
+  | 'ready'
+  | 'picking'
+  | 'picked'
+  | 'shipping'
+  | 'delivered'
+  | 'failed'
+  | 'cancelled';
+
+export interface SimulatedShippingWebhookInput {
+  orderId?: string;
+  orderCode?: string;
+  trackingCode?: string;
+  status: SimulatedShippingWebhookStatus;
+  reason?: string;
+  provider?: string | null;
+  deliveredAt?: Date | null;
+  rawPayload?: Record<string, unknown> | null;
 }

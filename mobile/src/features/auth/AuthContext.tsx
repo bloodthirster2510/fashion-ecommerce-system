@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import { authApi } from './authApi';
+import { sessionStorage } from './sessionStorage';
 import type { AuthSession, SessionUser } from './types';
 
 type AuthContextType = {
   isAuthenticated: boolean;
   isRestoringSession: boolean;
   session: AuthSession | null;
-  login: (session: AuthSession) => void;
+  login: (session: AuthSession) => Promise<void>;
   updateSessionUser: (user: Partial<SessionUser>) => void;
   runWithAuth: <T>(action: (accessToken: string) => Promise<T>) => Promise<T>;
   logout: () => void;
@@ -38,14 +38,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const restoreSession = async () => {
       try {
-        const rawSession = await SecureStore.getItemAsync(AUTH_SESSION_STORAGE_KEY);
+        const rawSession = await sessionStorage.getItemAsync(AUTH_SESSION_STORAGE_KEY);
         if (!isMounted || !rawSession) return;
 
         const restoredSession = JSON.parse(rawSession) as AuthSession;
         sessionRef.current = restoredSession;
         setSession(restoredSession);
       } catch {
-        await SecureStore.deleteItemAsync(AUTH_SESSION_STORAGE_KEY).catch(() => undefined);
+        await sessionStorage.deleteItemAsync(AUTH_SESSION_STORAGE_KEY).catch(() => undefined);
       } finally {
         if (isMounted) setIsRestoringSession(false);
       }
@@ -59,41 +59,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const persistSession = React.useCallback((nextSession: AuthSession | null) => {
-    const task = nextSession
-      ? SecureStore.setItemAsync(AUTH_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
-      : SecureStore.deleteItemAsync(AUTH_SESSION_STORAGE_KEY);
-
-    task.catch(() => undefined);
+    return nextSession
+      ? sessionStorage.setItemAsync(AUTH_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
+      : sessionStorage.deleteItemAsync(AUTH_SESSION_STORAGE_KEY);
   }, []);
 
-  const login = React.useCallback((newSession: AuthSession) => {
+  const login = React.useCallback(async (newSession: AuthSession) => {
+    await persistSession(newSession);
     sessionRef.current = newSession;
     setSession(newSession);
-    persistSession(newSession);
   }, [persistSession]);
 
   const logout = React.useCallback(() => {
     sessionRef.current = null;
     setSession(null);
-    persistSession(null);
+    persistSession(null).catch(() => undefined);
   }, [persistSession]);
 
   const updateSessionUser = React.useCallback((user: Partial<SessionUser>) => {
-    setSession((current) => {
-      if (!current) return current;
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
 
-      const nextSession = {
-        ...current,
-        user: {
-          ...current.user,
-          ...user,
-        },
-      };
+    const nextSession = {
+      ...currentSession,
+      user: {
+        ...currentSession.user,
+        ...user,
+      },
+    };
 
-      sessionRef.current = nextSession;
-      persistSession(nextSession);
-      return nextSession;
-    });
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+    persistSession(nextSession).catch(() => undefined);
   }, [persistSession]);
 
   const runWithAuth = React.useCallback(
@@ -117,28 +114,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
 
         try {
+          const refreshSession = sessionRef.current;
+
+          if (!refreshSession) {
+            throw new Error('Vui lòng đăng nhập để tiếp tục.');
+          }
+
           if (!refreshPromiseRef.current) {
-            refreshPromiseRef.current = authApi.refreshToken(currentSession.refreshToken).finally(() => {
+            refreshPromiseRef.current = authApi.refreshToken(refreshSession.refreshToken).finally(() => {
               refreshPromiseRef.current = null;
             });
           }
 
           const nextTokens = await refreshPromiseRef.current;
+          const baseSession = sessionRef.current ?? refreshSession;
           const nextSession = {
-            ...currentSession,
+            ...baseSession,
             accessToken: nextTokens.accessToken,
             refreshToken: nextTokens.refreshToken,
           };
 
+          await persistSession(nextSession);
           sessionRef.current = nextSession;
           setSession(nextSession);
-          persistSession(nextSession);
 
           return await action(nextTokens.accessToken);
         } catch (refreshError) {
           sessionRef.current = null;
           setSession(null);
-          persistSession(null);
+          persistSession(null).catch(() => undefined);
 
           throw refreshError instanceof Error
             ? refreshError

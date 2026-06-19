@@ -46,8 +46,8 @@ const LoginScreen = () => {
       routes: [{ name: 'Home' }],
     });
   }, [navigation]);
-  const completeLogin = useCallback((session: AuthSession) => {
-    login(session);
+  const completeLogin = useCallback(async (session: AuthSession) => {
+    await login(session);
     navigation.reset({
       index: 0,
       routes: [{ name: session.user.profileCompleted === false ? 'EditProfile' : 'Home' }],
@@ -65,10 +65,14 @@ const LoginScreen = () => {
     }, [resetToHome])
   );
   const googleAuth = useGoogleAuth((session) => {
-    completeLogin(session);
+    void completeLogin(session).catch((error) => {
+      setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
+    });
   });
   const facebookAuth = useFacebookAuth((session) => {
-    completeLogin(session);
+    void completeLogin(session).catch((error) => {
+      setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
+    });
   });
 
 
@@ -82,7 +86,7 @@ const LoginScreen = () => {
     try {
       setLoading(true);
       const result = await authApi.login(trimmedIdentifier, password);
-      completeLogin(result);
+      await completeLogin(result);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
     } finally {

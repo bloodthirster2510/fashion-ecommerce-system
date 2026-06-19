@@ -89,6 +89,37 @@
   border-radius: 50%;
 }
 
+.admin-loyalty-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  color: var(--admin-muted);
+  text-align: center;
+}
+
+.admin-loyalty-empty-state strong {
+  color: var(--admin-text);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.admin-loyalty-empty-state span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-loyalty-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-loyalty-load-error .admin-link-button {
+  flex: 0 0 auto;
+}
+
 .admin-loyalty-panel,
 .admin-loyalty-impact {
   border: 1px solid var(--admin-line);

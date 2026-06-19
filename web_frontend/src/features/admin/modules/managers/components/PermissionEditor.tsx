@@ -32,6 +32,8 @@ const permissionGroups: PermissionGroup[] = [
     items: [
       { value: 'orders.read', label: 'Xem' },
       { value: 'orders.update', label: 'Cập nhật trạng thái' },
+      { value: 'payments.adjust', label: 'Điều chỉnh thanh toán' },
+      { value: 'audit.read', label: 'Nhật ký' },
     ],
   },
   {

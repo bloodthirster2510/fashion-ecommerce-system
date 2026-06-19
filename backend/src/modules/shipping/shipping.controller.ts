@@ -47,7 +47,7 @@ export const getShippingRates = async (req: Request, res: Response) => {
       quoteVersion: preview.quoteVersion,
       shippingQuote: preview.shippingQuote,
       shippingComparison: preview.shippingComparison,
-    }, 'So sanh phi van chuyen thanh cong');
+    }, 'So sánh phí vận chuyển thành công');
   } catch (error) {
     const { statusCode, message, errorCode, data } = getErrorResponse(error);
     return errorResponse(res, message, statusCode, { errorCode, data });

@@ -22,8 +22,12 @@ import { colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
+import {
+  paymentMethodsApi,
+  type PaymentMethodRecord as SavedPaymentMethodRecord,
+} from '../account/paymentMethodsApi';
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
-import { paymentApi, PaymentApiError } from './paymentApi';
+import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
@@ -40,8 +44,6 @@ type CartNotice = {
   onAction?: () => void;
 };
 
-const COD_SHIPPING_FEE = 25000;
-
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
@@ -49,7 +51,7 @@ const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
-    return 'Phi giao hang vua thay doi. Minh can cap nhat lai tong tien truoc khi dat hang.';
+    return 'Phí giao hàng vừa thay đổi. Mình cần cập nhật lại tổng tiền trước khi đặt hàng.';
   }
 
   if (error instanceof CartApiError && error.status === 409) {
@@ -125,6 +127,9 @@ const CartScreen = () => {
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
   const [isAddressLoading, setIsAddressLoading] = React.useState(false);
+  const [paymentMethods, setPaymentMethods] = React.useState<SavedPaymentMethodRecord[]>([]);
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = React.useState<string | null>(null);
+  const [isPaymentMethodsLoading, setIsPaymentMethodsLoading] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [pendingItemId, setPendingItemId] = React.useState<string | null>(null);
@@ -146,6 +151,7 @@ const CartScreen = () => {
   });
   const selectedAddressIdRef = React.useRef<string | null>(null);
   const noticeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paymentMethodSelectionTouchedRef = React.useRef(false);
 
   const selectedAddress = React.useMemo(
     () =>
@@ -169,6 +175,31 @@ const CartScreen = () => {
         selectedAddress.streetName,
       ].join(':')
     : '';
+  const activeSavedPaymentMethods = React.useMemo(
+    () => paymentMethods.filter((method) => method.status === 'verified'),
+    [paymentMethods],
+  );
+  const defaultSavedPaymentMethod = React.useMemo(
+    () => activeSavedPaymentMethods.find((method) => method.isDefault) ?? null,
+    [activeSavedPaymentMethods],
+  );
+  const defaultVNPayPaymentMethod = React.useMemo(
+    () =>
+      activeSavedPaymentMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
+      activeSavedPaymentMethods.find((method) => method.type === 'VNPAY') ??
+      null,
+    [activeSavedPaymentMethods],
+  );
+  const pendingVNPayPaymentMethod = React.useMemo(
+    () => paymentMethods.find((method) => method.type === 'VNPAY' && method.status === 'pending') ?? null,
+    [paymentMethods],
+  );
+  const selectedSavedPaymentMethod = React.useMemo(
+    () =>
+      activeSavedPaymentMethods.find((method) => method._id === selectedPaymentMethodId && method.type === 'VNPAY') ??
+      null,
+    [activeSavedPaymentMethods, selectedPaymentMethodId],
+  );
 
   const clearNoticeTimer = React.useCallback(() => {
     if (noticeTimeoutRef.current) {
@@ -303,12 +334,82 @@ const CartScreen = () => {
     [applyAddressToForm, runWithAuth, session?.accessToken, showNotice],
   );
 
+  const loadPaymentMethods = React.useCallback(
+    async (silent = false) => {
+      if (!session?.accessToken) {
+        setPaymentMethods([]);
+        setSelectedPaymentMethodId(null);
+        setIsPaymentMethodsLoading(false);
+        return;
+      }
+
+      if (!silent) {
+        setIsPaymentMethodsLoading(true);
+      }
+
+      try {
+        const nextPaymentMethods = await runWithAuth((accessToken) => paymentMethodsApi.list(accessToken));
+        const activeMethods = nextPaymentMethods.filter((method) => method.status === 'verified');
+        const nextDefaultMethod = activeMethods.find((method) => method.isDefault) ?? null;
+        const nextDefaultVNPayMethod =
+          activeMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
+          activeMethods.find((method) => method.type === 'VNPAY') ??
+          null;
+
+        setPaymentMethods(nextPaymentMethods);
+        setSelectedPaymentMethodId((current) => {
+          if (current && activeMethods.some((method) => method._id === current && method.type === 'VNPAY')) {
+            return current;
+          }
+
+          return nextDefaultVNPayMethod?._id ?? null;
+        });
+
+        if (!paymentMethodSelectionTouchedRef.current && nextDefaultMethod?.type === 'VNPAY') {
+          setPaymentMethod('VNPAY');
+        }
+      } catch (error) {
+        setPaymentMethods([]);
+        setSelectedPaymentMethodId(null);
+        if (!silent) {
+          showNotice({
+            tone: 'warning',
+            title: 'Chưa tải được phương thức thanh toán',
+            message: getErrorMessage(error),
+          });
+        }
+      } finally {
+        setIsPaymentMethodsLoading(false);
+      }
+    },
+    [runWithAuth, session?.accessToken, showNotice],
+  );
+
   useFocusEffect(
     React.useCallback(() => {
       void loadCart();
       void loadAddresses();
-    }, [loadAddresses, loadCart]),
+      void loadPaymentMethods();
+    }, [loadAddresses, loadCart, loadPaymentMethods]),
   );
+
+  React.useEffect(() => {
+    if (paymentMethod !== 'VNPAY') {
+      if (selectedPaymentMethodId) {
+        setSelectedPaymentMethodId(null);
+      }
+      return;
+    }
+
+    if (
+      selectedPaymentMethodId &&
+      !activeSavedPaymentMethods.some(
+        (method) => method._id === selectedPaymentMethodId && method.type === 'VNPAY',
+      )
+    ) {
+      setSelectedPaymentMethodId(defaultVNPayPaymentMethod?._id ?? null);
+    }
+  }, [activeSavedPaymentMethods, defaultVNPayPaymentMethod, paymentMethod, selectedPaymentMethodId]);
 
   const selectedItems = React.useMemo(
     () => cart?.product_list.filter((item) => item.isSelected) ?? [],
@@ -336,12 +437,12 @@ const CartScreen = () => {
   const localShippingDiscountAmount = 0;
   const checkoutSummary = checkoutPreview?.summary ?? {
     subTotal: localSubTotal,
-    shippingFee: COD_SHIPPING_FEE,
+    shippingFee: 0,
     couponDiscountAmount: 0,
     shippingDiscountAmount: localShippingDiscountAmount,
     membershipDiscountAmount: 0,
     taxAmount: 0,
-    totalAmount: localSubTotal + (selectedCheckoutItems.length ? COD_SHIPPING_FEE - localShippingDiscountAmount : 0),
+    totalAmount: localSubTotal,
   };
   const {
     subTotal,
@@ -370,7 +471,7 @@ const CartScreen = () => {
   const shippingProviderLabel = shippingQuote?.provider === 'GHN'
     ? 'GHN toi uu'
     : shippingComparison?.comparisonStatus === 'fallback'
-      ? 'Phi tam tinh'
+      ? 'Phí tạm tính'
       : 'Gia toi uu';
   const shippingStatusText = isPreviewLoading
     ? 'Đang tính phí giao hàng...'
@@ -662,8 +763,35 @@ const CartScreen = () => {
     navigation.navigate('Coupons', {
       cartItemIds: selectedCheckoutItems.map((item) => item._id),
       selectedCouponCode: appliedCouponCode,
+      paymentMethod,
     });
   };
+
+  const handleSelectPaymentMethod = React.useCallback(
+    (method: PaymentMethod) => {
+      paymentMethodSelectionTouchedRef.current = true;
+      setPaymentMethod(method);
+
+      if (method !== 'VNPAY') {
+        setSelectedPaymentMethodId(null);
+        return;
+      }
+
+      setSelectedPaymentMethodId((current) => {
+        if (
+          current &&
+          activeSavedPaymentMethods.some(
+            (savedMethod) => savedMethod._id === current && savedMethod.type === 'VNPAY',
+          )
+        ) {
+          return current;
+        }
+
+        return defaultVNPayPaymentMethod?._id ?? null;
+      });
+    },
+    [activeSavedPaymentMethods, defaultVNPayPaymentMethod],
+  );
 
   const validateCheckout = () => {
     if (!selectedAddress) {
@@ -699,6 +827,15 @@ const CartScreen = () => {
       return;
     }
 
+    if (paymentMethod === 'MOMO') {
+      showNotice({
+        tone: 'warning',
+        title: 'MoMo chưa sẵn sàng',
+        message: 'Cổng MoMo chưa được tích hợp. Bạn chọn COD hoặc VNPay để đặt hàng nha.',
+      });
+      return;
+    }
+
     if (!canSubmit || !validateCheckout()) {
       return;
     }
@@ -710,8 +847,8 @@ const CartScreen = () => {
     if (!checkoutPreview?.quoteVersion) {
       showNotice({
         tone: 'warning',
-        title: 'Dang cap nhat tong tien',
-        message: 'He thong can tinh lai phi giao hang truoc khi dat hang.',
+        title: 'Đang cập nhật tổng tiền',
+        message: 'Hệ thống cần tính lại phí giao hàng trước khi đặt hàng.',
       });
       return;
     }
@@ -721,6 +858,7 @@ const CartScreen = () => {
       const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         paymentMethod,
+        paymentMethodId: paymentMethod === 'VNPAY' ? selectedSavedPaymentMethod?._id : undefined,
         quoteVersion: checkoutPreview.quoteVersion,
         ...getCheckoutAddressPayload(),
         couponCode: appliedCouponCode ?? undefined,
@@ -738,9 +876,22 @@ const CartScreen = () => {
             paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
           );
 
-          await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
-            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-          });
+          try {
+            await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+              presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+            });
+          } catch (openError) {
+            console.warn('Cannot open VNPay browser', openError);
+            navigation.replace('OrderSuccess', {
+              orderId: order._id,
+              orderCode: order.orderCode,
+              totalAmount: order.totalAmount,
+              paymentMethod: 'VNPAY',
+              paymentStatus: 'pending',
+              paymentMessage: 'Không thể mở trang thanh toán VNPay. Bạn thử lại sau nha.',
+            });
+            return;
+          }
 
           navigation.replace('OrderSuccess', {
             orderId: order._id,
@@ -762,13 +913,8 @@ const CartScreen = () => {
             totalAmount: order.totalAmount,
             paymentMethod: 'VNPAY',
             paymentStatus: 'pending',
+            paymentMessage: paymentMsg,
           });
-
-          showNotice({
-            tone: 'warning',
-            title: 'Đơn đã đặt, chưa lấy được link thanh toán',
-            message: paymentMsg,
-          }, 0);
         }
       } else {
         // Luồng COD: điều hướng thẳng đến màn hình thành công
@@ -797,15 +943,15 @@ const CartScreen = () => {
           setCheckoutPreview(refreshedPreview);
           showNotice({
             tone: 'warning',
-            title: 'Phi giao hang vua thay doi',
-            message: 'Tong tien da duoc cap nhat. Ban vui long kiem tra lai truoc khi dat hang.',
+            title: 'Phí giao hàng vừa thay đổi',
+            message: 'Tổng tiền đã được cập nhật. Bạn vui lòng kiểm tra lại trước khi đặt hàng.',
           });
           return;
         } catch (refreshError) {
           setCheckoutPreview(null);
           showNotice({
             tone: 'warning',
-            title: 'Can cap nhat lai phi giao hang',
+            title: 'Cần cập nhật lại phí giao hàng',
             message: getErrorMessage(refreshError),
           });
           void loadCart(true);
@@ -977,7 +1123,7 @@ const CartScreen = () => {
     return (
       <TouchableOpacity
         style={[styles.paymentOption, selected && styles.paymentOptionSelected, disabled && styles.paymentOptionDisabled]}
-        onPress={() => (disabled ? undefined : setPaymentMethod(method))}
+        onPress={() => (disabled ? undefined : handleSelectPaymentMethod(method))}
         disabled={disabled}
         activeOpacity={0.82}
       >
@@ -1177,7 +1323,7 @@ const CartScreen = () => {
         <View style={styles.shippingQuoteTopRow}>
           <Text style={styles.shippingQuoteTitle}>Giao hàng tiêu chuẩn</Text>
           <Text style={styles.shippingQuoteFee}>
-            {selectedCheckoutItems.length ? formatCurrency(shippingFee) : '--'}
+            {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
           </Text>
         </View>
         <Text style={styles.shippingQuoteMeta}>{shippingProviderLabel} · {shippingStatusText}</Text>
@@ -1187,13 +1333,23 @@ const CartScreen = () => {
             onPress={() => navigation.navigate('EditProfile')}
             activeOpacity={0.82}
           >
-            <Text style={styles.shippingQuoteActionText}>Quan ly dia chi</Text>
+            <Text style={styles.shippingQuoteActionText}>Quản lý địa chỉ</Text>
             <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brand} />
           </TouchableOpacity>
         ) : null}
       </View>
     </View>
   );
+
+  const vnpayPaymentSubtitle = isPaymentMethodsLoading
+    ? 'Đang tải phương thức thanh toán đã lưu...'
+    : selectedSavedPaymentMethod
+      ? `Dùng ${selectedSavedPaymentMethod.displayName}${
+          selectedSavedPaymentMethod.maskedInfo ? ` - ${selectedSavedPaymentMethod.maskedInfo}` : ''
+        }.`
+      : pendingVNPayPaymentMethod
+      ? 'VNPay đã lưu đang chờ xác minh, bạn vẫn có thể thanh toán qua cổng VNPay.'
+      : 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.';
 
   const renderContent = () => {
     if (!isAuthenticated || !session?.accessToken) {
@@ -1290,7 +1446,7 @@ const CartScreen = () => {
               false,
               'Khách hàng được kiểm tra hàng trước khi nhận.',
             )}
-            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.')}
+            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, vnpayPaymentSubtitle)}
             {renderPaymentOption('MOMO', 'Thanh toán MoMo', 'wallet-outline', true, 'Sắp kết nối — MoMo chưa được tích hợp.')}
           </View>
         </View>
@@ -1411,7 +1567,7 @@ const CartScreen = () => {
           <View style={styles.summaryLine}>
             <Text style={styles.summaryLabel}>Phí giao hàng:</Text>
             <Text style={styles.summaryValue}>
-              {selectedCheckoutItems.length ? formatCurrency(shippingFee) : '--'}
+              {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
             </Text>
           </View>
           <View style={styles.summaryLine}>

@@ -1,16 +1,21 @@
-import { Types } from 'mongoose';
-import { Inventory, Order, Product, User } from '../../../database/models';
+import mongoose, { Types } from 'mongoose';
+import { Inventory, LoyaltyPointHistory, Order, Product, User } from '../../../database/models';
 import { inventoryService } from '../../inventory/inventory.service';
 import { cartService } from '../../cart/cart.service';
 import { promotionPricingService } from '../../promotions/pricing/promotion-pricing.service';
 import { couponService } from '../../promotions/coupons/coupon.service';
+import { transactionService } from '../../payments/transaction.service';
 import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-pricing.types';
+import { GHNService } from '../../shipping/ghn.service';
 import { orderService } from '../order.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
+    aggregate: jest.fn(),
     create: jest.fn(),
     findById: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+    findOne: jest.fn(),
     find: jest.fn(),
     countDocuments: jest.fn(),
   },
@@ -22,6 +27,10 @@ jest.mock('../../../database/models', () => ({
   },
   User: {
     findById: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+  },
+  LoyaltyPointHistory: {
+    create: jest.fn(),
   },
 }));
 
@@ -55,14 +64,54 @@ jest.mock('../../promotions/coupons/coupon.service', () => ({
   },
 }));
 
+jest.mock('../../payments/transaction.service', () => ({
+  transactionService: {
+    createPendingTransaction: jest.fn(),
+    resolveTransaction: jest.fn(),
+  },
+}));
+
+jest.mock('../../shipping/ghn.service', () => ({
+  GHNService: {
+    cancelOrder: jest.fn(),
+    createShippingOrder: jest.fn(),
+    getOrderDetail: jest.fn(),
+  },
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedUser = User as jest.Mocked<typeof User>;
+const mockedLoyaltyPointHistory = LoyaltyPointHistory as jest.Mocked<typeof LoyaltyPointHistory>;
 const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryService>;
 const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
+const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
+const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
+
+type MockSession = {
+  withTransaction: jest.Mock;
+  endSession: jest.Mock;
+};
+
+let mockSession: MockSession;
+
+const createMockSession = (): MockSession => ({
+  withTransaction: jest.fn(async (callback: () => Promise<unknown>) => callback()),
+  endSession: jest.fn().mockResolvedValue(undefined),
+});
+
+const mockAtomicCancel = <T extends { status: string }>(order: T) => {
+  (mockedOrder.findOneAndUpdate as unknown as jest.Mock).mockImplementation((_filter: unknown, update: unknown) => {
+    const set = (update as { $set?: Partial<T> }).$set;
+    if (set) {
+      Object.assign(order, set);
+    }
+    return Promise.resolve(order as never);
+  });
+};
 
 const userId = '665000000000000000000020';
 const productId = new Types.ObjectId('665000000000000000000003');
@@ -176,11 +225,38 @@ const buildPricingResult = (): CheckoutPricingResult => ({
 describe('orderService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSession = createMockSession();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(mockSession as never);
     mockedCouponService.reserveCouponUsage.mockResolvedValue(null);
     mockedCouponService.recordCouponUsage.mockResolvedValue(null);
     mockedCouponService.rollbackRecordedCouponUsage.mockResolvedValue(undefined);
     mockedCouponService.rollbackCouponUsageReservation.mockResolvedValue(undefined);
+    mockedTransactionService.createPendingTransaction.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000091'),
+    } as never);
+    mockedTransactionService.resolveTransaction.mockResolvedValue(null as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('rejects MOMO checkout until the gateway is integrated', async () => {
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'MOMO',
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Payment method MOMO is not supported in this phase. Supported: COD, VNPAY',
+      statusCode: 400,
+    });
+
+    expect(mockedPromotionPricingService.calculateCheckout).not.toHaveBeenCalled();
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
   });
 
   it('creates a COD order by reserving and committing inventory', async () => {
@@ -197,7 +273,7 @@ describe('orderService', () => {
       { _id: reservationId },
     ] as never);
     mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
     mockedCartService.deleteCartItems.mockResolvedValue({} as never);
 
@@ -215,7 +291,8 @@ describe('orderService', () => {
       paymentMethod: 'COD',
       shippingAddress: normalizedShippingAddress,
     });
-    expect(mockedCouponService.reserveCouponUsage).toHaveBeenCalledWith(userId, null);
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockedCouponService.reserveCouponUsage).toHaveBeenCalledWith(userId, null, { session: mockSession });
     expect(mockedInventoryService.reserveInventory).toHaveBeenCalledWith(
       expect.objectContaining({
         userId,
@@ -229,55 +306,63 @@ describe('orderService', () => {
           },
         ],
       }),
+      { session: mockSession },
     );
-    expect(mockedCouponService.recordCouponUsage).toHaveBeenCalledWith({
-      userId,
-      orderId: expect.any(String),
-      appliedCoupon: null,
-    });
+    expect(mockedCouponService.recordCouponUsage).toHaveBeenCalledWith(
+      {
+        userId,
+        orderId: expect.any(String),
+        appliedCoupon: null,
+      },
+      { session: mockSession },
+    );
     expect(mockedOrder.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        _id: expect.any(Types.ObjectId),
-        user_id: expect.any(Types.ObjectId),
-        order_list: [
-          expect.objectContaining({
-            productId,
-            variantId,
-            colorVariantId,
-            size: 'M',
-            sku: 'INV-TEE-BLK-M',
-            quantity: 2,
-            priceAtPurchased: 180000,
+      [
+        expect.objectContaining({
+          _id: expect.any(Types.ObjectId),
+          user_id: expect.any(Types.ObjectId),
+          order_list: [
+            expect.objectContaining({
+              productId,
+              variantId,
+              colorVariantId,
+              size: 'M',
+              sku: 'INV-TEE-BLK-M',
+              quantity: 2,
+              priceAtPurchased: 180000,
+            }),
+          ],
+          subTotal: 360000,
+          shippingFee: 25000,
+          couponCode: null,
+          couponId: null,
+          couponDiscountAmount: 0,
+          shippingDiscountAmount: 0,
+          membershipDiscountAmount: 0,
+          taxAmount: 0,
+          totalAmount: 385000,
+          status: 'confirmed',
+          paymentMethod: 'COD',
+          paymentStatus: 'pending',
+          shipping: expect.objectContaining({
+            provider: 'FIXED',
+            customerFee: 25000,
+            quotedProviderCost: 25000,
+            recommendedOptionKey: 'FIXED:STANDARD',
+            selectedOptionKey: 'FIXED:STANDARD',
+            quoteVersion: 'shipq_test_1234',
+            status: 'fallback',
           }),
-        ],
-        subTotal: 360000,
-        shippingFee: 25000,
-        couponCode: null,
-        couponId: null,
-        couponDiscountAmount: 0,
-        shippingDiscountAmount: 0,
-        membershipDiscountAmount: 0,
-        taxAmount: 0,
-        totalAmount: 385000,
-        status: 'confirmed',
-        paymentMethod: 'COD',
-        paymentStatus: 'pending',
-        shipping: expect.objectContaining({
-          provider: 'FIXED',
-          customerFee: 25000,
-          quotedProviderCost: 25000,
-          recommendedOptionKey: 'FIXED:STANDARD',
-          selectedOptionKey: 'FIXED:STANDARD',
-          quoteVersion: 'shipq_test_1234',
-          status: 'fallback',
+          shippingAddress: normalizedShippingAddress,
         }),
-        shippingAddress: normalizedShippingAddress,
-      }),
+      ],
+      { session: mockSession },
     );
-    expect(mockedOrder.create.mock.calls[0][0].order_list[0]).not.toHaveProperty('categoryId');
-    expect(mockedInventoryService.commitReservations).toHaveBeenCalledWith({
-      reservationIds: [reservationId.toString()],
-    });
+    expect(mockedOrder.create.mock.calls[0][0][0].order_list[0]).not.toHaveProperty('categoryId');
+    expect(mockedInventoryService.commitReservations).toHaveBeenCalledWith(
+      { reservationIds: [reservationId.toString()] },
+      { session: mockSession },
+    );
     expect(mockedCartService.deleteCartItems).toHaveBeenCalledWith(userId, [cartItemId.toString()]);
     expect(result).toBe(order);
   });
@@ -297,7 +382,7 @@ describe('orderService', () => {
       { _id: reservationId },
     ] as never);
     mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
     mockedCartService.deleteCartItems.mockResolvedValue({} as never);
 
@@ -317,39 +402,130 @@ describe('orderService', () => {
       shippingAddress: normalizedShippingAddress,
     });
     expect(mockedOrder.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        shippingAddress: normalizedShippingAddress,
-      }),
+      [
+        expect.objectContaining({
+          shippingAddress: normalizedShippingAddress,
+        }),
+      ],
+      { session: mockSession },
     );
     expect(result).toBe(order);
   });
 
-  it('still creates a COD order when legacy client does not send quoteVersion', async () => {
+  it('aborts an online order transaction when pending transaction creation fails', async () => {
     const order = {
       _id: new Types.ObjectId(),
       orderCode: 'FSORDER',
-      paymentMethod: 'COD',
+      paymentMethod: 'VNPAY',
       paymentStatus: 'pending',
       status: 'confirmed',
+      save: jest.fn().mockResolvedValue(undefined),
     };
 
     mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
     mockedInventoryService.reserveInventory.mockResolvedValue([
       { _id: reservationId },
     ] as never);
-    mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
-    mockedProduct.updateOne.mockResolvedValue({} as never);
-    mockedCartService.deleteCartItems.mockResolvedValue({} as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
+    mockedTransactionService.createPendingTransaction.mockRejectedValue(new Error('transaction create failed'));
 
-    const result = await orderService.createOrder(userId, {
-      cartItemIds: [cartItemId.toString()],
-      paymentMethod: 'COD',
-      shippingAddress,
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'VNPAY',
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
+      }),
+    ).rejects.toThrow('transaction create failed');
+
+    expect(mockedTransactionService.createPendingTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      userId,
+      orderId: expect.any(String),
+      amount: 385000,
+      paymentMethod: 'VNPAY',
+      gatewayProvider: 'vnpay',
+      session: mockSession,
+    }));
+    expect(mockedInventoryService.commitReservations).not.toHaveBeenCalled();
+    expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
+    expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
+    expect(order.status).toBe('confirmed');
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
+  });
+
+  it('aborts the order transaction when inventory commit fails', async () => {
+    const transactionId = new Types.ObjectId('665000000000000000000092');
+    const order = {
+      _id: new Types.ObjectId(),
+      orderCode: 'FSORDER',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      status: 'confirmed',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    mockedInventoryService.reserveInventory.mockResolvedValue([
+      { _id: reservationId },
+    ] as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
+    mockedTransactionService.createPendingTransaction.mockResolvedValue({ _id: transactionId } as never);
+    mockedInventoryService.commitReservations.mockRejectedValue(new Error('commit failed'));
+
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'VNPAY',
+        quoteVersion: 'shipq_test_1234',
+        shippingAddress,
+      }),
+    ).rejects.toThrow('commit failed');
+
+    expect(mockedTransactionService.createPendingTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      session: mockSession,
+    }));
+    expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
+    expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
+    expect(order.status).toBe('confirmed');
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
+  });
+
+  it('rejects create order when quoteVersion is missing', async () => {
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'COD',
+        shippingAddress,
+      } as never),
+    ).rejects.toMatchObject({
+      message: 'Shipping quote is required. Please preview checkout again.',
+      statusCode: 400,
+      errorCode: 'QUOTE_REQUIRED',
     });
 
-    expect(mockedOrder.create).toHaveBeenCalled();
-    expect(result).toBe(order);
+    expect(mockedPromotionPricingService.calculateCheckout).not.toHaveBeenCalled();
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
+    expect(mockedOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects create order when quoteVersion is blank', async () => {
+    await expect(
+      orderService.createOrder(userId, {
+        cartItemIds: [cartItemId.toString()],
+        paymentMethod: 'COD',
+        quoteVersion: '  ',
+        shippingAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Shipping quote is required. Please preview checkout again.',
+      statusCode: 400,
+      errorCode: 'QUOTE_REQUIRED',
+    });
+
+    expect(mockedPromotionPricingService.calculateCheckout).not.toHaveBeenCalled();
+    expect(mockedInventoryService.reserveInventory).not.toHaveBeenCalled();
   });
 
   it('previews checkout with the default saved address when no address payload is sent', async () => {
@@ -371,6 +547,7 @@ describe('orderService', () => {
   });
 
   it('returns the order when post-commit cart cleanup fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const order = {
       _id: new Types.ObjectId(),
       orderCode: 'FSORDER',
@@ -384,7 +561,7 @@ describe('orderService', () => {
       { _id: reservationId },
     ] as never);
     mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
     mockedCartService.deleteCartItems.mockRejectedValue(new Error('cart cleanup failed'));
 
@@ -399,15 +576,18 @@ describe('orderService', () => {
     expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
     expect(mockedCouponService.rollbackCouponUsageReservation).not.toHaveBeenCalled();
     expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Failed to delete cart items after order creation:',
+      expect.any(Error),
+    );
   });
 
-  it('releases reservations when order creation fails after inventory is reserved', async () => {
+  it('aborts the order transaction when order creation fails after inventory is reserved', async () => {
     mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
     mockedInventoryService.reserveInventory.mockResolvedValue([
       { _id: reservationId },
     ] as never);
     mockedOrder.create.mockRejectedValue(new Error('create failed'));
-    mockedInventoryService.releaseReservations.mockResolvedValue([] as never);
 
     await expect(
       orderService.createOrder(userId, {
@@ -418,10 +598,8 @@ describe('orderService', () => {
       }),
     ).rejects.toThrow('create failed');
 
-    expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
-      reservationIds: [reservationId.toString()],
-    });
-    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith('');
+    expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackCouponUsageReservation).not.toHaveBeenCalled();
     expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
     expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
   });
@@ -446,11 +624,13 @@ describe('orderService', () => {
     expect(mockedOrder.create).not.toHaveBeenCalled();
   });
 
-  it('restocks inventory and refunds paid COD orders when cancelled', async () => {
+  it('restocks inventory and keeps paid orders paid when cancelled', async () => {
     const orderId = new Types.ObjectId('665000000000000000000050');
+    const couponId = new Types.ObjectId('665000000000000000000090');
     const order = {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
+      couponId,
       status: 'confirmed',
       paymentMethod: 'COD',
       paymentStatus: 'paid',
@@ -467,6 +647,7 @@ describe('orderService', () => {
     };
     order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
+    mockAtomicCancel(order);
     mockedInventory.updateOne.mockResolvedValue({} as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
 
@@ -499,10 +680,551 @@ describe('orderService', () => {
         quantity: 2,
       },
     ]);
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      {
+        _id: orderId,
+        status: 'confirmed',
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          cancellation: expect.objectContaining({
+            actorRole: 'user',
+            cancelledAt: expect.any(Date),
+          }),
+        },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
     expect(order.status).toBe('cancelled');
-    expect(order.paymentStatus).toBe('refunded');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString(), {});
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId,
+      {},
+    );
+    expect(result).toBe(order);
+  });
+
+  it('lets the customer cancel a new COD order before packing', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000061');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      cancellation: null as {
+        reason?: string;
+        actorRole?: string;
+        cancelledAt?: Date;
+      } | null,
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 1,
+        },
+      ],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockAtomicCancel(order);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+
+    const result = await orderService.cancelOrder(userId, undefined, orderId.toString(), {
+      reason: 'Customer changed mind',
+    });
+
+    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+      },
+      {
+        $inc: {
+          quantity: 1,
+          availableQuantity: 1,
+        },
+      },
+    );
+    expect(order.status).toBe('cancelled');
+    expect(order.paymentStatus).toBe('pending');
+    expect(order.cancellation).toEqual(expect.objectContaining({
+      reason: 'Customer changed mind',
+      actorRole: 'user',
+      cancelledAt: expect.any(Date),
+    }));
+    expect(order.save).not.toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('keeps a paid online order paid when the customer cancels before packing', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000062');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      cancellation: null as {
+        reason?: string;
+        actorRole?: string;
+      } | null,
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockAtomicCancel(order);
+
+    const result = await orderService.cancelOrder(userId, undefined, orderId.toString(), {
+      reason: 'Customer cancelled after payment',
+    });
+
+    expect(order.status).toBe('cancelled');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.cancellation).toEqual(expect.objectContaining({
+      reason: 'Customer cancelled after payment',
+      actorRole: 'user',
+    }));
+    expect(order.save).not.toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('does not restock when a concurrent cancellation already changed the order status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000069');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 1,
+        },
+      ],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(
+      orderService.cancelOrder(userId, undefined, orderId.toString()),
+    ).rejects.toMatchObject({
+      message: 'Order status changed. Please reload and try again.',
+      statusCode: 409,
+    });
+
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('does not allow cancelling an order that is already shipping', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000063');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        status: 'shipping',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.cancelOrder(userId, undefined, orderId.toString(), {
+        reason: 'Cancel while shipping',
+      }),
+    ).rejects.toThrow('Cannot transition order from shipping to cancelled');
+
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('lets the owning customer confirm a shipping order as delivered', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000052');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        status: 'delivering',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.confirmOrderReceived(userId, orderId.toString());
+
+    expect(order.status).toBe('delivered');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toEqual(expect.any(Date));
+    expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('awards loyalty points once when a customer confirms delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000066');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+      loyaltyPointsAwarded: 0,
+      shipping: { status: 'delivering' },
+      order_list: [],
+      save: jest.fn(),
+    };
+    const awardedOrder = { ...order, status: 'delivered', loyaltyPointsAwarded: 385 };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(awardedOrder as never);
+    mockedUser.findOneAndUpdate.mockResolvedValue({ loyaltyPoint: 585 } as never);
+    mockedLoyaltyPointHistory.create.mockResolvedValue([] as never);
+
+    const result = await orderService.confirmOrderReceived(userId, orderId.toString());
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: orderId, status: 'delivered' }),
+      { $set: { loyaltyPointsAwarded: 385 } },
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedUser.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: new Types.ObjectId(userId) },
+      { $inc: { loyaltyPoint: 385 } },
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedLoyaltyPointHistory.create).toHaveBeenCalledWith(
+      [expect.objectContaining({ orderId, type: 'earn', delta: 385, balanceAfter: 585 })],
+      { session: mockSession },
+    );
+    expect(result).toBe(awardedOrder);
+  });
+
+  it('does not let the customer confirm receipt after delivery failed', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000064');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        status: 'failed',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.confirmOrderReceived(userId, orderId.toString()),
+    ).rejects.toThrow('Delivery has failed and must be reattempted before confirming receipt');
+
+    expect(order.status).toBe('shipping');
+    expect(order.paymentStatus).toBe('pending');
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('lets the owning customer request return after delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000053');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'delivered',
+      deliveredAt: new Date(),
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      returnRequest: null,
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.requestReturn(userId, orderId.toString(), {
+      reason: 'Size is not suitable',
+    });
+
+    expect(order.status).toBe('return_requested');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.returnRequest).toEqual({
+      reason: 'Size is not suitable',
+      status: 'requested',
+      requestedAt: expect.any(Date),
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewReason: null,
+    });
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('rejects return requests after the 7 day delivery window', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000059');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'delivered',
+      deliveredAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      returnRequest: null,
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.requestReturn(userId, orderId.toString(), {
+        reason: 'Size is not suitable',
+      }),
+    ).rejects.toThrow('Return requests are only available within 7 days after delivery');
+
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('approves a pending return request without changing payment status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000055');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Size is not suitable',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'approved',
+      reason: 'Eligible return',
+    });
+
+    expect(order.status).toBe('returned');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.returnRequest).toEqual({
+      reason: 'Size is not suitable',
+      status: 'approved',
+      requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      reviewedAt: expect.any(Date),
+      reviewedBy: new Types.ObjectId(userId),
+      reviewReason: 'Eligible return',
+    });
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('claws back awarded loyalty points when a return is approved', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000067');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      loyaltyPointsAwarded: 385,
+      returnRequest: {
+        reason: 'Size is not suitable',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    const adjustedOrder = { ...order, loyaltyPointsClawedBack: 385 };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(adjustedOrder as never);
+    mockedUser.findOneAndUpdate.mockResolvedValue({ loyaltyPoint: 0 } as never);
+    mockedLoyaltyPointHistory.create.mockResolvedValue([] as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'approved',
+      reason: 'Eligible return',
+    });
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: orderId,
+        loyaltyPointsAwarded: 385,
+        $or: [
+          { loyaltyPointsClawedBack: { $exists: false } },
+          { loyaltyPointsClawedBack: { $lt: 385 } },
+        ],
+      }),
+      { $inc: { loyaltyPointsClawedBack: 385 } },
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedUser.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: new Types.ObjectId(userId) },
+      [{ $set: { loyaltyPoint: { $max: [0, { $subtract: ['$loyaltyPoint', 385] }] } } }],
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedLoyaltyPointHistory.create).toHaveBeenCalledWith(
+      [expect.objectContaining({ orderId, type: 'adjust', delta: -385, balanceAfter: 0 })],
+      { session: mockSession },
+    );
+    expect(result).toBe(adjustedOrder);
+  });
+
+  it('rejects a pending return request and restores the delivered status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000056');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Changed my mind',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'rejected',
+      reason: 'Product was already used',
+    });
+
+    expect(order.status).toBe('delivered');
+    expect(order.returnRequest).toEqual({
+      reason: 'Changed my mind',
+      status: 'rejected',
+      requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      reviewedAt: expect.any(Date),
+      reviewedBy: new Types.ObjectId(userId),
+      reviewReason: 'Product was already used',
+    });
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('requires a reason when rejecting a return request', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000057');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Changed my mind',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.reviewReturnRequest(orderId.toString(), userId, {
+        decision: 'rejected',
+      }),
+    ).rejects.toThrow('Return rejection reason is required');
+
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('lists orders with grouped statuses and keeps status summary outside the selected group', async () => {
+    const orderItems = [{ _id: new Types.ObjectId(), status: 'cancelled' }];
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(orderItems),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(2 as never);
+    mockedOrder.aggregate.mockResolvedValue([
+      { _id: 'confirmed', count: 3 },
+      { _id: 'cancelled', count: 1 },
+      { _id: 'returned', count: 1 },
+    ] as never);
+
+    const result = await orderService.getOrders({
+      statuses: ['cancelled', 'returned'],
+      paymentMethods: ['VNPAY', 'MOMO'],
+      paymentStatuses: ['paid', 'refunded'],
+      page: 2,
+      limit: 5,
+    });
+
+    expect(mockedOrder.find).toHaveBeenCalledWith({
+      status: { $in: ['cancelled', 'returned'] },
+      paymentMethod: { $in: ['VNPAY', 'MOMO'] },
+      paymentStatus: { $in: ['paid', 'refunded'] },
+    });
+    expect(mockedOrder.countDocuments).toHaveBeenCalledWith({
+      status: { $in: ['cancelled', 'returned'] },
+      paymentMethod: { $in: ['VNPAY', 'MOMO'] },
+      paymentStatus: { $in: ['paid', 'refunded'] },
+    });
+    expect(mockedOrder.aggregate).toHaveBeenCalledWith([
+      { $match: { paymentMethod: { $in: ['VNPAY', 'MOMO'] }, paymentStatus: { $in: ['paid', 'refunded'] } } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+    expect(findQuery.skip).toHaveBeenCalledWith(5);
+    expect(result.items).toBe(orderItems);
+    expect(result.statusSummary.confirmed).toBe(3);
+    expect(result.statusSummary.cancelled).toBe(1);
+    expect(result.statusSummary.returned).toBe(1);
+    expect(result.statusSummary.all).toBe(5);
   });
 
   it('rejects invalid order status transitions', async () => {
@@ -521,6 +1243,414 @@ describe('orderService', () => {
     await expect(
       orderService.updateOrderStatus(orderId.toString(), { status: 'delivered' }),
     ).rejects.toThrow('Cannot transition order from confirmed to delivered');
+
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('lets admin complete a shipping order when delivery is confirmed externally', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000058');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        status: 'delivering',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.updateOrderStatus(orderId.toString(), { status: 'delivered' });
+
+    expect(order.status).toBe('delivered');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toEqual(expect.any(Date));
+    expect(order.shipping.status).toBe('delivered');
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('applies a simulated delivered webhook and marks COD as paid', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000065');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-WEBHOOK-1',
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        provider: 'GHN',
+        status: 'shipping',
+        trackingCode: 'GHN123',
+        rawShipment: null as Record<string, unknown> | null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'delivered',
+      reason: 'GHN delivered',
+      trackingCode: 'GHN123',
+      rawPayload: { status: 'delivered' },
+    });
+
+    expect(order.status).toBe('delivered');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toEqual(expect.any(Date));
+    expect(order.shipping.status).toBe('delivered');
+    expect(order.shipping.rawShipment).toEqual({ status: 'delivered' });
+    expect(result.before).toEqual(expect.objectContaining({
+      status: 'shipping',
+      paymentStatus: 'pending',
+    }));
+    expect(result.reason).toBe('GHN delivered');
+    expect(result.order).toBe(order);
+  });
+
+  it('applies a simulated failed delivery webhook without completing the order', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000066');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-WEBHOOK-2',
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      shipping: {
+        provider: 'GHN',
+        status: 'shipping',
+        trackingCode: 'GHN456',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'failed',
+      reason: 'Customer was not available',
+      trackingCode: 'GHN456',
+    });
+
+    expect(order.status).toBe('shipping');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toBeNull();
+    expect(order.shipping.status).toBe('failed');
+    expect(result.reason).toBe('Customer was not available');
+    expect(result.order).toBe(order);
+  });
+
+  it('recalculates total amount when customer shipping fee is updated', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000070');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      subTotal: 200000,
+      shippingFee: 25000,
+      couponDiscountAmount: 10000,
+      shippingDiscountAmount: 5000,
+      membershipDiscountAmount: 2000,
+      taxAmount: 0,
+      totalAmount: 208000,
+      shipping: {
+        provider: 'GHN',
+        customerFee: 25000,
+        actualProviderCost: null as number | null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.updateOrderShipping(orderId.toString(), {
+      customerFee: 30000,
+      actualProviderCost: 28000,
+    });
+
+    expect(order.shipping.customerFee).toBe(30000);
+    expect(order.shipping.actualProviderCost).toBe(28000);
+    expect(order.shippingFee).toBe(30000);
+    expect(order.totalAmount).toBe(213000);
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('creates a GHN shipment from a packed order and stores the GHN order code', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000067');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-1',
+      status: 'packed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 112970,
+      shippingFee: 20900,
+      shipping: {
+        provider: 'GHN',
+        serviceId: 53320,
+        serviceTypeId: 2,
+        status: 'quoted',
+        trackingCode: null,
+        actualProviderCost: null as number | null,
+        rawShipment: null as Record<string, unknown> | null,
+      },
+      shippingAddress: {
+        customerName: 'Granji',
+        phoneNumber: '0343149695',
+        streetName: '365 Tran Minh Son',
+        province: 'Can Tho',
+        district: 'Ninh Kieu',
+        ward: 'An Khanh',
+        wardCode: '550101',
+        ghnDistrictId: 1574,
+        ghnWardCode: '550101',
+      },
+      order_list: [
+        {
+          name: 'Basic Tee',
+          quantity: 1,
+          priceAtPurchased: 99000,
+        },
+      ],
+      save: jest.fn(),
+    };
+    const ghnPayload = {
+      data: {
+        order_code: 'GHD123456',
+        total_fee: 20900,
+        expected_delivery_time: '2026-06-16T10:00:00.000Z',
+      },
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedGHNService.createShippingOrder.mockResolvedValue(ghnPayload as never);
+
+    const result = await orderService.createGhnShipment(orderId.toString());
+
+    expect(mockedGHNService.createShippingOrder).toHaveBeenCalledWith(expect.objectContaining({
+      clientOrderCode: 'FS-GHN-1',
+      codAmount: 112970,
+      serviceId: 53320,
+      toDistrictId: 1574,
+      toWardCode: '550101',
+    }));
+    expect(order.shipping.provider).toBe('GHN');
+    expect(order.shipping.status).toBe('ready');
+    expect(order.shipping.trackingCode).toBe('GHD123456');
+    expect(order.shipping.actualProviderCost).toBe(20900);
+    expect(order.shipping.rawShipment).toEqual(ghnPayload);
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('applies a GHN webhook using the client order code relationship', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000068');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-WEBHOOK',
+      status: 'packed',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        provider: 'GHN',
+        status: 'ready',
+        trackingCode: null as string | null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(order as never);
+
+    const result = await orderService.applyGhnShippingWebhook({
+      status: 'delivering',
+      client_order_code: 'FS-GHN-WEBHOOK',
+      order_code: 'GHD789',
+    });
+
+    expect(mockedOrder.findOne).toHaveBeenNthCalledWith(1, { 'shipping.trackingCode': 'GHD789' });
+    expect(mockedOrder.findOne).toHaveBeenNthCalledWith(2, { orderCode: 'FS-GHN-WEBHOOK' });
+    expect(order.status).toBe('shipping');
+    expect(order.paymentStatus).toBe('pending');
+    expect(order.shipping.status).toBe('shipping');
+    expect(order.shipping.trackingCode).toBe('GHD789');
+    expect(result.reason).toBe('GHN reported delivering');
+    expect(result.order).toBe(order);
+  });
+
+  it('cancels and restocks an order when the shipping webhook is cancelled', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000071');
+    const couponId = new Types.ObjectId('665000000000000000000092');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      couponId,
+      orderCode: 'FS-GHN-CANCEL',
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        provider: 'GHN',
+        status: 'shipping',
+        trackingCode: 'GHD-CANCEL',
+      },
+      cancellation: null,
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 2,
+        },
+      ],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+
+    const result = await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'cancelled',
+      provider: 'GHN',
+      trackingCode: 'GHD-CANCEL',
+      reason: 'GHN cancelled shipment',
+    });
+
+    expect(order.status).toBe('cancelled');
+    expect(order.shipping.status).toBe('cancelled');
+    expect(order.cancellation).toEqual(expect.objectContaining({
+      reason: 'GHN cancelled shipment',
+      actorRole: 'system',
+      cancelledAt: expect.any(Date),
+    }));
+    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+      },
+      {
+        $inc: {
+          quantity: 2,
+          availableQuantity: 2,
+        },
+      },
+    );
+    expect(mockedInventoryService.restoreImportRemainingQuantities).toHaveBeenCalledWith([
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 2,
+      },
+    ]);
+    expect(mockedProduct.updateOne).toHaveBeenCalledWith(
+      { _id: productId, sold_quantity: { $gte: 2 } },
+      { $inc: { sold_quantity: -2 } },
+    );
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString(), {});
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId,
+      {},
+    );
+    expect(result.order).toBe(order);
+  });
+
+  it('does not restock twice when a cancelled shipping webhook is replayed', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000072');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-CANCEL-REPLAY',
+      status: 'cancelled',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        provider: 'GHN',
+        status: 'shipping',
+        trackingCode: 'GHD-CANCEL-REPLAY',
+      },
+      cancellation: {
+        reason: 'Already cancelled',
+        actorRole: 'system',
+        cancelledAt: new Date('2026-06-18T00:00:00.000Z'),
+      },
+      order_list: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          quantity: 1,
+        },
+      ],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'cancelled',
+      provider: 'GHN',
+      trackingCode: 'GHD-CANCEL-REPLAY',
+    });
+
+    expect(order.status).toBe('cancelled');
+    expect(order.shipping.status).toBe('cancelled');
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackCouponUsageReservation).not.toHaveBeenCalled();
+  });
+
+  it('rejects processing online orders before payment is paid', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000054');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.updateOrderStatus(orderId.toString(), { status: 'packed' }),
+    ).rejects.toThrow('Online orders must be paid before processing');
 
     expect(order.save).not.toHaveBeenCalled();
   });

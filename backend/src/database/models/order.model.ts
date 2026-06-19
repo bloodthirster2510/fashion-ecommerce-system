@@ -11,6 +11,7 @@ export type OrderStatus =
 
 export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
 export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+export type OrderReturnRequestStatus = 'requested' | 'approved' | 'rejected';
 
 export interface IOrderItem {
   _id: Types.ObjectId;
@@ -65,6 +66,24 @@ export interface IOrderShipping {
   rawShipment?: Record<string, unknown> | null;
 }
 
+export interface IOrderReturnRequest {
+  reason: string;
+  imageUrls?: string[];
+  status: OrderReturnRequestStatus;
+  requestedAt: Date;
+  reviewedAt?: Date | null;
+  reviewedBy?: Types.ObjectId | null;
+  reviewReason?: string | null;
+}
+
+export interface IOrderCancellation {
+  reason?: string | null;
+  imageUrls?: string[];
+  cancelledAt: Date;
+  cancelledBy?: Types.ObjectId | null;
+  actorRole?: 'user' | 'admin' | 'staff' | 'system' | null;
+}
+
 export interface IOrder extends Document {
   orderCode: string;
   invoiceCode?: string | null;
@@ -76,12 +95,20 @@ export interface IOrder extends Document {
   couponId?: Types.ObjectId | null;
   couponDiscountAmount: number;
   shippingDiscountAmount: number;
+  appliedMembershipTierId?: Types.ObjectId | null;
+  appliedMembershipDiscountPercent?: number | null;
   membershipDiscountAmount: number;
+  loyaltyPointsAwarded: number;
+  loyaltyPointsClawedBack: number;
   taxAmount: number;
   totalAmount: number;
   status: OrderStatus;
   paymentMethod: OrderPaymentMethod;
+  paymentMethodId?: Types.ObjectId | null;
   paymentStatus: OrderPaymentStatus;
+  deliveredAt?: Date | null;
+  returnRequest?: IOrderReturnRequest | null;
+  cancellation?: IOrderCancellation | null;
   shipping: IOrderShipping;
   shippingAddress: IOrderShippingAddress;
   orderNote?: string | null;
@@ -160,9 +187,44 @@ const orderShippingSchema = new Schema<IOrderShipping>(
   { _id: false },
 );
 
+const orderReturnRequestSchema = new Schema<IOrderReturnRequest>(
+  {
+    reason: { type: String, required: true, trim: true, minlength: 1, maxlength: 500 },
+    imageUrls: {
+      type: [{ type: String, trim: true, maxlength: 500 }],
+      default: undefined,
+    },
+    status: {
+      type: String,
+      enum: ['requested', 'approved', 'rejected'],
+      required: true,
+      default: 'requested',
+    },
+    requestedAt: { type: Date, required: true, default: Date.now },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    reviewReason: { type: String, trim: true, default: null, maxlength: 500 },
+  },
+  { _id: false },
+);
+
+const orderCancellationSchema = new Schema<IOrderCancellation>(
+  {
+    reason: { type: String, trim: true, default: null, maxlength: 500 },
+    imageUrls: {
+      type: [{ type: String, trim: true, maxlength: 500 }],
+      default: undefined,
+    },
+    cancelledAt: { type: Date, required: true, default: Date.now },
+    cancelledBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    actorRole: { type: String, enum: ['user', 'admin', 'staff', 'system'], default: null },
+  },
+  { _id: false },
+);
+
 const orderSchema = new Schema<IOrder>(
   {
-    orderCode: { type: String, required: true, unique: true, trim: true, uppercase: true, maxlength: 40 },
+    orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
     invoiceCode: { type: String, trim: true, default: null, maxlength: 40 },
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     order_list: {
@@ -179,7 +241,23 @@ const orderSchema = new Schema<IOrder>(
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon', default: null },
     couponDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
     shippingDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
+    appliedMembershipTierId: { type: Schema.Types.ObjectId, ref: 'MembershipRanking', default: null },
+    appliedMembershipDiscountPercent: { type: Number, default: null, min: 0, max: 100 },
     membershipDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
+    loyaltyPointsAwarded: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      validate: integerMinValidator(0),
+    },
+    loyaltyPointsClawedBack: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      validate: integerMinValidator(0),
+    },
     taxAmount: { type: Number, required: true, default: 0, min: 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     status: {
@@ -193,12 +271,20 @@ const orderSchema = new Schema<IOrder>(
       enum: ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'],
       required: true,
     },
+    paymentMethodId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PaymentMethod',
+      default: null,
+    },
     paymentStatus: {
       type: String,
       enum: ['pending', 'paid', 'failed', 'refunded'],
       required: true,
       default: 'pending',
     },
+    deliveredAt: { type: Date, default: null },
+    returnRequest: { type: orderReturnRequestSchema, default: null },
+    cancellation: { type: orderCancellationSchema, default: null },
     shipping: { type: orderShippingSchema, default: {} },
     shippingAddress: { type: shippingAddressSchema, required: true },
     orderNote: { type: String, trim: true, default: null, maxlength: 500 },

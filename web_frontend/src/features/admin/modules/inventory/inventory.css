@@ -580,6 +580,45 @@
 .admin-inventory-dialog > .admin-notice { margin: 0 20px 16px; }
 .admin-inventory-import-body > .admin-notice { margin: 0; }
 
+.admin-inventory-confirm-panel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  margin: 0 20px 18px;
+  padding: 14px;
+  border: 1px solid #d8e3f0;
+  border-radius: 8px;
+  background: #f6fbff;
+}
+
+.admin-inventory-confirm-panel.is-danger {
+  border-color: #f0c7c0;
+  background: #fff7f5;
+}
+
+.admin-inventory-confirm-panel > div {
+  display: grid;
+  gap: 5px;
+}
+
+.admin-inventory-confirm-panel > div:last-child {
+  grid-auto-flow: column;
+  justify-content: end;
+  gap: 8px;
+}
+
+.admin-inventory-confirm-panel strong {
+  color: var(--admin-text);
+  font-size: 14px;
+}
+
+.admin-inventory-confirm-panel span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .admin-import-size-list {
   display: grid;
   margin: 0;

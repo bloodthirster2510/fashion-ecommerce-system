@@ -144,6 +144,10 @@ const ProfileScreen = () => {
       navigation.navigate('Coupons');
       return;
     }
+    if (item.id === 'payment') {
+      navigation.navigate('PaymentMethods');
+      return;
+    }
 
     Alert.alert('Sắp ra mắt', `${item.label} sẽ được thiết kế ở bước sau.`);
   };

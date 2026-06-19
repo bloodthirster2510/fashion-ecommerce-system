@@ -36,66 +36,12 @@ type TierFormState = {
 type DialogState =
   | { type: 'create' }
   | { type: 'edit'; tier: MembershipRanking }
+  | { type: 'status'; tier: MembershipRanking; nextActive: boolean }
   | { type: 'delete'; tier: MembershipRanking }
   | null
 
 const formatNumber = (value: number | null | undefined) =>
   typeof value === 'number' ? new Intl.NumberFormat('vi-VN').format(value) : 'Không giới hạn'
-
-const defaultTiers: MembershipRanking[] = [
-  {
-    name: 'Member',
-    level: 1,
-    minPoint: 0,
-    maxPoint: 1999,
-    discountPercent: 0,
-    benefitDescription: 'Tích điểm đổi quà/voucher',
-    cardColor: '#5b788a',
-    textColor: '#ffffff',
-    badgeColor: '#5b788a',
-    iconName: 'star',
-    isActive: true,
-  },
-  {
-    name: 'Silver',
-    level: 2,
-    minPoint: 2000,
-    maxPoint: 4999,
-    discountPercent: 5,
-    benefitDescription: 'Giảm 5% trên mỗi hóa đơn',
-    cardColor: '#8fa3ad',
-    textColor: '#ffffff',
-    badgeColor: '#8fa3ad',
-    iconName: 'shield-star',
-    isActive: true,
-  },
-  {
-    name: 'Gold',
-    level: 3,
-    minPoint: 5000,
-    maxPoint: 9999,
-    discountPercent: 7,
-    benefitDescription: 'Giảm 7% trên mỗi hóa đơn',
-    cardColor: '#cf9f2e',
-    textColor: '#ffffff',
-    badgeColor: '#cf9f2e',
-    iconName: 'crown',
-    isActive: true,
-  },
-  {
-    name: 'Platinum',
-    level: 4,
-    minPoint: 10000,
-    maxPoint: null,
-    discountPercent: 10,
-    benefitDescription: 'Giảm 10% trên mỗi hóa đơn',
-    cardColor: '#1c1c1c',
-    textColor: '#e5e4e2',
-    badgeColor: '#1c1c1c',
-    iconName: 'diamond-stone',
-    isActive: true,
-  },
-]
 
 const emptyTierForm: TierFormState = {
   name: '',
@@ -120,6 +66,15 @@ const iconOptions = [
   { value: 'trophy-outline', label: 'Trophy' },
   { value: 'certificate-outline', label: 'Certificate' },
 ]
+
+const membershipIconSymbols: Record<string, string> = {
+  star: '★',
+  'shield-star': '✦',
+  crown: '♛',
+  'diamond-stone': '◆',
+  certificate: '✪',
+  'certificate-outline': '☆',
+}
 
 const policyCards = [
   {
@@ -164,19 +119,64 @@ const toTierForm = (tier: MembershipRanking): TierFormState => ({
   isActive: tier.isActive !== false,
 })
 
-const toTierPayload = (form: TierFormState): MembershipRankingPayload => ({
-  name: form.name.trim(),
-  level: Number(form.level),
-  minPoint: Number(form.minPoint),
-  maxPoint: form.maxPoint.trim() ? Number(form.maxPoint) : null,
-  discountPercent: Number(form.discountPercent),
-  benefitDescription: form.benefitDescription.trim(),
-  cardColor: form.cardColor,
-  textColor: form.textColor,
-  badgeColor: form.badgeColor,
-  iconName: form.iconName,
-  isActive: form.isActive,
-})
+const getRelativeLuminance = (hexColor: string) => {
+  const channels = hexColor.slice(1).match(/.{2}/g)
+  if (!channels || channels.length !== 3) {
+    return 0
+  }
+
+  const [red, green, blue] = channels.map((channel) => {
+    const value = Number.parseInt(channel, 16) / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+const getContrastRatio = (firstColor: string, secondColor: string) => {
+  const first = getRelativeLuminance(firstColor)
+  const second = getRelativeLuminance(secondColor)
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+}
+
+const toTierPayload = (form: TierFormState): MembershipRankingPayload => {
+  const name = form.name.trim()
+  const level = Number(form.level)
+  const minPoint = Number(form.minPoint)
+  const discountPercent = Number(form.discountPercent)
+
+  if (name.length < 2) {
+    throw new Error('Tên hạng phải có ít nhất 2 ký tự')
+  }
+
+  if (!Number.isInteger(level) || level < 1 || level > 20) {
+    throw new Error('Level phải là số nguyên từ 1 đến 20')
+  }
+
+  if (!Number.isInteger(minPoint) || minPoint < 0 || minPoint > 100000000) {
+    throw new Error('Điểm tối thiểu phải là số nguyên từ 0 đến 100.000.000')
+  }
+
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+    throw new Error('Mức giảm giá phải nằm trong khoảng 0-100%')
+  }
+
+  if (getContrastRatio(form.cardColor, form.textColor) < 4.5) {
+    throw new Error('Màu chữ và màu nền thẻ chưa đủ tương phản')
+  }
+
+  return {
+    name,
+    level,
+    minPoint,
+    discountPercent,
+    benefitDescription: form.benefitDescription.trim(),
+    cardColor: form.cardColor,
+    textColor: form.textColor,
+    badgeColor: form.badgeColor,
+    iconName: form.iconName,
+    isActive: form.isActive,
+  }
+}
 
 export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   const [tiers, setTiers] = useState<MembershipRanking[]>([])
@@ -199,7 +199,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       setTiers(data)
     } catch (err) {
       setError(getErrorMessage(err))
-      setTiers(defaultTiers)
+      setTiers([])
     } finally {
       setIsLoading(false)
     }
@@ -209,8 +209,17 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     void loadTiers()
   }, [loadTiers])
 
+  useEffect(() => {
+    if (!notice) {
+      return
+    }
+
+    const handle = window.setTimeout(() => setNotice(null), 5000)
+    return () => window.clearTimeout(handle)
+  }, [notice])
+
   const sortedTiers = useMemo(
-    () => [...(tiers.length ? tiers : defaultTiers)].sort((a, b) => a.level - b.level),
+    () => [...tiers].sort((a, b) => a.level - b.level),
     [tiers],
   )
 
@@ -238,6 +247,11 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   const openDeleteDialog = (tier: MembershipRanking) => {
     setNotice(null)
     setDialog({ type: 'delete', tier })
+  }
+
+  const openStatusDialog = (tier: MembershipRanking, nextActive: boolean) => {
+    setNotice(null)
+    setDialog({ type: 'status', tier, nextActive })
   }
 
   const closeDialog = () => {
@@ -283,23 +297,36 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
 
   const handleStatusChange = async (tier: MembershipRanking, nextActive: boolean) => {
     if (!tier._id) {
-      return
+      return false
     }
 
     setActionLoading(true)
     setNotice(null)
 
     try {
-      const updatedTier = await updateMembershipRankingStatus(tier._id, nextActive)
-      replaceTier(updatedTier)
+      await updateMembershipRankingStatus(tier._id, nextActive)
+      await loadTiers()
       setNotice({
         type: 'success',
         message: nextActive ? 'Đã bật lại hạng thành viên' : 'Đã tạm tắt hạng thành viên',
       })
+      return true
     } catch (err) {
       setNotice({ type: 'error', message: getErrorMessage(err) })
+      return false
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handleConfirmStatusChange = async () => {
+    if (!dialog || dialog.type !== 'status') {
+      return
+    }
+
+    const didUpdate = await handleStatusChange(dialog.tier, dialog.nextActive)
+    if (didUpdate) {
+      setDialog(null)
     }
   }
 
@@ -312,10 +339,10 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     setNotice(null)
 
     try {
-      const updatedTier = await deleteMembershipRanking(dialog.tier._id)
-      replaceTier(updatedTier)
+      await deleteMembershipRanking(dialog.tier._id)
+      setTiers((currentTiers) => currentTiers.filter((tier) => tier._id !== dialog.tier._id))
       setDialog(null)
-      setNotice({ type: 'success', message: 'Đã ngưng sử dụng hạng thành viên' })
+      setNotice({ type: 'success', message: 'Đã xóa hạng thành viên' })
     } catch (err) {
       setNotice({ type: 'error', message: getErrorMessage(err) })
     } finally {
@@ -344,8 +371,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       <div className="admin-notice admin-loyalty-notice">
         <strong>Admin có thể quản lý hạng, điểm tích lũy và quyền lợi khách hàng tại đây.</strong>
         <span>
-          CRUD hạng thành viên đã đi qua API quản trị riêng. Quy tắc tích điểm và nhật ký thay đổi
-          sẽ được nối thành bước riêng.
+          Điểm được cộng khi đơn giao thành công, thu hồi khi hoàn trả và lưu lịch sử theo từng đơn hàng.
         </span>
       </div>
 
@@ -377,10 +403,22 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
               <p>Cấu hình hạng</p>
               <h2>Điều kiện điểm và quyền lợi</h2>
             </div>
-            {isLoading ? <span>Đang tải...</span> : null}
+            {actionLoading ? <span>Đang xử lý...</span> : isLoading ? <span>Đang tải...</span> : null}
           </div>
 
-          {error ? <div className="admin-notice is-error">{error}</div> : null}
+          {error ? (
+            <div className="admin-notice is-error admin-loyalty-load-error">
+              <span>{error}</span>
+              <button
+                className="admin-link-button"
+                type="button"
+                disabled={isLoading}
+                onClick={() => void loadTiers()}
+              >
+                Thử lại
+              </button>
+            </div>
+          ) : null}
 
           <table className="admin-table">
             <thead>
@@ -389,18 +427,46 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                 <th>Điểm yêu cầu</th>
                 <th>Giảm giá</th>
                 <th>Quyền lợi</th>
+                <th>Thành viên</th>
                 <th>Hiển thị</th>
                 <th>Trạng thái</th>
                 <th>Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              {sortedTiers.map((tier) => {
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8}>
+                    <div className="admin-table-loading">Đang tải hạng thành viên...</div>
+                  </td>
+                </tr>
+              ) : null}
+
+              {!isLoading && !error && sortedTiers.length === 0 ? (
+                <tr>
+                  <td colSpan={8}>
+                    <div className="admin-loyalty-empty-state">
+                      <strong>Chưa có hạng thành viên nào</strong>
+                      <span>Bấm “Thêm hạng” để bắt đầu cấu hình chương trình loyalty.</span>
+                      <button
+                        className="admin-secondary-button"
+                        type="button"
+                        disabled={!canManageLoyalty}
+                        onClick={openCreateDialog}
+                      >
+                        Thêm hạng
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+
+              {!isLoading ? sortedTiers.map((tier, index) => {
                 const hasPersistedTier = Boolean(tier._id)
                 const isActive = tier.isActive !== false
 
                 return (
-                  <tr key={`${tier.level}-${tier.name}`}>
+                  <tr key={tier._id ?? `${tier.level}-${tier.name}-${index}`}>
                     <td>
                       <strong>{tier.name}</strong>
                       <span>Level {tier.level}</span>
@@ -410,6 +476,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                     </td>
                     <td>{tier.discountPercent}%</td>
                     <td>{tier.benefitDescription || 'Chưa mô tả'}</td>
+                    <td>{formatNumber(tier.memberCount ?? 0)}</td>
                     <td>
                       <div
                         className="admin-loyalty-visual-preview"
@@ -422,7 +489,9 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                           aria-hidden="true"
                           style={{ backgroundColor: tier.badgeColor ?? tier.cardColor ?? '#5b788a' }}
                         />
-                        <strong>{tier.iconName ?? 'star'}</strong>
+                        <strong title={tier.iconName ?? 'star'} aria-label={tier.iconName ?? 'star'}>
+                          {membershipIconSymbols[tier.iconName ?? 'star'] ?? membershipIconSymbols.star}
+                        </strong>
                       </div>
                     </td>
                     <td>
@@ -446,7 +515,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                           className={isActive ? 'admin-danger-link' : 'admin-link-button'}
                           type="button"
                           disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-                          onClick={() => void handleStatusChange(tier, !isActive)}
+                          onClick={() => openStatusDialog(tier, !isActive)}
                         >
                           {isActive ? 'Tắt' : 'Bật'}
                         </button>
@@ -462,7 +531,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                     </td>
                   </tr>
                 )
-              })}
+              }) : null}
             </tbody>
           </table>
         </section>
@@ -542,14 +611,11 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                 />
               </label>
               <label>
-                <span>Điểm tối đa</span>
+                <span>Điểm tối đa (tự tính)</span>
                 <input
-                  type="number"
-                  value={tierForm.maxPoint}
-                  onChange={(event) => setTierForm((form) => ({ ...form, maxPoint: event.target.value }))}
-                  min={0}
-                  max={100000000}
-                  placeholder="Để trống nếu không giới hạn"
+                  type="text"
+                  value={tierForm.maxPoint || 'Theo mốc hạng kế tiếp'}
+                  disabled
                 />
               </label>
               <label>
@@ -641,13 +707,39 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
         </div>
       ) : null}
 
+      {dialog?.type === 'status' ? (
+        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-status-title">
+          <div className="admin-confirm-box">
+            <h2 id="admin-tier-status-title">
+              {dialog.nextActive ? 'Bật lại hạng?' : 'Tạm tắt hạng?'}
+            </h2>
+            <p>
+              Hạng {dialog.tier.name} sẽ {dialog.nextActive ? 'được bật lại cho khách hàng đủ điểm.' : 'ngừng áp dụng cho khách hàng và voucher tham chiếu hạng này.'}
+            </p>
+            <div className="admin-dialog-actions">
+              <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={closeDialog}>
+                Hủy
+              </button>
+              <button
+                className={dialog.nextActive ? 'admin-primary-button' : 'admin-danger-button'}
+                type="button"
+                disabled={actionLoading}
+                onClick={() => void handleConfirmStatusChange()}
+              >
+                {actionLoading ? 'Đang xử lý...' : dialog.nextActive ? 'Bật lại' : 'Tạm tắt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {dialog?.type === 'delete' ? (
         <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-delete-title">
           <div className="admin-confirm-box">
-            <h2 id="admin-tier-delete-title">Ngưng sử dụng hạng?</h2>
+            <h2 id="admin-tier-delete-title">Xóa hạng thành viên?</h2>
             <p>
-              Hạng {dialog.tier.name} sẽ được chuyển sang trạng thái tạm tắt để không làm gãy dữ
-              liệu khách hàng và coupon đã tham chiếu.
+              Chỉ có thể xóa hạng {dialog.tier.name} khi đây không phải hạng cơ bản và chưa có
+              thành viên đang thuộc hạng.
             </p>
             <div className="admin-dialog-actions">
               <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={closeDialog}>
@@ -659,7 +751,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                 disabled={actionLoading}
                 onClick={() => void handleDeleteTier()}
               >
-                {actionLoading ? 'Đang xử lý...' : 'Ngưng dùng'}
+                {actionLoading ? 'Đang xử lý...' : 'Xóa hạng'}
               </button>
             </div>
           </div>

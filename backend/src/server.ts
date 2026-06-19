@@ -2,10 +2,11 @@ import dotenv from 'dotenv';
 import app from './app';
 import { connectDB } from './config/database';
 import { seedMembershipRankings, seedAdmin, seedInventoryForExistingProducts } from './database/seeders';
+import { paymentExpiryScheduler } from './modules/payments/payment-expiry.scheduler';
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectDB();
@@ -15,6 +16,8 @@ const startServer = async () => {
     await seedAdmin();
     await seedInventoryForExistingProducts();
   }
+
+  paymentExpiryScheduler.startPaymentExpiryScheduler();
 
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

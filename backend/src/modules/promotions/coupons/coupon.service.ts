@@ -1,7 +1,10 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import {
   Coupon,
   CouponUsage,
+  Category,
+  MembershipRanking,
+  Product,
   type CouponDiscountType,
   type CouponEligibleUserType,
   type ICoupon,
@@ -10,10 +13,15 @@ import {
   PromotionPricingError,
   promotionPricingService,
 } from '../pricing/promotion-pricing.service';
-import type { AppliedCoupon } from '../pricing/promotion-pricing.types';
+import type {
+  AppliedCoupon,
+  AppliedMembership,
+  CheckoutPricingSummary,
+} from '../pricing/promotion-pricing.types';
 import type {
   AvailableCouponsInput,
   CouponListQueryInput,
+  CouponUsageListQueryInput,
   CreateCouponInput,
   UpdateCouponInput,
   ValidateCouponInput,
@@ -29,15 +37,29 @@ export class CouponServiceError extends Error {
   }
 }
 
+type SessionOptions = {
+  session?: ClientSession;
+};
+
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const VALIDATE_COUPON_CACHE_TTL_MS = 15 * 1000;
+const VALIDATE_COUPON_CACHE_MAX_ENTRIES = 500;
 const COUPON_DISCOUNT_TYPES = new Set<CouponDiscountType>(['percent', 'fixed', 'free_shipping']);
 const ELIGIBLE_USER_TYPES = new Set<CouponEligibleUserType>(['all', 'new_user', 'member']);
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizeCode = (value: string) => value.trim().toUpperCase();
+
+const getCouponUserUsagePath = (userId: string) => `userUsageCounts.${userId}`;
+
+const isMongoDuplicateKeyError = (error: unknown) => (
+  typeof error === 'object' &&
+  error !== null &&
+  (error as { code?: number }).code === 11000
+);
 
 const assertValidObjectId = (id: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -68,6 +90,19 @@ const toNullableNumber = (value: unknown) => {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) {
     throw new CouponServiceError('Invalid numeric value', 400);
+  }
+
+  return numericValue;
+};
+
+const toNullablePositiveInteger = (value: unknown, fieldName: string) => {
+  const numericValue = toNullableNumber(value);
+  if (numericValue === undefined || numericValue === null) {
+    return numericValue;
+  }
+
+  if (!Number.isInteger(numericValue) || numericValue < 1) {
+    throw new CouponServiceError(`Invalid ${fieldName}`, 400);
   }
 
   return numericValue;
@@ -160,6 +195,24 @@ const assertCouponPatchIsConsistent = (data: Record<string, unknown>, currentCou
   }
 };
 
+const assertUsageLimitCanCoverCurrentUsage = (
+  data: Record<string, unknown>,
+  currentCoupon: ICoupon,
+) => {
+  if (
+    typeof data.usageLimit === 'number' &&
+    data.usageLimit < currentCoupon.usedCount
+  ) {
+    throw new CouponServiceError('usageLimit cannot be lower than usedCount', 409);
+  }
+};
+
+const getUnavailableReason = (error: unknown) => (
+  error instanceof PromotionPricingError
+    ? error.message
+    : 'Coupon is not available'
+);
+
 const clampPagination = (query: CouponListQueryInput) => {
   const page = Math.max(query.page ?? DEFAULT_PAGE, DEFAULT_PAGE);
   const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -205,7 +258,7 @@ const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCr
   if (input.discountValue !== undefined) data.discountValue = toRequiredNumber(input.discountValue, 'discountValue');
   if (input.maxDiscountAmount !== undefined) data.maxDiscountAmount = toNullableNumber(input.maxDiscountAmount);
   if (input.minOrderAmount !== undefined) data.minOrderAmount = toRequiredNumber(input.minOrderAmount, 'minOrderAmount');
-  if (input.usageLimit !== undefined) data.usageLimit = toNullableNumber(input.usageLimit);
+  if (input.usageLimit !== undefined) data.usageLimit = toNullablePositiveInteger(input.usageLimit, 'usageLimit');
   if (input.perUserLimit !== undefined) data.perUserLimit = toPositiveInteger(input.perUserLimit, 'perUserLimit');
   if (input.isPublic !== undefined) data.isPublic = Boolean(input.isPublic);
   if (input.eligibleUserTypes !== undefined) data.eligibleUserTypes = normalizeEligibleUserTypes(input.eligibleUserTypes);
@@ -232,6 +285,38 @@ const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCr
   return data;
 };
 
+const assertCouponReferencesExist = async (data: Record<string, unknown>) => {
+  const references = [
+    {
+      field: 'eligibleMembershipRanks',
+      label: 'membership ranking',
+      model: MembershipRanking,
+    },
+    {
+      field: 'applicableProducts',
+      label: 'product',
+      model: Product,
+    },
+    {
+      field: 'applicableCategories',
+      label: 'category',
+      model: Category,
+    },
+  ] as const;
+
+  for (const reference of references) {
+    const ids = data[reference.field] as Types.ObjectId[] | undefined;
+    if (!ids?.length) {
+      continue;
+    }
+
+    const count = await reference.model.countDocuments({ _id: { $in: ids }, isActive: true });
+    if (count !== ids.length) {
+      throw new CouponServiceError(`One or more ${reference.label} references are missing or inactive`, 400);
+    }
+  }
+};
+
 const mapCouponForCustomer = (coupon: ICoupon) => ({
   _id: coupon._id.toString(),
   code: coupon.code,
@@ -244,13 +329,100 @@ const mapCouponForCustomer = (coupon: ICoupon) => ({
   endAt: coupon.endAt,
 });
 
+type ValidateCouponResult = {
+  coupon: ReturnType<typeof mapCouponForCustomer>;
+  summary: CheckoutPricingSummary;
+  appliedMembership: AppliedMembership | null;
+};
+
+type ValidateCouponCacheEntry = {
+  expiresAt: number;
+  result: ValidateCouponResult;
+};
+
+const validateCouponCache = new Map<string, ValidateCouponCacheEntry>();
+
+const getValidateCouponCacheKey = (
+  userId: string,
+  input: {
+    couponCode: string;
+    cartItemIds: string[];
+    paymentMethod: NonNullable<ValidateCouponInput['paymentMethod']>;
+  },
+) => {
+  const cartItemIds = Array.from(new Set(input.cartItemIds.map((id) => id.trim()).filter(Boolean)))
+    .sort()
+    .join(',');
+
+  return [userId, input.couponCode, input.paymentMethod, cartItemIds].join(':');
+};
+
+const getCachedValidateCouponResult = (cacheKey: string, now = Date.now()) => {
+  const cached = validateCouponCache.get(cacheKey);
+
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= now) {
+    validateCouponCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.result;
+};
+
+const clearValidateCouponCache = () => {
+  validateCouponCache.clear();
+};
+
+const setCachedValidateCouponResult = (
+  cacheKey: string,
+  result: ValidateCouponResult,
+  now = Date.now(),
+) => {
+  validateCouponCache.set(cacheKey, {
+    expiresAt: now + VALIDATE_COUPON_CACHE_TTL_MS,
+    result,
+  });
+
+  if (validateCouponCache.size <= VALIDATE_COUPON_CACHE_MAX_ENTRIES) {
+    return;
+  }
+
+  for (const [key, value] of validateCouponCache.entries()) {
+    if (value.expiresAt <= now) {
+      validateCouponCache.delete(key);
+    }
+  }
+
+  while (validateCouponCache.size > VALIDATE_COUPON_CACHE_MAX_ENTRIES) {
+    const oldestKey = validateCouponCache.keys().next().value;
+    if (!oldestKey) break;
+    validateCouponCache.delete(oldestKey);
+  }
+};
+
+export const clearCouponValidationCacheForTests = () => {
+  if (process.env.NODE_ENV === 'test') {
+    clearValidateCouponCache();
+  }
+};
+
 const listCoupons = async (query: CouponListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildCouponFilter(query);
+  const sortBy = {
+    created_desc: { createdAt: -1 },
+    created_asc: { createdAt: 1 },
+    end_asc: { endAt: 1 },
+    usage_desc: { usedCount: -1 },
+    code_asc: { code: 1 },
+  }[query.sort ?? 'created_desc'] as Record<string, 1 | -1>;
 
   const [items, totalItems] = await Promise.all([
-    Coupon.find(filter)
-      .sort({ createdAt: -1 })
+    Coupon.find(filter, { userUsageCounts: 0, deletedAt: 0, __v: 0 })
+      .sort(sortBy)
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
@@ -276,18 +448,65 @@ const getCouponById = async (id: string) => {
   }
 
   const usageCount = await CouponUsage.countDocuments({ couponId: coupon._id });
-  return { coupon, usageCount };
+  const safeCoupon = coupon.toObject();
+  delete safeCoupon.userUsageCounts;
+  delete safeCoupon.deletedAt;
+  delete safeCoupon.__v;
+  return { coupon: safeCoupon, usageCount };
+};
+
+const listCouponUsage = async (id: string, query: CouponUsageListQueryInput = {}) => {
+  assertValidObjectId(id, 'coupon id');
+  const coupon = await Coupon.findOne({ _id: id, deletedAt: null }).select('_id');
+  if (!coupon) {
+    throw new CouponServiceError('Coupon not found', 404);
+  }
+
+  const page = Math.max(1, query.page ?? DEFAULT_PAGE);
+  const limit = Math.min(Math.max(1, query.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
+  const filter = { couponId: coupon._id };
+  const [items, totalItems] = await Promise.all([
+    CouponUsage.find(filter)
+      .sort({ usedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate('userId', 'name email phone')
+      .populate('orderId', 'orderCode status totalAmount')
+      .lean(),
+    CouponUsage.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
 };
 
 const createCoupon = async (input: CreateCouponInput, actorId?: string) => {
   const data = normalizeCouponInput(input, true);
+  await assertCouponReferencesExist(data);
   if (actorId) {
     assertValidObjectId(actorId, 'actor id');
     data.createdBy = new Types.ObjectId(actorId);
     data.updatedBy = new Types.ObjectId(actorId);
   }
 
-  return Coupon.create(data);
+  try {
+    const coupon = await Coupon.create(data);
+    clearValidateCouponCache();
+    return coupon;
+  } catch (error) {
+    if (isMongoDuplicateKeyError(error)) {
+      throw new CouponServiceError('Coupon code already exists', 409);
+    }
+
+    throw error;
+  }
 };
 
 const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: string) => {
@@ -305,7 +524,50 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
   }
 
   assertCouponPatchIsConsistent(data, currentCoupon);
+  assertUsageLimitCanCoverCurrentUsage(data, currentCoupon);
+  await assertCouponReferencesExist(data);
 
+  if (actorId) {
+    assertValidObjectId(actorId, 'actor id');
+    data.updatedBy = new Types.ObjectId(actorId);
+  }
+
+  let coupon: ICoupon | null;
+  try {
+    coupon = await Coupon.findOneAndUpdate(
+      { _id: currentCoupon._id, deletedAt: null },
+      { $set: data },
+      { returnDocument: 'after', runValidators: true },
+    );
+  } catch (error) {
+    if (isMongoDuplicateKeyError(error)) {
+      throw new CouponServiceError('Coupon code already exists', 409);
+    }
+
+    throw error;
+  }
+
+  if (!coupon) {
+    throw new CouponServiceError('Coupon not found', 404);
+  }
+
+  clearValidateCouponCache();
+  return coupon;
+};
+
+const updateCouponStatus = async (id: string, isActive: boolean, actorId?: string) => {
+  assertValidObjectId(id, 'coupon id');
+  const currentCoupon = await Coupon.findOne({ _id: id, deletedAt: null });
+
+  if (!currentCoupon) {
+    throw new CouponServiceError('Coupon not found', 404);
+  }
+
+  if (isActive && currentCoupon.endAt < new Date()) {
+    throw new CouponServiceError('Expired coupon cannot be activated', 409);
+  }
+
+  const data: Record<string, unknown> = { isActive: Boolean(isActive) };
   if (actorId) {
     assertValidObjectId(actorId, 'actor id');
     data.updatedBy = new Types.ObjectId(actorId);
@@ -314,25 +576,27 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
   const coupon = await Coupon.findOneAndUpdate(
     { _id: currentCoupon._id, deletedAt: null },
     { $set: data },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!coupon) {
     throw new CouponServiceError('Coupon not found', 404);
   }
 
+  clearValidateCouponCache();
   return coupon;
-};
-
-const updateCouponStatus = async (id: string, isActive: boolean, actorId?: string) => {
-  return updateCoupon(id, { isActive }, actorId);
 };
 
 const deleteCoupon = async (id: string, actorId?: string) => {
   assertValidObjectId(id, 'coupon id');
+  const existingCoupon = await Coupon.findOne({ _id: id, deletedAt: null });
+  if (!existingCoupon) {
+    throw new CouponServiceError('Coupon not found', 404);
+  }
+
   const usageCount = await CouponUsage.countDocuments({ couponId: id });
 
-  if (usageCount > 0) {
+  if (usageCount > 0 || existingCoupon.usedCount > 0) {
     throw new CouponServiceError('Coupon has usage history and cannot be deleted', 409);
   }
 
@@ -349,13 +613,14 @@ const deleteCoupon = async (id: string, actorId?: string) => {
   const coupon = await Coupon.findOneAndUpdate(
     { _id: id, deletedAt: null },
     { $set: updateData },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!coupon) {
     throw new CouponServiceError('Coupon not found', 404);
   }
 
+  clearValidateCouponCache();
   return coupon;
 };
 
@@ -364,36 +629,64 @@ const validateCoupon = async (userId: string, input: ValidateCouponInput) => {
     throw new CouponServiceError('couponCode is required', 400);
   }
 
+  const normalizedInput = {
+    couponCode: normalizeCode(input.couponCode),
+    cartItemIds: input.cartItemIds ?? [],
+    paymentMethod: input.paymentMethod ?? 'COD',
+  };
+  const cacheKey = getValidateCouponCacheKey(userId, normalizedInput);
+  const cachedResult = getCachedValidateCouponResult(cacheKey);
+
+  if (cachedResult) {
+    return cachedResult;
+  }
+
   const pricing = await promotionPricingService.calculateCheckout({
     userId,
-    cartItemIds: input.cartItemIds,
-    couponCode: input.couponCode,
-    paymentMethod: input.paymentMethod ?? 'COD',
+    cartItemIds: normalizedInput.cartItemIds,
+    couponCode: normalizedInput.couponCode,
+    paymentMethod: normalizedInput.paymentMethod,
   });
 
   if (!pricing.appliedCoupon) {
     throw new CouponServiceError('Coupon not applied', 400);
   }
 
-  return {
+  const result: ValidateCouponResult = {
     coupon: mapCouponForCustomer(pricing.appliedCoupon.coupon),
     summary: pricing.summary,
     appliedMembership: pricing.appliedMembership,
   };
+
+  setCachedValidateCouponResult(cacheKey, result);
+  return result;
 };
 
 const listAvailableCoupons = async (userId: string, input: AvailableCouponsInput = {}) => {
   const now = new Date();
-  const coupons = await Coupon.find({
+  const page = Math.max(1, Number.isInteger(input.page) ? input.page as number : DEFAULT_PAGE);
+  const limit = Math.min(
+    Math.max(1, Number.isInteger(input.limit) ? input.limit as number : DEFAULT_LIMIT),
+    MAX_LIMIT,
+  );
+  const filter = {
     deletedAt: null,
     isPublic: true,
     isActive: true,
     startAt: { $lte: now },
     endAt: { $gte: now },
-  }).sort({ endAt: 1 });
-  const activeCoupons = coupons.filter((coupon) => (
-    coupon.usageLimit == null || coupon.usedCount < coupon.usageLimit
-  ));
+    $or: [
+      { usageLimit: null },
+      { $expr: { $lt: ['$usedCount', '$usageLimit'] } },
+    ],
+  };
+  const [activeCoupons, totalItems] = await Promise.all([
+    Coupon.find(filter)
+      .sort({ endAt: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Coupon.countDocuments(filter),
+  ]);
   const hasCartContext = Boolean(input.cartItemIds?.length);
 
   return {
@@ -432,7 +725,7 @@ const listAvailableCoupons = async (userId: string, input: AvailableCouponsInput
           return {
             coupon: mapCouponForCustomer(coupon),
             isApplicable: false,
-            reason: error instanceof Error ? error.message : 'Coupon is not available',
+            reason: getUnavailableReason(error),
             summary: null,
             appliedMembership: null,
             estimatedDiscountAmount: 0,
@@ -441,24 +734,52 @@ const listAvailableCoupons = async (userId: string, input: AvailableCouponsInput
         }
       }),
     ),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
   };
 };
 
-const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon | null) => {
+const reserveCouponUsage = async (
+  userId: string,
+  appliedCoupon: AppliedCoupon | null,
+  options: SessionOptions = {},
+) => {
   if (!appliedCoupon) {
     return null;
   }
 
   const coupon = appliedCoupon.coupon;
-  const usedByUser = await CouponUsage.countDocuments({
+  assertValidObjectId(userId, 'user id');
+  const userObjectId = new Types.ObjectId(userId);
+  const userUsagePath = getCouponUserUsagePath(userObjectId.toString());
+  const usedByUserQuery = CouponUsage.countDocuments({
     couponId: coupon._id,
-    userId: new Types.ObjectId(userId),
+    userId: userObjectId,
   });
+  const usedByUser = await (options.session ? usedByUserQuery.session(options.session) : usedByUserQuery);
 
   if (usedByUser >= coupon.perUserLimit) {
     throw new PromotionPricingError('Coupon per-user limit reached', 409);
   }
 
+  if (options.session) {
+    await Coupon.updateOne(
+      { _id: coupon._id },
+      { $max: { [userUsagePath]: usedByUser } },
+      { session: options.session },
+    );
+  } else {
+    await Coupon.updateOne(
+      { _id: coupon._id },
+      { $max: { [userUsagePath]: usedByUser } },
+    );
+  }
+
+  const now = new Date();
   const usageLimitFilter =
     coupon.usageLimit == null ? {} : { usedCount: { $lt: coupon.usageLimit } };
   const reservedCoupon = await Coupon.findOneAndUpdate(
@@ -466,52 +787,85 @@ const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon |
       _id: coupon._id,
       deletedAt: null,
       isActive: true,
-      startAt: { $lte: new Date() },
-      endAt: { $gte: new Date() },
+      startAt: { $lte: now },
+      endAt: { $gte: now },
       ...usageLimitFilter,
+      [userUsagePath]: { $lt: coupon.perUserLimit },
     },
-    { $inc: { usedCount: 1 } },
-    { new: true },
+    { $inc: { usedCount: 1, [userUsagePath]: 1 } },
+    {
+      returnDocument: 'after',
+      ...(options.session ? { session: options.session } : {}),
+    },
   );
 
   if (!reservedCoupon) {
     throw new PromotionPricingError('Coupon usage limit reached', 409);
   }
 
+  clearValidateCouponCache();
   return reservedCoupon;
 };
 
-const rollbackCouponUsageReservation = async (couponId?: string) => {
+const rollbackCouponUsageReservation = async (
+  couponId?: string,
+  userId?: string,
+  options: SessionOptions = {},
+) => {
   if (!couponId) {
     return;
   }
 
-  await Coupon.updateOne(
-    { _id: couponId, usedCount: { $gt: 0 } },
-    { $inc: { usedCount: -1 } },
-  );
+  const increment: Record<string, number> = { usedCount: -1 };
+  const filter: Record<string, unknown> = { _id: couponId, usedCount: { $gt: 0 } };
+
+  if (userId && Types.ObjectId.isValid(userId)) {
+    const userUsagePath = getCouponUserUsagePath(new Types.ObjectId(userId).toString());
+    increment[userUsagePath] = -1;
+    filter[userUsagePath] = { $gt: 0 };
+  }
+
+  if (options.session) {
+    await Coupon.updateOne(
+      filter,
+      { $inc: increment },
+      { session: options.session },
+    );
+  } else {
+    await Coupon.updateOne(
+      filter,
+      { $inc: increment },
+    );
+  }
+  clearValidateCouponCache();
 };
 
-const rollbackRecordedCouponUsage = async (orderId?: string) => {
+const rollbackRecordedCouponUsage = async (orderId?: string, options: SessionOptions = {}) => {
   if (!orderId) {
     return;
   }
 
-  await CouponUsage.deleteOne({ orderId: new Types.ObjectId(orderId) });
+  if (options.session) {
+    await CouponUsage.deleteOne(
+      { orderId: new Types.ObjectId(orderId) },
+      { session: options.session },
+    );
+  } else {
+    await CouponUsage.deleteOne({ orderId: new Types.ObjectId(orderId) });
+  }
 };
 
 const recordCouponUsage = async (input: {
   userId: string;
   orderId: string;
   appliedCoupon: AppliedCoupon | null;
-}) => {
+}, options: SessionOptions = {}) => {
   if (!input.appliedCoupon) {
     return null;
   }
 
   const coupon = input.appliedCoupon.coupon;
-
-  return CouponUsage.create({
+  const payload = {
     couponId: coupon._id,
     userId: new Types.ObjectId(input.userId),
     orderId: new Types.ObjectId(input.orderId),
@@ -520,12 +874,20 @@ const recordCouponUsage = async (input: {
     discountAmount: input.appliedCoupon.discountAmount,
     shippingDiscountAmount: input.appliedCoupon.shippingDiscountAmount,
     usedAt: new Date(),
-  });
+  };
+
+  if (options.session) {
+    const [usage] = await CouponUsage.create([payload], { session: options.session });
+    return usage;
+  }
+
+  return CouponUsage.create(payload);
 };
 
 export const couponService = {
   listCoupons,
   getCouponById,
+  listCouponUsage,
   createCoupon,
   updateCoupon,
   updateCouponStatus,

@@ -20,7 +20,7 @@ export interface IMembershipRanking extends Document {
 const membershipRankingSchema = new Schema<IMembershipRanking>(
   {
     name: { type: String, required: true, unique: true, trim: true, minlength: 2, maxlength: 30 },
-    level: { type: Number, required: true, unique: true, min: 1, max: 20 },
+    level: { type: Number, required: true, min: 1, max: 20 },
     minPoint: { type: Number, required: true, min: 0, max: 100000000 },
     maxPoint: { type: Number, default: null },
     discountPercent: { type: Number, required: true, min: 0, max: 100 },

@@ -35,6 +35,20 @@ const getRequiredNumberEnv = (name: string) => {
   return value;
 };
 
+const DEFAULT_AVAILABLE_SERVICES_CACHE_TTL_MS = 10 * 60 * 1000;
+const availableServicesCache = new Map<string, { expiresAt: number; data: unknown }>();
+
+const getAvailableServicesCacheTtlMs = () => {
+  const configuredTtlMs = Number(process.env.GHN_AVAILABLE_SERVICES_CACHE_TTL_MS);
+  return Number.isInteger(configuredTtlMs) && configuredTtlMs >= 0
+    ? configuredTtlMs
+    : DEFAULT_AVAILABLE_SERVICES_CACHE_TTL_MS;
+};
+
+export const clearGhnServiceCache = () => {
+  availableServicesCache.clear();
+};
+
 const getGhnClient = (options: { includeShopId?: boolean } = {}) => {
   const headers: Record<string, string> = {
     Token: getRequiredEnv('GHN_TOKEN'),
@@ -102,12 +116,26 @@ export const GHNService = {
     fromDistrictId: number;
     toDistrictId: number;
   }) {
+    const cacheKey = `${data.fromDistrictId}:${data.toDistrictId}`;
+    const cacheTtlMs = getAvailableServicesCacheTtlMs();
+    const cached = availableServicesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     try {
       const response = await getGhnClient({ includeShopId: true }).post('/v2/shipping-order/available-services', {
         shop_id: getRequiredNumberEnv('GHN_SHOP_ID'),
         from_district: data.fromDistrictId,
         to_district: data.toDistrictId,
       });
+
+      if (cacheTtlMs > 0) {
+        availableServicesCache.set(cacheKey, {
+          expiresAt: Date.now() + cacheTtlMs,
+          data: response.data,
+        });
+      }
 
       return response.data;
     } catch (error) {
@@ -164,6 +192,9 @@ export const GHNService = {
     length?: number;
     width?: number;
     height?: number;
+    insuranceValue?: number;
+    serviceId?: number;
+    serviceTypeId?: number;
     items: {
       name: string;
       quantity: number;
@@ -198,7 +229,10 @@ export const GHNService = {
         width: data.width || 20,
         height: data.height || 10,
 
-        service_type_id: 2,
+        insurance_value: data.insuranceValue || 0,
+        ...(data.serviceId
+          ? { service_id: data.serviceId }
+          : { service_type_id: data.serviceTypeId || 2 }),
 
         items: data.items.map((item) => ({
           name: item.name,

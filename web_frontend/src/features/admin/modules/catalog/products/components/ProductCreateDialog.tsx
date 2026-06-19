@@ -42,11 +42,24 @@ const createColorImageKey = (variantIndex: number, colorIndex: number) =>
   `${variantIndex}:${colorIndex}`
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể tải dữ liệu tạo sản phẩm'
+const maxImageFileSizeBytes = 5 * 1024 * 1024
+const acceptedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const commonAlphaSizes = ['S', 'M', 'L', 'XL']
 const commonNumericSizesByGender: Record<ProductCategoryOption['gender'], string[]> = {
   female: ['35', '36', '37', '38', '39'],
   male: ['39', '40', '41', '42', '43'],
   unisex: ['36', '37', '38', '39', '40', '41', '42'],
+}
+
+const getImageFileValidationError = (file: File | null) => {
+  if (!file) return ''
+  if (!acceptedImageMimeTypes.has(file.type)) {
+    return 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.'
+  }
+  if (file.size > maxImageFileSizeBytes) {
+    return 'Ảnh tải lên không được vượt quá 5MB.'
+  }
+  return ''
 }
 
 const normalizeSize = (size: string) => size.trim().toLowerCase()
@@ -211,6 +224,19 @@ export function ProductCreateDialog({
     )
   }
 
+  const handleProductImageFileChange = (file: File | null, input: HTMLInputElement) => {
+    const validationError = getImageFileValidationError(file)
+    if (validationError) {
+      setProductImageFile(null)
+      setLocalError(validationError)
+      input.value = ''
+      return
+    }
+
+    setLocalError('')
+    setProductImageFile(file)
+  }
+
   const addVariant = () => {
     if (!template) return
     const usedIds = new Set(variants.map((item) => item.fitTypeId))
@@ -326,7 +352,11 @@ export function ProductCreateDialog({
               </label>
               <label className="is-wide">
                 <span>Ảnh đại diện</span>
-                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setProductImageFile(event.target.files?.[0] ?? null)} />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) => handleProductImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+                />
                 <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
                 <input type="url" placeholder="Hoặc nhập URL ảnh" value={form.product_image} onChange={(event) => setForm({ ...form, product_image: event.target.value })} />
                 <ProductImagePreview file={productImageFile} url={form.product_image} />
@@ -363,6 +393,7 @@ export function ProductCreateDialog({
                         [createColorImageKey(variantIndex, colorIndex)]: file,
                       }))
                     }}
+                    onImageValidationError={setLocalError}
                     onColorRemove={(colorIndex) => {
                       setColorImageFiles((current) => {
                         const next = { ...current }
@@ -424,6 +455,7 @@ function VariantEditor({
   onChange,
   colorImageFiles,
   onColorImageChange,
+  onImageValidationError,
   onColorRemove,
   onRemove,
 }: {
@@ -434,11 +466,29 @@ function VariantEditor({
   onChange: (variant: ProductVariantInput) => void
   colorImageFiles: Record<string, File | null>
   onColorImageChange: (colorIndex: number, file: File | null) => void
+  onImageValidationError: (message: string) => void
   onColorRemove: (colorIndex: number) => void
   onRemove: () => void
 }) {
   const fitTypes = template.templateSource.fitTypes.filter((item) => item.isActive)
   const [newSize, setNewSize] = useState('')
+
+  const handleColorImageFileChange = (
+    colorIndex: number,
+    file: File | null,
+    input: HTMLInputElement,
+  ) => {
+    const validationError = getImageFileValidationError(file)
+    if (validationError) {
+      onColorImageChange(colorIndex, null)
+      onImageValidationError(validationError)
+      input.value = ''
+      return
+    }
+
+    onImageValidationError('')
+    onColorImageChange(colorIndex, file)
+  }
 
   const addSize = () => {
     const size = newSize.trim()
@@ -611,7 +661,13 @@ function VariantEditor({
                   type="file"
                   required={!color.image}
                   accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => onColorImageChange(colorIndex, event.target.files?.[0] ?? null)}
+                  onChange={(event) =>
+                    handleColorImageFileChange(
+                      colorIndex,
+                      event.target.files?.[0] ?? null,
+                      event.currentTarget,
+                    )
+                  }
                 />
                 <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
                 <ProductImagePreview

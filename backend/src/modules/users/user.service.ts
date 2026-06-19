@@ -1,6 +1,8 @@
+import crypto from 'crypto';
 import { User, type IUser, type IUserAddress, type UserRole } from '../../database/models/user.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
+import { sendResetPasswordEmail } from '../../utils/email';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
 const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
@@ -42,7 +44,7 @@ const parseStatusFilter = (value: unknown) => {
     return false;
   }
 
-  throw { status: 400, message: 'Trang thai tai khoan khong hop le' };
+  throw { status: 400, message: 'Trạng thái tài khoản không hợp lệ' };
 };
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -70,6 +72,30 @@ const normalizeSavedAddressesForCurrentSchema = (user: IUser) => {
       isDefault: currentAddress.isDefault,
     }));
   });
+};
+
+const ensureAddressDefaultInvariant = (addresses: IUserAddress[]) => {
+  if (!addresses.length || addresses.some((address) => address.isDefault)) {
+    return;
+  }
+
+  addresses[0].isDefault = true;
+};
+
+const assertNotLastActiveAdmin = async (user: IUser, nextRole: UserRole) => {
+  if (user.role !== 'admin' || user.isActive === false || nextRole === 'admin') {
+    return;
+  }
+
+  const otherActiveAdminCount = await User.countDocuments({
+    _id: { $ne: user._id },
+    role: 'admin',
+    isActive: true,
+  });
+
+  if (otherActiveAdminCount < 1) {
+    throw { status: 409, message: 'Không thể hạ quyền admin cuối cùng đang hoạt động' };
+  }
 };
 
 const normalizeBase64Image = (imageBase64: string, fallbackMimeType?: string) => {
@@ -128,7 +154,7 @@ export const updateMe = async (userId: string, data: {
     throw { status: 400, message: 'Không có dữ liệu để cập nhật' };
   }
 
-  const user = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true, runValidators: true })
+  const user = await User.findByIdAndUpdate(userId, { $set: updates }, { returnDocument: 'after', runValidators: true })
     .select(safeUserSelect);
 
   if (!user) {
@@ -181,7 +207,7 @@ export const uploadAvatar = async (userId: string, data: {
   const user = await User.findByIdAndUpdate(
     userId,
     { $set: { avatarImage: uploadResult.secureUrl, avatarPublicId: uploadResult.publicId } },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).select(safeUserSelect);
 
   if (!user) {
@@ -276,7 +302,11 @@ export const deleteAddress = async (userId: string, addressId: string) => {
     throw { status: 404, message: 'Địa chỉ không tồn tại' };
   }
 
+  const wasDefault = Boolean(toPlainAddress(address as IUserAddress).isDefault);
   address.deleteOne();
+  if (wasDefault && Array.isArray(user.address)) {
+    ensureAddressDefaultInvariant(user.address);
+  }
   syncProfileCompleted(user);
   await user.save();
 };
@@ -320,7 +350,7 @@ export const getUsers = async (query: {
 
   if (role) {
     if (role !== 'user') {
-      throw { status: 400, message: 'Role khong hop le' };
+      throw { status: 400, message: 'Role không hợp lệ' };
     }
   }
 
@@ -370,14 +400,14 @@ export const getUserById = async (id: string) => {
 
 export const updateUserStatus = async (id: string, isActive: boolean, actorUserId?: string) => {
   if (typeof isActive !== 'boolean') {
-    throw { status: 400, message: 'Trang thai tai khoan khong hop le' };
+    throw { status: 400, message: 'Trạng thái tài khoản không hợp lệ' };
   }
 
   if (actorUserId && actorUserId === id && !isActive) {
-    throw { status: 400, message: 'Khong the khoa tai khoan dang dang nhap' };
+    throw { status: 400, message: 'Không thể khoá tài khoản đang đăng nhập' };
   }
 
-  const user = await User.findOneAndUpdate({ _id: id, role: 'user' }, { isActive }, { new: true })
+  const user = await User.findOneAndUpdate({ _id: id, role: 'user' }, { isActive }, { returnDocument: 'after' })
     .select(safeUserSelect);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -391,10 +421,17 @@ export const updateUserRole = async (id: string, role: string, actorUserId?: str
   }
 
   if (actorUserId && actorUserId === id && role !== 'admin') {
-    throw { status: 400, message: 'Khong the tu ha quyen tai khoan dang dang nhap' };
+    throw { status: 400, message: 'Không thể tự hạ quyền tài khoản đang đăng nhập' };
   }
 
-  const user = await User.findByIdAndUpdate(id, { role }, { new: true })
+  const currentUser = await User.findById(id);
+  if (!currentUser) {
+    throw { status: 404, message: 'Người dùng không tồn tại' };
+  }
+
+  await assertNotLastActiveAdmin(currentUser, role as UserRole);
+
+  const user = await User.findByIdAndUpdate(id, { role }, { returnDocument: 'after' })
     .select(safeUserSelect);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -408,8 +445,14 @@ export const forcePasswordReset = async (id: string) => {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
   user.refreshToken = null;
-  user.resetPasswordToken = null;
-  user.resetPasswordExpires = null;
+  user.resetPasswordToken = resetTokenHash;
+  user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
+  user.mustChangePassword = true;
+  user.passwordChangedAt = null;
   await user.save();
+  await sendResetPasswordEmail(user.email, resetToken);
 };

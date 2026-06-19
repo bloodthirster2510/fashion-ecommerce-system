@@ -123,7 +123,7 @@ const getCurrentMembershipTier = async (loyaltyPoint: number) => {
     return null;
   }
 
-  let currentTier: IMembershipRanking | null = tiers[0];
+  let currentTier: IMembershipRanking | null = null;
   for (let i = tiers.length - 1; i >= 0; i -= 1) {
     if (loyaltyPoint >= tiers[i].minPoint) {
       currentTier = tiers[i];
@@ -169,7 +169,7 @@ const assertCouponUserEligibility = async (
     }
 
     if (eligibleUserTypes.includes('member')) {
-      checks.push(Promise.resolve(Boolean(currentTier && currentTier.discountPercent > 0)));
+      checks.push(Promise.resolve(Boolean(currentTier)));
     }
 
     const allowed = (await Promise.all(checks)).some(Boolean);
@@ -187,11 +187,28 @@ const assertCouponUserEligibility = async (
   }
 };
 
+const getReservedCouponUsageForUser = (coupon: ICoupon, userId: string) => {
+  const userUsageCounts = coupon.userUsageCounts as Map<string, number> | Record<string, number> | undefined;
+  if (!userUsageCounts) {
+    return 0;
+  }
+
+  const rawValue = typeof (userUsageCounts as Map<string, number>).get === 'function'
+    ? (userUsageCounts as Map<string, number>).get(userId)
+    : (userUsageCounts as Record<string, number>)[userId];
+  const value = Number(rawValue ?? 0);
+
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+};
+
+const couponHasScope = (coupon: ICoupon) => coupon.applicableProducts.length > 0 || coupon.applicableCategories.length > 0;
+
 const assertCouponPerUserLimit = async (coupon: ICoupon, userId: string) => {
-  const usedByUser = await CouponUsage.countDocuments({
+  const completedUsageByUser = await CouponUsage.countDocuments({
     couponId: coupon._id,
     userId: toObjectId(userId, 'userId'),
   });
+  const usedByUser = Math.max(completedUsageByUser, getReservedCouponUsageForUser(coupon, userId));
 
   if (usedByUser >= coupon.perUserLimit) {
     throw new PromotionPricingError('Coupon per-user limit reached', 409);
@@ -243,8 +260,11 @@ const calculateCouponDiscount = (
     };
   }
 
+  const fixedDiscountAmount = Math.min(coupon.discountValue, eligibleSubTotal);
+
   return {
-    couponDiscountAmount: Math.min(coupon.discountValue, eligibleSubTotal),
+    couponDiscountAmount:
+      coupon.maxDiscountAmount != null ? Math.min(fixedDiscountAmount, coupon.maxDiscountAmount) : fixedDiscountAmount,
     couponShippingDiscountAmount: 0,
   };
 };
@@ -278,13 +298,14 @@ const applyCoupon = async (input: {
   await assertCouponUserEligibility(coupon, input.userId, input.currentTier);
   await assertCouponPerUserLimit(coupon, input.userId);
 
-  if (input.subTotal < coupon.minOrderAmount) {
-    throw new PromotionPricingError('Order does not meet coupon minimum amount', 400);
-  }
-
   const eligibleSubTotal = getCouponEligibleSubtotal(coupon, input.selections);
   if (eligibleSubTotal <= 0) {
     throw new PromotionPricingError('Coupon does not apply to selected items', 400);
+  }
+
+  const minimumBaseAmount = couponHasScope(coupon) ? eligibleSubTotal : input.subTotal;
+  if (minimumBaseAmount < coupon.minOrderAmount) {
+    throw new PromotionPricingError('Order does not meet coupon minimum amount', 400);
   }
 
   const { couponDiscountAmount, couponShippingDiscountAmount } = calculateCouponDiscount(
@@ -308,11 +329,10 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
   if (
     input.paymentMethod &&
     input.paymentMethod !== 'COD' &&
-    input.paymentMethod !== 'VNPAY' &&
-    input.paymentMethod !== 'MOMO'
+    input.paymentMethod !== 'VNPAY'
   ) {
     throw new SalesServiceError(
-      `Payment method ${input.paymentMethod} is not supported in this phase. Supported: COD, VNPAY, MOMO`,
+      `Payment method ${input.paymentMethod} is not supported in this phase. Supported: COD, VNPAY`,
       400,
     );
   }

@@ -1,5 +1,16 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { User } from '../models/user.model';
+
+const getInitialAdminPassword = () => {
+  const configuredPassword = process.env.ADMIN_INITIAL_PASSWORD?.trim();
+
+  if (configuredPassword) {
+    return configuredPassword;
+  }
+
+  return crypto.randomBytes(18).toString('base64url');
+};
 
 export const seedAdmin = async () => {
   const existingAdmin = await User.findOne({ email: 'admin@fashion.com' });
@@ -8,7 +19,7 @@ export const seedAdmin = async () => {
     return;
   }
 
-  const hashedPassword = await bcrypt.hash('Admin@123', 10);
+  const hashedPassword = await bcrypt.hash(getInitialAdminPassword(), 10);
 
   await User.create({
     name: 'Quản trị viên',
@@ -16,6 +27,7 @@ export const seedAdmin = async () => {
     password: hashedPassword,
     phone: '0900000000',
     role: 'admin',
+    mustChangePassword: true,
     gender: 'male',
     dateOfBirth: new Date('1990-01-01'),
     isActive: true,
@@ -35,5 +47,5 @@ export const seedAdmin = async () => {
     ],
   });
 
-  console.log('Seeded admin user: admin@fashion.com / Admin@123');
+  console.log('Seeded admin user: admin@fashion.com; initial password is not logged. Set ADMIN_INITIAL_PASSWORD before seeding if you need a known bootstrap password.');
 };

@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,8 +13,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import * as WebBrowser from 'expo-web-browser';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, spacing } from '../../theme';
+import { useAuth } from '../auth/AuthContext';
+import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 
 type OrderSuccessNavigationProp = StackNavigationProp<RootStackParamList, 'OrderSuccess'>;
 type OrderSuccessRouteProp = RouteProp<RootStackParamList, 'OrderSuccess'>;
@@ -21,9 +25,14 @@ type OrderSuccessRouteProp = RouteProp<RootStackParamList, 'OrderSuccess'>;
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
+const getUrlParam = (url: string, key: string) => {
+  const match = url.match(new RegExp(`[?&]${key}=([^&]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
 type PaymentStatusBadgeProps = {
   paymentMethod: string;
-  paymentStatus: 'pending' | 'awaiting' | 'paid' | 'failed';
+  paymentStatus: string;
 };
 
 const PaymentStatusBadge = ({ paymentMethod, paymentStatus }: PaymentStatusBadgeProps) => {
@@ -70,6 +79,7 @@ const PaymentStatusBadge = ({ paymentMethod, paymentStatus }: PaymentStatusBadge
 const OrderSuccessScreen = () => {
   const navigation = useNavigation<OrderSuccessNavigationProp>();
   const route = useRoute<OrderSuccessRouteProp>();
+  const { runWithAuth, session } = useAuth();
 
   const {
     orderId,
@@ -78,7 +88,162 @@ const OrderSuccessScreen = () => {
     paymentMethod,
     paymentStatus,
     isProcessingPayment,
+    paymentMessage: initialPaymentMessage,
   } = route.params;
+  const [latestPaymentStatus, setLatestPaymentStatus] = React.useState<string>(paymentStatus);
+  const [canPayNow, setCanPayNow] = React.useState(paymentMethod === 'VNPAY' && paymentStatus !== 'paid');
+  const [isCheckingPayment, setIsCheckingPayment] = React.useState(Boolean(isProcessingPayment));
+  const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
+  const [paymentMessage, setPaymentMessage] = React.useState(initialPaymentMessage ?? '');
+  const isVNPayPending = paymentMethod === 'VNPAY' && latestPaymentStatus !== 'paid';
+
+  const refreshPaymentStatus = React.useCallback(
+    async (silent = false) => {
+      if (paymentMethod !== 'VNPAY' || !session?.accessToken) {
+        return latestPaymentStatus;
+      }
+
+      if (!silent) {
+        setIsCheckingPayment(true);
+      }
+
+      try {
+        const result = await runWithAuth((accessToken) =>
+          paymentApi.getOrderPaymentStatus(accessToken, orderId),
+        );
+        setLatestPaymentStatus(result.paymentStatus);
+        setCanPayNow(result.canPayNow);
+        if (result.paymentStatus === 'paid') {
+          setPaymentMessage('Hệ thống đã ghi nhận thanh toán.');
+        } else if (!silent) {
+          setPaymentMessage('Chưa ghi nhận thanh toán. Bạn có thể thử lại hoặc đợi hệ thống cập nhật.');
+        } else {
+          setPaymentMessage((currentMessage) =>
+            currentMessage || 'Chưa ghi nhận thanh toán. Bạn có thể thử lại hoặc đợi hệ thống cập nhật.',
+          );
+        }
+
+        return result.paymentStatus;
+      } catch (error) {
+        if (!silent) {
+          setPaymentMessage(error instanceof Error ? error.message : 'Chưa kiểm tra được trạng thái thanh toán.');
+        }
+
+        return latestPaymentStatus;
+      } finally {
+        if (!silent) {
+          setIsCheckingPayment(false);
+        }
+      }
+    },
+    [latestPaymentStatus, orderId, paymentMethod, runWithAuth, session?.accessToken],
+  );
+
+  const handlePaymentReturnUrl = React.useCallback(
+    (url: string) => {
+      if (!url.includes('payment-return')) {
+        return;
+      }
+
+      const returnedOrderId = getUrlParam(url, 'orderId');
+      if (returnedOrderId && returnedOrderId !== orderId) {
+        return;
+      }
+
+      void refreshPaymentStatus(false);
+    },
+    [orderId, refreshPaymentStatus],
+  );
+
+  React.useEffect(() => {
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handlePaymentReturnUrl(url);
+    });
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) {
+          handlePaymentReturnUrl(url);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handlePaymentReturnUrl]);
+
+  React.useEffect(() => {
+    if (!isVNPayPending || !session?.accessToken) {
+      return undefined;
+    }
+
+    let isActive = true;
+    let attempt = 0;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      if (!isActive || attempt >= 8) {
+        setIsCheckingPayment(false);
+        return;
+      }
+
+      attempt += 1;
+      setIsCheckingPayment(true);
+      const nextStatus = await refreshPaymentStatus(true);
+
+      if (!isActive || nextStatus === 'paid') {
+        setIsCheckingPayment(false);
+        return;
+      }
+
+      timeout = setTimeout(() => {
+        void poll();
+      }, 3000);
+    };
+
+    void poll();
+
+    return () => {
+      isActive = false;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [isVNPayPending, refreshPaymentStatus, session?.accessToken]);
+
+  const handleRetryPayment = async () => {
+    if (!session?.accessToken || isRetryingPayment) {
+      return;
+    }
+
+    try {
+      setIsRetryingPayment(true);
+      setPaymentMessage('');
+      const paymentData = await runWithAuth((accessToken) =>
+        paymentApi.createVNPayUrlFromOrder(accessToken, orderId),
+      );
+
+      void WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      })
+        .then(() => refreshPaymentStatus(false))
+        .catch((error) => {
+          console.warn('Cannot open VNPay browser', error);
+          setPaymentMessage('Không thể mở trang thanh toán VNPay. Bạn thử lại sau nha.');
+        });
+
+      setPaymentMessage('Trang thanh toán VNPay đã mở. Sau khi thanh toán, quay lại app để hệ thống cập nhật trạng thái.');
+    } catch (error) {
+      const message =
+        error instanceof PaymentApiError || error instanceof Error
+          ? error.message
+          : 'Không lấy được link thanh toán.';
+      setPaymentMessage(message);
+    } finally {
+      setIsRetryingPayment(false);
+    }
+  };
 
   const handleDismiss = () => {
     navigation.navigate('Home');
@@ -127,15 +292,18 @@ const OrderSuccessScreen = () => {
           <Text style={styles.cardSectionTitle}>Thanh toán</Text>
           <PaymentStatusBadge
             paymentMethod={paymentMethod}
-            paymentStatus={paymentStatus}
+            paymentStatus={latestPaymentStatus}
           />
-          {isProcessingPayment && (
+          {(isProcessingPayment || isCheckingPayment) && latestPaymentStatus !== 'paid' && (
             <View style={styles.processingRow}>
               <ActivityIndicator size="small" color={colors.brand} />
               <Text style={styles.processingText}>Đang xác nhận thanh toán với cổng...</Text>
             </View>
           )}
-          {paymentMethod === 'VNPAY' && paymentStatus !== 'paid' && (
+          {paymentMessage ? (
+            <Text style={styles.paymentNote}>{paymentMessage}</Text>
+          ) : null}
+          {paymentMethod === 'VNPAY' && latestPaymentStatus !== 'paid' && (
             <Text style={styles.paymentNote}>
               Nếu bạn đã thanh toán thành công, hệ thống sẽ tự động cập nhật trạng thái đơn hàng trong vài phút.
             </Text>
@@ -154,6 +322,34 @@ const OrderSuccessScreen = () => {
             <MaterialCommunityIcons name="receipt-text-outline" size={20} color={colors.white} />
             <Text style={styles.primaryButtonText}>Xem hóa đơn</Text>
           </Pressable>
+          {isVNPayPending ? (
+            <>
+              <Pressable
+                style={[styles.secondaryButton, isCheckingPayment && styles.buttonDisabled]}
+                onPress={() => void refreshPaymentStatus(false)}
+                disabled={isCheckingPayment}
+              >
+                {isCheckingPayment ? (
+                  <ActivityIndicator size="small" color={colors.brand} />
+                ) : (
+                  <MaterialCommunityIcons name="sync" size={20} color={colors.brand} />
+                )}
+                <Text style={styles.secondaryButtonText}>Kiểm tra trạng thái</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryButton, (!canPayNow || isRetryingPayment) && styles.buttonDisabled]}
+                onPress={() => void handleRetryPayment()}
+                disabled={!canPayNow || isRetryingPayment}
+              >
+                {isRetryingPayment ? (
+                  <ActivityIndicator size="small" color={colors.brand} />
+                ) : (
+                  <MaterialCommunityIcons name="credit-card-refresh-outline" size={20} color={colors.brand} />
+                )}
+                <Text style={styles.secondaryButtonText}>Thanh toán lại</Text>
+              </Pressable>
+            </>
+          ) : null}
           <Pressable style={styles.secondaryButton} onPress={handleDismiss}>
             <MaterialCommunityIcons name="home-outline" size={20} color={colors.brand} />
             <Text style={styles.secondaryButtonText}>Để sau</Text>
@@ -342,6 +538,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.56,
   },
   secondaryButtonText: {
     fontSize: 15,

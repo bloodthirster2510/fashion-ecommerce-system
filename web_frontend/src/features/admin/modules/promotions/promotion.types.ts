@@ -48,6 +48,7 @@ export type CouponPayload = {
 export type CouponListFilters = {
   status?: 'all' | 'active' | 'inactive' | 'expired' | 'upcoming'
   keyword?: string
+  sort?: 'created_desc' | 'created_asc' | 'end_asc' | 'usage_desc' | 'code_asc'
   page?: number
   limit?: number
 }
@@ -65,6 +66,35 @@ export type CouponListResponse = {
 export type CouponDetailResponse = {
   coupon: AdminCoupon
   usageCount: number
+}
+
+export type CouponUsageItem = {
+  _id: string
+  userId: string | {
+    _id: string
+    name?: string
+    email?: string
+    phone?: string
+  }
+  orderId: string | {
+    _id: string
+    orderCode?: string
+    status?: string
+    totalAmount?: number
+  }
+  discountAmount: number
+  shippingDiscountAmount: number
+  usedAt: string
+}
+
+export type CouponUsageListResponse = {
+  items: CouponUsageItem[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
 }
 
 export type CategoryOption = {

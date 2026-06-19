@@ -57,6 +57,37 @@ type SelectConfig = {
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 const currentYear = new Date().getFullYear();
 const newAddressId = 'new';
+const maxAvatarImageBytes = 5 * 1024 * 1024;
+const supportedAvatarMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const getImageAssetByteSize = (asset: ImagePicker.ImagePickerAsset) =>
+  asset.fileSize ?? Math.ceil(((asset.base64?.length ?? 0) * 3) / 4);
+
+const getImageAssetMimeType = (asset: ImagePicker.ImagePickerAsset) => {
+  const mimeType = asset.mimeType?.toLowerCase();
+  if (mimeType) return mimeType;
+
+  const uri = asset.uri.toLowerCase();
+  if (/\.(jpe?g)(?:\?|$)/.test(uri)) return 'image/jpeg';
+  if (/\.png(?:\?|$)/.test(uri)) return 'image/png';
+  if (/\.webp(?:\?|$)/.test(uri)) return 'image/webp';
+
+  return '';
+};
+
+const validateAvatarImage = (asset: ImagePicker.ImagePickerAsset): { mimeType: string } | { error: string } => {
+  const mimeType = getImageAssetMimeType(asset);
+
+  if (!supportedAvatarMimeTypes.has(mimeType)) {
+    return { error: 'Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.' };
+  }
+
+  if (getImageAssetByteSize(asset) > maxAvatarImageBytes) {
+    return { error: 'Ảnh đại diện tối đa 5MB. Bạn chọn ảnh nhẹ hơn nha.' };
+  }
+
+  return { mimeType };
+};
 
 const genderOptions: SelectOption[] = [
   { label: 'Nam', value: 'male' },
@@ -499,8 +530,14 @@ const EditProfileScreen = () => {
         return;
       }
 
+      const validation = validateAvatarImage(asset);
+      if ('error' in validation) {
+        setProfileMessage(validation.error);
+        return;
+      }
+
       const updatedProfile = await runWithAuth((accessToken) =>
-        accountApi.uploadAvatar(accessToken, asset.base64!, asset.mimeType ?? 'image/jpeg'),
+        accountApi.uploadAvatar(accessToken, asset.base64!, validation.mimeType),
       );
       setAvatarImage(updatedProfile.avatarImage ?? '');
       updateSessionUser({ avatarImage: updatedProfile.avatarImage });

@@ -12,7 +12,7 @@ import {
   Product,
 } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
-import type { CreateProductInput } from '../product.types';
+import type { CreateProductInput, UpdateProductInput } from '../product.types';
 
 jest.mock('../../../../database/models', () => ({
   Brand: {
@@ -73,6 +73,8 @@ const mockedProduct = Product as jest.Mocked<typeof Product>;
 const brandId = '665000000000000000000001';
 const categoryId = '665000000000000000000002';
 const productId = '665000000000000000000003';
+const productImageUrl = 'https://res.cloudinary.com/demo/image/upload/v1/products/product.png';
+const colorImageUrl = 'https://res.cloudinary.com/demo/image/upload/v1/products/color.png';
 
 const createProductInput: CreateProductInput = {
   category_id: categoryId,
@@ -97,13 +99,13 @@ const createProductInput: CreateProductInput = {
         {
           color: ' Black ',
           colorCode: '#000000',
-          image: ' https://example.com/color.png ',
+          image: ` ${colorImageUrl} `,
         },
       ],
     },
   ],
   description: ' A basic t-shirt for daily wear ',
-  product_image: ' https://example.com/product.png ',
+  product_image: ` ${productImageUrl} `,
 };
 
 describe('productService', () => {
@@ -167,7 +169,7 @@ describe('productService', () => {
       expect.objectContaining({
         name: 'Basic T-shirt',
         description: 'A basic t-shirt for daily wear',
-        product_image: 'https://example.com/product.png',
+        product_image: productImageUrl,
         isActive: true,
         variant: [
           expect.objectContaining({
@@ -179,7 +181,7 @@ describe('productService', () => {
               expect.objectContaining({
                 color: 'Black',
                 colorCode: '#000000',
-                image: 'https://example.com/color.png',
+                image: colorImageUrl,
               }),
             ],
           }),
@@ -221,6 +223,40 @@ describe('productService', () => {
 
     await expect(productService.createProduct(createProductInput)).rejects.toMatchObject({
       message: 'Category is inactive',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when product image URL is not a whitelisted Cloudinary host', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        product_image: 'https://example.com/product.png',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Image URL host is not allowed',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when variant color image URL is not a whitelisted Cloudinary host', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        variant: [
+          {
+            ...createProductInput.variant![0],
+            colors: [
+              {
+                ...createProductInput.variant![0].colors[0],
+                image: 'https://example.com/color.png',
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Image URL host is not allowed',
       statusCode: 400,
     });
   });
@@ -295,7 +331,34 @@ describe('productService', () => {
         name: 'Updated product',
       }),
       {
-        new: true,
+        returnDocument: 'after',
+        runValidators: true,
+      },
+    );
+    expect(result).toBe(updatedProduct);
+  });
+
+  it('does not let product updates override system-owned rating metrics', async () => {
+    const product = { _id: productId, name: 'Old product' };
+    const updatedProduct = { _id: productId, name: 'Updated product' };
+    mockedProduct.findById.mockResolvedValue(product as never);
+    mockedProduct.findByIdAndUpdate.mockResolvedValue(updatedProduct as never);
+
+    const unsafeInput = {
+      name: ' Updated product ',
+      averageRating: 5,
+      reviewCount: 999,
+    } as unknown as UpdateProductInput;
+
+    const result = await productService.updateProduct(productId, unsafeInput);
+
+    expect(mockedProduct.findByIdAndUpdate).toHaveBeenCalledWith(
+      productId,
+      {
+        name: 'Updated product',
+      },
+      {
+        returnDocument: 'after',
         runValidators: true,
       },
     );
@@ -312,7 +375,7 @@ describe('productService', () => {
       productId,
       { isActive: false },
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       },
     );

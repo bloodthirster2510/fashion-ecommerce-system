@@ -16,11 +16,15 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const canUseDemoAccess = import.meta.env.DEV
 
   const handleDemoAccess = () => {
+    if (!canUseDemoAccess) {
+      return
+    }
+
     const session: AdminSession = {
       accessToken: 'demo-admin-access-token',
-      refreshToken: 'demo-admin-refresh-token',
       user: {
         _id: 'demo-admin',
         name: 'Quản trị viên',
@@ -58,7 +62,11 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             ? error.message
             : 'Không thể đăng nhập'
 
-      setErrorMessage(message)
+      setErrorMessage(
+        error instanceof TypeError
+          ? 'Khong ket noi duoc backend. Hay chay backend o port 5000.'
+          : message,
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -116,9 +124,11 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
           <button className="admin-login-submit" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
           </button>
-          <button className="admin-login-secondary" type="button" onClick={handleDemoAccess}>
-            Xem bố cục demo
-          </button>
+          {canUseDemoAccess ? (
+            <button className="admin-login-secondary" type="button" onClick={handleDemoAccess}>
+              Xem bố cục demo
+            </button>
+          ) : null}
         </form>
 
         <div className="admin-login-footnote">
