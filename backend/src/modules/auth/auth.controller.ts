@@ -35,7 +35,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
   }
 
   try {
-    const token = authService.verifyOtp(req.body.phone, req.body.otp);
+    const token = await authService.verifyOtp(req.body.phone, req.body.otp);
     return ok(res, { otpToken: token }, 'Xác thực OTP thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {

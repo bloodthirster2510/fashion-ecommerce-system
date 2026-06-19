@@ -152,8 +152,8 @@ export const sendOtp = async (phone: string) => {
   await sendOtpSms(phone);
 };
 
-export const verifyOtp = (phone: string, otp: string): string => {
-  const token = verifyOtpCode(phone, otp);
+export const verifyOtp = async (phone: string, otp: string): Promise<string> => {
+  const token = await verifyOtpCode(phone, otp);
   if (!token) {
     throw { status: 400, message: 'Mã OTP không hợp lệ hoặc đã hết hạn' };
   }
@@ -170,7 +170,7 @@ export const registerUser = async (data: {
   address: UserAddressInput;
   otpToken: string;
 }) => {
-  if (!verifyOtpToken(data.phone, data.otpToken)) {
+  if (!(await verifyOtpToken(data.phone, data.otpToken))) {
     throw { status: 400, message: 'Số điện thoại chưa được xác thực' };
   }
 
@@ -336,7 +336,7 @@ export const resetPassword = async (identifier: string, token: string, newPasswo
       throw { status: 400, message: 'Token không hợp lệ hoặc đã hết hạn' };
     }
   } else {
-    if (!verifyOtpToken(identifier, token)) {
+    if (!(await verifyOtpToken(identifier, token))) {
       throw { status: 400, message: 'Mã xác thực không hợp lệ hoặc đã hết hạn' };
     }
     user = await User.findOne({ phone: identifier });

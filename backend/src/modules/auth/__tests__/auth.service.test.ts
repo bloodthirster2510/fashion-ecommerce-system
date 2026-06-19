@@ -53,14 +53,14 @@ describe('Auth Service', () => {
   });
 
   describe('verifyOtp', () => {
-    it('should throw if OTP is invalid', () => {
+    it('should throw if OTP is invalid', async () => {
       (verifyOtpCode as jest.Mock).mockReturnValue(null);
-      expect(() => verifyOtp('0900000000', '123456')).toThrow();
+      await expect(verifyOtp('0900000000', '123456')).rejects.toBeDefined();
     });
 
-    it('should return token if OTP is valid', () => {
+    it('should return token if OTP is valid', async () => {
       (verifyOtpCode as jest.Mock).mockReturnValue('otp_token_abc');
-      const result = verifyOtp('0900000000', '654321');
+      const result = await verifyOtp('0900000000', '654321');
       expect(result).toBe('otp_token_abc');
     });
   });

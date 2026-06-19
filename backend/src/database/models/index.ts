@@ -8,6 +8,7 @@ export * from './favorites.model';
 export * from './inventory.model';
 export * from './membership-ranking.model';
 export * from './order.model';
+export * from './otp-verification.model';
 export * from './payment-method.model';
 export * from './product.model';
 export * from './transaction.model';

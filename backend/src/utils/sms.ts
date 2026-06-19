@@ -1,23 +1,27 @@
 import crypto from 'crypto';
+import { OtpVerification } from '../database/models/otp-verification.model';
 
-interface OtpRecord {
-  otpHash: string;
-  expiresAt: Date;
-  attempts: number;
-  lockedUntil?: Date;
-}
-
-interface OtpTokenRecord {
-  phone: string;
-  expiresAt: Date;
-}
-
-const otpStore = new Map<string, OtpRecord | OtpTokenRecord>();
 const OTP_EXPIRY_MINUTES = 5;
 const OTP_TOKEN_EXPIRY_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_LOCK_MINUTES = 10;
 const processOtpSecret = crypto.randomBytes(32).toString('hex');
+
+type StoredOtpRecord = {
+  _id: unknown;
+  phone: string;
+  otpHash?: string | null;
+  expiresAt: Date;
+  attempts?: number | null;
+  lockedUntil?: Date | null;
+};
+
+type StoredOtpTokenRecord = {
+  _id: unknown;
+  phone: string;
+  tokenHash?: string | null;
+  expiresAt: Date;
+};
 
 const getOtpSecret = () => {
   const secret = process.env.OTP_HASH_SECRET?.trim() || process.env.JWT_ACCESS_SECRET?.trim();
@@ -46,14 +50,6 @@ const timingSafeEqualHex = (left: string, right: string) => {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 };
 
-const isOtpRecord = (record: OtpRecord | OtpTokenRecord | undefined): record is OtpRecord => (
-  Boolean(record && 'otpHash' in record)
-);
-
-const isOtpTokenRecord = (record: OtpRecord | OtpTokenRecord | undefined): record is OtpTokenRecord => (
-  Boolean(record && 'phone' in record)
-);
-
 export const generateOtp = (): string => {
   return crypto.randomInt(100000, 1000000).toString();
 };
@@ -62,11 +58,20 @@ export const sendOtpSms = async (phone: string) => {
   const otp = generateOtp();
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-  otpStore.set(phone, {
-    otpHash: hashOtp(phone, otp),
-    expiresAt,
-    attempts: 0,
-  });
+  await OtpVerification.deleteMany({ phone, kind: 'token' });
+  await OtpVerification.findOneAndUpdate(
+    { phone, kind: 'otp' },
+    {
+      $set: {
+        otpHash: hashOtp(phone, otp),
+        tokenHash: null,
+        expiresAt,
+        attempts: 0,
+        lockedUntil: null,
+      },
+    },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+  );
 
   if (process.env.SMS_PROVIDER === 'twilio') {
     try {
@@ -83,10 +88,10 @@ export const sendOtpSms = async (phone: string) => {
   }
 };
 
-export const verifyOtpCode = (phone: string, otp: string): string | null => {
-  const record = otpStore.get(phone);
+export const verifyOtpCode = async (phone: string, otp: string): Promise<string | null> => {
+  const record = await OtpVerification.findOne({ phone, kind: 'otp' }).lean<StoredOtpRecord>();
 
-  if (!isOtpRecord(record)) {
+  if (!record?.otpHash) {
     return null;
   }
 
@@ -97,42 +102,62 @@ export const verifyOtpCode = (phone: string, otp: string): string | null => {
   }
 
   if (new Date() > record.expiresAt) {
-    otpStore.delete(phone);
+    await OtpVerification.deleteOne({ _id: record._id });
     return null;
   }
 
   const otpHash = hashOtp(phone, otp);
   if (!timingSafeEqualHex(record.otpHash, otpHash)) {
-    record.attempts += 1;
+    const attempts = (record.attempts ?? 0) + 1;
+    const lockedUntil = attempts >= OTP_MAX_ATTEMPTS
+      ? new Date(now.getTime() + OTP_LOCK_MINUTES * 60 * 1000)
+      : null;
 
-    if (record.attempts >= OTP_MAX_ATTEMPTS) {
-      record.lockedUntil = new Date(now.getTime() + OTP_LOCK_MINUTES * 60 * 1000);
-    }
+    await OtpVerification.updateOne(
+      { _id: record._id },
+      {
+        $set: {
+          attempts,
+          lockedUntil,
+        },
+      },
+    );
 
     return null;
   }
 
-  otpStore.delete(phone);
+  const consumedOtp = await OtpVerification.findOneAndDelete({
+    _id: record._id,
+    phone,
+    kind: 'otp',
+  });
+  if (!consumedOtp) {
+    return null;
+  }
 
   const otpToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(otpToken);
   const expiresAt = new Date(Date.now() + OTP_TOKEN_EXPIRY_MINUTES * 60 * 1000);
-  otpStore.set(`token:${hashToken(otpToken)}`, { phone, expiresAt });
+  await OtpVerification.create({
+    phone,
+    kind: 'token',
+    tokenHash,
+    otpHash: null,
+    attempts: 0,
+    expiresAt,
+  });
 
   return otpToken;
 };
 
-export const verifyOtpToken = (phone: string, token: string): boolean => {
-  const tokenKey = `token:${hashToken(token)}`;
-  const record = otpStore.get(tokenKey);
-  if (!isOtpTokenRecord(record)) return false;
-
-  if (new Date() > record.expiresAt) {
-    otpStore.delete(tokenKey);
-    return false;
-  }
-
-  if (record.phone !== phone) return false;
-
-  otpStore.delete(tokenKey);
+export const verifyOtpToken = async (phone: string, token: string): Promise<boolean> => {
+  const tokenHash = hashToken(token);
+  const record = await OtpVerification.findOneAndDelete({
+    phone,
+    kind: 'token',
+    tokenHash,
+    expiresAt: { $gt: new Date() },
+  }).lean<StoredOtpTokenRecord>();
+  if (!record) return false;
   return true;
 };
