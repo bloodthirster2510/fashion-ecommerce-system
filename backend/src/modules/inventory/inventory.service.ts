@@ -1,4 +1,4 @@
-import mongoose, { Types } from 'mongoose';
+import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
   InventoryImport,
@@ -35,6 +35,10 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_RESERVATION_TTL_MINUTES = 15;
+
+type SessionOptions = {
+  session?: ClientSession;
+};
 
 const assertValidObjectId = (id: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -127,12 +131,13 @@ const findProductSelection = async (
   variantId: string,
   colorVariantId: string,
   size: string,
-  options: { requireSellable?: boolean } = {},
+  options: { requireSellable?: boolean; session?: ClientSession } = {},
 ) => {
   const productObjectId = toObjectId(productId, 'productId');
   assertValidObjectId(variantId, 'variantId');
   assertValidObjectId(colorVariantId, 'colorVariantId');
-  const product = await Product.findById(productObjectId);
+  const query = Product.findById(productObjectId);
+  const product = await (options.session ? query.session(options.session) : query);
 
   if (!product) {
     throw new InventoryServiceError('Product not found', 404);
@@ -593,14 +598,16 @@ const adjustImportRemainingQuantity = async (
   },
   quantity: number,
   mode: 'consume' | 'restore',
+  options: SessionOptions = {},
 ) => {
   let remaining = quantity;
-  const imports = await InventoryImport.find({
+  const query = InventoryImport.find({
     productId: selector.productId,
     variantId: selector.variantId,
     colorVariantId: selector.colorVariantId,
     'detail.size': selector.size,
   }).sort({ createdAt: mode === 'consume' ? 1 : -1 });
+  const imports = await (options.session ? query.session(options.session) : query);
 
   for (const importRecord of imports) {
     if (remaining <= 0) break;
@@ -617,7 +624,11 @@ const adjustImportRemainingQuantity = async (
 
     detail.remainingQuantity += mode === 'consume' ? -delta : delta;
     remaining -= delta;
-    await importRecord.save();
+    if (options.session) {
+      await importRecord.save({ session: options.session });
+    } else {
+      await importRecord.save();
+    }
   }
 
   // Manual stock adjustments can make inventory quantity diverge from import lots.
@@ -633,9 +644,10 @@ const consumeImportRemainingQuantities = async (
     size: string;
     quantity: number;
   }>,
+  options: SessionOptions = {},
 ) => {
   for (const item of items) {
-    await adjustImportRemainingQuantity(item, item.quantity, 'consume');
+    await adjustImportRemainingQuantity(item, item.quantity, 'consume', options);
   }
 };
 
@@ -664,7 +676,7 @@ const deleteInventory = async (id: string) => {
   return inventory;
 };
 
-const normalizeReservationItem = async (item: InventoryReservationItemInput) => {
+const normalizeReservationItem = async (item: InventoryReservationItemInput, options: SessionOptions = {}) => {
   assertPositiveInteger(item.quantity, 'Reservation quantity');
 
   const selection = await findProductSelection(
@@ -672,7 +684,7 @@ const normalizeReservationItem = async (item: InventoryReservationItemInput) => 
     item.variantId,
     item.colorVariantId,
     item.size,
-    { requireSellable: true },
+    { requireSellable: true, session: options.session },
   );
 
   return {
@@ -704,28 +716,31 @@ const rollbackReservedItems = async (
     size: string;
     quantity: number;
   }>,
+  options: SessionOptions = {},
 ) => {
   await Promise.all(
-    reservedItems.map((item) =>
-      Inventory.updateOne(
-        {
-          productId: item.productId,
-          variantId: item.variantId,
-          colorVariantId: item.colorVariantId,
-          size: item.size,
+    reservedItems.map((item) => {
+      const filter = {
+        productId: item.productId,
+        variantId: item.variantId,
+        colorVariantId: item.colorVariantId,
+        size: item.size,
+      };
+      const update = {
+        $inc: {
+          reservedQuantity: -item.quantity,
+          availableQuantity: item.quantity,
         },
-        {
-          $inc: {
-            reservedQuantity: -item.quantity,
-            availableQuantity: item.quantity,
-          },
-        },
-      ),
-    ),
+      };
+
+      return options.session
+        ? Inventory.updateOne(filter, update, { session: options.session })
+        : Inventory.updateOne(filter, update);
+    }),
   );
 };
 
-const reserveInventory = async (input: ReserveInventoryInput) => {
+const reserveInventory = async (input: ReserveInventoryInput, options: SessionOptions = {}) => {
   const userId = toObjectId(input.userId, 'userId');
   const orderId = input.orderId ? toObjectId(input.orderId, 'orderId') : null;
 
@@ -738,7 +753,7 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
     throw new InventoryServiceError('expiresAt must be in the future', 400);
   }
 
-  const normalizedItems = await Promise.all(input.items.map(normalizeReservationItem));
+  const normalizedItems = await Promise.all(input.items.map((item) => normalizeReservationItem(item, options)));
   const reservedItems: typeof normalizedItems = [];
   const reservations: IInventoryReservation[] = [];
 
@@ -758,7 +773,10 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
             availableQuantity: -item.quantity,
           },
         },
-        { returnDocument: 'after' },
+        {
+          returnDocument: 'after',
+          ...(options.session ? { session: options.session } : {}),
+        },
       );
 
       if (!inventory) {
@@ -767,7 +785,7 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
 
       reservedItems.push(item);
 
-      const reservation = await InventoryReservation.create({
+      const reservationPayload = {
         userId,
         orderId,
         productId: item.productId,
@@ -778,12 +796,15 @@ const reserveInventory = async (input: ReserveInventoryInput) => {
         quantity: item.quantity,
         status: 'active',
         expiresAt,
-      });
+      };
+      const reservation = options.session
+        ? (await InventoryReservation.create([reservationPayload], { session: options.session }))[0]
+        : await InventoryReservation.create(reservationPayload);
 
       reservations.push(reservation);
     }
   } catch (error) {
-    await rollbackReservedItems(reservedItems);
+    await rollbackReservedItems(reservedItems, options);
     throw error;
   }
 
@@ -813,9 +834,10 @@ const buildReservationFilter = (selector: ReservationSelectorInput): Record<stri
 const transitionReservations = async (
   selector: ReservationSelectorInput,
   status: Exclude<InventoryReservationStatus, 'active'>,
-  options: { allowEmpty?: boolean } = {},
+  options: { allowEmpty?: boolean; session?: ClientSession } = {},
 ) => {
-  const reservations = await InventoryReservation.find(buildReservationFilter(selector));
+  const query = InventoryReservation.find(buildReservationFilter(selector));
+  const reservations = await (options.session ? query.session(options.session) : query);
   const committedItems: Array<{
     productId: Types.ObjectId;
     variantId: Types.ObjectId;
@@ -830,21 +852,25 @@ const transitionReservations = async (
 
   for (const reservation of reservations) {
     if (status === 'committed') {
-      await Inventory.updateOne(
-        {
-          productId: reservation.productId,
-          variantId: reservation.variantId,
-          colorVariantId: reservation.colorVariantId,
-          size: reservation.size,
-          reservedQuantity: { $gte: reservation.quantity },
+      const filter = {
+        productId: reservation.productId,
+        variantId: reservation.variantId,
+        colorVariantId: reservation.colorVariantId,
+        size: reservation.size,
+        reservedQuantity: { $gte: reservation.quantity },
+      };
+      const update = {
+        $inc: {
+          quantity: -reservation.quantity,
+          reservedQuantity: -reservation.quantity,
         },
-        {
-          $inc: {
-            quantity: -reservation.quantity,
-            reservedQuantity: -reservation.quantity,
-          },
-        },
-      );
+      };
+
+      if (options.session) {
+        await Inventory.updateOne(filter, update, { session: options.session });
+      } else {
+        await Inventory.updateOne(filter, update);
+      }
       committedItems.push({
         productId: reservation.productId,
         variantId: reservation.variantId,
@@ -853,40 +879,48 @@ const transitionReservations = async (
         quantity: reservation.quantity,
       });
     } else {
-      await Inventory.updateOne(
-        {
-          productId: reservation.productId,
-          variantId: reservation.variantId,
-          colorVariantId: reservation.colorVariantId,
-          size: reservation.size,
-          reservedQuantity: { $gte: reservation.quantity },
+      const filter = {
+        productId: reservation.productId,
+        variantId: reservation.variantId,
+        colorVariantId: reservation.colorVariantId,
+        size: reservation.size,
+        reservedQuantity: { $gte: reservation.quantity },
+      };
+      const update = {
+        $inc: {
+          reservedQuantity: -reservation.quantity,
+          availableQuantity: reservation.quantity,
         },
-        {
-          $inc: {
-            reservedQuantity: -reservation.quantity,
-            availableQuantity: reservation.quantity,
-          },
-        },
-      );
+      };
+
+      if (options.session) {
+        await Inventory.updateOne(filter, update, { session: options.session });
+      } else {
+        await Inventory.updateOne(filter, update);
+      }
     }
 
     reservation.status = status;
-    await reservation.save();
+    if (options.session) {
+      await reservation.save({ session: options.session });
+    } else {
+      await reservation.save();
+    }
   }
 
   if (committedItems.length) {
-    await consumeImportRemainingQuantities(committedItems);
+    await consumeImportRemainingQuantities(committedItems, options);
   }
 
   return reservations;
 };
 
-const releaseReservations = (selector: ReservationSelectorInput) => {
-  return transitionReservations(selector, 'released');
+const releaseReservations = (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
+  return transitionReservations(selector, 'released', options);
 };
 
-const commitReservations = (selector: ReservationSelectorInput) => {
-  return transitionReservations(selector, 'committed');
+const commitReservations = (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
+  return transitionReservations(selector, 'committed', options);
 };
 
 const expireReservations = async (now = new Date()) => {

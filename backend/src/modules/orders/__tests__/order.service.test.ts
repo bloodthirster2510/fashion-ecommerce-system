@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Inventory, Order, Product, User } from '../../../database/models';
 import { inventoryService } from '../../inventory/inventory.service';
 import { cartService } from '../../cart/cart.service';
@@ -85,6 +85,18 @@ const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typ
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
+
+type MockSession = {
+  withTransaction: jest.Mock;
+  endSession: jest.Mock;
+};
+
+let mockSession: MockSession;
+
+const createMockSession = (): MockSession => ({
+  withTransaction: jest.fn(async (callback: () => Promise<unknown>) => callback()),
+  endSession: jest.fn().mockResolvedValue(undefined),
+});
 
 const mockAtomicCancel = <T extends { status: string }>(order: T) => {
   (mockedOrder.findOneAndUpdate as unknown as jest.Mock).mockImplementation((_filter: unknown, update: unknown) => {
@@ -208,6 +220,8 @@ const buildPricingResult = (): CheckoutPricingResult => ({
 describe('orderService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSession = createMockSession();
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue(mockSession as never);
     mockedCouponService.reserveCouponUsage.mockResolvedValue(null);
     mockedCouponService.recordCouponUsage.mockResolvedValue(null);
     mockedCouponService.rollbackRecordedCouponUsage.mockResolvedValue(undefined);
@@ -254,7 +268,7 @@ describe('orderService', () => {
       { _id: reservationId },
     ] as never);
     mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
     mockedCartService.deleteCartItems.mockResolvedValue({} as never);
 
@@ -272,7 +286,8 @@ describe('orderService', () => {
       paymentMethod: 'COD',
       shippingAddress: normalizedShippingAddress,
     });
-    expect(mockedCouponService.reserveCouponUsage).toHaveBeenCalledWith(userId, null);
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockedCouponService.reserveCouponUsage).toHaveBeenCalledWith(userId, null, { session: mockSession });
     expect(mockedInventoryService.reserveInventory).toHaveBeenCalledWith(
       expect.objectContaining({
         userId,
@@ -286,55 +301,63 @@ describe('orderService', () => {
           },
         ],
       }),
+      { session: mockSession },
     );
-    expect(mockedCouponService.recordCouponUsage).toHaveBeenCalledWith({
-      userId,
-      orderId: expect.any(String),
-      appliedCoupon: null,
-    });
+    expect(mockedCouponService.recordCouponUsage).toHaveBeenCalledWith(
+      {
+        userId,
+        orderId: expect.any(String),
+        appliedCoupon: null,
+      },
+      { session: mockSession },
+    );
     expect(mockedOrder.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        _id: expect.any(Types.ObjectId),
-        user_id: expect.any(Types.ObjectId),
-        order_list: [
-          expect.objectContaining({
-            productId,
-            variantId,
-            colorVariantId,
-            size: 'M',
-            sku: 'INV-TEE-BLK-M',
-            quantity: 2,
-            priceAtPurchased: 180000,
+      [
+        expect.objectContaining({
+          _id: expect.any(Types.ObjectId),
+          user_id: expect.any(Types.ObjectId),
+          order_list: [
+            expect.objectContaining({
+              productId,
+              variantId,
+              colorVariantId,
+              size: 'M',
+              sku: 'INV-TEE-BLK-M',
+              quantity: 2,
+              priceAtPurchased: 180000,
+            }),
+          ],
+          subTotal: 360000,
+          shippingFee: 25000,
+          couponCode: null,
+          couponId: null,
+          couponDiscountAmount: 0,
+          shippingDiscountAmount: 0,
+          membershipDiscountAmount: 0,
+          taxAmount: 0,
+          totalAmount: 385000,
+          status: 'confirmed',
+          paymentMethod: 'COD',
+          paymentStatus: 'pending',
+          shipping: expect.objectContaining({
+            provider: 'FIXED',
+            customerFee: 25000,
+            quotedProviderCost: 25000,
+            recommendedOptionKey: 'FIXED:STANDARD',
+            selectedOptionKey: 'FIXED:STANDARD',
+            quoteVersion: 'shipq_test_1234',
+            status: 'fallback',
           }),
-        ],
-        subTotal: 360000,
-        shippingFee: 25000,
-        couponCode: null,
-        couponId: null,
-        couponDiscountAmount: 0,
-        shippingDiscountAmount: 0,
-        membershipDiscountAmount: 0,
-        taxAmount: 0,
-        totalAmount: 385000,
-        status: 'confirmed',
-        paymentMethod: 'COD',
-        paymentStatus: 'pending',
-        shipping: expect.objectContaining({
-          provider: 'FIXED',
-          customerFee: 25000,
-          quotedProviderCost: 25000,
-          recommendedOptionKey: 'FIXED:STANDARD',
-          selectedOptionKey: 'FIXED:STANDARD',
-          quoteVersion: 'shipq_test_1234',
-          status: 'fallback',
+          shippingAddress: normalizedShippingAddress,
         }),
-        shippingAddress: normalizedShippingAddress,
-      }),
+      ],
+      { session: mockSession },
     );
-    expect(mockedOrder.create.mock.calls[0][0].order_list[0]).not.toHaveProperty('categoryId');
-    expect(mockedInventoryService.commitReservations).toHaveBeenCalledWith({
-      reservationIds: [reservationId.toString()],
-    });
+    expect(mockedOrder.create.mock.calls[0][0][0].order_list[0]).not.toHaveProperty('categoryId');
+    expect(mockedInventoryService.commitReservations).toHaveBeenCalledWith(
+      { reservationIds: [reservationId.toString()] },
+      { session: mockSession },
+    );
     expect(mockedCartService.deleteCartItems).toHaveBeenCalledWith(userId, [cartItemId.toString()]);
     expect(result).toBe(order);
   });
@@ -354,7 +377,7 @@ describe('orderService', () => {
       { _id: reservationId },
     ] as never);
     mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
     mockedCartService.deleteCartItems.mockResolvedValue({} as never);
 
@@ -374,14 +397,17 @@ describe('orderService', () => {
       shippingAddress: normalizedShippingAddress,
     });
     expect(mockedOrder.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        shippingAddress: normalizedShippingAddress,
-      }),
+      [
+        expect.objectContaining({
+          shippingAddress: normalizedShippingAddress,
+        }),
+      ],
+      { session: mockSession },
     );
     expect(result).toBe(order);
   });
 
-  it('rolls back an online order when pending transaction creation fails before inventory commit', async () => {
+  it('aborts an online order transaction when pending transaction creation fails', async () => {
     const order = {
       _id: new Types.ObjectId(),
       orderCode: 'FSORDER',
@@ -395,9 +421,8 @@ describe('orderService', () => {
     mockedInventoryService.reserveInventory.mockResolvedValue([
       { _id: reservationId },
     ] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedTransactionService.createPendingTransaction.mockRejectedValue(new Error('transaction create failed'));
-    mockedInventoryService.releaseReservations.mockResolvedValue([] as never);
 
     await expect(
       orderService.createOrder(userId, {
@@ -414,17 +439,17 @@ describe('orderService', () => {
       amount: 385000,
       paymentMethod: 'VNPAY',
       gatewayProvider: 'vnpay',
+      session: mockSession,
     }));
     expect(mockedInventoryService.commitReservations).not.toHaveBeenCalled();
-    expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
-      reservationIds: [reservationId.toString()],
-    });
-    expect(order.status).toBe('cancelled');
-    expect(order.save).toHaveBeenCalled();
+    expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
+    expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
+    expect(order.status).toBe('confirmed');
+    expect(order.save).not.toHaveBeenCalled();
     expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
   });
 
-  it('marks the pending payment transaction failed when inventory commit fails', async () => {
+  it('aborts the order transaction when inventory commit fails', async () => {
     const transactionId = new Types.ObjectId('665000000000000000000092');
     const order = {
       _id: new Types.ObjectId(),
@@ -439,10 +464,9 @@ describe('orderService', () => {
     mockedInventoryService.reserveInventory.mockResolvedValue([
       { _id: reservationId },
     ] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedTransactionService.createPendingTransaction.mockResolvedValue({ _id: transactionId } as never);
     mockedInventoryService.commitReservations.mockRejectedValue(new Error('commit failed'));
-    mockedInventoryService.releaseReservations.mockResolvedValue([] as never);
 
     await expect(
       orderService.createOrder(userId, {
@@ -453,16 +477,14 @@ describe('orderService', () => {
       }),
     ).rejects.toThrow('commit failed');
 
-    expect(mockedTransactionService.resolveTransaction).toHaveBeenCalledWith({
-      transactionId: transactionId.toString(),
-      status: 'failed',
-      failureReason: 'order_creation_failed',
-    });
-    expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
-      reservationIds: [reservationId.toString()],
-    });
-    expect(order.status).toBe('cancelled');
-    expect(order.save).toHaveBeenCalled();
+    expect(mockedTransactionService.createPendingTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      session: mockSession,
+    }));
+    expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
+    expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
+    expect(order.status).toBe('confirmed');
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
   });
 
   it('rejects create order when quoteVersion is missing', async () => {
@@ -534,7 +556,7 @@ describe('orderService', () => {
       { _id: reservationId },
     ] as never);
     mockedInventoryService.commitReservations.mockResolvedValue([] as never);
-    mockedOrder.create.mockResolvedValue(order as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
     mockedProduct.updateOne.mockResolvedValue({} as never);
     mockedCartService.deleteCartItems.mockRejectedValue(new Error('cart cleanup failed'));
 
@@ -555,13 +577,12 @@ describe('orderService', () => {
     );
   });
 
-  it('releases reservations when order creation fails after inventory is reserved', async () => {
+  it('aborts the order transaction when order creation fails after inventory is reserved', async () => {
     mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
     mockedInventoryService.reserveInventory.mockResolvedValue([
       { _id: reservationId },
     ] as never);
     mockedOrder.create.mockRejectedValue(new Error('create failed'));
-    mockedInventoryService.releaseReservations.mockResolvedValue([] as never);
 
     await expect(
       orderService.createOrder(userId, {
@@ -572,10 +593,8 @@ describe('orderService', () => {
       }),
     ).rejects.toThrow('create failed');
 
-    expect(mockedInventoryService.releaseReservations).toHaveBeenCalledWith({
-      reservationIds: [reservationId.toString()],
-    });
-    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith('', userId);
+    expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackCouponUsageReservation).not.toHaveBeenCalled();
     expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
     expect(mockedCartService.deleteCartItems).not.toHaveBeenCalled();
   });

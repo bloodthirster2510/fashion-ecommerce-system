@@ -56,6 +56,7 @@ export const transactionService = {
     attemptNo,
     expiredAt,
     createdBy,
+    session,
   }: {
     userId: string;
     orderId: string;
@@ -67,6 +68,7 @@ export const transactionService = {
     attemptNo?: number;
     expiredAt?: Date;
     createdBy?: TransactionCreatedBy;
+    session?: ClientSession;
   }) => {
     const payload: Record<string, unknown> = {
       user_id: new Types.ObjectId(userId),
@@ -83,6 +85,11 @@ export const transactionService = {
     if (txnRef) payload.txnRef = txnRef;
     if (attemptNo) payload.attemptNo = attemptNo;
     if (paymentMethodId) payload.paymentMethodId = new Types.ObjectId(paymentMethodId);
+
+    if (session) {
+      const [transaction] = await Transaction.create([payload], { session });
+      return transaction;
+    }
 
     return Transaction.create(payload);
   },

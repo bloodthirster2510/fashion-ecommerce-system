@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import {
   Inventory,
   Order,
@@ -856,133 +856,103 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   } = pricing.summary;
 
   const orderId = new Types.ObjectId();
-  let reservedCoupon: Awaited<ReturnType<typeof couponService.reserveCouponUsage>> | null = null;
-  let reservationIds: string[] = [];
-  let couponUsageRecorded = false;
-  let inventoryCommitted = false;
   let createdOrder: IOrder | null = null;
-  let pendingPaymentTransactionId = '';
+  const session = await mongoose.startSession();
 
   try {
-    reservedCoupon = await couponService.reserveCouponUsage(userId, pricing.appliedCoupon);
-    const reservations = await inventoryService.reserveInventory({
-      userId,
-      ttlMinutes: 15,
-      items: orderItems.map((item) => ({
-        productId: toIdString(item.productId),
-        variantId: toIdString(item.variantId),
-        colorVariantId: toIdString(item.colorVariantId),
-        size: item.size,
-        quantity: item.quantity,
-      })),
-    });
-    reservationIds = reservations.map((reservation) => toIdString(reservation._id));
+    await session.withTransaction(async () => {
+      await couponService.reserveCouponUsage(userId, pricing.appliedCoupon, { session });
+      const reservations = await inventoryService.reserveInventory(
+        {
+          userId,
+          ttlMinutes: 15,
+          items: orderItems.map((item) => ({
+            productId: toIdString(item.productId),
+            variantId: toIdString(item.variantId),
+            colorVariantId: toIdString(item.colorVariantId),
+            size: item.size,
+            quantity: item.quantity,
+          })),
+        },
+        { session },
+      );
+      const reservationIds = reservations.map((reservation) => toIdString(reservation._id));
 
-    await couponService.recordCouponUsage({
-      userId,
-      orderId: orderId.toString(),
-      appliedCoupon: pricing.appliedCoupon,
-    });
-    couponUsageRecorded = Boolean(pricing.appliedCoupon);
+      await couponService.recordCouponUsage(
+        {
+          userId,
+          orderId: orderId.toString(),
+          appliedCoupon: pricing.appliedCoupon,
+        },
+        { session },
+      );
 
-    const order = await Order.create({
-      _id: orderId,
-      orderCode: generateOrderCode(),
-      user_id: toObjectId(userId, 'userId'),
-      order_list: orderItems,
-      subTotal,
-      shippingFee,
-      couponCode: pricing.appliedCoupon?.code ?? null,
-      couponId: pricing.appliedCoupon?.coupon._id ?? null,
-      couponDiscountAmount,
-      shippingDiscountAmount,
-      membershipDiscountAmount,
-      taxAmount,
-      totalAmount,
-      status: 'confirmed',
-      paymentMethod: input.paymentMethod,
-      paymentMethodId: selectedPaymentMethod?._id ?? null,
-      paymentStatus: 'pending',
-      shipping: {
-        ...toOrderShippingSnapshot(pricing.shippingQuote),
-        ...toShippingComparisonSnapshot(pricing.shippingComparison),
-      },
-      shippingAddress,
-      orderNote: input.orderNote?.trim() || null,
-    });
-    createdOrder = order;
-
-    // Tạo Transaction pending cho phương thức thanh toán online.
-    // COD không cần transaction ngay; sẽ được xử lý khi giao hàng thành công.
-    if (isOnlinePaymentMethod(input.paymentMethod)) {
-      const pendingPaymentTransaction = await transactionService.createPendingTransaction({
-        userId,
-        orderId: orderId.toString(),
-        amount: totalAmount,
+      const [order] = await Order.create([{
+        _id: orderId,
+        orderCode: generateOrderCode(),
+        user_id: toObjectId(userId, 'userId'),
+        order_list: orderItems,
+        subTotal,
+        shippingFee,
+        couponCode: pricing.appliedCoupon?.code ?? null,
+        couponId: pricing.appliedCoupon?.coupon._id ?? null,
+        couponDiscountAmount,
+        shippingDiscountAmount,
+        membershipDiscountAmount,
+        taxAmount,
+        totalAmount,
+        status: 'confirmed',
         paymentMethod: input.paymentMethod,
-        paymentMethodId: selectedPaymentMethod?._id?.toString(),
-        gatewayProvider: getGatewayProvider(input.paymentMethod),
-      });
-      pendingPaymentTransactionId = toIdString(pendingPaymentTransaction?._id);
-    }
+        paymentMethodId: selectedPaymentMethod?._id ?? null,
+        paymentStatus: 'pending',
+        shipping: {
+          ...toOrderShippingSnapshot(pricing.shippingQuote),
+          ...toShippingComparisonSnapshot(pricing.shippingComparison),
+        },
+        shippingAddress,
+        orderNote: input.orderNote?.trim() || null,
+      }], { session });
+      createdOrder = order;
 
-    await inventoryService.commitReservations({ reservationIds });
-    inventoryCommitted = true;
+      // Create a pending transaction for online payment methods inside the order transaction.
+      if (isOnlinePaymentMethod(input.paymentMethod)) {
+        await transactionService.createPendingTransaction({
+          userId,
+          orderId: orderId.toString(),
+          amount: totalAmount,
+          paymentMethod: input.paymentMethod,
+          paymentMethodId: selectedPaymentMethod?._id?.toString(),
+          gatewayProvider: getGatewayProvider(input.paymentMethod),
+          session,
+        });
+      }
 
-    await runBestEffort(
-      'Failed to update product sold quantities after order creation',
-      Promise.all(
+      await inventoryService.commitReservations({ reservationIds }, { session });
+
+      await Promise.all(
         orderItems.map((item) =>
           Product.updateOne(
             { _id: item.productId },
             { $inc: { sold_quantity: item.quantity } },
+            { session },
           ),
         ),
-      ),
-    );
-    await runBestEffort(
-      'Failed to delete cart items after order creation',
-      cartService.deleteCartItems(userId, input.cartItemIds),
-    );
-
-    return order;
-  } catch (error) {
-    if (!inventoryCommitted) {
-      if (pendingPaymentTransactionId) {
-        await runBestEffort(
-          'Failed to mark pending payment transaction failed after order creation failure',
-          transactionService.resolveTransaction({
-            transactionId: pendingPaymentTransactionId,
-            status: 'failed',
-            failureReason: 'order_creation_failed',
-          }),
-        );
-      }
-      await runBestEffort(
-        'Failed to release inventory reservations after order creation failure',
-        inventoryService.releaseReservations({ reservationIds }),
       );
-      if (couponUsageRecorded) {
-        await runBestEffort(
-          'Failed to rollback recorded coupon usage after order creation failure',
-          couponService.rollbackRecordedCouponUsage(orderId.toString()),
-        );
-      }
-      await runBestEffort(
-        'Failed to rollback coupon usage reservation after order creation failure',
-        couponService.rollbackCouponUsageReservation(toIdString(reservedCoupon?._id), userId),
-      );
-
-      if (createdOrder) {
-        createdOrder.status = 'cancelled';
-        await runBestEffort(
-          'Failed to mark order cancelled after order creation failure',
-          createdOrder.save(),
-        );
-      }
-    }
-    throw error;
+    });
+  } finally {
+    await session.endSession();
   }
+
+  if (!createdOrder) {
+    throw new SalesServiceError('Failed to create order', 500);
+  }
+
+  await runBestEffort(
+    'Failed to delete cart items after order creation',
+    cartService.deleteCartItems(userId, input.cartItemIds),
+  );
+
+  return createdOrder;
 };
 
 const getMyOrders = async (userId: string, query: OrderListQueryInput) => {

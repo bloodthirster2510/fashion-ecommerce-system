@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import {
   Coupon,
   CouponUsage,
@@ -32,6 +32,10 @@ export class CouponServiceError extends Error {
     this.name = 'CouponServiceError';
   }
 }
+
+type SessionOptions = {
+  session?: ClientSession;
+};
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -583,7 +587,11 @@ const listAvailableCoupons = async (userId: string, input: AvailableCouponsInput
   };
 };
 
-const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon | null) => {
+const reserveCouponUsage = async (
+  userId: string,
+  appliedCoupon: AppliedCoupon | null,
+  options: SessionOptions = {},
+) => {
   if (!appliedCoupon) {
     return null;
   }
@@ -592,19 +600,28 @@ const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon |
   assertValidObjectId(userId, 'user id');
   const userObjectId = new Types.ObjectId(userId);
   const userUsagePath = getCouponUserUsagePath(userObjectId.toString());
-  const usedByUser = await CouponUsage.countDocuments({
+  const usedByUserQuery = CouponUsage.countDocuments({
     couponId: coupon._id,
     userId: userObjectId,
   });
+  const usedByUser = await (options.session ? usedByUserQuery.session(options.session) : usedByUserQuery);
 
   if (usedByUser >= coupon.perUserLimit) {
     throw new PromotionPricingError('Coupon per-user limit reached', 409);
   }
 
-  await Coupon.updateOne(
-    { _id: coupon._id },
-    { $max: { [userUsagePath]: usedByUser } },
-  );
+  if (options.session) {
+    await Coupon.updateOne(
+      { _id: coupon._id },
+      { $max: { [userUsagePath]: usedByUser } },
+      { session: options.session },
+    );
+  } else {
+    await Coupon.updateOne(
+      { _id: coupon._id },
+      { $max: { [userUsagePath]: usedByUser } },
+    );
+  }
 
   const now = new Date();
   const usageLimitFilter =
@@ -620,7 +637,10 @@ const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon |
       [userUsagePath]: { $lt: coupon.perUserLimit },
     },
     { $inc: { usedCount: 1, [userUsagePath]: 1 } },
-    { returnDocument: 'after' },
+    {
+      returnDocument: 'after',
+      ...(options.session ? { session: options.session } : {}),
+    },
   );
 
   if (!reservedCoupon) {
@@ -631,7 +651,11 @@ const reserveCouponUsage = async (userId: string, appliedCoupon: AppliedCoupon |
   return reservedCoupon;
 };
 
-const rollbackCouponUsageReservation = async (couponId?: string, userId?: string) => {
+const rollbackCouponUsageReservation = async (
+  couponId?: string,
+  userId?: string,
+  options: SessionOptions = {},
+) => {
   if (!couponId) {
     return;
   }
@@ -645,33 +669,47 @@ const rollbackCouponUsageReservation = async (couponId?: string, userId?: string
     filter[userUsagePath] = { $gt: 0 };
   }
 
-  await Coupon.updateOne(
-    filter,
-    { $inc: increment },
-  );
+  if (options.session) {
+    await Coupon.updateOne(
+      filter,
+      { $inc: increment },
+      { session: options.session },
+    );
+  } else {
+    await Coupon.updateOne(
+      filter,
+      { $inc: increment },
+    );
+  }
   clearValidateCouponCache();
 };
 
-const rollbackRecordedCouponUsage = async (orderId?: string) => {
+const rollbackRecordedCouponUsage = async (orderId?: string, options: SessionOptions = {}) => {
   if (!orderId) {
     return;
   }
 
-  await CouponUsage.deleteOne({ orderId: new Types.ObjectId(orderId) });
+  if (options.session) {
+    await CouponUsage.deleteOne(
+      { orderId: new Types.ObjectId(orderId) },
+      { session: options.session },
+    );
+  } else {
+    await CouponUsage.deleteOne({ orderId: new Types.ObjectId(orderId) });
+  }
 };
 
 const recordCouponUsage = async (input: {
   userId: string;
   orderId: string;
   appliedCoupon: AppliedCoupon | null;
-}) => {
+}, options: SessionOptions = {}) => {
   if (!input.appliedCoupon) {
     return null;
   }
 
   const coupon = input.appliedCoupon.coupon;
-
-  return CouponUsage.create({
+  const payload = {
     couponId: coupon._id,
     userId: new Types.ObjectId(input.userId),
     orderId: new Types.ObjectId(input.orderId),
@@ -680,7 +718,14 @@ const recordCouponUsage = async (input: {
     discountAmount: input.appliedCoupon.discountAmount,
     shippingDiscountAmount: input.appliedCoupon.shippingDiscountAmount,
     usedAt: new Date(),
-  });
+  };
+
+  if (options.session) {
+    const [usage] = await CouponUsage.create([payload], { session: options.session });
+    return usage;
+  }
+
+  return CouponUsage.create(payload);
 };
 
 export const couponService = {
