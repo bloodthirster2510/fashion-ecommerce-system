@@ -1,6 +1,7 @@
-import mongoose, { Types } from 'mongoose';
+import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
+  LoyaltyPointHistory,
   Order,
   Product,
   Transaction,
@@ -796,6 +797,230 @@ const mapAppliedCouponForCustomer = (
   };
 };
 
+type SessionOptions = {
+  session?: ClientSession;
+};
+
+const calculateLoyaltyPointsForOrder = (order: IOrder) => (
+  Math.floor(Math.max(0, Number(order.totalAmount) || 0) / 1000)
+);
+
+const createLoyaltyPointHistory = async (
+  payload: {
+    userId: Types.ObjectId;
+    orderId: Types.ObjectId;
+    type: 'earn' | 'adjust';
+    delta: number;
+    balanceAfter: number;
+    reason: string;
+    actorRole?: 'system' | 'user' | 'admin' | 'staff';
+  },
+  options: SessionOptions = {},
+) => {
+  const historyPayload = {
+    ...payload,
+    actorRole: payload.actorRole ?? 'system',
+  };
+
+  if (options.session) {
+    await LoyaltyPointHistory.create([historyPayload], { session: options.session });
+    return;
+  }
+
+  await LoyaltyPointHistory.create(historyPayload);
+};
+
+const awardLoyaltyPointsForDeliveredOrder = async (
+  order: IOrder,
+  options: SessionOptions = {},
+) => {
+  const points = calculateLoyaltyPointsForOrder(order);
+  if (points <= 0 || (order.loyaltyPointsAwarded ?? 0) > 0) {
+    return order;
+  }
+
+  const orderObjectId = toObjectId(toIdString(order._id), 'orderId');
+  const userObjectId = toObjectId(toIdString(order.user_id), 'userId');
+  const updatedOrder = await Order.findOneAndUpdate(
+    {
+      _id: orderObjectId,
+      status: 'delivered',
+      $or: [
+        { loyaltyPointsAwarded: { $exists: false } },
+        { loyaltyPointsAwarded: { $lte: 0 } },
+      ],
+    },
+    { $set: { loyaltyPointsAwarded: points } },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      ...(options.session ? { session: options.session } : {}),
+    },
+  );
+
+  if (!updatedOrder) {
+    return order;
+  }
+
+  const updatedUser = await User.findOneAndUpdate(
+    { _id: userObjectId },
+    { $inc: { loyaltyPoint: points } },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      ...(options.session ? { session: options.session } : {}),
+    },
+  );
+
+  if (!updatedUser) {
+    throw new SalesServiceError('Order user not found while awarding loyalty points', 404);
+  }
+
+  await createLoyaltyPointHistory(
+    {
+      userId: userObjectId,
+      orderId: orderObjectId,
+      type: 'earn',
+      delta: points,
+      balanceAfter: updatedUser.loyaltyPoint,
+      reason: 'Order delivered',
+      actorRole: 'system',
+    },
+    options,
+  );
+
+  return updatedOrder;
+};
+
+const clawBackLoyaltyPointsForOrder = async (
+  order: IOrder,
+  reason: string,
+  options: SessionOptions = {},
+) => {
+  const awardedPoints = Math.max(0, Number(order.loyaltyPointsAwarded) || 0);
+  const alreadyClawedBack = Math.max(0, Number(order.loyaltyPointsClawedBack) || 0);
+  const pointsToClawBack = Math.max(0, awardedPoints - alreadyClawedBack);
+
+  if (pointsToClawBack <= 0) {
+    return order;
+  }
+
+  const orderObjectId = toObjectId(toIdString(order._id), 'orderId');
+  const userObjectId = toObjectId(toIdString(order.user_id), 'userId');
+  const updatedOrder = await Order.findOneAndUpdate(
+    {
+      _id: orderObjectId,
+      loyaltyPointsAwarded: awardedPoints,
+      $or: [
+        { loyaltyPointsClawedBack: { $exists: false } },
+        { loyaltyPointsClawedBack: { $lt: awardedPoints } },
+      ],
+    },
+    { $inc: { loyaltyPointsClawedBack: pointsToClawBack } },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+      ...(options.session ? { session: options.session } : {}),
+    },
+  );
+
+  if (!updatedOrder) {
+    return order;
+  }
+
+  const updatedUser = await User.findOneAndUpdate(
+    { _id: userObjectId },
+    [
+      {
+        $set: {
+          loyaltyPoint: {
+            $max: [0, { $subtract: ['$loyaltyPoint', pointsToClawBack] }],
+          },
+        },
+      },
+    ],
+    {
+      returnDocument: 'after',
+      ...(options.session ? { session: options.session } : {}),
+    },
+  );
+
+  if (!updatedUser) {
+    throw new SalesServiceError('Order user not found while clawing back loyalty points', 404);
+  }
+
+  await createLoyaltyPointHistory(
+    {
+      userId: userObjectId,
+      orderId: orderObjectId,
+      type: 'adjust',
+      delta: -pointsToClawBack,
+      balanceAfter: updatedUser.loyaltyPoint,
+      reason,
+      actorRole: 'system',
+    },
+    options,
+  );
+
+  return updatedOrder;
+};
+
+const rollbackCouponUsageForCancelledOrder = async (
+  order: IOrder,
+  options: SessionOptions = {},
+) => {
+  if (!order.couponId) {
+    return;
+  }
+
+  await couponService.rollbackRecordedCouponUsage(toIdString(order._id), options);
+  await couponService.rollbackCouponUsageReservation(
+    toIdString(order.couponId),
+    toIdString(order.user_id),
+    options,
+  );
+};
+
+const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder) => {
+  const session = await mongoose.startSession();
+  let savedOrder: IOrder | null = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const persistedOrder = await order.save({ session });
+      savedOrder = await awardLoyaltyPointsForDeliveredOrder(persistedOrder, { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!savedOrder) {
+    throw new SalesServiceError('Failed to save delivered order', 500);
+  }
+
+  return savedOrder;
+};
+
+const saveOrderWithLoyaltyClawback = async (order: IOrder, reason: string) => {
+  const session = await mongoose.startSession();
+  let savedOrder: IOrder | null = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const persistedOrder = await order.save({ session });
+      savedOrder = await clawBackLoyaltyPointsForOrder(persistedOrder, reason, { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!savedOrder) {
+    throw new SalesServiceError('Failed to save order loyalty adjustment', 500);
+  }
+
+  return savedOrder;
+};
+
 const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
   assertSupportedPaymentMethod(input.paymentMethod ?? 'COD');
   const shippingAddress = await resolveCheckoutShippingAddress(userId, input, { required: false });
@@ -898,6 +1123,10 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         couponId: pricing.appliedCoupon?.coupon._id ?? null,
         couponDiscountAmount,
         shippingDiscountAmount,
+        appliedMembershipTierId: pricing.appliedMembership?.tierId
+          ? toObjectId(pricing.appliedMembership.tierId, 'membership tier id')
+          : null,
+        appliedMembershipDiscountPercent: pricing.appliedMembership?.discountPercent ?? null,
         membershipDiscountAmount,
         taxAmount,
         totalAmount,
@@ -1123,7 +1352,9 @@ const cancelOrder = async (
     await cancelledOrder.save();
   }
 
-  return cancelledOrder;
+  await rollbackCouponUsageForCancelledOrder(cancelledOrder);
+
+  return clawBackLoyaltyPointsForOrder(cancelledOrder, 'Order cancelled after delivery');
 };
 
 const confirmOrderReceived = async (userId: string, id: string) => {
@@ -1157,7 +1388,7 @@ const confirmOrderReceived = async (userId: string, id: string) => {
     status: 'delivered',
   };
 
-  return order.save();
+  return saveDeliveredOrderWithLoyaltyAward(order);
 };
 
 const requestReturn = async (userId: string, id: string, input: RequestReturnInput) => {
@@ -1224,6 +1455,10 @@ const reviewReturnRequest = async (
     reviewReason,
   };
 
+  if (input.decision === 'approved') {
+    return saveOrderWithLoyaltyClawback(order, 'Order returned');
+  }
+
   return order.save();
 };
 
@@ -1261,6 +1496,10 @@ const updateOrderStatus = async (
 
   if (input.status === 'delivered' && order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';
+  }
+
+  if (input.status === 'delivered') {
+    return saveDeliveredOrderWithLoyaltyAward(order);
   }
 
   return order.save();
@@ -1600,14 +1839,21 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
     }
   }
 
-  const savedOrder = await order.save();
+  const savedOrder = input.status === 'delivered'
+    ? await saveDeliveredOrderWithLoyaltyAward(order)
+    : await order.save();
   if (shouldRestockAfterSave) {
     await restockCommittedOrder(savedOrder);
+    await rollbackCouponUsageForCancelledOrder(savedOrder);
   }
+
+  const finalOrder = input.status === 'cancelled'
+    ? await clawBackLoyaltyPointsForOrder(savedOrder, 'Order cancelled after delivery')
+    : savedOrder;
 
   return {
     before,
-    order: savedOrder,
+    order: finalOrder,
     reason: webhookReason,
   };
 };

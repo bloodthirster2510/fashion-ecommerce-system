@@ -763,6 +763,7 @@ const CartScreen = () => {
     navigation.navigate('Coupons', {
       cartItemIds: selectedCheckoutItems.map((item) => item._id),
       selectedCouponCode: appliedCouponCode,
+      paymentMethod,
     });
   };
 

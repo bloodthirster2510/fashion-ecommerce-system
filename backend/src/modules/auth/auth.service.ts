@@ -47,7 +47,7 @@ const parsePositiveIntegerEnv = (name: string, fallback: number) => {
 
 const createAuthThrottleError = () => ({
   status: 429,
-  message: 'Vui lÃ²ng chá» trÆ°á»›c khi yÃªu cáº§u mÃ£ má»›i',
+  message: 'Vui lòng chờ trước khi yêu cầu mã mới',
 });
 
 const normalizeThrottleIdentifier = (identifier: string) => identifier.trim().toLowerCase();
@@ -246,7 +246,7 @@ const loginWithPassword = async (
   }
 
   if (options.allowedRoles && !options.allowedRoles.includes(user.role)) {
-    throw { status: 403, message: 'TÃ i khoáº£n khÃ´ng cÃ³ quyá»n truy cáº­p trang quáº£n trá»‹' };
+    throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
   }
 
   const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };

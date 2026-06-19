@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { DistributedLock, Inventory, Order, Product, Transaction } from '../../../database/models';
 import { inventoryService } from '../../inventory/inventory.service';
+import { couponService } from '../../promotions/coupons/coupon.service';
 import { paymentExpiryService } from '../payment-expiry.service';
 
 jest.mock('../../../database/models', () => ({
@@ -31,12 +32,20 @@ jest.mock('../../inventory/inventory.service', () => ({
   },
 }));
 
+jest.mock('../../promotions/coupons/coupon.service', () => ({
+  couponService: {
+    rollbackRecordedCouponUsage: jest.fn(),
+    rollbackCouponUsageReservation: jest.fn(),
+  },
+}));
+
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedDistributedLock = DistributedLock as jest.Mocked<typeof DistributedLock>;
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedTransaction = Transaction as jest.Mocked<typeof Transaction>;
 const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryService>;
+const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 
 const chainLeanResult = (value: unknown) => ({
   select: jest.fn().mockReturnValue({
@@ -59,18 +68,24 @@ describe('paymentExpiryService', () => {
     mockedDistributedLock.updateOne.mockResolvedValue({ modifiedCount: 1, upsertedCount: 0 } as never);
     mockedDistributedLock.deleteOne.mockResolvedValue({} as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
+    mockedCouponService.rollbackRecordedCouponUsage.mockResolvedValue(undefined);
+    mockedCouponService.rollbackCouponUsageReservation.mockResolvedValue(undefined);
   });
 
   it('marks stale pending transactions as expired and cancels confirmed unpaid online orders when latest attempt expires', async () => {
     const now = new Date('2026-06-11T08:00:00.000Z');
     const transactionId = new Types.ObjectId('665000000000000000000101');
     const orderId = new Types.ObjectId('665000000000000000000201');
+    const userId = new Types.ObjectId('665000000000000000000202');
+    const couponId = new Types.ObjectId('665000000000000000000203');
     const productId = new Types.ObjectId('665000000000000000000301');
     const variantId = new Types.ObjectId('665000000000000000000302');
     const colorVariantId = new Types.ObjectId('665000000000000000000303');
     const expiredAt = new Date('2026-06-11T07:54:00.000Z');
     const order = {
       _id: orderId,
+      user_id: userId,
+      couponId,
       order_list: [
         {
           productId,
@@ -170,6 +185,11 @@ describe('paymentExpiryService', () => {
         quantity: 2,
       },
     ]);
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString());
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId.toString(),
+    );
     expect(result).toEqual({
       expiredCount: 1,
       orderIds: [orderId.toString()],

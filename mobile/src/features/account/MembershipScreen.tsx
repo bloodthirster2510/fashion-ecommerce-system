@@ -63,6 +63,32 @@ const MembershipScreen = () => {
     );
   }
 
+  if (!data.currentTier) {
+    const nextTierName = data.nextTier?.name;
+    const pointsNeeded = data.pointToNextTier ?? 0;
+
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Hạng thẻ thành viên</Text>
+          <View style={styles.backButton} />
+        </View>
+        <View style={styles.emptyMembershipContainer}>
+          <MaterialCommunityIcons name="card-account-details-star-outline" size={48} color={colors.brand} />
+          <Text style={styles.emptyMembershipTitle}>Bạn chưa có hạng thành viên</Text>
+          <Text style={styles.emptyMembershipText}>
+            {nextTierName
+              ? `Tích thêm ${pointsNeeded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')} điểm để đạt hạng ${nextTierName}.`
+              : 'Chương trình thành viên hiện chưa được cấu hình.'}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const { currentTier, nextTier, loyaltyPoint, pointToNextTier, progressPercent, tiers } = data;
   const tierConfig = getMembershipTierVisualConfig(currentTier);
 
@@ -106,7 +132,7 @@ const MembershipScreen = () => {
           
           {nextTier ? (
             <Text style={[styles.cardNextTierInfo, { color: tierConfig.textColor, opacity: 0.9 }]}>
-              Còn <Text style={{ fontWeight: '700' }}>{formatPoints(pointToNextTier)}</Text> điểm để lên hạng {nextTier.name}
+              Còn <Text style={{ fontWeight: '700' }}>{formatPoints(pointToNextTier ?? 0)}</Text> điểm để lên hạng {nextTier.name}
             </Text>
           ) : (
             <Text style={[styles.cardNextTierInfo, { color: tierConfig.textColor, opacity: 0.9 }]}>
@@ -138,7 +164,7 @@ const MembershipScreen = () => {
             scrollEventThrottle={16}
             renderItem={({ item: tier }) => {
               const tierConfig = getMembershipTierVisualConfig(tier);
-              const isCurrent = data.currentTier._id === tier._id;
+              const isCurrent = currentTier._id === tier._id;
               const hasPassed = data.loyaltyPoint >= tier.minPoint && !isCurrent;
               const pointsNeeded = tier.minPoint - data.loyaltyPoint;
 
@@ -232,7 +258,7 @@ const MembershipScreen = () => {
                   <Text style={[styles.tableCellText, { textAlign: 'center' }]}>{getConditionText(tier)}</Text>
                 </View>
                 <View style={[styles.tableCell, { flex: 1.4 }]}>
-                  <Text style={[styles.tableCellText, { textAlign: 'right' }]}>{tier.benefitDescription}</Text>
+                  <Text style={[styles.tableCellText, { textAlign: 'right' }]}>{tier.benefitDescription || 'Chưa mô tả'}</Text>
                 </View>
               </View>
             );
@@ -278,6 +304,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  emptyMembershipContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyMembershipTitle: {
+    marginTop: spacing.md,
+    color: '#222',
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptyMembershipText: {
+    marginTop: spacing.sm,
+    color: '#667085',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   content: {
     flex: 1,

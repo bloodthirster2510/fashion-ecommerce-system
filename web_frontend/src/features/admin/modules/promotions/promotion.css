@@ -666,6 +666,104 @@
   background: #fff;
 }
 
+.admin-promotion-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  color: var(--admin-muted);
+  text-align: center;
+}
+
+.admin-promotion-empty-state strong {
+  color: var(--admin-text);
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.admin-promotion-empty-state span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.admin-pagination-page {
+  width: 36px;
+  min-width: 36px;
+  padding-inline: 0;
+}
+
+.admin-account-dialog.admin-coupon-detail-dialog {
+  width: min(calc(100vw - 32px), 980px);
+  max-height: min(90svh, 760px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  background: #fff;
+}
+
+.admin-coupon-detail-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+
+.admin-coupon-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 20px;
+}
+
+.admin-coupon-detail-grid div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.admin-coupon-detail-grid dt {
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-coupon-detail-grid dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.admin-coupon-usage-section {
+  border-top: 1px solid var(--admin-line);
+  padding-top: 16px;
+}
+
+.admin-table-scroll {
+  overflow-x: auto;
+}
+
+.admin-coupon-usage-table {
+  min-width: 760px;
+}
+
+.admin-coupon-detail-actions {
+  padding: 14px 20px;
+  border-top: 1px solid var(--admin-line);
+}
+
+.admin-coupon-detail-actions > span {
+  margin-right: auto;
+  color: var(--admin-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 @media (max-width: 980px) {
   .admin-coupon-dialog-body,
   .admin-coupon-type-grid,
@@ -680,6 +778,16 @@
   }
 
   .admin-field-with-action {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-coupon-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-coupon-detail-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -6,6 +6,7 @@ export * from './audit-log.model';
 export * from './distributed-lock.model';
 export * from './favorites.model';
 export * from './inventory.model';
+export * from './loyalty-point-history.model';
 export * from './membership-ranking.model';
 export * from './order.model';
 export * from './otp-verification.model';

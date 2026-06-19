@@ -27,6 +27,7 @@ const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
 type NavItem = AdminRoute & {
   icon: () => ReactNode
+  isImplemented: boolean
 }
 
 const navIcons: Record<NavId, () => ReactNode> = {
@@ -51,12 +52,11 @@ const implementedAdminRouteIds = new Set<NavId>(IMPLEMENTED_ADMIN_ROUTE_IDS)
 
 const isImplementedRoute = (routeId: NavId) => implementedAdminRouteIds.has(routeId)
 
-const navItems: NavItem[] = adminRoutes
-  .filter((route) => isImplementedRoute(route.id))
-  .map((route) => ({
-    ...route,
-    icon: navIcons[route.id],
-  }))
+const navItems: NavItem[] = adminRoutes.map((route) => ({
+  ...route,
+  icon: navIcons[route.id],
+  isImplemented: isImplementedRoute(route.id),
+}))
 
 const routePermissions: Partial<Record<NavId, string>> = {
   accounts: 'admin',
@@ -88,6 +88,9 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
   return user.permissions?.includes(requiredPermission) ?? false
 }
 
+const canEnterRoute = (user: AdminUser, route: NavItem) =>
+  route.isImplemented && canAccessRoute(user, route)
+
 const getActiveSectionFromPath = () => {
   const route = getAdminRouteByPath(window.location.pathname)
 
@@ -103,14 +106,15 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
   const displayName = currentUser.name || currentUser.email
   const avatarText = displayName.trim().charAt(0).toUpperCase() || 'A'
   const visibleNavItems = navItems.filter((item) => canAccessRoute(currentUser, item))
+  const enterableNavItems = visibleNavItems.filter((item) => canEnterRoute(currentUser, item))
   const visibleNavGroups = adminRouteGroups
     .map((group) => ({
       ...group,
       items: visibleNavItems.filter((item) => item.group === group.id),
     }))
     .filter((group) => group.items.length > 0)
-  const fallbackRoute = visibleNavItems[0]
-  const activeRoute = visibleNavItems.find((item) => item.id === activeSection) ?? fallbackRoute
+  const fallbackRoute = enterableNavItems[0]
+  const activeRoute = enterableNavItems.find((item) => item.id === activeSection) ?? fallbackRoute
   const fallbackRouteId = fallbackRoute?.id
   const fallbackRoutePath = fallbackRoute?.path
   const renderedSection = activeRoute?.id
@@ -122,7 +126,7 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       if (
         currentRoute &&
         isImplementedRoute(currentRoute.id) &&
-        canAccessRoute(currentUser, { ...currentRoute, icon: navIcons[currentRoute.id] })
+        canAccessRoute(currentUser, { ...currentRoute, icon: navIcons[currentRoute.id], isImplemented: true })
       ) {
         setActiveSection(currentRoute.id)
         return
@@ -209,6 +213,29 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       return <InventoryManagementPage currentUser={currentUser} />
     }
 
+    const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
+    const pendingRoute = visibleNavItems.find((item) => item.id === renderedSection)
+
+    if (pendingRoute && !pendingRoute.isImplemented) {
+      return (
+        <section className="admin-placeholder-page">
+          <p>{pendingRoute.helper}</p>
+          <h1>{pendingRoute.label}</h1>
+          <span className="admin-placeholder-note">Khu vực này đang được hoàn thiện. Vui lòng quay lại sau.</span>
+        </section>
+      )
+    }
+
+    if (!enterableRoute && pendingRoute) {
+      return (
+        <section className="admin-placeholder-page">
+          <p>{pendingRoute.helper}</p>
+          <h1>{pendingRoute.label}</h1>
+          <span className="admin-placeholder-note">Bạn không có quyền truy cập khu vực này.</span>
+        </section>
+      )
+    }
+
     return null
   }
 
@@ -228,18 +255,23 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
                 const Icon = item.icon
                 const isActive = item.id === renderedSection
                 const isOrderPaymentRoute = item.id === 'ordersOnline' || item.id === 'ordersCod'
+                const isDisabled = !item.isImplemented
 
                 return (
                   <button
                     aria-current={isActive ? 'page' : undefined}
-                    className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}`}
+                    aria-disabled={isDisabled || undefined}
+                    className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
                     type="button"
                     key={item.id}
-                    onClick={() => handleNavigate(item)}
+                    onClick={() => (isDisabled ? undefined : handleNavigate(item))}
                   >
                     <Icon />
                     <span>
-                      <strong>{item.label}</strong>
+                      <strong>
+                        {item.label}
+                        {isDisabled ? <em className="admin-nav-badge">Sắp ra mắt</em> : null}
+                      </strong>
                       <small>{item.helper}</small>
                     </span>
                   </button>

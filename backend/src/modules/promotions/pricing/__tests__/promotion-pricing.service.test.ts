@@ -175,6 +175,41 @@ beforeEach(() => {
 });
 
 describe('promotionPricingService coupon membership eligibility', () => {
+  it('treats the base tier as a member even when its discount is zero', async () => {
+    mockUser(100);
+    mockedCoupon.findOne.mockResolvedValue({
+      ...baseCoupon,
+      eligibleUserTypes: ['member'],
+      eligibleMembershipRanks: [],
+    } as never);
+
+    const result = await promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCode: 'GOLDONLY',
+      paymentMethod: 'COD',
+    });
+
+    expect(result.summary.couponDiscountAmount).toBe(10000);
+  });
+
+  it('counts an atomic usage reservation toward the per-user limit', async () => {
+    mockUser(6000);
+    mockedCoupon.findOne.mockResolvedValue({
+      ...baseCoupon,
+      userUsageCounts: { [userId]: 1 },
+    } as never);
+
+    await expect(
+      promotionPricingService.calculateCheckout({
+        userId,
+        cartItemIds: [cartItemId.toString()],
+        couponCode: 'GOLDONLY',
+        paymentMethod: 'COD',
+      }),
+    ).rejects.toMatchObject({ message: 'Coupon per-user limit reached', statusCode: 409 });
+  });
+
   it('rejects rank-scoped coupons even when eligible user type is all', async () => {
     mockUser(100);
 
@@ -200,5 +235,41 @@ describe('promotionPricingService coupon membership eligibility', () => {
 
     expect(result.summary.couponDiscountAmount).toBe(10000);
     expect(result.appliedCoupon?.code).toBe('GOLDONLY');
+  });
+
+  it('applies product coupon before calculating the membership discount', async () => {
+    mockUser(6000);
+
+    const result = await promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCode: 'GOLDONLY',
+      paymentMethod: 'COD',
+    });
+
+    expect(result.summary.couponDiscountAmount).toBe(10000);
+    expect(result.summary.membershipDiscountAmount).toBe(6300);
+    expect(result.summary.totalAmount).toBe(113700);
+  });
+
+  it('keeps the membership base on product subtotal for a free-shipping coupon', async () => {
+    mockUser(6000);
+    mockedCoupon.findOne.mockResolvedValue({
+      ...baseCoupon,
+      discountType: 'free_shipping',
+      discountValue: 0,
+    } as never);
+
+    const result = await promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCode: 'GOLDONLY',
+      paymentMethod: 'COD',
+    });
+
+    expect(result.summary.couponDiscountAmount).toBe(0);
+    expect(result.summary.shippingDiscountAmount).toBe(30000);
+    expect(result.summary.membershipDiscountAmount).toBe(7000);
+    expect(result.summary.totalAmount).toBe(93000);
   });
 });

@@ -667,7 +667,7 @@ const RegisterScreen = () => {
               </ScrollView>
             ) : (
               <View style={styles.dropdownEmptyItem}>
-                <Text style={styles.dropdownEmptyText}>KhÃ´ng cÃ³ dá»¯ liá»‡u</Text>
+                <Text style={styles.dropdownEmptyText}>Không có dữ liệu</Text>
               </View>
             )}
           </View>

@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { AdminUser } from '../auth/adminSession'
 import { listMembershipRankings } from '../loyalty/loyalty.service'
 import type { MembershipRanking } from '../loyalty/loyalty.types'
 import {
   createCoupon,
   deleteCoupon,
+  getCoupon,
   listCouponCategories,
   listCouponProducts,
+  listCouponUsage,
   listCoupons,
   updateCoupon,
   updateCouponStatus,
@@ -17,6 +19,8 @@ import type {
   CouponDiscountType,
   CouponEligibleUserType,
   CouponPayload,
+  CouponUsageItem,
+  CouponUsageListResponse,
   ProductOption,
 } from './promotion.types'
 import { OptionPicker, type PickerOption } from './components/OptionPicker'
@@ -33,6 +37,7 @@ type Notice = {
 
 type CouponStatusFilter = 'all' | 'active' | 'inactive' | 'expired' | 'upcoming'
 type CouponDisplayStatus = Exclude<CouponStatusFilter, 'all'>
+type CouponSort = 'created_desc' | 'created_asc' | 'end_asc' | 'usage_desc' | 'code_asc'
 
 type CouponFormState = {
   code: string
@@ -57,7 +62,8 @@ type CouponFormState = {
 type DialogState =
   | { type: 'create' }
   | { type: 'edit'; coupon: AdminCoupon }
-  | { type: 'delete'; coupon: AdminCoupon }
+  | { type: 'detail'; coupon: AdminCoupon; usage: CouponUsageListResponse }
+  | { type: 'delete'; coupon: AdminCoupon; usageCount: number }
   | null
 
 type CouponSelectionField = 'eligibleMembershipRanks' | 'applicableProducts' | 'applicableCategories'
@@ -180,6 +186,22 @@ const normalizeId = (value: unknown) => {
 const normalizeIds = (values: unknown[] | undefined) =>
   (values ?? []).map(normalizeId).filter(Boolean)
 
+const getCouponUsageUser = (usage: CouponUsageItem) => {
+  if (typeof usage.userId === 'string') {
+    return usage.userId
+  }
+
+  return usage.userId.name || usage.userId.email || usage.userId.phone || usage.userId._id
+}
+
+const getCouponUsageOrder = (usage: CouponUsageItem) => {
+  if (typeof usage.orderId === 'string') {
+    return usage.orderId
+  }
+
+  return usage.orderId.orderCode || usage.orderId._id
+}
+
 const normalizeSearchText = (value: string) =>
   value
     .normalize('NFD')
@@ -299,6 +321,10 @@ const toCouponPayload = (form: CouponFormState): CouponPayload => {
     assertMoneyValue(maxDiscountAmount, 'Mức giảm tối đa')
   }
 
+  if (perUserLimit === null) {
+    throw new Error('Giới hạn mỗi khách là bắt buộc')
+  }
+
   return {
     code,
     name,
@@ -308,7 +334,7 @@ const toCouponPayload = (form: CouponFormState): CouponPayload => {
     maxDiscountAmount,
     minOrderAmount,
     usageLimit,
-    perUserLimit: perUserLimit ?? 1,
+    perUserLimit,
     isPublic: form.isPublic,
     eligibleUserTypes: form.eligibleUserTypes.length ? form.eligibleUserTypes : ['all'],
     eligibleMembershipRanks: form.eligibleMembershipRanks,
@@ -328,6 +354,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<CouponStatusFilter>('all')
+  const [sort, setSort] = useState<CouponSort>('created_desc')
   const [page, setPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -335,9 +362,11 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const [actionLoading, setActionLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [referenceWarning, setReferenceWarning] = useState('')
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [couponForm, setCouponForm] = useState<CouponFormState>(() => createEmptyCouponForm())
+  const productSearchRequestId = useRef(0)
 
   const hasPermission = useCallback(
     (permission: string) => currentUser.role === 'admin' || currentUser.permissions?.includes(permission) === true,
@@ -411,6 +440,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       const result = await listCoupons({
         keyword,
         status: statusFilter,
+        sort,
         page,
         limit: pageSize,
       })
@@ -423,7 +453,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [keyword, page, statusFilter])
+  }, [keyword, page, sort, statusFilter])
 
   const loadReferences = useCallback(async () => {
     const warnings: string[] = []
@@ -454,6 +484,37 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     setReferenceWarning(warnings.join('. '))
   }, [canReadCatalog, canReadProducts])
 
+  const searchProducts = useCallback(async (query: string) => {
+    if (!canReadProducts) {
+      return
+    }
+
+    const requestId = productSearchRequestId.current + 1
+    productSearchRequestId.current = requestId
+    setIsSearchingProducts(true)
+
+    try {
+      const matches = await listCouponProducts(query)
+      if (requestId !== productSearchRequestId.current) {
+        return
+      }
+
+      setProducts((currentProducts) => {
+        const productById = new Map(currentProducts.map((product) => [product._id, product]))
+        matches.forEach((product) => productById.set(product._id, product))
+        return Array.from(productById.values())
+      })
+    } catch (error) {
+      if (requestId === productSearchRequestId.current) {
+        setReferenceWarning(getErrorMessage(error))
+      }
+    } finally {
+      if (requestId === productSearchRequestId.current) {
+        setIsSearchingProducts(false)
+      }
+    }
+  }, [canReadProducts])
+
   useEffect(() => {
     const handle = window.setTimeout(() => {
       setPage(1)
@@ -471,9 +532,23 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     void loadReferences()
   }, [loadReferences])
 
+  useEffect(() => {
+    if (!notice) {
+      return
+    }
+
+    const handle = window.setTimeout(() => setNotice(null), 5000)
+    return () => window.clearTimeout(handle)
+  }, [notice])
+
   const activeCount = coupons.filter((coupon) => getCouponStatus(coupon) === 'active').length
   const publicCount = coupons.filter((coupon) => coupon.isPublic).length
   const usedCount = coupons.reduce((sum, coupon) => sum + (coupon.usedCount ?? 0), 0)
+  const visiblePages = useMemo(() => {
+    const firstPage = Math.max(1, Math.min(page - 2, totalPages - 4))
+    const lastPage = Math.min(totalPages, firstPage + 4)
+    return Array.from({ length: Math.max(0, lastPage - firstPage + 1) }, (_, index) => firstPage + index)
+  }, [page, totalPages])
 
   const replaceCoupon = (updatedCoupon: AdminCoupon) => {
     setCoupons((currentCoupons) =>
@@ -493,9 +568,62 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     setDialog({ type: 'edit', coupon })
   }
 
-  const openDeleteDialog = (coupon: AdminCoupon) => {
+  const openDuplicateDialog = (coupon: AdminCoupon) => {
+    setCouponForm({
+      ...toCouponForm(coupon),
+      code: `${coupon.code.slice(0, 35)}_COPY`,
+      name: `${coupon.name} (bản sao)`,
+      isActive: false,
+    })
     setNotice(null)
-    setDialog({ type: 'delete', coupon })
+    setDialog({ type: 'create' })
+  }
+
+  const openDetailDialog = async (coupon: AdminCoupon) => {
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const [detail, usage] = await Promise.all([
+        getCoupon(coupon._id),
+        listCouponUsage(coupon._id),
+      ])
+      setDialog({ type: 'detail', coupon: detail.coupon, usage })
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const loadCouponUsagePage = async (pageNumber: number) => {
+    if (!dialog || dialog.type !== 'detail') {
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const usage = await listCouponUsage(dialog.coupon._id, pageNumber)
+      setDialog({ ...dialog, usage })
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const openDeleteDialog = async (coupon: AdminCoupon) => {
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const detail = await getCoupon(coupon._id)
+      setDialog({ type: 'delete', coupon: detail.coupon, usageCount: detail.usageCount })
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const closeDialog = () => {
@@ -516,7 +644,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
               ? '10'
               : '50000'
             : form.discountValue,
-      maxDiscountAmount: discountType === 'percent' ? form.maxDiscountAmount : '',
+      maxDiscountAmount: form.maxDiscountAmount,
     }))
   }
 
@@ -573,7 +701,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const handleSubmitCoupon = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!dialog || dialog.type === 'delete') {
+    if (!dialog || (dialog.type !== 'create' && dialog.type !== 'edit')) {
       return
     }
 
@@ -713,7 +841,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     couponForm.discountType === 'free_shipping'
       ? 'Miễn phí vận chuyển'
       : couponForm.discountType === 'percent'
-        ? `${couponForm.discountValue || 0}%`
+        ? `${couponForm.discountValue || 0}%${couponForm.maxDiscountAmount ? ` · tối đa ${formatCurrency(Number(couponForm.maxDiscountAmount))}` : ''}`
         : formatCurrency(Number(couponForm.discountValue || 0))
 
   return (
@@ -777,6 +905,23 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           </select>
         </label>
 
+        <label>
+          <span>Sắp xếp</span>
+          <select
+            value={sort}
+            onChange={(event) => {
+              setSort(event.target.value as CouponSort)
+              setPage(1)
+            }}
+          >
+            <option value="created_desc">Mới tạo trước</option>
+            <option value="created_asc">Cũ nhất trước</option>
+            <option value="end_asc">Sắp hết hạn</option>
+            <option value="usage_desc">Dùng nhiều nhất</option>
+            <option value="code_asc">Mã A-Z</option>
+          </select>
+        </label>
+
         <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
           Làm mới
         </button>
@@ -828,7 +973,18 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
               {!isLoading && coupons.length === 0 ? (
                 <tr>
                   <td colSpan={7}>
-                    <div className="admin-table-loading">Không có voucher phù hợp.</div>
+                    <div className="admin-promotion-empty-state">
+                      <strong>Không có voucher phù hợp</strong>
+                      <span>Thử đổi bộ lọc hoặc tạo voucher mới.</span>
+                      <button
+                        className="admin-secondary-button"
+                        type="button"
+                        disabled={!canManagePromotions}
+                        onClick={openCreateDialog}
+                      >
+                        Tạo voucher
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : null}
@@ -837,6 +993,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                 ? coupons.map((coupon) => {
                     const status = getCouponStatus(coupon)
                     const statusMeta = displayStatusMeta[status]
+                    const canToggleCouponStatus = status === 'active' || status === 'inactive'
                     const remainingUsage =
                       coupon.usageLimit == null
                         ? 'Không giới hạn'
@@ -859,7 +1016,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                           <span>{getScopeText(coupon)}</span>
                         </td>
                         <td>
-                          {formatDateTime(coupon.endAt)}
+                          {formatDateTime(coupon.startAt)}
+                          <span>Đến {formatDateTime(coupon.endAt)}</span>
                           <span>Còn lượt: {remainingUsage}</span>
                         </td>
                         <td>
@@ -877,15 +1035,36 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                             <button
                               className="admin-link-button"
                               type="button"
+                              disabled={actionLoading}
+                              onClick={() => void openDetailDialog(coupon)}
+                            >
+                              Xem
+                            </button>
+                            <button
+                              className="admin-link-button"
+                              type="button"
                               disabled={!canManagePromotions || actionLoading}
                               onClick={() => openEditDialog(coupon)}
                             >
                               Sửa
                             </button>
                             <button
-                              className={coupon.isActive ? 'admin-danger-link' : 'admin-link-button'}
+                              className="admin-link-button"
                               type="button"
                               disabled={!canManagePromotions || actionLoading}
+                              onClick={() => openDuplicateDialog(coupon)}
+                            >
+                              Nhân bản
+                            </button>
+                            <button
+                              className={coupon.isActive ? 'admin-danger-link' : 'admin-link-button'}
+                              type="button"
+                              disabled={!canManagePromotions || actionLoading || !canToggleCouponStatus}
+                              title={
+                                canToggleCouponStatus
+                                  ? undefined
+                                  : 'Không thể đổi trạng thái voucher chưa bắt đầu hoặc đã hết hạn'
+                              }
                               onClick={() => void handleStatusChange(coupon, !coupon.isActive)}
                             >
                               {coupon.isActive ? 'Tắt' : 'Bật'}
@@ -894,7 +1073,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                               className="admin-danger-link"
                               type="button"
                               disabled={!canManagePromotions || actionLoading}
-                              onClick={() => openDeleteDialog(coupon)}
+                              onClick={() => void openDeleteDialog(coupon)}
                             >
                               Xóa
                             </button>
@@ -922,6 +1101,18 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           >
             Trước
           </button>
+          {visiblePages.map((pageNumber) => (
+            <button
+              key={pageNumber}
+              className={`${pageNumber === page ? 'admin-primary-button' : 'admin-secondary-button'} admin-pagination-page`}
+              type="button"
+              disabled={isLoading}
+              aria-current={pageNumber === page ? 'page' : undefined}
+              onClick={() => setPage(pageNumber)}
+            >
+              {pageNumber}
+            </button>
+          ))}
           <button
             className="admin-secondary-button"
             type="button"
@@ -932,6 +1123,99 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           </button>
         </div>
       </footer>
+
+      {dialog?.type === 'detail' ? (
+        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-detail-title">
+          <div className="admin-account-dialog admin-coupon-detail-dialog">
+            <header className="admin-coupon-dialog-header">
+              <div>
+                <p>Chi tiết voucher</p>
+                <h2 id="admin-coupon-detail-title">{dialog.coupon.code}</h2>
+                <span>{dialog.coupon.name}</span>
+              </div>
+              <span className={`admin-status-pill ${displayStatusMeta[getCouponStatus(dialog.coupon)].className}`}>
+                {displayStatusMeta[getCouponStatus(dialog.coupon)].label}
+              </span>
+            </header>
+
+            <div className="admin-coupon-detail-body">
+              <dl className="admin-coupon-detail-grid">
+                <div><dt>Giá trị</dt><dd>{getDiscountText(dialog.coupon)}</dd></div>
+                <div><dt>Đơn tối thiểu</dt><dd>{formatCurrency(dialog.coupon.minOrderAmount)}</dd></div>
+                <div><dt>Đối tượng</dt><dd>{getAudienceText(dialog.coupon)}</dd></div>
+                <div><dt>Phạm vi</dt><dd>{getScopeText(dialog.coupon)}</dd></div>
+                <div><dt>Bắt đầu</dt><dd>{formatDateTime(dialog.coupon.startAt)}</dd></div>
+                <div><dt>Kết thúc</dt><dd>{formatDateTime(dialog.coupon.endAt)}</dd></div>
+                <div><dt>Giới hạn mỗi khách</dt><dd>{dialog.coupon.perUserLimit}</dd></div>
+                <div><dt>Tổng lượt dùng</dt><dd>{dialog.usage.pagination.totalItems}</dd></div>
+              </dl>
+
+              <section className="admin-coupon-usage-section">
+                <div className="admin-section-heading">
+                  <div>
+                    <p>Đối soát</p>
+                    <h2>Lịch sử sử dụng</h2>
+                  </div>
+                  {actionLoading ? <span>Đang tải...</span> : null}
+                </div>
+                <div className="admin-table-scroll">
+                  <table className="admin-table admin-coupon-usage-table">
+                    <thead>
+                      <tr>
+                        <th>Khách hàng</th>
+                        <th>Đơn hàng</th>
+                        <th>Giảm sản phẩm</th>
+                        <th>Giảm vận chuyển</th>
+                        <th>Thời gian</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dialog.usage.items.length ? dialog.usage.items.map((usage) => (
+                        <tr key={usage._id}>
+                          <td>{getCouponUsageUser(usage)}</td>
+                          <td>{getCouponUsageOrder(usage)}</td>
+                          <td>{formatCurrency(usage.discountAmount)}</td>
+                          <td>{formatCurrency(usage.shippingDiscountAmount)}</td>
+                          <td>{formatDateTime(usage.usedAt)}</td>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={5}><div className="admin-table-loading">Voucher chưa được sử dụng.</div></td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+
+            <footer className="admin-dialog-actions admin-coupon-detail-actions">
+              <span>
+                Trang {dialog.usage.pagination.page} / {Math.max(1, dialog.usage.pagination.totalPages)}
+              </span>
+              <button
+                className="admin-secondary-button"
+                type="button"
+                disabled={dialog.usage.pagination.page <= 1 || actionLoading}
+                onClick={() => void loadCouponUsagePage(dialog.usage.pagination.page - 1)}
+              >
+                Trước
+              </button>
+              <button
+                className="admin-secondary-button"
+                type="button"
+                disabled={dialog.usage.pagination.page >= dialog.usage.pagination.totalPages || actionLoading}
+                onClick={() => void loadCouponUsagePage(dialog.usage.pagination.page + 1)}
+              >
+                Sau
+              </button>
+              <button className="admin-primary-button" type="button" disabled={actionLoading} onClick={closeDialog}>
+                Đóng
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
 
       {dialog?.type === 'create' || dialog?.type === 'edit' ? (
         <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-dialog-title">
@@ -1236,6 +1520,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                       options={productOptions}
                       selectedValues={couponForm.applicableProducts}
                       onChange={(values) => updateSelectionField('applicableProducts', values)}
+                      onSearch={searchProducts}
+                      isSearching={isSearchingProducts}
                     />
                   </div>
                 </section>
@@ -1290,8 +1576,9 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           <div className="admin-confirm-box">
             <h2 id="admin-coupon-delete-title">Xóa voucher?</h2>
             <p>
-              Voucher {dialog.coupon.code} sẽ bị xóa nếu chưa có lịch sử sử dụng. Nếu đã phát sinh đơn hàng,
-              hãy tắt voucher để giữ dữ liệu đối soát.
+              {dialog.usageCount > 0 || dialog.coupon.usedCount > 0
+                ? `Voucher ${dialog.coupon.code} đã ghi nhận ${Math.max(dialog.usageCount, dialog.coupon.usedCount)} lượt dùng hoặc giữ chỗ nên không thể xóa. Hãy tắt voucher để giữ dữ liệu đối soát.`
+                : `Voucher ${dialog.coupon.code} chưa có lịch sử sử dụng và có thể được xóa.`}
             </p>
             <div className="admin-dialog-actions">
               <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={closeDialog}>
@@ -1300,10 +1587,10 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
               <button
                 className="admin-danger-button"
                 type="button"
-                disabled={actionLoading}
+                disabled={actionLoading || dialog.usageCount > 0 || dialog.coupon.usedCount > 0}
                 onClick={() => void handleDeleteCoupon()}
               >
-                {actionLoading ? 'Đang xử lý...' : 'Xóa voucher'}
+                {actionLoading ? 'Đang xử lý...' : dialog.usageCount > 0 || dialog.coupon.usedCount > 0 ? 'Không thể xóa' : 'Xóa voucher'}
               </button>
             </div>
           </div>

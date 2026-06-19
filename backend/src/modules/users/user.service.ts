@@ -94,7 +94,7 @@ const assertNotLastActiveAdmin = async (user: IUser, nextRole: UserRole) => {
   });
 
   if (otherActiveAdminCount < 1) {
-    throw { status: 409, message: 'KhÃ´ng thá»ƒ háº¡ quyá»n admin cuá»‘i cÃ¹ng Ä‘ang hoáº¡t Ä‘á»™ng' };
+    throw { status: 409, message: 'Không thể hạ quyền admin cuối cùng đang hoạt động' };
   }
 };
 
@@ -426,7 +426,7 @@ export const updateUserRole = async (id: string, role: string, actorUserId?: str
 
   const currentUser = await User.findById(id);
   if (!currentUser) {
-    throw { status: 404, message: 'NgÆ°á»i dÃ¹ng khÃ´ng tá»“n táº¡i' };
+    throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
   await assertNotLastActiveAdmin(currentUser, role as UserRole);

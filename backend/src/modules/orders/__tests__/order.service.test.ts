@@ -1,5 +1,5 @@
 import mongoose, { Types } from 'mongoose';
-import { Inventory, Order, Product, User } from '../../../database/models';
+import { Inventory, LoyaltyPointHistory, Order, Product, User } from '../../../database/models';
 import { inventoryService } from '../../inventory/inventory.service';
 import { cartService } from '../../cart/cart.service';
 import { promotionPricingService } from '../../promotions/pricing/promotion-pricing.service';
@@ -27,6 +27,10 @@ jest.mock('../../../database/models', () => ({
   },
   User: {
     findById: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+  },
+  LoyaltyPointHistory: {
+    create: jest.fn(),
   },
 }));
 
@@ -79,6 +83,7 @@ const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedUser = User as jest.Mocked<typeof User>;
+const mockedLoyaltyPointHistory = LoyaltyPointHistory as jest.Mocked<typeof LoyaltyPointHistory>;
 const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryService>;
 const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
@@ -621,9 +626,11 @@ describe('orderService', () => {
 
   it('restocks inventory and keeps paid orders paid when cancelled', async () => {
     const orderId = new Types.ObjectId('665000000000000000000050');
+    const couponId = new Types.ObjectId('665000000000000000000090');
     const order = {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
+      couponId,
       status: 'confirmed',
       paymentMethod: 'COD',
       paymentStatus: 'paid',
@@ -695,6 +702,12 @@ describe('orderService', () => {
     expect(order.status).toBe('cancelled');
     expect(order.paymentStatus).toBe('paid');
     expect(order.save).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString(), {});
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId,
+      {},
+    );
     expect(result).toBe(order);
   });
 
@@ -878,6 +891,47 @@ describe('orderService', () => {
     expect(result).toBe(order);
   });
 
+  it('awards loyalty points once when a customer confirms delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000066');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+      loyaltyPointsAwarded: 0,
+      shipping: { status: 'delivering' },
+      order_list: [],
+      save: jest.fn(),
+    };
+    const awardedOrder = { ...order, status: 'delivered', loyaltyPointsAwarded: 385 };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(awardedOrder as never);
+    mockedUser.findOneAndUpdate.mockResolvedValue({ loyaltyPoint: 585 } as never);
+    mockedLoyaltyPointHistory.create.mockResolvedValue([] as never);
+
+    const result = await orderService.confirmOrderReceived(userId, orderId.toString());
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: orderId, status: 'delivered' }),
+      { $set: { loyaltyPointsAwarded: 385 } },
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedUser.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: new Types.ObjectId(userId) },
+      { $inc: { loyaltyPoint: 385 } },
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedLoyaltyPointHistory.create).toHaveBeenCalledWith(
+      [expect.objectContaining({ orderId, type: 'earn', delta: 385, balanceAfter: 585 })],
+      { session: mockSession },
+    );
+    expect(result).toBe(awardedOrder);
+  });
+
   it('does not let the customer confirm receipt after delivery failed', async () => {
     const orderId = new Types.ObjectId('665000000000000000000064');
     const order = {
@@ -1001,6 +1055,62 @@ describe('orderService', () => {
     });
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('claws back awarded loyalty points when a return is approved', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000067');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      loyaltyPointsAwarded: 385,
+      returnRequest: {
+        reason: 'Size is not suitable',
+        status: 'requested',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    const adjustedOrder = { ...order, loyaltyPointsClawedBack: 385 };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+    mockedOrder.findOneAndUpdate.mockResolvedValue(adjustedOrder as never);
+    mockedUser.findOneAndUpdate.mockResolvedValue({ loyaltyPoint: 0 } as never);
+    mockedLoyaltyPointHistory.create.mockResolvedValue([] as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'approved',
+      reason: 'Eligible return',
+    });
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: orderId,
+        loyaltyPointsAwarded: 385,
+        $or: [
+          { loyaltyPointsClawedBack: { $exists: false } },
+          { loyaltyPointsClawedBack: { $lt: 385 } },
+        ],
+      }),
+      { $inc: { loyaltyPointsClawedBack: 385 } },
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedUser.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: new Types.ObjectId(userId) },
+      [{ $set: { loyaltyPoint: { $max: [0, { $subtract: ['$loyaltyPoint', 385] }] } } }],
+      expect.objectContaining({ session: mockSession }),
+    );
+    expect(mockedLoyaltyPointHistory.create).toHaveBeenCalledWith(
+      [expect.objectContaining({ orderId, type: 'adjust', delta: -385, balanceAfter: 0 })],
+      { session: mockSession },
+    );
+    expect(result).toBe(adjustedOrder);
   });
 
   it('rejects a pending return request and restores the delivered status', async () => {
@@ -1393,9 +1503,11 @@ describe('orderService', () => {
 
   it('cancels and restocks an order when the shipping webhook is cancelled', async () => {
     const orderId = new Types.ObjectId('665000000000000000000071');
+    const couponId = new Types.ObjectId('665000000000000000000092');
     const order = {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
+      couponId,
       orderCode: 'FS-GHN-CANCEL',
       status: 'shipping',
       deliveredAt: null,
@@ -1465,6 +1577,12 @@ describe('orderService', () => {
       { _id: productId, sold_quantity: { $gte: 2 } },
       { $inc: { sold_quantity: -2 } },
     );
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString(), {});
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId,
+      {},
+    );
     expect(result.order).toBe(order);
   });
 
@@ -1513,6 +1631,8 @@ describe('orderService', () => {
     expect(mockedInventory.updateOne).not.toHaveBeenCalled();
     expect(mockedInventoryService.restoreImportRemainingQuantities).not.toHaveBeenCalled();
     expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackRecordedCouponUsage).not.toHaveBeenCalled();
+    expect(mockedCouponService.rollbackCouponUsageReservation).not.toHaveBeenCalled();
   });
 
   it('rejects processing online orders before payment is paid', async () => {

@@ -21,6 +21,7 @@ export type AdminRoute = {
   label: string
   helper: string
   group: AdminRouteGroupId
+  isImplemented?: boolean
 }
 
 export type AdminRouteGroupId =
@@ -65,7 +66,9 @@ export const adminRouteGroups: AdminRouteGroup[] = [
   { id: 'system', label: 'Hệ thống' },
 ]
 
-export const adminRoutes: AdminRoute[] = [
+const implementedAdminRouteIdSet = new Set<AdminRouteId>(IMPLEMENTED_ADMIN_ROUTE_IDS)
+
+const adminRouteRecords: AdminRoute[] = [
   {
     id: 'overview',
     path: '/admin/dashboard',
@@ -172,6 +175,11 @@ export const adminRoutes: AdminRoute[] = [
     group: 'system',
   },
 ]
+
+export const adminRoutes: AdminRoute[] = adminRouteRecords.map((route) => ({
+  ...route,
+  isImplemented: implementedAdminRouteIdSet.has(route.id),
+}))
 
 const normalizePathname = (pathname: string) => {
   if (pathname.length > 1 && pathname.endsWith('/')) {

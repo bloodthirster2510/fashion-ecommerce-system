@@ -5,6 +5,7 @@ import { PromotionPricingError } from '../pricing/promotion-pricing.service';
 import type {
   AvailableCouponsInput,
   CouponListQueryInput,
+  CouponUsageListQueryInput,
   CreateCouponInput,
   UpdateCouponInput,
   ValidateCouponInput,
@@ -63,14 +64,21 @@ const parsePositiveInteger = (value: unknown, fieldName: string) => {
 
 const parseCouponListQuery = (req: Request): CouponListQueryInput => {
   const status = parseString(req.query.status);
+  const sort = parseString(req.query.sort);
   const allowedStatuses = ['active', 'inactive', 'expired', 'upcoming'];
+  const allowedSorts = ['created_desc', 'created_asc', 'end_asc', 'usage_desc', 'code_asc'];
 
   if (status && !allowedStatuses.includes(status)) {
     throw new CouponServiceError('Invalid status', 400);
   }
 
+  if (sort && !allowedSorts.includes(sort)) {
+    throw new CouponServiceError('Invalid sort', 400);
+  }
+
   return {
     status: status as CouponListQueryInput['status'],
+    sort: sort as CouponListQueryInput['sort'],
     keyword: parseString(req.query.keyword),
     page: parsePositiveInteger(req.query.page, 'page'),
     limit: parsePositiveInteger(req.query.limit, 'limit'),
@@ -119,6 +127,20 @@ const listCoupons = async (req: Request, res: Response) => {
 const getCouponById = async (req: Request, res: Response) => {
   try {
     const result = await couponService.getCouponById(req.params.id as string);
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const listCouponUsage = async (req: Request, res: Response) => {
+  try {
+    const query: CouponUsageListQueryInput = {
+      page: parsePositiveInteger(req.query.page, 'page'),
+      limit: parsePositiveInteger(req.query.limit, 'limit'),
+    };
+    const result = await couponService.listCouponUsage(req.params.id as string, query);
     return ok(res, result);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
@@ -182,6 +204,7 @@ export {
   createCoupon,
   deleteCoupon,
   getCouponById,
+  listCouponUsage,
   listAvailableCoupons,
   listCoupons,
   updateCoupon,

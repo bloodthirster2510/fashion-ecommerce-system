@@ -106,17 +106,17 @@ export const login = async (req: Request, res: Response) => {
 export const adminLogin = async (req: Request, res: Response) => {
   const errors = validateLogin(req.body);
   if (errors.length > 0) {
-    return res.status(400).json({ message: 'Dá»¯ liá»‡u khÃ´ng há»£p lá»‡', errors });
+    return res.status(400).json({ message: 'Dữ liệu không hợp lệ', errors });
   }
 
   try {
     const result = await authService.loginAdminUser(req.body.identifier, req.body.password);
-    return ok(res, applyRefreshTokenCookieMode(req, res, result), 'ÄÄƒng nháº­p quáº£n trá»‹ thÃ nh cÃ´ng');
+    return ok(res, applyRefreshTokenCookieMode(req, res, result), 'Đăng nhập quản trị thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
     }
-    return res.status(500).json({ message: 'Lá»—i server' });
+    return res.status(500).json({ message: 'Lỗi server' });
   }
 };
 

@@ -1,5 +1,7 @@
 import { Types } from 'mongoose';
 import { MembershipRanking } from '../../../database/models/membership-ranking.model';
+import { Coupon } from '../../../database/models/coupon.model';
+import { User } from '../../../database/models/user.model';
 import {
   getMembershipVisualPreset,
   hexColorRegex,
@@ -137,7 +139,9 @@ const assertIntegerInRange = (value: number, field: string, min: number, max: nu
   }
 };
 
-const normalizePayload = (payload: MembershipRankingPayload, mode: 'create' | 'update') => {
+function normalizePayload(payload: MembershipRankingPayload, mode: 'create'): NormalizedMembershipRanking;
+function normalizePayload(payload: MembershipRankingPayload, mode: 'update'): PartialMembershipRanking;
+function normalizePayload(payload: MembershipRankingPayload, mode: 'create' | 'update') {
   const required = mode === 'create';
   const normalized: PartialMembershipRanking = {};
   const name = parseString(payload.name, 'name', required);
@@ -202,7 +206,7 @@ const normalizePayload = (payload: MembershipRankingPayload, mode: 'create' | 'u
   }
 
   return normalized;
-};
+}
 
 const findByName = (name: string) => {
   return MembershipRanking.findOne({
@@ -241,21 +245,113 @@ const assertValidPointRangeForUpdate = (
   }
 };
 
-const listMembershipRankings = () => {
-  return MembershipRanking.find()
-    .sort({ level: 1 })
-    .lean()
-    .then((rankings) =>
-      rankings.map((ranking) => ({
-        ...ranking,
-        ...resolveMembershipVisualConfig(ranking),
-      })),
+const assertBaseTierStartsAtZero = (
+  current: { level: number; minPoint: number; isActive: boolean },
+  payload: PartialMembershipRanking,
+) => {
+  const level = payload.level ?? current.level;
+  const minPoint = payload.minPoint ?? current.minPoint;
+  const isActive = payload.isActive ?? current.isActive;
+
+  if (level === 1 && minPoint !== 0) {
+    throw new MembershipRankingServiceError('Level 1 membership ranking must start at 0 points', 400);
+  }
+
+  if (minPoint === 0 && isActive === false) {
+    throw new MembershipRankingServiceError('Base membership ranking cannot be deactivated', 409);
+  }
+};
+
+const assertUniqueMinPoint = async (
+  payload: PartialMembershipRanking,
+  currentId?: string,
+) => {
+  if (payload.minPoint === undefined) {
+    return;
+  }
+
+  const existingMinPoint = await MembershipRanking.findOne({ minPoint: payload.minPoint });
+  if (existingMinPoint && existingMinPoint._id.toString() !== currentId) {
+    throw new MembershipRankingServiceError('Membership ranking minPoint already exists', 409);
+  }
+};
+
+const assertPointOrder = async (
+  candidate: { _id?: unknown; level: number; minPoint: number },
+  currentId?: string,
+) => {
+  const rankings = await MembershipRanking.find()
+    .select('_id level minPoint')
+    .lean();
+  const orderedRankings = [
+    ...rankings.filter((ranking) => ranking._id.toString() !== currentId),
+    candidate,
+  ].sort((left, right) => left.level - right.level);
+
+  for (let index = 1; index < orderedRankings.length; index += 1) {
+    if (orderedRankings[index].minPoint <= orderedRankings[index - 1].minPoint) {
+      throw new MembershipRankingServiceError('Membership ranking minPoint must increase with level', 409);
+    }
+  }
+};
+
+const countTierMembers = async (current: { minPoint: number }) => {
+  const nextActiveTier = await MembershipRanking.findOne({
+    isActive: true,
+    minPoint: { $gt: current.minPoint },
+  }).sort({ minPoint: 1 }).select('minPoint').lean();
+  const loyaltyPointFilter: Record<string, unknown> = { $gte: current.minPoint };
+  if (nextActiveTier) {
+    loyaltyPointFilter.$lt = nextActiveTier.minPoint;
+  }
+
+  return User.countDocuments({ loyaltyPoint: loyaltyPointFilter });
+};
+
+const assertTierCanBeDeactivated = async (
+  current: { minPoint: number; isActive: boolean },
+  payload: PartialMembershipRanking,
+) => {
+  if (!current.isActive || payload.isActive !== false) {
+    return;
+  }
+
+  const memberCount = await countTierMembers(current);
+  if (memberCount > 0) {
+    throw new MembershipRankingServiceError(
+      `Membership ranking has ${memberCount} active member(s) and cannot be deactivated`,
+      409,
     );
+  }
+};
+
+const listMembershipRankings = async () => {
+  const rankings = await MembershipRanking.find().sort({ level: 1 }).lean();
+  const memberCounts = await Promise.all(rankings.map((ranking, index) => {
+    const loyaltyPointFilter: Record<string, unknown> = { $gte: ranking.minPoint };
+    if (rankings[index + 1]) {
+      loyaltyPointFilter.$lt = rankings[index + 1].minPoint;
+    }
+    return User.countDocuments({ loyaltyPoint: loyaltyPointFilter });
+  }));
+
+  return rankings.map((ranking, index) => ({
+    ...ranking,
+    maxPoint: rankings[index + 1] ? rankings[index + 1].minPoint - 1 : null,
+    memberCount: memberCounts[index],
+    ...resolveMembershipVisualConfig(ranking),
+  }));
 };
 
 const createMembershipRanking = async (payload: MembershipRankingPayload) => {
   const normalized = normalizePayload(payload, 'create');
+  assertBaseTierStartsAtZero(
+    { level: normalized.level, minPoint: normalized.minPoint, isActive: normalized.isActive },
+    normalized,
+  );
   await assertUniqueNameAndLevel(normalized);
+  await assertUniqueMinPoint(normalized);
+  await assertPointOrder(normalized);
 
   return MembershipRanking.create(normalized);
 };
@@ -270,7 +366,18 @@ const updateMembershipRanking = async (id: string, payload: MembershipRankingPay
 
   const normalized = normalizePayload(payload, 'update');
   assertValidPointRangeForUpdate(current, normalized);
+  assertBaseTierStartsAtZero(current, normalized);
+  await assertTierCanBeDeactivated(current, normalized);
   await assertUniqueNameAndLevel(normalized, id);
+  await assertUniqueMinPoint(normalized, id);
+  await assertPointOrder(
+    {
+      _id: current._id,
+      level: normalized.level ?? current.level,
+      minPoint: normalized.minPoint ?? current.minPoint,
+    },
+    id,
+  );
 
   const updatedRanking = await MembershipRanking.findByIdAndUpdate(id, normalized, {
     returnDocument: 'after',
@@ -290,7 +397,36 @@ const updateMembershipRankingStatus = async (id: string, isActive: unknown) => {
 };
 
 const deleteMembershipRanking = async (id: string) => {
-  return updateMembershipRanking(id, { isActive: false });
+  assertValidId(id);
+  const current = await MembershipRanking.findById(id);
+  if (!current) {
+    throw new MembershipRankingServiceError('Membership ranking not found', 404);
+  }
+
+  if (current.minPoint === 0) {
+    throw new MembershipRankingServiceError('Base membership ranking cannot be deleted', 409);
+  }
+
+  const memberCount = await countTierMembers(current);
+  if (memberCount > 0) {
+    throw new MembershipRankingServiceError(
+      `Membership ranking has ${memberCount} active member(s) and cannot be deleted`,
+      409,
+    );
+  }
+
+  const couponCount = await Coupon.countDocuments({
+    deletedAt: null,
+    eligibleMembershipRanks: current._id,
+  });
+  if (couponCount > 0) {
+    throw new MembershipRankingServiceError(
+      `Membership ranking is referenced by ${couponCount} coupon(s) and cannot be deleted`,
+      409,
+    );
+  }
+
+  return MembershipRanking.findByIdAndDelete(id);
 };
 
 export const membershipRankingAdminService = {

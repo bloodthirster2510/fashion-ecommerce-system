@@ -173,7 +173,14 @@ couponSchema.path('usedCount').validate(function validateUsageLimit(this: ICoupo
   return this.usageLimit == null || value <= this.usageLimit;
 }, 'usedCount cannot be greater than usageLimit');
 
-couponSchema.index({ code: 1 }, { unique: true });
+couponSchema.index(
+  { code: 1 },
+  {
+    name: 'coupon_active_code_unique',
+    unique: true,
+    partialFilterExpression: { deletedAt: null },
+  },
+);
 couponSchema.index({ isActive: 1, startAt: 1, endAt: 1 });
 couponSchema.index({ isPublic: 1, isActive: 1, endAt: 1 });
 couponSchema.index({ applicableProducts: 1 });

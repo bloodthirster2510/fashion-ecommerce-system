@@ -6,7 +6,11 @@ export type AuditLogAction =
   | 'order.shipping_webhook'
   | 'payment.adjust'
   | 'payment.expire'
-  | 'payment_method.status_update';
+  | 'payment_method.status_update'
+  | 'membership_ranking.create'
+  | 'membership_ranking.update'
+  | 'membership_ranking.status_update'
+  | 'membership_ranking.delete';
 
 export interface IAuditLog extends Document {
   actorId?: Types.ObjectId | null;
@@ -39,6 +43,10 @@ const auditLogSchema = new Schema<IAuditLog>(
         'payment.adjust',
         'payment.expire',
         'payment_method.status_update',
+        'membership_ranking.create',
+        'membership_ranking.update',
+        'membership_ranking.status_update',
+        'membership_ranking.delete',
       ],
       required: true,
     },

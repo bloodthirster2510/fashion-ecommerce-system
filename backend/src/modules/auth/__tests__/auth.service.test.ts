@@ -284,7 +284,7 @@ describe('Auth Service', () => {
 
       await expect(loginAdminUser('customer@test.com', 'password')).rejects.toEqual({
         status: 403,
-        message: 'TÃ i khoáº£n khÃ´ng cÃ³ quyá»n truy cáº­p trang quáº£n trá»‹',
+        message: 'Tài khoản không có quyền truy cập trang quản trị',
       });
       expect(jwt.sign).not.toHaveBeenCalled();
       expect(User.updateOne).not.toHaveBeenCalled();

@@ -28,6 +28,12 @@ export type AvailableCouponsResponse = {
   items: AvailableCouponItem[];
 };
 
+export type ValidateCouponPayload = {
+  couponCode: string;
+  cartItemIds: string[];
+  paymentMethod: CartPaymentMethod;
+};
+
 export class CouponApiError extends Error {
   errors?: ApiValidationError[];
   status?: number;
@@ -85,6 +91,11 @@ const request = async <T>(
 export const couponApi = {
   getAvailableCoupons: (token: string, payload: AvailableCouponsPayload = {}) =>
     request<AvailableCouponsResponse>('/coupons/available', token, {
+      method: 'POST',
+      body: payload,
+    }),
+  validateCoupon: (token: string, payload: ValidateCouponPayload) =>
+    request<unknown>('/coupons/validate', token, {
       method: 'POST',
       body: payload,
     }),

@@ -279,7 +279,7 @@ describe('User Service', () => {
 
       await expect(updateUserRole('admin1', 'staff')).rejects.toEqual({
         status: 409,
-        message: 'KhÃ´ng thá»ƒ háº¡ quyá»n admin cuá»‘i cÃ¹ng Ä‘ang hoáº¡t Ä‘á»™ng',
+        message: 'Không thể hạ quyền admin cuối cùng đang hoạt động',
       });
 
       expect(User.findByIdAndUpdate).not.toHaveBeenCalled();

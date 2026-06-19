@@ -6,7 +6,13 @@ import type { OrderPaymentMethod } from '../../../database/models';
 
 export interface CouponListQueryInput {
   status?: 'active' | 'inactive' | 'expired' | 'upcoming';
+  sort?: 'created_desc' | 'created_asc' | 'end_asc' | 'usage_desc' | 'code_asc';
   keyword?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface CouponUsageListQueryInput {
   page?: number;
   limit?: number;
 }
@@ -46,4 +52,6 @@ export interface ValidateCouponInput {
 export interface AvailableCouponsInput {
   cartItemIds?: string[];
   paymentMethod?: OrderPaymentMethod;
+  page?: number;
+  limit?: number;
 }

@@ -95,7 +95,11 @@ export interface IOrder extends Document {
   couponId?: Types.ObjectId | null;
   couponDiscountAmount: number;
   shippingDiscountAmount: number;
+  appliedMembershipTierId?: Types.ObjectId | null;
+  appliedMembershipDiscountPercent?: number | null;
   membershipDiscountAmount: number;
+  loyaltyPointsAwarded: number;
+  loyaltyPointsClawedBack: number;
   taxAmount: number;
   totalAmount: number;
   status: OrderStatus;
@@ -237,7 +241,23 @@ const orderSchema = new Schema<IOrder>(
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon', default: null },
     couponDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
     shippingDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
+    appliedMembershipTierId: { type: Schema.Types.ObjectId, ref: 'MembershipRanking', default: null },
+    appliedMembershipDiscountPercent: { type: Number, default: null, min: 0, max: 100 },
     membershipDiscountAmount: { type: Number, required: true, default: 0, min: 0 },
+    loyaltyPointsAwarded: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      validate: integerMinValidator(0),
+    },
+    loyaltyPointsClawedBack: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      validate: integerMinValidator(0),
+    },
     taxAmount: { type: Number, required: true, default: 0, min: 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     status: {

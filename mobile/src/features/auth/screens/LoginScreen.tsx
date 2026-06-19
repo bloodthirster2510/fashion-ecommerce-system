@@ -66,12 +66,12 @@ const LoginScreen = () => {
   );
   const googleAuth = useGoogleAuth((session) => {
     void completeLogin(session).catch((error) => {
-      setErrorMessage(error instanceof Error ? error.message : 'ÄÄƒng nháº­p tháº¥t báº¡i');
+      setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
     });
   });
   const facebookAuth = useFacebookAuth((session) => {
     void completeLogin(session).catch((error) => {
-      setErrorMessage(error instanceof Error ? error.message : 'ÄÄƒng nháº­p tháº¥t báº¡i');
+      setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
     });
   });
 

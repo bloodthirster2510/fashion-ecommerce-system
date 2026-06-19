@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Types } from 'mongoose';
 import { DistributedLock, Inventory, Order, Product, Transaction } from '../../database/models';
 import { inventoryService } from '../inventory/inventory.service';
+import { couponService } from '../promotions/coupons/coupon.service';
 
 const DEFAULT_PAYMENT_EXPIRY_GRACE_MS = 5 * 60 * 1000;
 const DEFAULT_PAYMENT_EXPIRY_LOCK_TTL_MS = 5 * 60 * 1000;
@@ -108,6 +109,8 @@ type ObjectIdLike = {
 
 type ExpirableOrder = {
   _id: ObjectIdLike;
+  user_id: ObjectIdLike;
+  couponId?: ObjectIdLike | null;
   order_list: Array<{
     productId: Types.ObjectId;
     variantId: Types.ObjectId;
@@ -117,6 +120,18 @@ type ExpirableOrder = {
   }>;
   status: string;
   paymentStatus: string;
+};
+
+const rollbackCouponUsageForCancelledOrder = async (order: ExpirableOrder) => {
+  if (!order.couponId) {
+    return;
+  }
+
+  await couponService.rollbackRecordedCouponUsage(order._id.toString());
+  await couponService.rollbackCouponUsageReservation(
+    order.couponId.toString(),
+    order.user_id.toString(),
+  );
 };
 
 const restockCommittedOrder = async (order: ExpirableOrder) => {
@@ -201,6 +216,7 @@ const cancelOrdersWhoseLatestAttemptExpired = async (
     }
 
     await restockCommittedOrder(order);
+    await rollbackCouponUsageForCancelledOrder(order);
     cancelledOrderIds.push(order._id.toString());
   }
 

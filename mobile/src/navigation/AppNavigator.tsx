@@ -44,6 +44,7 @@ export type RootStackParamList = {
   Coupons: {
     cartItemIds?: string[];
     selectedCouponCode?: string | null;
+    paymentMethod?: 'COD' | 'VNPAY' | 'MOMO';
   } | undefined;
   Favorites: undefined;
   Profile: undefined;

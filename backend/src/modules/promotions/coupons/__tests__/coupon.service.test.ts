@@ -12,6 +12,8 @@ import {
 
 jest.mock('../../../../database/models', () => ({
   Coupon: {
+    countDocuments: jest.fn(),
+    create: jest.fn(),
     find: jest.fn(),
     findOne: jest.fn(),
     findOneAndUpdate: jest.fn(),
@@ -21,6 +23,7 @@ jest.mock('../../../../database/models', () => ({
     countDocuments: jest.fn(),
     create: jest.fn(),
     deleteOne: jest.fn(),
+    find: jest.fn(),
   },
 }));
 
@@ -154,6 +157,21 @@ describe('couponService usage reservation', () => {
 });
 
 describe('couponService admin safeguards', () => {
+  it('maps duplicate coupon codes to a conflict response', async () => {
+    mockedCoupon.create.mockRejectedValue({ code: 11000 });
+
+    await expect(
+      couponService.createCoupon({
+        code: 'save10',
+        name: 'Save 10',
+        discountType: 'fixed',
+        discountValue: 10000,
+        startAt: new Date('2026-01-01T00:00:00.000Z'),
+        endAt: new Date('2027-01-01T00:00:00.000Z'),
+      }),
+    ).rejects.toMatchObject({ message: 'Coupon code already exists', statusCode: 409 });
+  });
+
   it('rejects lowering usageLimit below the already used count', async () => {
     mockedCoupon.findOne.mockResolvedValue({
       ...baseCoupon,
@@ -166,13 +184,60 @@ describe('couponService admin safeguards', () => {
 
     expect(mockedCoupon.findOneAndUpdate).not.toHaveBeenCalled();
   });
+
+  it('does not delete a coupon with a pending usage reservation', async () => {
+    mockedCoupon.findOne.mockResolvedValue({ ...baseCoupon, usedCount: 1 } as never);
+    mockedCouponUsage.countDocuments.mockResolvedValue(0);
+
+    await expect(couponService.deleteCoupon(couponId.toString())).rejects.toMatchObject({
+      message: 'Coupon has usage history and cannot be deleted',
+      statusCode: 409,
+    });
+
+    expect(mockedCoupon.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('couponService usage analytics', () => {
+  it('returns paginated coupon usage with user and order details', async () => {
+    mockedCoupon.findOne.mockReturnValue({
+      select: jest.fn().mockResolvedValue({ _id: couponId }),
+    } as never);
+    const usageItems = [{ _id: new Types.ObjectId(), discountAmount: 10000 }];
+    const usageQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(usageItems),
+    };
+    mockedCouponUsage.find.mockReturnValue(usageQuery as never);
+    mockedCouponUsage.countDocuments.mockResolvedValue(21);
+
+    const result = await couponService.listCouponUsage(couponId.toString(), { page: 2, limit: 10 });
+
+    expect(mockedCouponUsage.find).toHaveBeenCalledWith({ couponId });
+    expect(usageQuery.skip).toHaveBeenCalledWith(10);
+    expect(usageQuery.limit).toHaveBeenCalledWith(10);
+    expect(usageQuery.populate).toHaveBeenCalledWith('userId', 'name email phone');
+    expect(usageQuery.populate).toHaveBeenCalledWith('orderId', 'orderCode status totalAmount');
+    expect(result).toEqual({
+      items: usageItems,
+      pagination: { page: 2, limit: 10, totalItems: 21, totalPages: 3 },
+    });
+  });
 });
 
 describe('couponService customer availability', () => {
   it('does not expose internal errors as unavailable coupon reasons', async () => {
     mockedCoupon.find.mockReturnValue({
-      sort: jest.fn().mockResolvedValue([baseCoupon]),
+      sort: jest.fn().mockReturnValue({
+        skip: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([baseCoupon]),
+        }),
+      }),
     } as never);
+    mockedCoupon.countDocuments.mockResolvedValue(1);
     mockedPromotionPricingService.calculateCheckout.mockRejectedValue(
       new Error('database timeout: replica credentials unavailable'),
     );
