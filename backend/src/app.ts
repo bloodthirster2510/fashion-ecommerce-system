@@ -1,18 +1,18 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import routes from './routes';
 import {
   createApiRateLimitMiddleware,
   createCorsOptions,
-  createSecurityHeadersMiddleware,
 } from './middlewares/security.middleware';
 
 const app = express();
 const defaultBodyLimit = process.env.REQUEST_BODY_LIMIT?.trim() || '2mb';
 const orderEvidenceBodyLimit = process.env.ORDER_EVIDENCE_BODY_LIMIT?.trim() || '12mb';
 
-app.use(createSecurityHeadersMiddleware());
+app.use(helmet());
 app.use(cors(createCorsOptions()));
 app.use('/api', createApiRateLimitMiddleware());
 app.use(
