@@ -9,7 +9,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   let response: Response
 
   try {
-    response = await fetch(`${axiosClient.baseURL}${path}`, {
+    response = await axiosClient.fetch(path, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
@@ -87,7 +87,7 @@ export const authService = {
   },
 
   async logout(accessToken: string) {
-    await fetch(`${axiosClient.baseURL}/auth/logout`, {
+    await axiosClient.fetch('/auth/logout', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,

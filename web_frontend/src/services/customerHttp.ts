@@ -1,5 +1,5 @@
-import { API_BASE_URL } from '../config/api'
 import { AuthApiError, type ApiResponse } from '../features/auth/auth.types'
+import { axiosClient } from './axiosClient'
 import { tokenService } from './tokenService'
 
 type RefreshTokenResponse = {
@@ -30,7 +30,7 @@ const refreshCustomerSession = async () => {
   let response: Response
 
   try {
-    response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+    response = await axiosClient.fetch('/auth/refresh-token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -70,7 +70,7 @@ const fetchWithToken = async (path: string, init?: RequestInit, accessToken = ge
     headers.set('Content-Type', 'application/json')
   }
 
-  return fetch(`${API_BASE_URL}${path}`, {
+  return axiosClient.fetch(path, {
     ...init,
     headers,
   })
