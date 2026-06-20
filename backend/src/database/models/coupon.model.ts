@@ -2,6 +2,7 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export type CouponDiscountType = 'percent' | 'fixed' | 'free_shipping';
 export type CouponEligibleUserType = 'all' | 'new_user' | 'member';
+export type CouponLifecycleStatus = 'upcoming' | 'active' | 'paused' | 'expired';
 
 export interface ICoupon extends Document {
   code: string;
@@ -23,6 +24,7 @@ export interface ICoupon extends Document {
   startAt: Date;
   endAt: Date;
   isActive: boolean;
+  lifecycleStatus: CouponLifecycleStatus;
   createdBy?: Types.ObjectId | null;
   updatedBy?: Types.ObjectId | null;
   deletedAt?: Date | null;
@@ -146,6 +148,12 @@ const couponSchema = new Schema<ICoupon>(
     startAt: { type: Date, required: true },
     endAt: { type: Date, required: true },
     isActive: { type: Boolean, default: true },
+    lifecycleStatus: {
+      type: String,
+      enum: ['upcoming', 'active', 'paused', 'expired'],
+      required: true,
+      default: 'upcoming',
+    },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     deletedAt: { type: Date, default: null },
@@ -183,6 +191,7 @@ couponSchema.index(
 );
 couponSchema.index({ isActive: 1, startAt: 1, endAt: 1 });
 couponSchema.index({ isPublic: 1, isActive: 1, endAt: 1 });
+couponSchema.index({ lifecycleStatus: 1, endAt: 1 });
 couponSchema.index({ applicableProducts: 1 });
 couponSchema.index({ applicableCategories: 1 });
 

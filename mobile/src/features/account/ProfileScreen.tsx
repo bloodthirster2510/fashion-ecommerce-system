@@ -98,7 +98,9 @@ const ProfileScreen = () => {
             return;
           }
 
-          console.error(error);
+          // Connectivity failures are reflected by the empty stats state and
+          // should not open React Native's development LogBox.
+          setMembershipData(null);
         });
       runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
         .then((response) => setVoucherCount(response.items.length))

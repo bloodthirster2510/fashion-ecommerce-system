@@ -96,6 +96,7 @@ export type CustomerOrder = {
   subTotal: number;
   shippingFee: number;
   couponCode?: string | null;
+  couponCodes?: string[];
   couponDiscountAmount: number;
   shippingDiscountAmount: number;
   membershipDiscountAmount: number;

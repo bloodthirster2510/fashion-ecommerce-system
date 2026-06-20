@@ -26,6 +26,7 @@ import type {
   InventoryItem,
 } from './inventory.types'
 import { getPaginationItems } from '../../utils/pagination'
+import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import './inventory.css'
 
 type InventoryManagementPageProps = {
@@ -359,6 +360,7 @@ export function InventoryManagementPage({
       setImporting(null)
       setNotice({ type: 'success', message: 'Kho đã được cập nhật với phiếu nhập mới.' })
       await loadData()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -400,6 +402,7 @@ export function InventoryManagementPage({
       setImportHistory(result.items)
       setNotice({ type: 'success', message: 'Phiếu nhập đã được xóa và tồn kho đã được cập nhật.' })
       await loadData()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setHistoryError(getErrorMessage(error))
     } finally {

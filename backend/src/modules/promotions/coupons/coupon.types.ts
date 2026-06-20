@@ -6,6 +6,12 @@ import type { OrderPaymentMethod } from '../../../database/models';
 
 export interface CouponListQueryInput {
   status?: 'active' | 'inactive' | 'expired' | 'upcoming';
+  discountType?: CouponDiscountType;
+  isPublic?: boolean;
+  eligibleUserType?: CouponEligibleUserType;
+  eligibleMembershipRank?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
   sort?: 'created_desc' | 'created_asc' | 'end_asc' | 'usage_desc' | 'code_asc';
   keyword?: string;
   page?: number;
@@ -15,6 +21,9 @@ export interface CouponListQueryInput {
 export interface CouponUsageListQueryInput {
   page?: number;
   limit?: number;
+  keyword?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
 }
 
 export interface CreateCouponInput {
@@ -38,6 +47,12 @@ export interface CreateCouponInput {
 }
 
 export type UpdateCouponInput = Partial<CreateCouponInput>;
+
+export interface CouponPreviewInput {
+  coupon: CreateCouponInput;
+  sampleSubTotal: number;
+  sampleShippingFee?: number;
+}
 
 export interface UpdateCouponStatusInput {
   isActive: boolean;

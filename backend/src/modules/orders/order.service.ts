@@ -23,6 +23,7 @@ import { paymentMethodService } from '../payment-methods/payment-method.service'
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
 import { couponService } from '../promotions/coupons/coupon.service';
+import { loyaltyRuleService } from '../admin/loyalty/loyalty-rule.service';
 import { uploadImageToCloudinary } from '../../utils/cloudinary';
 import type {
   ShippingComparisonResult,
@@ -801,9 +802,16 @@ type SessionOptions = {
   session?: ClientSession;
 };
 
-const calculateLoyaltyPointsForOrder = (order: IOrder) => (
-  Math.floor(Math.max(0, Number(order.totalAmount) || 0) / 1000)
-);
+export const calculateLoyaltyPointsForOrder = (order: IOrder) => {
+  const totalAmount = Math.max(0, Number(order.totalAmount) || 0);
+  const rule = order.loyaltyRuleSnapshot;
+  if (!rule) return Math.floor(totalAmount / 1000);
+  if (totalAmount < rule.minOrderAmount) return 0;
+
+  const rawPoints = (totalAmount / rule.spendAmount) * rule.pointsEarned;
+  const round = rule.roundMode === 'ceil' ? Math.ceil : rule.roundMode === 'round' ? Math.round : Math.floor;
+  return Math.max(0, round(rawPoints));
+};
 
 const createLoyaltyPointHistory = async (
   payload: {
@@ -969,16 +977,21 @@ const rollbackCouponUsageForCancelledOrder = async (
   order: IOrder,
   options: SessionOptions = {},
 ) => {
-  if (!order.couponId) {
+  const couponIds = order.couponIds?.length
+    ? order.couponIds.map((couponId) => toIdString(couponId))
+    : order.couponId ? [toIdString(order.couponId)] : [];
+  if (!couponIds.length) {
     return;
   }
 
   await couponService.rollbackRecordedCouponUsage(toIdString(order._id), options);
-  await couponService.rollbackCouponUsageReservation(
-    toIdString(order.couponId),
-    toIdString(order.user_id),
-    options,
-  );
+  for (const couponId of couponIds) {
+    await couponService.rollbackCouponUsageReservation(
+      couponId,
+      toIdString(order.user_id),
+      options,
+    );
+  }
 };
 
 const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder) => {
@@ -1029,6 +1042,7 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
     userId,
     cartItemIds: input.cartItemIds,
     couponCode: input.couponCode,
+    couponCodes: input.couponCodes,
     paymentMethod: input.paymentMethod ?? 'COD',
     shippingAddress,
   });
@@ -1040,6 +1054,8 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
     shippingQuote: pricing.shippingQuote,
     shippingComparison: pricing.shippingComparison,
     coupon: mapAppliedCouponForCustomer(pricing.appliedCoupon),
+    coupons: (pricing.appliedCoupons ?? []).map(mapAppliedCouponForCustomer),
+    campaign: pricing.appliedCampaign ?? null,
     appliedMembership: pricing.appliedMembership,
   };
 };
@@ -1058,6 +1074,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     userId,
     cartItemIds: input.cartItemIds,
     couponCode: input.couponCode,
+    couponCodes: input.couponCodes,
     paymentMethod: input.paymentMethod,
     shippingAddress,
   });
@@ -1081,12 +1098,16 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   } = pricing.summary;
 
   const orderId = new Types.ObjectId();
+  const appliedCoupons = pricing.appliedCoupons ?? (pricing.appliedCoupon ? [pricing.appliedCoupon] : []);
+  const loyaltyRuleSnapshot = await loyaltyRuleService.getActiveRuleSnapshot();
   let createdOrder: IOrder | null = null;
   const session = await mongoose.startSession();
 
   try {
     await session.withTransaction(async () => {
-      await couponService.reserveCouponUsage(userId, pricing.appliedCoupon, { session });
+      for (const appliedCoupon of appliedCoupons) {
+        await couponService.reserveCouponUsage(userId, appliedCoupon, { session });
+      }
       const reservations = await inventoryService.reserveInventory(
         {
           userId,
@@ -1103,14 +1124,12 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
       );
       const reservationIds = reservations.map((reservation) => toIdString(reservation._id));
 
-      await couponService.recordCouponUsage(
-        {
-          userId,
-          orderId: orderId.toString(),
-          appliedCoupon: pricing.appliedCoupon,
-        },
-        { session },
-      );
+      for (const appliedCoupon of appliedCoupons) {
+        await couponService.recordCouponUsage(
+          { userId, orderId: orderId.toString(), appliedCoupon },
+          { session },
+        );
+      }
 
       const [order] = await Order.create([{
         _id: orderId,
@@ -1121,6 +1140,11 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         shippingFee,
         couponCode: pricing.appliedCoupon?.code ?? null,
         couponId: pricing.appliedCoupon?.coupon._id ?? null,
+        couponCodes: appliedCoupons.map((coupon) => coupon.code),
+        couponIds: appliedCoupons.map((coupon) => coupon.coupon._id),
+        promotionCampaignId: pricing.appliedCampaign?.campaignId
+          ? toObjectId(pricing.appliedCampaign.campaignId, 'promotion campaign id')
+          : null,
         couponDiscountAmount,
         shippingDiscountAmount,
         appliedMembershipTierId: pricing.appliedMembership?.tierId
@@ -1128,6 +1152,12 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
           : null,
         appliedMembershipDiscountPercent: pricing.appliedMembership?.discountPercent ?? null,
         membershipDiscountAmount,
+        loyaltyRuleSnapshot: {
+          ...loyaltyRuleSnapshot,
+          ruleId: loyaltyRuleSnapshot.ruleId
+            ? toObjectId(loyaltyRuleSnapshot.ruleId, 'loyalty rule id')
+            : null,
+        },
         taxAmount,
         totalAmount,
         status: 'confirmed',

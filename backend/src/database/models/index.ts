@@ -7,11 +7,13 @@ export * from './distributed-lock.model';
 export * from './favorites.model';
 export * from './inventory.model';
 export * from './loyalty-point-history.model';
+export * from './loyalty-rule.model';
 export * from './membership-ranking.model';
 export * from './order.model';
 export * from './otp-verification.model';
 export * from './payment-method.model';
 export * from './product.model';
+export * from './promotion-campaign.model';
 export * from './transaction.model';
 export * from './user.model';
 

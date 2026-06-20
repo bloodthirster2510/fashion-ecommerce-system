@@ -13,6 +13,8 @@ dist-ssr
 .vite-cache
 .npm-cache
 *.local
+test-results/
+playwright-report/
 
 # Editor directories and files
 .vscode/*

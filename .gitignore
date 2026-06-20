@@ -148,6 +148,10 @@ vite.config.ts.timestamp-*
 # Local audit/fix notes
 BugList.md
 LoyaltyPromotions-Fix.md
+UX-Audit-Loyalty-Voucher.md
+Notification-Badge-Feature.md
+Loyalty-Voucher-Remaining-Fix.md
+Customer-Support-Feedback-Feature-Plan.md
 Bug.md
 docs/
 .kilo/

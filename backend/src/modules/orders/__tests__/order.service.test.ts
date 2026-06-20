@@ -7,7 +7,8 @@ import { couponService } from '../../promotions/coupons/coupon.service';
 import { transactionService } from '../../payments/transaction.service';
 import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-pricing.types';
 import { GHNService } from '../../shipping/ghn.service';
-import { orderService } from '../order.service';
+import { loyaltyRuleService } from '../../admin/loyalty/loyalty-rule.service';
+import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -79,6 +80,12 @@ jest.mock('../../shipping/ghn.service', () => ({
   },
 }));
 
+jest.mock('../../admin/loyalty/loyalty-rule.service', () => ({
+  loyaltyRuleService: {
+    getActiveRuleSnapshot: jest.fn(),
+  },
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
@@ -90,6 +97,7 @@ const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typ
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
+const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyaltyRuleService>;
 
 type MockSession = {
   withTransaction: jest.Mock;
@@ -223,6 +231,20 @@ const buildPricingResult = (): CheckoutPricingResult => ({
 });
 
 describe('orderService', () => {
+  it('calculates awarded points from the rule snapshot stored on the order', () => {
+    expect(calculateLoyaltyPointsForOrder({
+      totalAmount: 385000,
+      loyaltyRuleSnapshot: {
+        ruleId: null,
+        name: 'Double points',
+        spendAmount: 1000,
+        pointsEarned: 2,
+        minOrderAmount: 0,
+        roundMode: 'floor',
+      },
+    } as never)).toBe(770);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockSession = createMockSession();
@@ -236,6 +258,14 @@ describe('orderService', () => {
     } as never);
     mockedTransactionService.resolveTransaction.mockResolvedValue(null as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
+    mockedLoyaltyRuleService.getActiveRuleSnapshot.mockResolvedValue({
+      ruleId: null,
+      name: 'Default 1 point / 1,000 VND',
+      spendAmount: 1000,
+      pointsEarned: 1,
+      minOrderAmount: 0,
+      roundMode: 'floor',
+    });
   });
 
   afterEach(() => {
@@ -292,7 +322,7 @@ describe('orderService', () => {
       shippingAddress: normalizedShippingAddress,
     });
     expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
-    expect(mockedCouponService.reserveCouponUsage).toHaveBeenCalledWith(userId, null, { session: mockSession });
+    expect(mockedCouponService.reserveCouponUsage).not.toHaveBeenCalled();
     expect(mockedInventoryService.reserveInventory).toHaveBeenCalledWith(
       expect.objectContaining({
         userId,
@@ -308,14 +338,7 @@ describe('orderService', () => {
       }),
       { session: mockSession },
     );
-    expect(mockedCouponService.recordCouponUsage).toHaveBeenCalledWith(
-      {
-        userId,
-        orderId: expect.any(String),
-        appliedCoupon: null,
-      },
-      { session: mockSession },
-    );
+    expect(mockedCouponService.recordCouponUsage).not.toHaveBeenCalled();
     expect(mockedOrder.create).toHaveBeenCalledWith(
       [
         expect.objectContaining({
