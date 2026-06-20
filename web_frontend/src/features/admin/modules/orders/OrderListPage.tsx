@@ -28,6 +28,7 @@ import {
   type AdminTransaction,
 } from './orderAdminApi'
 import './order.css'
+import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 
 type OrdersPageProps = {
   currentUser: AdminUser
@@ -955,6 +956,7 @@ export function OrderListPage({
       })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -999,6 +1001,7 @@ export function OrderListPage({
       })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1052,6 +1055,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã cập nhật thông tin vận đơn' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1091,6 +1095,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: `Đã nhận webhook vận chuyển: ${actionLabel}` })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1113,6 +1118,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã tạo vận đơn GHN và liên kết vào đơn hàng' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1141,6 +1147,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã hủy vận đơn GHN' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1163,6 +1170,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã đồng bộ trạng thái GHN' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1181,6 +1189,7 @@ export function OrderListPage({
         message: `Đã hết hạn ${result.expiredCount} lượt thanh toán quá hạn, hủy ${result.cancelledOrderIds.length} đơn chưa thanh toán`,
       })
       await loadOrders()
+      requestAdminNotificationRefresh()
       if (selectedOrder) {
         await refreshSelectedOrder(selectedOrder._id)
       }
@@ -1216,6 +1225,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã điều chỉnh trạng thái thanh toán' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {

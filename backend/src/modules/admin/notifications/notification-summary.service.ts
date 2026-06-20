@@ -93,10 +93,9 @@ export const getNotificationSummary = async (
   const canReadOrders = hasPermission(actor.role, permissions, 'orders.read');
   const canReadInventory = hasPermission(actor.role, permissions, 'inventory.read');
   const canReadPromotions = hasPermission(actor.role, permissions, 'promotions.read');
-  const canReadAccounts = actor.role === 'admin';
   const expiringBefore = new Date(now.getTime() + EXPIRING_COUPON_WINDOW_MS);
 
-  const [orders, lowStockVariants, expiringCoupons, inactiveAccounts] = await Promise.all([
+  const [orders, lowStockVariants, expiringCoupons] = await Promise.all([
     canReadOrders ? getOrderCounts() : null,
     canReadInventory ? getLowStockVariantCount(DEFAULT_LOW_STOCK_THRESHOLD) : 0,
     canReadPromotions
@@ -107,7 +106,6 @@ export const getNotificationSummary = async (
           endAt: { $gte: now, $lte: expiringBefore },
         })
       : 0,
-    canReadAccounts ? User.countDocuments({ role: 'staff', isActive: false }) : 0,
   ]);
 
   const orderCounts = orders ?? {
@@ -118,21 +116,23 @@ export const getNotificationSummary = async (
     cod: 0,
     total: 0,
   };
-  const total = orderCounts.total + lowStockVariants + expiringCoupons + inactiveAccounts;
+  const total = orderCounts.total + lowStockVariants + expiringCoupons;
 
   return {
     total,
     orders: orderCounts,
     lowStockVariants,
     expiringCoupons,
-    inactiveAccounts,
+    // Disabled staff accounts are intentional state, not pending work. Keep
+    // this field stable until a real account-approval workflow exists.
+    inactiveAccounts: 0,
     supportOpen: 0,
     reviewsPending: 0,
     capabilities: {
       orders: canReadOrders,
       inventory: canReadInventory,
       promotions: canReadPromotions,
-      accounts: canReadAccounts,
+      accounts: false,
       support: false,
       reviews: false,
       loyaltyApprovals: false,

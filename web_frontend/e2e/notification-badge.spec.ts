@@ -11,7 +11,7 @@ test('admin notification badges summarize work and navigate from the bell panel'
   await expect(page.getByRole('button', { name: /Hóa đơn & đơn hàng.*6 đơn cần xử lý/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Kho hàng.*4 biến thể tồn kho thấp/ })).toBeVisible()
 
-  await page.getByRole('button', { name: '14 việc cần chú ý' }).click()
+  await page.getByRole('button', { name: '12 việc cần chú ý' }).click()
   const panel = page.getByRole('region', { name: 'Việc cần chú ý' })
   await expect(panel).toBeVisible()
   await expect(panel.getByText('Voucher sắp hết hạn')).toBeVisible()

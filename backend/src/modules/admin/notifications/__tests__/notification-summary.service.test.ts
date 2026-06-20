@@ -5,7 +5,7 @@ jest.mock('../../../../database/models', () => ({
   Coupon: { countDocuments: jest.fn() },
   Inventory: { aggregate: jest.fn() },
   Order: { aggregate: jest.fn() },
-  User: { countDocuments: jest.fn(), findById: jest.fn() },
+  User: { findById: jest.fn() },
 }));
 
 const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
@@ -30,25 +30,24 @@ describe('notification summary service', () => {
     }] as never);
     mockedInventory.aggregate.mockResolvedValue([{ count: 3 }] as never);
     mockedCoupon.countDocuments.mockResolvedValue(2);
-    mockedUser.countDocuments.mockResolvedValue(1);
 
     const summary = await getNotificationSummary(
       { userId: '665000000000000000000001', role: 'admin' },
       new Date('2026-06-20T00:00:00.000Z'),
     );
 
-    expect(summary.total).toBe(10);
+    expect(summary.total).toBe(9);
     expect(summary.orders).toMatchObject({ total: 4, online: 1, cod: 3 });
     expect(summary).toMatchObject({
       lowStockVariants: 3,
       expiringCoupons: 2,
-      inactiveAccounts: 1,
+      inactiveAccounts: 0,
     });
     expect(summary.capabilities).toMatchObject({
       orders: true,
       inventory: true,
       promotions: true,
-      accounts: true,
+      accounts: false,
       support: false,
       reviews: false,
     });
@@ -82,6 +81,5 @@ describe('notification summary service', () => {
     });
     expect(mockedInventory.aggregate).not.toHaveBeenCalled();
     expect(mockedCoupon.countDocuments).not.toHaveBeenCalled();
-    expect(mockedUser.countDocuments).not.toHaveBeenCalled();
   });
 });

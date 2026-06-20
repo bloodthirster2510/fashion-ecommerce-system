@@ -463,9 +463,6 @@ const getNavNotificationBadge = (
     promotions: summary.expiringCoupons > 0
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
       : undefined,
-    accounts: summary.inactiveAccounts > 0
-      ? { count: summary.inactiveAccounts, tone: 'warning', label: `${summary.inactiveAccounts} tài khoản nhân sự đang tắt` }
-      : undefined,
   }
 
   return badges[routeId] ?? null
@@ -514,14 +511,6 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       detail: `${summary.expiringCoupons} voucher sẽ hết hạn trong 3 ngày`,
       count: summary.expiringCoupons,
       tone: 'warning' as NotificationTone,
-    } : null,
-    summary.inactiveAccounts > 0 ? {
-      key: 'accounts-inactive',
-      routeId: 'accounts' as NavId,
-      title: 'Tài khoản nhân sự đang tắt',
-      detail: `${summary.inactiveAccounts} tài khoản cần được kiểm tra trạng thái`,
-      count: summary.inactiveAccounts,
-      tone: 'info' as NotificationTone,
     } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null)
 }

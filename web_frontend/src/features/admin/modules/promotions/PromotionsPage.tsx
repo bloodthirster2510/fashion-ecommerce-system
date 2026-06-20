@@ -32,6 +32,7 @@ import { OptionPicker, type PickerOption } from './components/OptionPicker'
 import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { useToast } from '../../notifications/notification-context'
 import { AdminEmptyIllustration } from '../../components/AdminEmptyIllustration'
+import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import './promotion.css'
 
 type PromotionsPageProps = {
@@ -882,6 +883,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       type: skippedCount ? 'error' : 'success',
       message: `Đã ${isActive ? 'bật' : 'tắt'} ${updated.length} voucher${skippedCount ? `; bỏ qua ${skippedCount} voucher không hợp lệ hoặc xử lý lỗi` : ''}.`,
     })
+    if (updated.length) requestAdminNotificationRefresh()
     setActionLoading(false)
   }
 
@@ -1008,6 +1010,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
       setDialog(null)
       await loadCoupons()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1026,6 +1029,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         type: 'success',
         message: isActive ? 'Đã bật voucher' : 'Đã tắt voucher',
       })
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1046,6 +1050,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       setDialog(null)
       setNotice({ type: 'success', message: 'Đã xóa voucher' })
       await loadCoupons()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1231,7 +1236,10 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         : `Đã xóa ${deletedIds.length} voucher.`,
     })
     setActionLoading(false)
-    if (deletedIds.length) await loadCoupons()
+    if (deletedIds.length) {
+      await loadCoupons()
+      requestAdminNotificationRefresh()
+    }
   }
 
   const applyCouponTemplate = (template: typeof couponTemplates[number]) => {
