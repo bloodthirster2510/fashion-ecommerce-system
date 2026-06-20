@@ -35,6 +35,18 @@ export const deleteMembershipRanking = (id: string) =>
     method: 'DELETE',
   })
 
+export const createMembershipRankingsBatch = (rankings: MembershipRankingPayload[]) =>
+  requestAdmin<MembershipRanking[]>('/admin/membership-rankings/batch', {
+    method: 'POST',
+    body: JSON.stringify({ rankings }),
+  })
+
+export const reorderMembershipRankings = (orderedIds: string[]) =>
+  requestAdmin<MembershipRanking[]>('/admin/membership-rankings/reorder', {
+    method: 'PUT',
+    body: JSON.stringify({ orderedIds }),
+  })
+
 export const listLoyaltyUsers = (keyword: string, page = 1, limit = 10, tierId?: string) => {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
   if (keyword.trim()) {
@@ -47,8 +59,16 @@ export const listLoyaltyUsers = (keyword: string, page = 1, limit = 10, tierId?:
   return requestAdmin<LoyaltyUserList>(`/admin/membership-rankings/users?${params.toString()}`)
 }
 
-export const listLoyaltyPointHistory = (userId: string, page = 1, limit = 10) => {
+export const listLoyaltyPointHistory = (
+  userId: string,
+  page = 1,
+  limit = 10,
+  filters: { type?: 'earn' | 'redeem' | 'adjust'; dateFrom?: string; dateTo?: string } = {},
+) => {
   const params = new URLSearchParams({ userId, page: String(page), limit: String(limit) })
+  if (filters.type) params.set('type', filters.type)
+  if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
+  if (filters.dateTo) params.set('dateTo', filters.dateTo)
   return requestAdmin<LoyaltyPointHistoryList>(
     `/admin/membership-rankings/point-history?${params.toString()}`,
   )

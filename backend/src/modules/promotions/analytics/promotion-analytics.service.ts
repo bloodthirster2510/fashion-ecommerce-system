@@ -10,13 +10,7 @@ const parseDate = (value: unknown, fallback: Date, endOfDay = false) => {
   return date;
 };
 
-const getPromotionAnalytics = async (query: PromotionAnalyticsQuery = {}) => {
-  const now = new Date();
-  const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const from = parseDate(query.from, defaultFrom);
-  const to = parseDate(query.to, now, true);
-  if (to < from) throw Object.assign(new Error('Analytics end date must be after start date'), { statusCode: 400 });
-
+const collectPromotionAnalytics = async (from: Date, to: Date) => {
   const [couponSummaryRows, topCoupons, orderSummaryRows, loyaltyRows, campaignRows] = await Promise.all([
     CouponUsage.aggregate([
       { $match: { usedAt: { $gte: from, $lte: to } } },
@@ -101,6 +95,35 @@ const getPromotionAnalytics = async (query: PromotionAnalyticsQuery = {}) => {
     },
     loyalty: loyaltyRows.map((row) => ({ type: row._id, transactionCount: row.transactionCount, points: row.points })),
     campaigns: campaignRows,
+  };
+};
+
+const getPromotionAnalytics = async (query: PromotionAnalyticsQuery = {}) => {
+  const now = new Date();
+  const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const from = parseDate(query.from, defaultFrom);
+  const to = parseDate(query.to, now, true);
+  if (to < from) throw Object.assign(new Error('Analytics end date must be after start date'), { statusCode: 400 });
+  const duration = to.getTime() - from.getTime();
+  const previousTo = new Date(from.getTime() - 1);
+  const previousFrom = new Date(previousTo.getTime() - duration);
+  const [current, previous] = await Promise.all([
+    collectPromotionAnalytics(from, to),
+    collectPromotionAnalytics(previousFrom, previousTo),
+  ]);
+  const changePercent = (value: number, previousValue: number) => previousValue === 0
+    ? (value === 0 ? 0 : null)
+    : Math.round(((value - previousValue) / previousValue) * 1000) / 10;
+
+  return {
+    ...current,
+    comparison: {
+      range: { from: previousFrom, to: previousTo },
+      orderCountPercent: changePercent(current.orders.orderCount, previous.orders.orderCount),
+      netRevenuePercent: changePercent(current.orders.netRevenue, previous.orders.netRevenue),
+      couponUsagePercent: changePercent(current.coupons.usageCount, previous.coupons.usageCount),
+      totalDiscountPercent: changePercent(current.coupons.totalDiscount, previous.coupons.totalDiscount),
+    },
   };
 };
 

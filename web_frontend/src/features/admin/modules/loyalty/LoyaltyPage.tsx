@@ -4,10 +4,12 @@ import { useDialogAccessibility } from '../../hooks/useDialogAccessibility'
 import {
   adjustLoyaltyPoints,
   createMembershipRanking,
+  createMembershipRankingsBatch,
   deleteMembershipRanking,
   listLoyaltyPointHistory,
   listLoyaltyUsers,
   listMembershipRankings,
+  reorderMembershipRankings,
   updateMembershipRanking,
   updateMembershipRankingStatus,
 } from './loyalty.service'
@@ -20,6 +22,8 @@ import type {
 } from './loyalty.types'
 import './loyalty.css'
 import { LoyaltyRulesPanel } from './components/LoyaltyRulesPanel'
+import { useToast } from '../../notifications/notification-context'
+import { AdminEmptyIllustration } from '../../components/AdminEmptyIllustration'
 
 type LoyaltyPageProps = {
   currentUser: AdminUser
@@ -60,6 +64,8 @@ const emptyPagination: LoyaltyPagination = {
   totalItems: 0,
   totalPages: 0,
 }
+type TierFieldErrors = Partial<Record<keyof TierFormState, string>>
+const tierDraftKey = 'fashionista.admin.tier-draft'
 
 const formatHistoryDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   dateStyle: 'short',
@@ -102,6 +108,13 @@ const iconOptions = [
   { value: 'medal-outline', label: 'Medal' },
   { value: 'trophy-outline', label: 'Trophy' },
   { value: 'certificate-outline', label: 'Certificate' },
+]
+
+const tierTemplates: Array<{ label: string; values: Partial<TierFormState> }> = [
+  { label: 'Đồng', values: { name: 'Đồng', level: '1', minPoint: '0', discountPercent: '0', cardColor: '#8f5b34', textColor: '#ffffff', badgeColor: '#d19a66', iconName: 'medal-outline', benefitDescription: 'Tích điểm và nhận ưu đãi dành cho thành viên.' } },
+  { label: 'Bạc', values: { name: 'Bạc', level: '2', minPoint: '1000', discountPercent: '3', cardColor: '#59636e', textColor: '#ffffff', badgeColor: '#c0c7cf', iconName: 'shield-star', benefitDescription: 'Giảm 3%, ưu tiên nhận voucher và chương trình dành riêng.' } },
+  { label: 'Vàng', values: { name: 'Vàng', level: '3', minPoint: '5000', discountPercent: '5', cardColor: '#6f5310', textColor: '#ffffff', badgeColor: '#d4af37', iconName: 'crown', benefitDescription: 'Giảm 5%, ưu tiên chăm sóc và nhận ưu đãi sinh nhật.' } },
+  { label: 'Kim cương', values: { name: 'Kim cương', level: '4', minPoint: '20000', discountPercent: '10', cardColor: '#20546b', textColor: '#ffffff', badgeColor: '#8bd5ee', iconName: 'diamond-stone', benefitDescription: 'Giảm 10%, đặc quyền cao nhất và ưu tiên hỗ trợ.' } },
 ]
 
 const membershipIconSymbols: Record<string, string> = {
@@ -175,6 +188,22 @@ const getContrastRatio = (firstColor: string, secondColor: string) => {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
 }
 
+const validateTierForm = (form: TierFormState): TierFieldErrors => {
+  const errors: TierFieldErrors = {}
+  const level = Number(form.level)
+  const minPoint = Number(form.minPoint)
+  const discountPercent = Number(form.discountPercent)
+  if (form.name.trim().length < 2) errors.name = 'Tên hạng cần ít nhất 2 ký tự.'
+  if (!Number.isInteger(level) || level < 1 || level > 20) errors.level = 'Level phải là số nguyên từ 1 đến 20.'
+  if (!Number.isInteger(minPoint) || minPoint < 0 || minPoint > 100000000) errors.minPoint = 'Điểm tối thiểu phải là số nguyên từ 0 đến 100.000.000.'
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) errors.discountPercent = 'Mức giảm phải nằm trong khoảng 0–100%.'
+  if (form.benefitDescription.trim().length < 2) errors.benefitDescription = 'Quyền lợi cần ít nhất 2 ký tự.'
+  if (!/^#[0-9a-f]{6}$/i.test(form.cardColor)) errors.cardColor = 'Màu thẻ không hợp lệ.'
+  if (!/^#[0-9a-f]{6}$/i.test(form.textColor)) errors.textColor = 'Màu chữ không hợp lệ.'
+  if (getContrastRatio(form.cardColor, form.textColor) < 4.5) errors.textColor = 'Màu chữ và nền cần độ tương phản tối thiểu 4.5:1.'
+  return errors
+}
+
 const toTierPayload = (form: TierFormState): MembershipRankingPayload => {
   const name = form.name.trim()
   const level = Number(form.level)
@@ -216,6 +245,7 @@ const toTierPayload = (form: TierFormState): MembershipRankingPayload => {
 }
 
 export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
+  const { showToast } = useToast()
   const [tiers, setTiers] = useState<MembershipRanking[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
@@ -223,8 +253,16 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [tierForm, setTierForm] = useState<TierFormState>(emptyTierForm)
+  const [tierDraftRestored, setTierDraftRestored] = useState(false)
+  const [tierSubmitAttempted, setTierSubmitAttempted] = useState(false)
+  const [tierFormBaseline, setTierFormBaseline] = useState('')
+  const [tierDiscardRequested, setTierDiscardRequested] = useState(false)
+  const [tierBatchProgress, setTierBatchProgress] = useState('')
+  const [tierKeyword, setTierKeyword] = useState('')
+  const [tierStatusFilter, setTierStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [userKeyword, setUserKeyword] = useState('')
   const [loyaltyUsers, setLoyaltyUsers] = useState<LoyaltyUser[]>([])
+  const [userPagination, setUserPagination] = useState<LoyaltyPagination>(emptyPagination)
   const [isSearchingUsers, setIsSearchingUsers] = useState(false)
   const [selectedTierFilter, setSelectedTierFilter] = useState<MembershipRanking | null>(null)
   const [selectedLoyaltyUser, setSelectedLoyaltyUser] = useState<LoyaltyUser | null>(null)
@@ -234,6 +272,10 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   const [adjustmentDelta, setAdjustmentDelta] = useState('')
   const [adjustmentReason, setAdjustmentReason] = useState('')
   const [isAdjustingPoints, setIsAdjustingPoints] = useState(false)
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<'all' | LoyaltyPointHistory['type']>('all')
+  const [historyDateFrom, setHistoryDateFrom] = useState('')
+  const [historyDateTo, setHistoryDateTo] = useState('')
+  const [historySummary, setHistorySummary] = useState({ added: 0, deducted: 0 })
 
   const canManageLoyalty =
     currentUser.role === 'admin' || currentUser.permissions?.includes('loyalty.write') === true
@@ -247,7 +289,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       setTiers(data)
     } catch (err) {
       setError(getErrorMessage(err))
-      setTiers([])
     } finally {
       setIsLoading(false)
     }
@@ -258,13 +299,24 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   }, [loadTiers])
 
   useEffect(() => {
+    if (dialog?.type !== 'create') return
+    if (!tierForm.name.trim() && !tierForm.benefitDescription.trim()) {
+      window.localStorage.removeItem(tierDraftKey)
+      return
+    }
+    const handle = window.setTimeout(() => window.localStorage.setItem(tierDraftKey, JSON.stringify(tierForm)), 400)
+    return () => window.clearTimeout(handle)
+  }, [dialog?.type, tierForm])
+
+  useEffect(() => {
     if (!notice) {
       return
     }
 
+    showToast(notice.message, notice.type)
     const handle = window.setTimeout(() => setNotice(null), 5000)
     return () => window.clearTimeout(handle)
-  }, [notice])
+  }, [notice, showToast])
 
   const sortedTiers = useMemo(
     () => [...tiers].sort((a, b) => a.level - b.level),
@@ -273,6 +325,40 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
 
   const activeTierCount = sortedTiers.filter((tier) => tier.isActive !== false).length
   const highestTier = sortedTiers[sortedTiers.length - 1]
+  const tierContrastRatio = useMemo(
+    () => getContrastRatio(tierForm.cardColor, tierForm.textColor),
+    [tierForm.cardColor, tierForm.textColor],
+  )
+  const tierErrors = useMemo(() => validateTierForm(tierForm), [tierForm])
+  const visibleTiers = useMemo(() => {
+    const keyword = tierKeyword.trim().toLocaleLowerCase('vi')
+    return sortedTiers.filter((tier) => {
+      const matchesKeyword = !keyword || `${tier.name} ${tier.benefitDescription ?? ''}`.toLocaleLowerCase('vi').includes(keyword)
+      const matchesStatus = tierStatusFilter === 'all'
+        || (tierStatusFilter === 'active' ? tier.isActive !== false : tier.isActive === false)
+      return matchesKeyword && matchesStatus
+    })
+  }, [sortedTiers, tierKeyword, tierStatusFilter])
+  const tierConfigurationWarnings = useMemo(() => {
+    const warnings: string[] = []
+    sortedTiers.forEach((tier, index) => {
+      const previous = sortedTiers[index - 1]
+      if (!previous) {
+        if (tier.level !== 1 || tier.minPoint !== 0) warnings.push('Hạng đầu tiên nên là level 1 và bắt đầu từ 0 điểm.')
+        return
+      }
+      if (tier.level !== previous.level + 1) warnings.push(`Thiếu level giữa ${previous.name} và ${tier.name}.`)
+      if (tier.minPoint <= previous.minPoint) warnings.push(`Mốc điểm của ${tier.name} phải cao hơn ${previous.name}.`)
+      if (previous.minPoint > 0 && tier.minPoint / previous.minPoint >= 10) warnings.push(`Khoảng điểm từ ${previous.name} đến ${tier.name} đang tăng trên 10 lần.`)
+    })
+    return warnings
+  }, [sortedTiers])
+  const suggestedMaxPoint = useMemo(() => {
+    const minPoint = Number(tierForm.minPoint)
+    if (!Number.isFinite(minPoint)) return null
+    const nextTier = sortedTiers.find((tier) => tier.minPoint > minPoint)
+    return nextTier ? Math.max(minPoint, nextTier.minPoint - 1) : null
+  }, [sortedTiers, tierForm.minPoint])
 
   const replaceTier = (updatedTier: MembershipRanking) => {
     setTiers((currentTiers) =>
@@ -281,14 +367,33 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   }
 
   const openCreateDialog = () => {
-    setTierForm(emptyTierForm)
+    let nextForm = emptyTierForm
+    const rawDraft = window.localStorage.getItem(tierDraftKey)
+    if (rawDraft) {
+      try {
+        nextForm = { ...emptyTierForm, ...(JSON.parse(rawDraft) as Partial<TierFormState>) }
+        setTierDraftRestored(true)
+      } catch {
+        window.localStorage.removeItem(tierDraftKey)
+        setTierDraftRestored(false)
+      }
+    } else {
+      setTierDraftRestored(false)
+    }
+    setTierForm(nextForm)
+    setTierFormBaseline(JSON.stringify(nextForm))
     setNotice(null)
+    setTierSubmitAttempted(false)
     setDialog({ type: 'create' })
   }
 
   const openEditDialog = (tier: MembershipRanking) => {
-    setTierForm(toTierForm(tier))
+    const nextForm = toTierForm(tier)
+    setTierForm(nextForm)
+    setTierFormBaseline(JSON.stringify(nextForm))
     setNotice(null)
+    setTierSubmitAttempted(false)
+    setTierDraftRestored(false)
     setDialog({ type: 'edit', tier })
   }
 
@@ -303,15 +408,28 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   }
 
   const closeDialog = () => {
-    if (!actionLoading) {
-      setDialog(null)
+    if (actionLoading) return
+    if ((dialog?.type === 'create' || dialog?.type === 'edit') && JSON.stringify(tierForm) !== tierFormBaseline) {
+      setTierDiscardRequested(true)
+      return
     }
+    setDialog(null)
+  }
+  const forceCloseTierDialog = () => {
+    setTierDiscardRequested(false)
+    setDialog(null)
   }
 
   const handleSubmitTier = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!dialog || dialog.type === 'delete') {
+    if (!dialog || (dialog.type !== 'create' && dialog.type !== 'edit')) {
+      return
+    }
+
+    setTierSubmitAttempted(true)
+    if (Object.keys(tierErrors).length) {
+      setNotice({ type: 'error', message: 'Kiểm tra lại các trường được đánh dấu.' })
       return
     }
 
@@ -323,6 +441,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
 
       if (dialog.type === 'create') {
         await createMembershipRanking(payload)
+        window.localStorage.removeItem(tierDraftKey)
         setNotice({ type: 'success', message: 'Đã thêm hạng thành viên' })
       } else {
         if (!dialog.tier._id) {
@@ -398,39 +517,100 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     }
   }
 
+  const createDefaultTierSet = async () => {
+    setActionLoading(true)
+    setNotice(null)
+    setTierBatchProgress(`Đang kiểm tra ${tierTemplates.length} hạng mẫu...`)
+    try {
+      const payloads = tierTemplates.map((template) => toTierPayload({ ...emptyTierForm, ...template.values }))
+      setTierBatchProgress(`Đang tạo ${payloads.length}/${payloads.length} hạng trong một giao dịch...`)
+      await createMembershipRankingsBatch(payloads)
+      await loadTiers()
+      setNotice({ type: 'success', message: `Đã tạo ${tierTemplates.length} hạng mẫu; bạn có thể chỉnh lại tên, điểm và quyền lợi.` })
+    } catch (err) {
+      setNotice({ type: 'error', message: `Không tạo bộ hạng: ${getErrorMessage(err)}. Không có hạng nào được ghi.` })
+    } finally {
+      setTierBatchProgress('')
+      setActionLoading(false)
+    }
+  }
+
+  const moveTier = async (tier: MembershipRanking, direction: -1 | 1) => {
+    if (!tier._id) return
+    const currentIndex = sortedTiers.findIndex((item) => item._id === tier._id)
+    const targetIndex = currentIndex + direction
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= sortedTiers.length) return
+    const orderedIds = sortedTiers.map((item) => item._id).filter((id): id is string => Boolean(id))
+    ;[orderedIds[currentIndex], orderedIds[targetIndex]] = [orderedIds[targetIndex], orderedIds[currentIndex]]
+    setActionLoading(true)
+    setNotice(null)
+    try {
+      setTiers(await reorderMembershipRankings(orderedIds))
+      setNotice({ type: 'success', message: 'Đã đổi thứ tự hạng và giữ nguyên các mốc điểm theo vị trí.' })
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const dialogRef = useDialogAccessibility(Boolean(dialog), closeDialog, !actionLoading)
+  const tierDiscardDialogRef = useDialogAccessibility(tierDiscardRequested, () => setTierDiscardRequested(false), !actionLoading)
 
   const loadPointHistory = useCallback(async (userId: string, page = 1) => {
     setIsLoadingHistory(true)
 
     try {
-      const result = await listLoyaltyPointHistory(userId, page)
+      const result = await listLoyaltyPointHistory(userId, page, 10, {
+        type: historyTypeFilter === 'all' ? undefined : historyTypeFilter,
+        dateFrom: historyDateFrom || undefined,
+        dateTo: historyDateTo || undefined,
+      })
       setPointHistory(result.items)
       setHistoryPagination(result.pagination)
+      setHistorySummary(result.summary)
     } catch (err) {
       setNotice({ type: 'error', message: getErrorMessage(err) })
       setPointHistory([])
       setHistoryPagination(emptyPagination)
+      setHistorySummary({ added: 0, deducted: 0 })
     } finally {
       setIsLoadingHistory(false)
     }
-  }, [])
+  }, [historyDateFrom, historyDateTo, historyTypeFilter])
 
-  const handleSearchLoyaltyUsers = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const searchLoyaltyUsers = useCallback(async (keyword: string, page = 1, tierId?: string, append = false) => {
     setIsSearchingUsers(true)
     setNotice(null)
 
     try {
-      const result = await listLoyaltyUsers(userKeyword, 1, 10, selectedTierFilter?._id)
-      setLoyaltyUsers(result.items)
+      const result = await listLoyaltyUsers(keyword, page, 10, tierId)
+      setLoyaltyUsers((users) => append ? [...users, ...result.items.filter((item) => !users.some((user) => user._id === item._id))] : result.items)
+      setUserPagination(result.pagination)
     } catch (err) {
       setNotice({ type: 'error', message: getErrorMessage(err) })
-      setLoyaltyUsers([])
+      if (!append) setLoyaltyUsers([])
     } finally {
       setIsSearchingUsers(false)
     }
+  }, [])
+
+  const handleSearchLoyaltyUsers = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void searchLoyaltyUsers(userKeyword, 1, selectedTierFilter?._id)
   }
+
+  useEffect(() => {
+    if (!userKeyword.trim() && !selectedTierFilter?._id) {
+      setLoyaltyUsers([])
+      setUserPagination(emptyPagination)
+      return
+    }
+    const handle = window.setTimeout(() => {
+      void searchLoyaltyUsers(userKeyword, 1, selectedTierFilter?._id)
+    }, 350)
+    return () => window.clearTimeout(handle)
+  }, [searchLoyaltyUsers, selectedTierFilter?._id, userKeyword])
 
   const handleViewTierMembers = async (tier: MembershipRanking) => {
     if (!tier._id) {
@@ -443,8 +623,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     setNotice(null)
 
     try {
-      const result = await listLoyaltyUsers('', 1, 10, tier._id)
-      setLoyaltyUsers(result.items)
+      await searchLoyaltyUsers('', 1, tier._id)
       document.getElementById('loyalty-point-management')?.scrollIntoView({ behavior: 'smooth' })
     } catch (err) {
       setNotice({ type: 'error', message: getErrorMessage(err) })
@@ -459,8 +638,11 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     setIsSearchingUsers(true)
 
     try {
-      const result = await listLoyaltyUsers(userKeyword)
-      setLoyaltyUsers(result.items)
+      if (userKeyword.trim()) await searchLoyaltyUsers(userKeyword)
+      else {
+        setLoyaltyUsers([])
+        setUserPagination(emptyPagination)
+      }
     } catch (err) {
       setNotice({ type: 'error', message: getErrorMessage(err) })
     } finally {
@@ -472,7 +654,65 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     setSelectedLoyaltyUser(user)
     setAdjustmentDelta('')
     setAdjustmentReason('')
+    setHistoryTypeFilter('all')
     void loadPointHistory(user._id)
+  }
+
+  useEffect(() => {
+    if (!selectedLoyaltyUser) return
+    const handle = window.setTimeout(() => void loadPointHistory(selectedLoyaltyUser._id, 1), 250)
+    return () => window.clearTimeout(handle)
+  }, [historyDateFrom, historyDateTo, historyTypeFilter, loadPointHistory, selectedLoyaltyUser])
+
+  const adjustmentDeltaError = adjustmentDelta && (!Number.isInteger(Number(adjustmentDelta)) || Number(adjustmentDelta) === 0 || Math.abs(Number(adjustmentDelta)) > 1000000)
+    ? 'Nhập số nguyên khác 0, tối đa 1.000.000 điểm.'
+    : ''
+  const adjustmentReasonError = adjustmentReason && (adjustmentReason.trim().length < 2 || adjustmentReason.trim().length > 200)
+    ? 'Lý do cần từ 2 đến 200 ký tự.'
+    : ''
+  const filteredPointHistory = pointHistory
+  const pointHistorySummary = historySummary
+  const visibleHistoryPages = useMemo(() => {
+    const totalPages = historyPagination.totalPages
+    const firstPage = Math.max(1, Math.min(historyPagination.page - 2, totalPages - 4))
+    const lastPage = Math.min(totalPages, firstPage + 4)
+    return Array.from({ length: Math.max(0, lastPage - firstPage + 1) }, (_, index) => firstPage + index)
+  }, [historyPagination.page, historyPagination.totalPages])
+
+  const exportPointHistoryCsv = async () => {
+    if (!selectedLoyaltyUser) return
+    setIsLoadingHistory(true)
+    try {
+      let exportPage = 1
+      let totalPages = 1
+      let allItems: LoyaltyPointHistory[] = []
+      do {
+        const result = await listLoyaltyPointHistory(selectedLoyaltyUser._id, exportPage, 50, {
+          type: historyTypeFilter === 'all' ? undefined : historyTypeFilter,
+          dateFrom: historyDateFrom || undefined,
+          dateTo: historyDateTo || undefined,
+        })
+        allItems = [...allItems, ...result.items]
+        totalPages = result.pagination.totalPages
+        exportPage += 1
+      } while (exportPage <= totalPages)
+      const rows = [
+        ['Khách hàng', 'Loại', 'Điểm thay đổi', 'Số dư sau', 'Lý do', 'Người thực hiện', 'Thời gian'],
+        ...allItems.map((history) => [selectedLoyaltyUser.email, history.type, history.delta, history.balanceAfter, history.reason, getHistoryActor(history), history.createdAt]),
+      ]
+      const csv = `\uFEFF${rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')}`
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `loyalty-history-${selectedLoyaltyUser._id}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+      setNotice({ type: 'success', message: `Đã xuất ${allItems.length} giao dịch điểm.` })
+    } catch (err) {
+      setNotice({ type: 'error', message: getErrorMessage(err) })
+    } finally {
+      setIsLoadingHistory(false)
+    }
   }
 
   const handleAdjustPoints = async (event: FormEvent<HTMLFormElement>) => {
@@ -544,12 +784,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
         </span>
       </div>
 
-      {notice ? (
-        <p className={`admin-notice is-${notice.type}`} role="status">
-          {notice.message}
-        </p>
-      ) : null}
-
       <div className="admin-user-stats admin-loyalty-stats">
         <div>
           <span>Hạng đang hoạt động</span>
@@ -566,7 +800,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       </div>
 
       <div className="admin-loyalty-grid">
-        <section className="admin-table-shell admin-loyalty-table">
+        <section className={`admin-table-shell admin-loyalty-table${isLoading && sortedTiers.length ? ' is-refreshing' : ''}`}>
           <div className="admin-section-heading">
             <div>
               <p>Cấu hình hạng</p>
@@ -589,6 +823,22 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
             </div>
           ) : null}
 
+          <div className="admin-loyalty-tier-filters">
+            <label>
+              <span>Tìm hạng</span>
+              <input value={tierKeyword} onChange={(event) => setTierKeyword(event.target.value)} placeholder="Tên hoặc quyền lợi" />
+            </label>
+            <label>
+              <span>Trạng thái</span>
+              <select value={tierStatusFilter} onChange={(event) => setTierStatusFilter(event.target.value as typeof tierStatusFilter)}>
+                <option value="all">Tất cả</option>
+                <option value="active">Hoạt động</option>
+                <option value="inactive">Tạm tắt</option>
+              </select>
+            </label>
+          </div>
+          {tierConfigurationWarnings.map((warning) => <p className="admin-smart-warning" key={warning}>{warning}</p>)}
+
           <table className="admin-table">
             <thead>
               <tr>
@@ -603,10 +853,10 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {isLoading && sortedTiers.length === 0 ? (
                 <tr>
                   <td colSpan={8}>
-                    <div className="admin-table-loading">Đang tải hạng thành viên...</div>
+                    <div className="admin-table-skeleton" aria-label="Đang tải hạng thành viên">{Array.from({ length: 5 }, (_, index) => <span key={index} />)}</div>
                   </td>
                 </tr>
               ) : null}
@@ -615,6 +865,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                 <tr>
                   <td colSpan={8}>
                     <div className="admin-loyalty-empty-state">
+                      <AdminEmptyIllustration variant="tier" />
                       <strong>Chưa có hạng thành viên nào</strong>
                       <span>Bấm “Thêm hạng” để bắt đầu cấu hình chương trình loyalty.</span>
                       <button
@@ -625,27 +876,35 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                       >
                         Thêm hạng
                       </button>
+                      <button className="admin-link-button" type="button" disabled={!canManageLoyalty || actionLoading} onClick={() => void createDefaultTierSet()}>
+                        Tạo nhanh bộ hạng mẫu
+                      </button>
+                      {tierBatchProgress ? <small role="status">{tierBatchProgress}</small> : null}
                     </div>
                   </td>
                 </tr>
               ) : null}
 
-              {!isLoading ? sortedTiers.map((tier, index) => {
+              {!isLoading && sortedTiers.length > 0 && visibleTiers.length === 0 ? (
+                <tr><td colSpan={8}>Không có hạng phù hợp bộ lọc.</td></tr>
+              ) : null}
+
+              {visibleTiers.map((tier, index) => {
                 const hasPersistedTier = Boolean(tier._id)
                 const isActive = tier.isActive !== false
 
                 return (
-                  <tr key={tier._id ?? `${tier.level}-${tier.name}-${index}`}>
-                    <td>
+                  <tr className={selectedTierFilter?._id === tier._id ? 'is-tier-selected' : ''} key={tier._id ?? `${tier.level}-${tier.name}-${index}`}>
+                    <td data-label="Hạng">
                       <strong>{tier.name}</strong>
                       <span>Level {tier.level}</span>
                     </td>
-                    <td>
+                    <td data-label="Điểm yêu cầu">
                       {formatNumber(tier.minPoint)} - {formatNumber(tier.maxPoint)}
                     </td>
-                    <td>{tier.discountPercent}%</td>
-                    <td>{tier.benefitDescription || 'Chưa mô tả'}</td>
-                    <td>
+                    <td data-label="Giảm giá">{tier.discountPercent}%</td>
+                    <td data-label="Quyền lợi">{tier.benefitDescription || 'Chưa mô tả'}</td>
+                    <td data-label="Thành viên">
                       <button
                         className="admin-link-button admin-loyalty-member-link"
                         type="button"
@@ -655,7 +914,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                         {formatNumber(tier.memberCount ?? 0)}
                       </button>
                     </td>
-                    <td>
+                    <td data-label="Hiển thị">
                       <div
                         className="admin-loyalty-visual-preview"
                         style={{
@@ -672,14 +931,14 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                         </strong>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Trạng thái">
                       <span
                         className={`admin-status-pill${isActive ? ' is-active' : ' is-blocked'}`}
                       >
                         {isActive ? 'Hoạt động' : 'Tạm tắt'}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Thao tác">
                       <div className="admin-row-actions">
                         <button
                           className="admin-link-button"
@@ -689,29 +948,23 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                         >
                           Sửa
                         </button>
-                        <button
-                          className={isActive ? 'admin-danger-link' : 'admin-link-button'}
-                          type="button"
-                          disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-                          onClick={() => openStatusDialog(tier, !isActive)}
-                        >
-                          {isActive ? 'Tắt' : 'Bật'}
-                        </button>
-                        <button
-                          className="admin-danger-link"
-                          type="button"
-                          disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-                          onClick={() => openDeleteDialog(tier)}
-                        >
-                          Xóa
-                        </button>
+                        <details className="admin-action-menu">
+                          <summary aria-label={`Thao tác với hạng ${tier.name}`}>•••</summary>
+                          <div>
+                            <button type="button" disabled={!canManageLoyalty || sortedTiers.findIndex((item) => item._id === tier._id) === 0 || actionLoading} onClick={() => void moveTier(tier, -1)}>Đưa lên</button>
+                            <button type="button" disabled={!canManageLoyalty || sortedTiers.findIndex((item) => item._id === tier._id) === sortedTiers.length - 1 || actionLoading} onClick={() => void moveTier(tier, 1)}>Đưa xuống</button>
+                            <button type="button" disabled={!canManageLoyalty || !hasPersistedTier || actionLoading} onClick={() => openStatusDialog(tier, !isActive)}>{isActive ? 'Tắt' : 'Bật'}</button>
+                            <button className="is-danger" type="button" disabled={!canManageLoyalty || !hasPersistedTier || actionLoading} onClick={() => openDeleteDialog(tier)}>Xóa</button>
+                          </div>
+                        </details>
                       </div>
                     </td>
                   </tr>
                 )
-              }) : null}
+              })}
             </tbody>
           </table>
+          {isLoading && sortedTiers.length ? <div className="admin-table-refresh-indicator" role="status">Đang cập nhật hạng...</div> : null}
         </section>
 
         <aside className="admin-loyalty-panel">
@@ -781,16 +1034,23 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   <span>
                     <strong>{user.name}</strong>
                     <small>{user.email}{user.phone ? ` · ${user.phone}` : ''}</small>
+                    <em>Hạng: {[...sortedTiers].reverse().find((tier) => user.loyaltyPoint >= tier.minPoint)?.name ?? 'Chưa xếp hạng'}</em>
                   </span>
                   <b>{formatNumber(user.loyaltyPoint)} điểm</b>
                 </button>
               ))}
             </div>
+            {userPagination.page < userPagination.totalPages ? (
+              <button className="admin-secondary-button admin-loyalty-load-more" type="button" disabled={isSearchingUsers} onClick={() => void searchLoyaltyUsers(userKeyword, userPagination.page + 1, selectedTierFilter?._id, true)}>
+                {isSearchingUsers ? 'Đang tải...' : `Tải thêm (${loyaltyUsers.length}/${userPagination.totalItems})`}
+              </button>
+            ) : null}
           </div>
 
           <div className="admin-loyalty-point-detail">
             {!selectedLoyaltyUser ? (
               <div className="admin-loyalty-empty-state">
+                <AdminEmptyIllustration variant="customer" />
                 <strong>Chưa chọn khách hàng</strong>
                 <span>Chọn một khách hàng ở danh sách bên trái để xem lịch sử và điều chỉnh điểm.</span>
               </div>
@@ -817,6 +1077,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                       step={1}
                       required
                     />
+                    {adjustmentDeltaError ? <small className="admin-field-error">{adjustmentDeltaError}</small> : null}
                   </label>
                   <label>
                     <span>Lý do</span>
@@ -828,6 +1089,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                       maxLength={200}
                       required
                     />
+                    {adjustmentReasonError ? <small className="admin-field-error">{adjustmentReasonError}</small> : null}
                   </label>
                   <button
                     className="admin-primary-button"
@@ -839,12 +1101,24 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                 </form>
 
                 <div className="admin-loyalty-history">
-                  <h3>Lịch sử điểm</h3>
+                  <div className="admin-loyalty-history-heading">
+                    <h3>Lịch sử điểm</h3>
+                    <div>
+                      {(['all', 'earn', 'redeem', 'adjust'] as const).map((type) => <button key={type} type="button" className={historyTypeFilter === type ? 'is-active' : ''} onClick={() => setHistoryTypeFilter(type)}>{type === 'all' ? 'Tất cả' : type === 'earn' ? 'Cộng' : type === 'redeem' ? 'Đổi điểm' : 'Điều chỉnh'}</button>)}
+                      <button type="button" disabled={isLoadingHistory || historyPagination.totalItems === 0} onClick={() => void exportPointHistoryCsv()}>Xuất CSV</button>
+                    </div>
+                  </div>
+                  <div className="admin-loyalty-history-date-filters">
+                    <label><span>Từ ngày</span><input type="date" value={historyDateFrom} max={historyDateTo || undefined} onChange={(event) => setHistoryDateFrom(event.target.value)} /></label>
+                    <label><span>Đến ngày</span><input type="date" value={historyDateTo} min={historyDateFrom || undefined} onChange={(event) => setHistoryDateTo(event.target.value)} /></label>
+                    {(historyDateFrom || historyDateTo) ? <button className="admin-link-button" type="button" onClick={() => { setHistoryDateFrom(''); setHistoryDateTo('') }}>Xóa ngày</button> : null}
+                  </div>
+                  <div className="admin-loyalty-history-summary"><span>Cộng <strong>+{formatNumber(pointHistorySummary.added)}</strong></span><span>Trừ <strong>-{formatNumber(pointHistorySummary.deducted)}</strong></span><small>Toàn bộ kết quả đã lọc</small></div>
                   {isLoadingHistory ? <p>Đang tải lịch sử...</p> : null}
                   {!isLoadingHistory && pointHistory.length === 0 ? <p>Chưa có giao dịch điểm.</p> : null}
-                  {!isLoadingHistory && pointHistory.length > 0 ? (
+                  {!isLoadingHistory && filteredPointHistory.length > 0 ? (
                     <div className="admin-loyalty-history-list">
-                      {pointHistory.map((history) => (
+                      {filteredPointHistory.map((history) => (
                         <article key={history._id}>
                           <span className={history.delta > 0 ? 'is-positive' : 'is-negative'}>
                             {history.delta > 0 ? '+' : ''}{formatNumber(history.delta)}
@@ -859,6 +1133,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                       ))}
                     </div>
                   ) : null}
+                  {!isLoadingHistory && pointHistory.length > 0 && filteredPointHistory.length === 0 ? <p>Không có giao dịch thuộc bộ lọc này.</p> : null}
                   {historyPagination.totalPages > 1 ? (
                     <div className="admin-loyalty-pagination">
                       <button
@@ -869,7 +1144,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                       >
                         Trang trước
                       </button>
-                      <span>{historyPagination.page}/{historyPagination.totalPages}</span>
+                      {visibleHistoryPages.map((pageNumber) => <button className={pageNumber === historyPagination.page ? 'is-active' : 'admin-link-button'} type="button" key={pageNumber} disabled={isLoadingHistory} aria-current={pageNumber === historyPagination.page ? 'page' : undefined} onClick={() => void loadPointHistory(selectedLoyaltyUser._id, pageNumber)}>{pageNumber}</button>)}
                       <button
                         className="admin-link-button"
                         type="button"
@@ -899,31 +1174,43 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
 
         <div className="admin-loyalty-impact-list">
           {integrationChecks.map((item) => (
-            <span key={item}>{item}</span>
+            <span key={item}><b aria-hidden="true">✓</b>{item}</span>
           ))}
         </div>
       </section>
 
       {dialog?.type === 'create' || dialog?.type === 'edit' ? (
         <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-tier-dialog-title">
-          <form className="admin-account-dialog" onSubmit={handleSubmitTier}>
+          <form className="admin-account-dialog admin-tier-dialog" onSubmit={handleSubmitTier} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.requestSubmit() }}>
             <h2 id="admin-tier-dialog-title">
               {dialog.type === 'create' ? 'Thêm hạng thành viên' : 'Sửa hạng thành viên'}
             </h2>
+            {notice ? <p className={`admin-notice is-${notice.type}`} role="status">{notice.message}</p> : null}
+            {dialog.type === 'create' ? <div className="admin-tier-template-row"><span>Mẫu nhanh</span>{tierTemplates.map((template) => <button key={template.label} type="button" onClick={() => setTierForm((form) => ({ ...form, ...template.values }))}>{template.label}</button>)}</div> : null}
+            {tierDraftRestored ? <div className="admin-tier-draft-notice"><span>Đã khôi phục bản nháp gần nhất.</span><button type="button" onClick={() => { window.localStorage.removeItem(tierDraftKey); setTierForm(emptyTierForm); setTierDraftRestored(false) }}>Bỏ bản nháp</button></div> : null}
+            <div className="admin-tier-card-preview" style={{ backgroundColor: tierForm.cardColor, color: tierForm.textColor }}>
+              <span style={{ backgroundColor: tierForm.badgeColor }}>{membershipIconSymbols[tierForm.iconName] ?? membershipIconSymbols.star}</span>
+              <div><small>FASHIONISTA MEMBER</small><strong>{tierForm.name || 'Tên hạng'}</strong><p>Level {tierForm.level || '—'} · Giảm {tierForm.discountPercent || 0}%</p></div>
+              <em>{tierForm.benefitDescription || 'Quyền lợi của thành viên sẽ hiển thị tại đây.'}</em>
+            </div>
+            <h3 className="admin-tier-form-section-title">Thông tin và quyền lợi</h3>
             <div className="admin-account-form-grid">
               <label>
                 <span>Tên hạng</span>
                 <input
+                  className={(tierSubmitAttempted || tierForm.name.length > 0) && tierErrors.name ? 'is-invalid' : ''}
                   value={tierForm.name}
                   onChange={(event) => setTierForm((form) => ({ ...form, name: event.target.value }))}
                   required
                   minLength={2}
                   maxLength={30}
                 />
+                {(tierSubmitAttempted || tierForm.name.length > 0) && tierErrors.name ? <small className="admin-field-error">{tierErrors.name}</small> : null}
               </label>
               <label>
                 <span>Cấp hạng</span>
                 <input
+                  className={(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? 'is-invalid' : ''}
                   type="number"
                   value={tierForm.level}
                   onChange={(event) => setTierForm((form) => ({ ...form, level: event.target.value }))}
@@ -931,10 +1218,13 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   min={1}
                   max={20}
                 />
+                {(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? <small className="admin-field-error">{tierErrors.level}</small> : null}
+                <small className="admin-field-hint">Level càng cao tương ứng hạng càng cao.</small>
               </label>
               <label>
                 <span>Điểm tối thiểu</span>
                 <input
+                  className={(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? 'is-invalid' : ''}
                   type="number"
                   value={tierForm.minPoint}
                   onChange={(event) => setTierForm((form) => ({ ...form, minPoint: event.target.value }))}
@@ -942,18 +1232,22 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   min={0}
                   max={100000000}
                 />
+                {(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? <small className="admin-field-error">{tierErrors.minPoint}</small> : null}
+                <small className="admin-field-hint">Ví dụ 5.000 điểm tương ứng khoảng 5 triệu đồng chi tiêu với rule mặc định.</small>
               </label>
               <label>
                 <span>Điểm tối đa (tự tính)</span>
                 <input
                   type="text"
-                  value={tierForm.maxPoint || 'Theo mốc hạng kế tiếp'}
+                  value={suggestedMaxPoint === null ? 'Không giới hạn (hạng cao nhất)' : formatNumber(suggestedMaxPoint)}
                   disabled
                 />
+                <small className="admin-field-hint">Tự động bằng điểm tối thiểu của hạng kế tiếp trừ 1.</small>
               </label>
               <label>
                 <span>Giảm giá (%)</span>
                 <input
+                  className={(tierSubmitAttempted || tierForm.discountPercent.length > 0) && tierErrors.discountPercent ? 'is-invalid' : ''}
                   type="number"
                   value={tierForm.discountPercent}
                   onChange={(event) =>
@@ -964,6 +1258,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   max={100}
                   step={0.1}
                 />
+                {(tierSubmitAttempted || tierForm.discountPercent.length > 0) && tierErrors.discountPercent ? <small className="admin-field-error">{tierErrors.discountPercent}</small> : Number(tierForm.discountPercent) > 15 ? <small className="admin-field-error">Mức trên 15% có thể ảnh hưởng biên lợi nhuận.</small> : <small className="admin-field-hint">Gợi ý: Đồng 0%, Bạc 3%, Vàng 5%, Kim Cương 10%.</small>}
               </label>
               <label>
                 <span>Trạng thái</span>
@@ -977,21 +1272,40 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   <option value="inactive">Tạm tắt</option>
                 </select>
               </label>
+            </div>
+            <h3 className="admin-tier-form-section-title">Giao diện thẻ</h3>
+            <div className="admin-tier-palette-row" aria-label="Bảng màu gợi ý">
+              {[
+                { name: 'Đồng', card: '#8f5b34', text: '#ffffff', badge: '#d19a66' },
+                { name: 'Bạc', card: '#59636e', text: '#ffffff', badge: '#c0c7cf' },
+                { name: 'Vàng', card: '#6f5310', text: '#ffffff', badge: '#d4af37' },
+                { name: 'Kim cương', card: '#20546b', text: '#ffffff', badge: '#8bd5ee' },
+              ].map((palette) => <button key={palette.name} type="button" style={{ backgroundColor: palette.card, color: palette.text }} onClick={() => setTierForm((form) => ({ ...form, cardColor: palette.card, textColor: palette.text, badgeColor: palette.badge }))}>{palette.name}</button>)}
+            </div>
+            <div className="admin-account-form-grid">
               <label>
                 <span>Màu thẻ</span>
                 <input
+                  className={tierErrors.cardColor ? 'is-invalid' : ''}
                   type="color"
                   value={tierForm.cardColor}
-                  onChange={(event) => setTierForm((form) => ({ ...form, cardColor: event.target.value }))}
+                  onChange={(event) => {
+                    const cardColor = event.target.value
+                    const textColor = getContrastRatio(cardColor, '#ffffff') >= getContrastRatio(cardColor, '#111827') ? '#ffffff' : '#111827'
+                    setTierForm((form) => ({ ...form, cardColor, textColor }))
+                  }}
                 />
+                {tierErrors.cardColor ? <small className="admin-field-error">{tierErrors.cardColor}</small> : null}
               </label>
               <label>
                 <span>Màu chữ</span>
                 <input
+                  className={tierErrors.textColor ? 'is-invalid' : ''}
                   type="color"
                   value={tierForm.textColor}
                   onChange={(event) => setTierForm((form) => ({ ...form, textColor: event.target.value }))}
                 />
+                {tierErrors.textColor ? <small className="admin-field-error">{tierErrors.textColor}</small> : null}
               </label>
               <label>
                 <span>Màu badge</span>
@@ -1001,23 +1315,18 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   onChange={(event) => setTierForm((form) => ({ ...form, badgeColor: event.target.value }))}
                 />
               </label>
-              <label>
+              <div className="admin-tier-icon-field">
                 <span>Icon</span>
-                <select
-                  value={tierForm.iconName}
-                  onChange={(event) => setTierForm((form) => ({ ...form, iconName: event.target.value }))}
-                >
-                  {iconOptions.map((icon) => (
-                    <option key={icon.value} value={icon.value}>
-                      {icon.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <div className="admin-tier-icon-grid">
+                  {iconOptions.map((icon) => <button key={icon.value} type="button" className={tierForm.iconName === icon.value ? 'is-selected' : ''} aria-label={icon.label} title={icon.label} onClick={() => setTierForm((form) => ({ ...form, iconName: icon.value }))}>{membershipIconSymbols[icon.value] ?? '●'}</button>)}
+                </div>
+              </div>
             </div>
+            <p className={`admin-tier-contrast ${tierContrastRatio >= 4.5 ? 'is-valid' : 'is-invalid'}`}>Độ tương phản {tierContrastRatio.toFixed(2)}:1 · {tierContrastRatio >= 4.5 ? 'Đạt chuẩn dễ đọc' : 'Cần tối thiểu 4.5:1'}</p>
             <label>
               <span>Quyền lợi</span>
               <textarea
+                className={(tierSubmitAttempted || tierForm.benefitDescription.length > 0) && tierErrors.benefitDescription ? 'is-invalid' : ''}
                 value={tierForm.benefitDescription}
                 onChange={(event) =>
                   setTierForm((form) => ({ ...form, benefitDescription: event.target.value }))
@@ -1027,12 +1336,14 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                 maxLength={200}
                 rows={3}
               />
+              {(tierSubmitAttempted || tierForm.benefitDescription.length > 0) && tierErrors.benefitDescription ? <small className="admin-field-error">{tierErrors.benefitDescription}</small> : null}
+              <small className="admin-character-count">{tierForm.benefitDescription.length}/200</small>
             </label>
             <div className="admin-dialog-actions">
               <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={closeDialog}>
                 Hủy
               </button>
-              <button className="admin-primary-button" type="submit" disabled={actionLoading}>
+              <button className="admin-primary-button" type="submit" disabled={actionLoading || Object.keys(tierErrors).length > 0}>
                 {actionLoading ? 'Đang lưu...' : 'Lưu hạng'}
               </button>
             </div>
@@ -1088,6 +1399,11 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+      {tierDiscardRequested ? (
+        <div ref={tierDiscardDialogRef} tabIndex={-1} className="admin-confirm-layer is-nested" role="dialog" aria-modal="true" aria-labelledby="admin-tier-discard-title">
+          <div className="admin-confirm-box"><h2 id="admin-tier-discard-title">Bỏ thay đổi chưa lưu?</h2><p>Bản nháp hạng mới vẫn được giữ để bạn khôi phục lần sau.</p><div className="admin-dialog-actions"><button className="admin-secondary-button" type="button" onClick={() => setTierDiscardRequested(false)}>Tiếp tục chỉnh</button><button className="admin-danger-button" type="button" onClick={forceCloseTierDialog}>Bỏ thay đổi</button></div></div>
         </div>
       ) : null}
     </section>

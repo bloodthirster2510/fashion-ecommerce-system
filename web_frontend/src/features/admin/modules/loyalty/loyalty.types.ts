@@ -6,10 +6,10 @@ export type MembershipRanking = {
   maxPoint?: number | null
   discountPercent: number
   benefitDescription?: string
-  cardColor?: string
-  textColor?: string
-  badgeColor?: string
-  iconName?: string
+  cardColor: string
+  textColor: string
+  badgeColor: string
+  iconName: string
   isActive?: boolean
   memberCount?: number
 }
@@ -71,6 +71,7 @@ export type LoyaltyUserList = {
 export type LoyaltyPointHistoryList = {
   items: LoyaltyPointHistory[]
   pagination: LoyaltyPagination
+  summary: { added: number; deducted: number }
 }
 
 export type LoyaltyPointAdjustmentResult = {

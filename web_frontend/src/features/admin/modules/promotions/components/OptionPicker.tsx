@@ -15,6 +15,11 @@ type OptionPickerProps = {
   onChange: (values: string[]) => void
   onSearch?: (query: string) => void
   isSearching?: boolean
+  totalCount?: number
+  hasMore?: boolean
+  onLoadMore?: () => void
+  warning?: string
+  onRetry?: () => void
 }
 
 const normalizeSearchText = (value: string) =>
@@ -28,11 +33,6 @@ const normalizeSearchText = (value: string) =>
 const formatPickerCount = (count: number, emptyLabel: string) =>
   count > 0 ? `Đã chọn ${count}` : emptyLabel
 
-const virtualizeThreshold = 40
-const optionRowHeight = 48
-const optionViewportHeight = 196
-const optionOverscan = 3
-
 export function OptionPicker({
   title,
   emptyLabel,
@@ -42,9 +42,13 @@ export function OptionPicker({
   onChange,
   onSearch,
   isSearching = false,
+  totalCount,
+  hasMore = false,
+  onLoadMore,
+  warning,
+  onRetry,
 }: OptionPickerProps) {
   const [query, setQuery] = useState('')
-  const [scrollTop, setScrollTop] = useState(0)
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues])
   const normalizedQuery = normalizeSearchText(query.trim())
   const filteredOptions = useMemo(
@@ -60,17 +64,6 @@ export function OptionPicker({
     () => options.filter((option) => selectedSet.has(option.value)),
     [options, selectedSet],
   )
-  const shouldVirtualize = filteredOptions.length > virtualizeThreshold
-  const virtualStartIndex = shouldVirtualize
-    ? Math.max(0, Math.floor(scrollTop / optionRowHeight) - optionOverscan)
-    : 0
-  const virtualEndIndex = shouldVirtualize
-    ? Math.min(
-        filteredOptions.length,
-        virtualStartIndex + Math.ceil(optionViewportHeight / optionRowHeight) + optionOverscan * 2,
-      )
-    : filteredOptions.length
-  const visibleOptions = filteredOptions.slice(virtualStartIndex, virtualEndIndex)
 
   useEffect(() => {
     if (!onSearch) {
@@ -81,10 +74,6 @@ export function OptionPicker({
     return () => window.clearTimeout(handle)
   }, [onSearch, query])
 
-  useEffect(() => {
-    setScrollTop(0)
-  }, [normalizedQuery, options])
-
   const toggleValue = (value: string) => {
     if (selectedSet.has(value)) {
       onChange(selectedValues.filter((selectedValue) => selectedValue !== value))
@@ -94,19 +83,40 @@ export function OptionPicker({
     onChange([...selectedValues, value])
   }
 
+  const selectFilteredOptions = () => {
+    onChange(Array.from(new Set([...selectedValues, ...filteredOptions.map((option) => option.value)])))
+  }
+
   return (
     <section className="admin-option-picker">
       <header className="admin-option-picker-header">
         <div>
           <strong>{title}</strong>
-          <span>{formatPickerCount(selectedValues.length, emptyLabel)}</span>
+          <span>
+            {formatPickerCount(selectedValues.length, emptyLabel)} · {filteredOptions.length}/{totalCount ?? options.length} mục
+          </span>
         </div>
-        {selectedValues.length ? (
-          <button className="admin-link-button" type="button" onClick={() => onChange([])}>
-            Bỏ chọn
-          </button>
-        ) : null}
+        <div className="admin-option-picker-actions">
+          {filteredOptions.length ? (
+            <button className="admin-link-button" type="button" onClick={selectFilteredOptions}>Chọn kết quả</button>
+          ) : null}
+          {selectedValues.length ? (
+            <button className="admin-link-button" type="button" onClick={() => onChange([])}>Bỏ chọn</button>
+          ) : null}
+        </div>
       </header>
+
+      {selectedOptions.length ? (
+        <div className="admin-option-chips" aria-label="Mục đã chọn">
+          {selectedOptions.map((option) => (
+            <button key={option.value} type="button" onClick={() => toggleValue(option.value)} title="Bấm để bỏ chọn">
+              {option.label} ×
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {warning ? <div className="admin-option-warning" role="status"><span>{warning}</span>{onRetry ? <button className="admin-link-button" type="button" onClick={onRetry}>Thử lại</button> : null}</div> : null}
 
       {onSearch || options.length > 8 ? (
         <input
@@ -118,24 +128,15 @@ export function OptionPicker({
         />
       ) : null}
 
-      <div
-        className={`admin-option-list${shouldVirtualize ? ' is-virtualized' : ''}`}
-        onScroll={shouldVirtualize ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
-      >
+      <div className="admin-option-list">
         {isSearching ? (
           <div className="admin-option-empty">Đang tìm sản phẩm...</div>
         ) : filteredOptions.length ? (
-          <div
-            className="admin-option-list-content"
-            style={shouldVirtualize ? { height: filteredOptions.length * optionRowHeight } : undefined}
-          >
-            {visibleOptions.map((option, visibleIndex) => {
-              const optionIndex = virtualStartIndex + visibleIndex
-              return (
+          <div className="admin-option-list-content">
+            {filteredOptions.map((option) => (
                 <label
                   key={option.value}
                   className="admin-option-item"
-                  style={shouldVirtualize ? { transform: `translateY(${optionIndex * optionRowHeight}px)` } : undefined}
                 >
                   <input
                     type="checkbox"
@@ -147,22 +148,17 @@ export function OptionPicker({
                     {option.meta ? <small>{option.meta}</small> : null}
                   </span>
                 </label>
-              )
-            })}
+            ))}
           </div>
         ) : (
           <div className="admin-option-empty">Không có mục phù hợp</div>
         )}
       </div>
 
-      {selectedOptions.length ? (
-        <div className="admin-option-chips">
-          {selectedOptions.map((option) => (
-            <button key={option.value} type="button" onClick={() => toggleValue(option.value)}>
-              {option.label}
-            </button>
-          ))}
-        </div>
+      {hasMore && onLoadMore ? (
+        <button className="admin-option-load-more" type="button" disabled={isSearching} onClick={onLoadMore}>
+          {isSearching ? 'Đang tải...' : 'Tải thêm'}
+        </button>
       ) : null}
     </section>
   )

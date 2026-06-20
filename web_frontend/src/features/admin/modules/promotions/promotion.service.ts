@@ -7,6 +7,7 @@ import type {
   CouponListFilters,
   CouponListResponse,
   CouponPayload,
+  CouponPreview,
   CouponUsageListResponse,
   ProductOption,
   PromotionAnalytics,
@@ -14,8 +15,14 @@ import type {
   PromotionCampaignPayload,
 } from './promotion.types'
 
-type ProductListResponse = {
+export type ProductListResponse = {
   items: ProductOption[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
 }
 
 const buildCouponListQuery = (filters: CouponListFilters) => {
@@ -29,6 +36,21 @@ const buildCouponListQuery = (filters: CouponListFilters) => {
   if (filters.status && filters.status !== 'all') {
     params.set('status', filters.status)
   }
+
+  if (filters.discountType && filters.discountType !== 'all') {
+    params.set('discountType', filters.discountType)
+  }
+
+  if (filters.visibility && filters.visibility !== 'all') {
+    params.set('visibility', filters.visibility)
+  }
+
+  if (filters.eligibleUserType && filters.eligibleUserType !== 'all_filter') {
+    params.set('eligibleUserType', filters.eligibleUserType)
+  }
+  if (filters.eligibleMembershipRank) params.set('eligibleMembershipRank', filters.eligibleMembershipRank)
+  if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
+  if (filters.dateTo) params.set('dateTo', filters.dateTo)
 
   if (filters.sort) {
     params.set('sort', filters.sort)
@@ -55,8 +77,18 @@ export const checkCouponCodeAvailability = (code: string, excludeId?: string) =>
   return requestAdmin<CouponCodeAvailability>(`/admin/coupons/check-code?${params.toString()}`)
 }
 
-export const listCouponUsage = (id: string, page = 1, limit = 10) =>
-  requestAdmin<CouponUsageListResponse>(`/admin/coupons/${id}/usage?page=${page}&limit=${limit}`)
+export const listCouponUsage = (
+  id: string,
+  page = 1,
+  limit = 10,
+  filters: { keyword?: string; dateFrom?: string; dateTo?: string } = {},
+) => {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  if (filters.keyword?.trim()) params.set('keyword', filters.keyword.trim())
+  if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
+  if (filters.dateTo) params.set('dateTo', filters.dateTo)
+  return requestAdmin<CouponUsageListResponse>(`/admin/coupons/${id}/usage?${params.toString()}`)
+}
 
 export const createCoupon = (payload: CouponPayload) =>
   requestAdmin<AdminCoupon>('/admin/coupons', {
@@ -91,7 +123,6 @@ export const listCouponProducts = (keyword = '', page = 1, limit = 20) => {
   }
 
   return requestAdmin<ProductListResponse>(`/admin/products/list?${params.toString()}`)
-    .then((response) => response.items)
 }
 
 export const listPromotionCampaigns = () =>
@@ -99,6 +130,18 @@ export const listPromotionCampaigns = () =>
 
 export const createPromotionCampaign = (payload: PromotionCampaignPayload) =>
   requestAdmin<PromotionCampaign>('/admin/promotion-campaigns', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+export const previewCoupon = (coupon: CouponPayload, sampleSubTotal: number, sampleShippingFee: number) =>
+  requestAdmin<CouponPreview>('/admin/coupons/preview', {
+    method: 'POST',
+    body: JSON.stringify({ coupon, sampleSubTotal, sampleShippingFee }),
+  })
+
+export const duplicateCoupon = (id: string, payload: CouponPayload) =>
+  requestAdmin<AdminCoupon>(`/admin/coupons/${id}/duplicate`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })

@@ -11,6 +11,7 @@ type ApiResponse<T> = {
 }
 
 const SESSION_EXPIRED_MESSAGE = 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại'
+const DEMO_ACCESS_TOKEN = 'demo-admin-access-token'
 
 const getAccessToken = () => {
   const session = getAdminSession()
@@ -38,9 +39,14 @@ const fetchWithToken = async (path: string, init?: RequestInit, accessToken = ge
 }
 
 export const requestAdmin = async <T>(path: string, init?: RequestInit) => {
-  let response = await fetchWithToken(path, init)
+  const currentAccessToken = getAccessToken()
+  let response = await fetchWithToken(path, init, currentAccessToken)
 
   if (response.status === 401) {
+    if (currentAccessToken === DEMO_ACCESS_TOKEN && import.meta.env.DEV) {
+      throw new Error('Dữ liệu API không khả dụng trong chế độ xem bố cục demo')
+    }
+
     try {
       const nextSession = await refreshAdminSession()
       response = await fetchWithToken(path, init, nextSession.accessToken)

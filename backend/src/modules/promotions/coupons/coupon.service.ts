@@ -6,6 +6,7 @@ import {
   MembershipRanking,
   Product,
   User,
+  Order,
   type CouponDiscountType,
   type CouponEligibleUserType,
   type ICoupon,
@@ -23,6 +24,7 @@ import type {
   AvailableCouponsInput,
   CouponListQueryInput,
   CouponUsageListQueryInput,
+  CouponPreviewInput,
   CreateCouponInput,
   UpdateCouponInput,
   ValidateCouponInput,
@@ -248,6 +250,31 @@ const buildCouponFilter = (query: CouponListQueryInput) => {
     filter.startAt = { $gt: now };
   }
 
+  if (query.discountType) {
+    filter.discountType = query.discountType;
+  }
+
+  if (typeof query.isPublic === 'boolean') {
+    filter.isPublic = query.isPublic;
+  }
+
+  if (query.eligibleUserType) {
+    filter.eligibleUserTypes = query.eligibleUserType;
+  }
+
+  if (query.eligibleMembershipRank) {
+    assertValidObjectId(query.eligibleMembershipRank, 'membership ranking id');
+    filter.eligibleMembershipRanks = new Types.ObjectId(query.eligibleMembershipRank);
+  }
+
+  if (query.dateFrom || query.dateTo) {
+    if (query.dateFrom && query.dateTo && query.dateFrom > query.dateTo) {
+      throw new CouponServiceError('dateFrom must be before dateTo', 400);
+    }
+    if (query.dateTo) filter.startAt = { ...((filter.startAt as object) ?? {}), $lte: query.dateTo };
+    if (query.dateFrom) filter.endAt = { ...((filter.endAt as object) ?? {}), $gte: query.dateFrom };
+  }
+
   if (query.keyword?.trim()) {
     const keywordRegex = new RegExp(escapeRegex(query.keyword.trim()), 'i');
     filter.$or = [
@@ -437,17 +464,32 @@ const listCoupons = async (query: CouponListQueryInput) => {
     code_asc: { code: 1 },
   }[query.sort ?? 'created_desc'] as Record<string, 1 | -1>;
 
-  const [items, totalItems] = await Promise.all([
+  const [items, totalItems, summaryRows] = await Promise.all([
     Coupon.find(filter, { userUsageCounts: 0, deletedAt: 0, __v: 0 })
       .sort(sortBy)
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
     Coupon.countDocuments(filter),
+    Coupon.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          usedCount: { $sum: '$usedCount' },
+          activeCount: { $sum: { $cond: ['$isActive', 1, 0] } },
+          publicCount: { $sum: { $cond: ['$isPublic', 1, 0] } },
+        },
+      },
+    ]),
   ]);
 
   return {
     items,
+    summary: {
+      totalCoupons: totalItems,
+      ...(summaryRows[0] ?? { usedCount: 0, activeCount: 0, publicCount: 0 }),
+    },
     pagination: {
       page,
       limit,
@@ -517,8 +559,28 @@ const listCouponUsage = async (id: string, query: CouponUsageListQueryInput = {}
 
   const page = Math.max(1, query.page ?? DEFAULT_PAGE);
   const limit = Math.min(Math.max(1, query.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
-  const filter = { couponId: coupon._id };
-  const [items, totalItems] = await Promise.all([
+  const filter: Record<string, unknown> = { couponId: coupon._id };
+  if (query.dateFrom || query.dateTo) {
+    if (query.dateFrom && query.dateTo && query.dateFrom > query.dateTo) {
+      throw new CouponServiceError('dateFrom must be before dateTo', 400);
+    }
+    filter.usedAt = {
+      ...(query.dateFrom ? { $gte: query.dateFrom } : {}),
+      ...(query.dateTo ? { $lte: query.dateTo } : {}),
+    };
+  }
+  if (query.keyword?.trim()) {
+    const keyword = new RegExp(escapeRegex(query.keyword.trim()), 'i');
+    const [users, orders] = await Promise.all([
+      User.find({ $or: [{ name: keyword }, { email: keyword }, { phone: keyword }] }).select('_id').lean(),
+      Order.find({ orderCode: keyword }).select('_id').lean(),
+    ]);
+    filter.$or = [
+      { userId: { $in: users.map((item) => item._id) } },
+      { orderId: { $in: orders.map((item) => item._id) } },
+    ];
+  }
+  const [items, totalItems, summaryRows] = await Promise.all([
     CouponUsage.find(filter)
       .sort({ usedAt: -1 })
       .skip((page - 1) * limit)
@@ -527,10 +589,24 @@ const listCouponUsage = async (id: string, query: CouponUsageListQueryInput = {}
       .populate('orderId', 'orderCode status totalAmount')
       .lean(),
     CouponUsage.countDocuments(filter),
+    CouponUsage.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          discountAmount: { $sum: '$discountAmount' },
+          shippingDiscountAmount: { $sum: '$shippingDiscountAmount' },
+        },
+      },
+    ]),
   ]);
 
   return {
     items,
+    summary: {
+      usageCount: totalItems,
+      ...(summaryRows[0] ?? { discountAmount: 0, shippingDiscountAmount: 0 }),
+    },
     pagination: {
       page,
       limit,
@@ -560,6 +636,63 @@ const createCoupon = async (input: CreateCouponInput, actorId?: string) => {
 
     throw error;
   }
+};
+
+const duplicateCoupon = async (id: string, overrides: UpdateCouponInput = {}, actorId?: string) => {
+  assertValidObjectId(id, 'coupon id');
+  const source = await Coupon.findOne({ _id: id, deletedAt: null });
+  if (!source) throw new CouponServiceError('Coupon not found', 404);
+
+  return createCoupon({
+    code: `${source.code.slice(0, 35)}_COPY`,
+    name: `${source.name} (copy)`,
+    description: source.description,
+    discountType: source.discountType,
+    discountValue: source.discountValue,
+    maxDiscountAmount: source.maxDiscountAmount,
+    minOrderAmount: source.minOrderAmount,
+    usageLimit: source.usageLimit,
+    perUserLimit: source.perUserLimit,
+    isPublic: source.isPublic,
+    eligibleUserTypes: source.eligibleUserTypes,
+    eligibleMembershipRanks: source.eligibleMembershipRanks.map(String),
+    applicableProducts: source.applicableProducts.map(String),
+    applicableCategories: source.applicableCategories.map(String),
+    startAt: source.startAt,
+    endAt: source.endAt,
+    isActive: false,
+    ...overrides,
+  } as CreateCouponInput, actorId);
+};
+
+const previewCoupon = (input: CouponPreviewInput) => {
+  const sampleSubTotal = toRequiredNumber(input.sampleSubTotal, 'sampleSubTotal');
+  const sampleShippingFee = toRequiredNumber(input.sampleShippingFee ?? 0, 'sampleShippingFee');
+  if (sampleSubTotal < 0 || sampleShippingFee < 0) throw new CouponServiceError('Sample amounts cannot be negative', 400);
+  const coupon = normalizeCouponInput(input.coupon, true);
+  const minOrderAmount = Number(coupon.minOrderAmount ?? 0);
+  const eligible = sampleSubTotal >= minOrderAmount;
+  let discountAmount = 0;
+  let shippingDiscountAmount = 0;
+  if (eligible && coupon.discountType === 'percent') {
+    discountAmount = Math.round(sampleSubTotal * (Number(coupon.discountValue) / 100));
+    if (typeof coupon.maxDiscountAmount === 'number') discountAmount = Math.min(discountAmount, coupon.maxDiscountAmount);
+  } else if (eligible && coupon.discountType === 'fixed') {
+    discountAmount = Math.min(sampleSubTotal, Number(coupon.discountValue));
+  } else if (eligible && coupon.discountType === 'free_shipping') {
+    shippingDiscountAmount = sampleShippingFee;
+  }
+  return {
+    eligible,
+    reason: eligible ? null : `Order must reach ${minOrderAmount}`,
+    summary: {
+      subTotal: sampleSubTotal,
+      shippingFee: sampleShippingFee,
+      discountAmount,
+      shippingDiscountAmount,
+      totalAmount: Math.max(0, sampleSubTotal + sampleShippingFee - discountAmount - shippingDiscountAmount),
+    },
+  };
 };
 
 const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: string) => {
@@ -955,6 +1088,8 @@ export const couponService = {
   checkCouponCodeAvailability,
   listCouponUsage,
   createCoupon,
+  duplicateCoupon,
+  previewCoupon,
   updateCoupon,
   updateCouponStatus,
   deleteCoupon,

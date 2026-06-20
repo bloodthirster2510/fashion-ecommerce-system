@@ -30,6 +30,9 @@ export type LoyaltyPointAdjustmentPayload = {
   reason?: unknown;
 };
 
+export type MembershipRankingReorderPayload = { orderedIds?: unknown };
+export type MembershipRankingBatchPayload = { rankings?: unknown };
+
 export type LoyaltyPointAdjustmentActor = {
   actorId?: string | null;
   actorRole: 'admin' | 'staff';
@@ -39,6 +42,9 @@ type LoyaltyPointQuery = {
   userId?: unknown;
   tierId?: unknown;
   keyword?: unknown;
+  type?: unknown;
+  dateFrom?: unknown;
+  dateTo?: unknown;
   page?: unknown;
   limit?: unknown;
 };
@@ -83,6 +89,20 @@ const firstString = (value: unknown) => {
   }
 
   return typeof value === 'string' ? value.trim() : undefined;
+};
+
+const parseDateBoundary = (value: unknown, field: string, endOfDay = false) => {
+  const rawValue = firstString(value);
+  if (!rawValue) return undefined;
+
+  const date = new Date(rawValue);
+  if (Number.isNaN(date.getTime())) {
+    throw new MembershipRankingServiceError(`${field} must be a valid date`, 400);
+  }
+  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
+    date.setHours(23, 59, 59, 999);
+  }
+  return date;
 };
 
 const parsePositiveInteger = (value: unknown, fallback: number, max: number) => {
@@ -469,6 +489,81 @@ const deleteMembershipRanking = async (id: string) => {
   return MembershipRanking.findByIdAndDelete(id);
 };
 
+const createMembershipRankingsBatch = async (payload: MembershipRankingBatchPayload) => {
+  if (!Array.isArray(payload.rankings) || payload.rankings.length < 1 || payload.rankings.length > 20) {
+    throw new MembershipRankingServiceError('rankings must contain from 1 to 20 items', 400);
+  }
+  const normalizedRankings = payload.rankings.map((item) => normalizePayload(item as MembershipRankingPayload, 'create'));
+  const normalizedNames = normalizedRankings.map((ranking) => ranking.name.toLocaleLowerCase());
+  const levels = normalizedRankings.map((ranking) => ranking.level);
+  const minPoints = normalizedRankings.map((ranking) => ranking.minPoint);
+  if (new Set(normalizedNames).size !== normalizedNames.length) {
+    throw new MembershipRankingServiceError('Membership ranking names must be unique', 409);
+  }
+  if (new Set(levels).size !== levels.length) {
+    throw new MembershipRankingServiceError('Membership ranking levels must be unique', 409);
+  }
+  if (new Set(minPoints).size !== minPoints.length) {
+    throw new MembershipRankingServiceError('Membership ranking minPoint values must be unique', 409);
+  }
+  const orderedRankings = [...normalizedRankings].sort((left, right) => left.level - right.level);
+  orderedRankings.forEach((ranking, index) => {
+    if (ranking.level !== index + 1) {
+      throw new MembershipRankingServiceError('Batch levels must be consecutive and start at 1', 400);
+    }
+    if (index === 0 && ranking.minPoint !== 0) {
+      throw new MembershipRankingServiceError('Level 1 membership ranking must start at 0 points', 400);
+    }
+    if (index > 0 && ranking.minPoint <= orderedRankings[index - 1].minPoint) {
+      throw new MembershipRankingServiceError('Membership ranking minPoint must increase with level', 409);
+    }
+  });
+
+  const session = await mongoose.startSession();
+  try {
+    let createdRankings: unknown[] = [];
+    await session.withTransaction(async () => {
+      if (await MembershipRanking.exists({}).session(session)) {
+        throw new MembershipRankingServiceError('Batch creation is only available when no rankings exist', 409);
+      }
+      createdRankings = await MembershipRanking.insertMany(orderedRankings, { session });
+    });
+    return createdRankings;
+  } finally {
+    await session.endSession();
+  }
+};
+
+const reorderMembershipRankings = async (payload: MembershipRankingReorderPayload) => {
+  if (!Array.isArray(payload.orderedIds) || payload.orderedIds.some((id) => typeof id !== 'string')) {
+    throw new MembershipRankingServiceError('orderedIds must be an array of ranking ids', 400);
+  }
+  const orderedIds = payload.orderedIds as string[];
+  if (new Set(orderedIds).size !== orderedIds.length) {
+    throw new MembershipRankingServiceError('orderedIds cannot contain duplicates', 400);
+  }
+  orderedIds.forEach(assertValidId);
+  const rankings = await MembershipRanking.find().sort({ level: 1 }).lean();
+  if (rankings.length !== orderedIds.length || rankings.some((ranking) => !orderedIds.includes(ranking._id.toString()))) {
+    throw new MembershipRankingServiceError('orderedIds must include every membership ranking', 400);
+  }
+  const pointSlots = rankings.map((ranking) => ranking.minPoint).sort((a, b) => a - b);
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await MembershipRanking.bulkWrite(rankings.map((ranking, index) => ({
+        updateOne: { filter: { _id: ranking._id }, update: { $set: { level: 100 + index } } },
+      })), { session });
+      await MembershipRanking.bulkWrite(orderedIds.map((id, index) => ({
+        updateOne: { filter: { _id: new Types.ObjectId(id) }, update: { $set: { level: index + 1, minPoint: pointSlots[index] } } },
+      })), { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+  return listMembershipRankings();
+};
+
 const listLoyaltyUsers = async (query: LoyaltyPointQuery) => {
   const keyword = firstString(query.keyword)?.slice(0, 80);
   const tierId = firstString(query.tierId);
@@ -526,6 +621,9 @@ const listLoyaltyUsers = async (query: LoyaltyPointQuery) => {
 
 const listLoyaltyPointHistory = async (query: LoyaltyPointQuery) => {
   const userId = firstString(query.userId);
+  const historyType = firstString(query.type);
+  const dateFrom = parseDateBoundary(query.dateFrom, 'dateFrom');
+  const dateTo = parseDateBoundary(query.dateTo, 'dateTo', true);
   const page = parsePositiveInteger(query.page, 1, 10000);
   const limit = parsePositiveInteger(query.limit, 10, 50);
   const filter: Record<string, unknown> = {};
@@ -535,7 +633,24 @@ const listLoyaltyPointHistory = async (query: LoyaltyPointQuery) => {
     filter.userId = new Types.ObjectId(userId);
   }
 
-  const [items, totalItems] = await Promise.all([
+  if (historyType) {
+    if (!['earn', 'redeem', 'adjust'].includes(historyType)) {
+      throw new MembershipRankingServiceError('Invalid point history type', 400);
+    }
+    filter.type = historyType;
+  }
+
+  if (dateFrom || dateTo) {
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      throw new MembershipRankingServiceError('dateFrom must be before dateTo', 400);
+    }
+    filter.createdAt = {
+      ...(dateFrom ? { $gte: dateFrom } : {}),
+      ...(dateTo ? { $lte: dateTo } : {}),
+    };
+  }
+
+  const [items, totalItems, summaryRows] = await Promise.all([
     LoyaltyPointHistory.find(filter)
       .populate('userId', 'name email')
       .populate('actorId', 'name email')
@@ -544,10 +659,21 @@ const listLoyaltyPointHistory = async (query: LoyaltyPointQuery) => {
       .limit(limit)
       .lean(),
     LoyaltyPointHistory.countDocuments(filter),
+    LoyaltyPointHistory.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          added: { $sum: { $cond: [{ $gt: ['$delta', 0] }, '$delta', 0] } },
+          deducted: { $sum: { $cond: [{ $lt: ['$delta', 0] }, { $abs: '$delta' }, 0] } },
+        },
+      },
+    ]),
   ]);
 
   return {
     items,
+    summary: summaryRows[0] ?? { added: 0, deducted: 0 },
     pagination: {
       page,
       limit,
@@ -643,7 +769,9 @@ const adjustLoyaltyPoints = async (
 
 export const membershipRankingAdminService = {
   listMembershipRankings,
+  reorderMembershipRankings,
   createMembershipRanking,
+  createMembershipRankingsBatch,
   updateMembershipRanking,
   updateMembershipRankingStatus,
   deleteMembershipRanking,

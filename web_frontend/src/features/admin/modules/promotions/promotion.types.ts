@@ -39,6 +39,18 @@ export type CouponCodeAvailability = {
   available: boolean
 }
 
+export type CouponPreview = {
+  eligible: boolean
+  reason: string | null
+  summary: {
+    subTotal: number
+    shippingFee: number
+    discountAmount: number
+    shippingDiscountAmount: number
+    totalAmount: number
+  }
+}
+
 export type PromotionCampaign = {
   _id: string
   code: string
@@ -68,6 +80,13 @@ export type PromotionCampaignPayload = {
 
 export type PromotionAnalytics = {
   range: { from: string; to: string }
+  comparison: {
+    range: { from: string; to: string }
+    orderCountPercent: number | null
+    netRevenuePercent: number | null
+    couponUsagePercent: number | null
+    totalDiscountPercent: number | null
+  }
   orders: {
     orderCount: number
     grossMerchandiseValue: number
@@ -115,6 +134,12 @@ export type CouponPayload = {
 
 export type CouponListFilters = {
   status?: 'all' | 'active' | 'inactive' | 'expired' | 'upcoming'
+  discountType?: 'all' | CouponDiscountType
+  visibility?: 'all' | 'public' | 'private'
+  eligibleUserType?: 'all_filter' | CouponEligibleUserType
+  eligibleMembershipRank?: string
+  dateFrom?: string
+  dateTo?: string
   keyword?: string
   sort?: 'created_desc' | 'created_asc' | 'end_asc' | 'usage_desc' | 'code_asc'
   page?: number
@@ -123,6 +148,7 @@ export type CouponListFilters = {
 
 export type CouponListResponse = {
   items: AdminCoupon[]
+  summary: { totalCoupons: number; usedCount: number; activeCount: number; publicCount: number }
   pagination: {
     page: number
     limit: number
@@ -157,6 +183,7 @@ export type CouponUsageItem = {
 
 export type CouponUsageListResponse = {
   items: CouponUsageItem[]
+  summary: { usageCount: number; discountAmount: number; shippingDiscountAmount: number }
   pagination: {
     page: number
     limit: number

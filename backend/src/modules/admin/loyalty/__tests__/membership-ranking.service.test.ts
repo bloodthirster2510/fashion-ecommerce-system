@@ -17,6 +17,8 @@ jest.mock('../../../../database/models/membership-ranking.model', () => ({
     findById: jest.fn(),
     findByIdAndDelete: jest.fn(),
     findOne: jest.fn(),
+    exists: jest.fn(),
+    insertMany: jest.fn(),
   },
 }));
 jest.mock('../../../../database/models/loyalty-point-history.model', () => ({
@@ -124,6 +126,26 @@ describe('membershipRankingAdminService', () => {
     await expect(
       membershipRankingAdminService.deleteMembershipRanking(rankingId.toString()),
     ).resolves.toBe(ranking);
+  });
+
+  it('creates a complete tier template in one transaction', async () => {
+    mockedMembershipRanking.exists.mockReturnValue({ session: jest.fn().mockResolvedValue(null) } as never);
+    mockedMembershipRanking.insertMany.mockResolvedValue([{ name: 'Đồng' }, { name: 'Bạc' }] as never);
+
+    const result = await membershipRankingAdminService.createMembershipRankingsBatch({
+      rankings: [
+        { name: 'Đồng', level: 1, minPoint: 0, discountPercent: 0, benefitDescription: 'Hạng cơ bản' },
+        { name: 'Bạc', level: 2, minPoint: 1000, discountPercent: 3, benefitDescription: 'Hạng bạc' },
+      ],
+    });
+
+    expect(result).toHaveLength(2);
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockedMembershipRanking.insertMany).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'Đồng', level: 1, minPoint: 0 })]),
+      { session: mockSession },
+    );
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
   });
 
   it('adjusts loyalty points and writes history in the same transaction', async () => {

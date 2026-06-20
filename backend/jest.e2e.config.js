@@ -2,8 +2,8 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
-  testMatch: ['**/__tests__/**/*.test.ts', '**/?(*.)+(spec|test).ts'],
-  testPathIgnorePatterns: ['/src/e2e/'],
+  roots: ['<rootDir>/src/e2e'],
+  testMatch: ['**/*.e2e.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
+  testTimeout: 120000,
 };
