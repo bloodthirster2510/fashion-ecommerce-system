@@ -3,7 +3,7 @@ import type { Socket } from 'socket.io';
 import { Server } from 'socket.io';
 import { verifyAccessToken, type JwtPayload } from '../../utils/jwt';
 import { isCorsOriginAllowed } from '../../middlewares/security.middleware';
-import type { ISupportMessage } from '../../database/models';
+import { SupportTicket, User, type ISupportMessage, type StaffPermission } from '../../database/models';
 
 export type SupportRoomScope = 'customer' | 'admin';
 
@@ -28,6 +28,44 @@ interface SupportRealtimeEvent {
 
 const ADMIN_ROOM = 'admin:support';
 const ticketRoom = (ticketId: string) => `ticket:${ticketId}`;
+const STAFF_PERMISSION_CACHE_TTL_MS = 30_000;
+const staffPermissionCache = new Map<string, { allowed: boolean; expiresAt: number }>();
+
+const hasStaffSupportPermission = async (userId: string) => {
+  const cached = staffPermissionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+
+  const user = await User.findById(userId)
+    .select('permissions isActive')
+    .lean<{ permissions?: StaffPermission[]; isActive?: boolean } | null>();
+  const allowed = Boolean(user?.isActive && user.permissions?.includes('support.reply'));
+  staffPermissionCache.set(userId, { allowed, expiresAt: Date.now() + STAFF_PERMISSION_CACHE_TTL_MS });
+  return allowed;
+};
+
+export const invalidateSupportSocketPermissionCache = (userId?: string) => {
+  if (userId) staffPermissionCache.delete(userId);
+  else staffPermissionCache.clear();
+};
+
+export const resolveSupportSocketMeta = async (user: JwtPayload): Promise<SupportSocketMeta> => {
+  if (user.role === 'admin') return { user, scope: 'admin' };
+
+  if (user.role === 'staff') {
+    if (!await hasStaffSupportPermission(user.userId)) {
+      throw new Error('Insufficient permissions');
+    }
+    return { user, scope: 'admin' };
+  }
+
+  return { user, scope: 'customer' };
+};
+
+export const canSubscribeToSupportTicket = async (meta: SupportSocketMeta, ticketId: string) =>
+  meta.scope === 'admin' || Boolean(await SupportTicket.exists({
+    _id: ticketId,
+    userId: meta.user.userId,
+  }));
 
 class SupportRealtimeGateway {
   private io: Server | null = null;
@@ -49,14 +87,14 @@ class SupportRealtimeGateway {
       maxHttpBufferSize: 1e6,
     });
 
-    this.io.use((socket, next) => this.authenticate(socket, next));
+    this.io.use((socket, next) => { void this.authenticate(socket, next); });
 
     this.io.on('connection', (socket) => this.handleConnection(socket));
 
     console.log('[realtime] Support gateway attached at /realtime/support');
   }
 
-  private authenticate(socket: Socket, next: (err?: Error) => void) {
+  private async authenticate(socket: Socket, next: (err?: Error) => void) {
     try {
       const raw =
         (socket.handshake.auth?.token as string | undefined) ??
@@ -69,11 +107,12 @@ class SupportRealtimeGateway {
       const decoded = verifyAccessToken(raw);
       if (!decoded?.userId) return next(new Error('Invalid token'));
 
-      const scope: SupportRoomScope = decoded.role === 'admin' || decoded.role === 'staff' ? 'admin' : 'customer';
-      (socket.data as SupportSocketMeta) = { user: decoded, scope };
+      (socket.data as SupportSocketMeta) = await resolveSupportSocketMeta(decoded);
       next();
-    } catch {
-      next(new Error('Invalid or expired token'));
+    } catch (caught) {
+      next(caught instanceof Error && caught.message === 'Insufficient permissions'
+        ? caught
+        : new Error('Invalid or expired token'));
     }
   }
 
@@ -82,13 +121,22 @@ class SupportRealtimeGateway {
     socket.join(`user:${meta.user.userId}`);
     if (meta.scope === 'admin') socket.join(ADMIN_ROOM);
 
-    socket.on('ticket:subscribe', (ticketId: unknown, ack?: (ok: boolean) => void) => {
+    socket.on('ticket:subscribe', async (ticketId: unknown, ack?: (ok: boolean) => void) => {
       if (typeof ticketId !== 'string' || !/^[0-9a-fA-F]{24}$/.test(ticketId)) {
         ack?.(false);
         return;
       }
-      socket.join(ticketRoom(ticketId));
-      ack?.(true);
+      try {
+        const canSubscribe = await canSubscribeToSupportTicket(meta, ticketId);
+        if (!canSubscribe) {
+          ack?.(false);
+          return;
+        }
+        await socket.join(ticketRoom(ticketId));
+        ack?.(true);
+      } catch {
+        ack?.(false);
+      }
     });
 
     socket.on('ticket:unsubscribe', (ticketId: unknown) => {
@@ -97,6 +145,7 @@ class SupportRealtimeGateway {
 
     socket.on('ticket:typing', (payload: { ticketId?: string; isTyping?: boolean }) => {
       if (!payload || typeof payload.ticketId !== 'string') return;
+      if (!socket.rooms.has(ticketRoom(payload.ticketId))) return;
       socket.to(ticketRoom(payload.ticketId)).emit('ticket:typing', {
         type: 'typing',
         ticketId: payload.ticketId,
@@ -115,6 +164,11 @@ class SupportRealtimeGateway {
 
   isReady() {
     return this.io !== null;
+  }
+
+  disconnectUser(userId: string) {
+    if (!this.io) return;
+    this.io.in(`user:${userId}`).disconnectSockets(true);
   }
 
   emitToTicket(ticketId: string, event: SupportRealtimeEvent) {
@@ -144,6 +198,11 @@ class SupportRealtimeGateway {
 }
 
 export const supportGateway = new SupportRealtimeGateway();
+
+export const revokeSupportSocketAccess = (userId: string) => {
+  invalidateSupportSocketPermissionCache(userId);
+  supportGateway.disconnectUser(userId);
+};
 
 export const emitTicketMessage = (
   ticketId: string,

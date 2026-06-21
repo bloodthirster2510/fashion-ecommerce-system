@@ -35,7 +35,9 @@ import type {
   SupportTicketType,
 } from './support.types'
 import './support.css'
-import type { AdminUser } from '../auth/adminSession'
+import { hasPermission, type AdminUser } from '../auth/adminSession'
+
+type SupportTab = 'tickets' | 'faqs' | 'analytics' | 'canned'
 
 const statusLabels: Record<SupportTicketStatus, string> = {
   open: 'Đã tiếp nhận',
@@ -85,7 +87,9 @@ const getPersonName = (ticket: SupportTicket) => {
 }
 
 export function SupportManagementPage({ currentUser }: { currentUser: AdminUser }) {
-  const [tab, setTab] = useState<'tickets' | 'faqs' | 'analytics' | 'canned'>('tickets')
+  const [tab, setTab] = useState<SupportTab>('tickets')
+  const canManage = hasPermission(currentUser, 'support.manage')
+  const canMarkSpam = currentUser.role === 'admin'
   const [filters, setFilters] = useState<SupportFilters>({ page: 1, status: 'all' })
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [summary, setSummary] = useState<SupportSummary | null>(null)
@@ -159,9 +163,10 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
   useEffect(() => { if (tab === 'tickets') void loadTickets() }, [loadTickets, tab])
   useEffect(() => { if (tab === 'faqs') void loadFaqs() }, [loadFaqs, tab])
-  useEffect(() => { if (tab === 'canned' || tab === 'tickets') void loadCanned() }, [loadCanned, tab])
+  useEffect(() => { if (canManage && (tab === 'canned' || tab === 'tickets')) void loadCanned() }, [canManage, loadCanned, tab])
   useEffect(() => { if (tab === 'analytics') void loadAnalytics() }, [loadAnalytics, tab])
   useEffect(() => { if (selectedId) void loadDetail(selectedId) }, [loadDetail, selectedId])
+  useEffect(() => { if (!canManage && tab !== 'tickets') setTab('tickets') }, [canManage, tab])
 
   const realtime = useSupportRealtime({
     onMessage: (ticketId, message, isInternal) => {
@@ -307,9 +312,9 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
         </div>
         <div className="admin-support-tabs" role="tablist" aria-label="Khu vực hỗ trợ">
           <button className={tab === 'tickets' ? 'is-active' : ''} onClick={() => setTab('tickets')} type="button">Ticket {queueCount ? `(${queueCount})` : ''}</button>
-          <button className={tab === 'faqs' ? 'is-active' : ''} onClick={() => setTab('faqs')} type="button">FAQ</button>
-          <button className={tab === 'canned' ? 'is-active' : ''} onClick={() => setTab('canned')} type="button">Mẫu trả lời</button>
-          <button className={tab === 'analytics' ? 'is-active' : ''} onClick={() => setTab('analytics')} type="button">Báo cáo</button>
+          {canManage && <button className={tab === 'faqs' ? 'is-active' : ''} onClick={() => setTab('faqs')} type="button">FAQ</button>}
+          {canManage && <button className={tab === 'canned' ? 'is-active' : ''} onClick={() => setTab('canned')} type="button">Mẫu trả lời</button>}
+          {canManage && <button className={tab === 'analytics' ? 'is-active' : ''} onClick={() => setTab('analytics')} type="button">Báo cáo</button>}
         </div>
       </header>
 
@@ -328,7 +333,9 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             <input aria-label="Tìm ticket" placeholder="Mã ticket, khách hàng, mã đơn..." value={filters.search ?? ''} onChange={(event) => setFilters((old) => ({ ...old, search: event.target.value, page: 1 }))} />
             <select aria-label="Lọc trạng thái" value={filters.status ?? 'all'} onChange={(event) => setFilters((old) => ({ ...old, status: event.target.value as SupportFilters['status'], page: 1 }))}>
               <option value="all">Tất cả trạng thái</option>
-              {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(statusLabels)
+                .filter(([value]) => canMarkSpam || value !== 'spam')
+                .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
             <button type="button" onClick={() => void loadTickets()}>Làm mới</button>
           </div>
@@ -356,7 +363,9 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                         {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
                       <select aria-label="Trạng thái ticket" value={selectedTicket.status} disabled={submitting} onChange={(event) => void mutateTicket({ status: event.target.value as SupportTicketStatus })}>
-                        {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                        {Object.entries(statusLabels)
+                          .filter(([value]) => canMarkSpam || value !== 'spam' || selectedTicket.status === 'spam')
+                          .map(([value, label]) => <option key={value} value={value} disabled={!canMarkSpam && value === 'spam'}>{label}</option>)}
                       </select>
                     </div>
                   </header>
@@ -383,7 +392,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                   </div>
 
                   <div className="admin-support-composer">
-                    <select value={selectedCannedId} onChange={(event) => {
+                    {canManage && <select value={selectedCannedId} onChange={(event) => {
                       const id = event.target.value
                       setSelectedCannedId(id)
                       const canned = cannedResponses.find((item) => item._id === id)
@@ -391,7 +400,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                     }} aria-label="Chọn mẫu trả lời">
                       <option value="">Chọn mẫu trả lời nhanh...</option>
                       {cannedResponses.filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category)).map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}
-                    </select>
+                    </select>}
                     <textarea rows={4} value={reply} onChange={(event) => handleReplyChange(event.target.value)} placeholder={isInternal ? 'Ghi chú chỉ nhân viên nhìn thấy...' : 'Nhập phản hồi cho khách hàng...'} maxLength={3000} />
                     <div>
                       <label><input type="checkbox" checked={isInternal} onChange={(event) => setIsInternal(event.target.checked)} /> Ghi chú nội bộ</label>

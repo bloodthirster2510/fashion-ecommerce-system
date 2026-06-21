@@ -73,7 +73,8 @@ const permissionGroups: PermissionGroup[] = [
     helper: 'Kiểm duyệt, hỗ trợ, báo cáo',
     items: [
       { value: 'reviews.moderate', label: 'Đánh giá' },
-      { value: 'support.reply', label: 'Hỗ trợ' },
+      { value: 'support.reply', label: 'Phản hồi ticket' },
+      { value: 'support.manage', label: 'Quản lý FAQ, mẫu trả lời & báo cáo hỗ trợ' },
       { value: 'reports.read', label: 'Báo cáo' },
     ],
   },

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { AdminUser } from '../modules/auth/adminSession'
+import { hasPermission, type AdminUser } from '../modules/auth/adminSession'
 import {
   IMPLEMENTED_ADMIN_ROUTE_IDS,
   adminRouteGroups,
@@ -90,7 +90,7 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
     return false
   }
 
-  return user.permissions?.includes(requiredPermission) ?? false
+  return hasPermission(user, requiredPermission)
 }
 
 const canEnterRoute = (user: AdminUser, route: NavItem) =>
