@@ -19,7 +19,7 @@ import { couponApi } from '../coupons/couponApi';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { getMembershipTierVisualConfig } from './membershipVisual';
-import { supportApi } from '../support/supportApi';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type ProfileNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -72,11 +72,11 @@ const ProfileScreen = () => {
   const contact = user?.email || user?.phone || 'Cập nhật thông tin liên hệ';
   const avatarImage = user?.avatarImage;
   const avatarUri = typeof avatarImage === 'string' && isPreviewableImage(avatarImage) ? avatarImage.trim() : '';
+  const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
   const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
   const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
-  const [supportCount, setSupportCount] = React.useState<number | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -84,7 +84,6 @@ const ProfileScreen = () => {
         setMembershipData(null);
         setVoucherCount(null);
         setShippingOrderCount(null);
-        setSupportCount(null);
         return;
       }
 
@@ -121,10 +120,8 @@ const ProfileScreen = () => {
         .catch(() => {
           setShippingOrderCount(null);
         });
-      runWithAuth((accessToken) => supportApi.getSummary(accessToken))
-        .then((result) => setSupportCount(result.total))
-        .catch(() => setSupportCount(null));
-    }, [logout, navigation, runWithAuth, session?.accessToken])
+      void refreshNotifications();
+    }, [logout, navigation, refreshNotifications, runWithAuth, session?.accessToken])
   );
 
   const handleMenuPress = (item: ProfileMenuItem) => {
@@ -312,14 +309,14 @@ const ProfileScreen = () => {
             >
               <View style={styles.iconWrap}>
                 <MaterialCommunityIcons name={item.icon} size={26} color={colors.brand} />
-                {item.id === 'orders' && shippingOrderCount ? (
+                {item.id === 'orders' && notificationSummary?.ordersNeedAction ? (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{shippingOrderCount}</Text>
+                    <Text style={styles.badgeText}>{notificationSummary.ordersNeedAction > 99 ? '99+' : notificationSummary.ordersNeedAction}</Text>
                   </View>
                 ) : null}
-                {item.id === 'support' && supportCount ? (
+                {item.id === 'support' && notificationSummary?.support.total ? (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{supportCount > 99 ? '99+' : supportCount}</Text>
+                    <Text style={styles.badgeText}>{notificationSummary.support.total > 99 ? '99+' : notificationSummary.support.total}</Text>
                   </View>
                 ) : null}
               </View>

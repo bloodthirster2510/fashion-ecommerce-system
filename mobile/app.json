@@ -10,7 +10,10 @@
     "extra": {
       "GOOGLE_CLIENT_ID": "",
       "FACEBOOK_APP_ID": "",
-      "EAS_PROJECT_ID": ""
+      "EAS_PROJECT_ID": "a6a0028f-0aa6-440c-93f9-34b15a6773d6",
+      "eas": {
+        "projectId": "a6a0028f-0aa6-440c-93f9-34b15a6773d6"
+      }
     },
     "ios": {
       "supportsTablet": true,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useAppSelector } from '../../app/hooks'
 import { ProfileSidebar } from '../profile/components/ProfileSidebar'
@@ -12,10 +12,12 @@ import {
   listFaqs,
   listMyTickets,
   markMyTicketRead,
+  reopenMyTicket,
   voteFaq,
   verifyGuestFeedback,
 } from './support.service'
-import type { FaqArticle, SupportCategory, SupportSummary, SupportTicket, SupportTicketType, TicketDetail } from './support.types'
+import { useCustomerSupportRealtime } from './supportSocket'
+import type { FaqArticle, SupportCategory, SupportMessage, SupportSummary, SupportTicket, SupportTicketType, TicketDetail } from './support.types'
 import './support.css'
 
 const topics: Array<[string, string]> = [['orders', 'Đơn hàng'], ['shipping', 'Giao hàng'], ['returns', 'Đổi trả'], ['payments', 'Thanh toán'], ['promotions', 'Voucher'], ['loyalty', 'Thành viên'], ['account', 'Tài khoản'], ['other', 'Khác']]
@@ -69,7 +71,7 @@ export function SupportPage() {
   const content = verifyMode ? <GuestVerification />
     : guestFeedbackMode ? <GuestFeedbackForm />
     : createMode ? <TicketForm onCreated={(id) => navigate(`/account/support/tickets/${id}`)} />
-    : ticketId ? <TicketConversation detail={detail} loading={loading} error={error} onReload={() => getMyTicket(ticketId).then(setDetail)} />
+    : ticketId ? <TicketConversation ticketId={ticketId} detail={detail} loading={loading} error={error} onReload={() => getMyTicket(ticketId).then(setDetail)} />
       : <SupportHome faqs={faqs} tickets={tickets} summary={summary} search={search} topic={topic} expandedFaq={expandedFaq} loading={loading} error={error} loggedIn={Boolean(currentUser)} onSearch={setSearch} onTopic={setTopic} onExpand={setExpandedFaq} onReload={loadHome} onVote={async (id, value) => { try { await voteFaq(id, value); await loadHome() } catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể ghi nhận đánh giá.') } }} />
 
   return <MainLayout showSlider={false}><main className="customer-support-page"><div className={accountMode ? 'account-shell' : 'customer-support-public-shell'}>{accountMode && <ProfileSidebar name={currentUser?.name} avatarImage={currentUser?.avatarImage} selectedKey="support" />}<section className={accountMode ? 'account-content customer-support-content' : 'customer-support-content'}>{content}</section></div></main></MainLayout>
@@ -126,10 +128,70 @@ function TicketForm({ onCreated }: { onCreated: (id: string) => void }) {
   return <div className="customer-support-stack"><header className="customer-support-heading"><button type="button" onClick={() => navigate('/account/support')}>← Quay lại</button><h1>Gửi yêu cầu hỗ trợ</h1><span>Thông tin có cấu trúc giúp shop xử lý nhanh và chính xác hơn.</span></header>{error && <div className="customer-support-error">{error}</div>}<form className="customer-support-form" onSubmit={submit}><label>Loại yêu cầu<select value={type} onChange={(event) => { const value = event.target.value as SupportTicketType; setType(value); setRequiresReply(!['feedback', 'suggestion'].includes(value)) }}>{typeLabels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Chủ đề<select value={category} onChange={(event) => setCategory(event.target.value as SupportCategory)}>{categoryLabels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{orderRequired && <label>ID đơn hàng<input value={orderId} onChange={(event) => setOrderId(event.target.value)} required placeholder="Mở từ chi tiết đơn để được tự điền" /></label>}{category === 'promotions' && <label>Mã voucher<input value={couponCode} onChange={(event) => setCouponCode(event.target.value.toUpperCase())} /></label>}<label>Tiêu đề<input value={subject} minLength={5} maxLength={150} required onChange={(event) => setSubject(event.target.value)} /></label><label>Nội dung<textarea value={body} minLength={10} maxLength={3000} rows={8} required onChange={(event) => setBody(event.target.value)} /></label><label className="customer-support-check"><input type="checkbox" checked={requiresReply} onChange={(event) => setRequiresReply(event.target.checked)} /> Tôi muốn nhận phản hồi từ shop</label><label>Ảnh minh chứng (tối đa 3)<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 3))} /></label><footer><button type="button" onClick={() => navigate('/account/support')}>Hủy</button><button className="customer-support-primary" disabled={saving} type="submit">{saving ? 'Đang gửi...' : 'Gửi yêu cầu'}</button></footer></form></div>
 }
 
-function TicketConversation({ detail, loading, error, onReload }: { detail: TicketDetail | null; loading: boolean; error: string; onReload: () => void }) {
+function TicketConversation({ ticketId, detail, loading, error, onReload }: { ticketId: string; detail: TicketDetail | null; loading: boolean; error: string; onReload: () => void }) {
   const [reply, setReply] = useState(''); const [files, setFiles] = useState<File[]>([]); const [sending, setSending] = useState(false); const [localError, setLocalError] = useState('')
-  const send = async () => { if (!detail || !reply.trim()) return; setSending(true); try { await addMyMessage(detail.ticket._id, reply.trim(), files); setReply(''); setFiles([]); onReload() } catch (caught) { setLocalError(caught instanceof Error ? caught.message : 'Không thể gửi tin nhắn.') } finally { setSending(false) } }
+  const [staffTyping, setStaffTyping] = useState(false); const [reopening, setReopening] = useState(false)
+  const [liveMessages, setLiveMessages] = useState<SupportMessage[] | null>(null)
+  const [liveTicket, setLiveTicket] = useState<SupportTicket | null>(null)
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setLiveMessages(detail ? [...detail.messages] : null)
+    setLiveTicket(detail ? detail.ticket : null)
+  }, [detail])
+
+  const realtime = useCustomerSupportRealtime({
+    onMessage: (id, message) => {
+      if (id !== ticketId) return
+      setLiveMessages((prev) => prev
+        ? (prev.some((m) => m._id === message._id) ? prev : [...prev, message])
+        : [message])
+      setStaffTyping(false)
+    },
+    onTyping: (id, isTyping) => {
+      if (id !== ticketId) return
+      setStaffTyping(isTyping)
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+      if (isTyping) typingTimerRef.current = setTimeout(() => setStaffTyping(false), 4000)
+    },
+    onUpdated: (id, ticket) => {
+      if (id !== ticketId) return
+      setLiveTicket(ticket)
+    },
+  })
+
+  useEffect(() => {
+    if (ticketId) realtime.subscribeTicket(ticketId)
+    return () => { if (ticketId) realtime.unsubscribeTicket(ticketId) }
+  }, [ticketId, realtime])
+
+  const send = async () => {
+    if (!liveTicket || !reply.trim()) return
+    setSending(true); setLocalError('')
+    try { await addMyMessage(liveTicket._id, reply.trim(), files); setReply(''); setFiles([]); onReload() }
+    catch (caught) { setLocalError(caught instanceof Error ? caught.message : 'Không thể gửi tin nhắn.') }
+    finally { setSending(false) }
+  }
+
+  const handleReplyChange = (value: string) => {
+    setReply(value)
+    if (liveTicket) realtime.emitTyping(liveTicket._id, value.trim().length > 0)
+  }
+
+  const reopen = async () => {
+    if (!liveTicket) return
+    setReopening(true); setLocalError('')
+    try { await reopenMyTicket(liveTicket._id); onReload() }
+    catch (caught) { setLocalError(caught instanceof Error ? caught.message : 'Không thể mở lại yêu cầu.') }
+    finally { setReopening(false) }
+  }
+
+  const messages = liveMessages ?? []
+  const ticket = liveTicket ?? detail?.ticket
   if (loading) return <p>Đang tải ticket...</p>
-  if (!detail) return <div className="customer-support-error">{error || 'Không tìm thấy ticket.'}</div>
-  return <div className="customer-support-stack"><header className="customer-support-heading"><button type="button" onClick={() => navigate('/account/support')}>← Yêu cầu của tôi</button><p>{detail.ticket.ticketCode}</p><h1>{detail.ticket.subject}</h1><span>{statusLabels[detail.ticket.status]}</span></header>{localError && <div className="customer-support-error">{localError}</div>}<section className="customer-support-thread">{detail.messages.map((message) => <article key={message._id} className={message.senderType}><header><strong>{message.senderType === 'staff' ? 'Shop' : 'Bạn'}</strong><time>{new Date(message.createdAt).toLocaleString('vi-VN')}</time></header><p>{message.body}</p>{message.attachments.length > 0 && <div>{message.attachments.map((file) => <a key={file.publicId} href={file.url} target="_blank" rel="noreferrer"><img src={file.url} alt="Ảnh đính kèm" /></a>)}</div>}</article>)}</section>{detail.ticket.status !== 'closed' && <section className="customer-support-reply"><textarea rows={5} value={reply} maxLength={3000} onChange={(event) => setReply(event.target.value)} placeholder="Bổ sung thông tin cho shop..." /><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 3))} /><div><button type="button" onClick={() => void closeMyTicket(detail.ticket._id).then(onReload)}>Đóng yêu cầu</button><button className="customer-support-primary" type="button" disabled={!reply.trim() || sending} onClick={() => void send()}>{sending ? 'Đang gửi...' : 'Gửi tin nhắn'}</button></div></section>}</div>
+  if (!ticket) return <div className="customer-support-error">{error || 'Không tìm thấy ticket.'}</div>
+  const isClosed = ticket.status === 'closed'
+  const isResolved = ticket.status === 'resolved'
+  const canReopen = isResolved
+  return <div className="customer-support-stack"><header className="customer-support-heading"><button type="button" onClick={() => navigate('/account/support')}>← Yêu cầu của tôi</button><p>{ticket.ticketCode}</p><h1>{ticket.subject}</h1><span>{statusLabels[ticket.status]}</span></header>{localError && <div className="customer-support-error">{localError}</div>}<section className="customer-support-thread">{messages.map((message) => <article key={message._id} className={message.senderType}><header><strong>{message.senderType === 'staff' ? 'Shop' : 'Bạn'}</strong><time>{new Date(message.createdAt).toLocaleString('vi-VN')}</time></header><p>{message.body}</p>{message.attachments.length > 0 && <div>{message.attachments.map((file) => <a key={file.publicId} href={file.url} target="_blank" rel="noreferrer"><img src={file.url} alt="Ảnh đính kèm" /></a>)}</div>}</article>)}{staffTyping && <p className="customer-support-typing" aria-live="polite">Shop đang gõ...</p>}</section>{!isClosed && !isResolved && <section className="customer-support-reply"><textarea rows={5} value={reply} maxLength={3000} onChange={(event) => handleReplyChange(event.target.value)} placeholder="Bổ sung thông tin cho shop..." /><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 3))} /><div><button type="button" onClick={() => void closeMyTicket(ticket._id).then(onReload)}>Đóng yêu cầu</button><button className="customer-support-primary" type="button" disabled={!reply.trim() || sending} onClick={() => void send()}>{sending ? 'Đang gửi...' : 'Gửi tin nhắn'}</button></div></section>}{canReopen && <section className="customer-support-reply customer-support-reopen"><p>Yêu cầu đã được đánh dấu giải quyết. Vấn đề chưa hết? Mở lại để tiếp tục trao đổi.</p><button className="customer-support-primary" type="button" disabled={reopening} onClick={() => void reopen()}>{reopening ? 'Đang mở lại...' : 'Mở lại yêu cầu'}</button></section>}</div>
 }

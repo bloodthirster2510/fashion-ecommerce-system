@@ -538,3 +538,20 @@
     flex-direction: column;
   }
 }
+
+.admin-support-typing {
+  margin: 6px 0 0;
+  padding: 6px 12px;
+  color: #537f99;
+  font-size: 12px;
+  font-style: italic;
+  background: #eef5fb;
+  border-radius: 12px;
+  display: inline-block;
+  animation: admin-support-typing-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes admin-support-typing-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}

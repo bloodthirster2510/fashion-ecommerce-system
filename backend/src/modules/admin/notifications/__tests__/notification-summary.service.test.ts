@@ -41,6 +41,20 @@ describe('notification summary service', () => {
 
     expect(summary.total).toBe(11);
     expect(summary.orders).toMatchObject({ total: 4, online: 1, cod: 3 });
+    expect(mockedOrder.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      {
+        $match: {
+          $or: [
+            {
+              status: { $in: ['confirmed', 'packed'] },
+              paymentStatus: { $ne: 'failed' },
+              $or: [{ paymentMethod: 'COD' }, { paymentStatus: 'paid' }],
+            },
+            { status: 'return_requested', 'returnRequest.status': 'requested' },
+          ],
+        },
+      },
+    ]));
     expect(summary).toMatchObject({
       lowStockVariants: 3,
       expiringCoupons: 2,

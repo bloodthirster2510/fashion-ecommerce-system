@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import {
   createAdminFaq,
@@ -11,12 +11,14 @@ import {
   listAdminFaqs,
   listCannedResponses,
   listSupportTickets,
+  markSupportTicketRead,
   replySupportTicket,
   updateAdminFaq,
   updateCannedResponse,
   updateSupportTicket,
   type SupportFilters,
 } from './support.service'
+import { useSupportRealtime } from './supportSocket'
 import type {
   FaqArticle,
   FaqCategory,
@@ -108,6 +110,8 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const [analytics, setAnalytics] = useState<SupportAnalytics | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [customerTypingTicketId, setCustomerTypingTicketId] = useState<string | null>(null)
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadTickets = useCallback(async () => {
     setLoading(true)
@@ -158,6 +162,70 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   useEffect(() => { if (tab === 'canned' || tab === 'tickets') void loadCanned() }, [loadCanned, tab])
   useEffect(() => { if (tab === 'analytics') void loadAnalytics() }, [loadAnalytics, tab])
   useEffect(() => { if (selectedId) void loadDetail(selectedId) }, [loadDetail, selectedId])
+
+  const realtime = useSupportRealtime({
+    onMessage: (ticketId, message, isInternal) => {
+      if (isInternal) {
+        setDetail((prev) => prev && prev.ticket._id === ticketId
+          ? { ...prev, messages: [...prev.messages, message] }
+          : prev)
+        return
+      }
+      setDetail((prev) => prev && prev.ticket._id === ticketId
+        ? { ...prev, messages: [...prev.messages, message] }
+        : prev)
+      setTickets((prev) => prev.map((t) => t._id === ticketId
+        ? { ...t, lastMessageAt: message.createdAt, lastMessageSender: message.senderType, requiresReply: message.senderType === 'customer', updatedAt: message.createdAt }
+        : t))
+      setCustomerTypingTicketId(null)
+    },
+    onTyping: (ticketId, isTyping, senderId) => {
+      if (senderId === currentUser._id) return
+      if (isTyping) {
+        setCustomerTypingTicketId(ticketId)
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+        typingTimerRef.current = setTimeout(() => setCustomerTypingTicketId(null), 4000)
+      } else if (customerTypingTicketId === ticketId) {
+        setCustomerTypingTicketId(null)
+      }
+    },
+    onUpdated: (ticketId, ticket) => {
+      setTickets((prev) => prev.some((t) => t._id === ticketId)
+        ? prev.map((t) => (t._id === ticketId ? { ...t, ...ticket } : t))
+        : [ticket, ...prev])
+      setDetail((prev) => prev && prev.ticket._id === ticketId ? { ...prev, ticket: { ...prev.ticket, ...ticket } } : prev)
+    },
+    onSummary: () => { void loadSummaryOnly() },
+  })
+
+  const summaryDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadSummaryOnly = useCallback(() => {
+    if (summaryDebounceRef.current) clearTimeout(summaryDebounceRef.current)
+    summaryDebounceRef.current = setTimeout(async () => {
+      try {
+        const [list, nextSummary] = await Promise.all([listSupportTickets(filters), getSupportSummary()])
+        setTickets(list.items)
+        setSummary(nextSummary)
+      } catch { /* ignore realtime refresh errors */ }
+    }, 600)
+  }, [filters])
+
+  useEffect(() => {
+    if (selectedId) realtime.subscribeTicket(selectedId)
+    return () => { if (selectedId) realtime.unsubscribeTicket(selectedId) }
+  }, [selectedId, realtime])
+
+  useEffect(() => {
+    if (!selectedId || !detail) return
+    if (detail.ticket.lastMessageSender === 'customer' && detail.ticket.requiresReply) {
+      void markSupportTicketRead(selectedId).catch(() => {})
+    }
+  }, [selectedId, detail])
+
+  const handleReplyChange = (value: string) => {
+    setReply(value)
+    if (selectedId) realtime.emitTyping(selectedId, value.trim().length > 0)
+  }
 
   const selectedTicket = detail?.ticket
   const queueCount = useMemo(() => tickets.filter((ticket) => ticket.requiresReply).length, [tickets])
@@ -309,6 +377,9 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                         {message.attachments.length > 0 && <div className="admin-support-attachments">{message.attachments.map((file) => <a href={file.url} target="_blank" rel="noreferrer" key={file.publicId}><img src={file.url} alt="Ảnh đính kèm" /></a>)}</div>}
                       </article>
                     ))}
+                    {customerTypingTicketId === selectedTicket._id && (
+                      <p className="admin-support-typing" aria-live="polite">Khách hàng đang gõ...</p>
+                    )}
                   </div>
 
                   <div className="admin-support-composer">
@@ -321,7 +392,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                       <option value="">Chọn mẫu trả lời nhanh...</option>
                       {cannedResponses.filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category)).map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}
                     </select>
-                    <textarea rows={4} value={reply} onChange={(event) => setReply(event.target.value)} placeholder={isInternal ? 'Ghi chú chỉ nhân viên nhìn thấy...' : 'Nhập phản hồi cho khách hàng...'} maxLength={3000} />
+                    <textarea rows={4} value={reply} onChange={(event) => handleReplyChange(event.target.value)} placeholder={isInternal ? 'Ghi chú chỉ nhân viên nhìn thấy...' : 'Nhập phản hồi cho khách hàng...'} maxLength={3000} />
                     <div>
                       <label><input type="checkbox" checked={isInternal} onChange={(event) => setIsInternal(event.target.checked)} /> Ghi chú nội bộ</label>
                       <label className="admin-support-file">Đính kèm ảnh<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setReplyFiles(Array.from(event.target.files ?? []).slice(0, 3))} /></label>

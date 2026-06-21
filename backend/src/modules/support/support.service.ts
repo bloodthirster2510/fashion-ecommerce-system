@@ -21,6 +21,7 @@ import type {
   CreateGuestFeedbackInput,
 } from './support.types';
 import { sendGuestFeedbackVerificationEmail } from '../../utils/email';
+import { emitTicketMessage, emitTicketRead, emitTicketUpdated } from '../realtime/support.gateway';
 
 export class SupportServiceError extends Error {
   constructor(message: string, public statusCode = 400) {
@@ -185,7 +186,10 @@ export const createTicket = async (userId: string, input: CreateSupportTicketInp
     throw error;
   }
 
-  return getCustomerTicket(ticket._id.toString(), userId);
+  const result = await getCustomerTicket(ticket._id.toString(), userId);
+  emitTicketMessage(ticket._id.toString(), result.messages[result.messages.length - 1], { customerUserId: userId });
+  emitTicketUpdated(ticket._id.toString(), result.ticket, { customerUserId: userId });
+  return result;
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -305,7 +309,10 @@ export const addCustomerMessage = async (ticketId: string, userId: string, input
   ticket.resolvedAt = null;
   ticket.reopenDeadline = null;
   await ticket.save();
-  return message.toObject();
+  const messageObj = message.toObject();
+  emitTicketMessage(ticketId, messageObj, { customerUserId: userId });
+  emitTicketUpdated(ticketId, ticket.toObject(), { customerUserId: userId });
+  return messageObj;
 };
 
 export const markCustomerRead = async (ticketId: string, userId: string) => {
@@ -315,6 +322,7 @@ export const markCustomerRead = async (ticketId: string, userId: string) => {
     { new: true },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
+  emitTicketRead(ticketId, 'customer');
   return ticket;
 };
 
@@ -338,6 +346,7 @@ export const reopenCustomerTicket = async (ticketId: string, userId: string) => 
     { new: true },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket cannot be reopened', 409);
+  emitTicketUpdated(ticketId, ticket, { customerUserId: userId });
   return ticket;
 };
 
@@ -352,21 +361,37 @@ export const closeCustomerTicket = async (ticketId: string, userId: string) => {
     { new: true },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket cannot be closed', 409);
+  emitTicketUpdated(ticketId, ticket, { customerUserId: userId });
   return ticket;
 };
 
 export const getCustomerSupportSummary = async (userId: string) => {
   const userObjectId = assertObjectId(userId, 'userId');
-  const [unreadReplies, waitingCustomer] = await Promise.all([
+  const unreadFilter = {
+    userId: userObjectId,
+    status: { $nin: ['closed', 'spam'] },
+    lastMessageSender: 'staff',
+    $expr: { $gt: ['$lastMessageAt', { $ifNull: ['$customerLastReadAt', new Date(0)] }] },
+  };
+  const [unreadReplies, waitingCustomer, total] = await Promise.all([
+    SupportTicket.countDocuments(unreadFilter),
+    SupportTicket.countDocuments({
+      userId: userObjectId,
+      status: 'waiting_customer',
+    }),
     SupportTicket.countDocuments({
       userId: userObjectId,
       status: { $nin: ['closed', 'spam'] },
-      lastMessageSender: 'staff',
-      $expr: { $gt: ['$lastMessageAt', { $ifNull: ['$customerLastReadAt', new Date(0)] }] },
+      $or: [
+        {
+          lastMessageSender: 'staff',
+          $expr: { $gt: ['$lastMessageAt', { $ifNull: ['$customerLastReadAt', new Date(0)] }] },
+        },
+        { status: 'waiting_customer' },
+      ],
     }),
-    SupportTicket.countDocuments({ userId: userObjectId, status: 'waiting_customer' }),
   ]);
-  return { unreadReplies, waitingCustomer, total: unreadReplies + waitingCustomer };
+  return { unreadReplies, waitingCustomer, total };
 };
 
 export const supportService = {

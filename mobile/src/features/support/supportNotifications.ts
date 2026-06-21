@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
 type NotificationResponse = {
@@ -18,9 +18,15 @@ const loadNotifications = async (): Promise<NotificationModule> => {
   return import('expo-notifications') as Promise<NotificationModule>;
 };
 
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
 export const requestSupportPushToken = async () => {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
     throw new Error('Thông báo đẩy chỉ hỗ trợ trên ứng dụng iOS và Android.');
+  }
+
+  if (isExpoGo) {
+    throw new Error('Push notification không hỗ trợ trên Expo Go. Hãy dùng development build.');
   }
 
   const Notifications = await loadNotifications();
@@ -44,6 +50,9 @@ export const requestSupportPushToken = async () => {
 export const subscribeToSupportNotifications = async (
   onTicket: (ticketId: string) => void,
 ) => {
+  // Remote push notifications are unavailable in Expo Go from SDK 53 onward.
+  if (isExpoGo) return () => undefined;
+
   const Notifications = await loadNotifications();
   Notifications.setNotificationHandler({
     handleNotification: async () => ({

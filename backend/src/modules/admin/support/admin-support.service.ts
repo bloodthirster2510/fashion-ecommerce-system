@@ -17,6 +17,7 @@ import { auditLogService } from '../../audit-logs/audit-log.service';
 import { sendSupportReplyEmail } from '../../../utils/email';
 import { pushNotificationService } from '../../notifications/push-notification.service';
 import { SupportServiceError, listFaqs } from '../../support/support.service';
+import { emitTicketMessage, emitTicketRead, emitTicketUpdated, emitSupportSummaryRefresh } from '../../realtime/support.gateway';
 import type {
   AdminSupportMessageInput,
   AdminTicketQuery,
@@ -196,7 +197,13 @@ export const addAdminMessage = async (
     targetId: ticketId,
     metadata: { messageId: message._id.toString(), isInternal: Boolean(input.isInternal) },
   });
-  return message.toObject();
+  const messageObj = message.toObject();
+  emitTicketMessage(ticketId, messageObj, { isInternal: Boolean(input.isInternal), customerUserId: ticket.userId?.toString() ?? null });
+  if (!input.isInternal) {
+    emitTicketUpdated(ticketId, ticket.toObject(), { customerUserId: ticket.userId?.toString() ?? null });
+    emitSupportSummaryRefresh();
+  }
+  return messageObj;
 };
 
 export const updateAdminTicket = async (
@@ -272,7 +279,10 @@ export const updateAdminTicket = async (
     before,
     after,
   });
-  return ticket.toObject();
+  const ticketObj = ticket.toObject();
+  emitTicketUpdated(ticketId, ticketObj, { customerUserId: ticket.userId?.toString() ?? null });
+  if (before.status !== after.status) emitSupportSummaryRefresh();
+  return ticketObj;
 };
 
 export const markAdminRead = async (ticketId: string) => {
@@ -282,6 +292,7 @@ export const markAdminRead = async (ticketId: string) => {
     { new: true },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
+  emitTicketRead(ticketId, 'admin');
   return ticket;
 };
 

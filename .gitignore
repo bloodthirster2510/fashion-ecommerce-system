@@ -157,3 +157,5 @@ docs/
 .kilo/
 local-scraped-catalog/
 tools/
+RUN_COMMANDS
+support-staff-admin-permissions.md

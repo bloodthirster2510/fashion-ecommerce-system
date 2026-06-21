@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
 import { AuthProvider } from './features/auth/AuthContext';
 import { subscribeToSupportNotifications } from './features/support/supportNotifications';
+import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -87,7 +88,9 @@ const App = () => {
         onUnhandledAction={handleUnhandledNavigationAction}
       >
         <AuthProvider>
-          <AppNavigator />
+          <CustomerNotificationProvider>
+            <AppNavigator />
+          </CustomerNotificationProvider>
         </AuthProvider>
       </NavigationContainer>
     </SafeAreaProvider>

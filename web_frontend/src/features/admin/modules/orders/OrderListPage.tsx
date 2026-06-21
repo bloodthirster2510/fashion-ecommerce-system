@@ -34,6 +34,7 @@ type OrdersPageProps = {
   currentUser: AdminUser
   paymentSection?: PaymentSectionKey
   lockPaymentSection?: boolean
+  initialTabKey?: string
 }
 
 type OrderTab = {
@@ -213,6 +214,9 @@ const orderTabGroups: Array<{
   { key: 'exceptions', label: 'Phát sinh cần xử lý' },
   { key: 'lookup', label: 'Tra cứu' },
 ]
+
+const resolveInitialTabKey = (value: string | undefined, lockPaymentSection: boolean) =>
+  orderTabs.some((tab) => tab.key === value) ? value as string : lockPaymentSection ? 'packing' : 'all'
 
 const statusLabels: Record<AdminOrderStatus, string> = {
   confirmed: 'Chờ xử lý',
@@ -763,6 +767,7 @@ export function OrderListPage({
   currentUser,
   paymentSection = 'online',
   lockPaymentSection = false,
+  initialTabKey,
 }: OrdersPageProps) {
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
@@ -772,7 +777,7 @@ export function OrderListPage({
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
-  const [activeTabKey, setActiveTabKey] = useState(lockPaymentSection ? 'packing' : 'all')
+  const [activeTabKey, setActiveTabKey] = useState(() => resolveInitialTabKey(initialTabKey, lockPaymentSection))
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
   const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
   const [page, setPage] = useState(1)
@@ -810,9 +815,9 @@ export function OrderListPage({
     setActivePaymentSectionKey(paymentSection)
     setPaymentMethod(paymentSection === 'cod' ? 'COD' : 'all')
     setPaymentStatus('all')
-    setActiveTabKey(lockPaymentSection ? 'packing' : 'all')
+    setActiveTabKey(resolveInitialTabKey(initialTabKey, lockPaymentSection))
     setPage(1)
-  }, [lockPaymentSection, paymentSection])
+  }, [initialTabKey, lockPaymentSection, paymentSection])
 
   const loadOrders = useCallback(async () => {
     setIsLoading(true)
@@ -1387,7 +1392,7 @@ export function OrderListPage({
         </div>
       </header>
 
-      {!isLookupMode ? (
+      {!isLookupMode || initialTabKey ? (
         renderOrderTabs()
       ) : null}
 

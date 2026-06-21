@@ -34,6 +34,7 @@ export const voteFaq = (id: string, value: 'helpful' | 'not_helpful') =>
   requestCustomer<FaqArticle>(`/support/faqs/${id}/vote`, { method: 'POST', body: JSON.stringify({ value }) })
 export const markMyTicketRead = (id: string) => requestCustomer<SupportTicket>(`/support/tickets/${id}/read`, { method: 'PATCH' })
 export const closeMyTicket = (id: string) => requestCustomer<SupportTicket>(`/support/tickets/${id}/close`, { method: 'PATCH' })
+export const reopenMyTicket = (id: string) => requestCustomer<SupportTicket>(`/support/tickets/${id}/reopen`, { method: 'PATCH' })
 
 const addFiles = (data: FormData, files: File[]) => files.slice(0, 3).forEach((file) => data.append('attachments', file))
 

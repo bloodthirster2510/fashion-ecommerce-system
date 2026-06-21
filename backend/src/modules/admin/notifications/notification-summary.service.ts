@@ -9,8 +9,6 @@ import {
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 const EXPIRING_COUPON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-const ATTENTION_ORDER_STATUSES = ['confirmed', 'packed', 'return_requested'] as const;
-
 type NotificationActor = {
   userId: string;
   role: string;
@@ -44,7 +42,24 @@ const getActorPermissions = async (actor: NotificationActor) => {
 
 const getOrderCounts = async () => {
   const rows = await Order.aggregate<OrderSummaryRow>([
-    { $match: { status: { $in: ATTENTION_ORDER_STATUSES } } },
+    {
+      $match: {
+        $or: [
+          {
+            status: { $in: ['confirmed', 'packed'] },
+            paymentStatus: { $ne: 'failed' },
+            $or: [
+              { paymentMethod: 'COD' },
+              { paymentStatus: 'paid' },
+            ],
+          },
+          {
+            status: 'return_requested',
+            'returnRequest.status': 'requested',
+          },
+        ],
+      },
+    },
     {
       $group: {
         _id: null,

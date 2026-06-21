@@ -16,6 +16,12 @@ test('admin notification badges summarize work and navigate from the bell panel'
   await expect(panel).toBeVisible()
   await expect(panel.getByText('Voucher sắp hết hạn')).toBeVisible()
 
+  await panel.getByRole('button', { name: /Đơn mới chờ đóng gói/ }).click()
+  await expect(page).toHaveURL(/\/admin\/orders\?queue=packing$/)
+  await expect(page.getByRole('tab', { name: /Cần đóng gói/ })).toHaveClass(/is-active/)
+
+  await page.getByRole('button', { name: '12 việc cần chú ý' }).click()
+
   await panel.getByRole('button', { name: /Tồn kho thấp/ }).click()
   await expect(page).toHaveURL(/\/admin\/inventory$/)
   await expect(panel).toBeHidden()

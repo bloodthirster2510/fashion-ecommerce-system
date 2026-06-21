@@ -196,8 +196,19 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     setNotificationsOpen(false)
     setActiveSection(item.id)
 
-    if (window.location.pathname !== item.path) {
+    if (`${window.location.pathname}${window.location.search}` !== item.path) {
       window.history.pushState(null, '', item.path)
+      notifyAdminNavigation()
+    }
+  }
+
+  const handleNotificationNavigate = (item: NavItem, queue?: string) => {
+    const target = queue ? `${item.path}?queue=${encodeURIComponent(queue)}` : item.path
+    setNotificationsOpen(false)
+    setActiveSection(item.id)
+
+    if (`${window.location.pathname}${window.location.search}` !== target) {
+      window.history.pushState(null, '', target)
       notifyAdminNavigation()
     }
   }
@@ -229,15 +240,18 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'orders') {
-      return <OrderListPage currentUser={currentUser} />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-${initialTabKey ?? 'all'}`} currentUser={currentUser} initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'ordersOnline') {
-      return <OrderListPage currentUser={currentUser} paymentSection="online" lockPaymentSection />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-online-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="online" lockPaymentSection initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'ordersCod') {
-      return <OrderListPage currentUser={currentUser} paymentSection="cod" lockPaymentSection />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-cod-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="cod" lockPaymentSection initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'catalog') {
@@ -386,7 +400,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                         if (!route || !canEnterRoute(currentUser, route)) return null
 
                         return (
-                          <button type="button" key={notification.key} onClick={() => handleNavigate(route)}>
+                          <button type="button" key={notification.key} onClick={() => handleNotificationNavigate(route, notification.queue)}>
                             <span className={`admin-notification-item-icon is-${notification.tone}`} aria-hidden="true" />
                             <span>
                               <strong>{notification.title}</strong>
@@ -486,6 +500,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       title: 'Đơn mới chờ đóng gói',
       detail: `${summary.orders.confirmed} đơn đã xác nhận cần tiếp tục xử lý`,
       count: summary.orders.confirmed,
+      queue: 'packing',
       tone: 'danger' as NotificationTone,
     } : null,
     summary.orders.packed > 0 ? {
@@ -494,6 +509,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       title: 'Đơn chờ bàn giao',
       detail: `${summary.orders.packed} đơn đã đóng gói đang chờ giao`,
       count: summary.orders.packed,
+      queue: 'handoff',
       tone: 'danger' as NotificationTone,
     } : null,
     summary.orders.returnRequested > 0 ? {
@@ -502,6 +518,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       title: 'Yêu cầu trả hàng',
       detail: `${summary.orders.returnRequested} yêu cầu đang chờ duyệt`,
       count: summary.orders.returnRequested,
+      queue: 'review',
       tone: 'danger' as NotificationTone,
     } : null,
     summary.lowStockVariants > 0 ? {

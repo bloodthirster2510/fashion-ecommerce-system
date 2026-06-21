@@ -29,6 +29,7 @@ import {
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
@@ -123,6 +124,7 @@ const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
+  const { summary: notificationSummary } = useCustomerNotifications();
   const [cart, setCart] = React.useState<CartResponse | null>(null);
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
@@ -1643,6 +1645,8 @@ const CartScreen = () => {
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
+        cartBadgeCount={cart?.summary.itemCount ?? notificationSummary?.cartItems ?? 0}
+        profileBadgeCount={notificationSummary?.total ?? 0}
       />
 
       <ScrollView
