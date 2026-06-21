@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { AdminUser } from '../modules/auth/adminSession'
+import { hasPermission, type AdminUser } from '../modules/auth/adminSession'
 import {
   IMPLEMENTED_ADMIN_ROUTE_IDS,
   adminRouteGroups,
@@ -16,6 +16,7 @@ import { PromotionsPage } from '../modules/promotions/PromotionsPage'
 import { OrderListPage } from '../modules/orders/OrderListPage'
 import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
+import { SupportManagementPage } from '../modules/support/SupportManagementPage'
 import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
 import { useNotificationSummary } from '../notifications/notification-summary-context'
@@ -89,7 +90,7 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
     return false
   }
 
-  return user.permissions?.includes(requiredPermission) ?? false
+  return hasPermission(user, requiredPermission)
 }
 
 const canEnterRoute = (user: AdminUser, route: NavItem) =>
@@ -195,8 +196,19 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     setNotificationsOpen(false)
     setActiveSection(item.id)
 
-    if (window.location.pathname !== item.path) {
+    if (`${window.location.pathname}${window.location.search}` !== item.path) {
       window.history.pushState(null, '', item.path)
+      notifyAdminNavigation()
+    }
+  }
+
+  const handleNotificationNavigate = (item: NavItem, queue?: string) => {
+    const target = queue ? `${item.path}?queue=${encodeURIComponent(queue)}` : item.path
+    setNotificationsOpen(false)
+    setActiveSection(item.id)
+
+    if (`${window.location.pathname}${window.location.search}` !== target) {
+      window.history.pushState(null, '', target)
       notifyAdminNavigation()
     }
   }
@@ -228,15 +240,18 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'orders') {
-      return <OrderListPage currentUser={currentUser} />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-${initialTabKey ?? 'all'}`} currentUser={currentUser} initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'ordersOnline') {
-      return <OrderListPage currentUser={currentUser} paymentSection="online" lockPaymentSection />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-online-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="online" lockPaymentSection initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'ordersCod') {
-      return <OrderListPage currentUser={currentUser} paymentSection="cod" lockPaymentSection />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-cod-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="cod" lockPaymentSection initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'catalog') {
@@ -249,6 +264,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'inventory') {
       return <InventoryManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'support') {
+      return <SupportManagementPage currentUser={currentUser} />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
@@ -381,7 +400,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                         if (!route || !canEnterRoute(currentUser, route)) return null
 
                         return (
-                          <button type="button" key={notification.key} onClick={() => handleNavigate(route)}>
+                          <button type="button" key={notification.key} onClick={() => handleNotificationNavigate(route, notification.queue)}>
                             <span className={`admin-notification-item-icon is-${notification.tone}`} aria-hidden="true" />
                             <span>
                               <strong>{notification.title}</strong>
@@ -463,6 +482,9 @@ const getNavNotificationBadge = (
     promotions: summary.expiringCoupons > 0
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
       : undefined,
+    support: summary.supportOpen > 0
+      ? { count: summary.supportOpen, tone: 'danger', label: `${summary.supportOpen} ticket chờ phản hồi` }
+      : undefined,
   }
 
   return badges[routeId] ?? null
@@ -478,6 +500,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       title: 'Đơn mới chờ đóng gói',
       detail: `${summary.orders.confirmed} đơn đã xác nhận cần tiếp tục xử lý`,
       count: summary.orders.confirmed,
+      queue: 'packing',
       tone: 'danger' as NotificationTone,
     } : null,
     summary.orders.packed > 0 ? {
@@ -486,6 +509,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       title: 'Đơn chờ bàn giao',
       detail: `${summary.orders.packed} đơn đã đóng gói đang chờ giao`,
       count: summary.orders.packed,
+      queue: 'handoff',
       tone: 'danger' as NotificationTone,
     } : null,
     summary.orders.returnRequested > 0 ? {
@@ -494,6 +518,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       title: 'Yêu cầu trả hàng',
       detail: `${summary.orders.returnRequested} yêu cầu đang chờ duyệt`,
       count: summary.orders.returnRequested,
+      queue: 'review',
       tone: 'danger' as NotificationTone,
     } : null,
     summary.lowStockVariants > 0 ? {
@@ -511,6 +536,14 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       detail: `${summary.expiringCoupons} voucher sẽ hết hạn trong 3 ngày`,
       count: summary.expiringCoupons,
       tone: 'warning' as NotificationTone,
+    } : null,
+    summary.supportOpen > 0 ? {
+      key: 'support-open',
+      routeId: 'support' as NavId,
+      title: 'Ticket chờ phản hồi',
+      detail: `${summary.supportOpen} ticket khách hàng đang chờ xử lý`,
+      count: summary.supportOpen,
+      tone: 'danger' as NotificationTone,
     } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null)
 }

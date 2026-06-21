@@ -507,10 +507,11 @@ const OrderDetailScreen = () => {
       return;
     }
 
-    Alert.alert(
-      'Vấn đề đơn hàng',
-      `Shop đã ghi nhận kênh hỗ trợ cho đơn ${order.orderCode}. Thời gian tư vấn: 8:30 - 21:45 mỗi ngày.`,
-    );
+    navigation.navigate('SupportTicketCreate', {
+      type: 'issue',
+      category: 'orders',
+      orderId: order._id,
+    });
   };
 
   const renderProduct = (item: OrderItem) => {

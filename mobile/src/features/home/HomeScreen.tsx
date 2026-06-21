@@ -1,7 +1,7 @@
 import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import StorefrontHeader from '../../components/layout/StorefrontHeader';
@@ -13,12 +13,14 @@ import CategoryDrawer from './components/CategoryDrawer';
 import CategoryRail, { CategoryRailItem } from './components/CategoryRail';
 import FeatureCard from './components/FeatureCard';
 import ProductSection from './components/ProductSection';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
   const { isAuthenticated, session } = useAuth();
+  const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
   const [isCategoryDrawerVisible, setIsCategoryDrawerVisible] = React.useState(false);
   const [categories, setCategories] = React.useState<CatalogCategory[]>([]);
   const [isCategoryLoading, setIsCategoryLoading] = React.useState(false);
@@ -104,6 +106,7 @@ const HomeScreen = () => {
 
   React.useEffect(() => loadCategories(), [loadCategories]);
   React.useEffect(() => loadHomeProducts(), [loadHomeProducts]);
+  useFocusEffect(React.useCallback(() => { void refreshNotifications(); }, [refreshNotifications]));
 
   const navigateToProductList = (params?: RootStackParamList['ProductList']) => {
     setIsCategoryDrawerVisible(false);
@@ -241,6 +244,8 @@ const HomeScreen = () => {
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
+        cartBadgeCount={notificationSummary?.cartItems ?? 0}
+        profileBadgeCount={notificationSummary?.total ?? 0}
       />
       <CategoryRail
         visible

@@ -17,6 +17,7 @@ export type StaffPermission =
   | 'customers.manage'
   | 'reviews.moderate'
   | 'support.reply'
+  | 'support.manage'
   | 'reports.read'
 
 export type InternalAccountRole = 'admin' | 'staff'

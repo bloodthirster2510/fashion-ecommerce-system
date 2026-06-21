@@ -14,6 +14,7 @@ import { adminAuditLogRouter } from '../modules/audit-logs/audit-log.route';
 import { adminPaymentRouter } from '../modules/payments/payments.route';
 import { adminPaymentMethodRouter } from '../modules/payment-methods/payment-method.route';
 import notificationSummaryRouter from '../modules/admin/notifications/notification-summary.routes';
+import adminSupportRouter from '../modules/admin/support/admin-support.routes';
 
 const adminRouter = Router();
 
@@ -31,6 +32,7 @@ adminRouter.use('/audit-logs', adminAuditLogRouter);
 adminRouter.use('/membership-rankings', membershipRankingAdminRouter);
 adminRouter.use('/payments', adminPaymentRouter);
 adminRouter.use('/notifications', notificationSummaryRouter);
+adminRouter.use('/support', adminSupportRouter);
 adminRouter.use('/', adminPaymentMethodRouter);
 
 export default adminRouter;

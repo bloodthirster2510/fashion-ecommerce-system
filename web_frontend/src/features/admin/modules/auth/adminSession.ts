@@ -11,6 +11,9 @@ let runtimeAdminAccessToken: string | null = null
 export const isAdminRole = (role?: string): role is AdminRole =>
   role === 'admin' || role === 'staff'
 
+export const hasPermission = (user: AdminUser | null, permission: string) =>
+  user?.role === 'admin' || Boolean(user?.permissions?.includes(permission))
+
 const clearLegacyAdminTokens = () => {
   window.localStorage.removeItem(ACCESS_TOKEN_KEY)
   window.localStorage.removeItem(REFRESH_TOKEN_KEY)

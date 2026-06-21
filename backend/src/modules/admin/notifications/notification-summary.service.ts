@@ -2,14 +2,13 @@ import {
   Coupon,
   Inventory,
   Order,
+  SupportTicket,
   User,
   type StaffPermission,
 } from '../../../database/models';
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 const EXPIRING_COUPON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
-const ATTENTION_ORDER_STATUSES = ['confirmed', 'packed', 'return_requested'] as const;
-
 type NotificationActor = {
   userId: string;
   role: string;
@@ -43,7 +42,24 @@ const getActorPermissions = async (actor: NotificationActor) => {
 
 const getOrderCounts = async () => {
   const rows = await Order.aggregate<OrderSummaryRow>([
-    { $match: { status: { $in: ATTENTION_ORDER_STATUSES } } },
+    {
+      $match: {
+        $or: [
+          {
+            status: { $in: ['confirmed', 'packed'] },
+            paymentStatus: { $ne: 'failed' },
+            $or: [
+              { paymentMethod: 'COD' },
+              { paymentStatus: 'paid' },
+            ],
+          },
+          {
+            status: 'return_requested',
+            'returnRequest.status': 'requested',
+          },
+        ],
+      },
+    },
     {
       $group: {
         _id: null,
@@ -93,9 +109,10 @@ export const getNotificationSummary = async (
   const canReadOrders = hasPermission(actor.role, permissions, 'orders.read');
   const canReadInventory = hasPermission(actor.role, permissions, 'inventory.read');
   const canReadPromotions = hasPermission(actor.role, permissions, 'promotions.read');
+  const canReplySupport = hasPermission(actor.role, permissions, 'support.reply');
   const expiringBefore = new Date(now.getTime() + EXPIRING_COUPON_WINDOW_MS);
 
-  const [orders, lowStockVariants, expiringCoupons] = await Promise.all([
+  const [orders, lowStockVariants, expiringCoupons, supportOpen] = await Promise.all([
     canReadOrders ? getOrderCounts() : null,
     canReadInventory ? getLowStockVariantCount(DEFAULT_LOW_STOCK_THRESHOLD) : 0,
     canReadPromotions
@@ -104,6 +121,13 @@ export const getNotificationSummary = async (
           isActive: true,
           startAt: { $lte: now },
           endAt: { $gte: now, $lte: expiringBefore },
+        })
+      : 0,
+    canReplySupport
+      ? SupportTicket.countDocuments({
+          status: { $in: ['open', 'in_progress', 'waiting_customer'] },
+          lastMessageSender: 'customer',
+          requiresReply: true,
         })
       : 0,
   ]);
@@ -116,7 +140,7 @@ export const getNotificationSummary = async (
     cod: 0,
     total: 0,
   };
-  const total = orderCounts.total + lowStockVariants + expiringCoupons;
+  const total = orderCounts.total + lowStockVariants + expiringCoupons + supportOpen;
 
   return {
     total,
@@ -126,14 +150,14 @@ export const getNotificationSummary = async (
     // Disabled staff accounts are intentional state, not pending work. Keep
     // this field stable until a real account-approval workflow exists.
     inactiveAccounts: 0,
-    supportOpen: 0,
+    supportOpen,
     reviewsPending: 0,
     capabilities: {
       orders: canReadOrders,
       inventory: canReadInventory,
       promotions: canReadPromotions,
       accounts: false,
-      support: false,
+      support: canReplySupport,
       reviews: false,
       loyaltyApprovals: false,
       reports: false,

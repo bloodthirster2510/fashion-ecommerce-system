@@ -31,11 +31,11 @@ const navLinks = [
   { label: 'Thời trang nữ', href: '/products?gender=female', gender: 'female' },
 ] satisfies NavLink[]
 const supportLinks = [
-  'Hướng dẫn đặt hàng',
-  'Giao hàng',
-  'Chính sách trả hàng hoàn tiền',
-  'Chính sách bảo mật',
-  'Liên hệ với chúng tôi',
+  { label: 'Hướng dẫn đặt hàng', href: '/support?topic=orders' },
+  { label: 'Giao hàng', href: '/support?topic=shipping' },
+  { label: 'Chính sách trả hàng hoàn tiền', href: '/support?topic=returns' },
+  { label: 'Câu hỏi thường gặp', href: '/support/faqs' },
+  { label: 'Liên hệ với chúng tôi', href: '/support' },
 ]
 const shopContact = {
   phone: import.meta.env.VITE_SHOP_PHONE?.trim() || 'Đang cập nhật',
@@ -271,8 +271,8 @@ function Footer() {
           <h2>Hỗ trợ</h2>
           <ul>
             {supportLinks.map((link) => (
-              <li key={link}>
-                <a href="/">{link}</a>
+              <li key={link.label}>
+                <a href={link.href}>{link.label}</a>
               </li>
             ))}
           </ul>

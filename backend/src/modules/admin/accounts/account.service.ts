@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { User, type StaffPermission } from '../../../database/models/user.model';
-import { STAFF_PERMISSION_SET } from './account.permissions';
+import { expandImpliedStaffPermissions, STAFF_PERMISSION_SET } from './account.permissions';
+import { revokeSupportSocketAccess } from '../../realtime/support.gateway';
 
 const SALT_ROUNDS = 10;
 const safeAccountSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
@@ -70,7 +71,7 @@ const normalizePermissions = (permissions: unknown): StaffPermission[] => {
     .filter((permission): permission is string => typeof permission === 'string')
     .filter((permission) => STAFF_PERMISSION_SET.has(permission));
 
-  return Array.from(new Set(normalized)) as StaffPermission[];
+  return expandImpliedStaffPermissions(Array.from(new Set(normalized)) as StaffPermission[]);
 };
 
 const assertNoDuplicateContact = async (email: string, phone?: string) => {
@@ -206,6 +207,7 @@ export const updateStaffStatus = async (id: string, isActive: boolean, actorUser
     throw { status: 404, message: 'Tài khoản staff không tồn tại' };
   }
 
+  revokeSupportSocketAccess(id);
   return staff;
 };
 
@@ -222,6 +224,7 @@ export const updateStaffPermissions = async (id: string, permissions: unknown) =
     throw { status: 404, message: 'Tài khoản staff không tồn tại' };
   }
 
+  revokeSupportSocketAccess(id);
   return staff;
 };
 
