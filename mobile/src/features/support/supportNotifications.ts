@@ -15,7 +15,6 @@ type NotificationModule = {
 
 const loadNotifications = async (): Promise<NotificationModule> => {
   // The dependency is installed by npm ci; dynamic loading keeps web bundles from eagerly loading native code.
-  // @ts-expect-error Local Windows installs can temporarily omit the package when Metro locks node_modules.
   return import('expo-notifications') as Promise<NotificationModule>;
 };
 
