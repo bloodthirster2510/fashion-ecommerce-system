@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import {
   createAdminFaq,
+  createCannedResponse,
   deleteAdminFaq,
+  deleteCannedResponse,
+  getSupportAnalytics,
   getSupportSummary,
   getSupportTicket,
   listAdminFaqs,
+  listCannedResponses,
   listSupportTickets,
   replySupportTicket,
   updateAdminFaq,
+  updateCannedResponse,
   updateSupportTicket,
   type SupportFilters,
 } from './support.service'
@@ -16,9 +21,12 @@ import type {
   FaqArticle,
   FaqCategory,
   FaqPayload,
+  CannedResponse,
+  CannedResponsePayload,
   SupportCategory,
   SupportPriority,
   SupportSummary,
+  SupportAnalytics,
   SupportTicket,
   SupportTicketDetail,
   SupportTicketStatus,
@@ -58,15 +66,24 @@ const emptyFaq: FaqPayload = {
   question: '', answer: '', category: 'orders', keywords: [], sortOrder: 0, isPublished: false,
 }
 
+const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }
+
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 }).format(new Date(value))
 
-const getPersonName = (value: SupportTicket['userId']) =>
-  typeof value === 'string' ? 'Khách hàng' : value.name || value.email
+const formatDuration = (value = 0) => value < 60 * 60 * 1000
+  ? `${Math.round(value / 60000)} phút`
+  : `${(value / 3600000).toFixed(1)} giờ`
+
+const getPersonName = (ticket: SupportTicket) => {
+  const value = ticket.userId
+  if (!value) return ticket.guestContact?.name || ticket.guestContact?.email || 'Khách vãng lai'
+  return typeof value === 'string' ? 'Khách hàng' : value.name || value.email
+}
 
 export function SupportManagementPage({ currentUser }: { currentUser: AdminUser }) {
-  const [tab, setTab] = useState<'tickets' | 'faqs'>('tickets')
+  const [tab, setTab] = useState<'tickets' | 'faqs' | 'analytics' | 'canned'>('tickets')
   const [filters, setFilters] = useState<SupportFilters>({ page: 1, status: 'all' })
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [summary, setSummary] = useState<SupportSummary | null>(null)
@@ -84,6 +101,13 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const [faqForm, setFaqForm] = useState<FaqPayload>(emptyFaq)
   const [editingFaq, setEditingFaq] = useState<FaqArticle | null>(null)
   const [faqEditorOpen, setFaqEditorOpen] = useState(false)
+  const [cannedResponses, setCannedResponses] = useState<CannedResponse[]>([])
+  const [selectedCannedId, setSelectedCannedId] = useState('')
+  const [cannedForm, setCannedForm] = useState<CannedResponsePayload>(emptyCanned)
+  const [editingCannedId, setEditingCannedId] = useState<string | null>(null)
+  const [analytics, setAnalytics] = useState<SupportAnalytics | null>(null)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   const loadTickets = useCallback(async () => {
     setLoading(true)
@@ -119,8 +143,20 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     }
   }, [faqSearch])
 
+  const loadCanned = useCallback(async () => {
+    try { setCannedResponses(await listCannedResponses()) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tải mẫu trả lời.') }
+  }, [])
+
+  const loadAnalytics = useCallback(async () => {
+    try { setAnalytics(await getSupportAnalytics(dateFrom, dateTo)) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tải báo cáo.') }
+  }, [dateFrom, dateTo])
+
   useEffect(() => { if (tab === 'tickets') void loadTickets() }, [loadTickets, tab])
   useEffect(() => { if (tab === 'faqs') void loadFaqs() }, [loadFaqs, tab])
+  useEffect(() => { if (tab === 'canned' || tab === 'tickets') void loadCanned() }, [loadCanned, tab])
+  useEffect(() => { if (tab === 'analytics') void loadAnalytics() }, [loadAnalytics, tab])
   useEffect(() => { if (selectedId) void loadDetail(selectedId) }, [loadDetail, selectedId])
 
   const selectedTicket = detail?.ticket
@@ -144,8 +180,9 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     if (!selectedId || !reply.trim()) return
     setSubmitting(true)
     try {
-      await replySupportTicket(selectedId, reply.trim(), isInternal, replyFiles)
+      await replySupportTicket(selectedId, reply.trim(), isInternal, replyFiles, selectedCannedId || undefined)
       setReply('')
+      setSelectedCannedId('')
       setReplyFiles([])
       await Promise.all([loadDetail(selectedId), loadTickets()])
       requestAdminNotificationRefresh()
@@ -179,6 +216,19 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     }
   }
 
+  const saveCanned = async () => {
+    setSubmitting(true)
+    try {
+      if (editingCannedId) await updateCannedResponse(editingCannedId, cannedForm)
+      else await createCannedResponse(cannedForm)
+      setEditingCannedId(null)
+      setCannedForm(emptyCanned)
+      await loadCanned()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Không thể lưu mẫu trả lời.')
+    } finally { setSubmitting(false) }
+  }
+
   return (
     <section className="admin-support-page">
       <header className="admin-support-header">
@@ -190,6 +240,8 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
         <div className="admin-support-tabs" role="tablist" aria-label="Khu vực hỗ trợ">
           <button className={tab === 'tickets' ? 'is-active' : ''} onClick={() => setTab('tickets')} type="button">Ticket {queueCount ? `(${queueCount})` : ''}</button>
           <button className={tab === 'faqs' ? 'is-active' : ''} onClick={() => setTab('faqs')} type="button">FAQ</button>
+          <button className={tab === 'canned' ? 'is-active' : ''} onClick={() => setTab('canned')} type="button">Mẫu trả lời</button>
+          <button className={tab === 'analytics' ? 'is-active' : ''} onClick={() => setTab('analytics')} type="button">Báo cáo</button>
         </div>
       </header>
 
@@ -219,7 +271,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                 <button key={ticket._id} type="button" className={`admin-support-ticket${ticket._id === selectedId ? ' is-selected' : ''}${ticket.requiresReply ? ' needs-reply' : ''}`} onClick={() => setSelectedId(ticket._id)}>
                   <span className="admin-support-ticket-top"><strong>{ticket.ticketCode}</strong><time>{formatDate(ticket.lastMessageAt)}</time></span>
                   <b>{ticket.subject}</b>
-                  <span>{getPersonName(ticket.userId)} · {categoryLabels[ticket.category]}</span>
+                  <span>{getPersonName(ticket)} · {categoryLabels[ticket.category]}</span>
                   <span className="admin-support-ticket-bottom"><em className={`status-${ticket.status}`}>{statusLabels[ticket.status]}</em><small>{priorityLabels[ticket.priority]}</small></span>
                 </button>
               )) : <p className="admin-support-empty">Không có ticket phù hợp.</p>}
@@ -229,7 +281,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
               {detailLoading ? <p className="admin-support-empty">Đang tải hội thoại...</p> : selectedTicket ? (
                 <>
                   <header className="admin-support-detail-header">
-                    <div><p>{selectedTicket.ticketCode}</p><h2>{selectedTicket.subject}</h2><span>{getPersonName(selectedTicket.userId)} · {typeLabels[selectedTicket.type]}</span></div>
+                    <div><p>{selectedTicket.ticketCode}</p><h2>{selectedTicket.subject}</h2><span>{getPersonName(selectedTicket)} · {typeLabels[selectedTicket.type]}</span></div>
                     <div className="admin-support-actions">
                       {!selectedTicket.assignedTo && <button style={{ minHeight: 40, border: 0, borderRadius: 9, padding: '0 12px', background: '#537f99', color: '#fff', fontWeight: 700 }} type="button" disabled={submitting} onClick={() => void mutateTicket({ assignedTo: currentUser._id })}>Nhận xử lý</button>}
                       <select aria-label="Mức ưu tiên" value={selectedTicket.priority} disabled={submitting} onChange={(event) => void mutateTicket({ priority: event.target.value as SupportPriority })}>
@@ -260,6 +312,15 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                   </div>
 
                   <div className="admin-support-composer">
+                    <select value={selectedCannedId} onChange={(event) => {
+                      const id = event.target.value
+                      setSelectedCannedId(id)
+                      const canned = cannedResponses.find((item) => item._id === id)
+                      if (canned) setReply(canned.body)
+                    }} aria-label="Chọn mẫu trả lời">
+                      <option value="">Chọn mẫu trả lời nhanh...</option>
+                      {cannedResponses.filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category)).map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}
+                    </select>
                     <textarea rows={4} value={reply} onChange={(event) => setReply(event.target.value)} placeholder={isInternal ? 'Ghi chú chỉ nhân viên nhìn thấy...' : 'Nhập phản hồi cho khách hàng...'} maxLength={3000} />
                     <div>
                       <label><input type="checkbox" checked={isInternal} onChange={(event) => setIsInternal(event.target.checked)} /> Ghi chú nội bộ</label>
@@ -272,7 +333,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             </main>
           </div>
         </>
-      ) : (
+      ) : tab === 'faqs' ? (
         <section className="admin-support-faqs">
           <div className="admin-support-toolbar">
             <input aria-label="Tìm FAQ" placeholder="Tìm câu hỏi..." value={faqSearch} onChange={(event) => setFaqSearch(event.target.value)} />
@@ -285,6 +346,43 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                 <aside><em className={faq.isPublished ? 'published' : ''}>{faq.isPublished ? 'Đang hiển thị' : 'Bản nháp'}</em><button type="button" onClick={() => openFaqEditor(faq)}>Sửa</button><button type="button" onClick={() => void deleteAdminFaq(faq._id).then(loadFaqs)}>Ẩn/Xóa</button></aside>
               </article>
             ))}
+          </div>
+        </section>
+      ) : tab === 'analytics' ? (
+        <section className="admin-support-report">
+          <div className="admin-support-toolbar">
+            <label>Từ ngày<input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
+            <label>Đến ngày<input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
+            <button type="button" onClick={() => void loadAnalytics()}>Áp dụng</button>
+          </div>
+          <div className="admin-support-kpis">
+            <Kpi label="Tổng ticket" value={analytics?.tickets.total ?? 0} />
+            <Kpi label="Đã phản hồi" value={analytics?.tickets.responded ?? 0} />
+            <Kpi label="Phản hồi đầu" value={formatDuration(analytics?.tickets.avgFirstResponseMs)} />
+            <Kpi label="Thời gian xử lý" value={formatDuration(analytics?.tickets.avgResolutionMs)} />
+          </div>
+          <div className="admin-support-report-grid">
+            <ReportBreakdown title="Theo danh mục" items={(analytics?.byCategory ?? []).map((item) => ({ label: categoryLabels[item.key], count: item.count }))} />
+            <ReportBreakdown title="Theo loại" items={(analytics?.byType ?? []).map((item) => ({ label: typeLabels[item.key], count: item.count }))} />
+            <ReportBreakdown title="Lượng ticket theo ngày" items={(analytics?.dailyVolume ?? []).map((item) => ({ label: item.date, count: item.count }))} />
+            <article className="admin-support-report-card"><h3>FAQ hữu ích</h3><strong>{Math.round((analytics?.faq.helpfulRate ?? 0) * 100)}%</strong><p>{analytics?.faq.helpful ?? 0}/{analytics?.faq.totalVotes ?? 0} lượt đánh giá hữu ích</p></article>
+          </div>
+        </section>
+      ) : (
+        <section className="admin-support-canned">
+          <form onSubmit={(event) => { event.preventDefault(); void saveCanned() }} className="admin-support-canned-form">
+            <h2>{editingCannedId ? 'Sửa mẫu trả lời' : 'Thêm mẫu trả lời'}</h2>
+            <input aria-label="Tên mẫu" placeholder="Tên mẫu" value={cannedForm.title} onChange={(event) => setCannedForm((old) => ({ ...old, title: event.target.value }))} />
+            <select aria-label="Danh mục mẫu" value={cannedForm.category ?? ''} onChange={(event) => setCannedForm((old) => ({ ...old, category: (event.target.value || null) as SupportCategory | null }))}>
+              <option value="">Tất cả danh mục</option>
+              {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <textarea rows={6} placeholder="Nội dung trả lời" value={cannedForm.body} onChange={(event) => setCannedForm((old) => ({ ...old, body: event.target.value }))} />
+            <label><input type="checkbox" checked={cannedForm.isActive} onChange={(event) => setCannedForm((old) => ({ ...old, isActive: event.target.checked }))} /> Đang sử dụng</label>
+            <div><button type="submit" disabled={submitting || cannedForm.title.trim().length < 2 || cannedForm.body.trim().length < 2}>Lưu mẫu</button>{editingCannedId && <button type="button" onClick={() => { setEditingCannedId(null); setCannedForm(emptyCanned) }}>Hủy</button>}</div>
+          </form>
+          <div className="admin-support-canned-list">
+            {cannedResponses.map((item) => <article key={item._id}><div><h3>{item.title}</h3><p>{item.body}</p><small>{item.category ? categoryLabels[item.category] : 'Tất cả danh mục'} · đã dùng {item.useCount} lần · {item.isActive ? 'đang bật' : 'đã tắt'}</small></div><aside><button type="button" onClick={() => { setEditingCannedId(item._id); setCannedForm({ title: item.title, body: item.body, category: item.category ?? null, isActive: item.isActive }) }}>Sửa</button><button type="button" onClick={() => void deleteCannedResponse(item._id).then(loadCanned)}>Xóa</button></aside></article>)}
           </div>
         </section>
       )}
@@ -306,6 +404,11 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   )
 }
 
-function Kpi({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'danger' | 'warning' }) {
+function Kpi({ label, value, tone = 'default' }: { label: string; value: number | string; tone?: 'default' | 'danger' | 'warning' }) {
   return <article className={`admin-support-kpi ${tone}`}><span>{label}</span><strong>{value}</strong></article>
+}
+
+function ReportBreakdown({ title, items }: { title: string; items: Array<{ label: string; count: number }> }) {
+  const max = Math.max(1, ...items.map((item) => item.count))
+  return <article className="admin-support-report-card"><h3>{title}</h3>{items.length ? items.map((item) => <div className="admin-support-report-row" key={item.label}><span>{item.label}</span><i><b style={{ width: `${item.count / max * 100}%` }} /></i><strong>{item.count}</strong></div>) : <p>Chưa có dữ liệu.</p>}</article>
 }

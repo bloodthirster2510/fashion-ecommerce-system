@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { Types } from 'mongoose';
 import {
   Coupon,
@@ -18,7 +18,9 @@ import type {
   ListFaqInput,
   PaginationQuery,
   VoteFaqInput,
+  CreateGuestFeedbackInput,
 } from './support.types';
+import { sendGuestFeedbackVerificationEmail } from '../../utils/email';
 
 export class SupportServiceError extends Error {
   constructor(message: string, public statusCode = 400) {
@@ -186,6 +188,71 @@ export const createTicket = async (userId: string, input: CreateSupportTicketInp
   return getCustomerTicket(ticket._id.toString(), userId);
 };
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const createGuestFeedback = async (input: CreateGuestFeedbackInput) => {
+  if (input.website?.trim()) return { pendingVerification: true };
+  if (!['feedback', 'suggestion'].includes(input.type)) throw new SupportServiceError('Guest submission must be feedback or suggestion');
+  if (!SUPPORT_CATEGORIES.includes(input.category)) throw new SupportServiceError('Ticket category is invalid');
+  const name = cleanText(input.name, 'name', 2, 100);
+  const email = cleanText(input.email, 'email', 5, 254).toLowerCase();
+  if (!emailPattern.test(email)) throw new SupportServiceError('email is invalid');
+  const subject = cleanText(input.subject, 'subject', 5, 150);
+  const body = cleanText(input.body, 'body', 10, 3000);
+  const token = randomBytes(32).toString('base64url');
+  const now = new Date();
+  const ticket = await createTicketDocument({
+    userId: null,
+    guestContact: {
+      name,
+      email,
+      verificationTokenHash: createHash('sha256').update(token).digest('hex'),
+      verificationExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+    },
+    type: input.type,
+    category: input.category,
+    subject,
+    status: 'pending_verification',
+    priority: 'normal',
+    requiresReply: false,
+    context: { source: 'support_home', appPlatform: 'web' },
+    lastMessageAt: now,
+    lastMessageSender: 'customer',
+  });
+  try {
+    await SupportMessage.create({ ticketId: ticket._id, senderType: 'customer', senderId: null, body, isInternal: false });
+    const delivered = await sendGuestFeedbackVerificationEmail({ to: email, name, ticketCode: ticket.ticketCode, token });
+    if (!delivered && process.env.NODE_ENV === 'production') {
+      throw new SupportServiceError('Verification email is temporarily unavailable', 503);
+    }
+  } catch (error) {
+    await Promise.all([SupportMessage.deleteMany({ ticketId: ticket._id }), SupportTicket.deleteOne({ _id: ticket._id })]);
+    throw error;
+  }
+  return { pendingVerification: true, ticketCode: ticket.ticketCode };
+};
+
+export const verifyGuestFeedback = async (token: string) => {
+  if (typeof token !== 'string' || token.length < 20) throw new SupportServiceError('Verification token is invalid');
+  const now = new Date();
+  const ticket = await SupportTicket.findOneAndUpdate(
+    {
+      status: 'pending_verification',
+      'guestContact.verificationTokenHash': createHash('sha256').update(token).digest('hex'),
+      'guestContact.verificationExpiresAt': { $gte: now },
+    },
+    {
+      status: 'open',
+      'guestContact.verifiedAt': now,
+      'guestContact.verificationTokenHash': null,
+      'guestContact.verificationExpiresAt': null,
+    },
+    { new: true },
+  ).select('+guestContact.verificationTokenHash').lean();
+  if (!ticket) throw new SupportServiceError('Verification link is invalid or expired', 410);
+  return { verified: true, ticketCode: ticket.ticketCode };
+};
+
 export const listCustomerTickets = async (userId: string, input: PaginationQuery = {}) => {
   const userObjectId = assertObjectId(userId, 'userId');
   const pagination = normalizePagination(input);
@@ -306,6 +373,7 @@ export const supportService = {
   addCustomerMessage,
   closeCustomerTicket,
   createTicket,
+  createGuestFeedback,
   getCustomerSupportSummary,
   getCustomerTicket,
   listCustomerTickets,
@@ -313,4 +381,5 @@ export const supportService = {
   markCustomerRead,
   reopenCustomerTicket,
   voteFaq,
+  verifyGuestFeedback,
 };

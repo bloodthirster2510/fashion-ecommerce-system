@@ -10,7 +10,7 @@ export interface ISupportAttachment {
 export interface ISupportMessage extends Document {
   ticketId: Types.ObjectId;
   senderType: 'customer' | 'staff';
-  senderId: Types.ObjectId;
+  senderId?: Types.ObjectId | null;
   body: string;
   attachments: ISupportAttachment[];
   isInternal: boolean;
@@ -32,7 +32,7 @@ const supportMessageSchema = new Schema<ISupportMessage>(
   {
     ticketId: { type: Schema.Types.ObjectId, ref: 'SupportTicket', required: true },
     senderType: { type: String, enum: ['customer', 'staff'], required: true },
-    senderId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    senderId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     body: { type: String, required: true, trim: true, minlength: 1, maxlength: 3000 },
     attachments: { type: [supportAttachmentSchema], default: [] },
     isInternal: { type: Boolean, default: false },

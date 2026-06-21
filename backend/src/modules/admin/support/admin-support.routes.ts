@@ -5,15 +5,20 @@ import { createRateLimitMiddleware } from '../../../middlewares/security.middlew
 import { uploadMultiple, withMulterErrorHandling } from '../../../middlewares/upload.middleware';
 import {
   createFaq,
+  createCannedResponse,
+  deleteCannedResponse,
   deleteFaq,
   getSummary,
+  getAnalytics,
   getTicket,
   listFaqs,
+  listCannedResponses,
   listTickets,
   markTicketRead,
   reorderFaqs,
   replyTicket,
   updateFaq,
+  updateCannedResponse,
   updateTicket,
 } from './admin-support.controller';
 
@@ -24,6 +29,11 @@ const supportUpload = withMulterErrorHandling(uploadMultiple.array('attachments'
 
 router.use(...guard);
 router.get('/summary', getSummary);
+router.get('/analytics', getAnalytics);
+router.get('/canned-responses', listCannedResponses);
+router.post('/canned-responses', createCannedResponse);
+router.patch('/canned-responses/:id', updateCannedResponse);
+router.delete('/canned-responses/:id', deleteCannedResponse);
 router.get('/tickets', listTickets);
 router.get('/tickets/:id', getTicket);
 router.post('/tickets/:id/messages', replyLimiter, supportUpload, replyTicket);

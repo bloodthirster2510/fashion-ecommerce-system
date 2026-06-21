@@ -13,7 +13,8 @@ export type AuditLogAction =
   | 'membership_ranking.delete'
   | 'support_ticket.update'
   | 'support_ticket.reply'
-  | 'support_ticket.status_update';
+  | 'support_ticket.status_update'
+  | 'support_ticket.auto_close';
 
 export interface IAuditLog extends Document {
   actorId?: Types.ObjectId | null;
@@ -53,6 +54,7 @@ const auditLogSchema = new Schema<IAuditLog>(
         'support_ticket.update',
         'support_ticket.reply',
         'support_ticket.status_update',
+        'support_ticket.auto_close',
       ],
       required: true,
     },

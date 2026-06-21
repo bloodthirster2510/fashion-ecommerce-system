@@ -1,5 +1,5 @@
 import { SupportMessage, SupportTicket } from '../../../database/models';
-import { addCustomerMessage, createTicket, getCustomerTicket } from '../support.service';
+import { addCustomerMessage, createGuestFeedback, createTicket, getCustomerTicket } from '../support.service';
 
 jest.mock('../../../database/models', () => ({
   Coupon: { exists: jest.fn() },
@@ -55,5 +55,20 @@ describe('support service security and state rules', () => {
     await expect(addCustomerMessage(ticketId, userId, { body: 'Tôi muốn bổ sung thông tin.' }))
       .rejects.toMatchObject({ message: 'Closed ticket cannot receive messages', statusCode: 409 });
     expect(mockedMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('silently accepts honeypot guest feedback without creating a ticket', async () => {
+    await expect(createGuestFeedback({
+      name: 'Spam Bot', email: 'bot@example.com', type: 'feedback', category: 'other',
+      subject: 'Automated message', body: 'This should not become a ticket.', website: 'https://spam.test',
+    })).resolves.toEqual({ pendingVerification: true });
+    expect(mockedTicket.create).not.toHaveBeenCalled();
+  });
+
+  it('limits guest submissions to feedback and suggestions', async () => {
+    await expect(createGuestFeedback({
+      name: 'Guest User', email: 'guest@example.com', type: 'question' as 'feedback', category: 'other',
+      subject: 'Need private support', body: 'Please help me with my account.', website: '',
+    })).rejects.toMatchObject({ message: 'Guest submission must be feedback or suggestion' });
   });
 });

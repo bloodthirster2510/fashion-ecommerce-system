@@ -222,6 +222,13 @@
 .customer-support-check input {
   width: auto;
 }
+.customer-support-honeypot {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+}
 .customer-support-form footer,
 .customer-support-reply > div {
   display: flex;

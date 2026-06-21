@@ -15,6 +15,18 @@ export const listFaqs = async (search = '', category = '') => {
   return parsePublic<Paginated<FaqArticle>>(await axiosClient.fetch(`/support/faqs?${params.toString()}`))
 }
 
+export const createGuestFeedback = async (payload: {
+  name: string; email: string; type: 'feedback' | 'suggestion'; category: SupportCategory;
+  subject: string; body: string; website: string;
+}) => parsePublic<{ pendingVerification: true; ticketCode?: string }>(await axiosClient.fetch('/support/guest-feedback', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+}))
+
+export const verifyGuestFeedback = async (token: string) =>
+  parsePublic<{ verified: true; ticketCode: string }>(await axiosClient.fetch(`/support/guest-feedback/verify?token=${encodeURIComponent(token)}`))
+
 export const listMyTickets = () => requestCustomer<Paginated<SupportTicket>>('/support/tickets?page=1&limit=50')
 export const getMyTicket = (id: string) => requestCustomer<TicketDetail>(`/support/tickets/${id}`)
 export const getMySupportSummary = () => requestCustomer<SupportSummary>('/support/summary')

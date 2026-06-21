@@ -36,6 +36,16 @@ export type ListFaqInput = PaginationQuery & {
 
 export type VoteFaqInput = { value: FaqVoteValue };
 
+export type CreateGuestFeedbackInput = {
+  name: string;
+  email: string;
+  type: 'feedback' | 'suggestion';
+  category: SupportCategory;
+  subject: string;
+  body: string;
+  website?: string;
+};
+
 export type AdminTicketQuery = PaginationQuery & {
   search?: string;
   status?: SupportTicketStatus;
@@ -56,6 +66,14 @@ export type UpdateSupportTicketInput = {
 
 export type AdminSupportMessageInput = AddSupportMessageInput & {
   isInternal?: boolean;
+  cannedResponseId?: string;
+};
+
+export type CannedResponsePayload = {
+  title: string;
+  body: string;
+  category?: SupportCategory | null;
+  isActive?: boolean;
 };
 
 export type FaqPayload = {

@@ -3,6 +3,7 @@ import { created, error, ok } from '../../utils/response';
 import { cleanupSupportAttachments, uploadSupportAttachments } from './support-attachments';
 import { SupportServiceError, supportService } from './support.service';
 import type { CreateSupportTicketInput } from './support.types';
+import { pushNotificationService } from '../notifications/push-notification.service';
 
 const actorId = (req: Request) => {
   if (!req.user?.userId) throw new SupportServiceError('Authentication required', 401);
@@ -11,6 +12,12 @@ const actorId = (req: Request) => {
 
 const handleError = (res: Response, caught: unknown) => {
   if (caught instanceof SupportServiceError) return error(res, caught.message, caught.statusCode);
+  if (caught instanceof Error && 'statusCode' in caught) {
+    const statusCode = Number((caught as Error & { statusCode?: unknown }).statusCode);
+    if (Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500) {
+      return error(res, caught.message, statusCode);
+    }
+  }
   console.error('Support request failed:', caught);
   return error(res, 'Unable to process support request', 500);
 };
@@ -67,6 +74,22 @@ export const createSupportTicket = async (req: Request, res: Response) => {
     return created(res, result, 'Support ticket created');
   } catch (caught) {
     if (attachments.length) await cleanupSupportAttachments(attachments);
+    return handleError(res, caught);
+  }
+};
+
+export const createGuestFeedback = async (req: Request, res: Response) => {
+  try {
+    return created(res, await supportService.createGuestFeedback(req.body), 'Check your email to verify the feedback');
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const verifyGuestFeedback = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await supportService.verifyGuestFeedback(String(req.query.token ?? '')));
+  } catch (caught) {
     return handleError(res, caught);
   }
 };
@@ -132,6 +155,22 @@ export const closeMySupportTicket = async (req: Request, res: Response) => {
 export const getMySupportSummary = async (req: Request, res: Response) => {
   try {
     return ok(res, await supportService.getCustomerSupportSummary(actorId(req)));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const registerMyPushToken = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await pushNotificationService.registerPushToken(actorId(req), req.body));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const unregisterMyPushToken = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await pushNotificationService.unregisterPushToken(actorId(req), String(req.body?.token ?? '')));
   } catch (caught) {
     return handleError(res, caught);
   }

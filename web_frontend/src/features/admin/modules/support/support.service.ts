@@ -3,6 +3,8 @@ import type {
   FaqArticle,
   FaqList,
   FaqPayload,
+  CannedResponse,
+  CannedResponsePayload,
   SupportCategory,
   SupportPriority,
   SupportSummary,
@@ -12,6 +14,7 @@ import type {
   SupportTicketList,
   SupportTicketStatus,
   SupportTicketType,
+  SupportAnalytics,
 } from './support.types'
 
 export type SupportFilters = {
@@ -49,11 +52,12 @@ export const updateSupportTicket = (
   body: JSON.stringify(payload),
 })
 
-export const replySupportTicket = (id: string, body: string, isInternal: boolean, files: File[] = []) => {
+export const replySupportTicket = (id: string, body: string, isInternal: boolean, files: File[] = [], cannedResponseId?: string) => {
   const data = new FormData()
   data.set('body', body)
   data.set('isInternal', String(isInternal))
   files.forEach((file) => data.append('attachments', file))
+  if (cannedResponseId) data.set('cannedResponseId', cannedResponseId)
   return requestAdmin<SupportMessage>(`/admin/support/tickets/${id}/messages`, { method: 'POST', body: data })
 }
 
@@ -61,6 +65,25 @@ export const markSupportTicketRead = (id: string) =>
   requestAdmin<SupportTicket>(`/admin/support/tickets/${id}/read`, { method: 'PATCH' })
 
 export const getSupportSummary = () => requestAdmin<SupportSummary>('/admin/support/summary')
+
+export const getSupportAnalytics = (dateFrom = '', dateTo = '') => {
+  const params = new URLSearchParams()
+  if (dateFrom) params.set('dateFrom', dateFrom)
+  if (dateTo) params.set('dateTo', dateTo)
+  return requestAdmin<SupportAnalytics>(`/admin/support/analytics?${params.toString()}`)
+}
+
+export const listCannedResponses = (activeOnly = false) =>
+  requestAdmin<CannedResponse[]>(`/admin/support/canned-responses?activeOnly=${activeOnly}`)
+
+export const createCannedResponse = (payload: CannedResponsePayload) =>
+  requestAdmin<CannedResponse>('/admin/support/canned-responses', { method: 'POST', body: JSON.stringify(payload) })
+
+export const updateCannedResponse = (id: string, payload: Partial<CannedResponsePayload>) =>
+  requestAdmin<CannedResponse>(`/admin/support/canned-responses/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+
+export const deleteCannedResponse = (id: string) =>
+  requestAdmin<{ _id: string; deleted: true }>(`/admin/support/canned-responses/${id}`, { method: 'DELETE' })
 
 export const listAdminFaqs = (search = '', category = 'all') => {
   const params = new URLSearchParams({ page: '1', limit: '100' })

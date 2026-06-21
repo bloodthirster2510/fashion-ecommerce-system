@@ -444,6 +444,52 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+.admin-support-report,
+.admin-support-canned {
+  display: grid;
+  gap: 20px;
+}
+.admin-support-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.admin-support-report-card,
+.admin-support-canned-form,
+.admin-support-canned-list article {
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #dfe8ed;
+  border-radius: 12px;
+}
+.admin-support-report-card h3,
+.admin-support-canned h2,
+.admin-support-canned h3 { margin-top: 0; }
+.admin-support-report-card > strong { font-size: 32px; color: #537f99; }
+.admin-support-report-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) 2fr 32px;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+.admin-support-report-row i { height: 8px; background: #e8eef1; border-radius: 99px; overflow: hidden; }
+.admin-support-report-row b { display: block; height: 100%; background: #537f99; border-radius: inherit; }
+.admin-support-canned { grid-template-columns: minmax(260px, 0.7fr) minmax(360px, 1.3fr); }
+.admin-support-canned-form { display: grid; gap: 12px; align-content: start; }
+.admin-support-canned-form input,
+.admin-support-canned-form select,
+.admin-support-canned-form textarea,
+.admin-support-composer > select { width: 100%; border: 1px solid #ccd9df; border-radius: 9px; padding: 10px; background: #fff; }
+.admin-support-canned-form label { display: flex; gap: 8px; align-items: center; }
+.admin-support-canned-form label input { width: auto; }
+.admin-support-canned-form > div { display: flex; gap: 8px; }
+.admin-support-canned-form button,
+.admin-support-canned-list button { border: 0; border-radius: 8px; padding: 9px 13px; cursor: pointer; }
+.admin-support-canned-list { display: grid; gap: 12px; }
+.admin-support-canned-list article { display: flex; justify-content: space-between; gap: 16px; }
+.admin-support-canned-list article p { white-space: pre-wrap; color: #526b7a; }
+.admin-support-canned-list aside { display: flex; gap: 6px; align-items: flex-start; }
 @media (max-width: 980px) {
   .admin-support-kpis {
     grid-template-columns: repeat(2, 1fr);
@@ -459,6 +505,7 @@
   .admin-support-detail {
     min-height: 600px;
   }
+  .admin-support-canned { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .admin-support-header {

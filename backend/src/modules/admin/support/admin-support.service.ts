@@ -4,6 +4,7 @@ import {
   FAQ_CATEGORIES,
   Order,
   SupportMessage,
+  SupportCannedResponse,
   SupportTicket,
   SUPPORT_CATEGORIES,
   SUPPORT_PRIORITIES,
@@ -13,10 +14,13 @@ import {
   type SupportTicketStatus,
 } from '../../../database/models';
 import { auditLogService } from '../../audit-logs/audit-log.service';
+import { sendSupportReplyEmail } from '../../../utils/email';
+import { pushNotificationService } from '../../notifications/push-notification.service';
 import { SupportServiceError, listFaqs } from '../../support/support.service';
 import type {
   AdminSupportMessageInput,
   AdminTicketQuery,
+  CannedResponsePayload,
   FaqPayload,
   UpdateSupportTicketInput,
 } from '../../support/support.types';
@@ -26,6 +30,7 @@ type SupportActor = { userId: string; role: 'admin' | 'staff' };
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 const transitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
+  pending_verification: [],
   open: ['in_progress', 'waiting_customer', 'resolved', 'closed', 'spam'],
   in_progress: ['waiting_customer', 'resolved', 'closed', 'spam'],
   waiting_customer: ['in_progress', 'resolved', 'closed', 'spam'],
@@ -48,7 +53,7 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$
 
 export const listAdminTickets = async (input: AdminTicketQuery = {}) => {
   const normalized = pagination(input.page, input.limit);
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { status: { $ne: 'pending_verification' } };
   if (input.status) {
     if (!SUPPORT_TICKET_STATUSES.includes(input.status)) throw new SupportServiceError('Status is invalid');
     filter.status = input.status;
@@ -81,6 +86,8 @@ export const listAdminTickets = async (input: AdminTicketQuery = {}) => {
       { subject: regex },
       { userId: { $in: users.map((item) => item._id) } },
       { orderId: { $in: orders.map((item) => item._id) } },
+      { 'guestContact.name': regex },
+      { 'guestContact.email': regex },
     ];
   }
 
@@ -105,6 +112,7 @@ export const getAdminTicket = async (ticketId: string) => {
     .populate('orderId', 'orderCode status paymentMethod paymentStatus totalAmount shipping')
     .lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
+  if (ticket.status === 'pending_verification') throw new SupportServiceError('Ticket not found', 404);
   const messages = await SupportMessage.find({ ticketId: id })
     .sort({ createdAt: 1 })
     .populate('senderId', 'name email role avatarImage')
@@ -125,6 +133,15 @@ export const addAdminMessage = async (
   if (ticket.status === 'spam' || ticket.status === 'closed') {
     throw new SupportServiceError('This ticket cannot receive messages', 409);
   }
+  let cannedResponseId: Types.ObjectId | null = null;
+  if (input.cannedResponseId) {
+    cannedResponseId = objectId(input.cannedResponseId, 'cannedResponseId');
+    const canned = await SupportCannedResponse.exists({
+      _id: cannedResponseId,
+      isActive: true,
+    });
+    if (!canned) throw new SupportServiceError('Canned response not found', 404);
+  }
 
   const message = await SupportMessage.create({
     ticketId: id,
@@ -134,6 +151,7 @@ export const addAdminMessage = async (
     attachments: input.attachments ?? [],
     isInternal: Boolean(input.isInternal),
   });
+  if (cannedResponseId) await SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } });
 
   if (!input.isInternal) {
     const now = new Date();
@@ -143,6 +161,31 @@ export const addAdminMessage = async (
     ticket.firstResponseAt = ticket.firstResponseAt ?? now;
     if (ticket.status === 'open' || ticket.status === 'in_progress') ticket.status = 'waiting_customer';
     await ticket.save();
+
+    const customer = ticket.userId
+      ? await User.findById(ticket.userId).select('email').lean<{ email?: string } | null>()
+      : null;
+    const customerEmail = customer?.email || ticket.guestContact?.email;
+    if (customerEmail) {
+      await sendSupportReplyEmail({
+        to: customerEmail,
+        ticketId: ticket._id.toString(),
+        ticketCode: ticket.ticketCode,
+        subject: ticket.subject,
+        reply: body,
+        isGuest: !ticket.userId,
+      });
+    }
+    if (ticket.userId) {
+      await pushNotificationService.sendSupportReplyPush({
+        userId: ticket.userId.toString(),
+        ticketId: ticket._id.toString(),
+        ticketCode: ticket.ticketCode,
+        subject: ticket.subject,
+      }).catch((error) => {
+        console.error('Failed to send support reply push:', error instanceof Error ? error.message : String(error));
+      });
+    }
   }
 
   await auditLogService.recordAuditLogBestEffort({
@@ -260,6 +303,105 @@ export const getAdminSupportSummary = async () => {
   return { totalOpen, waitingAdmin, waitingCustomer, resolved, unassigned, overdue, generatedAt: now };
 };
 
+const dateRange = (dateFrom?: string, dateTo?: string) => {
+  const createdAt: { $gte?: Date; $lte?: Date } = {};
+  if (dateFrom) {
+    const value = new Date(dateFrom);
+    if (Number.isNaN(value.getTime())) throw new SupportServiceError('dateFrom is invalid');
+    createdAt.$gte = value;
+  }
+  if (dateTo) {
+    const value = new Date(dateTo);
+    if (Number.isNaN(value.getTime())) throw new SupportServiceError('dateTo is invalid');
+    value.setHours(23, 59, 59, 999);
+    createdAt.$lte = value;
+  }
+  return { status: { $ne: 'pending_verification' }, ...(Object.keys(createdAt).length ? { createdAt } : {}) };
+};
+
+export const getSupportAnalytics = async (dateFrom?: string, dateTo?: string) => {
+  const match = dateRange(dateFrom, dateTo);
+  const [ticketStats, byCategory, byType, dailyVolume, faq] = await Promise.all([
+    SupportTicket.aggregate([
+      { $match: match },
+      { $group: {
+        _id: null,
+        total: { $sum: 1 },
+        open: { $sum: { $cond: [{ $in: ['$status', ['open', 'in_progress', 'waiting_customer']] }, 1, 0] } },
+        resolved: { $sum: { $cond: [{ $in: ['$status', ['resolved', 'closed']] }, 1, 0] } },
+        responded: { $sum: { $cond: ['$firstResponseAt', 1, 0] } },
+        avgFirstResponseMs: { $avg: { $cond: ['$firstResponseAt', { $subtract: ['$firstResponseAt', '$createdAt'] }, null] } },
+        avgResolutionMs: { $avg: { $cond: ['$resolvedAt', { $subtract: ['$resolvedAt', '$createdAt'] }, null] } },
+      } },
+    ]),
+    SupportTicket.aggregate([{ $match: match }, { $group: { _id: '$category', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
+    SupportTicket.aggregate([{ $match: match }, { $group: { _id: '$type', count: { $sum: 1 } } }, { $sort: { count: -1 } }]),
+    SupportTicket.aggregate([
+      { $match: match },
+      { $group: { _id: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]),
+    FaqArticle.aggregate([{ $group: { _id: null, helpful: { $sum: '$helpfulCount' }, notHelpful: { $sum: '$notHelpfulCount' } } }]),
+  ]);
+  const tickets = ticketStats[0] ?? { total: 0, open: 0, resolved: 0, responded: 0, avgFirstResponseMs: 0, avgResolutionMs: 0 };
+  const votes = faq[0] ?? { helpful: 0, notHelpful: 0 };
+  const totalVotes = votes.helpful + votes.notHelpful;
+  return {
+    tickets,
+    byCategory: byCategory.map((item) => ({ key: item._id, count: item.count })),
+    byType: byType.map((item) => ({ key: item._id, count: item.count })),
+    dailyVolume: dailyVolume.map((item) => ({ date: item._id, count: item.count })),
+    faq: { ...votes, totalVotes, helpfulRate: totalVotes ? votes.helpful / totalVotes : 0 },
+    generatedAt: new Date(),
+  };
+};
+
+const cleanCannedResponse = (input: Partial<CannedResponsePayload>, partial = false) => {
+  const payload: Record<string, unknown> = {};
+  if (!partial || input.title !== undefined) {
+    const title = input.title?.trim();
+    if (!title || title.length < 2 || title.length > 100) throw new SupportServiceError('title must contain 2-100 characters');
+    payload.title = title;
+  }
+  if (!partial || input.body !== undefined) {
+    const body = input.body?.trim();
+    if (!body || body.length < 2 || body.length > 3000) throw new SupportServiceError('body must contain 2-3000 characters');
+    payload.body = body;
+  }
+  if (input.category !== undefined) {
+    if (input.category !== null && !SUPPORT_CATEGORIES.includes(input.category)) throw new SupportServiceError('category is invalid');
+    payload.category = input.category;
+  }
+  if (input.isActive !== undefined) payload.isActive = Boolean(input.isActive);
+  return payload;
+};
+
+export const listCannedResponses = (activeOnly = false) => SupportCannedResponse
+  .find(activeOnly ? { isActive: true } : {})
+  .sort({ category: 1, title: 1 })
+  .lean();
+
+export const createCannedResponse = (actor: SupportActor, input: CannedResponsePayload) => {
+  const actorId = objectId(actor.userId, 'actorId');
+  return SupportCannedResponse.create({ ...cleanCannedResponse(input), createdBy: actorId, updatedBy: actorId });
+};
+
+export const updateCannedResponse = async (id: string, actor: SupportActor, input: Partial<CannedResponsePayload>) => {
+  const updated = await SupportCannedResponse.findByIdAndUpdate(
+    objectId(id, 'cannedResponseId'),
+    { ...cleanCannedResponse(input, true), updatedBy: objectId(actor.userId, 'actorId') },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!updated) throw new SupportServiceError('Canned response not found', 404);
+  return updated;
+};
+
+export const deleteCannedResponse = async (id: string) => {
+  const deleted = await SupportCannedResponse.findByIdAndDelete(objectId(id, 'cannedResponseId')).lean();
+  if (!deleted) throw new SupportServiceError('Canned response not found', 404);
+  return { _id: deleted._id, deleted: true };
+};
+
 const cleanFaqPayload = (input: FaqPayload, partial = false) => {
   const payload: Record<string, unknown> = {};
   if (!partial || input.question !== undefined) {
@@ -330,14 +472,19 @@ export const reorderFaqs = async (actor: SupportActor, orderedIds: string[]) => 
 
 export const adminSupportService = {
   addAdminMessage,
+  createCannedResponse,
   createFaq,
   deleteFaq,
+  deleteCannedResponse,
   getAdminSupportSummary,
+  getSupportAnalytics,
   getAdminTicket,
   listAdminFaqs,
   listAdminTickets,
+  listCannedResponses,
   markAdminRead,
   reorderFaqs,
   updateAdminTicket,
+  updateCannedResponse,
   updateFaq,
 };

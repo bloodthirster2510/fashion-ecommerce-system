@@ -31,6 +31,7 @@ export const supportStyles = StyleSheet.create({
   input: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radii.sm, padding: 14, color: colors.text, fontSize: 15 },
   label: { color: colors.text, fontWeight: '800', marginBottom: -6 },
   error: { backgroundColor: colors.dangerSoft, color: colors.danger, padding: 12, borderRadius: radii.sm },
+  success: { backgroundColor: colors.brandMist, color: colors.brandDark, padding: 12, borderRadius: radii.sm },
   imageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   image: { width: 80, height: 80, borderRadius: radii.sm, backgroundColor: colors.brandMist },
   messageCustomer: { alignSelf: 'flex-start', maxWidth: '85%', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12 },

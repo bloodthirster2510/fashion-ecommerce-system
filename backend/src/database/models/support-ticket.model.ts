@@ -16,6 +16,7 @@ export const SUPPORT_CATEGORIES = [
 ] as const;
 export const SUPPORT_TICKET_STATUSES = [
   'open',
+  'pending_verification',
   'in_progress',
   'waiting_customer',
   'resolved',
@@ -39,7 +40,14 @@ export interface ISupportContext {
 
 export interface ISupportTicket extends Document {
   ticketCode: string;
-  userId: Types.ObjectId;
+  userId?: Types.ObjectId | null;
+  guestContact?: {
+    name: string;
+    email: string;
+    verificationTokenHash?: string | null;
+    verificationExpiresAt?: Date | null;
+    verifiedAt?: Date | null;
+  } | null;
   type: SupportTicketType;
   category: SupportCategory;
   subject: string;
@@ -80,7 +88,17 @@ const supportContextSchema = new Schema<ISupportContext>(
 const supportTicketSchema = new Schema<ISupportTicket>(
   {
     ticketCode: { type: String, required: true, unique: true, trim: true, uppercase: true },
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    userId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    guestContact: {
+      type: new Schema({
+        name: { type: String, required: true, trim: true, maxlength: 100 },
+        email: { type: String, required: true, trim: true, lowercase: true, maxlength: 254 },
+        verificationTokenHash: { type: String, default: null, select: false },
+        verificationExpiresAt: { type: Date, default: null },
+        verifiedAt: { type: Date, default: null },
+      }, { _id: false }),
+      default: null,
+    },
     type: { type: String, enum: SUPPORT_TICKET_TYPES, required: true },
     category: { type: String, enum: SUPPORT_CATEGORIES, required: true },
     subject: { type: String, required: true, trim: true, minlength: 5, maxlength: 150 },
@@ -104,6 +122,7 @@ const supportTicketSchema = new Schema<ISupportTicket>(
 );
 
 supportTicketSchema.index({ userId: 1, updatedAt: -1 });
+supportTicketSchema.index({ status: 1, 'guestContact.verificationExpiresAt': 1 });
 supportTicketSchema.index({ status: 1, lastMessageSender: 1, lastMessageAt: -1 });
 supportTicketSchema.index({ assignedTo: 1, status: 1, updatedAt: -1 });
 supportTicketSchema.index({ orderId: 1 });

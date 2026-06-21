@@ -15,7 +15,8 @@ export type SupportPerson = {
 export type SupportTicket = {
   _id: string
   ticketCode: string
-  userId: string | SupportPerson
+  userId: string | SupportPerson | null
+  guestContact?: { name: string; email: string; verifiedAt?: string | null } | null
   type: SupportTicketType
   category: SupportCategory
   subject: string
@@ -82,3 +83,32 @@ export type FaqList = {
 }
 
 export type FaqPayload = Pick<FaqArticle, 'question' | 'answer' | 'category' | 'keywords' | 'sortOrder' | 'isPublished'>
+
+export type CannedResponse = {
+  _id: string
+  title: string
+  body: string
+  category?: SupportCategory | null
+  isActive: boolean
+  useCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type CannedResponsePayload = Pick<CannedResponse, 'title' | 'body' | 'category' | 'isActive'>
+
+export type SupportAnalytics = {
+  tickets: {
+    total: number
+    open: number
+    resolved: number
+    responded: number
+    avgFirstResponseMs: number
+    avgResolutionMs: number
+  }
+  byCategory: Array<{ key: SupportCategory; count: number }>
+  byType: Array<{ key: SupportTicketType; count: number }>
+  dailyVolume: Array<{ date: string; count: number }>
+  faq: { helpful: number; notHelpful: number; totalVotes: number; helpfulRate: number }
+  generatedAt: string
+}

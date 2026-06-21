@@ -142,7 +142,7 @@ export function Router() {
   }, [adminSession, isRestoringAdminSession, path, replacePath])
 
   if (!path.startsWith('/admin')) {
-    if (path === '/support' || path === '/support/faqs' || path.startsWith('/account/support')) {
+    if (path.startsWith('/support') || path.startsWith('/account/support')) {
       return <SupportPage />
     }
 

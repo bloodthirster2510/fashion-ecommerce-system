@@ -6,12 +6,14 @@ import {
   addMyMessage,
   closeMyTicket,
   createMyTicket,
+  createGuestFeedback,
   getMySupportSummary,
   getMyTicket,
   listFaqs,
   listMyTickets,
   markMyTicketRead,
   voteFaq,
+  verifyGuestFeedback,
 } from './support.service'
 import type { FaqArticle, SupportCategory, SupportSummary, SupportTicket, SupportTicketType, TicketDetail } from './support.types'
 import './support.css'
@@ -32,6 +34,8 @@ export function SupportPage() {
   const accountMode = path.startsWith('/account/support')
   const ticketId = path.match(/^\/account\/support\/tickets\/([^/]+)$/)?.[1]
   const createMode = path === '/account/support/new'
+  const guestFeedbackMode = path === '/support/feedback'
+  const verifyMode = path === '/support/verify'
   const [faqs, setFaqs] = useState<FaqArticle[]>([])
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [summary, setSummary] = useState<SupportSummary | null>(null)
@@ -55,14 +59,16 @@ export function SupportPage() {
     finally { setLoading(false) }
   }, [currentUser, search, topic])
 
-  useEffect(() => { if (!ticketId && !createMode) void loadHome() }, [createMode, loadHome, ticketId])
+  useEffect(() => { if (!ticketId && !createMode && !guestFeedbackMode && !verifyMode) void loadHome() }, [createMode, guestFeedbackMode, loadHome, ticketId, verifyMode])
   useEffect(() => {
     if (!ticketId || !currentUser) return
     setLoading(true)
     getMyTicket(ticketId).then(async (value) => { setDetail(value); if (value.ticket.lastMessageSender === 'staff') await markMyTicketRead(ticketId) }).catch((caught) => setError(caught instanceof Error ? caught.message : 'Không thể tải ticket.')).finally(() => setLoading(false))
   }, [currentUser, ticketId])
 
-  const content = createMode ? <TicketForm onCreated={(id) => navigate(`/account/support/tickets/${id}`)} />
+  const content = verifyMode ? <GuestVerification />
+    : guestFeedbackMode ? <GuestFeedbackForm />
+    : createMode ? <TicketForm onCreated={(id) => navigate(`/account/support/tickets/${id}`)} />
     : ticketId ? <TicketConversation detail={detail} loading={loading} error={error} onReload={() => getMyTicket(ticketId).then(setDetail)} />
       : <SupportHome faqs={faqs} tickets={tickets} summary={summary} search={search} topic={topic} expandedFaq={expandedFaq} loading={loading} error={error} loggedIn={Boolean(currentUser)} onSearch={setSearch} onTopic={setTopic} onExpand={setExpandedFaq} onReload={loadHome} onVote={async (id, value) => { try { await voteFaq(id, value); await loadHome() } catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể ghi nhận đánh giá.') } }} />
 
@@ -82,8 +88,33 @@ function SupportHome(props: {
     <section className="customer-support-panel"><div className="customer-support-section-title"><div><h2>Câu hỏi thường gặp</h2><span>Nhấn vào câu hỏi để xem hướng dẫn.</span></div></div>{props.loading ? <p>Đang tải...</p> : props.faqs.length ? props.faqs.map((faq) => <article className="customer-support-faq" key={faq._id}><button type="button" aria-expanded={props.expandedFaq === faq._id} onClick={() => props.onExpand(props.expandedFaq === faq._id ? null : faq._id)}><strong>{faq.question}</strong><span>{props.expandedFaq === faq._id ? '−' : '+'}</span></button>{props.expandedFaq === faq._id && <><p>{faq.answer}</p>{props.loggedIn && <div className="customer-support-vote" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}><span>Câu trả lời này hữu ích?</span><button style={{ width: 'auto', padding: '6px 10px', border: '1px solid #d5e0e5', borderRadius: 8 }} type="button" onClick={() => void props.onVote(faq._id, 'helpful')}>Có ({faq.helpfulCount})</button><button style={{ width: 'auto', padding: '6px 10px', border: '1px solid #d5e0e5', borderRadius: 8 }} type="button" onClick={() => void props.onVote(faq._id, 'not_helpful')}>Chưa ({faq.notHelpfulCount})</button></div>}</>}</article>) : <p>Chưa tìm thấy câu trả lời phù hợp.</p>}</section>
     {props.loggedIn ? <section className="customer-support-panel"><div className="customer-support-section-title"><div><h2>Yêu cầu của tôi</h2><span>Theo dõi phản hồi mới từ shop.</span></div>{props.summary?.total ? <b>{props.summary.total}</b> : null}</div><div className="customer-support-ticket-list">{props.tickets.slice(0, 5).map((ticket) => <button type="button" key={ticket._id} onClick={() => navigate(`/account/support/tickets/${ticket._id}`)}><span><strong>{ticket.ticketCode}</strong>{ticket.subject}</span><em>{statusLabels[ticket.status]}</em></button>)}</div><button className="customer-support-primary" type="button" onClick={() => navigate('/account/support/new')}>Gửi yêu cầu hỗ trợ</button></section>
       : <section className="customer-support-panel customer-support-login"><h2>Bạn cần shop hỗ trợ riêng?</h2><p>Đăng nhập để tạo và theo dõi ticket. FAQ vẫn luôn xem được mà không cần tài khoản.</p><a href="/account">Đăng nhập / Tài khoản</a></section>}
-    <section className="customer-support-contact"><div><h2>Liên hệ với chúng tôi</h2><p>Hotline: 0123 456 789</p><p>Email: cuahang@gmail.com</p><p>Giờ hỗ trợ: 8:30 – 21:45 mỗi ngày</p></div><button type="button" onClick={() => props.loggedIn ? navigate('/account/support/new') : navigate('/account')}>Gửi góp ý</button></section>
+    <section className="customer-support-contact"><div><h2>Liên hệ với chúng tôi</h2><p>Hotline: 0123 456 789</p><p>Email: cuahang@gmail.com</p><p>Giờ hỗ trợ: 8:30 – 21:45 mỗi ngày</p></div><button type="button" onClick={() => navigate(props.loggedIn ? '/account/support/new' : '/support/feedback')}>Gửi góp ý</button></section>
   </div>
+}
+
+function GuestFeedbackForm() {
+  const [name, setName] = useState(''); const [email, setEmail] = useState('')
+  const [type, setType] = useState<'feedback' | 'suggestion'>('feedback'); const [category, setCategory] = useState<SupportCategory>('other')
+  const [subject, setSubject] = useState(''); const [body, setBody] = useState(''); const [website, setWebsite] = useState('')
+  const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [sent, setSent] = useState(false)
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError('')
+    try { await createGuestFeedback({ name, email, type, category, subject, body, website }); setSent(true) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể gửi góp ý.') }
+    finally { setSaving(false) }
+  }
+  if (sent) return <div className="customer-support-stack"><header className="customer-support-heading"><h1>Kiểm tra email của bạn</h1><span>Chúng tôi đã gửi liên kết xác minh. Góp ý chỉ xuất hiện với đội CSKH sau khi bạn xác minh trong 30 phút.</span></header><button className="customer-support-primary" type="button" onClick={() => navigate('/support')}>Về trang hỗ trợ</button></div>
+  return <div className="customer-support-stack"><header className="customer-support-heading"><button type="button" onClick={() => navigate('/support')}>← Quay lại</button><h1>Gửi góp ý không cần tài khoản</h1><span>Chúng tôi sẽ xác minh email để hạn chế spam và có thể phản hồi cho bạn.</span></header>{error && <div className="customer-support-error">{error}</div>}<form className="customer-support-form" onSubmit={submit}><label>Họ tên<input value={name} minLength={2} maxLength={100} required onChange={(event) => setName(event.target.value)} /></label><label>Email<input type="email" value={email} maxLength={254} required onChange={(event) => setEmail(event.target.value)} /></label><label>Loại<select value={type} onChange={(event) => setType(event.target.value as 'feedback' | 'suggestion')}><option value="feedback">Góp ý</option><option value="suggestion">Đề xuất</option></select></label><label>Chủ đề<select value={category} onChange={(event) => setCategory(event.target.value as SupportCategory)}>{categoryLabels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Tiêu đề<input value={subject} minLength={5} maxLength={150} required onChange={(event) => setSubject(event.target.value)} /></label><label>Nội dung<textarea value={body} minLength={10} maxLength={3000} rows={8} required onChange={(event) => setBody(event.target.value)} /></label><label className="customer-support-honeypot" aria-hidden="true">Website<input value={website} tabIndex={-1} autoComplete="off" onChange={(event) => setWebsite(event.target.value)} /></label><footer><button type="button" onClick={() => navigate('/support')}>Hủy</button><button className="customer-support-primary" disabled={saving} type="submit">{saving ? 'Đang gửi...' : 'Gửi và xác minh email'}</button></footer></form></div>
+}
+
+function GuestVerification() {
+  const [state, setState] = useState<'loading' | 'success' | 'error'>('loading')
+  const [message, setMessage] = useState('Đang xác minh góp ý...')
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('token') ?? ''
+    verifyGuestFeedback(token).then((result) => { setState('success'); setMessage(`Đã xác minh ${result.ticketCode}. Cảm ơn bạn đã góp ý!`) }).catch((caught) => { setState('error'); setMessage(caught instanceof Error ? caught.message : 'Liên kết không hợp lệ hoặc đã hết hạn.') })
+  }, [])
+  return <div className="customer-support-stack"><header className="customer-support-heading"><h1>{state === 'success' ? 'Xác minh thành công' : state === 'error' ? 'Không thể xác minh' : 'Đang xác minh'}</h1><span>{message}</span></header><button className="customer-support-primary" type="button" onClick={() => navigate('/support')}>Về trang hỗ trợ</button></div>
 }
 
 function TicketForm({ onCreated }: { onCreated: (id: string) => void }) {

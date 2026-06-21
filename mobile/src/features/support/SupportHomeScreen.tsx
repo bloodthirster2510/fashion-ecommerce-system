@@ -10,6 +10,7 @@ import { supportApi } from './supportApi';
 import type { FaqArticle, SupportSummary } from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
+import { requestSupportPushToken } from './supportNotifications';
 
 type Nav = StackNavigationProp<RootStackParamList, 'SupportHome'>;
 
@@ -26,6 +27,7 @@ export default function SupportHomeScreen() {
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const [summary, setSummary] = React.useState<SupportSummary | null>(null);
   const [error, setError] = React.useState('');
+  const [notificationMessage, setNotificationMessage] = React.useState('');
 
   const load = React.useCallback(() => {
     supportApi.listFaqs(search).then((result) => setFaqs(result.items.slice(0, 6))).catch(() => setError('Không thể tải câu hỏi thường gặp.'));
@@ -33,6 +35,18 @@ export default function SupportHomeScreen() {
   }, [runWithAuth, search]);
 
   useFocusEffect(React.useCallback(() => { load(); }, [load]));
+
+  const enableNotifications = async () => {
+    setError('');
+    setNotificationMessage('');
+    try {
+      const push = await requestSupportPushToken();
+      await runWithAuth((token) => supportApi.registerPushToken(token, push.token, push.platform));
+      setNotificationMessage('Đã bật thông báo khi shop phản hồi.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Không thể bật thông báo.');
+    }
+  };
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
@@ -52,6 +66,10 @@ export default function SupportHomeScreen() {
           <View style={s.row}><View><Text style={s.cardTitle}>Yêu cầu của tôi</Text><Text style={s.muted}>Theo dõi phản hồi từ shop</Text></View>{summary?.total ? <View style={s.badge}><Text style={s.badgeText}>{summary.total}</Text></View> : <MaterialCommunityIcons name="chevron-right" size={24} color={colors.brand} />}</View>
         </TouchableOpacity>
         <TouchableOpacity style={s.button} onPress={() => navigation.navigate('SupportTicketCreate')}><Text style={s.buttonText}>Gửi yêu cầu hỗ trợ</Text></TouchableOpacity>
+        <TouchableOpacity style={[s.button, s.secondaryButton]} onPress={() => void enableNotifications()}>
+          <Text style={s.secondaryText}>Bật thông báo phản hồi</Text>
+        </TouchableOpacity>
+        {notificationMessage ? <Text style={s.success}>{notificationMessage}</Text> : null}
         <View style={s.card}><Text style={s.cardTitle}>Liên hệ trực tiếp</Text><TouchableOpacity onPress={() => void Linking.openURL('tel:0123456789')}><Text style={s.muted}>Hotline: 0123 456 789</Text></TouchableOpacity><TouchableOpacity onPress={() => void Linking.openURL('mailto:cuahang@gmail.com')}><Text style={s.muted}>Email: cuahang@gmail.com</Text></TouchableOpacity><Text style={s.muted}>Giờ hỗ trợ: 8:30 – 21:45 mỗi ngày</Text></View>
       </ScrollView>
     </SafeAreaView>

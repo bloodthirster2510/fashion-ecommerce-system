@@ -58,6 +58,7 @@ export const replyTicket = async (req: Request, res: Response) => {
     const result = await adminSupportService.addAdminMessage(req.params.id as string, actor(req), {
       body: req.body.body,
       isInternal: req.body.isInternal === true || req.body.isInternal === 'true',
+      cannedResponseId: typeof req.body.cannedResponseId === 'string' ? req.body.cannedResponseId : undefined,
       attachments,
     });
     return created(res, result, 'Reply sent');
@@ -87,6 +88,50 @@ export const markTicketRead = async (req: Request, res: Response) => {
 export const getSummary = async (_req: Request, res: Response) => {
   try {
     return ok(res, await adminSupportService.getAdminSupportSummary());
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const getAnalytics = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await adminSupportService.getSupportAnalytics(
+      typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
+      typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
+    ));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const listCannedResponses = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await adminSupportService.listCannedResponses(req.query.activeOnly === 'true'));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const createCannedResponse = async (req: Request, res: Response) => {
+  try {
+    return created(res, await adminSupportService.createCannedResponse(actor(req), req.body));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const updateCannedResponse = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await adminSupportService.updateCannedResponse(req.params.id as string, actor(req), req.body));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const deleteCannedResponse = async (req: Request, res: Response) => {
+  try {
+    actor(req);
+    return ok(res, await adminSupportService.deleteCannedResponse(req.params.id as string));
   } catch (caught) {
     return handleError(res, caught);
   }

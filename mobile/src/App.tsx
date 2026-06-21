@@ -9,6 +9,7 @@ import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
 import { AuthProvider } from './features/auth/AuthContext';
+import { subscribeToSupportNotifications } from './features/support/supportNotifications';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -69,6 +70,14 @@ const App = () => {
       subscription.remove();
     };
   }, [handleDeepLink]);
+
+  React.useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    subscribeToSupportNotifications((ticketId) => {
+      if (navigationRef.isReady()) navigationRef.navigate('SupportTicketDetail', { ticketId });
+    }).then((cleanup) => { unsubscribe = cleanup; }).catch(() => undefined);
+    return () => unsubscribe?.();
+  }, []);
 
   return (
     <SafeAreaProvider>
