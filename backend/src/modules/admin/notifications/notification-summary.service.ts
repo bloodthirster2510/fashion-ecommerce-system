@@ -2,6 +2,7 @@ import {
   Coupon,
   Inventory,
   Order,
+  SupportTicket,
   User,
   type StaffPermission,
 } from '../../../database/models';
@@ -93,9 +94,10 @@ export const getNotificationSummary = async (
   const canReadOrders = hasPermission(actor.role, permissions, 'orders.read');
   const canReadInventory = hasPermission(actor.role, permissions, 'inventory.read');
   const canReadPromotions = hasPermission(actor.role, permissions, 'promotions.read');
+  const canReplySupport = hasPermission(actor.role, permissions, 'support.reply');
   const expiringBefore = new Date(now.getTime() + EXPIRING_COUPON_WINDOW_MS);
 
-  const [orders, lowStockVariants, expiringCoupons] = await Promise.all([
+  const [orders, lowStockVariants, expiringCoupons, supportOpen] = await Promise.all([
     canReadOrders ? getOrderCounts() : null,
     canReadInventory ? getLowStockVariantCount(DEFAULT_LOW_STOCK_THRESHOLD) : 0,
     canReadPromotions
@@ -104,6 +106,13 @@ export const getNotificationSummary = async (
           isActive: true,
           startAt: { $lte: now },
           endAt: { $gte: now, $lte: expiringBefore },
+        })
+      : 0,
+    canReplySupport
+      ? SupportTicket.countDocuments({
+          status: { $in: ['open', 'in_progress', 'waiting_customer'] },
+          lastMessageSender: 'customer',
+          requiresReply: true,
         })
       : 0,
   ]);
@@ -116,7 +125,7 @@ export const getNotificationSummary = async (
     cod: 0,
     total: 0,
   };
-  const total = orderCounts.total + lowStockVariants + expiringCoupons;
+  const total = orderCounts.total + lowStockVariants + expiringCoupons + supportOpen;
 
   return {
     total,
@@ -126,14 +135,14 @@ export const getNotificationSummary = async (
     // Disabled staff accounts are intentional state, not pending work. Keep
     // this field stable until a real account-approval workflow exists.
     inactiveAccounts: 0,
-    supportOpen: 0,
+    supportOpen,
     reviewsPending: 0,
     capabilities: {
       orders: canReadOrders,
       inventory: canReadInventory,
       promotions: canReadPromotions,
       accounts: false,
-      support: false,
+      support: canReplySupport,
       reviews: false,
       loyaltyApprovals: false,
       reports: false,

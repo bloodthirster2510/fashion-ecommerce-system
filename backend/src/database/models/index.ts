@@ -5,6 +5,8 @@ export * from './coupon.model';
 export * from './audit-log.model';
 export * from './distributed-lock.model';
 export * from './favorites.model';
+export * from './faq-article.model';
+export * from './faq-vote.model';
 export * from './inventory.model';
 export * from './loyalty-point-history.model';
 export * from './loyalty-rule.model';
@@ -15,5 +17,7 @@ export * from './payment-method.model';
 export * from './product.model';
 export * from './promotion-campaign.model';
 export * from './transaction.model';
+export * from './support-message.model';
+export * from './support-ticket.model';
 export * from './user.model';
 

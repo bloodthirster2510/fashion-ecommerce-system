@@ -17,6 +17,12 @@ import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
 import OrderListScreen from '../features/orders/OrderListScreen';
 import OrderDetailScreen from '../features/orders/OrderDetailScreen';
 import type { OrderTabKey } from '../features/orders/orderPresentation';
+import SupportHomeScreen from '../features/support/SupportHomeScreen';
+import FaqListScreen from '../features/support/FaqListScreen';
+import SupportTicketCreateScreen from '../features/support/SupportTicketCreateScreen';
+import SupportTicketListScreen from '../features/support/SupportTicketListScreen';
+import SupportTicketDetailScreen from '../features/support/SupportTicketDetailScreen';
+import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -57,6 +63,16 @@ export type RootStackParamList = {
   OrderDetail: {
     orderId: string;
   };
+  SupportHome: undefined;
+  FaqList: { category?: string } | undefined;
+  SupportTicketCreate: {
+    type?: SupportTicketType;
+    category?: SupportCategory;
+    orderId?: string;
+    couponCode?: string;
+  } | undefined;
+  SupportTicketList: undefined;
+  SupportTicketDetail: { ticketId: string };
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
@@ -91,6 +107,11 @@ const AppNavigator = () => {
       <Stack.Screen name="Membership" component={MembershipScreen} />
       <Stack.Screen name="Orders" component={OrderListScreen} />
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
+      <Stack.Screen name="SupportHome" component={SupportHomeScreen} />
+      <Stack.Screen name="FaqList" component={FaqListScreen} />
+      <Stack.Screen name="SupportTicketCreate" component={SupportTicketCreateScreen} />
+      <Stack.Screen name="SupportTicketList" component={SupportTicketListScreen} />
+      <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />

@@ -19,6 +19,7 @@ import { couponApi } from '../coupons/couponApi';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { getMembershipTierVisualConfig } from './membershipVisual';
+import { supportApi } from '../support/supportApi';
 
 type ProfileNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -75,6 +76,7 @@ const ProfileScreen = () => {
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
   const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
   const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
+  const [supportCount, setSupportCount] = React.useState<number | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -82,6 +84,7 @@ const ProfileScreen = () => {
         setMembershipData(null);
         setVoucherCount(null);
         setShippingOrderCount(null);
+        setSupportCount(null);
         return;
       }
 
@@ -118,6 +121,9 @@ const ProfileScreen = () => {
         .catch(() => {
           setShippingOrderCount(null);
         });
+      runWithAuth((accessToken) => supportApi.getSummary(accessToken))
+        .then((result) => setSupportCount(result.total))
+        .catch(() => setSupportCount(null));
     }, [logout, navigation, runWithAuth, session?.accessToken])
   );
 
@@ -148,6 +154,10 @@ const ProfileScreen = () => {
     }
     if (item.id === 'payment') {
       navigation.navigate('PaymentMethods');
+      return;
+    }
+    if (item.id === 'support') {
+      navigation.navigate('SupportHome');
       return;
     }
 
@@ -305,6 +315,11 @@ const ProfileScreen = () => {
                 {item.id === 'orders' && shippingOrderCount ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{shippingOrderCount}</Text>
+                  </View>
+                ) : null}
+                {item.id === 'support' && supportCount ? (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{supportCount > 99 ? '99+' : supportCount}</Text>
                   </View>
                 ) : null}
               </View>

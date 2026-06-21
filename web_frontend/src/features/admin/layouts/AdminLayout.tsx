@@ -16,6 +16,7 @@ import { PromotionsPage } from '../modules/promotions/PromotionsPage'
 import { OrderListPage } from '../modules/orders/OrderListPage'
 import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
+import { SupportManagementPage } from '../modules/support/SupportManagementPage'
 import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
 import { useNotificationSummary } from '../notifications/notification-summary-context'
@@ -251,6 +252,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
       return <InventoryManagementPage currentUser={currentUser} />
     }
 
+    if (renderedSection === 'support') {
+      return <SupportManagementPage currentUser={currentUser} />
+    }
+
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
     const pendingRoute = visibleNavItems.find((item) => item.id === renderedSection)
 
@@ -463,6 +468,9 @@ const getNavNotificationBadge = (
     promotions: summary.expiringCoupons > 0
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
       : undefined,
+    support: summary.supportOpen > 0
+      ? { count: summary.supportOpen, tone: 'danger', label: `${summary.supportOpen} ticket chờ phản hồi` }
+      : undefined,
   }
 
   return badges[routeId] ?? null
@@ -511,6 +519,14 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       detail: `${summary.expiringCoupons} voucher sẽ hết hạn trong 3 ngày`,
       count: summary.expiringCoupons,
       tone: 'warning' as NotificationTone,
+    } : null,
+    summary.supportOpen > 0 ? {
+      key: 'support-open',
+      routeId: 'support' as NavId,
+      title: 'Ticket chờ phản hồi',
+      detail: `${summary.supportOpen} ticket khách hàng đang chờ xử lý`,
+      count: summary.supportOpen,
+      tone: 'danger' as NotificationTone,
     } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null)
 }

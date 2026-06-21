@@ -18,6 +18,7 @@ import { AdminLayout } from '../features/admin/layouts/AdminLayout'
 import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
 import { ProductListPage } from '../features/catalog/pages/ProductListPage'
 import { ProfilePage } from '../features/profile/pages/ProfilePage'
+import { SupportPage } from '../features/support/SupportPage'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
@@ -141,6 +142,10 @@ export function Router() {
   }, [adminSession, isRestoringAdminSession, path, replacePath])
 
   if (!path.startsWith('/admin')) {
+    if (path === '/support' || path === '/support/faqs' || path.startsWith('/account/support')) {
+      return <SupportPage />
+    }
+
     if (path === '/account') {
       return <ProfilePage />
     }
