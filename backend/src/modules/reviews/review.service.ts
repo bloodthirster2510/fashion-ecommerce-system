@@ -181,6 +181,8 @@ const serializePublicReview = (review: ReviewView) => {
   const isContentRemoved = serialized.moderationStatus === 'hidden';
   return {
     ...serialized,
+    // Public API không trả nội dung gốc/lý do nội bộ của review đã bị ẩn.
+    // Admin vẫn xem được dữ liệu đầy đủ qua listAdminReviews.
     comment: isContentRemoved ? 'Nội dung đánh giá này đã bị xóa do vi phạm tiêu chuẩn cộng đồng.' : serialized.comment,
     moderationReasons: [],
     isContentRemoved,
@@ -213,6 +215,8 @@ const withReviewTransaction = async <T>(operation: (session: ClientSession) => P
   const session = await mongoose.startSession();
   let result: T | undefined;
   try {
+    // Review và số liệu rating của Product phải đổi cùng nhau.
+    // Nếu một bước lỗi, transaction giúp tránh product.averageRating bị lệch dữ liệu.
     await session.withTransaction(async () => {
       result = await operation(session);
     });
@@ -479,6 +483,8 @@ const listAdminReviews = async (query: AdminReviewListQueryInput = {}) => {
   const keyword = query.keyword?.trim();
   if (keyword) {
     const pattern = new RegExp(escapeRegExp(keyword), 'i');
+    // Review lưu product/user bằng ObjectId nên phải tìm id liên quan trước,
+    // sau đó gộp với tìm trực tiếp trong comment.
     const [products, users] = await Promise.all([
       Product.find({ name: pattern }).select('_id').lean(),
       User.find({ $or: [{ name: pattern }, { email: pattern }] }).select('_id').lean(),
@@ -557,6 +563,7 @@ const updateModerationStatus = async (reviewIdValue: string, status: ReviewModer
 };
 
 const updateManyModerationStatuses = async (reviewIdValues: string[], status: ReviewModerationStatus) => {
+  // Dedupe trước khi update để count và refresh rating không bị nhân đôi khi UI gửi trùng id.
   const reviewIds = [...new Set(reviewIdValues)].map((value) => toObjectId(value, 'reviewId'));
   if (reviewIds.length === 0 || reviewIds.length > 100) {
     throw new ReviewServiceError('Select between 1 and 100 reviews', 400);

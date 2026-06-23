@@ -99,6 +99,8 @@ export const listAdminReviews = async (req: Request, res: Response) => {
     if (hasImagesValue !== undefined && hasImagesValue !== 'true' && hasImagesValue !== 'false') {
       throw new ReviewServiceError('hasImages must be true or false', 400);
     }
+    // Keyword được trim và giới hạn độ dài trước khi tạo RegExp ở service.
+    // Việc này giữ API trả 400 rõ ràng thay vì để truy vấn nặng bất thường.
     const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim() : undefined;
     if (keyword && keyword.length > 100) throw new ReviewServiceError('keyword must not exceed 100 characters', 400);
     const hasImages = hasImagesValue === undefined ? undefined : hasImagesValue === 'true';
