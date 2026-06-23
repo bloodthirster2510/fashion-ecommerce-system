@@ -22,6 +22,12 @@ const DEFAULT_API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_API_RATE_LIMIT_MAX = 600;
 const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_MAX = 30;
+const DEFAULT_REVIEW_CREATE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_REVIEW_CREATE_RATE_LIMIT_MAX = 5;
+const DEFAULT_REVIEW_MUTATION_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_REVIEW_MUTATION_RATE_LIMIT_MAX = 20;
+const DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_MAX = 60;
 
 const parseCsv = (value?: string) =>
   (value ?? '')
@@ -213,4 +219,42 @@ export const createCouponValidateRateLimitMiddleware = (env: Env = process.env) 
       const clientKey = req.user?.userId ?? getClientIp(req);
       return `coupon-validate:${clientKey}`;
     },
+  });
+
+const getAuthenticatedClientKey = (req: Request) => req.user?.userId ?? getClientIp(req);
+
+export const createReviewCreateRateLimitMiddleware = (env: Env = process.env) =>
+  createRateLimitMiddleware({
+    windowMs: parsePositiveInteger(
+      env.REVIEW_CREATE_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_REVIEW_CREATE_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(env.REVIEW_CREATE_RATE_LIMIT_MAX, DEFAULT_REVIEW_CREATE_RATE_LIMIT_MAX),
+    keyPrefix: 'review-create',
+    keyGenerator: (req) => `review-create:${getAuthenticatedClientKey(req)}`,
+  });
+
+export const createReviewMutationRateLimitMiddleware = (env: Env = process.env) =>
+  createRateLimitMiddleware({
+    windowMs: parsePositiveInteger(
+      env.REVIEW_MUTATION_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_REVIEW_MUTATION_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(
+      env.REVIEW_MUTATION_RATE_LIMIT_MAX,
+      DEFAULT_REVIEW_MUTATION_RATE_LIMIT_MAX,
+    ),
+    keyPrefix: 'review-mutation',
+    keyGenerator: (req) => `review-mutation:${getAuthenticatedClientKey(req)}`,
+  });
+
+export const createReviewHelpfulRateLimitMiddleware = (env: Env = process.env) =>
+  createRateLimitMiddleware({
+    windowMs: parsePositiveInteger(
+      env.REVIEW_HELPFUL_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(env.REVIEW_HELPFUL_RATE_LIMIT_MAX, DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_MAX),
+    keyPrefix: 'review-helpful',
+    keyGenerator: (req) => `review-helpful:${getAuthenticatedClientKey(req)}`,
   });

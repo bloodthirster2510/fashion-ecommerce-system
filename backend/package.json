@@ -12,6 +12,7 @@
     "dev:vnpay": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-vnpay-tunnel.ps1",
     "vnpay:public-url": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-vnpay-public-url.ps1",
     "migrate:coupon-index": "node scripts/migrate-coupon-code-index.js",
+    "migrate:reviews": "node scripts/migrate-review-schema.js",
     "test": "jest --passWithNoTests",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand"
   },

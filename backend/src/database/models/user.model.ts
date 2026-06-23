@@ -20,7 +20,9 @@ export type StaffPermission =
   | 'loyalty.write'
   | 'customers.read'
   | 'customers.manage'
+  | 'reviews.read'
   | 'reviews.moderate'
+  | 'reviews.reply'
   | 'support.reply'
   | 'support.manage'
   | 'reports.read';

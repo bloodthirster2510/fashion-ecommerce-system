@@ -14,7 +14,10 @@ export type AuditLogAction =
   | 'support_ticket.update'
   | 'support_ticket.reply'
   | 'support_ticket.status_update'
-  | 'support_ticket.auto_close';
+  | 'support_ticket.auto_close'
+  | 'review.moderation'
+  | 'review.reply'
+  | 'review.reply_delete';
 
 export interface IAuditLog extends Document {
   actorId?: Types.ObjectId | null;
@@ -55,6 +58,9 @@ const auditLogSchema = new Schema<IAuditLog>(
         'support_ticket.reply',
         'support_ticket.status_update',
         'support_ticket.auto_close',
+        'review.moderation',
+        'review.reply',
+        'review.reply_delete',
       ],
       required: true,
     },

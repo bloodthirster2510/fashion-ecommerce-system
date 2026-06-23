@@ -16,6 +16,7 @@ export * from './otp-verification.model';
 export * from './payment-method.model';
 export * from './product.model';
 export * from './review.model';
+export * from './review-helpful-vote.model';
 export * from './promotion-campaign.model';
 export * from './push-token.model';
 export * from './support-canned-response.model';

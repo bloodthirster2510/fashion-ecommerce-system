@@ -3,6 +3,7 @@ import {
   createApiRateLimitMiddleware,
   createCouponValidateRateLimitMiddleware,
   createRateLimitMiddleware,
+  createReviewCreateRateLimitMiddleware,
   createSecurityHeadersMiddleware,
   getAllowedCorsOrigins,
   isCorsOriginAllowed,
@@ -149,6 +150,24 @@ describe('security middleware', () => {
     const otherUserNext: NextFunction = jest.fn();
     limiter(createAuthenticatedRequest('user-2'), createMockResponse(), otherUserNext);
     expect(otherUserNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('rate limits review creation per authenticated user across IP addresses', () => {
+    const limiter = createReviewCreateRateLimitMiddleware({
+      REVIEW_CREATE_RATE_LIMIT_WINDOW_MS: '1000',
+      REVIEW_CREATE_RATE_LIMIT_MAX: '1',
+    });
+    const firstRequest = createAuthenticatedRequest('review-user', '203.0.113.10');
+    firstRequest.originalUrl = '/api/reviews';
+    const firstNext: NextFunction = jest.fn();
+    limiter(firstRequest, createMockResponse(), firstNext);
+    expect(firstNext).toHaveBeenCalledTimes(1);
+
+    const blockedRequest = createAuthenticatedRequest('review-user', '203.0.113.11');
+    blockedRequest.originalUrl = '/api/reviews';
+    const blockedResponse = createMockResponse();
+    limiter(blockedRequest, blockedResponse, jest.fn());
+    expect(blockedResponse.status).toHaveBeenCalledWith(429);
   });
 
   it('rate limits API requests per client across routes', () => {

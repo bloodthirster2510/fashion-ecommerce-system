@@ -1,10 +1,11 @@
-import { Coupon, Inventory, Order, SupportTicket, User } from '../../../../database/models';
+import { Coupon, Inventory, Order, Review, SupportTicket, User } from '../../../../database/models';
 import { getNotificationSummary } from '../notification-summary.service';
 
 jest.mock('../../../../database/models', () => ({
   Coupon: { countDocuments: jest.fn() },
   Inventory: { aggregate: jest.fn() },
   Order: { aggregate: jest.fn() },
+  Review: { countDocuments: jest.fn() },
   SupportTicket: { countDocuments: jest.fn() },
   User: { findById: jest.fn() },
 }));
@@ -12,6 +13,7 @@ jest.mock('../../../../database/models', () => ({
 const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedOrder = Order as jest.Mocked<typeof Order>;
+const mockedReview = Review as jest.Mocked<typeof Review>;
 const mockedSupportTicket = SupportTicket as jest.Mocked<typeof SupportTicket>;
 const mockedUser = User as jest.Mocked<typeof User>;
 
@@ -33,13 +35,14 @@ describe('notification summary service', () => {
     mockedInventory.aggregate.mockResolvedValue([{ count: 3 }] as never);
     mockedCoupon.countDocuments.mockResolvedValue(2);
     mockedSupportTicket.countDocuments.mockResolvedValue(2);
+    mockedReview.countDocuments.mockResolvedValue(1);
 
     const summary = await getNotificationSummary(
       { userId: '665000000000000000000001', role: 'admin' },
       new Date('2026-06-20T00:00:00.000Z'),
     );
 
-    expect(summary.total).toBe(11);
+    expect(summary.total).toBe(12);
     expect(summary.orders).toMatchObject({ total: 4, online: 1, cod: 3 });
     expect(mockedOrder.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
       {
@@ -67,7 +70,7 @@ describe('notification summary service', () => {
       promotions: true,
       accounts: false,
       support: true,
-      reviews: false,
+      reviews: true,
     });
   });
 
@@ -100,5 +103,6 @@ describe('notification summary service', () => {
     expect(mockedInventory.aggregate).not.toHaveBeenCalled();
     expect(mockedCoupon.countDocuments).not.toHaveBeenCalled();
     expect(mockedSupportTicket.countDocuments).not.toHaveBeenCalled();
+    expect(mockedReview.countDocuments).not.toHaveBeenCalled();
   });
 });

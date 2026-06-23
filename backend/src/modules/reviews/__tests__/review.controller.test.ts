@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { createReview, listAdminReviews, updateReview } from '../review.controller';
+import { createReview, listAdminReviews, updateModerationStatus, updateReview } from '../review.controller';
 import { reviewService } from '../review.service';
 
 type MockResponse = Response & {
@@ -45,6 +45,48 @@ describe('review controller validation', () => {
     expect(response.status).toHaveBeenCalledWith(400);
     expect(response.json).toHaveBeenCalledWith({ message: 'Request body must be an object' });
     expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects review comments shorter than 10 characters', async () => {
+    const response = createResponse();
+    const request = {
+      body: {
+        orderId: '665000000000000000000001',
+        orderItemId: '665000000000000000000002',
+        rating: 5,
+        comment: 'Quá ổn',
+      },
+      user: { userId: '665000000000000000000003', role: 'user' },
+    } as unknown as Request;
+    const createSpy = jest.spyOn(reviewService, 'createReview');
+
+    await createReview(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith({
+      message: 'comment must contain between 10 and 2000 characters',
+    });
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('passes moderation actor and rejects hiding without a reason', async () => {
+    const response = createResponse();
+    const request = {
+      params: { id: '665000000000000000000001' },
+      body: { status: 'hidden' },
+      user: { userId: '665000000000000000000002', role: 'staff' },
+    } as unknown as Request;
+    const updateSpy = jest.spyOn(reviewService, 'updateModerationStatus');
+
+    await updateModerationStatus(request, response);
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      '665000000000000000000001',
+      'hidden',
+      { userId: '665000000000000000000002', role: 'staff' },
+      undefined,
+    );
+    expect(response.status).toHaveBeenCalledWith(400);
   });
 
   it('rejects invalid hasImages values', async () => {

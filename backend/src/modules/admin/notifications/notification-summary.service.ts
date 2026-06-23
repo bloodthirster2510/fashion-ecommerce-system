@@ -2,6 +2,7 @@ import {
   Coupon,
   Inventory,
   Order,
+  Review,
   SupportTicket,
   User,
   type StaffPermission,
@@ -110,9 +111,10 @@ export const getNotificationSummary = async (
   const canReadInventory = hasPermission(actor.role, permissions, 'inventory.read');
   const canReadPromotions = hasPermission(actor.role, permissions, 'promotions.read');
   const canReplySupport = hasPermission(actor.role, permissions, 'support.reply');
+  const canReadReviews = hasPermission(actor.role, permissions, 'reviews.read');
   const expiringBefore = new Date(now.getTime() + EXPIRING_COUPON_WINDOW_MS);
 
-  const [orders, lowStockVariants, expiringCoupons, supportOpen] = await Promise.all([
+  const [orders, lowStockVariants, expiringCoupons, supportOpen, reviewsPending] = await Promise.all([
     canReadOrders ? getOrderCounts() : null,
     canReadInventory ? getLowStockVariantCount(DEFAULT_LOW_STOCK_THRESHOLD) : 0,
     canReadPromotions
@@ -130,6 +132,7 @@ export const getNotificationSummary = async (
           requiresReply: true,
         })
       : 0,
+    canReadReviews ? Review.countDocuments({ moderationStatus: 'pending' }) : 0,
   ]);
 
   const orderCounts = orders ?? {
@@ -140,7 +143,7 @@ export const getNotificationSummary = async (
     cod: 0,
     total: 0,
   };
-  const total = orderCounts.total + lowStockVariants + expiringCoupons + supportOpen;
+  const total = orderCounts.total + lowStockVariants + expiringCoupons + supportOpen + reviewsPending;
 
   return {
     total,
@@ -151,14 +154,14 @@ export const getNotificationSummary = async (
     // this field stable until a real account-approval workflow exists.
     inactiveAccounts: 0,
     supportOpen,
-    reviewsPending: 0,
+    reviewsPending,
     capabilities: {
       orders: canReadOrders,
       inventory: canReadInventory,
       promotions: canReadPromotions,
       accounts: false,
       support: canReplySupport,
-      reviews: false,
+      reviews: canReadReviews,
       loyaltyApprovals: false,
       reports: false,
     },

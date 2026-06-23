@@ -1,14 +1,22 @@
 import mongoose, { Types } from 'mongoose';
-import { Order, Product, Review, User } from '../../../database/models';
+import { Order, Product, Review, ReviewHelpfulVote, User } from '../../../database/models';
 import { reviewService } from '../review.service';
+
+jest.mock('../../audit-logs/audit-log.service', () => ({
+  auditLogService: {
+    recordAuditLogBestEffort: jest.fn().mockResolvedValue(undefined),
+  },
+}));
 
 jest.mock('../../../database/models', () => ({
   Order: {
+    find: jest.fn(),
     findOne: jest.fn(),
   },
   Product: {
     find: jest.fn(),
     findById: jest.fn(),
+    findOne: jest.fn(),
     updateOne: jest.fn(),
   },
   Review: {
@@ -20,7 +28,14 @@ jest.mock('../../../database/models', () => ({
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
     findOneAndDelete: jest.fn(),
+    updateOne: jest.fn(),
     updateMany: jest.fn(),
+  },
+  ReviewHelpfulVote: {
+    countDocuments: jest.fn(),
+    create: jest.fn(),
+    deleteMany: jest.fn(),
+    findOneAndDelete: jest.fn(),
   },
   User: {
     find: jest.fn(),
@@ -30,6 +45,7 @@ jest.mock('../../../database/models', () => ({
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedReview = Review as jest.Mocked<typeof Review>;
+const mockedHelpfulVote = ReviewHelpfulVote as jest.Mocked<typeof ReviewHelpfulVote>;
 const mockedUser = User as jest.Mocked<typeof User>;
 
 const userId = new Types.ObjectId('665000000000000000000001');
@@ -99,6 +115,8 @@ const purchasedItem = {
 
 const eligibleOrder = {
   _id: orderId,
+  status: 'delivered',
+  paymentStatus: 'paid',
   order_list: [purchasedItem],
 };
 
@@ -110,9 +128,11 @@ const populatedReview = (overrides: Record<string, unknown> = {}) => ({
   order_item_id: orderItemId,
   rating: 5,
   comment: 'Sản phẩm tốt',
+  criteria: null,
   images: [],
   moderationStatus: 'visible',
   moderationReasons: [],
+  moderationHistory: [],
   adminReply: null,
   repliedAt: null,
   createdAt: new Date('2026-06-01T00:00:00.000Z'),
@@ -128,76 +148,109 @@ describe('reviewService', () => {
     mockedReview.aggregate.mockReturnValue(aggregateQuery([]) as never);
     mockedReview.countDocuments.mockResolvedValue(0);
     mockedReview.updateMany.mockResolvedValue({ acknowledged: true, matchedCount: 0, modifiedCount: 0 } as never);
+    mockedReview.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 } as never);
+    mockedHelpfulVote.deleteMany.mockResolvedValue({ acknowledged: true, deletedCount: 0 } as never);
     mockedUser.find.mockReturnValue(query([]) as never);
     mockedProduct.find.mockReturnValue(query([]) as never);
   });
 
   it('reports eligibility only when a delivered, paid order exists and no review exists', async () => {
-    mockedProduct.findById.mockReturnValue(query({ _id: productId }) as never);
+    mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
     mockedReview.findOne.mockReturnValue(query(null) as never);
     mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
 
-    const result = await reviewService.getEligibility(userId.toString(), productId.toString());
+    const result = await reviewService.getEligibility(
+      userId.toString(),
+      orderId.toString(),
+      orderItemId.toString(),
+    );
 
     expect(mockedOrder.findOne).toHaveBeenCalledWith({
+      _id: orderId,
+      user_id: userId,
+    });
+    expect(result).toEqual({
+      canReview: true,
+      reason: null,
+      orderStatus: 'delivered',
+      paymentStatus: 'paid',
+      reviewId: null,
+      reviewStatus: null,
+    });
+  });
+
+  it('rejects malformed object ids as a review validation error', async () => {
+    await expect(reviewService.getEligibility(
+      userId.toString(),
+      'invalid-id',
+      orderItemId.toString(),
+    )).rejects.toMatchObject({
+      message: 'Invalid orderId',
+      statusCode: 400,
+    });
+
+    expect(mockedOrder.findOne).not.toHaveBeenCalled();
+  });
+
+  it('lists delivered order items with independent review eligibility', async () => {
+    mockedOrder.find.mockReturnValue(query([{ ...eligibleOrder, orderCode: 'FS-001', deliveredAt: new Date() }]) as never);
+    mockedReview.find.mockReturnValue(query([]) as never);
+    mockedProduct.find.mockReturnValue(query([{ _id: productId }]) as never);
+
+    const result = await reviewService.listEligibleItems(userId.toString(), {
+      productId: productId.toString(),
+      status: 'eligible',
+    });
+
+    expect(mockedOrder.find).toHaveBeenCalledWith({
       user_id: userId,
       status: 'delivered',
       paymentStatus: 'paid',
       'order_list.productId': productId,
     });
-    expect(result).toEqual({
-      productId: productId.toString(),
-      canReview: true,
-      hasPurchased: true,
-      hasReviewed: false,
-      reviewId: null,
-      reviewStatus: null,
-      moderationReasons: [],
-    });
-  });
-
-  it('rejects malformed object ids as a review validation error', async () => {
-    await expect(reviewService.getEligibility(userId.toString(), 'invalid-id')).rejects.toMatchObject({
-      message: 'Invalid productId',
-      statusCode: 400,
-    });
-
-    expect(mockedProduct.findById).not.toHaveBeenCalled();
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        orderId: orderId.toString(),
+        orderItemId: orderItemId.toString(),
+        canReview: true,
+        review: null,
+      }),
+    ]);
   });
 
   it('rejects creating a review when the customer has no eligible order', async () => {
-    mockedProduct.findById.mockReturnValue(query({ _id: productId }) as never);
-    mockedReview.findOne.mockReturnValue(query(null) as never);
     mockedOrder.findOne.mockReturnValue(query(null) as never);
 
     await expect(reviewService.createReview(userId.toString(), {
-      productId: productId.toString(),
+      orderId: orderId.toString(),
+      orderItemId: orderItemId.toString(),
       rating: 5,
       comment: 'Sản phẩm tốt',
-    })).rejects.toMatchObject({ statusCode: 403 });
+    })).rejects.toMatchObject({ statusCode: 404 });
 
     expect(mockedReview.create).not.toHaveBeenCalled();
   });
 
-  it('rejects a second review for the same customer and product', async () => {
-    mockedProduct.findById.mockReturnValue(query({ _id: productId }) as never);
+  it('rejects a second review for the same order item', async () => {
+    mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
+    mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
     mockedReview.findOne.mockReturnValue(query({ _id: reviewId }) as never);
 
     await expect(reviewService.createReview(userId.toString(), {
-      productId: productId.toString(),
+      orderId: orderId.toString(),
+      orderItemId: orderItemId.toString(),
       rating: 4,
       comment: 'Khá tốt',
     })).rejects.toMatchObject({
-      message: 'You have already reviewed this product',
+      message: 'This order item has already been reviewed',
       statusCode: 409,
     });
 
-    expect(mockedOrder.findOne).not.toHaveBeenCalled();
     expect(mockedReview.create).not.toHaveBeenCalled();
   });
 
   it('creates a verified review from the matching purchased order item', async () => {
-    mockedProduct.findById.mockReturnValue(query({ _id: productId }) as never);
+    mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
     mockedReview.findOne.mockReturnValue(query(null) as never);
     mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
     mockedReview.create.mockResolvedValue([{ _id: reviewId }] as never);
@@ -205,7 +258,8 @@ describe('reviewService', () => {
     mockedReview.aggregate.mockReturnValue(aggregateQuery([{ averageRating: 5, reviewCount: 1 }]) as never);
 
     const result = await reviewService.createReview(userId.toString(), {
-      productId: productId.toString(),
+      orderId: orderId.toString(),
+      orderItemId: orderItemId.toString(),
       rating: 5,
       comment: '  Sản phẩm tốt  ',
     });
@@ -236,20 +290,21 @@ describe('reviewService', () => {
   });
 
   it('places an offensive review in pending moderation and excludes it from product rating', async () => {
-    mockedProduct.findById.mockReturnValue(query({ _id: productId }) as never);
+    mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
     mockedReview.findOne.mockReturnValue(query(null) as never);
     mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
     mockedReview.create.mockResolvedValue([{ _id: reviewId }] as never);
     mockedReview.findById.mockReturnValue(query(populatedReview({
-      comment: 'Đồ ngu',
+      comment: 'Sản phẩm đồ ngu',
       moderationStatus: 'pending',
       moderationReasons: ['Có từ ngữ xúc phạm'],
     })) as never);
 
     await reviewService.createReview(userId.toString(), {
-      productId: productId.toString(),
+      orderId: orderId.toString(),
+      orderItemId: orderItemId.toString(),
       rating: 1,
-      comment: 'Đồ ngu',
+      comment: 'Sản phẩm đồ ngu',
     });
 
     expect(mockedReview.create).toHaveBeenCalledWith(
@@ -340,22 +395,21 @@ describe('reviewService', () => {
     expect(mockedProduct.updateOne).not.toHaveBeenCalled();
   });
 
-  it('hides moderated content and moderation reasons from the public response', async () => {
-    const hiddenReview = populatedReview({
-      moderationStatus: 'hidden',
-      moderationReasons: ['Vi phạm tiêu chuẩn cộng đồng'],
-    });
-    mockedReview.find.mockReturnValue(query([hiddenReview]) as never);
-    mockedReview.countDocuments.mockResolvedValue(1);
+  it('excludes hidden reviews from the public response and pagination', async () => {
+    mockedReview.find.mockReturnValue(query([]) as never);
+    mockedReview.countDocuments.mockResolvedValue(0);
     mockedProduct.findById.mockReturnValue(query({ averageRating: 0, reviewCount: 0 }) as never);
 
     const result = await reviewService.listProductReviews(productId.toString());
 
-    expect(result.items[0]).toEqual(expect.objectContaining({
-      comment: 'Nội dung đánh giá này đã bị xóa do vi phạm tiêu chuẩn cộng đồng.',
-      moderationReasons: [],
-      isContentRemoved: true,
-    }));
+    const expectedFilter = {
+      product_id: productId,
+      $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }],
+    };
+    expect(mockedReview.find).toHaveBeenCalledWith(expectedFilter);
+    expect(mockedReview.countDocuments).toHaveBeenCalledWith(expectedFilter);
+    expect(result.items).toEqual([]);
+    expect(result.pagination.totalItems).toBe(0);
   });
 
   it('applies rating and sort filters when listing the current customer reviews', async () => {
@@ -390,14 +444,83 @@ describe('reviewService', () => {
     const result = await reviewService.updateManyModerationStatuses(
       [reviewId.toString(), reviewId.toString(), secondReviewId.toString()],
       'hidden',
+      { userId: userId.toString(), role: 'admin' },
+      'Vi phạm tiêu chuẩn cộng đồng',
     );
 
-    expect(mockedReview.updateMany).toHaveBeenCalledWith(
-      { _id: { $in: [reviewId, secondReviewId] } },
-      { $set: { moderationStatus: 'hidden' } },
+    expect(mockedReview.updateOne).toHaveBeenCalledTimes(2);
+    expect(mockedProduct.updateOne).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ updatedCount: 2, skippedCount: 0, status: 'hidden' });
+  });
+
+  it('toggles a helpful vote and synchronizes the cached count', async () => {
+    mockedReview.findById.mockReturnValue(query({
+      _id: reviewId,
+      user_id: new Types.ObjectId('665000000000000000000010'),
+      moderationStatus: 'visible',
+      helpfulCount: 0,
+    }) as never);
+    mockedHelpfulVote.findOneAndDelete.mockResolvedValue(null);
+    mockedHelpfulVote.create.mockResolvedValue([{ _id: new Types.ObjectId() }] as never);
+    mockedHelpfulVote.countDocuments.mockReturnValue(query(1) as never);
+
+    const result = await reviewService.toggleHelpfulVote(userId.toString(), reviewId.toString());
+
+    expect(mockedHelpfulVote.create).toHaveBeenCalledWith(
+      [{ review_id: reviewId, user_id: userId }],
       { session: mockSession },
     );
-    expect(mockedProduct.updateOne).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ updatedCount: 2, status: 'hidden' });
+    expect(mockedReview.updateOne).toHaveBeenCalledWith(
+      { _id: reviewId },
+      { $set: { helpfulCount: 1 } },
+      { session: mockSession },
+    );
+    expect(result).toEqual({ reviewId: reviewId.toString(), helpfulCount: 1, hasVotedHelpful: true });
+  });
+
+  it('rejects marking the current customer own review as helpful', async () => {
+    mockedReview.findById.mockReturnValue(query({
+      _id: reviewId,
+      user_id: userId,
+      moderationStatus: 'visible',
+      helpfulCount: 0,
+    }) as never);
+
+    await expect(reviewService.toggleHelpfulVote(userId.toString(), reviewId.toString()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(mockedHelpfulVote.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects replying to a hidden review', async () => {
+    mockedReview.findById.mockReturnValue(query({
+      ...populatedReview({ moderationStatus: 'hidden' }),
+      save: jest.fn(),
+    }) as never);
+
+    await expect(reviewService.replyToReview(
+      reviewId.toString(),
+      { userId: userId.toString(), role: 'admin' },
+      'Cảm ơn bạn đã phản hồi',
+    )).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('deletes an admin reply inside the review transaction', async () => {
+    const reviewDocument = {
+      ...populatedReview({ adminReply: 'Phản hồi cũ', repliedAt: new Date() }),
+      repliedBy: userId,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedReview.findById.mockReturnValue(query(reviewDocument) as never);
+
+    const result = await reviewService.deleteReviewReply(
+      reviewId.toString(),
+      { userId: userId.toString(), role: 'admin' },
+    );
+
+    expect(reviewDocument.adminReply).toBeNull();
+    expect(reviewDocument.repliedAt).toBeNull();
+    expect(reviewDocument.repliedBy).toBeNull();
+    expect(reviewDocument.save).toHaveBeenCalledWith({ session: mockSession });
+    expect(result).toEqual({ reviewId: reviewId.toString(), deleted: true });
   });
 });
