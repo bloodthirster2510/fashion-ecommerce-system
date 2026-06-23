@@ -158,4 +158,5 @@ docs/
 local-scraped-catalog/
 tools/
 RUN_COMMANDS
+RUN_COMMANDS.txt
 support-staff-admin-permissions.md
