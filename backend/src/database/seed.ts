@@ -23,11 +23,9 @@ const seed = async () => {
   await seedAdmin();
   await seedInventoryForExistingProducts();
   await seedReviewsForExistingOrders();
-
-  console.log('Seed completed: membership rankings, admin user, inventory, and sample reviews are initialized.');
   await seedSupportFaqs();
 
-  console.log('Seed completed: membership rankings, admin user, inventory, and support FAQs are initialized.');
+  console.log('Seed completed: membership rankings, admin user, inventory, sample reviews, and support FAQs are initialized.');
 };
 
 seed()
