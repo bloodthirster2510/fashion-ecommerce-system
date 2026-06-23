@@ -4,6 +4,7 @@ import {
   seedAdmin,
   seedInventoryForExistingProducts,
   seedMembershipRankings,
+  seedReviewsForExistingOrders,
 } from './seeders';
 
 dotenv.config();
@@ -20,8 +21,9 @@ const seed = async () => {
   await seedMembershipRankings();
   await seedAdmin();
   await seedInventoryForExistingProducts();
+  await seedReviewsForExistingOrders();
 
-  console.log('Seed completed: membership rankings, admin user, and inventory are initialized.');
+  console.log('Seed completed: membership rankings, admin user, inventory, and sample reviews are initialized.');
 };
 
 seed()

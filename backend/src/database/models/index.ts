@@ -12,6 +12,7 @@ export * from './order.model';
 export * from './otp-verification.model';
 export * from './payment-method.model';
 export * from './product.model';
+export * from './review.model';
 export * from './transaction.model';
 export * from './user.model';
 
