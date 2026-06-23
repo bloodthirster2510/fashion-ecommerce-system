@@ -41,6 +41,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'personal-info', icon: 'account-outline', label: 'Thông tin cá nhân' },
   { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng' },
   { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi' },
+  { id: 'reviews', icon: 'star-outline', label: 'Đánh giá của tôi' },
   { id: 'favorites', icon: 'heart-outline', label: 'Sản phẩm yêu thích' },
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
@@ -135,6 +136,10 @@ const ProfileScreen = () => {
     }
     if (item.id === 'orders') {
       navigation.navigate('Orders');
+      return;
+    }
+    if (item.id === 'reviews') {
+      navigation.navigate('MyReviews');
       return;
     }
     if (item.id === 'favorites') {

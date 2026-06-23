@@ -30,6 +30,7 @@ import {
   ProductDetailVariant,
 } from './catalogApi';
 import ProductCard from './ProductCard';
+import ProductReviewsSection from '../reviews/ProductReviewsSection';
 
 type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
@@ -956,13 +957,7 @@ const ProductDetailScreen = () => {
             ))}
           </View>
 
-          <View style={styles.reviewPlaceholder}>
-            <MaterialCommunityIcons name="comment-text-outline" size={24} color={colors.brand} />
-            <Text style={styles.reviewPlaceholderTitle}>Review chi tiết đang chờ module đánh giá</Text>
-            <Text style={styles.reviewPlaceholderText}>
-              Khi backend review sẵn sàng, khu này sẽ hiển thị ảnh thật, nội dung đánh giá và phản hồi của shop.
-            </Text>
-          </View>
+          <ProductReviewsSection productId={product._id} />
         </View>
 
         <View style={styles.recommendationSection}>

@@ -37,6 +37,7 @@ import {
   paymentMethodLabels,
   paymentStatusLabels,
 } from './orderPresentation';
+import { reviewApi } from '../reviews/reviewApi';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
@@ -201,6 +202,8 @@ const OrderDetailScreen = () => {
   const [returnReason, setReturnReason] = React.useState('');
   const [returnReasonError, setReturnReasonError] = React.useState('');
   const [returnEvidenceImages, setReturnEvidenceImages] = React.useState<EvidenceDraft[]>([]);
+  // Lưu order_item_id đã được đánh giá để ẩn/đổi nhãn nút review trên từng dòng hàng.
+  const [reviewedItemIds, setReviewedItemIds] = React.useState<Set<string>>(new Set());
 
   const loadOrder = React.useCallback(
     async (mode: 'loading' | 'refresh' = 'loading') => {
@@ -219,6 +222,19 @@ const OrderDetailScreen = () => {
       try {
         const response = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
         setOrder(response);
+        // Lấy danh sách order item đã đánh giá để hiển thị đúng trạng thái nút review.
+        try {
+          const eligibleItems = await runWithAuth((accessToken) => reviewApi.listEligibleItems(accessToken));
+          const reviewed = new Set(
+            eligibleItems.items
+              .filter((item) => item.review)
+              .map((item) => item.orderItemId),
+          );
+          setReviewedItemIds(reviewed);
+        } catch {
+          // Eligibility là dữ liệu phụ; không chặn hiển thị đơn nếu tải thất bại.
+          setReviewedItemIds(new Set());
+        }
       } catch (error) {
         if (isUnauthorizedError(error)) {
           logout();
@@ -541,6 +557,29 @@ const OrderDetailScreen = () => {
             <Text style={styles.productQuantity}>SL: {item.quantity}</Text>
           </View>
         </View>
+        {order?.status === 'delivered' && order.paymentStatus === 'paid' && item._id ? (
+          reviewedItemIds.has(item._id) ? (
+            <View style={styles.reviewButton} pointerEvents="none">
+              <MaterialCommunityIcons name="check-circle-outline" size={18} color={colors.textMuted} />
+              <Text style={styles.reviewButtonTextMuted}>Đã đánh giá</Text>
+            </View>
+          ) : (
+          <TouchableOpacity
+            style={styles.reviewButton}
+            onPress={() => navigation.navigate('ReviewComposer', {
+              orderId: order._id,
+              orderItemId: item._id!,
+              orderCode: order.orderCode,
+              productName: item.name,
+              productImage: item.image,
+              variantLabel: `${item.color} • ${item.size} • ${item.fitType}`,
+            })}
+          >
+            <MaterialCommunityIcons name="star-outline" size={18} color={colors.brand} />
+            <Text style={styles.reviewButtonText}>Viết đánh giá</Text>
+          </TouchableOpacity>
+          )
+        ) : null}
       </View>
     );
   };
@@ -2065,6 +2104,27 @@ const styles = StyleSheet.create({
     height: 70,
     borderRadius: radii.sm,
     backgroundColor: colors.brandSoft,
+  },
+  reviewButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.brand,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  reviewButtonText: {
+    color: colors.brand,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  reviewButtonTextMuted: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
   },
 });
 
