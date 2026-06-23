@@ -4,7 +4,10 @@ import { auditLogService } from '../../audit-logs/audit-log.service';
 import {
   MembershipRankingServiceError,
   membershipRankingAdminService,
+  type LoyaltyPointAdjustmentPayload,
   type MembershipRankingPayload,
+  type MembershipRankingBatchPayload,
+  type MembershipRankingReorderPayload,
 } from './membership-ranking.service';
 
 const getErrorResponse = (error: unknown) => {
@@ -63,6 +66,50 @@ export const listMembershipRankings = async (_req: Request, res: Response) => {
   }
 };
 
+export const reorderMembershipRankings = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await membershipRankingAdminService.reorderMembershipRankings(req.body as MembershipRankingReorderPayload));
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const listLoyaltyUsers = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await membershipRankingAdminService.listLoyaltyUsers(req.query));
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const listLoyaltyPointHistory = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await membershipRankingAdminService.listLoyaltyPointHistory(req.query));
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const adjustLoyaltyPoints = async (req: Request, res: Response) => {
+  try {
+    const result = await membershipRankingAdminService.adjustLoyaltyPoints(
+      req.body as LoyaltyPointAdjustmentPayload,
+      {
+        actorId: req.user?.userId ?? null,
+        actorRole: getAuditActorRole(req),
+      },
+    );
+
+    return created(res, result, 'Loyalty points adjusted');
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 export const createMembershipRanking = async (req: Request, res: Response) => {
   try {
     const ranking = await membershipRankingAdminService.createMembershipRanking(
@@ -71,6 +118,19 @@ export const createMembershipRanking = async (req: Request, res: Response) => {
     await recordRankingAudit(req, 'membership_ranking.create', ranking);
 
     return created(res, ranking);
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const createMembershipRankingsBatch = async (req: Request, res: Response) => {
+  try {
+    const rankings = await membershipRankingAdminService.createMembershipRankingsBatch(
+      req.body as MembershipRankingBatchPayload,
+    ) as Array<{ _id: unknown }>;
+    await Promise.all(rankings.map((ranking) => recordRankingAudit(req, 'membership_ranking.create', ranking)));
+    return created(res, rankings);
   } catch (error) {
     const { statusCode, message } = getErrorResponse(error);
     return errorResponse(res, message, statusCode);

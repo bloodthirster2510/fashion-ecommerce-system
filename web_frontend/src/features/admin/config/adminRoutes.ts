@@ -54,6 +54,7 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'inventory',
   'promotions',
   'reviews',
+  'support',
 ]
 
 export const adminRouteGroups: AdminRouteGroup[] = [

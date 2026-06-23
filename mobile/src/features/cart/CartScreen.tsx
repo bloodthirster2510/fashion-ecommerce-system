@@ -29,6 +29,7 @@ import {
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
@@ -55,7 +56,7 @@ const getErrorMessage = (error: unknown) => {
   }
 
   if (error instanceof CartApiError && error.status === 409) {
-    return 'Số lượng vừa chọn đã vượt tồn kho hiện có. Mình đã giữ giỏ hàng ở mức an toàn.';
+    return error.message || 'Dữ liệu đơn hàng vừa thay đổi. Bạn kiểm tra lại trước khi tiếp tục.';
   }
 
   return error instanceof Error ? error.message : 'Bạn thử lại sau nha.';
@@ -123,6 +124,7 @@ const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
+  const { summary: notificationSummary } = useCustomerNotifications();
   const [cart, setCart] = React.useState<CartResponse | null>(null);
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
@@ -136,7 +138,7 @@ const CartScreen = () => {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('COD');
   const [couponCode, setCouponCode] = React.useState('');
-  const [appliedCouponCode, setAppliedCouponCode] = React.useState<string | null>(null);
+  const [appliedCouponCodes, setAppliedCouponCodes] = React.useState<string[]>([]);
   const [checkoutPreview, setCheckoutPreview] = React.useState<CheckoutPreviewResponse | null>(null);
   const [isApplyingCoupon, setIsApplyingCoupon] = React.useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
@@ -454,6 +456,10 @@ const CartScreen = () => {
   } = checkoutSummary;
   const appliedMembership = checkoutPreview?.appliedMembership ?? null;
   const appliedCoupon = checkoutPreview?.coupon ?? null;
+  const appliedCoupons = checkoutPreview?.coupons?.length
+    ? checkoutPreview.coupons
+    : appliedCoupon ? [appliedCoupon] : [];
+  const appliedCouponCode = appliedCouponCodes[0] ?? null;
   const shippingQuote = checkoutPreview?.shippingQuote ?? null;
   const shippingComparison = checkoutPreview?.shippingComparison ?? null;
   const shippingPayable = selectedCheckoutItems.length ? Math.max(0, shippingFee - shippingDiscountAmount) : 0;
@@ -499,13 +505,13 @@ const CartScreen = () => {
 
   React.useEffect(() => {
     const nextCouponCode = route.params?.couponCode?.trim().toUpperCase();
-    if (!nextCouponCode || nextCouponCode === appliedCouponCode) {
+    if (!nextCouponCode || appliedCouponCodes.includes(nextCouponCode)) {
       return;
     }
 
     setCouponCode(nextCouponCode);
-    setAppliedCouponCode(nextCouponCode);
-  }, [appliedCouponCode, route.params?.couponCode]);
+    setAppliedCouponCodes((current) => [...current, nextCouponCode].slice(0, 3));
+  }, [appliedCouponCodes, route.params?.couponCode]);
 
   React.useEffect(() => {
     if (!session?.accessToken || !selectedCheckoutItems.length) {
@@ -520,7 +526,7 @@ const CartScreen = () => {
       cartApi.previewCheckout(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         ...getCheckoutAddressPayload(),
-        couponCode: appliedCouponCode ?? undefined,
+        couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
         paymentMethod,
       }),
     )
@@ -528,17 +534,22 @@ const CartScreen = () => {
         if (!isActive) return;
 
         setCheckoutPreview(preview);
-        if (preview.coupon) {
-          setCouponCode(preview.coupon.code);
-          setAppliedCouponCode(preview.coupon.code);
+        const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? (preview.coupon ? [preview.coupon.code] : []);
+        if (previewCodes.length) {
+          setCouponCode('');
+          setAppliedCouponCodes((current) => (
+            current.length === previewCodes.length && current.every((code, index) => code === previewCodes[index])
+              ? current
+              : previewCodes
+          ));
         }
       })
       .catch((error) => {
         if (!isActive) return;
 
         setCheckoutPreview(null);
-        if (appliedCouponCode) {
-          setAppliedCouponCode(null);
+        if (appliedCouponCodes.length) {
+          setAppliedCouponCodes([]);
           showNotice({
             tone: 'warning',
             title: 'Voucher không còn phù hợp',
@@ -556,7 +567,7 @@ const CartScreen = () => {
       isActive = false;
     };
   }, [
-    appliedCouponCode,
+    appliedCouponCodes,
     paymentMethod,
     getCheckoutAddressPayload,
     runWithAuth,
@@ -713,11 +724,20 @@ const CartScreen = () => {
       return;
     }
 
+    if (!appliedCouponCodes.includes(code.toUpperCase()) && appliedCouponCodes.length >= 3) {
+      showNotice({
+        tone: 'warning',
+        title: 'Đã đạt giới hạn voucher',
+        message: 'Mỗi đơn chỉ có thể áp dụng tối đa 3 voucher.',
+      });
+      return;
+    }
+
     try {
       setIsApplyingCoupon(true);
       const preview = await runWithAuth((accessToken) =>
         cartApi.previewCheckout(accessToken, {
-          couponCode: code,
+          couponCodes: Array.from(new Set([...appliedCouponCodes, code.toUpperCase()])).slice(0, 3),
           cartItemIds: selectedCheckoutItems.map((item) => item._id),
           ...getCheckoutAddressPayload(),
           paymentMethod,
@@ -729,16 +749,15 @@ const CartScreen = () => {
       }
 
       setCheckoutPreview(preview);
-      setAppliedCouponCode(preview.coupon.code);
-      setCouponCode(preview.coupon.code);
+      const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? [preview.coupon.code];
+      setAppliedCouponCodes(previewCodes);
+      setCouponCode('');
       showNotice({
         tone: 'success',
         title: 'Đã áp dụng voucher',
         message: `${preview.coupon.code} đã được tính vào đơn hàng.`,
       }, 3200);
     } catch (error) {
-      setCheckoutPreview(null);
-      setAppliedCouponCode(null);
       showNotice({
         tone: 'error',
         title: 'Chưa áp dụng được voucher',
@@ -749,8 +768,8 @@ const CartScreen = () => {
     }
   };
 
-  const handleClearCoupon = () => {
-    setAppliedCouponCode(null);
+  const handleClearCoupon = (code?: string) => {
+    setAppliedCouponCodes((current) => code ? current.filter((item) => item !== code) : []);
     setCouponCode('');
   };
 
@@ -861,7 +880,7 @@ const CartScreen = () => {
         paymentMethodId: paymentMethod === 'VNPAY' ? selectedSavedPaymentMethod?._id : undefined,
         quoteVersion: checkoutPreview.quoteVersion,
         ...getCheckoutAddressPayload(),
-        couponCode: appliedCouponCode ?? undefined,
+        couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
         orderNote: form.note.trim() || undefined,
       }));
 
@@ -935,7 +954,7 @@ const CartScreen = () => {
             cartApi.previewCheckout(accessToken, {
               cartItemIds: selectedCheckoutItems.map((item) => item._id),
               ...getCheckoutAddressPayload(),
-              couponCode: appliedCouponCode ?? undefined,
+              couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
               paymentMethod,
             }),
           );
@@ -1461,9 +1480,6 @@ const CartScreen = () => {
                   value={couponCode}
                   onChangeText={(value) => {
                     setCouponCode(value.toUpperCase());
-                    if (appliedCouponCode && value.trim().toUpperCase() !== appliedCouponCode) {
-                      setAppliedCouponCode(null);
-                    }
                   }}
                   placeholder="Nhập mã voucher"
                   placeholderTextColor={colors.textSubtle}
@@ -1497,18 +1513,20 @@ const CartScreen = () => {
                 <Text style={styles.couponListText}>Chọn voucher khả dụng</Text>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={colors.brand} />
               </TouchableOpacity>
-              {appliedCoupon ? (
-                <View style={styles.couponAppliedRow}>
-                  <View style={styles.couponAppliedCopy}>
-                    <Text style={styles.couponAppliedTitle}>{appliedCoupon.name}</Text>
-                    <Text style={styles.couponAppliedMeta}>
-                      Mã {appliedCoupon.code} đang được tính vào đơn hàng
-                    </Text>
+              {appliedCoupons.length ? (
+                appliedCoupons.map((coupon) => (
+                  <View style={styles.couponAppliedRow} key={coupon.code}>
+                    <View style={styles.couponAppliedCopy}>
+                      <Text style={styles.couponAppliedTitle}>{coupon.name}</Text>
+                      <Text style={styles.couponAppliedMeta}>
+                        Mã {coupon.code} đang được tính vào đơn hàng
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => handleClearCoupon(coupon.code)} activeOpacity={0.82}>
+                      <Text style={styles.couponClearText}>Bỏ</Text>
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity onPress={handleClearCoupon} activeOpacity={0.82}>
-                    <Text style={styles.couponClearText}>Bỏ</Text>
-                  </TouchableOpacity>
-                </View>
+                ))
               ) : (
                 <Text style={styles.couponHint}>
                   {isPreviewLoading
@@ -1577,7 +1595,7 @@ const CartScreen = () => {
             </Text>
           </View>
           <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Voucher{appliedCouponCode ? ` (${appliedCouponCode})` : ''}:</Text>
+            <Text style={styles.summaryLabel}>Voucher{appliedCouponCodes.length ? ` (${appliedCouponCodes.join(' + ')})` : ''}:</Text>
             <Text style={couponDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
               {couponDiscountAmount > 0 ? `-${formatCurrency(couponDiscountAmount)}` : '0đ'}
             </Text>
@@ -1627,6 +1645,8 @@ const CartScreen = () => {
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
+        cartBadgeCount={cart?.summary.itemCount ?? notificationSummary?.cartItems ?? 0}
+        profileBadgeCount={notificationSummary?.total ?? 0}
       />
 
       <ScrollView

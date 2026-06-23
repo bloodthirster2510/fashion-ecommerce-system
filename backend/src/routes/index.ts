@@ -15,6 +15,8 @@ import ghnRoutes from '../modules/shipping/ghn.route';
 import shippingRoutes from '../modules/shipping/shipping.route';
 import { customerCouponRouter } from '../modules/promotions/coupons/coupon.route';
 import userRouter from '../modules/users/user.routes';
+import supportRouter from '../modules/support/support.routes';
+import customerNotificationSummaryRouter from '../modules/notifications/customer-notification-summary.routes';
 
 const router = Router();
 
@@ -34,5 +36,7 @@ router.use('/ghn', ghnRoutes);
 router.use('/shipping', shippingRoutes);
 router.use('/coupons', customerCouponRouter);
 router.use('/users', userRouter);
+router.use('/support', supportRouter);
+router.use('/notifications', customerNotificationSummaryRouter);
 
 export default router;

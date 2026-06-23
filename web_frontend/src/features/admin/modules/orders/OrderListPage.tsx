@@ -28,11 +28,13 @@ import {
   type AdminTransaction,
 } from './orderAdminApi'
 import './order.css'
+import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 
 type OrdersPageProps = {
   currentUser: AdminUser
   paymentSection?: PaymentSectionKey
   lockPaymentSection?: boolean
+  initialTabKey?: string
 }
 
 type OrderTab = {
@@ -212,6 +214,9 @@ const orderTabGroups: Array<{
   { key: 'exceptions', label: 'Phát sinh cần xử lý' },
   { key: 'lookup', label: 'Tra cứu' },
 ]
+
+const resolveInitialTabKey = (value: string | undefined, lockPaymentSection: boolean) =>
+  orderTabs.some((tab) => tab.key === value) ? value as string : lockPaymentSection ? 'packing' : 'all'
 
 const statusLabels: Record<AdminOrderStatus, string> = {
   confirmed: 'Chờ xử lý',
@@ -762,6 +767,7 @@ export function OrderListPage({
   currentUser,
   paymentSection = 'online',
   lockPaymentSection = false,
+  initialTabKey,
 }: OrdersPageProps) {
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [selectedOrder, setSelectedOrder] = useState<AdminOrder | null>(null)
@@ -771,7 +777,7 @@ export function OrderListPage({
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
-  const [activeTabKey, setActiveTabKey] = useState(lockPaymentSection ? 'packing' : 'all')
+  const [activeTabKey, setActiveTabKey] = useState(() => resolveInitialTabKey(initialTabKey, lockPaymentSection))
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
   const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
   const [page, setPage] = useState(1)
@@ -809,9 +815,9 @@ export function OrderListPage({
     setActivePaymentSectionKey(paymentSection)
     setPaymentMethod(paymentSection === 'cod' ? 'COD' : 'all')
     setPaymentStatus('all')
-    setActiveTabKey(lockPaymentSection ? 'packing' : 'all')
+    setActiveTabKey(resolveInitialTabKey(initialTabKey, lockPaymentSection))
     setPage(1)
-  }, [lockPaymentSection, paymentSection])
+  }, [initialTabKey, lockPaymentSection, paymentSection])
 
   const loadOrders = useCallback(async () => {
     setIsLoading(true)
@@ -955,6 +961,7 @@ export function OrderListPage({
       })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -999,6 +1006,7 @@ export function OrderListPage({
       })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1052,6 +1060,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã cập nhật thông tin vận đơn' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1091,6 +1100,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: `Đã nhận webhook vận chuyển: ${actionLabel}` })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1113,6 +1123,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã tạo vận đơn GHN và liên kết vào đơn hàng' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1141,6 +1152,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã hủy vận đơn GHN' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1163,6 +1175,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã đồng bộ trạng thái GHN' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1181,6 +1194,7 @@ export function OrderListPage({
         message: `Đã hết hạn ${result.expiredCount} lượt thanh toán quá hạn, hủy ${result.cancelledOrderIds.length} đơn chưa thanh toán`,
       })
       await loadOrders()
+      requestAdminNotificationRefresh()
       if (selectedOrder) {
         await refreshSelectedOrder(selectedOrder._id)
       }
@@ -1216,6 +1230,7 @@ export function OrderListPage({
       setNotice({ type: 'success', message: 'Đã điều chỉnh trạng thái thanh toán' })
       await refreshSelectedOrder(updatedOrder._id)
       await loadOrders()
+      requestAdminNotificationRefresh()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {
@@ -1377,7 +1392,7 @@ export function OrderListPage({
         </div>
       </header>
 
-      {!isLookupMode ? (
+      {!isLookupMode || initialTabKey ? (
         renderOrderTabs()
       ) : null}
 

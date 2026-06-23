@@ -79,6 +79,7 @@ export type CreateOrderPayload = {
   paymentMethod: CartPaymentMethod;
   paymentMethodId?: string;
   couponCode?: string;
+  couponCodes?: string[];
   orderNote?: string;
 };
 
@@ -134,6 +135,7 @@ export type CheckoutPreviewPayload = {
   addressId?: string;
   shippingAddress?: CreateOrderPayload['shippingAddress'];
   couponCode?: string;
+  couponCodes?: string[];
   paymentMethod?: CartPaymentMethod;
 };
 
@@ -192,6 +194,8 @@ export type CheckoutPreviewResponse = {
   shippingQuote?: ShippingQuote;
   shippingComparison?: ShippingComparison;
   coupon?: AppliedCheckoutCoupon | null;
+  coupons?: AppliedCheckoutCoupon[];
+  campaign?: { campaignId: string; code: string; name: string } | null;
   appliedMembership?: AppliedMembership | null;
 };
 

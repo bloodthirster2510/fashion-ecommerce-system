@@ -23,12 +23,18 @@ const menuItems = [
   { key: 'support', icon: <QuestionCircleOutlined />, label: 'Hỗ trợ' },
 ]
 
+const menuPaths: Record<string, string> = {
+  profile: '/account',
+  support: '/account/support',
+}
+
 type ProfileSidebarProps = {
   name?: string
   avatarImage?: string | null
+  selectedKey?: string
 }
 
-export function ProfileSidebar({ name, avatarImage }: ProfileSidebarProps) {
+export function ProfileSidebar({ name, avatarImage, selectedKey = 'profile' }: ProfileSidebarProps) {
   return (
     <aside className="account-sidebar" aria-label="Tài khoản">
       <div className="user-card">
@@ -39,7 +45,18 @@ export function ProfileSidebar({ name, avatarImage }: ProfileSidebarProps) {
         </div>
       </div>
 
-      <Menu className="account-menu" mode="inline" selectedKeys={['profile']} items={menuItems} />
+      <Menu
+        className="account-menu"
+        mode="inline"
+        selectedKeys={[selectedKey]}
+        items={menuItems}
+        onClick={({ key }) => {
+          const path = menuPaths[key]
+          if (!path) return
+          window.history.pushState(null, '', path)
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        }}
+      />
     </aside>
   )
 }

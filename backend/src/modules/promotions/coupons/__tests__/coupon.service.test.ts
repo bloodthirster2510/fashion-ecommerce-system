@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Coupon, CouponUsage } from '../../../../database/models';
+import { Coupon, CouponUsage, User } from '../../../../database/models';
 import {
   PromotionPricingError,
   promotionPricingService,
@@ -12,17 +12,26 @@ import {
 
 jest.mock('../../../../database/models', () => ({
   Coupon: {
+    aggregate: jest.fn(),
     countDocuments: jest.fn(),
     create: jest.fn(),
     find: jest.fn(),
+    findById: jest.fn(),
     findOne: jest.fn(),
     findOneAndUpdate: jest.fn(),
     updateOne: jest.fn(),
   },
   CouponUsage: {
+    aggregate: jest.fn(),
     countDocuments: jest.fn(),
     create: jest.fn(),
-    deleteOne: jest.fn(),
+    deleteMany: jest.fn(),
+    find: jest.fn(),
+  },
+  User: {
+    find: jest.fn(),
+  },
+  Order: {
     find: jest.fn(),
   },
 }));
@@ -48,10 +57,12 @@ jest.mock('../../pricing/promotion-pricing.service', () => {
 
 const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
 const mockedCouponUsage = CouponUsage as jest.Mocked<typeof CouponUsage>;
+const mockedUser = User as jest.Mocked<typeof User>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 
 const couponId = new Types.ObjectId('665000000000000000000201');
 const userId = '665000000000000000000020';
+const actorId = new Types.ObjectId('665000000000000000000021');
 const userUsagePath = `userUsageCounts.${userId}`;
 
 const baseCoupon = {
@@ -156,7 +167,78 @@ describe('couponService usage reservation', () => {
   });
 });
 
+describe('couponService admin filters', () => {
+  it('filters coupons by discount type, visibility and audience', async () => {
+    const listQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    mockedCoupon.find.mockReturnValue(listQuery as never);
+    mockedCoupon.countDocuments.mockResolvedValue(0);
+    mockedCoupon.aggregate.mockResolvedValue([]);
+
+    await couponService.listCoupons({
+      discountType: 'percent',
+      isPublic: false,
+      eligibleUserType: 'member',
+    });
+
+    const expectedFilter = {
+      deletedAt: null,
+      discountType: 'percent',
+      isPublic: false,
+      eligibleUserTypes: 'member',
+    };
+    expect(mockedCoupon.find).toHaveBeenCalledWith(expectedFilter, {
+      userUsageCounts: 0,
+      deletedAt: 0,
+      __v: 0,
+    });
+    expect(mockedCoupon.countDocuments).toHaveBeenCalledWith(expectedFilter);
+  });
+});
+
 describe('couponService admin safeguards', () => {
+  it('returns creator and updater identities in coupon detail', async () => {
+    mockedCoupon.findById.mockResolvedValue({
+      ...baseCoupon,
+      createdBy: actorId,
+      updatedBy: actorId,
+      toObject: () => ({ ...baseCoupon, createdBy: actorId, updatedBy: actorId }),
+    } as never);
+    mockedCouponUsage.countDocuments.mockResolvedValue(0);
+    mockedUser.find.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { _id: actorId, name: 'Promotion Admin', email: 'admin@example.com', role: 'admin' },
+        ]),
+      }),
+    } as never);
+
+    const result = await couponService.getCouponById(couponId.toString());
+
+    expect(result.coupon).toMatchObject({
+      createdBy: { _id: actorId, name: 'Promotion Admin' },
+      updatedBy: { _id: actorId, name: 'Promotion Admin' },
+    });
+  });
+
+  it('checks coupon code availability while excluding the coupon being edited', async () => {
+    mockedCoupon.countDocuments.mockResolvedValue(0);
+
+    await expect(
+      couponService.checkCouponCodeAvailability(' save10 ', couponId.toString()),
+    ).resolves.toEqual({ code: 'SAVE10', available: true });
+
+    expect(mockedCoupon.countDocuments).toHaveBeenCalledWith({
+      code: 'SAVE10',
+      deletedAt: null,
+      _id: { $ne: couponId },
+    });
+  });
+
   it('maps duplicate coupon codes to a conflict response', async () => {
     mockedCoupon.create.mockRejectedValue({ code: 11000 });
 
@@ -198,6 +280,48 @@ describe('couponService admin safeguards', () => {
   });
 });
 
+describe('couponService admin creation tools', () => {
+  it('duplicates a coupon with overrides and resets usage counters through create', async () => {
+    mockedCoupon.findOne.mockResolvedValue(baseCoupon as never);
+    mockedCoupon.create.mockResolvedValue({ ...baseCoupon, code: 'SAVE10_COPY' } as never);
+
+    await couponService.duplicateCoupon(couponId.toString(), {
+      code: 'SAVE10_COPY',
+      name: 'Save 10 copy',
+      startAt: new Date('2026-06-20T00:00:00.000Z'),
+      endAt: new Date('2026-07-20T00:00:00.000Z'),
+    });
+
+    expect(mockedCoupon.create).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'SAVE10_COPY',
+      name: 'Save 10 copy',
+      isActive: false,
+    }));
+  });
+
+  it('previews a capped percentage discount on a sample order', () => {
+    const result = couponService.previewCoupon({
+      coupon: {
+        code: 'SAVE20',
+        name: 'Save 20',
+        discountType: 'percent',
+        discountValue: 20,
+        maxDiscountAmount: 50000,
+        minOrderAmount: 200000,
+        startAt: new Date('2026-06-20T00:00:00.000Z'),
+        endAt: new Date('2026-07-20T00:00:00.000Z'),
+      },
+      sampleSubTotal: 500000,
+      sampleShippingFee: 30000,
+    });
+
+    expect(result).toMatchObject({
+      eligible: true,
+      summary: { discountAmount: 50000, shippingDiscountAmount: 0, totalAmount: 480000 },
+    });
+  });
+});
+
 describe('couponService usage analytics', () => {
   it('returns paginated coupon usage with user and order details', async () => {
     mockedCoupon.findOne.mockReturnValue({
@@ -213,6 +337,7 @@ describe('couponService usage analytics', () => {
     };
     mockedCouponUsage.find.mockReturnValue(usageQuery as never);
     mockedCouponUsage.countDocuments.mockResolvedValue(21);
+    mockedCouponUsage.aggregate.mockResolvedValue([{ discountAmount: 10000, shippingDiscountAmount: 0 }]);
 
     const result = await couponService.listCouponUsage(couponId.toString(), { page: 2, limit: 10 });
 
@@ -223,6 +348,7 @@ describe('couponService usage analytics', () => {
     expect(usageQuery.populate).toHaveBeenCalledWith('orderId', 'orderCode status totalAmount');
     expect(result).toEqual({
       items: usageItems,
+      summary: { usageCount: 21, discountAmount: 10000, shippingDiscountAmount: 0 },
       pagination: { page: 2, limit: 10, totalItems: 21, totalPages: 3 },
     });
   });

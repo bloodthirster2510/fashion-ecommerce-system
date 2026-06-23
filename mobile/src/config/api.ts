@@ -119,13 +119,15 @@ const getOrderedApiBaseUrls = () => {
 export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const retryOnTimeout = init?.retryOnTimeout ?? true;
-  const baseUrls = hasAuthorizationHeader(init?.headers) ? [API_BASE_URL] : getOrderedApiBaseUrls();
-  let lastNetworkError: unknown;
-  let attemptedCount = 0;
+  // Keep authenticated calls on the endpoint that successfully handled login.
+  // Using the first configured URL here breaks devices when login succeeds
+  // through a later LAN or Metro-derived candidate.
+  const baseUrls = hasAuthorizationHeader(init?.headers)
+    ? [preferredApiBaseUrl ?? API_BASE_URL]
+    : getOrderedApiBaseUrls();
 
   for (const [index, baseUrl] of baseUrls.entries()) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
-    attemptedCount += 1;
 
     try {
       const response = await fetchWithTimeout(requestUrl, init);
@@ -143,13 +145,8 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
       if (__DEV__) {
         console.warn(`[API] Request failed for candidate ${index + 1}/${baseUrls.length}`, error);
       }
-
-      lastNetworkError = error;
     }
   }
 
-  const message =
-    lastNetworkError instanceof Error ? lastNetworkError.message : 'Network request failed';
-
-  throw new Error(`${message}. Tried ${attemptedCount} API endpoint${attemptedCount === 1 ? '' : 's'}.`);
+  throw new Error('Không thể kết nối máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.');
 };

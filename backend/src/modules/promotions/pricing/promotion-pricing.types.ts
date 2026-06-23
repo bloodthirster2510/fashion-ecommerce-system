@@ -15,6 +15,7 @@ export interface CalculateCheckoutInput {
   userId: string;
   cartItemIds: string[];
   couponCode?: string;
+  couponCodes?: string[];
   paymentMethod?: OrderPaymentMethod;
   shippingAddress?: ShippingAddressForQuote;
   shippingQuote?: ShippingQuoteResult;
@@ -75,5 +76,11 @@ export interface CheckoutPricingResult {
   shippingQuote: ShippingQuoteResult;
   shippingComparison: ShippingComparisonResult;
   appliedCoupon: AppliedCoupon | null;
+  appliedCoupons?: AppliedCoupon[];
+  appliedCampaign?: {
+    campaignId: string;
+    code: string;
+    name: string;
+  } | null;
   appliedMembership: AppliedMembership | null;
 }

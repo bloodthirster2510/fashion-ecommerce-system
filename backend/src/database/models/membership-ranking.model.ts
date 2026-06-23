@@ -24,7 +24,7 @@ const membershipRankingSchema = new Schema<IMembershipRanking>(
     minPoint: { type: Number, required: true, min: 0, max: 100000000 },
     maxPoint: { type: Number, default: null },
     discountPercent: { type: Number, required: true, min: 0, max: 100 },
-    benefitDescription: { type: String, trim: true, minlength: 2, maxlength: 200 },
+    benefitDescription: { type: String, required: true, trim: true, minlength: 2, maxlength: 200 },
     cardColor: { type: String, default: '#5b788a', trim: true, match: hexColorRegex },
     textColor: { type: String, default: '#ffffff', trim: true, match: hexColorRegex },
     badgeColor: { type: String, default: '#5b788a', trim: true, match: hexColorRegex },

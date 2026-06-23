@@ -23,6 +23,7 @@ import type {
   CheckoutCartItemSelection,
   CheckoutPricingResult,
 } from './promotion-pricing.types';
+import { promotionCampaignService } from '../campaigns/promotion-campaign.service';
 
 export class PromotionPricingError extends Error {
   constructor(
@@ -37,6 +38,17 @@ export class PromotionPricingError extends Error {
 // export const FREE_SHIPPING_MINIMUM = 399000;
 
 const normalizeCouponCode = (value?: string) => value?.trim().toUpperCase() || undefined;
+
+const normalizeCouponCodes = (input: { couponCode?: string; couponCodes?: string[] }) => {
+  const codes = [input.couponCode, ...(input.couponCodes ?? [])]
+    .map((code) => normalizeCouponCode(code))
+    .filter((code): code is string => Boolean(code));
+  const uniqueCodes = Array.from(new Set(codes));
+  if (uniqueCodes.length > 3) {
+    throw new PromotionPricingError('A maximum of 3 coupon codes can be applied', 400);
+  }
+  return uniqueCodes;
+};
 
 const isSameId = (
   left: Types.ObjectId | string | { toString(): string } | null | undefined,
@@ -353,19 +365,43 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
   const automaticShippingDiscount = 0;
   const user = await getUserOrThrow(input.userId);
   const currentTier = await getCurrentMembershipTier(user.loyaltyPoint ?? 0);
-  const appliedCoupon = await applyCoupon({
+  const couponCodes = normalizeCouponCodes(input);
+  const rawAppliedCoupons = await Promise.all(couponCodes.map((couponCode) => applyCoupon({
     userId: input.userId,
-    couponCode: input.couponCode,
+    couponCode,
     selections,
     subTotal,
     shippingFee,
     automaticShippingDiscount,
     currentTier,
+  }))) as AppliedCoupon[];
+  let stackingCampaign = null;
+  if (rawAppliedCoupons.length > 1) {
+    if (rawAppliedCoupons.filter((coupon) => coupon.discountType === 'free_shipping').length > 1) {
+      throw new PromotionPricingError('Only one free-shipping coupon can be stacked', 409);
+    }
+    stackingCampaign = await promotionCampaignService.findStackingCampaignForCoupons(
+      rawAppliedCoupons.map((coupon) => coupon.coupon._id),
+    );
+    if (!stackingCampaign) {
+      throw new PromotionPricingError('These coupons cannot be stacked together', 409);
+    }
+  }
+
+  let remainingProductDiscount = subTotal;
+  let remainingShippingDiscount = Math.max(0, shippingFee - automaticShippingDiscount);
+  const appliedCoupons = rawAppliedCoupons.map((coupon) => {
+    const discountAmount = Math.min(coupon.discountAmount, remainingProductDiscount);
+    const shippingDiscountAmount = Math.min(coupon.shippingDiscountAmount, remainingShippingDiscount);
+    remainingProductDiscount -= discountAmount;
+    remainingShippingDiscount -= shippingDiscountAmount;
+    return { ...coupon, discountAmount, shippingDiscountAmount };
   });
-  const couponDiscountAmount = appliedCoupon?.discountAmount ?? 0;
+  const appliedCoupon = appliedCoupons[0] ?? null;
+  const couponDiscountAmount = appliedCoupons.reduce((sum, coupon) => sum + coupon.discountAmount, 0);
   const shippingDiscountAmount = Math.min(
     shippingFee,
-    automaticShippingDiscount + (appliedCoupon?.shippingDiscountAmount ?? 0),
+    automaticShippingDiscount + appliedCoupons.reduce((sum, coupon) => sum + coupon.shippingDiscountAmount, 0),
   );
   const membershipBaseAmount = Math.max(0, subTotal - couponDiscountAmount);
   const appliedMembership = currentTier
@@ -404,6 +440,12 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
     shippingQuote,
     shippingComparison,
     appliedCoupon,
+    appliedCoupons,
+    appliedCampaign: stackingCampaign ? {
+      campaignId: stackingCampaign._id.toString(),
+      code: stackingCampaign.code,
+      name: stackingCampaign.name,
+    } : null,
     appliedMembership,
   };
 };

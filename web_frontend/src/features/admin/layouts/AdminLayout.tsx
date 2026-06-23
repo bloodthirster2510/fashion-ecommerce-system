@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import type { AdminUser } from '../modules/auth/adminSession'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { hasPermission, type AdminUser } from '../modules/auth/adminSession'
 import {
   IMPLEMENTED_ADMIN_ROUTE_IDS,
   adminRouteGroups,
@@ -17,6 +17,11 @@ import { OrderListPage } from '../modules/orders/OrderListPage'
 import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
 import { ReviewManagementPage } from '../modules/reviews/ReviewManagementPage'
+import { SupportManagementPage } from '../modules/support/SupportManagementPage'
+import { NotificationProvider } from '../notifications/NotificationProvider'
+import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
+import { useNotificationSummary } from '../notifications/notification-summary-context'
+import type { NotificationSummary } from '../notifications/notification-summary.types'
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -86,7 +91,7 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
     return false
   }
 
-  return user.permissions?.includes(requiredPermission) ?? false
+  return hasPermission(user, requiredPermission)
 }
 
 const canEnterRoute = (user: AdminUser, route: NavItem) =>
@@ -102,8 +107,21 @@ const notifyAdminNavigation = () => {
   window.dispatchEvent(new Event(ADMIN_NAVIGATION_EVENT))
 }
 
-export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
+export function AdminLayout(props: AdminLayoutProps) {
+  return (
+    <NotificationProvider>
+      <NotificationSummaryProvider>
+        <AdminWorkspace {...props} />
+      </NotificationSummaryProvider>
+    </NotificationProvider>
+  )
+}
+
+function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
   const [activeSection, setActiveSection] = useState<NavId>(() => getActiveSectionFromPath())
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const notificationCenterRef = useRef<HTMLDivElement>(null)
+  const { summary, loading: notificationLoading, error: notificationError, refresh } = useNotificationSummary()
   const displayName = currentUser.name || currentUser.email
   const avatarText = displayName.trim().charAt(0).toUpperCase() || 'A'
   const visibleNavItems = navItems.filter((item) => canAccessRoute(currentUser, item))
@@ -155,11 +173,43 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
     }
   }, [currentUser, fallbackRouteId, fallbackRoutePath])
 
+  useEffect(() => {
+    if (!notificationsOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!notificationCenterRef.current?.contains(event.target as Node)) {
+        setNotificationsOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNotificationsOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [notificationsOpen])
+
   const handleNavigate = (item: NavItem) => {
+    setNotificationsOpen(false)
     setActiveSection(item.id)
 
-    if (window.location.pathname !== item.path) {
+    if (`${window.location.pathname}${window.location.search}` !== item.path) {
       window.history.pushState(null, '', item.path)
+      notifyAdminNavigation()
+    }
+  }
+
+  const handleNotificationNavigate = (item: NavItem, queue?: string) => {
+    const target = queue ? `${item.path}?queue=${encodeURIComponent(queue)}` : item.path
+    setNotificationsOpen(false)
+    setActiveSection(item.id)
+
+    if (`${window.location.pathname}${window.location.search}` !== target) {
+      window.history.pushState(null, '', target)
       notifyAdminNavigation()
     }
   }
@@ -191,15 +241,18 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'orders') {
-      return <OrderListPage currentUser={currentUser} />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-${initialTabKey ?? 'all'}`} currentUser={currentUser} initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'ordersOnline') {
-      return <OrderListPage currentUser={currentUser} paymentSection="online" lockPaymentSection />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-online-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="online" lockPaymentSection initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'ordersCod') {
-      return <OrderListPage currentUser={currentUser} paymentSection="cod" lockPaymentSection />
+      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-cod-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="cod" lockPaymentSection initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'catalog') {
@@ -216,6 +269,8 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'reviews') {
       return <ReviewManagementPage />
+    if (renderedSection === 'support') {
+      return <SupportManagementPage currentUser={currentUser} />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
@@ -244,6 +299,9 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
     return null
   }
 
+  const notificationItems = buildNotificationItems(summary)
+  const totalNotifications = summary?.total ?? 0
+
   return (
     <main className="admin-layout">
       <aside className="admin-sidebar" aria-label="Admin navigation">
@@ -261,6 +319,7 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
                 const isActive = item.id === renderedSection
                 const isOrderPaymentRoute = item.id === 'ordersOnline' || item.id === 'ordersCod'
                 const isDisabled = !item.isImplemented
+                const notificationBadge = getNavNotificationBadge(item.id, summary)
 
                 return (
                   <button
@@ -279,6 +338,14 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
                       </strong>
                       <small>{item.helper}</small>
                     </span>
+                    {!isDisabled && notificationBadge ? (
+                      <em
+                        className={`admin-nav-notification-badge is-${notificationBadge.tone}${notificationBadge.dot ? ' is-dot' : ''}`}
+                        aria-label={notificationBadge.label}
+                      >
+                        {notificationBadge.dot ? '' : formatBadgeCount(notificationBadge.count)}
+                      </em>
+                    ) : null}
                   </button>
                 )
               })}
@@ -295,9 +362,67 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
           </div>
 
           <div className="admin-topbar-actions">
-            <button className="admin-icon-button" type="button" aria-label="Thông báo">
-              <BellIcon />
-            </button>
+            <div className="admin-notification-center" ref={notificationCenterRef}>
+              <button
+                className="admin-icon-button admin-notification-trigger"
+                type="button"
+                aria-label={totalNotifications > 0 ? `${totalNotifications} việc cần chú ý` : 'Không có việc mới cần chú ý'}
+                aria-expanded={notificationsOpen}
+                aria-controls="admin-notification-panel"
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <BellIcon />
+                {totalNotifications > 0 ? (
+                  <span className="admin-notification-total" aria-hidden="true">
+                    {formatBadgeCount(totalNotifications)}
+                  </span>
+                ) : null}
+              </button>
+
+              {notificationsOpen ? (
+                <section id="admin-notification-panel" className="admin-notification-panel" aria-label="Việc cần chú ý">
+                  <header>
+                    <div>
+                      <strong>Việc cần chú ý</strong>
+                      <span>{summary ? `Cập nhật ${formatUpdatedAt(summary.generatedAt)}` : 'Đang đồng bộ dữ liệu'}</span>
+                    </div>
+                    <button type="button" disabled={notificationLoading} onClick={() => void refresh()}>
+                      {notificationLoading ? 'Đang tải…' : 'Làm mới'}
+                    </button>
+                  </header>
+
+                  {notificationError && !summary ? (
+                    <div className="admin-notification-error" role="alert">
+                      <span>{notificationError}</span>
+                      <button type="button" onClick={() => void refresh()}>Thử lại</button>
+                    </div>
+                  ) : notificationItems.length ? (
+                    <div className="admin-notification-list">
+                      {notificationItems.map((notification) => {
+                        const route = navItems.find((item) => item.id === notification.routeId)
+                        if (!route || !canEnterRoute(currentUser, route)) return null
+
+                        return (
+                          <button type="button" key={notification.key} onClick={() => handleNotificationNavigate(route, notification.queue)}>
+                            <span className={`admin-notification-item-icon is-${notification.tone}`} aria-hidden="true" />
+                            <span>
+                              <strong>{notification.title}</strong>
+                              <small>{notification.detail}</small>
+                            </span>
+                            <em>{formatBadgeCount(notification.count)}</em>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="admin-notification-empty">
+                      <strong>Đã xử lý hết rồi</strong>
+                      <span>Hiện không có việc tồn đọng cần chú ý.</span>
+                    </div>
+                  )}
+                </section>
+              ) : null}
+            </div>
 
             <div className="admin-profile-summary">
               <span className="admin-avatar" aria-hidden="true">
@@ -319,6 +444,111 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
       </section>
     </main>
   )
+}
+
+type NotificationTone = 'danger' | 'warning' | 'info'
+
+type NavNotificationBadge = {
+  count: number
+  tone: NotificationTone
+  label: string
+  dot?: boolean
+}
+
+const formatBadgeCount = (count: number) => count > 99 ? '99+' : String(count)
+
+const formatUpdatedAt = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'vừa xong'
+  return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+const getNavNotificationBadge = (
+  routeId: NavId,
+  summary: NotificationSummary | null,
+): NavNotificationBadge | null => {
+  if (!summary) return null
+
+  const badges: Partial<Record<NavId, NavNotificationBadge>> = {
+    orders: summary.orders.total > 0
+      ? { count: summary.orders.total, tone: 'danger', label: `${summary.orders.total} đơn cần xử lý` }
+      : undefined,
+    ordersOnline: summary.orders.online > 0
+      ? { count: summary.orders.online, tone: 'danger', label: `${summary.orders.online} đơn online cần xử lý` }
+      : undefined,
+    ordersCod: summary.orders.cod > 0
+      ? { count: summary.orders.cod, tone: 'danger', label: `${summary.orders.cod} đơn COD cần xử lý` }
+      : undefined,
+    inventory: summary.lowStockVariants > 0
+      ? { count: summary.lowStockVariants, tone: 'warning', label: `${summary.lowStockVariants} biến thể tồn kho thấp`, dot: true }
+      : undefined,
+    promotions: summary.expiringCoupons > 0
+      ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
+      : undefined,
+    support: summary.supportOpen > 0
+      ? { count: summary.supportOpen, tone: 'danger', label: `${summary.supportOpen} ticket chờ phản hồi` }
+      : undefined,
+  }
+
+  return badges[routeId] ?? null
+}
+
+const buildNotificationItems = (summary: NotificationSummary | null) => {
+  if (!summary) return []
+
+  return [
+    summary.orders.confirmed > 0 ? {
+      key: 'orders-confirmed',
+      routeId: 'orders' as NavId,
+      title: 'Đơn mới chờ đóng gói',
+      detail: `${summary.orders.confirmed} đơn đã xác nhận cần tiếp tục xử lý`,
+      count: summary.orders.confirmed,
+      queue: 'packing',
+      tone: 'danger' as NotificationTone,
+    } : null,
+    summary.orders.packed > 0 ? {
+      key: 'orders-packed',
+      routeId: 'orders' as NavId,
+      title: 'Đơn chờ bàn giao',
+      detail: `${summary.orders.packed} đơn đã đóng gói đang chờ giao`,
+      count: summary.orders.packed,
+      queue: 'handoff',
+      tone: 'danger' as NotificationTone,
+    } : null,
+    summary.orders.returnRequested > 0 ? {
+      key: 'orders-return',
+      routeId: 'orders' as NavId,
+      title: 'Yêu cầu trả hàng',
+      detail: `${summary.orders.returnRequested} yêu cầu đang chờ duyệt`,
+      count: summary.orders.returnRequested,
+      queue: 'review',
+      tone: 'danger' as NotificationTone,
+    } : null,
+    summary.lowStockVariants > 0 ? {
+      key: 'inventory-low',
+      routeId: 'inventory' as NavId,
+      title: 'Tồn kho thấp',
+      detail: `${summary.lowStockVariants} biến thể còn không quá 5 sản phẩm`,
+      count: summary.lowStockVariants,
+      tone: 'warning' as NotificationTone,
+    } : null,
+    summary.expiringCoupons > 0 ? {
+      key: 'coupons-expiring',
+      routeId: 'promotions' as NavId,
+      title: 'Voucher sắp hết hạn',
+      detail: `${summary.expiringCoupons} voucher sẽ hết hạn trong 3 ngày`,
+      count: summary.expiringCoupons,
+      tone: 'warning' as NotificationTone,
+    } : null,
+    summary.supportOpen > 0 ? {
+      key: 'support-open',
+      routeId: 'support' as NavId,
+      title: 'Ticket chờ phản hồi',
+      detail: `${summary.supportOpen} ticket khách hàng đang chờ xử lý`,
+      count: summary.supportOpen,
+      tone: 'danger' as NotificationTone,
+    } : null,
+  ].filter((item): item is NonNullable<typeof item> => item !== null)
 }
 
 function BellIcon() {

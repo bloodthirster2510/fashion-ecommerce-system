@@ -44,6 +44,78 @@ a {
   align-items: center;
 }
 
+.admin-action-menu {
+  position: relative;
+}
+
+.admin-action-menu summary {
+  min-width: 34px;
+  min-height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--admin-line);
+  border-radius: 7px;
+  color: var(--admin-text);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+  list-style: none;
+}
+
+.admin-action-menu summary::-webkit-details-marker { display: none; }
+
+.admin-action-menu > div {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 5px);
+  right: 0;
+  min-width: 150px;
+  display: grid;
+  padding: 5px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(31, 45, 61, 0.18);
+}
+
+.admin-action-menu > div button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--admin-text);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.admin-action-menu > div button:hover { background: #f2f6f8; }
+.admin-action-menu > div button.is-danger { color: #b42318; }
+.admin-action-menu > div button:disabled { cursor: not-allowed; opacity: 0.45; }
+
+.admin-field-error,
+.admin-form-error {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.admin-smart-warning {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #f0cf83;
+  border-radius: 7px;
+  color: #714d00;
+  background: #fff8e5;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-table-skeleton { display: grid; gap: 9px; padding: 12px 0; }
+.admin-table-skeleton span { height: 14px; border-radius: 999px; background: linear-gradient(90deg, #edf1f4 25%, #f8fafb 50%, #edf1f4 75%); background-size: 200% 100%; animation: admin-skeleton-shimmer 1.2s linear infinite; }
+.admin-table-skeleton span:nth-child(even) { width: 82%; }
+@keyframes admin-skeleton-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .admin-table-skeleton span { animation: none; } }
+
 .admin-page-heading {
   justify-content: space-between;
   gap: 18px;
@@ -231,6 +303,17 @@ a {
   line-height: 1;
   cursor: pointer;
 }
+.admin-confirm-layer.is-nested { z-index: 35; }
+
+.admin-account-dialog input.is-invalid,
+.admin-account-dialog textarea.is-invalid,
+.admin-account-dialog select.is-invalid,
+.admin-loyalty-rule-form input.is-invalid,
+.admin-campaign-form input.is-invalid,
+.admin-campaign-form select.is-invalid {
+  border-color: var(--admin-danger) !important;
+  box-shadow: 0 0 0 2px rgba(180, 35, 24, 0.08);
+}
 
 .admin-empty-state {
   min-height: 260px;
@@ -244,6 +327,7 @@ a {
   background: #fff;
   text-align: center;
 }
+.admin-empty-illustration { width: 120px; height: 80px; display: block; margin: 0 auto 4px; }
 
 .admin-empty-state strong {
   color: var(--admin-text);

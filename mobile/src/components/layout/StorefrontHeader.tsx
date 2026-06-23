@@ -17,6 +17,8 @@ type StorefrontHeaderProps = {
   isAuthenticated?: boolean;
   userName?: string;
   avatarImage?: string | null;
+  cartBadgeCount?: number;
+  profileBadgeCount?: number;
 };
 
 const StorefrontHeader = ({
@@ -31,6 +33,8 @@ const StorefrontHeader = ({
   isAuthenticated,
   userName,
   avatarImage,
+  cartBadgeCount = 0,
+  profileBadgeCount = 0,
 }: StorefrontHeaderProps) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const avatarUri = avatarImage?.trim();
@@ -70,15 +74,20 @@ const StorefrontHeader = ({
           <TouchableOpacity
             style={styles.iconButton}
             onPress={onCartPress}
-            accessibilityLabel="Giỏ hàng"
+            accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
             activeOpacity={0.8}
           >
             <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+            {cartBadgeCount > 0 ? (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconButton, isAuthenticated && styles.profileButton]}
             onPress={onProfilePress}
-            accessibilityLabel="Tài khoản"
+            accessibilityLabel={profileBadgeCount > 0 ? `Tài khoản, ${profileBadgeCount} việc cần chú ý` : 'Tài khoản'}
             activeOpacity={0.8}
           >
             {isAuthenticated ? (
@@ -90,6 +99,7 @@ const StorefrontHeader = ({
             ) : (
               <MaterialCommunityIcons name="account-outline" size={23} color={colors.white} />
             )}
+            {profileBadgeCount > 0 ? <View style={styles.notificationDot} /> : null}
           </TouchableOpacity>
         </View>
       </View>
@@ -150,10 +160,41 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -7,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: colors.coral,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationBadgeText: {
+    color: colors.white,
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: '800',
+  },
+  notificationDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.coral,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
   },
   profileButton: {
     backgroundColor: colors.white,
-    overflow: 'hidden',
   },
   avatarImage: {
     width: 30,

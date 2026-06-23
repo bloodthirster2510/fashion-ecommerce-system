@@ -507,10 +507,11 @@ const OrderDetailScreen = () => {
       return;
     }
 
-    Alert.alert(
-      'Vấn đề đơn hàng',
-      `Shop đã ghi nhận kênh hỗ trợ cho đơn ${order.orderCode}. Thời gian tư vấn: 8:30 - 21:45 mỗi ngày.`,
-    );
+    navigation.navigate('SupportTicketCreate', {
+      type: 'issue',
+      category: 'orders',
+      orderId: order._id,
+    });
   };
 
   const renderProduct = (item: OrderItem) => {
@@ -844,7 +845,7 @@ const OrderDetailScreen = () => {
 
             {renderSummaryRow('Tạm tính', formatCurrency(order.subTotal))}
             {order.couponDiscountAmount > 0
-              ? renderSummaryRow('Voucher', `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
+              ? renderSummaryRow(`Voucher${order.couponCodes?.length ? ` ${order.couponCodes.join(' + ')}` : ''}`, `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
               : null}
             {order.membershipDiscountAmount > 0
               ? renderSummaryRow('Hạng thành viên', `-${formatCurrency(order.membershipDiscountAmount)}`, 'discount')
@@ -1062,7 +1063,7 @@ const OrderDetailScreen = () => {
           <Text style={styles.sectionTitle}>Tóm tắt đơn hàng</Text>
           {renderSummaryRow('Tạm tính', formatCurrency(order.subTotal))}
           {order.couponDiscountAmount > 0
-            ? renderSummaryRow(`Voucher${order.couponCode ? ` ${order.couponCode}` : ''}`, `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
+            ? renderSummaryRow(`Voucher${order.couponCodes?.length ? ` ${order.couponCodes.join(' + ')}` : order.couponCode ? ` ${order.couponCode}` : ''}`, `-${formatCurrency(order.couponDiscountAmount)}`, 'discount')
             : null}
           {order.membershipDiscountAmount > 0
             ? renderSummaryRow('Hạng thẻ thành viên', `-${formatCurrency(order.membershipDiscountAmount)}`, 'discount')

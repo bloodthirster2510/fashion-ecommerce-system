@@ -9,6 +9,7 @@ import {
 } from '../../../../database/models';
 import { resolveSaleItem } from '../../../sales/sales.helpers';
 import { shippingQuoteService } from '../../../shipping/shipping-quote.service';
+import { promotionCampaignService } from '../../campaigns/promotion-campaign.service';
 import {
   PromotionPricingError,
   promotionPricingService,
@@ -60,6 +61,12 @@ jest.mock('../../../shipping/shipping-quote.service', () => ({
   },
 }));
 
+jest.mock('../../campaigns/promotion-campaign.service', () => ({
+  promotionCampaignService: {
+    findStackingCampaignForCoupons: jest.fn(),
+  },
+}));
+
 const mockedCart = Cart as jest.Mocked<typeof Cart>;
 const mockedCoupon = Coupon as jest.Mocked<typeof Coupon>;
 const mockedCouponUsage = CouponUsage as jest.Mocked<typeof CouponUsage>;
@@ -68,6 +75,7 @@ const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedUser = User as jest.Mocked<typeof User>;
 const mockedResolveSaleItem = resolveSaleItem as jest.MockedFunction<typeof resolveSaleItem>;
 const mockedShippingQuoteService = shippingQuoteService as jest.Mocked<typeof shippingQuoteService>;
+const mockedCampaignService = promotionCampaignService as jest.Mocked<typeof promotionCampaignService>;
 
 const userId = '665000000000000000000020';
 const cartItemId = new Types.ObjectId('665000000000000000000030');
@@ -175,6 +183,55 @@ beforeEach(() => {
 });
 
 describe('promotionPricingService coupon membership eligibility', () => {
+  it('stacks coupons only when an active campaign allows the combination', async () => {
+    mockUser(6000);
+    const fixedCoupon = {
+      ...baseCoupon,
+      _id: new Types.ObjectId('665000000000000000000202'),
+      code: 'STACK5000',
+      discountType: 'fixed',
+      discountValue: 5000,
+    };
+    mockedCoupon.findOne
+      .mockResolvedValueOnce(baseCoupon as never)
+      .mockResolvedValueOnce(fixedCoupon as never);
+    mockedCampaignService.findStackingCampaignForCoupons.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000301'),
+      code: 'STACKABLE',
+      name: 'Stackable campaign',
+    } as never);
+
+    const result = await promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCodes: ['GOLDONLY', 'STACK5000'],
+      paymentMethod: 'COD',
+    });
+
+    expect(result.appliedCoupons).toHaveLength(2);
+    expect(result.summary.couponDiscountAmount).toBe(15000);
+    expect(result.appliedCampaign?.code).toBe('STACKABLE');
+  });
+
+  it('rejects coupon stacking without an eligible campaign', async () => {
+    mockUser(6000);
+    mockedCoupon.findOne.mockResolvedValueOnce(baseCoupon as never).mockResolvedValueOnce({
+      ...baseCoupon,
+      _id: new Types.ObjectId('665000000000000000000202'),
+      code: 'STACK5000',
+      discountType: 'fixed',
+      discountValue: 5000,
+    } as never);
+    mockedCampaignService.findStackingCampaignForCoupons.mockResolvedValue(null);
+
+    await expect(promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCodes: ['GOLDONLY', 'STACK5000'],
+      paymentMethod: 'COD',
+    })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
   it('treats the base tier as a member even when its discount is zero', async () => {
     mockUser(100);
     mockedCoupon.findOne.mockResolvedValue({
