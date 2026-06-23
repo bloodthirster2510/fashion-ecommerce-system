@@ -11,6 +11,7 @@ import membershipRankingAdminRouter from '../modules/admin/loyalty/membership-ra
 import { adminAuditLogRouter } from '../modules/audit-logs/audit-log.route';
 import { adminPaymentRouter } from '../modules/payments/payments.route';
 import { adminPaymentMethodRouter } from '../modules/payment-methods/payment-method.route';
+import { adminReviewRouter } from '../modules/reviews/review.route';
 
 const adminRouter = Router();
 
@@ -25,6 +26,7 @@ adminRouter.use('/accounts', accountRouter);
 adminRouter.use('/audit-logs', adminAuditLogRouter);
 adminRouter.use('/membership-rankings', membershipRankingAdminRouter);
 adminRouter.use('/payments', adminPaymentRouter);
+adminRouter.use('/reviews', adminReviewRouter);
 adminRouter.use('/', adminPaymentMethodRouter);
 
 export default adminRouter;
