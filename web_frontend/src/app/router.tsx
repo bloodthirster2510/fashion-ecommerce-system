@@ -19,6 +19,8 @@ import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
 import { ProductListPage } from '../features/catalog/pages/ProductListPage'
 import { ProfilePage } from '../features/profile/pages/ProfilePage'
 import { SupportPage } from '../features/support/SupportPage'
+import { AccountOrdersPage } from '../features/profile/pages/AccountOrdersPage'
+import { MyReviewsPage } from '../features/profile/pages/MyReviewsPage'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
@@ -149,6 +151,9 @@ export function Router() {
     if (path === '/account') {
       return <ProfilePage />
     }
+
+    if (path === '/account/orders') return <AccountOrdersPage />
+    if (path === '/account/reviews') return <MyReviewsPage />
 
     if (/^\/products\/[^/]+\/?$/.test(path)) {
       return <ProductDetailPage />

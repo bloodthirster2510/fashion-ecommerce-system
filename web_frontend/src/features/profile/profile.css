@@ -4,6 +4,15 @@
   padding: 40px 24px 58px;
 }
 
+.account-order-list { display:grid; gap:14px; margin:18px 0; }
+.account-order-card { display:grid; gap:12px; padding:16px; border:1px solid #dfe5e9; border-radius:12px; background:#fff; }
+.account-order-card header,.account-order-card footer { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.account-order-item,.my-review-card { display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid #edf0f2; }
+.account-order-item img,.my-review-card img { width:64px; height:64px; border-radius:8px; object-fit:cover; }
+.account-order-item > div,.my-review-card > div { display:grid; flex:1; gap:4px; }
+.account-order-item span,.my-review-card span,.my-review-card small { color:#64748b; font-size:12px; }
+.my-review-card p { margin:0; }
+
 .account-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { getModerationRules, listAdminReviews, replyToReview, setManyReviewStatuses } from './review.service'
-import type { AdminReview, ModerationRules, ReviewFilters, ReviewListResponse, ReviewStatus } from './review.types'
+import { deleteReviewReply, getAdminReviewDetail, getModerationRules, listAdminReviews, replyToReview, setManyReviewStatuses, setReviewStatus } from './review.service'
+import type { AdminReview, AdminReviewDetail, ModerationRules, ReviewFilters, ReviewListResponse, ReviewStatus } from './review.types'
+import { hasPermission, type AdminUser } from '../auth/adminSession'
 import './review.css'
 
 const initialFilters: ReviewFilters = {
@@ -10,14 +11,14 @@ const initialFilters: ReviewFilters = {
 const statusMeta: Record<ReviewStatus, { label: string; className: string }> = {
   pending: { label: 'Chờ duyệt', className: 'is-warning' },
   visible: { label: 'Đã hiển thị', className: 'is-active' },
-  hidden: { label: 'Đã xóa', className: 'is-blocked' },
+  hidden: { label: 'Đã ẩn', className: 'is-blocked' },
 }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 }).format(new Date(value))
 
-export function ReviewManagementPage() {
+export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }) {
   const [filters, setFilters] = useState(initialFilters)
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
   const [data, setData] = useState<ReviewListResponse | null>(null)
@@ -29,10 +30,19 @@ export function ReviewManagementPage() {
   const [replyingReview, setReplyingReview] = useState<AdminReview | null>(null)
   const [reply, setReply] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [detailReview, setDetailReview] = useState<AdminReviewDetail | null>(null)
+  const [moderationTarget, setModerationTarget] = useState<{
+    review: AdminReview | null
+    reviewIds: string[]
+    status: Extract<ReviewStatus, 'visible' | 'hidden'>
+  } | null>(null)
+  const [moderationReason, setModerationReason] = useState('')
   const tableShellRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarContentRef = useRef<HTMLDivElement>(null)
   const { rating, status, productId, period, hasImages, page } = filters
+  const canModerate = hasPermission(currentUser, 'reviews.moderate')
+  const canReply = hasPermission(currentUser, 'reviews.reply')
 
   useEffect(() => {
     // Debounce keyword để admin gõ tìm kiếm không bắn request cho từng phím.
@@ -139,6 +149,60 @@ export function ReviewManagementPage() {
     }
   }
 
+  const openModeration = (
+    status: Extract<ReviewStatus, 'visible' | 'hidden'>,
+    review?: AdminReview,
+  ) => {
+    setModerationReason('')
+    setModerationTarget({ review: review ?? null, reviewIds: review ? [review._id] : selectedIds, status })
+  }
+
+  const handleModeration = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!moderationTarget || !moderationTarget.reviewIds.length) return
+    if (moderationTarget.status === 'hidden' && moderationReason.trim().length < 5) {
+      setNotice({ type: 'error', message: 'Lý do ẩn cần ít nhất 5 ký tự.' })
+      return
+    }
+    setActionLoading(true)
+    try {
+      if (moderationTarget.review) {
+        await setReviewStatus(moderationTarget.review._id, moderationTarget.status, moderationReason.trim())
+      } else {
+        await setManyReviewStatuses(moderationTarget.reviewIds, moderationTarget.status, moderationReason.trim())
+      }
+      setNotice({ type: 'success', message: moderationTarget.status === 'hidden' ? 'Đã ẩn đánh giá.' : 'Đã hiển thị đánh giá.' })
+      setModerationTarget(null)
+      setSelectedIds([])
+      await loadReviews()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể cập nhật trạng thái đánh giá' })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleDeleteReply = async (review: AdminReview) => {
+    if (!window.confirm('Xóa phản hồi của cửa hàng khỏi đánh giá này?')) return
+    setActionLoading(true)
+    try {
+      await deleteReviewReply(review._id)
+      setNotice({ type: 'success', message: 'Đã xóa phản hồi cửa hàng.' })
+      await loadReviews()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xóa phản hồi' })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const openDetail = async (reviewId: string) => {
+    setActionLoading(true)
+    try { setDetailReview(await getAdminReviewDetail(reviewId)) }
+    catch (error) { setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải chi tiết đánh giá' }) }
+    finally { setActionLoading(false) }
+  }
+
   const openReply = (review: AdminReview) => {
     setReplyingReview(review)
     setReply(review.adminReply ?? '')
@@ -203,7 +267,7 @@ export function ReviewManagementPage() {
             <option value="">Số sao</option>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} sao</option>)}
           </select>
           <select aria-label="Trạng thái" value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
-            <option value="">Trạng thái</option><option value="pending">Chờ duyệt</option><option value="visible">Đã hiển thị</option><option value="hidden">Đã xóa</option>
+            <option value="">Trạng thái</option><option value="pending">Chờ duyệt</option><option value="visible">Đã hiển thị</option><option value="hidden">Đã ẩn</option>
           </select>
           <select aria-label="Sản phẩm" value={filters.productId} onChange={(event) => updateFilter('productId', event.target.value)}>
             <option value="">Sản phẩm</option>{data?.products.map((product) => <option key={product._id} value={product._id}>{product.name}</option>)}
@@ -217,34 +281,42 @@ export function ReviewManagementPage() {
         </div>
       </div>
 
-      <div className="admin-review-bulk-bar">
+      {canModerate ? <div className="admin-review-bulk-bar">
         <strong>Đã chọn {selectedIds.length} đánh giá</strong>
         <span>Chọn các đánh giá đang chờ duyệt</span>
         <div>
           <button className="admin-link-button" type="button" disabled={actionLoading || selectedIds.length === 0} onClick={() => void handleBulkApprove()}>Duyệt đánh giá</button>
+          <button className="admin-link-button" type="button" disabled={actionLoading || selectedIds.length === 0} onClick={() => openModeration('hidden')}>Ẩn đánh giá</button>
         </div>
-      </div>
+      </div> : null}
 
       <div className="admin-table-shell" ref={tableShellRef}>
         {loading ? <div className="admin-table-loading">Đang tải đánh giá...</div> : !data?.items.length ? (
           <div className="admin-review-empty"><strong>Không tìm thấy đánh giá</strong><span>Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm.</span></div>
         ) : (
           <table className="admin-table admin-reviews-table">
-            <thead><tr><th className="admin-review-check-cell">{data.items.some((review) => review.status === 'pending') ? <input type="checkbox" aria-label="Chọn tất cả đánh giá chờ duyệt trên trang" checked={data.items.filter((review) => review.status === 'pending').every((review) => selectedIds.includes(review._id))} onChange={(event) => setSelectedIds(event.target.checked ? data.items.filter((review) => review.status === 'pending').map((review) => review._id) : [])} /> : null}</th><th>Sản phẩm</th><th>Người dùng</th><th>Đơn hàng</th><th>Số sao</th><th>Đánh giá</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th></tr></thead>
+            <thead><tr><th className="admin-review-check-cell">{canModerate && data.items.some((review) => review.status === 'pending') ? <input type="checkbox" aria-label="Chọn tất cả đánh giá chờ duyệt trên trang" checked={data.items.filter((review) => review.status === 'pending').every((review) => selectedIds.includes(review._id))} onChange={(event) => setSelectedIds(event.target.checked ? data.items.filter((review) => review.status === 'pending').map((review) => review._id) : [])} /> : null}</th><th>Sản phẩm</th><th>Người dùng</th><th>Đơn hàng</th><th>Số sao</th><th>Đánh giá</th><th>Trạng thái</th><th>Ngày tạo</th><th>Hành động</th></tr></thead>
             <tbody>{data.items.map((review) => {
               const status = statusMeta[review.status]
               const needsAttention = review.status === 'pending'
               return (
                 <tr key={review._id} className={needsAttention ? 'needs-attention' : 'is-handled'}>
-                  <td className="admin-review-check-cell">{review.status === 'pending' ? <input type="checkbox" aria-label={`Chọn đánh giá của ${review.user?.name || 'khách hàng'}`} checked={selectedIds.includes(review._id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, review._id])] : current.filter((id) => id !== review._id))} /> : null}</td>
+                  <td className="admin-review-check-cell">{canModerate && review.status === 'pending' ? <input type="checkbox" aria-label={`Chọn đánh giá của ${review.user?.name || 'khách hàng'}`} checked={selectedIds.includes(review._id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...new Set([...current, review._id])] : current.filter((id) => id !== review._id))} /> : null}</td>
                   <td><div className="admin-review-product"><img src={review.product?.image || '/placeholder-product.svg'} alt="" /><strong>{review.product?.name ?? 'Sản phẩm đã xóa'}</strong></div></td>
                   <td><div className="admin-review-user">{review.user?.avatarImage ? <img src={review.user.avatarImage} alt="" /> : <span aria-hidden="true" />}<div><strong>{review.user?.name || 'Khách hàng'}</strong><small>{review.user?.email}</small></div></div></td>
                   <td><strong className="admin-order-code">{review.order?.orderCode || review.order?._id.slice(-8).toUpperCase() || '—'}</strong></td>
                   <td><span className="admin-review-stars" aria-label={`${review.rating} sao`}>{'★'.repeat(review.rating)}<i>{'★'.repeat(5 - review.rating)}</i></span></td>
-                  <td className="admin-review-comment"><p>{review.comment}</p>{review.moderationReasons.length ? <div className="admin-review-flags">{review.moderationReasons.map((reason) => <span key={reason}>{reason}</span>)}</div> : null}{review.adminReply ? <div className="admin-review-reply"><strong>Phản hồi:</strong> {review.adminReply}</div> : null}</td>
+                  <td className="admin-review-comment"><p>{review.comment}</p>{review.images.length ? <div className="admin-review-images">{review.images.slice(0, 5).map((image) => <a key={image._id ?? image.url} href={image.url} target="_blank" rel="noreferrer"><img src={image.thumbnailUrl || image.url} alt="Ảnh đánh giá" /></a>)}</div> : null}{review.moderationReasons.length ? <div className="admin-review-flags">{review.moderationReasons.map((reason) => <span key={reason}>{reason}</span>)}</div> : null}{review.adminReply ? <div className="admin-review-reply"><strong>Phản hồi:</strong> {review.adminReply}</div> : null}</td>
                   <td><span className={`admin-status-pill ${status.className}`}>{status.label}</span></td>
                   <td className="admin-review-date">{formatDate(review.createdAt)}</td>
-                  <td><div className="admin-review-actions"><button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openReply(review)}>{review.adminReply ? 'Sửa phản hồi' : 'Phản hồi'}</button></div></td>
+                  <td><div className="admin-review-actions">
+                    <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => void openDetail(review._id)}>Chi tiết</button>
+                    {canModerate && review.status === 'pending' ? <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openModeration('visible', review)}>Duyệt</button> : null}
+                    {canModerate && review.status !== 'hidden' ? <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openModeration('hidden', review)}>Ẩn</button> : null}
+                    {canModerate && review.status === 'hidden' ? <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openModeration('visible', review)}>Khôi phục</button> : null}
+                    {canReply && review.status !== 'hidden' ? <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openReply(review)}>{review.adminReply ? 'Sửa phản hồi' : 'Phản hồi'}</button> : null}
+                    {canReply && review.adminReply ? <button className="admin-link-button is-danger" disabled={actionLoading} type="button" onClick={() => void handleDeleteReply(review)}>Xóa phản hồi</button> : null}
+                  </div></td>
                 </tr>
               )
             })}</tbody>
@@ -260,6 +332,8 @@ export function ReviewManagementPage() {
 
       {showRules ? <RulesDialog rules={rules} onClose={() => setShowRules(false)} /> : null}
       {replyingReview ? <div className="admin-confirm-layer" role="dialog" aria-modal="true"><form className="admin-account-dialog admin-review-reply-dialog" onSubmit={handleReply}><span className="admin-dialog-eyebrow">Phản hồi đánh giá</span><h2>{replyingReview.product?.name}</h2><blockquote>“{replyingReview.comment}”</blockquote><label><span>Nội dung phản hồi</span><textarea autoFocus value={reply} maxLength={2000} placeholder="Cảm ơn bạn đã chia sẻ..." onChange={(event) => setReply(event.target.value)} /></label><div className="admin-dialog-actions"><button className="admin-secondary-button" type="button" onClick={() => setReplyingReview(null)}>Hủy</button><button className="admin-primary-button" disabled={actionLoading || !reply.trim()} type="submit">{actionLoading ? 'Đang gửi...' : 'Gửi phản hồi'}</button></div></form></div> : null}
+      {moderationTarget ? <div className="admin-confirm-layer" role="dialog" aria-modal="true"><form className="admin-account-dialog" onSubmit={handleModeration}><span className="admin-dialog-eyebrow">Kiểm duyệt đánh giá</span><h2>{moderationTarget.status === 'hidden' ? 'Ẩn đánh giá' : 'Hiển thị đánh giá'}</h2>{moderationTarget.status === 'hidden' ? <label><span>Lý do ẩn</span><textarea autoFocus value={moderationReason} minLength={5} maxLength={500} onChange={(event) => setModerationReason(event.target.value)} placeholder="Nội dung vi phạm tiêu chuẩn cộng đồng..." /></label> : <p>Đánh giá sẽ được hiển thị công khai và tính lại điểm sản phẩm.</p>}<div className="admin-dialog-actions"><button className="admin-secondary-button" type="button" onClick={() => setModerationTarget(null)}>Hủy</button><button className="admin-primary-button" disabled={actionLoading || (moderationTarget.status === 'hidden' && moderationReason.trim().length < 5)} type="submit">Xác nhận</button></div></form></div> : null}
+      {detailReview ? <div className="admin-confirm-layer" role="dialog" aria-modal="true"><div className="admin-account-dialog admin-review-rules-dialog"><span className="admin-dialog-eyebrow">Chi tiết đánh giá</span><h2>{detailReview.product?.name}</h2><p>{detailReview.user?.name} · {detailReview.order?.orderCode}</p><div className="admin-review-stars">{'★'.repeat(detailReview.rating)}<i>{'★'.repeat(5 - detailReview.rating)}</i></div><blockquote>{detailReview.comment}</blockquote>{detailReview.order?.item ? <p>Phân loại: {detailReview.order.item.color} · Size {detailReview.order.item.size} · {detailReview.order.item.fitType}</p> : null}{detailReview.images.length ? <div className="admin-review-images">{detailReview.images.map((image) => <a key={image._id ?? image.url} href={image.url} target="_blank" rel="noreferrer"><img src={image.thumbnailUrl || image.url} alt="Ảnh đánh giá" /></a>)}</div> : null}<h3>Lịch sử kiểm duyệt</h3>{detailReview.moderationHistory.length ? <div className="admin-rule-list">{detailReview.moderationHistory.map((event, index) => <div key={`${event.createdAt}-${index}`}><b>{index + 1}</b><span><strong>{event.fromStatus} → {event.toStatus}</strong><small>{event.reason || event.action} · {event.actorRole} · {formatDate(event.createdAt)}</small></span></div>)}</div> : <p>Chưa có thao tác kiểm duyệt.</p>}<div className="admin-dialog-actions"><button className="admin-primary-button" type="button" onClick={() => setDetailReview(null)}>Đóng</button></div></div></div> : null}
     </section>
   )
 }

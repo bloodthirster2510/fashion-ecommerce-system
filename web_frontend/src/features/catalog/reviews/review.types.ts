@@ -4,9 +4,18 @@ export type ProductReview = {
   orderId: string
   rating: number
   comment: string
-  moderationStatus: 'pending' | 'visible' | 'hidden'
-  moderationReasons: string[]
+  moderationStatus?: 'pending' | 'visible' | 'hidden'
+  moderationReasons?: string[]
   isContentRemoved?: boolean
+  images: ReviewImage[]
+  helpfulCount: number
+  hasVotedHelpful: boolean
+  criteria?: {
+    productQuality?: number
+    descriptionMatch?: number
+    sizeFit?: 'small' | 'true_to_size' | 'large'
+  } | null
+  adminReply: { content: string; repliedAt: string | null } | null
   verifiedPurchase: boolean
   purchasedVariant: {
     variantId: string
@@ -23,6 +32,14 @@ export type ProductReview = {
   }
   createdAt: string
   updatedAt: string
+}
+
+export type ReviewImage = {
+  _id: string | null
+  url: string
+  thumbnailUrl: string
+  width: number | null
+  height: number | null
 }
 
 export type ReviewDistribution = {
@@ -47,7 +64,8 @@ export type ProductReviewResponse = {
 }
 
 export type ReviewEligibility = {
-  productId: string
+  orderId: string
+  orderItemId: string
   canReview: boolean
   hasPurchased: boolean
   hasReviewed: boolean
@@ -60,11 +78,57 @@ export type ReviewListQuery = {
   page?: number
   limit?: number
   rating?: number
-  sort?: 'newest' | 'oldest' | 'rating_desc' | 'rating_asc'
+  sort?: 'newest' | 'oldest' | 'rating_desc' | 'rating_asc' | 'helpful'
 }
 
 export type CreateReviewPayload = {
-  productId: string
+  orderId: string
+  orderItemId: string
   rating: number
   comment: string
+  criteria?: {
+    productQuality?: number
+    descriptionMatch?: number
+    sizeFit?: 'small' | 'true_to_size' | 'large'
+  }
+}
+
+export type EligibleReviewItem = {
+  orderId: string
+  orderCode: string
+  deliveredAt: string | null
+  orderItemId: string
+  product: { _id: string; name: string; image: string }
+  variant: {
+    variantId: string
+    colorVariantId: string
+    fitType: string
+    color: string
+    size: string
+    sku: string
+  }
+  canReview: boolean
+  reason: 'PRODUCT_UNAVAILABLE' | 'ALREADY_REVIEWED' | null
+  review: {
+    _id: string
+    rating: number
+    comment: string
+    status: 'pending' | 'visible' | 'hidden'
+    moderationReasons: string[]
+    createdAt: string
+  } | null
+}
+
+export type EligibleReviewItemsResponse = {
+  items: EligibleReviewItem[]
+  pagination: { page: number; limit: number; totalItems: number; totalPages: number }
+}
+
+export type MyReview = ProductReview & {
+  product: { _id: string; name: string; image: string }
+}
+
+export type MyReviewsResponse = {
+  items: MyReview[]
+  pagination: { page: number; limit: number; totalItems: number; totalPages: number }
 }

@@ -75,7 +75,7 @@ const routePermissions: Partial<Record<NavId, string>> = {
   ordersCod: 'orders.read',
   inventory: 'inventory.read',
   promotions: 'promotions.read',
-  reviews: 'reviews.moderate',
+  reviews: 'reviews.read',
   support: 'support.reply',
   reports: 'reports.read',
   settings: 'admin',
@@ -268,7 +268,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'reviews') {
-      return <ReviewManagementPage />
+      return <ReviewManagementPage currentUser={currentUser} />
     }
 
     if (renderedSection === 'support') {

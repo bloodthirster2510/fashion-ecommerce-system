@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Avatar, Button, Empty, Input, Pagination, Rate, Spin, message } from 'antd'
+import { Avatar, Button, Empty, Image, Input, Pagination, Rate, Select, Spin, message } from 'antd'
 import { CheckCircleFilled, ExclamationCircleFilled, SendOutlined, UserOutlined } from '@ant-design/icons'
 import { useAppSelector } from '../../../app/hooks'
 import { reviewService } from './review.service'
 import type {
   ProductReview,
   ProductReviewResponse,
+  EligibleReviewItem,
   ReviewEligibility,
   ReviewListQuery,
 } from './review.types'
@@ -80,10 +81,17 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
   const currentUser = useAppSelector((state) => state.auth.currentUser)
   const [reviewData, setReviewData] = useState<ProductReviewResponse>(emptyReviewData)
   const [eligibility, setEligibility] = useState<ReviewEligibility | null>(null)
+  const [eligibleItems, setEligibleItems] = useState<EligibleReviewItem[]>([])
+  const [selectedOrderItemId, setSelectedOrderItemId] = useState('')
   const [selectedRating, setSelectedRating] = useState<number | undefined>()
   const [page, setPage] = useState(1)
   const [formRating, setFormRating] = useState(5)
   const [comment, setComment] = useState('')
+  const [productQuality, setProductQuality] = useState(5)
+  const [descriptionMatch, setDescriptionMatch] = useState(5)
+  const [sizeFit, setSizeFit] = useState<'small' | 'true_to_size' | 'large'>('true_to_size')
+  const [imageFiles, setImageFiles] = useState<File[]>([])
+  const [helpfulLoadingId, setHelpfulLoadingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -108,15 +116,76 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'user') {
       setEligibility(null)
+      setEligibleItems([])
       return
     }
 
     // Eligibility là dữ liệu riêng của user hiện tại nên gọi bằng requestCustomer có token.
     reviewService
-      .getEligibility(productId)
-      .then(setEligibility)
+      .listEligibleItems(productId)
+      .then((result) => {
+        setEligibleItems(result.items)
+        const eligibleItem = result.items.find((item) => item.canReview)
+        const reviewedItem = result.items.find((item) => item.review)
+        // Ưu tiên item được chỉ định qua query (?compose=1&orderItemId=...) khi đến từ trang đơn hàng.
+        const composeRequested = new URLSearchParams(window.location.search).get('compose') === '1'
+        const requestedOrderItemId = new URLSearchParams(window.location.search).get('orderItemId')
+        const matchedItem = composeRequested && requestedOrderItemId
+          ? result.items.find((item) => item.orderItemId === requestedOrderItemId) ?? null
+          : null
+        const selectedItem = matchedItem ?? eligibleItem ?? reviewedItem ?? result.items[0]
+        if (!selectedItem) {
+          setEligibility(null)
+          setSelectedOrderItemId('')
+          return
+        }
+        setSelectedOrderItemId(selectedItem.orderItemId)
+        setEligibility({
+          orderId: selectedItem.orderId,
+          orderItemId: selectedItem.orderItemId,
+          canReview: Boolean(matchedItem ?? eligibleItem),
+          hasPurchased: true,
+          hasReviewed: Boolean(reviewedItem),
+          reviewId: reviewedItem?.review?._id ?? null,
+          reviewStatus: reviewedItem?.review?.status ?? null,
+          moderationReasons: reviewedItem?.review?.moderationReasons ?? [],
+        })
+      })
       .catch(() => setEligibility(null))
   }, [currentUser, productId])
+
+  const reviewableItems = eligibleItems.filter((item) => item.canReview)
+  const imagePreviews = useMemo(
+    () => imageFiles.map((file) => ({ file, url: URL.createObjectURL(file) })),
+    [imageFiles],
+  )
+
+  useEffect(() => () => {
+    imagePreviews.forEach((preview) => URL.revokeObjectURL(preview.url))
+  }, [imagePreviews])
+
+  const selectEligibleItem = (orderItemId: string) => {
+    const item = eligibleItems.find((candidate) => candidate.orderItemId === orderItemId)
+    if (!item) return
+    setSelectedOrderItemId(orderItemId)
+    // Đổi lần mua sẽ reset nội dung đang viết dở để tránh gửi nhầm cho dòng hàng khác.
+    setComment('')
+    setFormRating(5)
+    setProductQuality(5)
+    setDescriptionMatch(5)
+    setSizeFit('true_to_size')
+    setImageFiles([])
+    setEligibility({
+      orderId: item.orderId,
+      orderItemId: item.orderItemId,
+      canReview: item.canReview,
+      hasPurchased: true,
+      hasReviewed: Boolean(item.review),
+      reviewId: item.review?._id ?? null,
+      reviewStatus: item.review?.status ?? null,
+      moderationReasons: item.review?.moderationReasons ?? [],
+    })
+  }
 
   const distribution = useMemo(() => {
     const hasDetailedDistribution = reviewData.summary.distribution.some((item) => item.count > 0)
@@ -152,19 +221,33 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
   }
 
   const handleSubmit = async () => {
-    if (!comment.trim()) {
-      message.warning('Vui lòng nhập nội dung đánh giá.')
+    if (comment.trim().length < 10) {
+      message.warning('Nội dung đánh giá cần có ít nhất 10 ký tự.')
+      return
+    }
+    if (!eligibility?.canReview) {
+      message.warning('Sản phẩm này chưa đủ điều kiện đánh giá.')
       return
     }
 
     setIsSubmitting(true)
     try {
-      const createdReview = await reviewService.createReview({ productId, rating: formRating, comment: comment.trim() })
+      const createdReview = await reviewService.createReview({
+        orderId: eligibility.orderId,
+        orderItemId: eligibility.orderItemId,
+        rating: formRating,
+        comment: comment.trim(),
+        criteria: { productQuality, descriptionMatch, sizeFit },
+      }, imageFiles)
       message.success(createdReview.moderationStatus === 'pending'
         ? 'Đánh giá đã được gửi và đang chờ kiểm duyệt.'
         : 'Cảm ơn bạn đã đánh giá sản phẩm!')
       setComment('')
       setFormRating(5)
+      setProductQuality(5)
+      setDescriptionMatch(5)
+      setSizeFit('true_to_size')
+      setImageFiles([])
       setPage(1)
       setSelectedRating(undefined)
       // Cập nhật eligibility cục bộ ngay để form biến mất, rồi load lại danh sách review.
@@ -174,8 +257,8 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
           canReview: false,
           hasReviewed: true,
           reviewId: createdReview._id,
-          reviewStatus: createdReview.moderationStatus,
-          moderationReasons: createdReview.moderationReasons,
+          reviewStatus: createdReview.moderationStatus ?? 'visible',
+          moderationReasons: createdReview.moderationReasons ?? [],
         } : current,
       )
       await loadReviews()
@@ -183,6 +266,27 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
       message.error(error instanceof Error ? error.message : 'Không thể gửi đánh giá.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleHelpful = async (reviewId: string) => {
+    if (!currentUser) {
+      message.info('Vui lòng đăng nhập để đánh dấu đánh giá hữu ích.')
+      return
+    }
+    setHelpfulLoadingId(reviewId)
+    try {
+      const result = await reviewService.toggleHelpful(reviewId)
+      setReviewData((current) => ({
+        ...current,
+        items: current.items.map((review) => review._id === reviewId
+          ? { ...review, helpfulCount: result.helpfulCount, hasVotedHelpful: result.hasVotedHelpful }
+          : review),
+      }))
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Không thể cập nhật lượt hữu ích.')
+    } finally {
+      setHelpfulLoadingId(null)
     }
   }
 
@@ -229,7 +333,7 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
       {eligibility?.reviewStatus === 'hidden' && (
         <div className="review-moderation-alert is-removed" role="status">
           <ExclamationCircleFilled />
-          <div><strong>Nội dung đánh giá đã bị xóa</strong><p>Đánh giá vi phạm tiêu chuẩn cộng đồng và không còn được hiển thị công khai.</p></div>
+          <div><strong>Nội dung đánh giá đã bị ẩn</strong><p>Đánh giá vi phạm tiêu chuẩn cộng đồng và không còn được hiển thị công khai.</p></div>
         </div>
       )}
 
@@ -239,7 +343,29 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
             <strong>Chia sẻ trải nghiệm của bạn</strong>
             <span>Sản phẩm này đã được giao đến bạn.</span>
           </div>
+          {reviewableItems.length > 1 && (
+            <label className="review-compose-field">
+              <span>Chọn lần mua</span>
+              <Select
+                value={selectedOrderItemId}
+                onChange={selectEligibleItem}
+                options={reviewableItems.map((item) => ({
+                  value: item.orderItemId,
+                  label: `${item.orderCode} · ${item.variant.color} · Size ${item.variant.size}`,
+                }))}
+              />
+            </label>
+          )}
           <Rate value={formRating} onChange={setFormRating} />
+          <div className="review-criteria-grid">
+            <label><span>Chất lượng sản phẩm</span><Rate value={productQuality} onChange={setProductQuality} /></label>
+            <label><span>Đúng với mô tả</span><Rate value={descriptionMatch} onChange={setDescriptionMatch} /></label>
+            <label><span>Độ vừa vặn</span><Select value={sizeFit} onChange={setSizeFit} options={[
+              { value: 'small', label: 'Nhỏ hơn dự kiến' },
+              { value: 'true_to_size', label: 'Đúng kích thước' },
+              { value: 'large', label: 'Lớn hơn dự kiến' },
+            ]} /></label>
+          </div>
           <Input.TextArea
             value={comment}
             maxLength={2000}
@@ -248,6 +374,32 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
             placeholder="Sản phẩm có đúng mô tả không? Chất liệu, kiểu dáng và trải nghiệm sử dụng thế nào?"
             onChange={(event) => setComment(event.target.value)}
           />
+          <label className="review-image-picker">
+            <span>Ảnh thực tế (tối đa 5 ảnh, 5MB/ảnh)</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []).slice(0, 5)
+                const invalid = files.find((file) => file.size > 5 * 1024 * 1024)
+                if (invalid) {
+                  message.warning(`${invalid.name} vượt quá 5MB.`)
+                  event.target.value = ''
+                  return
+                }
+                if (files.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) {
+                  message.warning('Tổng dung lượng ảnh không được vượt quá 20MB.')
+                  event.target.value = ''
+                  return
+                }
+                setImageFiles(files)
+              }}
+            />
+          </label>
+          {imagePreviews.length > 0 && <div className="review-image-previews">{imagePreviews.map(({ file, url }) => (
+            <span key={`${file.name}-${file.lastModified}`}><img src={url} alt={file.name} /><button type="button" onClick={() => setImageFiles((files) => files.filter((item) => item !== file))}>×</button></span>
+          ))}</div>}
           <Button
             type="primary"
             icon={<SendOutlined />}
@@ -292,7 +444,7 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
             <Empty description={selectedRating ? `Chưa có đánh giá ${selectedRating} sao.` : 'Chưa có đánh giá nào.'} />
           ) : (
             reviewData.items.map((review) => (
-              <article className={`review-item${review.isContentRemoved ? ' is-content-removed' : ''}`} key={review._id}>
+              <article className="review-item" key={review._id}>
                 <Avatar
                   size={40}
                   src={review.user.avatarImage || undefined}
@@ -311,8 +463,17 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
                     )}
                   </div>
                   <Rate disabled value={review.rating} />
-                  <p>{review.isContentRemoved ? <><ExclamationCircleFilled /> {review.comment}</> : review.comment}</p>
+                  <p>{review.comment}</p>
+                  {review.images.length > 0 && <Image.PreviewGroup><div className="review-media-grid">{review.images.map((image) => (
+                    <Image key={image._id ?? image.url} src={image.thumbnailUrl || image.url} preview={{ src: image.url }} alt="Ảnh đánh giá sản phẩm" />
+                  ))}</div></Image.PreviewGroup>}
+                  {review.adminReply && <div className="review-shop-reply"><strong>Phản hồi từ Fashionista</strong><p>{review.adminReply.content}</p>{review.adminReply.repliedAt && <time dateTime={review.adminReply.repliedAt}>{formatReviewDate(review.adminReply.repliedAt)}</time>}</div>}
                   <time dateTime={review.createdAt}>Đã đánh giá vào {formatReviewDate(review.createdAt)}</time>
+                  {currentUser?.role === 'user' && review.user._id !== currentUser._id && (
+                  <button className={review.hasVotedHelpful ? 'review-helpful-button is-active' : 'review-helpful-button'} type="button" disabled={helpfulLoadingId === review._id} onClick={() => void handleHelpful(review._id)}>
+                    Hữu ích ({review.helpfulCount})
+                  </button>
+                  )}
                 </div>
               </article>
             ))

@@ -57,3 +57,7 @@
 .admin-rule-list span { display: grid; gap: 3px; }.admin-rule-list strong { color: var(--admin-text); font-size: 13px; }.admin-rule-list small { color: var(--admin-muted); font-size: 12px; line-height: 1.4; }
 @media (max-width:900px) { .admin-review-stats,.admin-review-filters { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width:560px) { .admin-review-heading { align-items: flex-start; flex-direction: column; }.admin-review-stats,.admin-review-filters { grid-template-columns: 1fr; } }
+.admin-review-images { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.admin-review-images img { width:48px; height:48px; border-radius:7px; object-fit:cover; }
+.admin-review-actions { align-items:flex-start; }
+.admin-link-button.is-danger { color:#b42318; }
