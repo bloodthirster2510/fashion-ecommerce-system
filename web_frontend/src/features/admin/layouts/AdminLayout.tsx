@@ -16,6 +16,7 @@ import { PromotionsPage } from '../modules/promotions/PromotionsPage'
 import { OrderListPage } from '../modules/orders/OrderListPage'
 import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
+import { ReviewManagementPage } from '../modules/reviews/ReviewManagementPage'
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -211,6 +212,10 @@ export function AdminLayout({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'inventory') {
       return <InventoryManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'reviews') {
+      return <ReviewManagementPage />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
