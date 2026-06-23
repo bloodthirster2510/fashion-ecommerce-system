@@ -269,6 +269,8 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'reviews') {
       return <ReviewManagementPage />
+    }
+
     if (renderedSection === 'support') {
       return <SupportManagementPage currentUser={currentUser} />
     }

@@ -74,7 +74,7 @@ export function SupportPage() {
     : ticketId ? <TicketConversation ticketId={ticketId} detail={detail} loading={loading} error={error} onReload={() => getMyTicket(ticketId).then(setDetail)} />
       : <SupportHome faqs={faqs} tickets={tickets} summary={summary} search={search} topic={topic} expandedFaq={expandedFaq} loading={loading} error={error} loggedIn={Boolean(currentUser)} onSearch={setSearch} onTopic={setTopic} onExpand={setExpandedFaq} onReload={loadHome} onVote={async (id, value) => { try { await voteFaq(id, value); await loadHome() } catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể ghi nhận đánh giá.') } }} />
 
-  return <MainLayout showSlider={false}><main className="customer-support-page"><div className={accountMode ? 'account-shell' : 'customer-support-public-shell'}>{accountMode && <ProfileSidebar name={currentUser?.name} avatarImage={currentUser?.avatarImage} selectedKey="support" />}<section className={accountMode ? 'account-content customer-support-content' : 'customer-support-content'}>{content}</section></div></main></MainLayout>
+  return <MainLayout><main className="customer-support-page"><div className={accountMode ? 'account-shell' : 'customer-support-public-shell'}>{accountMode && <ProfileSidebar name={currentUser?.name} avatarImage={currentUser?.avatarImage} selectedKey="support" />}<section className={accountMode ? 'account-content customer-support-content' : 'customer-support-content'}>{content}</section></div></main></MainLayout>
 }
 
 function SupportHome(props: {
