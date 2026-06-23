@@ -14,6 +14,7 @@ import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
 import { catalogService } from '../catalog.service'
 import { customerProductActionsService } from '../customerProductActions.service'
+import { ProductReviews } from '../reviews/ProductReviews'
 import type { ProductColorVariant, ProductDetail, ProductVariant } from '../catalog.types'
 import '../catalog.css'
 
@@ -399,6 +400,8 @@ export function ProductDetailPage() {
                     <p>{description}</p>
                   </section>
                 )}
+
+                <ProductReviews productId={product._id} variants={product.variants} />
               </>
             )
           )}

@@ -16,6 +16,7 @@ import { PromotionsPage } from '../modules/promotions/PromotionsPage'
 import { OrderListPage } from '../modules/orders/OrderListPage'
 import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
+import { ReviewManagementPage } from '../modules/reviews/ReviewManagementPage'
 import { SupportManagementPage } from '../modules/support/SupportManagementPage'
 import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
@@ -266,6 +267,8 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
       return <InventoryManagementPage currentUser={currentUser} />
     }
 
+    if (renderedSection === 'reviews') {
+      return <ReviewManagementPage />
     if (renderedSection === 'support') {
       return <SupportManagementPage currentUser={currentUser} />
     }

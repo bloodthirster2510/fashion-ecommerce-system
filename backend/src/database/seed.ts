@@ -4,6 +4,7 @@ import {
   seedAdmin,
   seedInventoryForExistingProducts,
   seedMembershipRankings,
+  seedReviewsForExistingOrders,
   seedSupportFaqs,
 } from './seeders';
 
@@ -21,6 +22,9 @@ const seed = async () => {
   await seedMembershipRankings();
   await seedAdmin();
   await seedInventoryForExistingProducts();
+  await seedReviewsForExistingOrders();
+
+  console.log('Seed completed: membership rankings, admin user, inventory, and sample reviews are initialized.');
   await seedSupportFaqs();
 
   console.log('Seed completed: membership rankings, admin user, inventory, and support FAQs are initialized.');

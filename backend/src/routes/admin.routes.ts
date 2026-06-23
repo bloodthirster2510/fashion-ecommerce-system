@@ -13,6 +13,7 @@ import membershipRankingAdminRouter from '../modules/admin/loyalty/membership-ra
 import { adminAuditLogRouter } from '../modules/audit-logs/audit-log.route';
 import { adminPaymentRouter } from '../modules/payments/payments.route';
 import { adminPaymentMethodRouter } from '../modules/payment-methods/payment-method.route';
+import { adminReviewRouter } from '../modules/reviews/review.route';
 import notificationSummaryRouter from '../modules/admin/notifications/notification-summary.routes';
 import adminSupportRouter from '../modules/admin/support/admin-support.routes';
 
@@ -31,6 +32,7 @@ adminRouter.use('/accounts', accountRouter);
 adminRouter.use('/audit-logs', adminAuditLogRouter);
 adminRouter.use('/membership-rankings', membershipRankingAdminRouter);
 adminRouter.use('/payments', adminPaymentRouter);
+adminRouter.use('/reviews', adminReviewRouter);
 adminRouter.use('/notifications', notificationSummaryRouter);
 adminRouter.use('/support', adminSupportRouter);
 adminRouter.use('/', adminPaymentMethodRouter);
