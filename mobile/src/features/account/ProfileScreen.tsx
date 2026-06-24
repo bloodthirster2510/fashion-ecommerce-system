@@ -16,10 +16,12 @@ import { useAuth } from '../auth/AuthContext';
 import { authApi } from '../auth/authApi';
 import { accountApi, MembershipResponse } from './accountApi';
 import { couponApi } from '../coupons/couponApi';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { getMembershipTierVisualConfig } from './membershipVisual';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
+import ShopNameLogo from '../../components/branding/ShopNameLogo';
+import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 
 type ProfileNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -66,18 +68,23 @@ const getInitial = (name?: string) => {
 const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i.test(value.trim());
 
 const ProfileScreen = () => {
-  const { logout, session, runWithAuth } = useAuth();
+  const { logout, session, runWithAuth, updateSessionUser } = useAuth();
   const navigation = useNavigation<ProfileNavigationProp>();
   const user = session?.user;
   const displayName = user?.name || 'Khách hàng FASHIONISTA';
   const contact = user?.email || user?.phone || 'Cập nhật thông tin liên hệ';
   const avatarImage = user?.avatarImage;
   const avatarUri = typeof avatarImage === 'string' && isPreviewableImage(avatarImage) ? avatarImage.trim() : '';
+  const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
   const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
   const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUri]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -105,6 +112,19 @@ const ProfileScreen = () => {
           // should not open React Native's development LogBox.
           setMembershipData(null);
         });
+      runWithAuth((accessToken) => accountApi.getMe(accessToken))
+        .then((profile) => {
+          const freshAvatarImage = profile.avatarImage
+            ? `${profile.avatarImage}${profile.avatarImage.includes('?') ? '&' : '?'}mobileAvatar=${Date.now()}`
+            : null;
+          updateSessionUser({
+            name: profile.name,
+            email: profile.email,
+            phone: profile.phone,
+            avatarImage: freshAvatarImage,
+          });
+        })
+        .catch(() => undefined);
       runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
         .then((response) => setVoucherCount(response.items.length))
         .catch(() => setVoucherCount(null));
@@ -122,7 +142,7 @@ const ProfileScreen = () => {
           setShippingOrderCount(null);
         });
       void refreshNotifications();
-    }, [logout, navigation, refreshNotifications, runWithAuth, session?.accessToken])
+    }, [logout, navigation, refreshNotifications, runWithAuth, session?.accessToken, updateSessionUser])
   );
 
   const handleMenuPress = (item: ProfileMenuItem) => {
@@ -204,28 +224,18 @@ const ProfileScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home')}
-          accessibilityLabel="Trở về"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
-        </TouchableOpacity>
-
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home')}
+            accessibilityLabel="Trở về"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Tài khoản</Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={handleLogout}
-          accessibilityLabel="Đăng xuất"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="logout" size={22} color={colors.white} />
-        </TouchableOpacity>
+        <ShopNameLogo compact />
       </View>
 
       <ScrollView
@@ -235,8 +245,14 @@ const ProfileScreen = () => {
       >
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+            {avatarUri && !avatarLoadFailed ? (
+              <Image
+                key={avatarUri}
+                source={{ uri: avatarUri }}
+                style={styles.avatarImage}
+                resizeMode="cover"
+                onError={() => setAvatarLoadFailed(true)}
+              />
             ) : (
               <Text style={styles.avatarText}>{getInitial(displayName)}</Text>
             )}
@@ -331,7 +347,13 @@ const ProfileScreen = () => {
             </TouchableOpacity>
           ))}
         </View>
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.82}>
+          <MaterialCommunityIcons name="logout" size={20} color={colors.danger} />
+          <Text style={styles.logoutButtonText}>Đăng xuất</Text>
+        </TouchableOpacity>
       </ScrollView>
+      <StorefrontBottomNav activeTab="profile" />
     </SafeAreaView>
   );
 };
@@ -342,18 +364,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   header: {
-    minHeight: 84,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...brandedHeaderStyles.container,
   },
   headerTitleContainer: {
     flex: 1,
-    paddingHorizontal: 12,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   brand: {
     color: colors.brandMist,
@@ -362,19 +380,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 26,
-    lineHeight: 34,
-    fontWeight: '800',
-    marginTop: 2,
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
   },
   headerAction: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    ...brandedHeaderStyles.action,
   },
   content: {
     flex: 1,
@@ -550,6 +560,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  logoutButton: {
+    minHeight: 46,
+    marginTop: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radii.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  logoutButtonText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '800',
   },
   menuCard: {
     width: '31.2%',

@@ -136,3 +136,35 @@ export const sharedStyles = {
     ...shadows.card,
   } satisfies ViewStyle,
 } as const;
+
+export const brandedHeaderStyles = {
+  container: {
+    minHeight: 96,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  } satisfies ViewStyle,
+  action: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  } satisfies ViewStyle,
+  titleGroup: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: spacing.md,
+  } satisfies ViewStyle,
+  title: {
+    color: colors.white,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+    marginTop: 2,
+  } satisfies TextStyle,
+} as const;

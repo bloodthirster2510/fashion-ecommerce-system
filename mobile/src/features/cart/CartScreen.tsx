@@ -17,8 +17,8 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
-import StorefrontHeader from '../../components/layout/StorefrontHeader';
-import { colors, radii, spacing } from '../../theme';
+import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
+import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
@@ -30,7 +30,6 @@ import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutP
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
-import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
@@ -125,7 +124,6 @@ const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
-  const { summary: notificationSummary } = useCustomerNotifications();
   const [cart, setCart] = React.useState<CartResponse | null>(null);
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
@@ -578,13 +576,6 @@ const CartScreen = () => {
     session?.accessToken,
     showNotice,
   ]);
-
-  const handleSearchSubmit = (keyword: string) => {
-    navigation.navigate('ProductList', {
-      title: `Tìm kiếm: ${keyword}`,
-      keyword,
-    });
-  };
 
   const updateCartState = (nextCart: CartResponse) => {
     setCart(nextCart);
@@ -1632,25 +1623,25 @@ const CartScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <StorefrontHeader
-        menuIcon="arrow-left"
-        menuAccessibilityLabel="Trở về"
-        onMenuPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
-        onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-        onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
-        onCartPress={() => loadCart(true)}
-        onSearchSubmit={handleSearchSubmit}
-        onImageSearchPress={() => showNotice({
-          tone: 'info',
-          title: 'Tìm kiếm ảnh',
-          message: 'Tính năng này sẽ được bổ sung ở bước sau.',
-        })}
-        isAuthenticated={isAuthenticated}
-        userName={session?.user.name}
-        avatarImage={session?.user.avatarImage}
-        cartBadgeCount={cart?.summary.itemCount ?? notificationSummary?.cartItems ?? 0}
-        profileBadgeCount={notificationSummary?.total ?? 0}
-      />
+      <View style={styles.shortcutHeader}>
+        <TouchableOpacity
+          style={styles.shortcutHeaderAction}
+          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+          accessibilityLabel="Trở về"
+          activeOpacity={0.82}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+        </TouchableOpacity>
+        <Text style={styles.shortcutHeaderTitle}>Giỏ hàng</Text>
+        <TouchableOpacity
+          style={styles.shortcutHeaderAction}
+          onPress={() => loadCart(true)}
+          accessibilityLabel="Tải lại"
+          activeOpacity={0.82}
+        >
+          <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+        </TouchableOpacity>
+      </View>
 
       <ScrollView
         style={styles.content}
@@ -1668,6 +1659,7 @@ const CartScreen = () => {
           <StorefrontFooter />
         </View>
       </ScrollView>
+      <StorefrontBottomNav activeTab="cart" />
     </SafeAreaView>
   );
 };
@@ -1676,6 +1668,18 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.brand,
+  },
+  shortcutHeader: {
+    ...brandedHeaderStyles.container,
+  },
+  shortcutHeaderAction: {
+    ...brandedHeaderStyles.action,
+  },
+  shortcutHeaderTitle: {
+    ...brandedHeaderStyles.title,
+    flex: 1,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,

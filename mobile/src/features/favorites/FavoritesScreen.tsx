@@ -16,7 +16,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { FavoriteProduct, favoritesApi } from './favoritesApi';
 
@@ -245,8 +245,7 @@ const FavoritesScreen = () => {
         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
       </TouchableOpacity>
       <View style={styles.headerTitleBlock}>
-        <Text style={styles.headerBrand}>FASHIONISTA</Text>
-        <Text style={styles.headerTitle}>Yêu thích</Text>
+        <Text style={styles.headerTitle}>Sản phẩm yêu thích</Text>
       </View>
       <TouchableOpacity
         style={styles.headerButton}
@@ -414,21 +413,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    minHeight: 76,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
+    ...brandedHeaderStyles.container,
   },
   headerButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...brandedHeaderStyles.action,
   },
   headerTitleBlock: {
-    flex: 1,
+    ...brandedHeaderStyles.titleGroup,
     alignItems: 'center',
   },
   headerBrand: {
@@ -438,10 +429,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,

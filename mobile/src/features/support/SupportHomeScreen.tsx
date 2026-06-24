@@ -52,7 +52,8 @@ export default function SupportHomeScreen() {
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
         <TouchableOpacity style={s.back} onPress={() => navigation.goBack()} accessibilityLabel="Trở về"><MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} /></TouchableOpacity>
-        <Text style={s.headerTitle}>Hỗ trợ khách hàng</Text>
+        <Text style={s.headerTitle}>Hỗ trợ</Text>
+        <View style={s.back} />
       </View>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <View style={s.hero}><Text style={s.heroTitle}>Xin chào, chúng tôi có thể giúp gì?</Text><Text style={s.heroText}>Tìm câu trả lời nhanh hoặc gửi yêu cầu để đội ngũ CSKH hỗ trợ bạn.</Text></View>

@@ -227,7 +227,7 @@ const CouponsScreen = () => {
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.82}>
           <MaterialCommunityIcons name="arrow-left" size={26} color={colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Ưu đãi</Text>
+        <Text style={styles.headerTitle}>Voucher & Ưu đãi</Text>
         <View style={styles.headerButton} />
       </View>
 

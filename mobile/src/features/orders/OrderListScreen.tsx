@@ -16,7 +16,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -396,7 +396,6 @@ const OrderListScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
           <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
         </View>
         <TouchableOpacity
@@ -576,26 +575,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   header: {
-    minHeight: 84,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...brandedHeaderStyles.container,
   },
   headerAction: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    ...brandedHeaderStyles.action,
   },
   headerTitleGroup: {
-    flex: 1,
-    paddingHorizontal: 12,
+    ...brandedHeaderStyles.titleGroup,
+    alignItems: 'center',
   },
   brand: {
     color: colors.brandMist,
@@ -603,11 +590,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 25,
-    lineHeight: 32,
-    fontWeight: '800',
-    marginTop: 2,
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,

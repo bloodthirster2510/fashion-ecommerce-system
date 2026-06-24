@@ -5,7 +5,7 @@ export const supportStyles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   header: { minHeight: 64, backgroundColor: colors.brand, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, gap: 12 },
   back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: colors.white, fontSize: 20, fontWeight: '800', flex: 1 },
+  headerTitle: { color: colors.white, fontSize: 20, fontWeight: '800', flex: 1, textAlign: 'center' },
   content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: 40 },
   search: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radii.sm, padding: 14, fontSize: 15, color: colors.text },
   hero: { backgroundColor: colors.brandDark, borderRadius: radii.md, padding: spacing.xl, gap: 8 },

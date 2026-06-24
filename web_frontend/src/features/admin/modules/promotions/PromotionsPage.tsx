@@ -1316,7 +1316,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
       <CampaignAnalyticsPanel currentUser={currentUser} />
 
-      <div className="admin-table-toolbar">
+      <div className="admin-table-toolbar admin-promotion-filters">
         <label className="admin-user-search">
           <span>Tìm kiếm</span>
           <input
@@ -1408,13 +1408,15 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           </select>
         </label>
 
-        <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
-          Làm mới
-        </button>
-        <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={() => void exportCouponsCsv()}>
-          Xuất CSV
-        </button>
-        <button className="admin-link-button" type="button" onClick={() => { setKeywordInput(''); setStatusFilter('all'); setDiscountFilter('all'); setVisibilityFilter('all'); setAudienceFilter('all_filter'); setRankFilter(''); setDateFromFilter(''); setDateToFilter(''); setSort('created_desc'); setPage(1) }}>Xóa bộ lọc</button>
+        <div className="admin-promotion-filter-actions">
+          <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
+            Làm mới
+          </button>
+          <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={() => void exportCouponsCsv()}>
+            Xuất CSV
+          </button>
+          <button className="admin-link-button" type="button" onClick={() => { setKeywordInput(''); setStatusFilter('all'); setDiscountFilter('all'); setVisibilityFilter('all'); setAudienceFilter('all_filter'); setRankFilter(''); setDateFromFilter(''); setDateToFilter(''); setSort('created_desc'); setPage(1) }}>Xóa bộ lọc</button>
+        </div>
       </div>
 
       {tierReferenceError || categoryReferenceError || productReferenceError ? (

@@ -18,7 +18,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import {
   paymentMethodsApi,
@@ -774,8 +774,7 @@ const PaymentMethodsScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
-          <Text style={styles.headerTitle}>Hoàn tiền</Text>
+          <Text style={styles.headerTitle}>Phương thức thanh toán</Text>
           <Text style={styles.headerSubtitle}>Thẻ và tài khoản nhận hoàn tiền</Text>
         </View>
         <TouchableOpacity
@@ -808,27 +807,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    minHeight: 92,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...brandedHeaderStyles.container,
+    minHeight: 108,
   },
   headerAction: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    ...brandedHeaderStyles.action,
   },
   headerTitleGroup: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: 12,
+    ...brandedHeaderStyles.titleGroup,
+    alignItems: 'center',
   },
   brand: {
     color: colors.brandMist,
@@ -837,17 +824,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 25,
-    lineHeight: 32,
-    fontWeight: '800',
-    marginTop: 2,
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
+    textAlign: 'center',
   },
   headerSubtitle: {
     color: colors.brandPale,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+    textAlign: 'center',
   },
   content: {
     flex: 1,

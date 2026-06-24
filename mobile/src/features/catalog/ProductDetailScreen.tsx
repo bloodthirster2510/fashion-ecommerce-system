@@ -16,6 +16,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
+import ShopNameLogo from '../../components/branding/ShopNameLogo';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
@@ -565,7 +566,9 @@ const ProductDetailScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
         </TouchableOpacity>
 
-        <Text style={styles.headerBrand}>FASHIONISTA</Text>
+        <View style={styles.headerBrand}>
+          <ShopNameLogo />
+        </View>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
@@ -1023,11 +1026,11 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand,
     paddingHorizontal: spacing.md,
-    paddingTop: 6,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
   },
   headerTop: {
-    minHeight: 34,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1040,11 +1043,7 @@ const styles = StyleSheet.create({
   },
   headerBrand: {
     flex: 1,
-    color: colors.white,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '800',
-    textAlign: 'center',
+    alignItems: 'center',
   },
   headerActions: {
     minWidth: 96,
