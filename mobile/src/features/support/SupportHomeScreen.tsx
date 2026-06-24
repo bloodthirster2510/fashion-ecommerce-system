@@ -2,9 +2,10 @@ import React from 'react';
 import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { supportApi } from './supportApi';
 import type { FaqArticle, SupportSummary } from './support.types';
@@ -34,7 +35,7 @@ export default function SupportHomeScreen() {
     runWithAuth((token) => supportApi.getSummary(token)).then(setSummary).catch(() => setSummary(null));
   }, [runWithAuth, search]);
 
-  useFocusEffect(React.useCallback(() => { load(); }, [load]));
+  useStaleFocusEffect(() => { load(); }, [load], { staleMs: 60 * 1000 });
 
   const enableNotifications = async () => {
     setError('');

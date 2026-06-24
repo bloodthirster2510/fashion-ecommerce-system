@@ -10,7 +10,7 @@ type CustomerNotificationContextValue = {
 };
 
 const CustomerNotificationContext = React.createContext<CustomerNotificationContextValue | null>(null);
-const POLL_INTERVAL_MS = 45_000;
+const POLL_INTERVAL_MS = 90_000;
 
 export const CustomerNotificationProvider = ({ children }: { children: React.ReactNode }) => {
   const { isRestoringSession, runWithAuth, session } = useAuth();
@@ -30,7 +30,13 @@ export const CustomerNotificationProvider = ({ children }: { children: React.Rea
 
     try {
       const nextSummary = await runWithAuth((token) => notificationApi.getSummary(token));
-      if (requestSequence.current === sequence) setSummary(nextSummary);
+      if (requestSequence.current !== sequence) return;
+      setSummary((prev) => {
+        if (prev && nextSummary && prev.total === nextSummary.total && prev.support.total === nextSummary.support.total) {
+          return prev;
+        }
+        return nextSummary;
+      });
     } catch {
       // Keep the last good summary during short network interruptions.
     } finally {

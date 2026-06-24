@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Alert,
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +21,7 @@ import { getMembershipTierVisualConfig } from './membershipVisual';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 import ShopNameLogo from '../../components/branding/ShopNameLogo';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
+import { RemoteImage } from '../../components/media/RemoteImage';
 
 type ProfileNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -70,6 +70,8 @@ const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i
 const ProfileScreen = () => {
   const { logout, session, runWithAuth, updateSessionUser } = useAuth();
   const navigation = useNavigation<ProfileNavigationProp>();
+  const sessionRef = React.useRef(session);
+  sessionRef.current = session;
   const user = session?.user;
   const displayName = user?.name || 'Khách hàng FASHIONISTA';
   const contact = user?.email || user?.phone || 'Cập nhật thông tin liên hệ';
@@ -114,14 +116,22 @@ const ProfileScreen = () => {
         });
       runWithAuth((accessToken) => accountApi.getMe(accessToken))
         .then((profile) => {
-          const freshAvatarImage = profile.avatarImage
-            ? `${profile.avatarImage}${profile.avatarImage.includes('?') ? '&' : '?'}mobileAvatar=${Date.now()}`
-            : null;
+          const current = sessionRef.current?.user;
+          const nextAvatarImage = profile.avatarImage ?? null;
+          const changed =
+            !current ||
+            current.name !== profile.name ||
+            current.email !== profile.email ||
+            current.phone !== profile.phone ||
+            (current.avatarImage ?? null) !== nextAvatarImage;
+
+          if (!changed) return;
+
           updateSessionUser({
             name: profile.name,
             email: profile.email,
             phone: profile.phone,
-            avatarImage: freshAvatarImage,
+            avatarImage: nextAvatarImage,
           });
         })
         .catch(() => undefined);
@@ -246,12 +256,10 @@ const ProfileScreen = () => {
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             {avatarUri && !avatarLoadFailed ? (
-              <Image
-                key={avatarUri}
-                source={{ uri: avatarUri }}
+              <RemoteImage
+                uri={avatarUri}
                 style={styles.avatarImage}
-                resizeMode="cover"
-                onError={() => setAvatarLoadFailed(true)}
+                recyclingKey={`avatar:${user?._id ?? ''}`}
               />
             ) : (
               <Text style={styles.avatarText}>{getInitial(displayName)}</Text>

@@ -336,10 +336,13 @@ const ProductDetailScreen = () => {
 
   React.useEffect(() => loadProduct(), [loadProduct]);
 
+  const isAuthenticatedRef = React.useRef(isAuthenticated);
+  isAuthenticatedRef.current = isAuthenticated;
+
   React.useEffect(() => {
     let isCurrentRequest = true;
 
-    if (!isAuthenticated || !session?.accessToken) {
+    if (!isAuthenticatedRef.current) {
       setIsFavorited(false);
       setIsFavoriteLoading(false);
       return () => {
@@ -368,7 +371,7 @@ const ProductDetailScreen = () => {
     return () => {
       isCurrentRequest = false;
     };
-  }, [isAuthenticated, productId, runWithAuth, session?.accessToken]);
+  }, [productId, runWithAuth]);
 
   const selectedVariant = product?.variants.find((variant) => variant._id === selectedVariantId);
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);

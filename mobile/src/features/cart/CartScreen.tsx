@@ -13,13 +13,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
 import {
@@ -386,12 +387,14 @@ const CartScreen = () => {
     [runWithAuth, session?.accessToken, showNotice],
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useStaleFocusEffect(
+    () => {
       void loadCart();
       void loadAddresses();
       void loadPaymentMethods();
-    }, [loadAddresses, loadCart, loadPaymentMethods]),
+    },
+    [loadAddresses, loadCart, loadPaymentMethods],
+    { staleMs: 20 * 1000 },
   );
 
   React.useEffect(() => {

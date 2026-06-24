@@ -1,4 +1,5 @@
 import { apiFetch } from '../../config/api';
+import { withCache } from '../../config/apiCache';
 import type { ApiResponse, ApiValidationError, UserAddressPayload } from '../auth/types';
 
 export type Gender = 'male' | 'female';
@@ -88,12 +89,14 @@ const request = async <T>(
     body?: Record<string, unknown>;
     timeoutMs?: number;
     retryOnTimeout?: boolean;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> => {
   const response = await apiFetch(path, {
     method: options.method ?? 'GET',
     timeoutMs: options.timeoutMs,
     retryOnTimeout: options.retryOnTimeout,
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${token}`,
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -115,7 +118,7 @@ const request = async <T>(
 };
 
 export const accountApi = {
-  getMe: (token: string) => request<UserProfile>('/users/me', token),
+  getMe: (token: string, signal?: AbortSignal) => request<UserProfile>('/users/me', token, { signal }),
   updateMe: (token: string, payload: UpdateProfilePayload) =>
     request<UserProfile>('/users/me', token, { method: 'PUT', body: payload }),
   uploadAvatar: (token: string, imageBase64: string, mimeType: string) =>
@@ -125,7 +128,7 @@ export const accountApi = {
       retryOnTimeout: false,
       body: { imageBase64, mimeType },
     }),
-  getAddresses: (token: string) => request<UserAddress[]>('/users/me/addresses', token),
+  getAddresses: (token: string, signal?: AbortSignal) => request<UserAddress[]>('/users/me/addresses', token, { signal }),
   addAddress: (token: string, payload: UserAddressPayload) =>
     request<UserAddress[]>('/users/me/addresses', token, { method: 'POST', body: payload }),
   updateAddress: (token: string, addressId: string, payload: UserAddressPayload) =>
@@ -139,13 +142,15 @@ export const accountApi = {
       method: 'POST',
       body: { currentPassword, newPassword, confirmPassword },
     }),
-  getMembership: (token: string) => request<MembershipResponse>('/users/me/membership', token),
-  getMyOrderSummary: (token: string, status?: string) => {
+  getMembership: (token: string, signal?: AbortSignal) => request<MembershipResponse>('/users/me/membership', token, { signal }),
+  getMyOrderSummary: (token: string, status?: string, signal?: AbortSignal) => {
     const query = new URLSearchParams({ page: '1', limit: '1' });
     if (status) {
       query.set('status', status);
     }
 
-    return request<OrderListSummaryResponse>(`/orders/me?${query.toString()}`, token);
+    const path = `/orders/me?${query.toString()}`;
+    const key = `orderSummary:${path}`;
+    return withCache(key, () => request<OrderListSummaryResponse>(path, token, { signal }), { ttlMs: 30 * 1000 });
   },
 };
