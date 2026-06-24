@@ -19,6 +19,10 @@ import {
 } from '../sales/sales.helpers';
 import { cartService } from '../cart/cart.service';
 import { transactionService } from '../payments/transaction.service';
+import {
+  getOrderPaymentDeadlineAt,
+  getOrderPaymentDeadlineWarningMs,
+} from '../payments/order-payment-deadline.config';
 import { paymentMethodService } from '../payment-methods/payment-method.service';
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
@@ -119,6 +123,10 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
     };
   }
 
+  if (query.paymentDeadlineBefore) {
+    filter.paymentDeadlineAt = { $ne: null, $lte: query.paymentDeadlineBefore };
+  }
+
   if (query.keyword) {
     filter.$or = [
       { orderCode: new RegExp(query.keyword.trim(), 'i') },
@@ -174,7 +182,10 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     ],
   };
 
-  const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk] = await Promise.all([
+  const now = new Date();
+  const deadlineSoonAt = new Date(now.getTime() + getOrderPaymentDeadlineWarningMs());
+
+  const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk, paymentDeadlineSoon] = await Promise.all([
     countWith({
       status: 'return_requested',
       'returnRequest.status': 'requested',
@@ -209,6 +220,12 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
         },
       ],
     }),
+    countWith({
+      status: 'confirmed',
+      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+      paymentStatus: { $in: ['pending', 'failed'] },
+      paymentDeadlineAt: { $gt: now, $lte: deadlineSoonAt },
+    }),
   ]);
 
   return {
@@ -220,6 +237,8 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     readyToProcess: packingReady + handoffReady,
     deliveryConfirmations,
     paymentRisk,
+    paymentOverdueRisk: Math.max(0, paymentRisk - paymentDeadlineSoon),
+    paymentDeadlineSoon,
     totalPriority: returnRequests + refunds + packingReady + handoffReady + deliveryConfirmations + paymentRisk,
   };
 };
@@ -1173,6 +1192,10 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         paymentMethod: input.paymentMethod,
         paymentMethodId: selectedPaymentMethod?._id ?? null,
         paymentStatus: 'pending',
+        paymentDeadlineAt: isOnlinePaymentMethod(input.paymentMethod)
+          ? getOrderPaymentDeadlineAt()
+          : null,
+        paymentDeadlineWarningSentAt: null,
         shipping: {
           ...toOrderShippingSnapshot(pricing.shippingQuote),
           ...toShippingComparisonSnapshot(pricing.shippingComparison),
@@ -1346,6 +1369,42 @@ const restockCommittedOrder = async (order: IOrder) => {
         { $inc: { sold_quantity: -item.quantity } },
       ),
     ),
+  );
+};
+
+const cancelOrderForPaymentDeadline = async (orderId: string, now = new Date()) => {
+  const cancellationReason = 'Tự động hủy do quá hạn thanh toán 3 ngày';
+  const cancelledOrder = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      status: 'confirmed',
+      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+      paymentStatus: { $in: ['pending', 'failed'] },
+      paymentDeadlineAt: { $lte: now },
+    },
+    {
+      $set: {
+        status: 'cancelled',
+        paymentStatus: 'failed',
+        cancellation: {
+          kind: 'payment-timeout',
+          reason: cancellationReason,
+          cancelledAt: now,
+          cancelledBy: null,
+          actorRole: 'system',
+        },
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  );
+
+  if (!cancelledOrder) return null;
+
+  await restockCommittedOrder(cancelledOrder);
+  await rollbackCouponUsageForCancelledOrder(cancelledOrder);
+  return clawBackLoyaltyPointsForOrder(
+    cancelledOrder,
+    'Order cancelled due to payment deadline exceeded',
   );
 };
 
@@ -1930,4 +1989,5 @@ export const orderService = {
   syncGhnShipment,
   updateOrderStatus,
   updateOrderShipping,
+  cancelOrderForPaymentDeadline,
 };

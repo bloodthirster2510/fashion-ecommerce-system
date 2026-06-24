@@ -48,7 +48,7 @@ type OrderTab = {
 }
 
 type OrderTabGroupKey = 'flow' | 'exceptions' | 'lookup'
-type OrderQueueKey = 'packing' | 'handoff' | 'delivery' | 'blocked' | 'review' | 'refund'
+type OrderQueueKey = 'packing' | 'handoff' | 'delivery' | 'blocked' | 'review' | 'refund' | 'payment-deadline'
 type PaymentSectionKey = 'online' | 'cod'
 type ShippingSimulationStatus = 'picked' | 'shipping' | 'delivered' | 'failed'
 
@@ -126,6 +126,8 @@ const emptyOperationalSummary = {
   readyToProcess: 0,
   deliveryConfirmations: 0,
   paymentRisk: 0,
+  paymentOverdueRisk: 0,
+  paymentDeadlineSoon: 0,
   totalPriority: 0,
 }
 
@@ -197,6 +199,14 @@ const orderTabs: OrderTab[] = [
     statuses: ['cancelled'],
     paymentStatus: 'paid',
     queue: 'refund',
+  },
+  {
+    key: 'payment-deadline',
+    label: 'Sắp quá hạn thanh toán',
+    helper: 'Đơn online chưa thanh toán sẽ tự hủy khi quá hạn 3 ngày.',
+    group: 'exceptions',
+    statuses: ['confirmed'],
+    queue: 'payment-deadline',
   },
   {
     key: 'all',
@@ -532,6 +542,32 @@ const shouldWarnPaymentBeforeShipping = (order: AdminOrder) =>
   order.status !== 'cancelled' &&
   order.status !== 'returned'
 
+const isPaymentDeadlineSoon = (order: AdminOrder) => {
+  if (!order.paymentDeadlineAt || !shouldWarnPaymentBeforeShipping(order)) return false
+  const remaining = new Date(order.paymentDeadlineAt).getTime() - Date.now()
+  return remaining > 0 && remaining <= 24 * 60 * 60 * 1000
+}
+
+const getPaymentDeadlineStatus = (order: AdminOrder) => {
+  if (!order.paymentDeadlineAt || order.paymentStatus === 'paid' || order.status === 'cancelled') return null
+  const deadline = new Date(order.paymentDeadlineAt)
+  if (Number.isNaN(deadline.getTime())) return null
+  const remainingMs = deadline.getTime() - Date.now()
+  const absoluteMs = Math.abs(remainingMs)
+  const days = Math.floor(absoluteMs / (24 * 60 * 60 * 1000))
+  const hours = Math.floor((absoluteMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+  const remainingLabel = days > 0 ? `${days} ngày ${hours} giờ` : `${hours} giờ`
+
+  return remainingMs <= 0
+    ? { className: 'admin-status-pill is-deadline-critical', label: `Đã quá hạn ${remainingLabel}` }
+    : {
+        className: remainingMs <= 24 * 60 * 60 * 1000
+          ? 'admin-status-pill is-deadline-critical'
+          : 'admin-status-pill is-deadline-warning',
+        label: `Hạn ${formatDate(order.paymentDeadlineAt)} · còn ${remainingLabel}`,
+      }
+}
+
 const needsRefundReview = (order: AdminOrder) =>
   order.status === 'cancelled' && order.paymentStatus === 'paid'
 
@@ -545,6 +581,7 @@ const isBlockedOrder = (order: AdminOrder) =>
 const getOrderQueue = (order: AdminOrder): OrderQueueKey | null => {
   if (needsRefundReview(order)) return 'refund'
   if (needsReasonReview(order)) return 'review'
+  if (isPaymentDeadlineSoon(order)) return 'payment-deadline'
   if (isBlockedOrder(order)) return null
   if (order.status === 'confirmed') return 'packing'
   if (order.status === 'packed') return 'handoff'
@@ -561,6 +598,7 @@ const getQueueCount = (
   if (queue === 'refund') return operationalSummary.refunds
   if (queue === 'review') return operationalSummary.returnRequests
   if (queue === 'blocked') return operationalSummary.paymentRisk
+  if (queue === 'payment-deadline') return operationalSummary.paymentDeadlineSoon ?? 0
   if (queue === 'packing') return operationalSummary.packingReady ?? 0
   if (queue === 'handoff') return operationalSummary.handoffReady ?? 0
   if (queue === 'delivery') return operationalSummary.deliveryConfirmations ?? summary.shipping
@@ -834,6 +872,9 @@ export function OrderListPage({
         paymentStatus: effectivePaymentStatus,
         paymentMethod: selectedPaymentMethod === 'all' ? undefined : selectedPaymentMethod,
         paymentMethods: selectedPaymentMethod === 'all' ? sectionPaymentMethods : undefined,
+        paymentDeadlineBefore: activeTab.queue === 'payment-deadline'
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          : undefined,
         page: activeTab.queue ? 1 : page,
         limit: effectiveLimit,
       })
@@ -1191,7 +1232,7 @@ export function OrderListPage({
       const result = await expireStalePayments()
       setNotice({
         type: 'success',
-        message: `Đã hết hạn ${result.expiredCount} lượt thanh toán quá hạn, hủy ${result.cancelledOrderIds.length} đơn chưa thanh toán`,
+        message: `Đã hết hạn ${result.expiredCount} lượt thanh toán quá hạn. Đơn sẽ tự hủy khi quá 3 ngày.`,
       })
       await loadOrders()
       requestAdminNotificationRefresh()
@@ -1522,6 +1563,11 @@ export function OrderListPage({
                           <span className={getPaymentPillClass(order.paymentStatus)}>
                             {paymentStatusLabels[order.paymentStatus]}
                           </span>
+                          {getPaymentDeadlineStatus(order) ? (
+                            <small className={getPaymentDeadlineStatus(order)?.className}>
+                              {getPaymentDeadlineStatus(order)?.label}
+                            </small>
+                          ) : null}
                         </div>
                       </td>
                       <td>
@@ -1886,6 +1932,7 @@ function OrderDetailDrawer({
     order.paymentStatus === 'paid' && (order.status === 'cancelled' || order.status === 'returned')
   const attention = getOrderAttention(order)
   const returnWindowStatus = getReturnWindowStatus(order)
+  const paymentDeadlineStatus = getPaymentDeadlineStatus(order)
 
   return (
     <div className="admin-drawer-layer" role="dialog" aria-modal="true" aria-labelledby="admin-order-title">
@@ -1906,6 +1953,9 @@ function OrderDetailDrawer({
             <span className={getPaymentPillClass(order.paymentStatus)}>{paymentStatusLabels[order.paymentStatus]}</span>
             {returnWindowStatus ? (
               <span className={returnWindowStatus.className}>{returnWindowStatus.label}</span>
+            ) : null}
+            {paymentDeadlineStatus ? (
+              <span className={paymentDeadlineStatus.className}>{paymentDeadlineStatus.label}</span>
             ) : null}
           </div>
           <button className="admin-secondary-button" type="button" onClick={onClose}>
@@ -1941,6 +1991,12 @@ function OrderDetailDrawer({
               <span>Trạng thái thanh toán</span>
               <strong className={getPaymentPillClass(order.paymentStatus)}>{paymentStatusLabels[order.paymentStatus]}</strong>
             </div>
+            {order.paymentDeadlineAt ? (
+              <div className="admin-detail-card is-payment-deadline">
+                <span>Hạn thanh toán</span>
+                <strong>{formatDate(order.paymentDeadlineAt)}</strong>
+              </div>
+            ) : null}
             <div className="admin-detail-card is-method">
               <span>Phương thức</span>
               <strong>{paymentMethodLabels[order.paymentMethod]}</strong>

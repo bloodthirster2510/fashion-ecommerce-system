@@ -19,6 +19,7 @@ export type OrderPaymentStatusResponse = {
   paymentMethod: string;
   paymentStatus: string;
   canPayNow: boolean;
+  paymentDeadlineAt?: string | null;
   latestTransaction: {
     id: string;
     txnRef: string | null;

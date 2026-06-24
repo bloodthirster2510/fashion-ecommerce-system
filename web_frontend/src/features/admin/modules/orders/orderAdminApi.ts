@@ -59,6 +59,7 @@ export type AdminOrderReturnRequest = {
 }
 
 export type AdminOrderCancellation = {
+  kind?: 'customer' | 'admin' | 'shipping' | 'payment-timeout' | null
   reason?: string | null
   imageUrls?: string[]
   cancelledAt: string
@@ -83,6 +84,8 @@ export type AdminOrder = {
   status: AdminOrderStatus
   paymentMethod: AdminOrderPaymentMethod
   paymentStatus: AdminOrderPaymentStatus
+  paymentDeadlineAt?: string | null
+  paymentDeadlineWarningSentAt?: string | null
   deliveredAt?: string | null
   returnRequest?: AdminOrderReturnRequest | null
   cancellation?: AdminOrderCancellation | null
@@ -138,6 +141,7 @@ export type OrderListFilters = {
   keyword?: string
   page?: number
   limit?: number
+  paymentDeadlineBefore?: string
 }
 
 export type OrderListResponse = {
@@ -152,6 +156,8 @@ export type OrderListResponse = {
     readyToProcess?: number
     deliveryConfirmations?: number
     paymentRisk: number
+    paymentOverdueRisk?: number
+    paymentDeadlineSoon?: number
     totalPriority: number
   }
   pagination?: {
@@ -249,6 +255,10 @@ const buildOrderListQuery = (filters: OrderListFilters) => {
 
   if (filters.paymentStatus && filters.paymentStatus !== 'all') {
     params.set('paymentStatus', filters.paymentStatus)
+  }
+
+  if (filters.paymentDeadlineBefore) {
+    params.set('paymentDeadlineBefore', filters.paymentDeadlineBefore)
   }
 
   params.set('page', String(filters.page ?? 1))

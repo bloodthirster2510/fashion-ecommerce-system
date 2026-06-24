@@ -13,11 +13,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   orderApi,
@@ -220,10 +221,12 @@ const OrderListScreen = () => {
     [debouncedSearchText, logout, navigation, paymentFilter, runWithAuth, session?.accessToken],
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useStaleFocusEffect(
+    () => {
       void loadOrders(activeStatus);
-    }, [activeStatus, loadOrders]),
+    },
+    [activeStatus, loadOrders],
+    { staleMs: 30 * 1000 },
   );
 
   const handleRefresh = () => {
@@ -295,6 +298,11 @@ const OrderListScreen = () => {
     const canConfirmDelivery = canConfirmReceived(order);
     const requiresPayment = orderNeedsPaymentAction(order);
     const requiresUserAction = orderNeedsUserAction(order);
+    const deadlineRemaining = order.paymentDeadlineAt
+      ? new Date(order.paymentDeadlineAt).getTime() - Date.now()
+      : null;
+    const isDeadlineSoon = requiresPayment && deadlineRemaining !== null &&
+      deadlineRemaining > 0 && deadlineRemaining <= 24 * 60 * 60 * 1000;
 
     return (
       <TouchableOpacity
@@ -317,6 +325,13 @@ const OrderListScreen = () => {
             <Text style={[styles.statusBadgeText, { color: displayState.color }]}>{displayState.label}</Text>
           </View>
         </View>
+
+        {isDeadlineSoon ? (
+          <View style={styles.paymentDeadlineChip}>
+            <MaterialCommunityIcons name="timer-alert-outline" size={15} color={colors.goldText} />
+            <Text style={styles.paymentDeadlineChipText}>Sắp quá hạn thanh toán</Text>
+          </View>
+        ) : null}
 
         <View style={styles.productRow}>
           {isPreviewableImage(imageUri) ? (
@@ -814,6 +829,22 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
+  },
+  paymentDeadlineChip: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  paymentDeadlineChipText: {
+    color: colors.goldText,
+    fontSize: 11,
+    fontWeight: '900',
   },
   attentionBadge: {
     alignSelf: 'flex-start',

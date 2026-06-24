@@ -472,8 +472,8 @@ const getNavNotificationBadge = (
   if (!summary) return null
 
   const badges: Partial<Record<NavId, NavNotificationBadge>> = {
-    orders: summary.orders.total > 0
-      ? { count: summary.orders.total, tone: 'danger', label: `${summary.orders.total} đơn cần xử lý` }
+    orders: summary.orders.total + summary.paymentDeadlineSoon > 0
+      ? { count: summary.orders.total + summary.paymentDeadlineSoon, tone: summary.paymentDeadlineSoon > 0 ? 'warning' : 'danger', label: `${summary.orders.total + summary.paymentDeadlineSoon} đơn cần xử lý`, dot: summary.paymentDeadlineSoon > 0 }
       : undefined,
     ordersOnline: summary.orders.online > 0
       ? { count: summary.orders.online, tone: 'danger', label: `${summary.orders.online} đơn online cần xử lý` }
@@ -499,6 +499,15 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
   if (!summary) return []
 
   return [
+    summary.paymentDeadlineSoon > 0 ? {
+      key: 'orders-payment-deadline',
+      routeId: 'orders' as NavId,
+      title: 'Sắp hết hạn thanh toán',
+      detail: `${summary.paymentDeadlineSoon} đơn online sắp tự hủy trong 24 giờ tới`,
+      count: summary.paymentDeadlineSoon,
+      queue: 'payment-deadline',
+      tone: 'warning' as NotificationTone,
+    } : null,
     summary.orders.confirmed > 0 ? {
       key: 'orders-confirmed',
       routeId: 'orders' as NavId,

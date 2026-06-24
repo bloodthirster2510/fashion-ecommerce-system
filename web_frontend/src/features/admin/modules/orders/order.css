@@ -262,6 +262,18 @@
   background: #f7fafc;
 }
 
+.admin-orders-page .admin-status-pill.is-deadline-warning {
+  border-color: #efc77e;
+  color: #875814;
+  background: #fff7df;
+}
+
+.admin-orders-page .admin-status-pill.is-deadline-critical {
+  border-color: #efaa9a;
+  color: #9b351e;
+  background: #fff0ec;
+}
+
 .admin-payment-sections {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

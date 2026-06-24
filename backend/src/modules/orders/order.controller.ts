@@ -222,6 +222,7 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   keyword: parseString(req.query.keyword),
   from: parseDate(req.query.from, 'from'),
   to: parseDate(req.query.to, 'to'),
+  paymentDeadlineBefore: parseDate(req.query.paymentDeadlineBefore, 'paymentDeadlineBefore'),
   page: parsePositiveInteger(req.query.page, 'page'),
   limit: parsePositiveInteger(req.query.limit, 'limit'),
 });

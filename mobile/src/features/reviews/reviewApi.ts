@@ -23,8 +23,18 @@ const request = async <T>(path: string, token?: string, init?: RequestInit) => {
 };
 
 export const reviewApi = {
-  listProductReviews: (productId: string) =>
-    request<PublicReviewList>(`/reviews/products/${encodeURIComponent(productId)}?page=1&limit=5&sort=newest`),
+  listProductReviews: (
+    productId: string,
+    query: { page?: number; limit?: number; rating?: number; sort?: 'newest' | 'oldest' } = {},
+  ) => {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      limit: String(query.limit ?? 5),
+      sort: query.sort ?? 'newest',
+    });
+    if (query.rating !== undefined) params.set('rating', String(query.rating));
+    return request<PublicReviewList>(`/reviews/products/${encodeURIComponent(productId)}?${params.toString()}`);
+  },
   getEligibility: (token: string, orderId: string, orderItemId: string) => {
     const query = new URLSearchParams({ orderId, orderItemId });
     return request<ReviewEligibility>(`/reviews/eligibility?${query.toString()}`, token);

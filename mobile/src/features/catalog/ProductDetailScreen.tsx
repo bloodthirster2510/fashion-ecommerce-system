@@ -928,38 +928,6 @@ const ProductDetailScreen = () => {
         </View>
 
         <View style={styles.reviewSection}>
-          <Text style={styles.sectionTitle}>Đánh giá của khách hàng</Text>
-
-          <View style={styles.ratingPanel}>
-            <View style={styles.ratingScoreBlock}>
-              <Text style={styles.ratingScore}>{product.averageRating.toFixed(1)}</Text>
-              {renderStars(product.averageRating, 16)}
-              <Text style={styles.ratingCount}>{product.reviewCount} đánh giá</Text>
-            </View>
-
-            <View style={styles.ratingBars}>
-              {ratingDistribution.map((item) => (
-                <View key={item.rating} style={styles.ratingBarRow}>
-                  <Text style={styles.ratingBarLabel}>{item.rating}</Text>
-                  <MaterialCommunityIcons name="star" size={12} color={colors.goldDark} />
-                  <View style={styles.ratingTrack}>
-                    <View style={[styles.ratingFill, { width: `${Math.min(100, Math.max(0, item.percent))}%` }]} />
-                  </View>
-                  <Text style={styles.ratingBarCount}>{item.count}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.experiencePanel}>
-            {['Chất lượng', 'Đúng mô tả', 'Màu sắc'].map((label) => (
-              <View key={label} style={styles.experienceRow}>
-                <Text style={styles.experienceLabel}>{label}</Text>
-                {renderStars(product.averageRating, 13)}
-              </View>
-            ))}
-          </View>
-
           <ProductReviewsSection productId={product._id} />
         </View>
 

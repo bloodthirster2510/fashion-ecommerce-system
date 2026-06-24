@@ -7,6 +7,7 @@ import {
   User,
   type StaffPermission,
 } from '../../../database/models';
+import { getOrderPaymentDeadlineWarningMs, ONLINE_PAYMENT_METHODS } from '../../payments/order-payment-deadline.config';
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 const EXPIRING_COUPON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
@@ -113,8 +114,9 @@ export const getNotificationSummary = async (
   const canReplySupport = hasPermission(actor.role, permissions, 'support.reply');
   const canReadReviews = hasPermission(actor.role, permissions, 'reviews.read');
   const expiringBefore = new Date(now.getTime() + EXPIRING_COUPON_WINDOW_MS);
+  const paymentDeadlineWarningBefore = new Date(now.getTime() + getOrderPaymentDeadlineWarningMs());
 
-  const [orders, lowStockVariants, expiringCoupons, supportOpen, reviewsPending] = await Promise.all([
+  const [orders, lowStockVariants, expiringCoupons, supportOpen, reviewsPending, paymentDeadlineSoon] = await Promise.all([
     canReadOrders ? getOrderCounts() : null,
     canReadInventory ? getLowStockVariantCount(DEFAULT_LOW_STOCK_THRESHOLD) : 0,
     canReadPromotions
@@ -133,6 +135,12 @@ export const getNotificationSummary = async (
         })
       : 0,
     canReadReviews ? Review.countDocuments({ moderationStatus: 'pending' }) : 0,
+    canReadOrders ? Order.countDocuments({
+      status: 'confirmed',
+      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+      paymentStatus: { $in: ['pending', 'failed'] },
+      paymentDeadlineAt: { $gt: now, $lte: paymentDeadlineWarningBefore },
+    }) : 0,
   ]);
 
   const orderCounts = orders ?? {
@@ -143,13 +151,14 @@ export const getNotificationSummary = async (
     cod: 0,
     total: 0,
   };
-  const total = orderCounts.total + lowStockVariants + expiringCoupons + supportOpen + reviewsPending;
+  const total = orderCounts.total + lowStockVariants + expiringCoupons + supportOpen + reviewsPending + paymentDeadlineSoon;
 
   return {
     total,
     orders: orderCounts,
     lowStockVariants,
     expiringCoupons,
+    paymentDeadlineSoon,
     // Disabled staff accounts are intentional state, not pending work. Keep
     // this field stable until a real account-approval workflow exists.
     inactiveAccounts: 0,

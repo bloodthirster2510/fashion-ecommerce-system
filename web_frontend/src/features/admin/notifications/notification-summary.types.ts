@@ -10,6 +10,7 @@ export type NotificationSummary = {
   }
   lowStockVariants: number
   expiringCoupons: number
+  paymentDeadlineSoon: number
   inactiveAccounts: number
   supportOpen: number
   reviewsPending: number

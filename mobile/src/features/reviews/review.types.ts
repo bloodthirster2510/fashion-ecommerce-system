@@ -30,6 +30,11 @@ export type PublicReview = {
 
 export type PublicReviewList = {
   items: PublicReview[];
+  summary: {
+    averageRating: number;
+    reviewCount: number;
+    distribution: Array<{ rating: number; count: number; percent: number }>;
+  };
   pagination: { page: number; limit: number; totalItems: number; totalPages: number };
 };
 

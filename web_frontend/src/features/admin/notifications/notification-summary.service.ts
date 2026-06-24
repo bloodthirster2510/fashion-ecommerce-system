@@ -7,6 +7,7 @@ const getDemoSummary = (): NotificationSummary => ({
   orders: { confirmed: 3, packed: 2, returnRequested: 1, online: 2, cod: 4, total: 6 },
   lowStockVariants: 4,
   expiringCoupons: 2,
+  paymentDeadlineSoon: 1,
   inactiveAccounts: 0,
   supportOpen: 0,
   reviewsPending: 0,

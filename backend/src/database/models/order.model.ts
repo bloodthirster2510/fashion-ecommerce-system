@@ -77,6 +77,7 @@ export interface IOrderReturnRequest {
 }
 
 export interface IOrderCancellation {
+  kind?: 'customer' | 'admin' | 'shipping' | 'payment-timeout' | null;
   reason?: string | null;
   imageUrls?: string[];
   cancelledAt: Date;
@@ -120,6 +121,8 @@ export interface IOrder extends Document {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: Types.ObjectId | null;
   paymentStatus: OrderPaymentStatus;
+  paymentDeadlineAt?: Date | null;
+  paymentDeadlineWarningSentAt?: Date | null;
   deliveredAt?: Date | null;
   returnRequest?: IOrderReturnRequest | null;
   cancellation?: IOrderCancellation | null;
@@ -224,6 +227,7 @@ const orderReturnRequestSchema = new Schema<IOrderReturnRequest>(
 
 const orderCancellationSchema = new Schema<IOrderCancellation>(
   {
+    kind: { type: String, enum: ['customer', 'admin', 'shipping', 'payment-timeout'], default: null },
     reason: { type: String, trim: true, default: null, maxlength: 500 },
     imageUrls: {
       type: [{ type: String, trim: true, maxlength: 500 }],
@@ -327,6 +331,8 @@ const orderSchema = new Schema<IOrder>(
       required: true,
       default: 'pending',
     },
+    paymentDeadlineAt: { type: Date, default: null },
+    paymentDeadlineWarningSentAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
     returnRequest: { type: orderReturnRequestSchema, default: null },
     cancellation: { type: orderCancellationSchema, default: null },
@@ -344,5 +350,6 @@ orderSchema.index(
 );
 orderSchema.index({ user_id: 1, createdAt: -1 });
 orderSchema.index({ status: 1, paymentMethod: 1, createdAt: -1 });
+orderSchema.index({ status: 1, paymentStatus: 1, paymentDeadlineAt: 1 });
 
 export const Order = models.Order || model<IOrder>('Order', orderSchema);

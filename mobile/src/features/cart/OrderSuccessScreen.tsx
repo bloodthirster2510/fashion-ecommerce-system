@@ -92,10 +92,18 @@ const OrderSuccessScreen = () => {
   } = route.params;
   const [latestPaymentStatus, setLatestPaymentStatus] = React.useState<string>(paymentStatus);
   const [canPayNow, setCanPayNow] = React.useState(paymentMethod === 'VNPAY' && paymentStatus !== 'paid');
+  const [paymentDeadlineAt, setPaymentDeadlineAt] = React.useState<string | null>(null);
+  const [countdownNow, setCountdownNow] = React.useState(Date.now());
   const [isCheckingPayment, setIsCheckingPayment] = React.useState(Boolean(isProcessingPayment));
   const [isRetryingPayment, setIsRetryingPayment] = React.useState(false);
   const [paymentMessage, setPaymentMessage] = React.useState(initialPaymentMessage ?? '');
   const isVNPayPending = paymentMethod === 'VNPAY' && latestPaymentStatus !== 'paid';
+
+  React.useEffect(() => {
+    if (!paymentDeadlineAt || latestPaymentStatus === 'paid') return undefined;
+    const timer = setInterval(() => setCountdownNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [latestPaymentStatus, paymentDeadlineAt]);
 
   const refreshPaymentStatus = React.useCallback(
     async (silent = false) => {
@@ -113,6 +121,7 @@ const OrderSuccessScreen = () => {
         );
         setLatestPaymentStatus(result.paymentStatus);
         setCanPayNow(result.canPayNow);
+        setPaymentDeadlineAt(result.paymentDeadlineAt ?? null);
         if (result.paymentStatus === 'paid') {
           setPaymentMessage('Hệ thống đã ghi nhận thanh toán.');
         } else if (!silent) {
@@ -305,9 +314,15 @@ const OrderSuccessScreen = () => {
           ) : null}
           {paymentMethod === 'VNPAY' && latestPaymentStatus !== 'paid' && (
             <Text style={styles.paymentNote}>
-              Nếu bạn đã thanh toán thành công, hệ thống sẽ tự động cập nhật trạng thái đơn hàng trong vài phút.
+              Link thanh toán chỉ có hiệu lực 15 phút. Đơn vẫn được giữ và bạn có thể tạo link mới trong vòng 3 ngày.
             </Text>
           )}
+          {paymentDeadlineAt && latestPaymentStatus !== 'paid' ? (
+            <Text style={styles.paymentDeadlineNote}>
+              Hạn thanh toán đơn: {new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(paymentDeadlineAt))}
+              {' · còn '}{Math.max(0, Math.ceil((new Date(paymentDeadlineAt).getTime() - countdownNow) / (60 * 60 * 1000)))} giờ
+            </Text>
+          ) : null}
           {paymentMethod === 'COD' && (
             <Text style={styles.paymentNote}>
               Bạn sẽ thanh toán cho người giao hàng khi nhận được sản phẩm.
@@ -502,6 +517,13 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     lineHeight: 17,
     marginTop: 4,
+  },
+  paymentDeadlineNote: {
+    fontSize: 12,
+    color: colors.danger,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: spacing.xs,
   },
   actions: {
     gap: spacing.sm,

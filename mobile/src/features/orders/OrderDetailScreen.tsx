@@ -14,13 +14,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import { orderApi, OrderApiError, type CustomerOrder, type OrderEvidenceImageAttachment, type OrderItem } from './orderApi';
@@ -254,10 +255,12 @@ const OrderDetailScreen = () => {
     [logout, navigation, orderId, runWithAuth, session?.accessToken],
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useStaleFocusEffect(
+    () => {
       void loadOrder();
-    }, [loadOrder]),
+    },
+    [loadOrder],
+    { staleMs: 15 * 1000 },
   );
 
   const handleCancelOrder = () => {
@@ -947,12 +950,18 @@ const OrderDetailScreen = () => {
   const canReturn = canRequestReturn(order.status);
   const shippingStatusColor = getShippingStatusColor(order.shipping?.status);
   const shippingStatusBackground = getShippingStatusBackground(order.shipping?.status);
+  const paymentDeadlineTime = order.paymentDeadlineAt ? new Date(order.paymentDeadlineAt).getTime() : null;
+  const paymentDeadlineRemainingMs = paymentDeadlineTime ? paymentDeadlineTime - Date.now() : null;
+  const paymentDeadlineHours = paymentDeadlineRemainingMs === null
+    ? null
+    : Math.max(0, Math.ceil(paymentDeadlineRemainingMs / (60 * 60 * 1000)));
   const canRetryVNPayPayment =
     order.paymentMethod === 'VNPAY' &&
     order.paymentStatus !== 'paid' &&
     order.paymentStatus !== 'refunded' &&
     order.status !== 'cancelled' &&
-    order.status !== 'returned';
+    order.status !== 'returned' &&
+    (paymentDeadlineRemainingMs === null || paymentDeadlineRemainingMs > 0);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1124,6 +1133,14 @@ const OrderDetailScreen = () => {
             <Text style={[styles.infoHint, { color: paymentStatusColor }]}>
               {paymentStatusLabels[order.paymentStatus] ?? order.paymentStatus}
             </Text>
+            {order.paymentDeadlineAt && order.paymentStatus !== 'paid' && order.status !== 'cancelled' ? (
+              <View style={styles.paymentDeadlineCard}>
+                <MaterialCommunityIcons name="timer-sand" size={16} color={paymentDeadlineHours !== null && paymentDeadlineHours <= 24 ? colors.danger : colors.goldText} />
+                <Text style={styles.paymentDeadlineText}>
+                  Hạn thanh toán: {formatDate(order.paymentDeadlineAt)} · còn {paymentDeadlineHours} giờ
+                </Text>
+              </View>
+            ) : null}
             {canRetryVNPayPayment ? (
               <TouchableOpacity
                 style={styles.paymentRetryButton}
@@ -2088,6 +2105,22 @@ const styles = StyleSheet.create({
     height: 70,
     borderRadius: radii.sm,
     backgroundColor: colors.brandSoft,
+  },
+  paymentDeadlineCard: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brandSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  paymentDeadlineText: {
+    flex: 1,
+    color: colors.textBody,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   reviewButton: {
     alignSelf: 'center',

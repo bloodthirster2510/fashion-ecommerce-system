@@ -49,6 +49,7 @@ export interface OrderListQueryInput {
   keyword?: string;
   from?: Date;
   to?: Date;
+  paymentDeadlineBefore?: Date;
   page?: number;
   limit?: number;
 }

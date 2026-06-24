@@ -37,6 +37,9 @@ const getClientIp = (req: Request) => {
 const canCreatePaymentForOrderStatus = (status: string) =>
   !['cancelled', 'returned'].includes(status);
 
+const isWithinOrderPaymentDeadline = (deadline?: Date | string | null) =>
+  !deadline || new Date(deadline).getTime() > Date.now();
+
 const ADMIN_PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
 const TERMINAL_PAYMENT_STATUSES: OrderPaymentStatus[] = ['paid', 'refunded'];
 
@@ -274,6 +277,10 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
       return error(res, 'Order cannot create a new payment URL', 400);
     }
 
+    if (!isWithinOrderPaymentDeadline(order.paymentDeadlineAt)) {
+      return error(res, 'Order payment deadline has expired', 409);
+    }
+
     const transaction = await transactionService.ensureVNPayAttemptForOrder({
       userId,
       orderId,
@@ -332,13 +339,15 @@ export const getOrderPaymentStatus = async (req: Request, res: Response) => {
       order.paymentMethod === 'VNPAY' &&
       order.paymentStatus !== 'paid' &&
       order.paymentStatus !== 'refunded' &&
-      canCreatePaymentForOrderStatus(order.status);
+      canCreatePaymentForOrderStatus(order.status) &&
+      isWithinOrderPaymentDeadline(order.paymentDeadlineAt);
 
     return ok(res, {
       orderId: order._id.toString(),
       orderCode: order.orderCode,
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,
+      paymentDeadlineAt: order.paymentDeadlineAt ?? null,
       canPayNow,
       latestTransaction: latestTransaction
         ? {
@@ -363,7 +372,7 @@ export const expireStalePaymentAttempts = async (_req: Request, res: Response) =
 
     return ok(res, {
       ...result,
-      policy: 'Payment attempts expire after the configured grace window. Expired latest attempts cancel confirmed unpaid online orders and restock inventory. Older expired attempts only mark the transaction expired.',
+      policy: 'Payment attempts expire after the configured grace window without cancelling the order. Unpaid online orders are cancelled only when their order payment deadline is exceeded.',
     }, 'Expired stale payment attempts');
   } catch (err: unknown) {
     return serverError(res, getErrorMessage(err));

@@ -4,6 +4,7 @@ import app from './app';
 import { connectDB } from './config/database';
 import { seedMembershipRankings, seedAdmin, seedInventoryForExistingProducts } from './database/seeders';
 import { paymentExpiryScheduler } from './modules/payments/payment-expiry.scheduler';
+import { orderPaymentDeadlineScheduler } from './modules/payments/order-payment-deadline.scheduler';
 import { couponLifecycleScheduler } from './modules/promotions/coupons/coupon-lifecycle.scheduler';
 import { supportTicketLifecycleScheduler } from './modules/support/support-ticket-lifecycle.scheduler';
 import { supportGateway } from './modules/realtime/support.gateway';
@@ -20,6 +21,7 @@ const startServer = async () => {
   }
 
   paymentExpiryScheduler.startPaymentExpiryScheduler();
+  orderPaymentDeadlineScheduler.start();
   couponLifecycleScheduler.start();
   supportTicketLifecycleScheduler.start();
 
@@ -37,6 +39,7 @@ const startServer = async () => {
     console.log(`${signal} received; shutting down gracefully`);
 
     paymentExpiryScheduler.stopPaymentExpiryScheduler();
+    orderPaymentDeadlineScheduler.stop();
     couponLifecycleScheduler.stop();
     supportTicketLifecycleScheduler.stop();
 

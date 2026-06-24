@@ -76,6 +76,7 @@ export type OrderReturnRequest = {
 };
 
 export type OrderCancellation = {
+  kind?: 'customer' | 'admin' | 'shipping' | 'payment-timeout' | null;
   reason?: string | null;
   imageUrls?: string[];
   cancelledAt: string;
@@ -106,6 +107,8 @@ export type CustomerOrder = {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: string | null;
   paymentStatus: OrderPaymentStatus;
+  paymentDeadlineAt?: string | null;
+  paymentDeadlineWarningSentAt?: string | null;
   returnRequest?: OrderReturnRequest | null;
   cancellation?: OrderCancellation | null;
   shipping?: OrderShipping | null;

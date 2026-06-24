@@ -367,6 +367,7 @@ describe('orderService', () => {
           status: 'confirmed',
           paymentMethod: 'COD',
           paymentStatus: 'pending',
+          paymentDeadlineAt: null,
           shipping: expect.objectContaining({
             provider: 'FIXED',
             customerFee: 25000,
@@ -469,6 +470,14 @@ describe('orderService', () => {
       gatewayProvider: 'vnpay',
       session: mockSession,
     }));
+    expect(mockedOrder.create).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        paymentMethod: 'VNPAY',
+        paymentDeadlineAt: expect.any(Date),
+        paymentDeadlineWarningSentAt: null,
+      })],
+      { session: mockSession },
+    );
     expect(mockedInventoryService.commitReservations).not.toHaveBeenCalled();
     expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
     expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
@@ -1676,5 +1685,59 @@ describe('orderService', () => {
     ).rejects.toThrow('Online orders must be paid before processing');
 
     expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('cancels, restocks and rolls back benefits when the order payment deadline expires', async () => {
+    const now = new Date('2026-06-24T08:00:00.000Z');
+    const orderId = new Types.ObjectId('665000000000000000000055');
+    const couponId = new Types.ObjectId('665000000000000000000056');
+    const cancelledOrder = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-DEADLINE',
+      status: 'cancelled',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'failed',
+      paymentDeadlineAt: now,
+      couponId,
+      couponIds: [couponId],
+      loyaltyPointsAwarded: 0,
+      loyaltyPointsClawedBack: 0,
+      cancellation: { kind: 'payment-timeout' },
+      order_list: [{ productId, variantId, colorVariantId, size: 'M', quantity: 2 }],
+    };
+    mockedOrder.findOneAndUpdate.mockResolvedValue(cancelledOrder as never);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+    mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
+
+    const result = await orderService.cancelOrderForPaymentDeadline(orderId.toString(), now);
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: orderId.toString(),
+        status: 'confirmed',
+        paymentStatus: { $in: ['pending', 'failed'] },
+        paymentDeadlineAt: { $lte: now },
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'cancelled',
+          paymentStatus: 'failed',
+          cancellation: expect.objectContaining({ kind: 'payment-timeout', actorRole: 'system' }),
+        }),
+      }),
+      { returnDocument: 'after', runValidators: true },
+    );
+    expect(mockedInventory.updateOne).toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).toHaveBeenCalled();
+    expect(mockedProduct.updateOne).toHaveBeenCalled();
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString(), {});
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId,
+      {},
+    );
+    expect(result).toBe(cancelledOrder);
   });
 });
