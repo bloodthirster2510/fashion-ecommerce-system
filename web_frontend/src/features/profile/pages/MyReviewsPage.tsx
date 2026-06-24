@@ -25,13 +25,7 @@ export function MyReviewsPage() {
     catch (error) { message.error(error instanceof Error ? error.message : 'Không thể xóa đánh giá.') }
   }
   const openEdit = (review: MyReview) => setEditingReview(review)
-  const saveEdit = async (input: {
-    rating: number
-    comment: string
-    criteria: { productQuality: number; descriptionMatch: number; sizeFit: 'small' | 'true_to_size' | 'large' }
-    keepImageIds: string[]
-    newImages: File[]
-  }) => {
+  const saveEdit = async (input: EditFormState) => {
     if (!editingReview) return
     if (input.comment.trim().length < 10) { message.warning('Nội dung cần ít nhất 10 ký tự.'); return }
     setSaving(true)
@@ -39,7 +33,11 @@ export function MyReviewsPage() {
       await reviewService.updateReview(editingReview._id, {
         rating: input.rating,
         comment: input.comment.trim(),
-        criteria: input.criteria,
+        criteria: {
+          productQuality: input.productQuality,
+          descriptionMatch: input.descriptionMatch,
+          sizeFit: input.sizeFit,
+        },
         keepImageIds: input.keepImageIds,
         images: input.newImages,
       })
