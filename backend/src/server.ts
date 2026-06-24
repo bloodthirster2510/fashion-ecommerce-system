@@ -8,6 +8,8 @@ import { orderPaymentDeadlineScheduler } from './modules/payments/order-payment-
 import { couponLifecycleScheduler } from './modules/promotions/coupons/coupon-lifecycle.scheduler';
 import { supportTicketLifecycleScheduler } from './modules/support/support-ticket-lifecycle.scheduler';
 import { supportGateway } from './modules/realtime/support.gateway';
+import { orderGateway } from './modules/realtime/order.gateway';
+import { shippingReconcileScheduler } from './modules/shipping/shipping-reconcile.scheduler';
 
 const PORT = process.env.PORT || 5000;
 
@@ -24,9 +26,11 @@ const startServer = async () => {
   orderPaymentDeadlineScheduler.start();
   couponLifecycleScheduler.start();
   supportTicketLifecycleScheduler.start();
+  shippingReconcileScheduler.start();
 
   const server = http.createServer(app);
   supportGateway.attach(server);
+  orderGateway.attach(server);
 
   server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
@@ -42,6 +46,7 @@ const startServer = async () => {
     orderPaymentDeadlineScheduler.stop();
     couponLifecycleScheduler.stop();
     supportTicketLifecycleScheduler.stop();
+    shippingReconcileScheduler.stop();
 
     const forceExitTimer = setTimeout(() => {
       console.error('Graceful shutdown timed out');
@@ -50,7 +55,7 @@ const startServer = async () => {
     forceExitTimer.unref?.();
 
     try {
-      await supportGateway.close();
+      await Promise.all([supportGateway.close(), orderGateway.close()]);
       if (server.listening) {
         await new Promise<void>((resolve, reject) => {
           server.close((error) => error ? reject(error) : resolve());

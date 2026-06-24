@@ -64,6 +64,7 @@ export interface IOrderShipping {
   estimatedDeliveryDate?: Date | null;
   rawQuote?: Record<string, unknown> | null;
   rawShipment?: Record<string, unknown> | null;
+  lastWebhookEventId?: string | null;
 }
 
 export interface IOrderReturnRequest {
@@ -200,6 +201,7 @@ const orderShippingSchema = new Schema<IOrderShipping>(
     estimatedDeliveryDate: { type: Date, default: null },
     rawQuote: { type: Schema.Types.Mixed, default: null },
     rawShipment: { type: Schema.Types.Mixed, default: null },
+    lastWebhookEventId: { type: String, trim: true, default: null, maxlength: 128 },
   },
   { _id: false },
 );

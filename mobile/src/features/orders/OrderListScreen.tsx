@@ -46,6 +46,7 @@ import {
   orderTabs,
   type OrderTabKey,
 } from './orderPresentation';
+import { useOrderRealtime } from './orderRealtime';
 
 type OrderListNavigationProp = StackNavigationProp<RootStackParamList, 'Orders'>;
 type OrderListRouteProp = RouteProp<RootStackParamList, 'Orders'>;
@@ -228,6 +229,10 @@ const OrderListScreen = () => {
     [activeStatus, loadOrders],
     { staleMs: 30 * 1000 },
   );
+
+  useOrderRealtime(session?.accessToken, () => {
+    void loadOrders(activeStatus, 'refresh');
+  });
 
   const handleRefresh = () => {
     void loadOrders(activeStatus, 'refresh');

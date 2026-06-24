@@ -86,6 +86,14 @@ jest.mock('../../admin/loyalty/loyalty-rule.service', () => ({
   },
 }));
 
+jest.mock('../../realtime/order.gateway', () => ({
+  emitOrderUpdate: jest.fn(),
+}));
+
+jest.mock('../../notifications/push-notification.service', () => ({
+  sendShippingUpdatePush: jest.fn().mockResolvedValue({ sent: 0 }),
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
@@ -1348,6 +1356,38 @@ describe('orderService', () => {
     }));
     expect(result.reason).toBe('GHN delivered');
     expect(result.order).toBe(order);
+  });
+
+  it('acknowledges a repeated delivered webhook without saving or awarding twice', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000075');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-WEBHOOK-DUPLICATE',
+      status: 'delivered',
+      deliveredAt: new Date('2026-06-24T08:00:00.000Z'),
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      shipping: {
+        provider: 'GHN',
+        status: 'delivered',
+        trackingCode: 'GHN-DUPLICATE',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'delivered',
+      trackingCode: 'GHN-DUPLICATE',
+      rawPayload: { status: 'delivered' },
+    });
+
+    expect(result.duplicate).toBe(true);
+    expect(result.order).toBe(order);
+    expect(order.save).not.toHaveBeenCalled();
   });
 
   it('applies a simulated failed delivery webhook without completing the order', async () => {

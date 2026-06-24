@@ -67,7 +67,10 @@ export const subscribeToSupportNotifications = async (
   const open = (response: NotificationResponse | null) => {
     const data = response?.notification.request.content.data;
     if (data?.type === 'support_reply' && typeof data.ticketId === 'string') onTicket(data.ticketId);
-    if (data?.type === 'payment_deadline' && typeof data.orderId === 'string') onOrder?.(data.orderId);
+    if (
+      (data?.type === 'payment_deadline' || data?.type === 'shipping_update')
+      && typeof data.orderId === 'string'
+    ) onOrder?.(data.orderId);
   };
   const subscription = Notifications.addNotificationResponseReceivedListener(open);
   open(await Notifications.getLastNotificationResponseAsync());

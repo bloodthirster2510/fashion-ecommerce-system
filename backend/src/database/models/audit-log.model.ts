@@ -4,6 +4,7 @@ export type AuditLogAction =
   | 'order.status_update'
   | 'order.shipping_update'
   | 'order.shipping_webhook'
+  | 'order.shipping_reconcile'
   | 'payment.adjust'
   | 'payment.expire'
   | 'payment_method.status_update'
@@ -47,6 +48,7 @@ const auditLogSchema = new Schema<IAuditLog>(
         'order.status_update',
         'order.shipping_update',
         'order.shipping_webhook',
+        'order.shipping_reconcile',
         'payment.adjust',
         'payment.expire',
         'payment_method.status_update',

@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -39,6 +39,7 @@ import {
   paymentStatusLabels,
 } from './orderPresentation';
 import { reviewApi } from '../reviews/reviewApi';
+import { useOrderRealtime } from './orderRealtime';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
@@ -185,6 +186,7 @@ const OrderDetailScreen = () => {
   const route = useRoute<OrderDetailRouteProp>();
   const { logout, runWithAuth, session } = useAuth();
   const orderId = route.params.orderId;
+  const isFocused = useIsFocused();
 
   const [order, setOrder] = React.useState<CustomerOrder | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -262,6 +264,21 @@ const OrderDetailScreen = () => {
     [loadOrder],
     { staleMs: 15 * 1000 },
   );
+
+  const orderRealtime = useOrderRealtime(session?.accessToken, (event) => {
+    if (event.orderId === orderId) void loadOrder('refresh');
+  });
+
+  React.useEffect(() => {
+    orderRealtime.subscribeOrder(orderId);
+    return () => orderRealtime.unsubscribeOrder(orderId);
+  }, [orderId, orderRealtime]);
+
+  React.useEffect(() => {
+    if (!isFocused || orderRealtime.connected) return;
+    const handle = setInterval(() => { void loadOrder('refresh'); }, 30_000);
+    return () => clearInterval(handle);
+  }, [isFocused, loadOrder, orderRealtime.connected]);
 
   const handleCancelOrder = () => {
     if (!order) return;

@@ -554,6 +554,15 @@
   background: #fbfcfd;
 }
 
+.admin-order-row.is-realtime-updated td {
+  animation: admin-order-realtime-flash 1.2s ease-out;
+}
+
+@keyframes admin-order-realtime-flash {
+  0% { background: #e8f7ee; }
+  100% { background: transparent; }
+}
+
 .admin-order-row.is-payment-risk td:first-child {
   box-shadow: inset 4px 0 0 #c65d72;
 }

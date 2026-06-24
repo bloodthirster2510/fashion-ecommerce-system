@@ -29,6 +29,7 @@ import {
 } from './orderAdminApi'
 import './order.css'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
+import { useOrderRealtime } from './orderRealtime'
 
 type OrdersPageProps = {
   currentUser: AdminUser
@@ -827,6 +828,7 @@ export function OrderListPage({
   const [actionLoading, setActionLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [realtimeOrderId, setRealtimeOrderId] = useState<string | null>(null)
   const [actionDialog, setActionDialog] = useState<OrderActionDialogState | null>(null)
   const [actionDialogError, setActionDialogError] = useState('')
 
@@ -933,6 +935,33 @@ export function OrderListPage({
       setIsDrawerLoading(false)
     }
   }
+
+  useOrderRealtime((event) => {
+    setRealtimeOrderId(event.orderId)
+    void loadOrders()
+    requestAdminNotificationRefresh()
+    if (selectedOrder?._id === event.orderId) void refreshSelectedOrder(event.orderId)
+
+    const nextStatus = event.after?.shippingStatus ?? event.after?.status
+    setNotice({
+      type: 'success',
+      message: `Đơn ${event.orderCode} vừa cập nhật${nextStatus ? `: ${nextStatus}` : ''}`,
+    })
+  })
+
+  useEffect(() => {
+    if (!realtimeOrderId) return
+    const handle = window.setTimeout(() => setRealtimeOrderId(null), 5_000)
+    return () => window.clearTimeout(handle)
+  }, [realtimeOrderId])
+
+  useEffect(() => {
+    const poll = () => {
+      if (document.visibilityState === 'visible') void loadOrders()
+    }
+    const handle = window.setInterval(poll, 60_000)
+    return () => window.clearInterval(handle)
+  }, [loadOrders])
 
   const openOrder = (order: AdminOrder) => {
     setSelectedOrder(order)
@@ -1535,7 +1564,10 @@ export function OrderListPage({
 
               {!isLoading
                 ? orders.map((order) => (
-                    <tr className={getOrderRowClass(order)} key={order._id}>
+                    <tr
+                      className={`${getOrderRowClass(order)}${realtimeOrderId === order._id ? ' is-realtime-updated' : ''}`}
+                      key={order._id}
+                    >
                       <td>
                         <div className="admin-order-code-cell">
                           <strong>{order.orderCode}</strong>

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
@@ -35,6 +36,15 @@ import type {
 } from '../shipping/shipping.types';
 import { shippingAreaMappingService } from '../shipping/shipping-area-mapping.service';
 import { GHNService } from '../shipping/ghn.service';
+import {
+  emitOrderUpdate,
+  type OrderRealtimeEventType,
+  type OrderShippingMilestone,
+} from '../realtime/order.gateway';
+import {
+  sendShippingUpdatePush,
+  type ShippingPushMilestone,
+} from '../notifications/push-notification.service';
 import type {
   CancelOrderInput,
   CreateOrderInput,
@@ -325,6 +335,57 @@ const runBestEffort = async (context: string, task: Promise<unknown>) => {
     await task;
   } catch (error) {
     logBestEffortFailure(context, error);
+  }
+};
+
+type OrderChangeSnapshot = {
+  status: string;
+  paymentStatus: string;
+  deliveredAt: Date | null;
+  shipping: IOrder['shipping'] | null;
+};
+
+const createOrderChangeSnapshot = (order: IOrder): OrderChangeSnapshot => ({
+  status: order.status,
+  paymentStatus: order.paymentStatus,
+  deliveredAt: order.deliveredAt ?? null,
+  shipping: order.shipping
+    ? ({
+        ...order.shipping,
+        status: order.shipping.status ?? null,
+        trackingCode: order.shipping.trackingCode ?? null,
+      } as IOrder['shipping'])
+    : null,
+});
+
+const triggerOrderStatusChange = async (
+  order: IOrder,
+  before: OrderChangeSnapshot,
+  type: OrderRealtimeEventType,
+  milestone?: OrderShippingMilestone,
+) => {
+  const shippingStatusBefore = before.shipping?.status ?? null;
+  const shippingStatusAfter = order.shipping?.status ?? null;
+  if (before.status === order.status && shippingStatusBefore === shippingStatusAfter) return;
+
+  await runBestEffort(
+    'Failed to emit order realtime event',
+    Promise.resolve(emitOrderUpdate(order, type, {
+      status: before.status,
+      shippingStatus: shippingStatusBefore,
+    }, milestone)),
+  );
+
+  if (milestone && ['picked', 'shipping', 'delivered', 'failed'].includes(milestone)) {
+    await runBestEffort(
+      'Failed to send shipping update push notification',
+      sendShippingUpdatePush({
+        userId: order.user_id.toString(),
+        orderId: order._id.toString(),
+        orderCode: order.orderCode,
+        milestone: milestone as ShippingPushMilestone,
+      }),
+    );
   }
 };
 
@@ -1416,6 +1477,7 @@ const cancelOrder = async (
 ) => {
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId, role);
+  const before = createOrderChangeSnapshot(order);
 
   if (order.status === 'cancelled') {
     throw new SalesServiceError('Order is already cancelled', 400);
@@ -1463,7 +1525,9 @@ const cancelOrder = async (
 
   await rollbackCouponUsageForCancelledOrder(cancelledOrder);
 
-  return clawBackLoyaltyPointsForOrder(cancelledOrder, 'Order cancelled after delivery');
+  const finalOrder = await clawBackLoyaltyPointsForOrder(cancelledOrder, 'Order cancelled after delivery');
+  await triggerOrderStatusChange(finalOrder, before, 'status_update', 'cancelled');
+  return finalOrder;
 };
 
 const confirmOrderReceived = async (userId: string, id: string) => {
@@ -1484,6 +1548,7 @@ const confirmOrderReceived = async (userId: string, id: string) => {
 
   assertOrderStatusTransition(order.status, 'delivered');
   assertPaymentAllowsOrderStatus(order, 'delivered');
+  const before = createOrderChangeSnapshot(order);
   const deliveredAt = new Date();
   order.status = 'delivered';
   order.deliveredAt = deliveredAt;
@@ -1497,7 +1562,9 @@ const confirmOrderReceived = async (userId: string, id: string) => {
     status: 'delivered',
   };
 
-  return saveDeliveredOrderWithLoyaltyAward(order);
+  const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
+  await triggerOrderStatusChange(savedOrder, before, 'status_update', 'delivered');
+  return savedOrder;
 };
 
 const requestReturn = async (userId: string, id: string, input: RequestReturnInput) => {
@@ -1585,13 +1652,14 @@ const updateOrderStatus = async (
     throw new SalesServiceError('Use the return request review workflow for return orders', 400);
   }
 
-  assertOrderStatusTransition(order.status, input.status);
-
   if (order.status === input.status) {
     return order;
   }
 
+  assertOrderStatusTransition(order.status, input.status);
+
   assertPaymentAllowsOrderStatus(order, input.status);
+  const before = createOrderChangeSnapshot(order);
 
   order.status = input.status;
 
@@ -1608,10 +1676,14 @@ const updateOrderStatus = async (
   }
 
   if (input.status === 'delivered') {
-    return saveDeliveredOrderWithLoyaltyAward(order);
+    const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
+    await triggerOrderStatusChange(savedOrder, before, 'status_update', 'delivered');
+    return savedOrder;
   }
 
-  return order.save();
+  const savedOrder = await order.save();
+  await triggerOrderStatusChange(savedOrder, before, 'status_update');
+  return savedOrder;
 };
 
 const getOrderGhnDestination = (order: IOrder) => {
@@ -1779,6 +1851,7 @@ const syncGhnShipment = async (id: string) => {
 
 const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) => {
   const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
   const nextCustomerFee = input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null;
 
   order.shipping = {
@@ -1800,6 +1873,7 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
     estimatedDeliveryDate: input.estimatedDeliveryDate ?? order.shipping?.estimatedDeliveryDate ?? null,
     rawQuote: input.rawQuote ?? order.shipping?.rawQuote ?? null,
     rawShipment: input.rawShipment ?? order.shipping?.rawShipment ?? null,
+    lastWebhookEventId: order.shipping?.lastWebhookEventId ?? null,
   };
 
   if (typeof nextCustomerFee === 'number' && Number.isFinite(nextCustomerFee)) {
@@ -1815,7 +1889,12 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
     );
   }
 
-  return order.save();
+  const savedOrder = await order.save();
+  const milestone = ['picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(savedOrder.shipping?.status ?? '')
+    ? savedOrder.shipping.status as OrderShippingMilestone
+    : undefined;
+  await triggerOrderStatusChange(savedOrder, before, 'shipping_update', milestone);
+  return savedOrder;
 };
 
 const getOrderForShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
@@ -1848,12 +1927,35 @@ const getOrderForShippingWebhook = async (input: SimulatedShippingWebhookInput) 
   throw new SalesServiceError('orderId, trackingCode or orderCode is required', 400);
 };
 
-const createWebhookOrderSnapshot = (order: IOrder) => ({
-  status: order.status,
-  paymentStatus: order.paymentStatus,
-  deliveredAt: order.deliveredAt ?? null,
-  shipping: order.shipping ?? null,
-});
+const createWebhookOrderSnapshot = createOrderChangeSnapshot;
+
+const createShippingWebhookEventId = (input: SimulatedShippingWebhookInput) => crypto
+  .createHash('sha256')
+  .update(JSON.stringify({
+    provider: input.provider ?? null,
+    orderId: input.orderId ?? null,
+    orderCode: input.orderCode ?? null,
+    trackingCode: input.trackingCode ?? null,
+    status: input.status,
+    deliveredAt: input.deliveredAt?.toISOString() ?? null,
+    rawPayload: input.rawPayload ?? null,
+  }))
+  .digest('hex');
+
+const isShippingWebhookAlreadyApplied = (
+  order: IOrder,
+  input: SimulatedShippingWebhookInput,
+  eventId: string,
+) => {
+  if (order.shipping?.lastWebhookEventId === eventId) return true;
+  if (order.shipping?.status !== input.status) return false;
+  if (input.trackingCode?.trim() && order.shipping?.trackingCode !== input.trackingCode.trim()) return false;
+  if (input.provider?.trim() && order.shipping?.provider !== input.provider.trim()) return false;
+  if (input.status === 'delivered') return order.status === 'delivered';
+  if (input.status === 'cancelled') return order.status === 'cancelled';
+  if (['picked', 'shipping', 'failed'].includes(input.status)) return order.status === 'shipping';
+  return order.status === 'packed' || order.status === 'shipping';
+};
 
 const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
   if (!['ready', 'picking', 'picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(input.status)) {
@@ -1863,6 +1965,10 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
   const order = await getOrderForShippingWebhook(input);
   const before = createWebhookOrderSnapshot(order);
   const webhookReason = input.reason?.trim() || `Shipping partner reported ${input.status}`;
+  const webhookEventId = createShippingWebhookEventId(input);
+  if (isShippingWebhookAlreadyApplied(order, input, webhookEventId)) {
+    return { before, order, reason: webhookReason, duplicate: true };
+  }
   let shouldRestockAfterSave = false;
   const nextShipping = {
     ...(order.shipping ?? {}),
@@ -1870,6 +1976,7 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
     trackingCode: input.trackingCode ?? order.shipping?.trackingCode ?? null,
     status: input.status,
     rawShipment: input.rawPayload ?? order.shipping?.rawShipment ?? null,
+    lastWebhookEventId: webhookEventId,
   };
 
   if (input.status === 'ready' || input.status === 'picking') {
@@ -1959,6 +2066,11 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
   const finalOrder = input.status === 'cancelled'
     ? await clawBackLoyaltyPointsForOrder(savedOrder, 'Order cancelled after delivery')
     : savedOrder;
+
+  const milestone = ['picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(input.status)
+    ? input.status as OrderShippingMilestone
+    : undefined;
+  await triggerOrderStatusChange(finalOrder, before, 'shipping_update', milestone);
 
   return {
     before,
