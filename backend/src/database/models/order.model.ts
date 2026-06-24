@@ -94,6 +94,7 @@ export interface IOrderLoyaltyRuleSnapshot {
 }
 
 export interface IOrder extends Document {
+  idempotencyKey?: string | null;
   orderCode: string;
   invoiceCode?: string | null;
   user_id: Types.ObjectId;
@@ -249,6 +250,7 @@ const orderLoyaltyRuleSnapshotSchema = new Schema<IOrderLoyaltyRuleSnapshot>(
 
 const orderSchema = new Schema<IOrder>(
   {
+    idempotencyKey: { type: String, trim: true, default: null, maxlength: 100 },
     orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
     invoiceCode: { type: String, trim: true, default: null, maxlength: 40 },
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -336,6 +338,10 @@ const orderSchema = new Schema<IOrder>(
 );
 
 orderSchema.index({ orderCode: 1 }, { unique: true });
+orderSchema.index(
+  { user_id: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);
 orderSchema.index({ user_id: 1, createdAt: -1 });
 orderSchema.index({ status: 1, paymentMethod: 1, createdAt: -1 });
 

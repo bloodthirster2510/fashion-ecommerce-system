@@ -1061,6 +1061,14 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
 };
 
 const createOrder = async (userId: string, input: CreateOrderInput) => {
+  if (input.idempotencyKey) {
+    const existingOrder = await Order.findOne({
+      user_id: toObjectId(userId, 'userId'),
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (existingOrder) return existingOrder;
+  }
+
   assertSupportedPaymentMethod(input.paymentMethod);
   const normalizedQuoteVersion = requireCheckoutQuoteVersion(input.quoteVersion);
   const selectedPaymentMethod = await paymentMethodService.assertUsablePaymentMethodForCheckout({
@@ -1133,6 +1141,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
 
       const [order] = await Order.create([{
         _id: orderId,
+        idempotencyKey: input.idempotencyKey ?? null,
         orderCode: generateOrderCode(),
         user_id: toObjectId(userId, 'userId'),
         order_list: orderItems,
@@ -1198,6 +1207,17 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         ),
       );
     });
+  } catch (error) {
+    const duplicateKeyError = typeof error === 'object' && error !== null && 'code' in error
+      && (error as { code?: number }).code === 11000;
+    if (!duplicateKeyError || !input.idempotencyKey) throw error;
+
+    const existingOrder = await Order.findOne({
+      user_id: toObjectId(userId, 'userId'),
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (!existingOrder) throw error;
+    createdOrder = existingOrder;
   } finally {
     await session.endSession();
   }

@@ -19,6 +19,7 @@ export * from './review.model';
 export * from './review-helpful-vote.model';
 export * from './promotion-campaign.model';
 export * from './push-token.model';
+export * from './rate-limit-bucket.model';
 export * from './support-canned-response.model';
 export * from './transaction.model';
 export * from './support-message.model';

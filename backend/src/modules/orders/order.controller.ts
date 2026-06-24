@@ -348,7 +348,11 @@ const recordOrderShippingUpdateAudit = async ({
 
 const createOrder = async (req: Request, res: Response) => {
   try {
-    const input = req.body as CreateOrderInput;
+    const idempotencyKey = req.get('Idempotency-Key')?.trim();
+    if (idempotencyKey && !/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey)) {
+      return errorResponse(res, 'Invalid Idempotency-Key', 400);
+    }
+    const input = { ...req.body, idempotencyKey } as CreateOrderInput;
 
     if (!input.cartItemIds?.length || !input.paymentMethod) {
       return errorResponse(res, 'cartItemIds and paymentMethod are required', 400);

@@ -29,6 +29,7 @@ import {
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
+import * as Crypto from 'expo-crypto';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
@@ -874,6 +875,8 @@ const CartScreen = () => {
 
     try {
       setIsSubmitting(true);
+      // Keep the key stable if runWithAuth repeats the action after refreshing the token.
+      const idempotencyKey = Crypto.randomUUID();
       const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         paymentMethod,
@@ -882,7 +885,7 @@ const CartScreen = () => {
         ...getCheckoutAddressPayload(),
         couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
         orderNote: form.note.trim() || undefined,
-      }));
+      }, idempotencyKey));
 
       // Dọn dẹp form ngay sau khi tạo đơn thành công
       setForm((current) => ({ ...current, note: '' }));

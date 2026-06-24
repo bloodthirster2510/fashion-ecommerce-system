@@ -18,6 +18,7 @@ export interface ShippingAddressInput {
 }
 
 export interface CreateOrderInput {
+  idempotencyKey?: string;
   cartItemIds: string[];
   addressId?: string;
   shippingAddress?: ShippingAddressInput;

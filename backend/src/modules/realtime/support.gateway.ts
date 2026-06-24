@@ -166,6 +166,14 @@ class SupportRealtimeGateway {
     return this.io !== null;
   }
 
+  async close() {
+    const io = this.io;
+    this.io = null;
+    if (!io) return;
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+    staffPermissionCache.clear();
+  }
+
   disconnectUser(userId: string) {
     if (!this.io) return;
     this.io.in(`user:${userId}`).disconnectSockets(true);
