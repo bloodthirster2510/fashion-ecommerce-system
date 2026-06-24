@@ -75,6 +75,12 @@ export type RootStackParamList = {
     editReviewId?: string;
     editRating?: number;
     editComment?: string;
+    editCriteria?: {
+      productQuality?: number;
+      descriptionMatch?: number;
+      sizeFit?: 'small' | 'true_to_size' | 'large';
+    } | null;
+    editImages?: Array<{ _id: string | null; url: string; thumbnailUrl: string }>;
   };
   MyReviews: undefined;
   SupportHome: undefined;

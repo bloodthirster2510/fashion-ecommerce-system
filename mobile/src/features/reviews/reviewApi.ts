@@ -6,6 +6,7 @@ import type {
   EligibleReviewItemsResponse,
   MyReviewList,
   PublicReviewList,
+  ReviewCriteria,
   ReviewEligibility,
   ReviewImageDraft,
 } from './review.types';
@@ -46,6 +47,7 @@ export const reviewApi = {
     orderItemId: string;
     rating: number;
     comment: string;
+    criteria?: ReviewCriteria;
     images: ReviewImageDraft[];
   }) => {
     const form = new FormData();
@@ -53,6 +55,7 @@ export const reviewApi = {
     form.append('orderItemId', input.orderItemId);
     form.append('rating', String(input.rating));
     form.append('comment', input.comment);
+    if (input.criteria) form.append('criteria', JSON.stringify(input.criteria));
     input.images.slice(0, 5).forEach((image) => {
       form.append('images', { uri: image.uri, name: image.name, type: image.type } as unknown as Blob);
     });
@@ -63,11 +66,13 @@ export const reviewApi = {
     rating: number;
     comment: string;
     keepImageIds?: string[];
+    criteria?: ReviewCriteria;
     images?: ReviewImageDraft[];
   }) => {
     const form = new FormData();
     form.append('rating', String(input.rating));
     form.append('comment', input.comment);
+    if (input.criteria) form.append('criteria', JSON.stringify(input.criteria));
     if (input.keepImageIds) form.append('keepImageIds', JSON.stringify(input.keepImageIds));
     input.images?.slice(0, 5).forEach((image) => {
       form.append('images', { uri: image.uri, name: image.name, type: image.type } as unknown as Blob);
@@ -79,4 +84,9 @@ export const reviewApi = {
     token,
     { method: 'DELETE' },
   ),
+  toggleHelpful: (token: string, reviewId: string) => request<{
+    reviewId: string;
+    helpfulCount: number;
+    hasVotedHelpful: boolean;
+  }>(`/reviews/${encodeURIComponent(reviewId)}/helpful`, token, { method: 'POST' }),
 };

@@ -1,4 +1,10 @@
 export type ReviewImageDraft = { uri: string; name: string; type: string };
+export type ReviewImage = { _id: string | null; url: string; thumbnailUrl: string };
+export type ReviewCriteria = {
+  productQuality?: number;
+  descriptionMatch?: number;
+  sizeFit?: 'small' | 'true_to_size' | 'large';
+};
 
 export type ReviewEligibility = {
   canReview: boolean;
@@ -19,12 +25,14 @@ export type PublicReview = {
   _id: string;
   rating: number;
   comment: string;
-  images: Array<{ _id: string | null; url: string; thumbnailUrl: string }>;
+  images: ReviewImage[];
+  criteria: ReviewCriteria | null;
   verifiedPurchase: boolean;
   purchasedVariant: { fitType: string; color: string; size: string; sku: string } | null;
   user: { _id: string; name: string | null; avatarImage: string | null };
   adminReply: { content: string; repliedAt: string | null } | null;
   helpfulCount: number;
+  hasVotedHelpful: boolean;
   createdAt: string;
 };
 
@@ -40,6 +48,7 @@ export type PublicReviewList = {
 
 export type MyReview = PublicReview & {
   orderId: string;
+  orderItemId: string;
   moderationStatus: 'pending' | 'visible' | 'hidden';
   moderationReasons: string[];
   product: { _id: string; name: string; image: string };

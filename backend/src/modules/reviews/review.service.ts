@@ -192,6 +192,7 @@ const serializeReview = (review: ReviewView) => {
     _id: review._id.toString(),
     productId: review.product_id.toString(),
     orderId: (order?._id ?? review.order_id).toString(),
+    orderItemId: review.order_item_id.toString(),
     rating: review.rating,
     comment: review.comment,
     criteria: review.criteria ?? null,

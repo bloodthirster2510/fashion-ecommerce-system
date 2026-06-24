@@ -469,11 +469,21 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
                   ))}</div></Image.PreviewGroup>}
                   {review.adminReply && <div className="review-shop-reply"><strong>Phản hồi từ Fashionista</strong><p>{review.adminReply.content}</p>{review.adminReply.repliedAt && <time dateTime={review.adminReply.repliedAt}>{formatReviewDate(review.adminReply.repliedAt)}</time>}</div>}
                   <time dateTime={review.createdAt}>Đã đánh giá vào {formatReviewDate(review.createdAt)}</time>
-                  {currentUser?.role === 'user' && review.user._id !== currentUser._id && (
-                  <button className={review.hasVotedHelpful ? 'review-helpful-button is-active' : 'review-helpful-button'} type="button" disabled={helpfulLoadingId === review._id} onClick={() => void handleHelpful(review._id)}>
+                  <button
+                    className={review.hasVotedHelpful ? 'review-helpful-button is-active' : 'review-helpful-button'}
+                    type="button"
+                    disabled={helpfulLoadingId === review._id || currentUser?.role !== 'user' || review.user._id === currentUser._id}
+                    title={!currentUser
+                      ? 'Đăng nhập để đánh dấu đánh giá hữu ích'
+                      : currentUser.role !== 'user'
+                        ? 'Chỉ tài khoản khách hàng có thể đánh dấu hữu ích'
+                        : review.user._id === currentUser._id
+                          ? 'Bạn không thể đánh dấu đánh giá của chính mình'
+                          : undefined}
+                    onClick={() => void handleHelpful(review._id)}
+                  >
                     Hữu ích ({review.helpfulCount})
                   </button>
-                  )}
                 </div>
               </article>
             ))

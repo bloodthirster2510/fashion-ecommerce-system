@@ -430,6 +430,10 @@ describe('reviewService', () => {
     expect(mockedReview.countDocuments).toHaveBeenCalledWith(expectedFilter);
     expect(findQuery.sort).toHaveBeenCalledWith({ createdAt: 1 });
     expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      orderId: orderId.toString(),
+      orderItemId: orderItemId.toString(),
+    });
   });
 
   it('deduplicates bulk moderation ids and refreshes each affected product rating', async () => {

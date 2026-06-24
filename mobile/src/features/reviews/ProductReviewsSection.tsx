@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -12,6 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
 import { reviewApi } from './reviewApi';
 import type { PublicReview, PublicReviewList } from './review.types';
+import { useAuth } from '../auth/AuthContext';
 
 const PAGE_SIZE = 5;
 const RATINGS = [5, 4, 3, 2, 1] as const;
@@ -53,11 +55,13 @@ const Stars = ({ rating, size = 14 }: { rating: number; size?: number }) => (
 );
 
 export default function ProductReviewsSection({ productId }: { productId: string }) {
+  const { runWithAuth, session } = useAuth();
   const [data, setData] = React.useState<PublicReviewList>(emptyData);
   const [page, setPage] = React.useState(1);
   const [selectedRating, setSelectedRating] = React.useState<number>();
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
+  const [helpfulLoadingId, setHelpfulLoadingId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setPage(1);
@@ -95,6 +99,31 @@ export default function ProductReviewsSection({ productId }: { productId: string
   const distribution = RATINGS.map((rating) => (
     data.summary.distribution.find((item) => item.rating === rating) ?? { rating, count: 0, percent: 0 }
   ));
+
+  const toggleHelpful = async (review: PublicReview) => {
+    if (!session || session.user.role !== 'user') {
+      Alert.alert('Cần đăng nhập', 'Vui lòng đăng nhập bằng tài khoản khách hàng để đánh dấu hữu ích.');
+      return;
+    }
+    if (review.user._id === session.user._id) {
+      Alert.alert('Đánh giá của bạn', 'Bạn không thể đánh dấu đánh giá của chính mình là hữu ích.');
+      return;
+    }
+    setHelpfulLoadingId(review._id);
+    try {
+      const result = await runWithAuth((token) => reviewApi.toggleHelpful(token, review._id));
+      setData((current) => ({
+        ...current,
+        items: current.items.map((item) => item._id === review._id
+          ? { ...item, helpfulCount: result.helpfulCount, hasVotedHelpful: result.hasVotedHelpful }
+          : item),
+      }));
+    } catch (caught) {
+      Alert.alert('Không thể cập nhật', caught instanceof Error ? caught.message : 'Vui lòng thử lại.');
+    } finally {
+      setHelpfulLoadingId(null);
+    }
+  };
 
   return (
     <View>
@@ -164,7 +193,15 @@ export default function ProductReviewsSection({ productId }: { productId: string
         </Text>
       ) : (
         <View style={s.list}>
-          {data.items.map((review) => <ReviewItem key={review._id} review={review} />)}
+          {data.items.map((review) => (
+            <ReviewItem
+              key={review._id}
+              review={review}
+              loading={helpfulLoadingId === review._id}
+              isOwnReview={review.user._id === session?.user._id}
+              onHelpful={() => { void toggleHelpful(review); }}
+            />
+          ))}
         </View>
       )}
 
@@ -201,7 +238,17 @@ function FilterButton({ label, active, onPress }: { label: string; active: boole
   );
 }
 
-function ReviewItem({ review }: { review: PublicReview }) {
+function ReviewItem({
+  review,
+  loading,
+  isOwnReview,
+  onHelpful,
+}: {
+  review: PublicReview;
+  loading: boolean;
+  isOwnReview: boolean;
+  onHelpful: () => void;
+}) {
   return (
     <View style={s.reviewItem}>
       {review.user.avatarImage ? (
@@ -238,6 +285,25 @@ function ReviewItem({ review }: { review: PublicReview }) {
           </View>
         ) : null}
         <Text style={s.date}>Đã đánh giá vào {formatDate(review.createdAt)}</Text>
+        <TouchableOpacity
+          style={[s.helpfulButton, review.hasVotedHelpful && s.helpfulButtonActive, isOwnReview && s.helpfulButtonDisabled]}
+          disabled={loading || isOwnReview}
+          onPress={onHelpful}
+          accessibilityLabel={`Đánh dấu hữu ích, hiện có ${review.helpfulCount} lượt`}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color={colors.brand} />
+          ) : (
+            <MaterialCommunityIcons
+              name={review.hasVotedHelpful ? 'thumb-up' : 'thumb-up-outline'}
+              size={16}
+              color={review.hasVotedHelpful ? colors.brand : colors.textMuted}
+            />
+          )}
+          <Text style={[s.helpfulText, review.hasVotedHelpful && s.helpfulTextActive]}>
+            Hữu ích ({review.helpfulCount})
+          </Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -285,6 +351,11 @@ const s = StyleSheet.create({
   replyTitle: { color: colors.brand, fontWeight: '900', fontSize: 12 },
   replyText: { color: colors.textBody, marginTop: 3, lineHeight: 18 },
   date: { color: colors.textSubtle, fontSize: 11, marginTop: spacing.xs },
+  helpfulButton: { marginTop: spacing.xs, minHeight: 36, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radii.pill, backgroundColor: colors.field },
+  helpfulButtonActive: { backgroundColor: colors.brandSoft },
+  helpfulButtonDisabled: { opacity: 0.5 },
+  helpfulText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  helpfulTextActive: { color: colors.brand },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md },
   pageButton: { minWidth: 88, height: 38, borderRadius: radii.xs, borderWidth: 1, borderColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   pageButtonDisabled: { borderColor: colors.border, backgroundColor: colors.field },
