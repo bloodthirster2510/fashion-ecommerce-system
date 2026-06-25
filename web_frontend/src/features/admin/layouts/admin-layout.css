@@ -35,18 +35,26 @@
 
 .admin-brand {
   display: grid;
-  gap: 6px;
-  padding: 0 12px 24px;
+  gap: 10px;
+  justify-items: start;
+  padding: 0 12px 28px;
 }
 
-.admin-brand strong {
-  color: #fff8eb;
-  font-size: 22px;
-  font-weight: 900;
-  line-height: 1;
+.admin-sidebar-logo {
+  width: 228px;
+  height: 80px;
+  display: block;
+  overflow: hidden;
 }
 
-.admin-brand span {
+.admin-sidebar-logo img {
+  width: 310px;
+  max-width: none;
+  display: block;
+  transform: translate(-38px, -54px);
+}
+
+.admin-brand > span:not(.admin-sidebar-logo) {
   color: var(--admin-sidebar-muted);
   font-size: 12px;
   font-weight: 700;
@@ -667,7 +675,18 @@
   }
 
   .admin-brand {
-    padding: 0 0 16px;
+    padding: 0 0 18px;
+  }
+
+  .admin-sidebar-logo {
+    width: 238px;
+    height: 82px;
+  }
+
+  .admin-sidebar-logo img {
+    width: 320px;
+    max-width: none;
+    transform: translate(-39px, -56px);
   }
 
   .admin-nav {

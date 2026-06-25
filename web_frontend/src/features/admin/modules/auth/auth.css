@@ -34,40 +34,28 @@
 
 .admin-login-brand {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 46px;
+  align-items: flex-start;
+  margin-bottom: 18px;
 }
 
-.admin-login-mark {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: #fff;
-  background: #1f2d3d;
-  font-size: 22px;
-  font-weight: 900;
+.admin-login-logo {
+  width: 360px;
+  height: 118px;
+  display: block;
+  overflow: hidden;
+}
+
+.admin-login-logo img {
+  width: 460px;
+  max-width: none;
+  display: block;
+  transform: translate(-56px, -80px);
 }
 
 .admin-login-brand div,
 .admin-login-heading {
   display: grid;
   gap: 4px;
-}
-
-.admin-login-brand strong {
-  color: #1f2d3d;
-  font-size: 18px;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.admin-login-brand span:not(.admin-login-mark) {
-  color: #718293;
-  font-size: 13px;
-  font-weight: 800;
 }
 
 .admin-login-heading {

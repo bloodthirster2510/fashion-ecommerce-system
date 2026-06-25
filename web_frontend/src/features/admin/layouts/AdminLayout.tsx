@@ -22,6 +22,7 @@ import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
 import { useNotificationSummary } from '../notifications/notification-summary-context'
 import type { NotificationSummary } from '../notifications/notification-summary.types'
+import shopNameImage from '../../../assets/images/ShopName.png'
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -308,7 +309,9 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     <main className="admin-layout">
       <aside className="admin-sidebar" aria-label="Admin navigation">
         <div className="admin-brand">
-          <strong>FASHIONISTA</strong>
+          <span className="admin-sidebar-logo">
+            <img src={shopNameImage} alt="CD Shop" />
+          </span>
           <span>Admin Workspace</span>
         </div>
 

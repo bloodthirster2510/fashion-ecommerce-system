@@ -5,6 +5,7 @@ import {
 } from './adminSession'
 import { loginAdmin } from './auth.service'
 import type { AdminSession } from './auth.types'
+import shopNameImage from '../../../../assets/images/ShopName.png'
 import './auth.css'
 
 type AdminLoginProps = {
@@ -76,13 +77,9 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
     <main className="admin-login-page">
       <section className="admin-login-panel" aria-label="Đăng nhập quản trị">
         <div className="admin-login-brand">
-          <span className="admin-login-mark" aria-hidden="true">
-            F
+          <span className="admin-login-logo">
+            <img src={shopNameImage} alt="CD Shop" />
           </span>
-          <div>
-            <strong>FASHIONISTA</strong>
-            <span>Admin Portal</span>
-          </div>
         </div>
 
         <div className="admin-login-heading">
