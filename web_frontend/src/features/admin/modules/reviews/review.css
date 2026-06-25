@@ -29,7 +29,9 @@
 .admin-reviews-table tbody tr:hover { background: #f7fafc; }
 .admin-review-product { width: 178px; display: flex; align-items: center; gap: 9px; }
 .admin-review-product img { width: 42px; height: 50px; flex: 0 0 auto; border-radius: 7px; background: #eef1f3; object-fit: cover; }
+.admin-review-product > div { min-width: 0; display: grid; gap: 4px; }
 .admin-review-product strong { overflow: hidden; display: -webkit-box; font-size: 13px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.admin-review-product small { overflow: hidden; display: -webkit-box; color: var(--admin-muted); font-size: 11px; font-weight: 700; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .admin-review-user { width: 165px; display: flex; align-items: center; gap: 8px; }
 .admin-review-user > span,.admin-review-user > img { width: 32px; height: 32px; display: block; flex: 0 0 auto; border-radius: 50%; object-fit: cover; }
 .admin-review-user > span { margin: 0!important; background: radial-gradient(circle at 50% 34%,#e9f1f6 0 4px,transparent 4.5px),radial-gradient(ellipse at 50% 78%,#e9f1f6 0 8px,transparent 8.5px),#658aa2; }

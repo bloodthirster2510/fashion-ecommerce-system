@@ -303,3 +303,9 @@ export const deleteReviewReply = async (req: Request, res: Response) => {
     return ok(res, await reviewService.deleteReviewReply(req.params.id as string, getAdminActor(req)));
   } catch (error) { return handleError(res, error); }
 };
+
+export const deletePendingReviewAsAdmin = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await reviewService.deletePendingReviewAsAdmin(req.params.id as string));
+  } catch (error) { return handleError(res, error); }
+};

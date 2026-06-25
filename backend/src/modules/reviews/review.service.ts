@@ -1,11 +1,14 @@
 import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
+  Category,
   Order,
   Product,
   Review,
   ReviewHelpfulVote,
   User,
+  type ICategoryFitType,
   type IOrderItem,
+  type IProductVariant,
   type IReviewImage,
 } from '../../database/models';
 import { auditLogService } from '../audit-logs/audit-log.service';
@@ -41,6 +44,7 @@ type ProductView = {
 
 type ReviewOrderView = {
   _id: Types.ObjectId;
+  orderCode?: string;
   order_list: IOrderItem[];
 };
 
@@ -83,6 +87,8 @@ type EligibleReviewView = {
   helpfulCount?: number;
   createdAt: Date;
 };
+
+type IdLike = Types.ObjectId | string | { toString(): string } | null | undefined;
 
 export class ReviewServiceError extends Error {
   constructor(message: string, public readonly statusCode: number) {
@@ -749,6 +755,30 @@ const deleteReview = async (userIdValue: string, reviewIdValue: string) => {
   return { reviewId: result.reviewId, deleted: result.deleted };
 };
 
+const deletePendingReviewAsAdmin = async (reviewIdValue: string) => {
+  const reviewId = toObjectId(reviewIdValue, 'reviewId');
+  const result = await withReviewTransaction(async (session) => {
+    const review = await Review.findById(reviewId).session(session);
+    if (!review) throw new ReviewServiceError('Review not found', 404);
+    if ((review.moderationStatus ?? 'visible') !== 'pending') {
+      throw new ReviewServiceError('Only pending reviews can be deleted by moderation', 409);
+    }
+
+    await Review.deleteOne({ _id: reviewId }, { session });
+    await ReviewHelpfulVote.deleteMany({ review_id: reviewId }, { session });
+    await refreshProductRating(review.product_id, session);
+    return {
+      reviewId: review._id.toString(),
+      images: ((review.images ?? []) as Array<IReviewImage | string>).filter(
+        (image): image is IReviewImage => typeof image !== 'string',
+      ),
+    };
+  });
+
+  if (result.images.length) await cleanupReviewImages(result.images);
+  return { reviewId: result.reviewId, deleted: true };
+};
+
 const toggleHelpfulVote = async (userIdValue: string, reviewIdValue: string) => {
   const userId = toObjectId(userIdValue, 'userId');
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
@@ -786,6 +816,84 @@ const toggleHelpfulVote = async (userIdValue: string, reviewIdValue: string) => 
 };
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const toIdString = (value: IdLike) => value?.toString() ?? '';
+
+const isObjectIdText = (value?: string) => Boolean(
+  value && /^[a-f\d]{24}$/i.test(value) && Types.ObjectId.isValid(value),
+);
+
+const resolveReviewOrderFitTypeLabels = async (orders: ReviewOrderView[]) => {
+  const items = orders.flatMap((order) => order.order_list ?? [])
+    .filter((item) => isObjectIdText(item.fitType));
+
+  if (!items.length) return;
+
+  const fitTypeIds = Array.from(new Set(items.map((item) => item.fitType)))
+    .filter((id): id is string => Boolean(id) && Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+  const directCategories = fitTypeIds.length
+    ? await Category.find({ 'fitTypes._id': { $in: fitTypeIds } }).select('fitTypes').lean()
+    : [];
+  const labelByFitTypeId = new Map<string, string>();
+
+  directCategories.forEach((category) => {
+    category.fitTypes?.forEach((fitType: ICategoryFitType) => {
+      labelByFitTypeId.set(toIdString(fitType._id), fitType.label);
+    });
+  });
+
+  const productIds = Array.from(new Set(items.map((item) => toIdString(item.productId))))
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } })
+      .select('category_id variant._id variant.fitTypeId')
+      .lean()
+    : [];
+  const categoryIds = Array.from(new Set([
+    ...products.map((product) => toIdString(product.category_id)),
+    ...items.map((item) => item.fitType),
+  ]))
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+  const categories = categoryIds.length
+    ? await Category.find({ _id: { $in: categoryIds } }).select('fitTypes').lean()
+    : [];
+  const fitTypeLabelByCategory = new Map<string, string>();
+
+  categories.forEach((category) => {
+    category.fitTypes?.forEach((fitType: ICategoryFitType) => {
+      fitTypeLabelByCategory.set(`${toIdString(category._id)}:${toIdString(fitType._id)}`, fitType.label);
+      labelByFitTypeId.set(toIdString(fitType._id), fitType.label);
+    });
+  });
+
+  const fitTypeLabelByProductVariant = new Map<string, string>();
+  products.forEach((product) => {
+    product.variant.forEach((variant: IProductVariant) => {
+      const fitTypeId = toIdString(variant.fitTypeId);
+      const label = fitTypeLabelByCategory.get(`${toIdString(product.category_id)}:${fitTypeId}`);
+
+      if (label) {
+        fitTypeLabelByProductVariant.set(`${toIdString(product._id)}:${toIdString(variant._id)}`, label);
+      }
+    });
+  });
+
+  orders.forEach((order) => {
+    order.order_list?.forEach((item) => {
+      if (!isObjectIdText(item.fitType)) return;
+
+      const label = labelByFitTypeId.get(item.fitType)
+        ?? fitTypeLabelByProductVariant.get(`${toIdString(item.productId)}:${toIdString(item.variantId)}`);
+      if (label) {
+        item.fitType = label;
+      }
+    });
+  });
+};
 
 const listAdminReviews = async (query: AdminReviewListQueryInput = {}) => {
   const { page, limit } = normalizePagination(query);
@@ -831,7 +939,7 @@ const listAdminReviews = async (query: AdminReviewListQueryInput = {}) => {
     Review.find(filter)
       .populate('product_id', '_id name product_image')
       .populate('user_id', '_id name email avatarImage')
-      .populate('order_id', '_id orderCode')
+      .populate('order_id', '_id orderCode order_list')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -851,26 +959,36 @@ const listAdminReviews = async (query: AdminReviewListQueryInput = {}) => {
     Product.find().select('_id name').sort({ name: 1 }).lean(),
   ]);
 
+  await resolveReviewOrderFitTypeLabels(
+    reviews
+      .map((review) => review.order_id as unknown as ReviewOrderView | null)
+      .filter((order): order is ReviewOrderView => Boolean(order?.order_list)),
+  );
+
   const summary = summaryRows[0] ?? { total: 0, high: 0, low: 0, pending: 0 };
   return {
-    items: reviews.map((review) => ({
-      _id: review._id.toString(),
-      product: review.product_id ? {
-        _id: review.product_id._id.toString(), name: review.product_id.name, image: review.product_id.product_image,
-      } : null,
-      user: review.user_id ? {
-        _id: review.user_id._id.toString(), name: review.user_id.name, email: review.user_id.email, avatarImage: review.user_id.avatarImage ?? null,
-      } : null,
-      order: review.order_id ? { _id: review.order_id._id.toString(), orderCode: review.order_id.orderCode } : null,
-      rating: review.rating,
-      comment: review.comment,
-      images: serializeImages(review.images as Array<IReviewImage | string> | undefined),
-      status: review.moderationStatus ?? 'visible',
-      moderationReasons: review.moderationReasons ?? [],
-      adminReply: review.adminReply ?? null,
-      repliedAt: review.repliedAt ?? null,
-      createdAt: review.createdAt,
-    })),
+    items: reviews.map((review) => {
+      const order = review.order_id as unknown as ReviewOrderView | null;
+      const orderItem = order?.order_list?.find((item) => item._id.toString() === review.order_item_id.toString());
+      return {
+        _id: review._id.toString(),
+        product: review.product_id ? {
+          _id: review.product_id._id.toString(), name: review.product_id.name, image: review.product_id.product_image,
+        } : null,
+        user: review.user_id ? {
+          _id: review.user_id._id.toString(), name: review.user_id.name, email: review.user_id.email, avatarImage: review.user_id.avatarImage ?? null,
+        } : null,
+        order: order ? { _id: order._id.toString(), orderCode: order.orderCode, item: orderItem ?? null } : null,
+        rating: review.rating,
+        comment: review.comment,
+        images: serializeImages(review.images as Array<IReviewImage | string> | undefined),
+        status: review.moderationStatus ?? 'visible',
+        moderationReasons: review.moderationReasons ?? [],
+        adminReply: review.adminReply ?? null,
+        repliedAt: review.repliedAt ?? null,
+        createdAt: review.createdAt,
+      };
+    }),
     summary,
     products: products.map((product) => ({ _id: product._id.toString(), name: product.name })),
     pagination: { page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
@@ -896,6 +1014,9 @@ const getAdminReviewDetail = async (reviewIdValue: string) => {
     .lean();
   if (!review) throw new ReviewServiceError('Review not found', 404);
   const order = review.order_id as unknown as ReviewOrderView & { orderCode?: string };
+  if (order?.order_list) {
+    await resolveReviewOrderFitTypeLabels([order]);
+  }
   const orderItem = order.order_list?.find((item) => item._id.toString() === review.order_item_id.toString());
   return {
     _id: review._id.toString(),
@@ -1123,6 +1244,7 @@ export const reviewService = {
   createReview,
   updateReview,
   deleteReview,
+  deletePendingReviewAsAdmin,
   toggleHelpfulVote,
   listAdminReviews,
   getAdminReviewDetail,

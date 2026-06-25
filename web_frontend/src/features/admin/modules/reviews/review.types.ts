@@ -4,7 +4,11 @@ export type AdminReview = {
   _id: string
   product: { _id: string; name: string; image?: string } | null
   user: { _id: string; name?: string; email?: string; avatarImage?: string | null } | null
-  order: { _id: string; orderCode?: string } | null
+  order: {
+    _id: string
+    orderCode?: string
+    item?: { color?: string; size?: string; fitType?: string; sku?: string } | null
+  } | null
   rating: number
   comment: string
   images: Array<{
@@ -31,9 +35,6 @@ export type AdminReviewDetail = AdminReview & {
     actorRole: 'system' | 'admin' | 'staff'
     createdAt: string
   }>
-  order: (NonNullable<AdminReview['order']> & {
-    item?: { color?: string; size?: string; fitType?: string; sku?: string } | null
-  }) | null
   updatedAt: string
 }
 

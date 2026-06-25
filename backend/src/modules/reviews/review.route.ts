@@ -10,6 +10,7 @@ import { uploadMultiple, withMulterErrorHandling } from '../../middlewares/uploa
 import {
   createReview,
   deleteReviewReply,
+  deletePendingReviewAsAdmin,
   deleteReview,
   getReviewEligibility,
   listEligibleReviewItems,
@@ -64,6 +65,7 @@ adminReviewRouter.patch('/bulk-status', requirePermission('reviews.moderate'), u
 adminReviewRouter.patch('/:id/status', requirePermission('reviews.moderate'), updateModerationStatus);
 adminReviewRouter.put('/:id/reply', requirePermission('reviews.reply'), replyToReview);
 adminReviewRouter.delete('/:id/reply', requirePermission('reviews.reply'), deleteReviewReply);
+adminReviewRouter.delete('/:id', requirePermission('reviews.moderate'), deletePendingReviewAsAdmin);
 
 export { adminReviewRouter };
 export default router;

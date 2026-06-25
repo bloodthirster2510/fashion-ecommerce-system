@@ -42,3 +42,8 @@ export const deleteReviewReply = (id: string) =>
   requestAdmin<{ reviewId: string; deleted: true }>(`/admin/reviews/${id}/reply`, {
     method: 'DELETE',
   })
+
+export const deletePendingReview = (id: string) =>
+  requestAdmin<{ reviewId: string; deleted: true }>(`/admin/reviews/${id}`, {
+    method: 'DELETE',
+  })
