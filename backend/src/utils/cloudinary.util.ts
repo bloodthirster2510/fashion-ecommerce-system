@@ -20,7 +20,7 @@ export const uploadToCloudinary = async (
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        resource_type: 'auto',
+        resource_type: 'image',
         folder,
         public_id: `${Date.now()}-${fileName.replace(/\.[^.]+$/, '')}`,
         overwrite: true,

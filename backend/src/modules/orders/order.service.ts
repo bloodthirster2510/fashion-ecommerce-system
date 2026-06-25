@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
+  Category,
   Inventory,
   LoyaltyPointHistory,
   Order,
@@ -8,6 +9,8 @@ import {
   Transaction,
   User,
   type IOrder,
+  type ICategoryFitType,
+  type IProductVariant,
   type OrderPaymentStatus,
   type IUserAddress,
   type OrderPaymentMethod,
@@ -431,6 +434,77 @@ const toOrderItem = (item: CheckoutOrderItem) => ({
   priceAtPurchased: item.priceAtPurchased,
 });
 
+type IdLike = Types.ObjectId | string | { toString(): string };
+type OrderItemLike = {
+  productId?: IdLike;
+  variantId?: IdLike;
+  fitType?: string;
+};
+type OrderLike = {
+  order_list?: OrderItemLike[];
+};
+
+const isObjectIdText = (value?: string) => Boolean(
+  value && /^[a-f\d]{24}$/i.test(value) && Types.ObjectId.isValid(value),
+);
+
+const resolveOrderFitTypeLabels = async <T extends OrderLike>(orders: T[]) => {
+  const items = orders.flatMap((order) => order.order_list ?? [])
+    .filter((item) => isObjectIdText(item.fitType));
+
+  if (!items.length) {
+    return orders;
+  }
+
+  const productIds = Array.from(new Set(items.map((item) => toIdString(item.productId))))
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+
+  if (!productIds.length) {
+    return orders;
+  }
+
+  const products = await Product.find({ _id: { $in: productIds } }).select('category_id variant._id variant.fitTypeId');
+  const categoryIds = Array.from(new Set(products.map((product) => toIdString(product.category_id))))
+    .filter((id) => Types.ObjectId.isValid(id))
+    .map((id) => new Types.ObjectId(id));
+  const categories = await Category.find({ _id: { $in: categoryIds } }).select('fitTypes');
+  const fitTypeLabelByCategory = new Map<string, string>();
+
+  categories.forEach((category) => {
+    category.fitTypes?.forEach((fitType: ICategoryFitType) => {
+      fitTypeLabelByCategory.set(`${toIdString(category._id)}:${toIdString(fitType._id)}`, fitType.label);
+    });
+  });
+
+  const fitTypeLabelByProductVariant = new Map<string, string>();
+  products.forEach((product) => {
+    product.variant.forEach((variant: IProductVariant) => {
+      const fitTypeId = toIdString(variant.fitTypeId);
+      const label = fitTypeLabelByCategory.get(`${toIdString(product.category_id)}:${fitTypeId}`);
+
+      if (label) {
+        fitTypeLabelByProductVariant.set(`${toIdString(product._id)}:${toIdString(variant._id)}`, label);
+      }
+    });
+  });
+
+  orders.forEach((order) => {
+    order.order_list?.forEach((item) => {
+      if (!isObjectIdText(item.fitType)) {
+        return;
+      }
+
+      const label = fitTypeLabelByProductVariant.get(`${toIdString(item.productId)}:${toIdString(item.variantId)}`);
+      if (label) {
+        item.fitType = label;
+      }
+    });
+  });
+
+  return orders;
+};
+
 const toOrderShippingSnapshot = (shippingQuote: ShippingQuoteResult) => ({
   provider: shippingQuote.provider,
   serviceId: shippingQuote.serviceId,
@@ -810,18 +884,35 @@ const toShippingAddressSnapshot = (address: ShippingAddressInput): ShippingAddre
   const provinceId = toNullablePositiveInteger(address.provinceId);
   const districtId = toNullablePositiveInteger(address.districtId);
   const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields(address);
+  const requireAddressText = (value: unknown, fieldLabel: string) => {
+    const normalized = trimOptional(value);
+
+    if (!normalized) {
+      throw new SalesServiceError(`Shipping address is missing ${fieldLabel}`, 400);
+    }
+
+    return normalized;
+  };
+  // Tài khoản được tạo trước khi bổ sung mã hành chính có thể chưa có wardCode.
+  // Mapping theo tên địa phương vẫn đủ để khôi phục mã và tính phí vận chuyển.
+  const wardCode = trimOptional(address.wardCode)
+    ?? trimOptional(resolvedGhnFields.mapping?.wardCode)
+    ?? trimOptional(resolvedGhnFields.ghnWardCode)
+    ?? 'LEGACY';
 
   return {
-    customerName: address.customerName.trim(),
-    province: address.province.trim(),
-    provinceCode: trimOptional(address.provinceCode) ?? (provinceId ? String(provinceId) : null),
+    customerName: requireAddressText(address.customerName, 'customer name'),
+    province: requireAddressText(address.province, 'province'),
+    provinceCode: trimOptional(address.provinceCode)
+      ?? trimOptional(resolvedGhnFields.mapping?.provinceCode)
+      ?? (provinceId ? String(provinceId) : null),
     provinceId,
     district: trimOptional(address.district),
     districtId,
-    ward: address.ward.trim(),
-    wardCode: address.wardCode.trim(),
-    streetName: address.streetName.trim(),
-    phoneNumber: address.phoneNumber.trim(),
+    ward: requireAddressText(address.ward, 'ward'),
+    wardCode,
+    streetName: requireAddressText(address.streetName, 'street name'),
+    phoneNumber: requireAddressText(address.phoneNumber, 'phone number'),
     ghnProvinceId: resolvedGhnFields.ghnProvinceId,
     ghnDistrictId: resolvedGhnFields.ghnDistrictId,
     ghnWardCode: resolvedGhnFields.ghnWardCode,
@@ -1365,9 +1456,10 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
     buildStatusSummary(filter),
     buildOperationalSummary(filter),
   ]);
+  const resolvedItems = await resolveOrderFitTypeLabels(items);
 
   return {
-    items,
+    items: resolvedItems,
     statusSummary,
     operationalSummary,
     pagination: {
@@ -1393,9 +1485,10 @@ const getOrders = async (query: OrderListQueryInput) => {
     buildStatusSummary(filter),
     buildOperationalSummary(filter),
   ]);
+  const resolvedItems = await resolveOrderFitTypeLabels(items);
 
   return {
-    items,
+    items: resolvedItems,
     statusSummary,
     operationalSummary,
     pagination: {
@@ -1411,7 +1504,8 @@ const getOrderById = async (userId: string, role: string | undefined, id: string
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId, role);
 
-  return order;
+  const [resolvedOrder] = await resolveOrderFitTypeLabels([order.toObject()]);
+  return resolvedOrder;
 };
 
 const getOrderTransactions = async (userId: string, role: string | undefined, id: string) => {
