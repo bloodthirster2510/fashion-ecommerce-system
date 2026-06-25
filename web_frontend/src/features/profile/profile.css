@@ -62,6 +62,39 @@
   background: var(--color-light);
 }
 
+.user-card-avatar {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
+.avatar-update-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.92;
+}
+
+.avatar-update-button:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.avatar-update-button.is-loading {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+.avatar-update-button input {
+  display: none;
+}
+
 .user-card strong,
 .user-card span {
   display: block;
@@ -151,6 +184,82 @@
   min-height: 76px;
 }
 
+.account-address-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.account-address-fields h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.account-address-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-address-list {
+  display: grid;
+  gap: 12px;
+}
+
+.account-address-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #d7e0e8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgba(33, 52, 72, 0.1);
+}
+
+.account-address-card.is-default {
+  border-color: var(--accent);
+  background: #f5f9fb;
+}
+
+.account-address-card strong,
+.account-address-card span,
+.account-address-card em {
+  display: block;
+}
+
+.account-address-card strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.account-address-card span {
+  margin-top: 2px;
+  color: #687789;
+  font-size: 13px;
+}
+
+.account-address-card p {
+  margin: 8px 0 0;
+  color: #3d4a57;
+  line-height: 1.45;
+}
+
+.account-address-card em {
+  margin-top: 8px;
+  color: #087a45;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.account-address-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .field-hint {
   margin: 4px 0 0;
   color: var(--muted);
@@ -164,6 +273,353 @@
   color: #1f5bbf;
 }
 
+.account-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.account-section-heading h1 {
+  margin: 0;
+}
+
+.account-order-list {
+  display: grid;
+  gap: 16px;
+}
+
+.account-order-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #d7e0e8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(33, 52, 72, 0.12);
+}
+
+.account-order-card:hover {
+  border-color: rgba(53, 88, 114, 0.34);
+  box-shadow: 0 14px 30px rgba(33, 52, 72, 0.18);
+}
+
+.account-order-card .ant-btn {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.account-order-card .ant-btn:hover,
+.account-order-card .ant-btn:focus-visible {
+  border-color: var(--accent-dark) !important;
+  background: var(--accent-dark) !important;
+  color: #fff !important;
+}
+
+.account-order-card > header,
+.account-order-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.account-order-card h2 {
+  margin: 0 0 5px;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.account-order-card header span,
+.account-order-item span {
+  color: #687789;
+  font-size: 13px;
+}
+
+.account-order-status {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.account-order-status.processing {
+  color: #9a6500;
+  background: #fff1c8;
+}
+
+.account-order-status.shipping {
+  color: #3157d6;
+  background: #e4eaff;
+}
+
+.account-order-status.delivered {
+  color: #087a45;
+  background: #daf5e7;
+}
+
+.account-order-status.cancelled,
+.account-order-status.returning,
+.account-order-status.returned {
+  color: #a8333c;
+  background: #ffe3e5;
+}
+
+.account-order-items {
+  display: grid;
+  border-top: 1px solid #edf0f3;
+  border-bottom: 1px solid #edf0f3;
+}
+
+.account-order-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.account-order-item + .account-order-item {
+  border-top: 1px solid #edf0f3;
+}
+
+.account-order-item .ant-image {
+  width: 64px;
+  height: 64px;
+}
+
+.account-order-image {
+  width: 64px !important;
+  height: 64px !important;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #e7ebef;
+}
+
+.account-order-item strong,
+.account-order-item span {
+  display: block;
+}
+
+.account-order-item strong {
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+
+.account-order-item b {
+  color: var(--accent-dark);
+  white-space: nowrap;
+}
+
+.account-order-card > footer {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.account-order-card > footer strong {
+  color: var(--accent-dark);
+  font-size: 20px;
+}
+
+.account-ranking {
+  display: grid;
+  gap: 22px;
+}
+
+.membership-rank-hero {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  min-height: 178px;
+  padding: 32px 40px 28px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(105deg, var(--accent), #a9c9d1);
+  color: #f6eddb;
+}
+
+.membership-rank-hero > div {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  width: min(100%, 560px);
+}
+
+.membership-rank-hero span,
+.membership-rank-hero p {
+  margin: 0;
+  font-size: 15px;
+}
+
+.membership-rank-hero strong {
+  font-size: 34px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.membership-rank-icon {
+  position: absolute;
+  top: 48px;
+  right: 56px;
+  color: #f6eddb;
+  font-size: 72px;
+  opacity: 0.95;
+}
+
+.membership-rank-hero .ant-progress {
+  position: relative;
+  z-index: 1;
+}
+
+.membership-rank-table {
+  overflow: hidden;
+  border: 1px solid #d7e0e8;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.membership-rank-row {
+  display: grid;
+  grid-template-columns: 1fr 1.9fr 1.4fr;
+  align-items: center;
+  min-height: 58px;
+  border-top: 1px solid #edf0f3;
+}
+
+.membership-rank-row:first-child {
+  border-top: 0;
+}
+
+.membership-rank-row.is-head {
+  min-height: 50px;
+  background: #f7f9fb;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.membership-rank-row.is-current {
+  background: #fff9e8;
+}
+
+.membership-rank-row > span {
+  min-width: 0;
+  padding: 16px 22px;
+  color: #4d5d6e;
+  line-height: 1.35;
+}
+
+.membership-rank-row strong {
+  color: var(--ink);
+}
+
+.membership-rank-row.is-current strong {
+  color: var(--accent);
+}
+
+.membership-rank-row em {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.membership-rank-note {
+  border-color: #b8d5ff;
+  background: #eef6ff;
+  color: #1f5bbf;
+  font-weight: 600;
+}
+
+.account-coupons {
+  display: grid;
+  gap: 22px;
+}
+
+.account-coupon-list {
+  display: grid;
+  gap: 16px;
+}
+
+.account-coupon-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  min-height: 144px;
+  padding: 28px 34px;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f5ecdc 0%, #fff 100%);
+}
+
+.account-coupon-card.is-disabled {
+  opacity: 0.68;
+}
+
+.account-coupon-main {
+  display: grid;
+  gap: 6px;
+}
+
+.account-coupon-main h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.account-coupon-main h2 .anticon {
+  color: var(--accent);
+}
+
+.account-coupon-main strong {
+  color: var(--accent);
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.account-coupon-main span {
+  color: #637284;
+  font-size: 15px;
+}
+
+.account-coupon-main em {
+  margin-top: 4px;
+  color: #a8333c;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.account-coupon-card .ant-btn {
+  min-width: 118px;
+  height: 46px;
+  border-radius: 8px;
+  border-color: var(--accent);
+  background: var(--accent);
+  font-weight: 700;
+}
+
+.account-coupon-card .ant-btn:hover,
+.account-coupon-card .ant-btn:focus-visible {
+  border-color: var(--accent-dark) !important;
+  background: var(--accent-dark) !important;
+}
+
 @media (max-width: 820px) {
   .account-page {
     padding: 24px 16px 32px;
@@ -172,5 +628,61 @@
   .account-shell,
   .account-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .account-order-card > header,
+  .account-order-card > footer,
+  .account-section-heading,
+  .account-address-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .account-address-card {
+    grid-template-columns: 1fr;
+  }
+
+  .account-address-actions {
+    justify-content: flex-start;
+  }
+
+  .membership-rank-hero {
+    padding: 24px;
+  }
+
+  .membership-rank-icon {
+    position: static;
+    font-size: 52px;
+  }
+
+  .membership-rank-row {
+    grid-template-columns: 1fr;
+  }
+
+  .membership-rank-row > span {
+    padding: 10px 16px;
+  }
+
+  .account-coupon-card {
+    grid-template-columns: 1fr;
+    padding: 22px;
+  }
+
+  .account-coupon-card .ant-btn {
+    width: 100%;
+  }
+
+  .account-order-item {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .account-order-item b {
+    grid-column: 2;
+  }
+
+  .account-order-item .ant-image,
+  .account-order-image {
+    width: 56px !important;
+    height: 56px !important;
   }
 }
