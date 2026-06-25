@@ -23,6 +23,7 @@ import { AccountOrdersPage } from '../features/profile/pages/AccountOrdersPage'
 import { MyReviewsPage } from '../features/profile/pages/MyReviewsPage'
 import { HomePage } from '../features/home/pages/HomePage'
 import { CartPage } from '../features/cart/pages/CartPage'
+import { OrderDetailPage } from '../features/orders/pages/OrderDetailPage'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
@@ -163,6 +164,11 @@ export function Router() {
 
     if (path === '/cart' || path === '/cart/') {
       return <CartPage />
+    }
+
+    const orderDetailMatch = path.match(/^\/orders\/([^/]+)\/?$/)
+    if (orderDetailMatch) {
+      return <OrderDetailPage orderId={decodeURIComponent(orderDetailMatch[1])} />
     }
 
     if (/^\/products\/[^/]+\/?$/.test(path)) {
