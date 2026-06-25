@@ -149,7 +149,8 @@ const sanitizeMetadata = (value: unknown) => {
 };
 
 const getSensitiveSafeInput = <T extends { accountNumber?: string | null }>(input: T) => {
-  const { accountNumber: _accountNumber, ...safeInput } = input;
+  const safeInput = { ...input };
+  delete safeInput.accountNumber;
   return safeInput as Record<string, unknown>;
 };
 
