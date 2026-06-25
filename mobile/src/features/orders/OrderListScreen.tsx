@@ -227,7 +227,7 @@ const OrderListScreen = () => {
       void loadOrders(activeStatus);
     },
     [activeStatus, loadOrders],
-    { staleMs: 30 * 1000 },
+    { runOnDepsChange: true, staleMs: 30 * 1000 },
   );
 
   useOrderRealtime(session?.accessToken, () => {

@@ -3,24 +3,33 @@ import { useFocusEffect } from '@react-navigation/native';
 
 type Options = {
   enabled?: boolean;
+  runOnDepsChange?: boolean;
   staleMs: number;
 };
 
 export const useStaleFocusEffect = (
   callback: () => void,
   deps: React.DependencyList,
-  { enabled = true, staleMs }: Options,
+  { enabled = true, runOnDepsChange = false, staleMs }: Options,
 ) => {
   const lastRunRef = React.useRef(0);
+  const lastDepsRef = React.useRef<React.DependencyList | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
       if (!enabled) return;
-      if (Date.now() - lastRunRef.current < staleMs) return;
+      const hasDepsChanged =
+        runOnDepsChange &&
+        (!lastDepsRef.current ||
+          lastDepsRef.current.length !== deps.length ||
+          deps.some((dep, index) => !Object.is(dep, lastDepsRef.current?.[index])));
+
+      if (!hasDepsChanged && Date.now() - lastRunRef.current < staleMs) return;
+      lastDepsRef.current = deps;
       lastRunRef.current = Date.now();
       callback();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [enabled, staleMs, ...deps]),
+    }, [enabled, runOnDepsChange, staleMs, ...deps]),
   );
 };
 
