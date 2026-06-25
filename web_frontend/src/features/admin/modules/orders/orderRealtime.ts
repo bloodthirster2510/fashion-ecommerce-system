@@ -9,9 +9,14 @@ export type OrderRealtimeEvent = {
   orderId: string
   orderCode: string
   userId?: string
-  before?: { status: string; shippingStatus?: string | null }
-  after?: { status: string; shippingStatus?: string | null; trackingCode?: string | null }
-  milestone?: 'picked' | 'shipping' | 'delivered' | 'failed' | 'cancelled'
+  before?: { status: string; paymentStatus?: string | null; shippingStatus?: string | null }
+  after?: {
+    status: string
+    paymentStatus?: string | null
+    shippingStatus?: string | null
+    trackingCode?: string | null
+  }
+  milestone?: 'ready' | 'picking' | 'picked' | 'shipping' | 'delivered' | 'failed' | 'cancelled'
   at: string
 }
 

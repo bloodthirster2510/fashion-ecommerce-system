@@ -24,7 +24,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
-import { orderApi, OrderApiError, type CustomerOrder, type OrderEvidenceImageAttachment, type OrderItem } from './orderApi';
+import { orderApi, OrderApiError, type CustomerOrder, type OrderItem } from './orderApi';
 import {
   canCancelOrder,
   canConfirmReceived,
@@ -32,7 +32,6 @@ import {
   formatAddress,
   formatCurrency,
   formatDate,
-  formatShortDate,
   getOrderDisplayState,
   getShippingStatusLabel,
   paymentMethodLabels,
@@ -40,19 +39,13 @@ import {
 } from './orderPresentation';
 import { reviewApi } from '../reviews/reviewApi';
 import { useOrderRealtime } from './orderRealtime';
+import { EvidencePicker, type EvidenceDraft } from './components/EvidencePicker';
+import { OrderProductItem } from './components/OrderProductItem';
+import { OrderTimeline } from './components/OrderTimeline';
+import { ReturnRequestModal } from './components/ReturnRequestModal';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
-
-type TimelineStep = {
-  key: CustomerOrder['status'];
-  label: string;
-  helper: string;
-};
-
-type EvidenceDraft = OrderEvidenceImageAttachment & {
-  uri: string;
-};
 
 const maxEvidenceImageBytes = 5 * 1024 * 1024;
 const supportedEvidenceMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -86,38 +79,11 @@ const validateEvidenceImage = (asset: ImagePicker.ImagePickerAsset): { mimeType:
   return { mimeType };
 };
 
-const timelineSteps: TimelineStep[] = [
-  { key: 'confirmed', label: 'Đã đặt đơn', helper: 'Shop tiếp nhận' },
-  { key: 'packed', label: 'Chuẩn bị hàng', helper: 'Đóng gói' },
-  { key: 'shipping', label: 'Đang giao', helper: 'Theo dõi vận chuyển' },
-  { key: 'delivered', label: 'Hoàn tất', helper: 'Đã nhận hàng' },
-];
-
-const getTimelineSteps = (order: CustomerOrder): TimelineStep[] => {
-  if (order.status === 'return_requested') {
-    return [
-      ...timelineSteps,
-      { key: 'return_requested', label: 'Chờ duyệt trả', helper: 'Shop đang kiểm tra' },
-    ];
-  }
-
-  if (order.status === 'returned') {
-    return [
-      ...timelineSteps,
-      { key: 'returned', label: 'Đã trả hàng', helper: 'Shop đã nhận trả' },
-    ];
-  }
-
-  return timelineSteps;
-};
-
 const isUnauthorizedError = (error: unknown) =>
   typeof error === 'object' &&
   error !== null &&
   'status' in error &&
   (error as { status?: number }).status === 401;
-
-const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i.test(value.trim());
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof OrderApiError || error instanceof Error) {
@@ -125,12 +91,6 @@ const getErrorMessage = (error: unknown) => {
   }
 
   return 'Không thể tải chi tiết đơn hàng. Bạn thử lại sau nha.';
-};
-
-const getProgressIndex = (order: CustomerOrder, steps: TimelineStep[]) => {
-  if (order.status === 'cancelled') return -1;
-
-  return steps.findIndex((step) => step.key === order.status);
 };
 
 const getPaymentStatusColor = (status: string) => {
@@ -550,115 +510,17 @@ const OrderDetailScreen = () => {
     });
   };
 
-  const renderProduct = (item: OrderItem) => {
-    const imageUri = item.image?.trim();
+  const handleWriteReview = (item: OrderItem) => {
+    if (!order || !item._id) return;
 
-    return (
-      <View key={item._id ?? `${item.sku}-${item.size}`} style={styles.productCard}>
-        {isPreviewableImage(imageUri) ? (
-          <Image source={{ uri: imageUri }} style={styles.productImage} resizeMode="cover" />
-        ) : (
-          <View style={styles.productImagePlaceholder}>
-            <MaterialCommunityIcons name="tshirt-crew-outline" size={26} color={colors.textSubtle} />
-          </View>
-        )}
-
-        <View style={styles.productInfo}>
-          <View style={styles.productTitleRow}>
-            <Text style={styles.productName} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <Text style={styles.productPrice}>{formatCurrency(item.priceAtPurchased)}</Text>
-          </View>
-          <View style={styles.productMetaRow}>
-            <Text style={styles.productMeta} numberOfLines={2}>
-              {item.color} • {item.size} • {item.fitType}
-            </Text>
-            <Text style={styles.productQuantity}>SL: {item.quantity}</Text>
-          </View>
-        </View>
-        {order?.status === 'delivered' && order.paymentStatus === 'paid' && item._id ? (
-          reviewedItemIds.has(item._id) ? (
-            <View style={styles.reviewButton} pointerEvents="none">
-              <MaterialCommunityIcons name="check-circle-outline" size={18} color={colors.textMuted} />
-              <Text style={styles.reviewButtonTextMuted}>Đã đánh giá</Text>
-            </View>
-          ) : (
-          <TouchableOpacity
-            style={styles.reviewButton}
-            onPress={() => navigation.navigate('ReviewComposer', {
-              orderId: order._id,
-              orderItemId: item._id!,
-              orderCode: order.orderCode,
-              productName: item.name,
-              productImage: item.image,
-              variantLabel: `${item.color} • ${item.size} • ${item.fitType}`,
-            })}
-          >
-            <MaterialCommunityIcons name="star-outline" size={18} color={colors.brand} />
-            <Text style={styles.reviewButtonText}>Viết đánh giá</Text>
-          </TouchableOpacity>
-          )
-        ) : null}
-      </View>
-    );
-  };
-
-  const renderTimeline = (currentOrder: CustomerOrder) => {
-    const currentTimelineSteps = getTimelineSteps(currentOrder);
-    const progressIndex = getProgressIndex(currentOrder, currentTimelineSteps);
-    const progressPercent = progressIndex <= 0 ? 0 : (progressIndex / (currentTimelineSteps.length - 1)) * 100;
-    const isCancelled = currentOrder.status === 'cancelled';
-
-    if (isCancelled) {
-      return (
-        <View style={styles.cancelledTimelineCard}>
-          <View style={styles.cancelledIcon}>
-            <MaterialCommunityIcons name="close-circle-outline" size={26} color={colors.danger} />
-          </View>
-          <View style={styles.cancelledCopy}>
-            <Text style={styles.cancelledTitle}>Đơn hàng đã hủy</Text>
-            <Text style={styles.cancelledText}>
-              Đơn dừng xử lý vào {formatDate(currentOrder.updatedAt)}. Nếu có thanh toán trước, shop sẽ hoàn tiền theo kênh thanh toán ban đầu.
-            </Text>
-          </View>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.timelineCard}>
-        <View style={styles.timelineTrack}>
-          <View style={styles.timelineBaseLine} />
-          <View style={[styles.timelineProgressLine, { width: `${progressPercent}%` }]} />
-          {currentTimelineSteps.map((step, index) => {
-            const isDone = index <= progressIndex;
-            const isCurrent = index === progressIndex;
-
-            return (
-              <View
-                key={step.key}
-                style={[styles.timelineStep, { width: `${100 / currentTimelineSteps.length}%` }]}
-              >
-                <View style={[styles.timelineDot, isDone && styles.timelineDotDone]}>
-                  {isDone ? (
-                    <MaterialCommunityIcons name="check" size={17} color={colors.white} />
-                  ) : (
-                    <View style={styles.timelineDotInner} />
-                  )}
-                </View>
-                <Text style={[styles.timelineLabel, isCurrent && styles.timelineLabelActive]} numberOfLines={2}>
-                  {step.label}
-                </Text>
-                <Text style={styles.timelineHelper} numberOfLines={2}>
-                  {index <= progressIndex ? formatShortDate(currentOrder.updatedAt) : step.helper}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </View>
-    );
+    navigation.navigate('ReviewComposer', {
+      orderId: order._id,
+      orderItemId: item._id,
+      orderCode: order.orderCode,
+      productName: item.name,
+      productImage: item.image,
+      variantLabel: `${item.color} • ${item.size} • ${item.fitType}`,
+    });
   };
 
   const renderSummaryRow = (label: string, value: string, tone: 'default' | 'discount' | 'success' = 'default') => (
@@ -673,45 +535,6 @@ const OrderDetailScreen = () => {
       >
         {value}
       </Text>
-    </View>
-  );
-
-  const renderEvidencePicker = (
-    images: EvidenceDraft[],
-    onPick: () => void,
-    onRemove: (index: number) => void,
-    disabled: boolean,
-  ) => (
-    <View style={styles.evidencePicker}>
-      <View style={styles.evidenceHeader}>
-        <Text style={styles.evidenceTitle}>Ảnh minh chứng</Text>
-        <Text style={styles.evidenceHint}>Không bắt buộc, tối đa 3 ảnh</Text>
-      </View>
-      <View style={styles.evidenceImageRow}>
-        {images.map((image, index) => (
-          <View style={styles.evidenceImageFrame} key={`${image.uri}-${index}`}>
-            <Image source={{ uri: image.uri }} style={styles.evidenceImage} resizeMode="cover" />
-            <TouchableOpacity
-              style={styles.evidenceRemoveButton}
-              onPress={() => onRemove(index)}
-              disabled={disabled}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons name="close" size={14} color={colors.white} />
-            </TouchableOpacity>
-          </View>
-        ))}
-        {images.length < 3 ? (
-          <TouchableOpacity
-            style={styles.evidenceAddButton}
-            onPress={onPick}
-            disabled={disabled}
-            activeOpacity={0.84}
-          >
-            <MaterialCommunityIcons name="image-plus" size={22} color={colors.brand} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
     </View>
   );
 
@@ -761,12 +584,12 @@ const OrderDetailScreen = () => {
             <Text style={styles.returnReasonCounter}>{cancelReason.trim().length}/500</Text>
             {cancelReasonError ? <Text style={styles.returnReasonError}>{cancelReasonError}</Text> : null}
           </View>
-          {renderEvidencePicker(
-            cancelEvidenceImages,
-            () => void pickEvidenceImage(cancelEvidenceImages, setCancelEvidenceImages, setCancelReasonError),
-            (index) => removeEvidenceImage(index, setCancelEvidenceImages),
-            isCancelling,
-          )}
+          <EvidencePicker
+            images={cancelEvidenceImages}
+            onPick={() => void pickEvidenceImage(cancelEvidenceImages, setCancelEvidenceImages, setCancelReasonError)}
+            onRemove={(index) => removeEvidenceImage(index, setCancelEvidenceImages)}
+            disabled={isCancelling}
+          />
 
           <View style={styles.returnModalActions}>
             <TouchableOpacity
@@ -789,87 +612,6 @@ const OrderDetailScreen = () => {
                 <MaterialCommunityIcons name="close-circle-outline" size={18} color={colors.white} />
               )}
               <Text style={styles.returnModalPrimaryText}>Hủy đơn</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-
-  const renderReturnRequestModal = () => (
-    <Modal
-      visible={isReturnModalVisible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setIsReturnModalVisible(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.returnModal}>
-          <View style={styles.invoiceHeader}>
-            <View>
-              <Text style={styles.invoiceEyebrow}>RETURN REQUEST</Text>
-              <Text style={styles.invoiceTitle}>Lý do trả hàng</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setIsReturnModalVisible(false)}
-              disabled={isRequestingReturn}
-            >
-              <MaterialCommunityIcons name="close" size={22} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.returnModalHint}>
-            Shop sẽ xem lý do, hình ảnh minh chứng và phản hồi trên trạng thái đơn hàng. Yêu cầu trả hàng chỉ mở trong 7 ngày sau khi giao thành công.
-          </Text>
-          <TextInput
-            style={styles.returnReasonInput}
-            value={returnReason}
-            onChangeText={(value) => {
-              setReturnReason(value);
-              if (returnReasonError) {
-                setReturnReasonError('');
-              }
-            }}
-            placeholder="Nhập lý do trả hàng"
-            placeholderTextColor={colors.textSubtle}
-            multiline
-            maxLength={500}
-            textAlignVertical="top"
-            editable={!isRequestingReturn}
-          />
-          <View style={styles.returnModalMetaRow}>
-            <Text style={styles.returnReasonCounter}>{returnReason.trim().length}/500</Text>
-            {returnReasonError ? <Text style={styles.returnReasonError}>{returnReasonError}</Text> : null}
-          </View>
-          {renderEvidencePicker(
-            returnEvidenceImages,
-            () => void pickEvidenceImage(returnEvidenceImages, setReturnEvidenceImages, setReturnReasonError),
-            (index) => removeEvidenceImage(index, setReturnEvidenceImages),
-            isRequestingReturn,
-          )}
-
-          <View style={styles.returnModalActions}>
-            <TouchableOpacity
-              style={styles.returnModalSecondaryButton}
-              onPress={() => setIsReturnModalVisible(false)}
-              activeOpacity={0.84}
-              disabled={isRequestingReturn}
-            >
-              <Text style={styles.returnModalSecondaryText}>Để sau</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.returnModalPrimaryButton}
-              onPress={() => void requestReturn()}
-              activeOpacity={0.84}
-              disabled={isRequestingReturn}
-            >
-              {isRequestingReturn ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <MaterialCommunityIcons name="send-outline" size={18} color={colors.white} />
-              )}
-              <Text style={styles.returnModalPrimaryText}>Gửi yêu cầu</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1066,8 +808,7 @@ const OrderDetailScreen = () => {
             </View>
           </View>
         ) : null}
-
-        {renderTimeline(order)}
+        <OrderTimeline order={order} />
 
         {order.cancellation ? (
           <View style={styles.returnRequestCard}>
@@ -1119,7 +860,15 @@ const OrderDetailScreen = () => {
         ) : null}
 
         <View style={styles.section}>
-          {order.order_list.map(renderProduct)}
+          {order.order_list.map((item) => (
+            <OrderProductItem
+              key={item._id ?? `${item.sku}-${item.size}`}
+              item={item}
+              isReviewable={order.status === 'delivered' && order.paymentStatus === 'paid'}
+              isReviewed={!!item._id && reviewedItemIds.has(item._id)}
+              onWriteReview={handleWriteReview}
+            />
+          ))}
         </View>
 
         <View style={styles.summaryCard}>
@@ -1279,7 +1028,23 @@ const OrderDetailScreen = () => {
       </ScrollView>
 
       {renderCancelOrderModal()}
-      {renderReturnRequestModal()}
+      <ReturnRequestModal
+        visible={isReturnModalVisible}
+        reason={returnReason}
+        reasonError={returnReasonError}
+        evidenceImages={returnEvidenceImages}
+        isSubmitting={isRequestingReturn}
+        onClose={() => setIsReturnModalVisible(false)}
+        onReasonChange={(value) => {
+          setReturnReason(value);
+          if (returnReasonError) {
+            setReturnReasonError('');
+          }
+        }}
+        onPickEvidence={() => void pickEvidenceImage(returnEvidenceImages, setReturnEvidenceImages, setReturnReasonError)}
+        onRemoveEvidence={(index) => removeEvidenceImage(index, setReturnEvidenceImages)}
+        onSubmit={() => void requestReturn()}
+      />
       {renderInvoiceModal()}
     </SafeAreaView>
   );
@@ -1411,107 +1176,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 2,
   },
-  timelineCard: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.sm,
-    ...shadows.card,
-  },
-  timelineTrack: {
-    minHeight: 108,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    position: 'relative',
-  },
-  timelineBaseLine: {
-    position: 'absolute',
-    left: '12%',
-    right: '12%',
-    top: 16,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.borderStrong,
-  },
-  timelineProgressLine: {
-    position: 'absolute',
-    left: '12%',
-    top: 16,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.success,
-    maxWidth: '76%',
-  },
-  timelineStep: {
-    width: '25%',
-    alignItems: 'center',
-  },
-  timelineDot: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.borderStrong,
-    zIndex: 1,
-  },
-  timelineDotDone: {
-    backgroundColor: colors.success,
-  },
-  timelineDotInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.surface,
-  },
-  timelineLabel: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-  timelineLabelActive: {
-    color: colors.text,
-  },
-  timelineHelper: {
-    color: colors.textSubtle,
-    fontSize: 10,
-    lineHeight: 14,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  cancelledTimelineCard: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    flexDirection: 'row',
-    gap: spacing.md,
-    ...shadows.card,
-  },
-  cancelledIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.dangerSoft,
-  },
-  cancelledCopy: {
-    flex: 1,
-  },
-  cancelledTitle: {
-    color: colors.danger,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  cancelledText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 4,
-  },
   returnRequestCard: {
     borderRadius: radii.sm,
     borderWidth: 1,
@@ -1553,66 +1217,6 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: spacing.md,
-  },
-  productCard: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    flexDirection: 'row',
-    gap: spacing.md,
-    ...shadows.card,
-  },
-  productImage: {
-    width: 86,
-    height: 86,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brandSoft,
-  },
-  productImagePlaceholder: {
-    width: 86,
-    height: 86,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F0F2F4',
-  },
-  productInfo: {
-    flex: 1,
-    gap: spacing.sm,
-  },
-  productTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  productName: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '900',
-  },
-  productPrice: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  productMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  productMeta: {
-    flex: 1,
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  productQuantity: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
   },
   summaryCard: {
     borderRadius: radii.sm,
@@ -2053,64 +1657,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '700',
   },
-  evidencePicker: {
-    gap: spacing.sm,
-  },
-  evidenceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  evidenceTitle: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  evidenceHint: {
-    color: colors.textSubtle,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  evidenceImageRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  evidenceImageFrame: {
-    position: 'relative',
-    width: 64,
-    height: 64,
-    borderRadius: radii.sm,
-    overflow: 'hidden',
-    backgroundColor: colors.brandSoft,
-  },
-  evidenceImage: {
-    width: '100%',
-    height: '100%',
-  },
-  evidenceRemoveButton: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  evidenceAddButton: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.brandSoft,
-  },
   evidenceUrlGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2138,27 +1684,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     fontWeight: '700',
-  },
-  reviewButton: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.brand,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  reviewButtonText: {
-    color: colors.brand,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  reviewButtonTextMuted: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '900',
   },
 });
 

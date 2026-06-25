@@ -4,6 +4,8 @@ const DEFAULT_DEADLINE_DAYS = 3;
 const DEFAULT_WARNING_HOURS = 24;
 const DEFAULT_SCHEDULER_INTERVAL_MS = 5 * 60 * 1000;
 
+export { ONLINE_PAYMENT_METHODS } from '../orders/order.constants';
+
 const readNonNegativeNumber = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -24,5 +26,3 @@ export const getOrderPaymentDeadlineSchedulerIntervalMs = () => {
 
 export const getOrderPaymentDeadlineAt = (createdAt = new Date()) =>
   new Date(createdAt.getTime() + getOrderPaymentDeadlineMs());
-
-export const ONLINE_PAYMENT_METHODS = ['VNPAY', 'MOMO', 'CARD', 'BANK'] as const;

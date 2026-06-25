@@ -5,6 +5,7 @@ import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../
 import { auditLogService } from '../audit-logs/audit-log.service';
 import { SalesServiceError } from '../sales/sales.helpers';
 import { orderService } from './order.service';
+import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from './order.constants';
 import type {
   CancelOrderInput,
   CreateOrderInput,
@@ -16,18 +17,6 @@ import type {
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
-
-const ORDER_STATUSES: OrderStatus[] = [
-  'confirmed',
-  'packed',
-  'shipping',
-  'delivered',
-  'cancelled',
-  'return_requested',
-  'returned',
-];
-const PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'];
-const PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   return (

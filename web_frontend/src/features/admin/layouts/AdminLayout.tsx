@@ -472,8 +472,8 @@ const getNavNotificationBadge = (
   if (!summary) return null
 
   const badges: Partial<Record<NavId, NavNotificationBadge>> = {
-    orders: summary.orders.total + summary.paymentDeadlineSoon > 0
-      ? { count: summary.orders.total + summary.paymentDeadlineSoon, tone: summary.paymentDeadlineSoon > 0 ? 'warning' : 'danger', label: `${summary.orders.total + summary.paymentDeadlineSoon} đơn cần xử lý`, dot: summary.paymentDeadlineSoon > 0 }
+    orders: summary.orders.total > 0
+      ? { count: summary.orders.total, tone: summary.paymentDeadlineSoon > 0 ? 'warning' : 'danger', label: `${summary.orders.total} đơn cần xử lý`, dot: summary.paymentDeadlineSoon > 0 }
       : undefined,
     ordersOnline: summary.orders.online > 0
       ? { count: summary.orders.online, tone: 'danger', label: `${summary.orders.online} đơn online cần xử lý` }

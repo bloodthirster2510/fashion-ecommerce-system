@@ -9,6 +9,7 @@ import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-p
 import { GHNService } from '../../shipping/ghn.service';
 import { loyaltyRuleService } from '../../admin/loyalty/loyalty-rule.service';
 import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
+import { emitOrderUpdate } from '../../realtime/order.gateway';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -68,6 +69,7 @@ jest.mock('../../promotions/coupons/coupon.service', () => ({
 jest.mock('../../payments/transaction.service', () => ({
   transactionService: {
     createPendingTransaction: jest.fn(),
+    createManualAdjustmentTransaction: jest.fn(),
     resolveTransaction: jest.fn(),
   },
 }));
@@ -106,6 +108,7 @@ const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
 const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyaltyRuleService>;
+const mockedEmitOrderUpdate = emitOrderUpdate as jest.MockedFunction<typeof emitOrderUpdate>;
 
 type MockSession = {
   withTransaction: jest.Mock;
@@ -263,6 +266,9 @@ describe('orderService', () => {
     mockedCouponService.rollbackCouponUsageReservation.mockResolvedValue(undefined);
     mockedTransactionService.createPendingTransaction.mockResolvedValue({
       _id: new Types.ObjectId('665000000000000000000091'),
+    } as never);
+    mockedTransactionService.createManualAdjustmentTransaction.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000092'),
     } as never);
     mockedTransactionService.resolveTransaction.mockResolvedValue(null as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
@@ -907,6 +913,8 @@ describe('orderService', () => {
     const orderId = new Types.ObjectId('665000000000000000000052');
     const order = {
       _id: orderId,
+      orderCode: 'FSDELIVERED',
+      invoiceCode: null,
       user_id: new Types.ObjectId(userId),
       status: 'shipping',
       deliveredAt: null,
@@ -925,6 +933,7 @@ describe('orderService', () => {
 
     expect(order.status).toBe('delivered');
     expect(order.paymentStatus).toBe('paid');
+    expect(order.invoiceCode).toBe('INV-FSDELIVERED');
     expect(order.deliveredAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
@@ -1265,6 +1274,53 @@ describe('orderService', () => {
     expect(result.statusSummary.cancelled).toBe(1);
     expect(result.statusSummary.returned).toBe(1);
     expect(result.statusSummary.all).toBe(5);
+  });
+
+  it('adjusts payment status through the orders service and emits realtime payment updates', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000070');
+    const actorId = '665000000000000000000071';
+    const order = {
+      _id: orderId,
+      orderCode: 'FSPAYMENT',
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'VNPAY',
+      paymentMethodId: null,
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+      shipping: {
+        status: 'quoted',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'paid',
+      reason: 'Bank reconciliation completed',
+      actorId,
+    });
+
+    expect(result).toBe(order);
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.save).toHaveBeenCalled();
+    expect(mockedTransactionService.createManualAdjustmentTransaction).toHaveBeenCalledWith({
+      userId,
+      orderId: orderId.toString(),
+      amount: 385000,
+      paymentMethod: 'VNPAY',
+      paymentMethodId: null,
+      status: 'success',
+      reason: 'Bank reconciliation completed',
+      actorId,
+    });
+    expect(mockedEmitOrderUpdate).toHaveBeenCalledWith(order, 'payment_update', {
+      status: 'confirmed',
+      paymentStatus: 'pending',
+      shippingStatus: 'quoted',
+    });
   });
 
   it('rejects invalid order status transitions', async () => {

@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import { Order, User, type IOrder, type StaffPermission } from '../../database/models';
 import { isCorsOriginAllowed } from '../../middlewares/security.middleware';
 import { verifyAccessToken, type JwtPayload } from '../../utils/jwt';
+import type { OrderShippingMilestoneStatus } from '../orders/order.constants';
 
 export type OrderRealtimeEventType =
   | 'shipping_update'
@@ -11,20 +12,20 @@ export type OrderRealtimeEventType =
   | 'payment_update'
   | 'summary';
 
-export type OrderShippingMilestone =
-  | 'picked'
-  | 'shipping'
-  | 'delivered'
-  | 'failed'
-  | 'cancelled';
+export type OrderShippingMilestone = OrderShippingMilestoneStatus;
 
 export type OrderRealtimeEvent = {
   type: OrderRealtimeEventType;
   orderId: string;
   orderCode: string;
   userId?: string;
-  before?: { status: string; shippingStatus?: string | null };
-  after?: { status: string; shippingStatus?: string | null; trackingCode?: string | null };
+  before?: { status: string; paymentStatus?: string | null; shippingStatus?: string | null };
+  after?: {
+    status: string;
+    paymentStatus?: string | null;
+    shippingStatus?: string | null;
+    trackingCode?: string | null;
+  };
   milestone?: OrderShippingMilestone;
   at: string;
 };
@@ -152,7 +153,7 @@ export const orderGateway = new OrderRealtimeGateway();
 export const emitOrderUpdate = (
   order: IOrder,
   type: OrderRealtimeEventType,
-  before: { status: string; shippingStatus?: string | null },
+  before: { status: string; paymentStatus?: string | null; shippingStatus?: string | null },
   milestone?: OrderShippingMilestone,
 ) => {
   orderGateway.emitOrderEvent({
@@ -163,6 +164,7 @@ export const emitOrderUpdate = (
     before,
     after: {
       status: order.status,
+      paymentStatus: order.paymentStatus,
       shippingStatus: order.shipping?.status ?? null,
       trackingCode: order.shipping?.trackingCode ?? null,
     },

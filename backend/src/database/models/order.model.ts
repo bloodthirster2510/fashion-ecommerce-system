@@ -1,16 +1,14 @@
 import { Schema, model, models, type Document, type Types } from 'mongoose';
+import {
+  ORDER_STATUSES,
+  PAYMENT_METHODS,
+  PAYMENT_STATUSES,
+  type OrderPaymentMethod,
+  type OrderPaymentStatus,
+  type OrderStatus,
+} from '../../modules/orders/order.constants';
 
-export type OrderStatus =
-  | 'confirmed'
-  | 'packed'
-  | 'shipping'
-  | 'delivered'
-  | 'cancelled'
-  | 'return_requested'
-  | 'returned';
-
-export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
-export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+export type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../modules/orders/order.constants';
 export type OrderReturnRequestStatus = 'requested' | 'approved' | 'rejected';
 
 export interface IOrderItem {
@@ -313,13 +311,13 @@ const orderSchema = new Schema<IOrder>(
     totalAmount: { type: Number, required: true, min: 0 },
     status: {
       type: String,
-      enum: ['confirmed', 'packed', 'shipping', 'delivered', 'cancelled', 'return_requested', 'returned'],
+      enum: ORDER_STATUSES,
       required: true,
       default: 'confirmed',
     },
     paymentMethod: {
       type: String,
-      enum: ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'],
+      enum: PAYMENT_METHODS,
       required: true,
     },
     paymentMethodId: {
@@ -329,7 +327,7 @@ const orderSchema = new Schema<IOrder>(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'refunded'],
+      enum: PAYMENT_STATUSES,
       required: true,
       default: 'pending',
     },

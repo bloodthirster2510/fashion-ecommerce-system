@@ -8,9 +8,11 @@ import {
   Transaction,
   User,
   type IOrder,
+  type OrderPaymentStatus,
   type IUserAddress,
   type OrderPaymentMethod,
   type OrderStatus,
+  type TransactionStatus,
 } from '../../database/models';
 import { inventoryService } from '../inventory/inventory.service';
 import {
@@ -46,6 +48,7 @@ import {
   type ShippingPushMilestone,
 } from '../notifications/push-notification.service';
 import type {
+  AdjustOrderPaymentStatusInput,
   CancelOrderInput,
   CreateOrderInput,
   OrderEvidenceImageInput,
@@ -58,6 +61,14 @@ import type {
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
+import {
+  ONLINE_PAYMENT_METHODS,
+  ORDER_STATUSES,
+  ORDER_STATUS_TRANSITIONS,
+  SHIPPING_MILESTONE_STATUSES,
+  SHIPPING_WEBHOOK_STATUSES,
+  SUPPORTED_PAYMENT_METHODS,
+} from './order.constants';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -71,26 +82,6 @@ const DEFAULT_GHN_PACKAGE_LENGTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_WIDTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_HEIGHT_CM = 10;
 const DEFAULT_GHN_SERVICE_TYPE_ID = 2;
-const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY'];
-const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
-const ORDER_STATUSES: OrderStatus[] = [
-  'confirmed',
-  'packed',
-  'shipping',
-  'delivered',
-  'cancelled',
-  'return_requested',
-  'returned',
-];
-const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  confirmed: ['packed', 'cancelled'],
-  packed: ['shipping', 'cancelled'],
-  shipping: ['delivered', 'return_requested'],
-  delivered: ['return_requested'],
-  return_requested: ['returned'],
-  returned: [],
-  cancelled: [],
-};
 
 const clampPagination = (query: OrderListQueryInput) => {
   const page = Math.max(query.page ?? DEFAULT_PAGE, DEFAULT_PAGE);
@@ -275,9 +266,9 @@ const assertCanReadOrder = (order: IOrder, userId: string, role?: string) => {
 };
 
 const assertSupportedPaymentMethod = (paymentMethod: OrderPaymentMethod) => {
-  if (!SUPPORTED_MVP_PAYMENT_METHODS.includes(paymentMethod)) {
+  if (!(SUPPORTED_PAYMENT_METHODS as readonly OrderPaymentMethod[]).includes(paymentMethod)) {
     throw new SalesServiceError(
-      `Payment method ${paymentMethod} is not supported in this phase. Supported: ${SUPPORTED_MVP_PAYMENT_METHODS.join(', ')}`,
+      `Payment method ${paymentMethod} is not supported in this phase. Supported: ${SUPPORTED_PAYMENT_METHODS.join(', ')}`,
       400,
     );
   }
@@ -295,7 +286,13 @@ const requireCheckoutQuoteVersion = (quoteVersion: string | undefined) => {
 };
 
 const isOnlinePaymentMethod = (paymentMethod: OrderPaymentMethod) =>
-  ONLINE_PAYMENT_METHODS.includes(paymentMethod);
+  (ONLINE_PAYMENT_METHODS as readonly OrderPaymentMethod[]).includes(paymentMethod);
+
+const toManualTransactionStatus = (paymentStatus: OrderPaymentStatus): TransactionStatus => {
+  if (paymentStatus === 'paid' || paymentStatus === 'refunded') return 'success';
+  if (paymentStatus === 'pending') return 'pending';
+  return 'failed';
+};
 
 const requiresPaidOnlineOrder = (status: OrderStatus) =>
   status !== 'confirmed' && status !== 'cancelled';
@@ -304,6 +301,17 @@ const getGatewayProvider = (paymentMethod: OrderPaymentMethod) => {
   if (paymentMethod === 'VNPAY') return 'vnpay' as const;
   if (paymentMethod === 'MOMO') return 'momo' as const;
   return null;
+};
+
+const generateInvoiceCode = (order: Pick<IOrder, '_id' | 'orderCode'>) => {
+  const base = order.orderCode?.trim().toUpperCase() || toIdString(order._id).slice(-10).toUpperCase();
+  return `INV-${base}`.slice(0, 40);
+};
+
+const ensureDeliveredInvoiceCode = (order: IOrder) => {
+  if (order.status === 'delivered' && !order.invoiceCode) {
+    order.invoiceCode = generateInvoiceCode(order);
+  }
 };
 
 const assertOrderStatusTransition = (from: OrderStatus, to: OrderStatus) => {
@@ -372,6 +380,7 @@ const triggerOrderStatusChange = async (
     'Failed to emit order realtime event',
     Promise.resolve(emitOrderUpdate(order, type, {
       status: before.status,
+      paymentStatus: before.paymentStatus,
       shippingStatus: shippingStatusBefore,
     }, milestone)),
   );
@@ -387,6 +396,22 @@ const triggerOrderStatusChange = async (
       }),
     );
   }
+};
+
+const triggerOrderPaymentChange = async (
+  order: IOrder,
+  before: OrderChangeSnapshot,
+) => {
+  if (before.paymentStatus === order.paymentStatus) return;
+
+  await runBestEffort(
+    'Failed to emit order payment realtime event',
+    Promise.resolve(emitOrderUpdate(order, 'payment_update', {
+      status: before.status,
+      paymentStatus: before.paymentStatus,
+      shippingStatus: before.shipping?.status ?? null,
+    })),
+  );
 };
 
 const toOrderItem = (item: CheckoutOrderItem) => ({
@@ -1080,6 +1105,7 @@ const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder) => {
 
   try {
     await session.withTransaction(async () => {
+      ensureDeliveredInvoiceCode(order);
       const persistedOrder = await order.save({ session });
       savedOrder = await awardLoyaltyPointsForDeliveredOrder(persistedOrder, { session });
     });
@@ -1393,6 +1419,35 @@ const getOrderTransactions = async (userId: string, role: string | undefined, id
     .lean();
 };
 
+const adjustOrderPaymentStatus = async (
+  id: string,
+  input: AdjustOrderPaymentStatusInput,
+) => {
+  const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
+
+  if (order.paymentStatus === input.paymentStatus) {
+    return order;
+  }
+
+  order.paymentStatus = input.paymentStatus;
+  const updatedOrder = await order.save();
+
+  await transactionService.createManualAdjustmentTransaction({
+    userId: updatedOrder.user_id.toString(),
+    orderId: updatedOrder._id.toString(),
+    amount: updatedOrder.totalAmount,
+    paymentMethod: updatedOrder.paymentMethod,
+    paymentMethodId: updatedOrder.paymentMethodId?.toString() ?? null,
+    status: toManualTransactionStatus(input.paymentStatus),
+    reason: input.reason,
+    actorId: input.actorId,
+  });
+
+  await triggerOrderPaymentChange(updatedOrder, before);
+  return updatedOrder;
+};
+
 const restockCommittedOrder = async (order: IOrder) => {
   await Promise.all(
     order.order_list.map((item) =>
@@ -1535,6 +1590,10 @@ const confirmOrderReceived = async (userId: string, id: string) => {
   assertCanReadOrder(order, userId);
 
   if (order.status === 'delivered') {
+    if (!order.invoiceCode) {
+      ensureDeliveredInvoiceCode(order);
+      return order.save();
+    }
     return order;
   }
 
@@ -1619,6 +1678,7 @@ const reviewReturnRequest = async (
     order.status = 'returned';
   } else {
     order.status = 'delivered';
+    ensureDeliveredInvoiceCode(order);
   }
 
   order.returnRequest = {
@@ -1890,7 +1950,7 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
   }
 
   const savedOrder = await order.save();
-  const milestone = ['picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(savedOrder.shipping?.status ?? '')
+  const milestone = (SHIPPING_MILESTONE_STATUSES as readonly string[]).includes(savedOrder.shipping?.status ?? '')
     ? savedOrder.shipping.status as OrderShippingMilestone
     : undefined;
   await triggerOrderStatusChange(savedOrder, before, 'shipping_update', milestone);
@@ -1958,7 +2018,7 @@ const isShippingWebhookAlreadyApplied = (
 };
 
 const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
-  if (!['ready', 'picking', 'picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(input.status)) {
+  if (!(SHIPPING_WEBHOOK_STATUSES as readonly string[]).includes(input.status)) {
     throw new SalesServiceError('Invalid shipping webhook status', 400);
   }
 
@@ -2067,7 +2127,7 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
     ? await clawBackLoyaltyPointsForOrder(savedOrder, 'Order cancelled after delivery')
     : savedOrder;
 
-  const milestone = ['picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(input.status)
+  const milestone = (SHIPPING_MILESTONE_STATUSES as readonly string[]).includes(input.status)
     ? input.status as OrderShippingMilestone
     : undefined;
   await triggerOrderStatusChange(finalOrder, before, 'shipping_update', milestone);
@@ -2090,6 +2150,7 @@ export const orderService = {
   getOrders,
   getOrderById,
   getOrderTransactions,
+  adjustOrderPaymentStatus,
   cancelOrder,
   confirmOrderReceived,
   requestReturn,

@@ -1,5 +1,5 @@
 import { colors } from '../../theme';
-import type { CustomerOrder, OrderStatus, OrderStatusSummary } from './orderApi';
+import type { CustomerOrder, OrderPaymentMethod, OrderStatus, OrderStatusSummary } from './orderApi';
 
 export type OrderTabKey =
   | 'active'
@@ -79,7 +79,10 @@ export type OrderDisplayState = {
   requiresUserAction: boolean;
 };
 
-const onlinePaymentMethods = new Set(['VNPAY', 'MOMO', 'CARD', 'BANK']);
+export const supportedPaymentMethods: OrderPaymentMethod[] = ['COD', 'VNPAY'];
+export const onlinePaymentMethods: OrderPaymentMethod[] = ['VNPAY'];
+
+const onlinePaymentMethodSet = new Set<OrderPaymentMethod>(onlinePaymentMethods);
 const closedOrderStatuses = new Set<OrderStatus>(['cancelled', 'returned']);
 
 export const shippingStatusLabels: Record<string, string> = {
@@ -107,7 +110,7 @@ export const hasFailedDelivery = (order: Pick<CustomerOrder, 'status' | 'shippin
   order.status === 'shipping' && order.shipping?.status === 'failed';
 
 export const isOnlinePaymentOrder = (order: CustomerOrder) =>
-  onlinePaymentMethods.has(order.paymentMethod);
+  onlinePaymentMethodSet.has(order.paymentMethod);
 
 export const orderNeedsPaymentAction = (order: CustomerOrder) =>
   order.paymentMethod === 'VNPAY' &&
