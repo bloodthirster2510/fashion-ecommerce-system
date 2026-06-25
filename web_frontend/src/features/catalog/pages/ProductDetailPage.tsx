@@ -10,8 +10,10 @@ import {
   ShoppingCartOutlined,
   SwapOutlined,
 } from '@ant-design/icons'
+import { useAppDispatch } from '../../../app/hooks'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
+import { fetchCart } from '../../cart/cart.slice'
 import { catalogService } from '../catalog.service'
 import { customerProductActionsService } from '../customerProductActions.service'
 import { ProductReviews } from '../reviews/ProductReviews'
@@ -40,6 +42,7 @@ const stripDescription = (value: string) => {
 const isCssColor = (value?: string) => Boolean(value && (value.startsWith('#') || value.startsWith('rgb') || value.startsWith('hsl')))
 
 export function ProductDetailPage() {
+  const dispatch = useAppDispatch()
   const productId = getProductIdFromPath()
   const [product, setProduct] = useState<ProductDetail | null>(null)
   const [selectedVariantId, setSelectedVariantId] = useState('')
@@ -185,9 +188,10 @@ export function ProductDetailPage() {
         quantity,
       })
       message.success(redirectToCart ? 'Đã thêm vào giỏ hàng.' : 'Đã thêm sản phẩm vào giỏ hàng.')
+      void dispatch(fetchCart())
 
       if (redirectToCart) {
-        window.location.assign('/account?section=cart')
+        window.location.assign('/cart')
       }
     } catch (addError) {
       message.error(addError instanceof Error ? addError.message : 'Không thể thêm sản phẩm vào giỏ hàng.')
@@ -217,7 +221,7 @@ export function ProductDetailPage() {
   }
 
   return (
-    <MainLayout showSlider={false}>
+    <MainLayout>
       <main className="product-detail-page">
         {error && <Alert className="catalog-alert" type="error" message={error} showIcon />}
 

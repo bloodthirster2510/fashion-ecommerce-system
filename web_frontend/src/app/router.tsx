@@ -21,6 +21,8 @@ import { ProfilePage } from '../features/profile/pages/ProfilePage'
 import { SupportPage } from '../features/support/SupportPage'
 import { AccountOrdersPage } from '../features/profile/pages/AccountOrdersPage'
 import { MyReviewsPage } from '../features/profile/pages/MyReviewsPage'
+import { HomePage } from '../features/home/pages/HomePage'
+import { CartPage } from '../features/cart/pages/CartPage'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 
@@ -148,6 +150,10 @@ export function Router() {
       return <SupportPage />
     }
 
+    if (path === '/' || path === '') {
+      return <HomePage />
+    }
+
     if (path === '/account') {
       return <ProfilePage />
     }
@@ -155,11 +161,19 @@ export function Router() {
     if (path === '/account/orders') return <AccountOrdersPage />
     if (path === '/account/reviews') return <MyReviewsPage />
 
+    if (path === '/cart' || path === '/cart/') {
+      return <CartPage />
+    }
+
     if (/^\/products\/[^/]+\/?$/.test(path)) {
       return <ProductDetailPage />
     }
 
-    return <ProductListPage showSlider={path === '/'} />
+    if (path === '/products' || path === '/products/') {
+      return <ProductListPage />
+    }
+
+    return <HomePage />
   }
 
   const handleLoginSuccess = (session: AdminSession) => {
