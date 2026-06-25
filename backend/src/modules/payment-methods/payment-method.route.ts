@@ -3,6 +3,7 @@ import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   adminListUserPaymentMethods,
+  adminRevealPaymentMethodAccountNumber,
   adminUpdatePaymentMethodStatus,
   createPaymentMethod,
   deletePaymentMethod,
@@ -32,6 +33,11 @@ adminPaymentMethodRouter.patch(
   '/payment-methods/:id/status',
   requirePermission('customers.manage'),
   adminUpdatePaymentMethodStatus,
+);
+adminPaymentMethodRouter.post(
+  '/payment-methods/:id/reveal-account',
+  requirePermission('payments.adjust'),
+  adminRevealPaymentMethodAccountNumber,
 );
 
 export { adminPaymentMethodRouter };

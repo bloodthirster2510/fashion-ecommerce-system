@@ -2,9 +2,88 @@ import { type FormEvent, useEffect, useState } from 'react'
 import type { OrderActionDialogInput, OrderActionDialogState, ShippingUpdateDialogValues } from './orderTypes'
 import {
   getShippingUpdateDialogValues,
+  paymentMethodLabels,
   paymentMethodStatusLabels,
   paymentStatusLabels,
 } from './orderPresentation'
+
+const getReasonPresets = (action: OrderActionDialogState) => {
+  if (action.type === 'payment-status') {
+    if (action.nextStatus === 'refunded') {
+      return [
+        'Đã hoàn tiền qua chuyển khoản',
+        'Đã hoàn về kênh thanh toán gốc',
+        'Hoàn tiền sau duyệt trả hàng',
+      ]
+    }
+
+    if (action.nextStatus === 'paid') {
+      return [
+        'Đối soát đã nhận tiền',
+        'Xác nhận thanh toán thủ công',
+        'Khách đã thanh toán thành công',
+      ]
+    }
+
+    if (action.nextStatus === 'failed') {
+      return [
+        'Cổng thanh toán báo lỗi',
+        'Không ghi nhận được tiền',
+        'Giao dịch hết hạn thanh toán',
+      ]
+    }
+
+    return [
+      'Chờ đối soát lại thanh toán',
+      'Khôi phục trạng thái chờ xử lý',
+    ]
+  }
+
+  if (action.type === 'return-review') {
+    return action.decision === 'approved'
+      ? [
+          'Đủ điều kiện trả hàng',
+          'Minh chứng hợp lệ',
+          'Duyệt theo chính sách 7 ngày',
+        ]
+      : [
+          'Quá thời hạn trả hàng',
+          'Sản phẩm đã qua sử dụng',
+          'Minh chứng chưa hợp lệ',
+        ]
+  }
+
+  if (action.type === 'status' && action.nextStatus === 'cancelled') {
+    return [
+      'Khách yêu cầu hủy đơn',
+      'Không liên hệ được khách',
+      'Hết hàng sau khi kiểm tra kho',
+    ]
+  }
+
+  if (action.type === 'payment-method-status') {
+    if (action.nextStatus === 'verified') {
+      return [
+        'Đã đối soát thông tin',
+        `${paymentMethodLabels[action.method.type]} hợp lệ`,
+      ]
+    }
+
+    if (action.nextStatus === 'disabled') {
+      return [
+        'Khách yêu cầu tắt phương thức',
+        'Thông tin thanh toán không hợp lệ',
+      ]
+    }
+
+    return [
+      'Cần kiểm tra lại thông tin',
+      'Chờ khách bổ sung thông tin',
+    ]
+  }
+
+  return []
+}
 
 export function OrderActionDialog({
   action,
@@ -32,6 +111,9 @@ export function OrderActionDialog({
   const updateShippingValue = (field: keyof ShippingUpdateDialogValues, value: string) => {
     setShippingValues((current) => ({ ...current, [field]: value }))
   }
+
+  const reasonPresets = getReasonPresets(action)
+  const reasonMinLength = action.type === 'payment-status' || action.type === 'payment-method-status' ? 5 : undefined
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -192,10 +274,25 @@ export function OrderActionDialog({
                 ? 'Ghi chú xử lý'
                 : 'Lý do thao tác'}
             </span>
+            {reasonPresets.length ? (
+              <div className="admin-reason-preset-list" aria-label="Lý do nhanh">
+                {reasonPresets.map((preset) => (
+                  <button
+                    type="button"
+                    key={preset}
+                    disabled={isLoading}
+                    onClick={() => setReason(preset)}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <textarea
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               disabled={isLoading}
+              minLength={reasonMinLength}
               rows={4}
               required={
                 action.type !== 'return-review' ||

@@ -10,6 +10,7 @@ import { supportTicketLifecycleScheduler } from './modules/support/support-ticke
 import { supportGateway } from './modules/realtime/support.gateway';
 import { orderGateway } from './modules/realtime/order.gateway';
 import { shippingReconcileScheduler } from './modules/shipping/shipping-reconcile.scheduler';
+import { orderAutoCompleteScheduler } from './modules/orders/order-auto-complete.scheduler';
 
 const PORT = process.env.PORT || 5000;
 
@@ -27,6 +28,7 @@ const startServer = async () => {
   couponLifecycleScheduler.start();
   supportTicketLifecycleScheduler.start();
   shippingReconcileScheduler.start();
+  orderAutoCompleteScheduler.start();
 
   const server = http.createServer(app);
   supportGateway.attach(server);
@@ -47,6 +49,7 @@ const startServer = async () => {
     couponLifecycleScheduler.stop();
     supportTicketLifecycleScheduler.stop();
     shippingReconcileScheduler.stop();
+    orderAutoCompleteScheduler.stop();
 
     const forceExitTimer = setTimeout(() => {
       console.error('Graceful shutdown timed out');

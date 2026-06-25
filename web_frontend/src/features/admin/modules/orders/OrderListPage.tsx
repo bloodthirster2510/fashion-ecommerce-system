@@ -9,6 +9,7 @@ import {
   listCustomerPaymentMethods,
   listOrderTransactions,
   listOrders,
+  revealCustomerPaymentMethodAccount,
   reviewReturnRequest,
   simulateShippingWebhook,
   syncGhnShipment,
@@ -75,6 +76,27 @@ import {
   statusLabels,
 } from './orderPresentation'
 
+const writeClipboardText = async (value: string) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = value
+  textArea.setAttribute('readonly', '')
+  textArea.style.position = 'fixed'
+  textArea.style.opacity = '0'
+  document.body.appendChild(textArea)
+  textArea.select()
+
+  try {
+    document.execCommand('copy')
+  } finally {
+    document.body.removeChild(textArea)
+  }
+}
+
 export function OrderListPage({
   currentUser,
   paymentSection = 'online',
@@ -86,6 +108,7 @@ export function OrderListPage({
   const [transactions, setTransactions] = useState<AdminTransaction[]>([])
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([])
   const [customerPaymentMethods, setCustomerPaymentMethods] = useState<AdminCustomerPaymentMethod[]>([])
+  const [revealedRefundAccounts, setRevealedRefundAccounts] = useState<Record<string, string>>({})
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
@@ -124,6 +147,43 @@ export function OrderListPage({
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
 
+  const copyReference = useCallback(async (value: string, label: string) => {
+    if (!value) return
+
+    try {
+      await writeClipboardText(value)
+    } catch {
+      setNotice({ type: 'error', message: `Không thể sao chép ${label}.` })
+    }
+  }, [])
+
+  const handleRevealRefundAccount = useCallback(async (method: AdminCustomerPaymentMethod) => {
+    if (!canAdjustPayments) {
+      setNotice({ type: 'error', message: 'Cần quyền payments.adjust để xem số tài khoản hoàn tiền.' })
+      return
+    }
+
+    if (!method.hasStoredAccountNumber) {
+      setNotice({ type: 'error', message: 'Tài khoản này chưa lưu số đầy đủ. Khách cần cập nhật lại tài khoản nhận hoàn tiền.' })
+      return
+    }
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const result = await revealCustomerPaymentMethodAccount(method._id)
+      setRevealedRefundAccounts((current) => ({
+        ...current,
+        [method._id]: result.accountNumber,
+      }))
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }, [canAdjustPayments])
+
   useEffect(() => {
     setActivePaymentSectionKey(paymentSection)
     setPaymentMethod(paymentSection === 'cod' ? 'COD' : 'all')
@@ -132,9 +192,12 @@ export function OrderListPage({
     setPage(1)
   }, [initialTabKey, lockPaymentSection, paymentSection])
 
-  const loadOrders = useCallback(async () => {
-    setIsLoading(true)
-    setErrorMessage('')
+  const loadOrders = useCallback(async (options: { quiet?: boolean } = {}) => {
+    const quiet = options.quiet ?? false
+    if (!quiet) {
+      setIsLoading(true)
+      setErrorMessage('')
+    }
 
     try {
       const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
@@ -167,9 +230,13 @@ export function OrderListPage({
       setStatusSummary({ ...emptyStatusSummary, ...result.statusSummary })
       setOperationalSummary({ ...emptyOperationalSummary, ...result.operationalSummary })
     } catch (error) {
-      setErrorMessage(getErrorMessage(error))
+      if (!quiet) {
+        setErrorMessage(getErrorMessage(error))
+      }
     } finally {
-      setIsLoading(false)
+      if (!quiet) {
+        setIsLoading(false)
+      }
     }
   }, [activePaymentSectionKey, activeTab.paymentStatus, activeTab.queue, activeTab.statuses, isLookupMode, keyword, page, paymentMethod, paymentStatus])
 
@@ -211,7 +278,7 @@ export function OrderListPage({
 
   useOrderRealtime((event) => {
     setRealtimeOrderId(event.orderId)
-    void loadOrders()
+    void loadOrders({ quiet: true })
     requestAdminNotificationRefresh()
     if (selectedOrder?._id === event.orderId) void refreshSelectedOrder(event.orderId)
 
@@ -230,10 +297,14 @@ export function OrderListPage({
 
   useEffect(() => {
     const poll = () => {
-      if (document.visibilityState === 'visible') void loadOrders()
+      if (document.visibilityState === 'visible') void loadOrders({ quiet: true })
     }
-    const handle = window.setInterval(poll, 60_000)
-    return () => window.clearInterval(handle)
+    const handle = window.setInterval(poll, 15_000)
+    window.addEventListener('focus', poll)
+    return () => {
+      window.clearInterval(handle)
+      window.removeEventListener('focus', poll)
+    }
   }, [loadOrders])
 
   const openOrder = (order: AdminOrder) => {
@@ -241,6 +312,7 @@ export function OrderListPage({
     setTransactions([])
     setAuditLogs([])
     setCustomerPaymentMethods([])
+    setRevealedRefundAccounts({})
     setNotice(null)
     void refreshSelectedOrder(order._id)
   }
@@ -263,6 +335,7 @@ export function OrderListPage({
       setTransactions([])
       setAuditLogs([])
       setCustomerPaymentMethods([])
+      setRevealedRefundAccounts({})
       setActionDialog(null)
       setActionDialogError('')
     }
@@ -300,6 +373,8 @@ export function OrderListPage({
         type: 'success',
         message: nextStatus === 'delivered'
           ? 'Đã đánh dấu đơn giao tới khách'
+          : nextStatus === 'completed'
+            ? 'Đã đánh dấu khách đã nhận hàng'
           : 'Đã cập nhật trạng thái đơn hàng',
       })
       await refreshSelectedOrder(updatedOrder._id)
@@ -655,6 +730,11 @@ export function OrderListPage({
       return
     }
 
+    if (reason.length < 5) {
+      setActionDialogError('Lý do cần ít nhất 5 ký tự')
+      return
+    }
+
     if (actionDialog.type === 'payment-status') {
       void executeAdjustPaymentStatus(actionDialog.order, actionDialog.nextStatus, reason)
       return
@@ -843,8 +923,32 @@ export function OrderListPage({
                     >
                       <td>
                         <div className="admin-order-code-cell">
-                          <strong>{order.orderCode}</strong>
-                          <span>{order.invoiceCode || 'Chưa có hóa đơn'}</span>
+                          <div className="admin-code-with-copy">
+                            <strong>{order.orderCode}</strong>
+                            <button
+                              className="admin-copy-button"
+                              type="button"
+                              onClick={() => void copyReference(order.orderCode, 'mã đơn')}
+                              aria-label="Sao chép mã đơn"
+                            >
+                              <CopyIcon />
+                            </button>
+                          </div>
+                          {order.invoiceCode ? (
+                            <div className="admin-code-with-copy is-subtle">
+                              <span>{order.invoiceCode}</span>
+                              <button
+                                className="admin-copy-button"
+                                type="button"
+                                onClick={() => void copyReference(order.invoiceCode ?? '', 'mã hóa đơn')}
+                                aria-label="Sao chép mã hóa đơn"
+                              >
+                                <CopyIcon />
+                              </button>
+                            </div>
+                          ) : (
+                            <span>Chưa có hóa đơn</span>
+                          )}
                           {getOrderAttention(order) ? (
                             <em className={getOrderAttentionClass(order)}>
                               {getOrderAttention(order)?.label}
@@ -939,6 +1043,7 @@ export function OrderListPage({
           canManageCustomerPaymentMethods={canManageCustomerPaymentMethods}
           canReadCustomerPaymentMethods={canReadCustomerPaymentMethods}
           canUpdateOrders={canUpdateOrders}
+          revealedRefundAccounts={revealedRefundAccounts}
           isActionLoading={actionLoading}
           isLoading={isDrawerLoading}
           auditLogs={auditLogs}
@@ -956,6 +1061,8 @@ export function OrderListPage({
           onSimulateShippingStatus={(status) => void handleSimulateShippingStatus(status)}
           onSyncGhnShipment={() => void handleSyncGhnShipment()}
           onStatusUpdate={(status) => void handleStatusUpdate(status)}
+          onCopyReference={copyReference}
+          onRevealRefundAccount={(method) => void handleRevealRefundAccount(method)}
         />
       ) : null}
 
@@ -969,5 +1076,13 @@ export function OrderListPage({
         />
       ) : null}
     </section>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2Zm2 0h4a2 2 0 0 1 2 2v6h2V5h-8v2Zm-4 2v10h8V9H6Z" />
+    </svg>
   )
 }

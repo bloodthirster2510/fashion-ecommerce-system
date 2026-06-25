@@ -49,6 +49,8 @@ type CartNotice = {
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
+const CHECKOUT_PREVIEW_DEBOUNCE_MS = 450;
+
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const getErrorMessage = (error: unknown) => {
@@ -140,6 +142,7 @@ const CartScreen = () => {
   const [couponCode, setCouponCode] = React.useState('');
   const [appliedCouponCodes, setAppliedCouponCodes] = React.useState<string[]>([]);
   const [checkoutPreview, setCheckoutPreview] = React.useState<CheckoutPreviewResponse | null>(null);
+  const [checkoutPreviewKey, setCheckoutPreviewKey] = React.useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = React.useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
   const [notice, setNotice] = React.useState<CartNotice | null>(null);
@@ -430,6 +433,16 @@ const CartScreen = () => {
         .join('|'),
     [selectedCheckoutItems],
   );
+  const checkoutPreviewRequestKey = React.useMemo(
+    () => [
+      selectedCheckoutItemKey,
+      selectedAddressKey,
+      appliedCouponCodes.join(','),
+      paymentMethod,
+    ].join('::'),
+    [appliedCouponCodes, paymentMethod, selectedAddressKey, selectedCheckoutItemKey],
+  );
+  const checkoutPreviewIsCurrent = Boolean(checkoutPreview && checkoutPreviewKey === checkoutPreviewRequestKey);
   const unavailableSelectedItems = selectedItems.filter((item) => item.isAvailable === false);
   const allItemsSelected = Boolean(
     cart?.product_list.length && cart.product_list.every((item) => item.isSelected),
@@ -501,6 +514,7 @@ const CartScreen = () => {
     unavailableSelectedItems.length === 0 &&
     Boolean(selectedAddress) &&
     Boolean(checkoutPreview?.quoteVersion) &&
+    checkoutPreviewIsCurrent &&
     !isPreviewLoading &&
     !isSubmitting &&
     (paymentMethod === 'COD' || paymentMethod === 'VNPAY');
@@ -518,24 +532,29 @@ const CartScreen = () => {
   React.useEffect(() => {
     if (!session?.accessToken || !selectedCheckoutItems.length) {
       setCheckoutPreview(null);
+      setCheckoutPreviewKey('');
+      setIsPreviewLoading(false);
       return;
     }
 
     let isActive = true;
     setIsPreviewLoading(true);
+    const previewKey = checkoutPreviewRequestKey;
 
-    runWithAuth((accessToken) =>
-      cartApi.previewCheckout(accessToken, {
-        cartItemIds: selectedCheckoutItems.map((item) => item._id),
-        ...getCheckoutAddressPayload(),
-        couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
-        paymentMethod,
-      }),
-    )
+    const handle = setTimeout(() => {
+      runWithAuth((accessToken) =>
+        cartApi.previewCheckout(accessToken, {
+          cartItemIds: selectedCheckoutItems.map((item) => item._id),
+          ...getCheckoutAddressPayload(),
+          couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
+          paymentMethod,
+        }),
+      )
       .then((preview) => {
         if (!isActive) return;
 
         setCheckoutPreview(preview);
+        setCheckoutPreviewKey(previewKey);
         const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? (preview.coupon ? [preview.coupon.code] : []);
         if (previewCodes.length) {
           setCouponCode('');
@@ -550,6 +569,7 @@ const CartScreen = () => {
         if (!isActive) return;
 
         setCheckoutPreview(null);
+        setCheckoutPreviewKey('');
         if (appliedCouponCodes.length) {
           setAppliedCouponCodes([]);
           showNotice({
@@ -564,12 +584,15 @@ const CartScreen = () => {
           setIsPreviewLoading(false);
         }
       });
+    }, CHECKOUT_PREVIEW_DEBOUNCE_MS);
 
     return () => {
       isActive = false;
+      clearTimeout(handle);
     };
   }, [
     appliedCouponCodes,
+    checkoutPreviewRequestKey,
     paymentMethod,
     getCheckoutAddressPayload,
     runWithAuth,
@@ -743,8 +766,14 @@ const CartScreen = () => {
         throw new CartApiError('Voucher chưa được áp dụng cho đơn hàng này.');
       }
 
-      setCheckoutPreview(preview);
       const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? [preview.coupon.code];
+      setCheckoutPreview(preview);
+      setCheckoutPreviewKey([
+        selectedCheckoutItemKey,
+        selectedAddressKey,
+        previewCodes.join(','),
+        paymentMethod,
+      ].join('::'));
       setAppliedCouponCodes(previewCodes);
       setCouponCode('');
       showNotice({
@@ -957,6 +986,7 @@ const CartScreen = () => {
           );
 
           setCheckoutPreview(refreshedPreview);
+          setCheckoutPreviewKey(checkoutPreviewRequestKey);
           showNotice({
             tone: 'warning',
             title: 'Phí giao hàng vừa thay đổi',
@@ -965,6 +995,7 @@ const CartScreen = () => {
           return;
         } catch (refreshError) {
           setCheckoutPreview(null);
+          setCheckoutPreviewKey('');
           showNotice({
             tone: 'warning',
             title: 'Cần cập nhật lại phí giao hàng',

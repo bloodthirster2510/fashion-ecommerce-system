@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
@@ -52,7 +52,7 @@ const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
 
 const ORDER_PAGE_LIMIT = 20;
 const retryablePaymentStatuses: OrderPaymentStatus[] = ['pending', 'failed'];
-const closedPaymentActionStatuses = new Set<OrderStatus>(['cancelled', 'returned']);
+const closedPaymentActionStatuses = new Set<OrderStatus>(['completed', 'cancelled', 'returned']);
 const transferPaymentMethods = new Set<OrderPaymentMethod>(onlinePaymentMethods);
 const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   paymentFilters[0],
@@ -64,7 +64,7 @@ const getStatusesQuery = (status: OrderTabKey, filter: PaymentFilter) => {
   const tabStatuses = getOrderTab(status).statuses;
 
   if (filter !== 'needs-payment') {
-    return status === 'all' ? undefined : tabStatuses;
+    return tabStatuses;
   }
 
   return tabStatuses.filter((orderStatus) => !closedPaymentActionStatuses.has(orderStatus));
@@ -120,6 +120,7 @@ const getErrorMessage = (error: unknown) => {
 const OrderListScreen = () => {
   const navigation = useNavigation<OrderListNavigationProp>();
   const route = useRoute<OrderListRouteProp>();
+  const isFocused = useIsFocused();
   const { logout, runWithAuth, session } = useAuth();
   const initialStatus = getOrderTab(route.params?.status ?? 'active').key;
 
@@ -145,7 +146,7 @@ const OrderListScreen = () => {
   }, [searchText]);
 
   const loadOrders = React.useCallback(
-    async (status: OrderTabKey, mode: 'loading' | 'refresh' | 'more' = 'loading', page = 1) => {
+    async (status: OrderTabKey, mode: 'loading' | 'refresh' | 'more' | 'silent' = 'loading', page = 1) => {
       if (!session?.accessToken) {
         setOrders([]);
         setStatusSummary(null);
@@ -158,10 +159,10 @@ const OrderListScreen = () => {
         setIsLoading(true);
       } else if (mode === 'refresh') {
         setIsRefreshing(true);
-      } else {
+      } else if (mode === 'more') {
         setIsLoadingMore(true);
       }
-      if (mode !== 'more') {
+      if (mode !== 'more' && mode !== 'silent') {
         setErrorMessage('');
       }
 
@@ -188,6 +189,10 @@ const OrderListScreen = () => {
         setStatusSummary(response.statusSummary ?? null);
         setPagination(response.pagination ?? null);
       } catch (error) {
+        if (mode === 'silent') {
+          return;
+        }
+
         if (isUnauthorizedError(error)) {
           logout();
           navigation.reset({
@@ -203,9 +208,9 @@ const OrderListScreen = () => {
           setErrorMessage(getErrorMessage(error));
         }
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-        setIsLoadingMore(false);
+        if (mode === 'loading') setIsLoading(false);
+        if (mode === 'refresh') setIsRefreshing(false);
+        if (mode === 'more') setIsLoadingMore(false);
       }
     },
     [debouncedSearchText, logout, navigation, paymentFilter, runWithAuth, session?.accessToken],
@@ -219,9 +224,18 @@ const OrderListScreen = () => {
     { runOnDepsChange: true, staleMs: 30 * 1000 },
   );
 
-  useOrderRealtime(session?.accessToken, () => {
-    void loadOrders(activeStatus, 'refresh');
+  const orderRealtime = useOrderRealtime(session?.accessToken, () => {
+    void loadOrders(activeStatus, 'silent');
   });
+
+  React.useEffect(() => {
+    if (!isFocused || !session?.accessToken) return;
+    const handle = setInterval(() => {
+      void loadOrders(activeStatus, 'silent');
+    }, orderRealtime.connected ? 30_000 : 12_000);
+
+    return () => clearInterval(handle);
+  }, [activeStatus, isFocused, loadOrders, orderRealtime.connected, session?.accessToken]);
 
   const handleRefresh = () => {
     void loadOrders(activeStatus, 'refresh');
@@ -270,7 +284,7 @@ const OrderListScreen = () => {
   const hasActiveFilters = Boolean(debouncedSearchText) || paymentFilter !== 'all';
   const selectedTab = getOrderTab(activeStatus);
   const hasVisiblePaymentAction = orders.some(orderNeedsPaymentAction);
-  const hasShippingAction = (statusSummary?.shipping ?? 0) > 0;
+  const hasShippingAction = (statusSummary?.delivered ?? 0) > 0;
 
   const shouldShowPaymentFilterDot = (filter: PaymentFilter) =>
     filter === 'needs-payment' && (hasVisiblePaymentAction || paymentFilter === 'needs-payment');
@@ -299,12 +313,17 @@ const OrderListScreen = () => {
           <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
         </View>
         <TouchableOpacity
-          style={styles.headerAction}
+          style={[styles.headerAction, (isRefreshing || isLoading) && styles.headerActionDisabled]}
           onPress={handleRefresh}
           activeOpacity={0.8}
           accessibilityLabel="Tải lại"
+          disabled={isRefreshing || isLoading}
         >
-          <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+          {isRefreshing || isLoading ? (
+            <ActivityIndicator size="small" color={colors.white} />
+          ) : (
+            <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -451,6 +470,9 @@ const styles = StyleSheet.create({
   },
   headerAction: {
     ...brandedHeaderStyles.action,
+  },
+  headerActionDisabled: {
+    opacity: 0.7,
   },
   headerTitleGroup: {
     ...brandedHeaderStyles.titleGroup,

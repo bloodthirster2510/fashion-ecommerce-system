@@ -28,6 +28,7 @@ export const emptyStatusSummary: Record<AdminOrderStatus | 'all', number> = {
   packed: 0,
   shipping: 0,
   delivered: 0,
+  completed: 0,
   cancelled: 0,
   return_requested: 0,
   returned: 0,
@@ -111,9 +112,9 @@ export const orderTabs: OrderTab[] = [
   {
     key: 'refund',
     label: 'Hoàn tiền',
-    helper: 'Đơn đã thanh toán nhưng bị hủy, cần đối soát và hoàn tiền thủ công.',
+    helper: 'Đơn đã thanh toán nhưng bị hủy hoặc đã nhận trả, cần đối soát và hoàn tiền thủ công.',
     group: 'exceptions',
-    statuses: ['cancelled'],
+    statuses: ['cancelled', 'returned'],
     paymentStatus: 'paid',
     queue: 'refund',
   },
@@ -150,6 +151,7 @@ export const statusLabels: Record<AdminOrderStatus, string> = {
   packed: 'Đã đóng gói',
   shipping: 'Đang giao',
   delivered: 'Đã giao',
+  completed: 'Hoàn tất',
   cancelled: 'Đã hủy',
   return_requested: 'Chờ duyệt trả',
   returned: 'Đã nhận trả',
@@ -227,6 +229,7 @@ export const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'payment.adjust': 'Điều chỉnh thanh toán',
   'payment.expire': 'Hết hạn thanh toán',
   'payment_method.status_update': 'Cập nhật phương thức thanh toán',
+  'payment_method.account_reveal': 'Xem số tài khoản hoàn tiền',
 }
 
 export const actorRoleLabels: Record<AdminAuditLog['actorRole'], string> = {
@@ -277,6 +280,7 @@ export const shippingSimulationActions: Array<{
 export const nextStatusOptions: Partial<Record<AdminOrderStatus, AdminOrderStatus[]>> = {
   confirmed: ['packed', 'cancelled'],
   packed: ['cancelled'],
+  delivered: ['completed'],
 }
 
 export const getNoNextOrderStepMessage = (order: AdminOrder) => {
@@ -285,7 +289,11 @@ export const getNoNextOrderStepMessage = (order: AdminOrder) => {
   }
 
   if (order.status === 'delivered') {
-    return 'Đơn đã giao. Khách có thể yêu cầu trả hàng trong 7 ngày từ thời điểm giao.'
+    return 'Đơn vị vận chuyển đã giao tới khách. Đợi khách xác nhận đã nhận hàng hoặc xử lý trả hàng trong 7 ngày.'
+  }
+
+  if (order.status === 'completed') {
+    return 'Khách đã xác nhận nhận hàng. Đơn vẫn có thể phát sinh yêu cầu trả hàng trong thời hạn chính sách.'
   }
 
   return 'Đơn hàng không có bước xử lý tiếp theo.'
@@ -295,6 +303,7 @@ export const getStatusActionLabel = (status: AdminOrderStatus) => {
   if (status === 'packed') return 'Đóng gói xong'
   if (status === 'shipping') return 'Bàn giao vận chuyển'
   if (status === 'delivered') return 'Xác nhận đã giao'
+  if (status === 'completed') return 'Khách đã nhận hàng'
   if (status === 'cancelled') return 'Hủy đơn'
 
   return statusLabels[status]
@@ -357,6 +366,7 @@ export const getPaymentPillClass = (status: AdminOrderPaymentStatus) => {
 }
 
 export const getOrderPillClass = (status: AdminOrderStatus) => {
+  if (status === 'completed') return 'admin-status-pill is-active'
   if (status === 'delivered') return 'admin-status-pill is-active'
   if (status === 'shipping') return 'admin-status-pill is-info'
   if (status === 'packed') return 'admin-status-pill is-progress'
@@ -387,7 +397,7 @@ export const getOrderRowClass = (order: AdminOrder) => {
   if (shouldWarnPaymentBeforeShipping(order) || order.paymentStatus === 'failed') {
     return 'admin-order-row is-payment-risk'
   }
-  if (order.status === 'delivered') return 'admin-order-row is-complete'
+  if (order.status === 'delivered' || order.status === 'completed') return 'admin-order-row is-complete'
   if (order.status === 'shipping') return 'admin-order-row is-shipping'
   if (order.status === 'packed') return 'admin-order-row is-packed'
   if (order.status === 'cancelled' || order.status === 'returned' || order.status === 'return_requested') {
@@ -405,13 +415,14 @@ export const getTabClass = (tab: OrderTab, activeTabKey: string) =>
     .filter(Boolean)
     .join(' ')
 
-export const orderFlowSteps = ['confirmed', 'packed', 'shipping', 'delivered'] as const
+export const orderFlowSteps = ['confirmed', 'packed', 'shipping', 'delivered', 'completed'] as const
 
 export const orderFlowLabels: Record<(typeof orderFlowSteps)[number], string> = {
   confirmed: 'Tiếp nhận',
   packed: 'Đóng gói',
   shipping: 'Giao hàng',
   delivered: 'Đã giao',
+  completed: 'Hoàn tất',
 }
 
 export const getOrderProgressPercent = (status: AdminOrderStatus, shippingStatus?: string | null) => {
@@ -472,7 +483,8 @@ export const shouldWarnPaymentBeforeShipping = (order: AdminOrder) =>
   order.paymentMethod !== 'COD' &&
   order.paymentStatus !== 'paid' &&
   order.status !== 'cancelled' &&
-  order.status !== 'returned'
+  order.status !== 'returned' &&
+  order.status !== 'completed'
 
 export const isPaymentDeadlineSoon = (order: AdminOrder) => {
   if (!order.paymentDeadlineAt || !shouldWarnPaymentBeforeShipping(order)) return false
@@ -501,7 +513,7 @@ export const getPaymentDeadlineStatus = (order: AdminOrder) => {
 }
 
 export const needsRefundReview = (order: AdminOrder) =>
-  order.status === 'cancelled' && order.paymentStatus === 'paid'
+  (order.status === 'cancelled' || order.status === 'returned') && order.paymentStatus === 'paid'
 
 export const needsReasonReview = (order: AdminOrder) =>
   order.status === 'return_requested' && order.returnRequest?.status === 'requested'
@@ -533,10 +545,10 @@ export const getQueueCount = (
   if (queue === 'payment-deadline') return operationalSummary.paymentDeadlineSoon ?? 0
   if (queue === 'packing') return operationalSummary.packingReady ?? 0
   if (queue === 'handoff') return operationalSummary.handoffReady ?? 0
-  if (queue === 'delivery') return operationalSummary.deliveryConfirmations ?? summary.shipping
+  if (queue === 'delivery') return operationalSummary.deliveryConfirmations ?? summary.delivered
 
   const readyToProcess = operationalSummary.readyToProcess ?? Math.max(0, summary.confirmed + summary.packed)
-  const deliveryConfirmations = operationalSummary.deliveryConfirmations ?? summary.shipping
+  const deliveryConfirmations = operationalSummary.deliveryConfirmations ?? summary.delivered
   return readyToProcess + deliveryConfirmations
 }
 

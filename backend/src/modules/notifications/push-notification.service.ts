@@ -124,7 +124,7 @@ export type ShippingPushMilestone = 'picked' | 'shipping' | 'delivered' | 'faile
 const shippingPushCopy: Record<ShippingPushMilestone, { title: string; body: string }> = {
   picked: { title: 'Đơn đã được lấy hàng', body: 'Đơn hàng của bạn đã được bàn giao cho đơn vị vận chuyển.' },
   shipping: { title: 'Đơn đang trên đường', body: 'Tài xế đang giao đơn hàng đến bạn.' },
-  delivered: { title: 'Đơn đã giao đến bạn', body: 'Đơn hàng đã được giao thành công. Cảm ơn bạn đã mua sắm!' },
+  delivered: { title: 'Đơn đã giao đến bạn', body: 'Kiểm tra đơn và xác nhận đã nhận hàng trong 7 ngày nhé.' },
   failed: { title: 'Giao hàng chưa thành công', body: 'Shop sẽ theo dõi và liên hệ với bạn để hỗ trợ giao lại.' },
 };
 

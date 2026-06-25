@@ -22,8 +22,7 @@ export const getCustomerNotificationSummary = async (userId: string) => {
           status: { $nin: ['cancelled', 'returned'] },
         },
         {
-          status: 'shipping',
-          'shipping.status': { $ne: 'failed' },
+          status: 'delivered',
         },
       ],
     }),

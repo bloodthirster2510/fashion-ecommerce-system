@@ -5,9 +5,11 @@ export type AuditLogAction =
   | 'order.shipping_update'
   | 'order.shipping_webhook'
   | 'order.shipping_reconcile'
+  | 'order.auto_complete_delivered'
   | 'payment.adjust'
   | 'payment.expire'
   | 'payment_method.status_update'
+  | 'payment_method.account_reveal'
   | 'membership_ranking.create'
   | 'membership_ranking.update'
   | 'membership_ranking.status_update'
@@ -49,9 +51,11 @@ const auditLogSchema = new Schema<IAuditLog>(
         'order.shipping_update',
         'order.shipping_webhook',
         'order.shipping_reconcile',
+        'order.auto_complete_delivered',
         'payment.adjust',
         'payment.expire',
         'payment_method.status_update',
+        'payment_method.account_reveal',
         'membership_ranking.create',
         'membership_ranking.update',
         'membership_ranking.status_update',

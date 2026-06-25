@@ -7,6 +7,19 @@
 .account-order-list { display:grid; gap:14px; margin:18px 0; }
 .account-order-card { display:grid; gap:12px; padding:16px; border:1px solid #dfe5e9; border-radius:12px; background:#fff; }
 .account-order-card header,.account-order-card footer { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.account-order-card header { align-items:flex-start; }
+.account-order-code-group { display:grid; gap:4px; min-width:0; }
+.account-code-with-copy { display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; }
+.account-code-with-copy strong,.account-code-with-copy span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.account-code-with-copy.is-subtle { color:#64748b; font-size:12px; }
+.account-copy-button { width:26px; height:26px; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; border:1px solid #d8e1e9; border-radius:999px; color:var(--accent); background:#fff; cursor:pointer; }
+.account-copy-button:hover,.account-copy-button:focus-visible { border-color:var(--accent); background:#edf5fa; }
+.account-copy-button svg { width:14px; height:14px; fill:currentColor; }
+.account-status-pill { flex:0 0 auto; max-width:180px; padding:6px 10px; border-radius:999px; background:#eef2f6; color:#334155; font-size:12px; font-weight:800; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.account-status-pill.is-delivered,.account-status-pill.is-completed { background:#e8f7ef; color:#13834b; }
+.account-status-pill.is-shipping { background:#eaf3ff; color:#1f5bbf; }
+.account-status-pill.is-cancelled,.account-status-pill.is-returned { background:#fff1f2; color:#be123c; }
+.account-status-pill.is-return_requested { background:#fff7ed; color:#b45309; }
 .account-order-item,.my-review-card { display:flex; align-items:center; gap:12px; padding:12px 0; border-top:1px solid #edf0f2; }
 .account-order-item img,.my-review-card img { width:64px; height:64px; border-radius:8px; object-fit:cover; }
 .account-order-item > div,.my-review-card > div { display:grid; flex:1; gap:4px; }
@@ -100,6 +113,8 @@
   min-height: 680px;
   padding: 32px;
 }
+
+.account-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
 
 .profile-panel {
   width: 100%;

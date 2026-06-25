@@ -5,6 +5,7 @@ export type AdminOrderStatus =
   | 'packed'
   | 'shipping'
   | 'delivered'
+  | 'completed'
   | 'cancelled'
   | 'return_requested'
   | 'returned'
@@ -52,6 +53,7 @@ export type AdminOrderReturnRequest = {
   reason: string
   imageUrls?: string[]
   status: AdminReturnRequestStatus
+  previousOrderStatus?: Extract<AdminOrderStatus, 'delivered' | 'completed'> | null
   requestedAt: string
   reviewedAt?: string | null
   reviewedBy?: string | null
@@ -87,6 +89,7 @@ export type AdminOrder = {
   paymentDeadlineAt?: string | null
   paymentDeadlineWarningSentAt?: string | null
   deliveredAt?: string | null
+  receivedAt?: string | null
   returnRequest?: AdminOrderReturnRequest | null
   cancellation?: AdminOrderCancellation | null
   shipping?: AdminOrderShipping | null
@@ -125,6 +128,7 @@ export type AdminCustomerPaymentMethod = {
   maskedInfo?: string | null
   bankCode?: string | null
   bankName?: string | null
+  hasStoredAccountNumber?: boolean
   status: AdminPaymentMethodStatus
   isDefault: boolean
   metadata?: Record<string, unknown>
@@ -193,6 +197,7 @@ export type AdminAuditLog = {
     | 'payment.adjust'
     | 'payment.expire'
     | 'payment_method.status_update'
+    | 'payment_method.account_reveal'
   targetType: string
   targetId: string
   reason?: string | null
@@ -337,6 +342,14 @@ export const updateCustomerPaymentMethodStatus = (
     method: 'PATCH',
     body: JSON.stringify({ status, reason }),
   })
+
+export const revealCustomerPaymentMethodAccount = (id: string) =>
+  requestAdmin<{ paymentMethodId: string; accountNumber: string }>(
+    `/admin/payment-methods/${encodeURIComponent(id)}/reveal-account`,
+    {
+      method: 'POST',
+    },
+  )
 
 export const adjustOrderPaymentStatus = (
   orderId: string,

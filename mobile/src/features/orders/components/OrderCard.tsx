@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Clipboard, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, shadows, spacing } from '../../../theme';
 import type { CustomerOrder } from '../orderApi';
@@ -42,6 +42,9 @@ export function OrderCard({
     : null;
   const isDeadlineSoon = requiresPayment && deadlineRemaining !== null &&
     deadlineRemaining > 0 && deadlineRemaining <= 24 * 60 * 60 * 1000;
+  const handleCopyOrderCode = () => {
+    Clipboard.setString(order.orderCode);
+  };
 
   return (
     <TouchableOpacity
@@ -55,7 +58,20 @@ export function OrderCard({
     >
       <View style={styles.orderHeader}>
         <View style={styles.orderTitleGroup}>
-          <Text style={styles.orderCode}>{order.orderCode}</Text>
+          <View style={styles.orderCodeRow}>
+            <Text style={styles.orderCode} numberOfLines={1}>{order.orderCode}</Text>
+            <TouchableOpacity
+              style={styles.copyCodeButton}
+              onPress={(event) => {
+                event.stopPropagation();
+                handleCopyOrderCode();
+              }}
+              activeOpacity={0.78}
+              accessibilityLabel="Sao chép mã đơn hàng"
+            >
+              <MaterialCommunityIcons name="content-copy" size={15} color={colors.brand} />
+            </TouchableOpacity>
+          </View>
           <Text style={styles.orderDate}>Đặt ngày {formatDate(order.createdAt)}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: displayState.backgroundColor }]}>
@@ -161,12 +177,27 @@ const styles = StyleSheet.create({
   },
   orderTitleGroup: {
     flex: 1,
+    minWidth: 0,
+  },
+  orderCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   orderCode: {
+    flexShrink: 1,
     color: colors.text,
     fontSize: 17,
     lineHeight: 24,
     fontWeight: '800',
+  },
+  copyCodeButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandSoft,
   },
   orderDate: {
     color: colors.textMuted,

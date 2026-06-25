@@ -9,6 +9,7 @@ export type OrderStatus =
   | 'packed'
   | 'shipping'
   | 'delivered'
+  | 'completed'
   | 'cancelled'
   | 'return_requested'
   | 'returned';
@@ -69,6 +70,7 @@ export type OrderReturnRequest = {
   reason: string;
   imageUrls?: string[];
   status: OrderReturnRequestStatus;
+  previousOrderStatus?: Extract<OrderStatus, 'delivered' | 'completed'> | null;
   requestedAt: string;
   reviewedAt?: string | null;
   reviewedBy?: string | null;
@@ -115,6 +117,7 @@ export type CustomerOrder = {
   shippingAddress: OrderShippingAddress;
   orderNote?: string | null;
   deliveredAt?: string | null;
+  receivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

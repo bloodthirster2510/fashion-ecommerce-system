@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import type {
   AdminAuditLog,
   AdminCustomerPaymentMethod,
@@ -28,6 +29,7 @@ import {
   getOrderPillClass,
   getOrderRowClass,
   getPaymentDeadlineStatus,
+  getPaymentMethodMetadataText,
   getPaymentMethodStatusActions,
   getPaymentMethodStatusClass,
   getPaymentPillClass,
@@ -49,6 +51,51 @@ import {
   transactionStatusLabels,
 } from './orderPresentation'
 
+const AUDIT_LOG_PAGE_SIZE = 3
+
+const normalizeTransferToken = (value?: string | null) =>
+  (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase()
+
+const getRefundTransferContent = (order: AdminOrder) => {
+  const orderCode = normalizeTransferToken(order.orderCode)
+  const invoiceCode = normalizeTransferToken(order.invoiceCode)
+  const suffix = invoiceCode && invoiceCode !== orderCode ? ` ${invoiceCode}` : ''
+
+  return `HOAN TIEN DON ${orderCode}${suffix}`.trim().slice(0, 90)
+}
+
+const getRefundMethodRank = (method: AdminCustomerPaymentMethod) => {
+  if (method.type !== 'BANK') return 100
+
+  let rank = 20
+  if (method.status === 'verified') rank -= 10
+  if (method.isDefault) rank -= 5
+  if (method.metadata?.refundDestination === true) rank -= 2
+  return rank
+}
+
+const getRecommendedRefundMethod = (methods: AdminCustomerPaymentMethod[]) =>
+  [...methods]
+    .filter((method) => method.type === 'BANK')
+    .sort((left, right) => getRefundMethodRank(left) - getRefundMethodRank(right))[0] ?? null
+
+const getRefundAccountHolder = (method: AdminCustomerPaymentMethod) =>
+  getPaymentMethodMetadataText(method, 'accountHolder') ?? 'Chưa có tên chủ tài khoản'
+
+const getRefundBankName = (method: AdminCustomerPaymentMethod) =>
+  method.bankName || getPaymentMethodMetadataText(method, 'bankFullName') || method.provider || 'Chưa có ngân hàng'
+
+const getRefundAccountText = (method: AdminCustomerPaymentMethod) =>
+  method.maskedInfo || (
+    getPaymentMethodMetadataText(method, 'accountNumberLast4')
+      ? `•••• ${getPaymentMethodMetadataText(method, 'accountNumberLast4')}`
+      : 'Chưa có số tài khoản'
+  )
+
 export function OrderDetailDrawer({
   canAdjustPayments,
   canManageCustomerPaymentMethods,
@@ -59,6 +106,7 @@ export function OrderDetailDrawer({
   auditLogs,
   order,
   paymentMethods,
+  revealedRefundAccounts,
   transactions,
   onClose,
   onAdjustPaymentStatus,
@@ -71,6 +119,8 @@ export function OrderDetailDrawer({
   onSimulateShippingStatus,
   onSyncGhnShipment,
   onStatusUpdate,
+  onCopyReference,
+  onRevealRefundAccount,
 }: {
   canAdjustPayments: boolean
   canManageCustomerPaymentMethods: boolean
@@ -81,6 +131,7 @@ export function OrderDetailDrawer({
   auditLogs: AdminAuditLog[]
   order: AdminOrder
   paymentMethods: AdminCustomerPaymentMethod[]
+  revealedRefundAccounts: Record<string, string>
   transactions: AdminTransaction[]
   onClose: () => void
   onAdjustPaymentStatus: (status: AdminOrderPaymentStatus) => void
@@ -93,7 +144,10 @@ export function OrderDetailDrawer({
   onSimulateShippingStatus: (status: ShippingSimulationStatus) => void
   onSyncGhnShipment: () => void
   onStatusUpdate: (status: AdminOrderStatus) => void
+  onCopyReference: (value: string, label: string) => void
+  onRevealRefundAccount: (method: AdminCustomerPaymentMethod) => void
 }) {
+  const [visibleAuditLogCount, setVisibleAuditLogCount] = useState(AUDIT_LOG_PAGE_SIZE)
   const statusOptions = nextStatusOptions[order.status] ?? []
   const hasPendingReturnRequest = order.status === 'return_requested' && order.returnRequest?.status === 'requested'
   const needsRefundHandling =
@@ -101,6 +155,26 @@ export function OrderDetailDrawer({
   const attention = getOrderAttention(order)
   const returnWindowStatus = getReturnWindowStatus(order)
   const paymentDeadlineStatus = getPaymentDeadlineStatus(order)
+  const refundTransferContent = getRefundTransferContent(order)
+  const recommendedRefundMethod = getRecommendedRefundMethod(paymentMethods)
+  const refundMethods = paymentMethods.filter((method) => method.type === 'BANK')
+  const revealedRecommendedRefundAccount = recommendedRefundMethod
+    ? revealedRefundAccounts[recommendedRefundMethod._id]
+    : undefined
+  const hasMaskedRefundAccount = Boolean(
+    !revealedRecommendedRefundAccount &&
+      recommendedRefundMethod?.maskedInfo &&
+      /[•*xX]/.test(recommendedRefundMethod.maskedInfo),
+  )
+  const visibleAuditLogs = useMemo(
+    () => auditLogs.slice(0, visibleAuditLogCount),
+    [auditLogs, visibleAuditLogCount],
+  )
+  const hasMoreAuditLogs = visibleAuditLogCount < auditLogs.length
+
+  useEffect(() => {
+    setVisibleAuditLogCount(AUDIT_LOG_PAGE_SIZE)
+  }, [order._id, auditLogs.length])
 
   return (
     <div className="admin-drawer-layer" role="dialog" aria-modal="true" aria-labelledby="admin-order-title">
@@ -112,7 +186,17 @@ export function OrderDetailDrawer({
               {order.orderCode.slice(-2)}
             </span>
             <div>
-              <h2 id="admin-order-title">{order.orderCode}</h2>
+              <h2 id="admin-order-title" className="admin-code-with-copy">
+                <span>{order.orderCode}</span>
+                <button
+                  className="admin-copy-button"
+                  type="button"
+                  onClick={() => onCopyReference(order.orderCode, 'mã đơn')}
+                  aria-label="Sao chép mã đơn"
+                >
+                  <CopyIcon />
+                </button>
+              </h2>
               <p>{order.shippingAddress.customerName}</p>
             </div>
           </div>
@@ -159,6 +243,22 @@ export function OrderDetailDrawer({
               <span>Trạng thái thanh toán</span>
               <strong className={getPaymentPillClass(order.paymentStatus)}>{paymentStatusLabels[order.paymentStatus]}</strong>
             </div>
+            <div className="admin-detail-card is-invoice">
+              <span>Mã hóa đơn</span>
+              <strong className="admin-code-with-copy">
+                <span>{order.invoiceCode || 'Chưa có'}</span>
+                {order.invoiceCode ? (
+                  <button
+                    className="admin-copy-button"
+                    type="button"
+                    onClick={() => onCopyReference(order.invoiceCode ?? '', 'mã hóa đơn')}
+                    aria-label="Sao chép mã hóa đơn"
+                  >
+                    <CopyIcon />
+                  </button>
+                ) : null}
+              </strong>
+            </div>
             {order.paymentDeadlineAt ? (
               <div className="admin-detail-card is-payment-deadline">
                 <span>Hạn thanh toán</span>
@@ -181,7 +281,7 @@ export function OrderDetailDrawer({
         </section>
 
         {order.cancellation ? (
-          <section className="admin-drawer-section admin-order-section-main">
+          <section className="admin-drawer-section admin-order-section-main admin-order-section-issue">
             <div className="admin-section-inline-heading">
               <h3>Thông tin hủy đơn</h3>
               {order.paymentStatus === 'paid' ? (
@@ -223,7 +323,7 @@ export function OrderDetailDrawer({
         ) : null}
 
         {order.returnRequest ? (
-          <section className="admin-drawer-section admin-order-section-main">
+          <section className="admin-drawer-section admin-order-section-main admin-order-section-issue">
             <div className="admin-section-inline-heading">
               <h3>Yêu cầu trả hàng</h3>
               <span className={getReturnRequestPillClass(order.returnRequest.status)}>
@@ -273,20 +373,104 @@ export function OrderDetailDrawer({
           </section>
         ) : null}
 
-        <section className="admin-drawer-section admin-order-section-side">
-          <h3>Phương thức thanh toán của khách hàng</h3>
+        <section className="admin-drawer-section admin-order-section-side admin-order-section-refund">
+          <h3>{needsRefundHandling ? 'Hoàn tiền & tài khoản nhận' : 'Phương thức thanh toán của khách hàng'}</h3>
           {needsRefundHandling ? (
-            <p className="admin-refund-bank-note">
-              Đơn cần hoàn tiền. Ưu tiên tài khoản ngân hàng khách đã cập nhật/xác minh; sau khi chuyển khoản ngoài hệ thống thì đánh dấu Đã hoàn tiền.
-            </p>
+            <div className="admin-refund-panel">
+              <div className="admin-refund-panel-header">
+                <span>Số tiền đề xuất</span>
+                <strong>{formatCurrency(order.totalAmount)}</strong>
+              </div>
+              <div className="admin-refund-transfer-content">
+                <span>Nội dung chuyển khoản</span>
+                <strong className="admin-code-with-copy">
+                  <span>{refundTransferContent}</span>
+                  <button
+                    className="admin-copy-button"
+                    type="button"
+                    onClick={() => onCopyReference(refundTransferContent, 'nội dung chuyển khoản')}
+                    aria-label="Sao chép nội dung chuyển khoản"
+                  >
+                    <CopyIcon />
+                  </button>
+                </strong>
+              </div>
+              {recommendedRefundMethod ? (
+                <article className="admin-refund-account-card">
+                  <div>
+                    <span>Tài khoản nhận ưu tiên</span>
+                    <strong>{getRefundAccountHolder(recommendedRefundMethod)}</strong>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Ngân hàng</dt>
+                      <dd>{getRefundBankName(recommendedRefundMethod)}</dd>
+                    </div>
+                    <div>
+                      <dt>Mã NH</dt>
+                      <dd>{recommendedRefundMethod.bankCode || 'Chưa có'}</dd>
+                    </div>
+                    <div>
+                      <dt>{revealedRecommendedRefundAccount ? 'Số tài khoản' : hasMaskedRefundAccount ? 'Số TK đang che' : 'Số tài khoản'}</dt>
+                      <dd className="admin-refund-account-number">
+                        <span>{revealedRecommendedRefundAccount ?? getRefundAccountText(recommendedRefundMethod)}</span>
+                        {revealedRecommendedRefundAccount ? (
+                          <button
+                            className="admin-inline-copy-button"
+                            type="button"
+                            onClick={() => onCopyReference(revealedRecommendedRefundAccount, 'số tài khoản')}
+                          >
+                            Sao chép số TK
+                          </button>
+                        ) : (
+                          <button
+                            className="admin-inline-copy-button"
+                            type="button"
+                            disabled={isActionLoading || !canAdjustPayments || !recommendedRefundMethod.hasStoredAccountNumber}
+                            onClick={() => onRevealRefundAccount(recommendedRefundMethod)}
+                            title={
+                              !canAdjustPayments
+                                ? 'Cần quyền payments.adjust để xem số tài khoản hoàn tiền'
+                              : recommendedRefundMethod.hasStoredAccountNumber
+                                ? 'Hiện số tài khoản đầy đủ để chuyển khoản'
+                                : 'Tài khoản cũ chưa lưu số đầy đủ, khách cần cập nhật lại'
+                            }
+                          >
+                            Hiện số TK
+                          </button>
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Trạng thái</dt>
+                      <dd>{paymentMethodStatusLabels[recommendedRefundMethod.status]}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ) : (
+                <p className="admin-refund-bank-note">
+                  Khách chưa có tài khoản ngân hàng nhận hoàn tiền. Cần yêu cầu khách bổ sung trước khi chuyển khoản.
+                </p>
+              )}
+              <p className="admin-refund-bank-note">
+                Sau khi chuyển khoản ngoài hệ thống, dùng nút Đã hoàn tiền và ghi đúng nội dung chuyển khoản để đối soát sao kê.
+              </p>
+              {hasMaskedRefundAccount ? (
+                <p className="admin-refund-bank-note is-caution">
+                  Số tài khoản đang được che theo chính sách bảo mật. Staff dùng nội dung chuyển khoản ở trên để đối soát khi hoàn tiền thủ công.
+                </p>
+              ) : null}
+            </div>
           ) : null}
           {!canReadCustomerPaymentMethods ? (
             <p className="admin-muted-text">Cần quyền customers.read để xem phương thức thanh toán của khách.</p>
           ) : paymentMethods.length === 0 ? (
             <p className="admin-muted-text">Khách hàng chưa lưu phương thức thanh toán nào.</p>
+          ) : needsRefundHandling && refundMethods.length === 0 ? (
+            <p className="admin-muted-text">Khách chưa lưu tài khoản ngân hàng. Các phương thức khác vẫn nằm trong hồ sơ thanh toán nhưng không dùng để chuyển khoản hoàn tiền.</p>
           ) : (
             <div className="admin-payment-method-list">
-              {paymentMethods.map((method) => {
+              {(needsRefundHandling ? refundMethods : paymentMethods).map((method) => {
                 const statusActions = getPaymentMethodStatusActions(method.status)
 
                 return (
@@ -300,7 +484,7 @@ export function OrderDetailDrawer({
                         {paymentMethodStatusLabels[method.status]}
                       </span>
                       {method.isDefault ? <span className="admin-status-pill is-warning">Mặc định</span> : null}
-                      {statusActions.map((action) => (
+                      {!needsRefundHandling ? statusActions.map((action) => (
                         <button
                           className={action.className}
                           type="button"
@@ -310,19 +494,19 @@ export function OrderDetailDrawer({
                         >
                           {action.label}
                         </button>
-                      ))}
+                      )) : null}
                     </div>
                   </article>
                 )
               })}
             </div>
           )}
-          {!canManageCustomerPaymentMethods ? (
+          {!needsRefundHandling && !canManageCustomerPaymentMethods ? (
             <p className="admin-permission-note">Cần quyền customers.manage để cập nhật phương thức thanh toán.</p>
           ) : null}
         </section>
 
-        <section className="admin-drawer-section admin-order-section-main">
+        <section className="admin-drawer-section admin-order-section-main admin-order-section-shipping">
           <div className="admin-section-inline-heading">
             <h3>Khách hàng & giao hàng</h3>
             <button
@@ -346,7 +530,19 @@ export function OrderDetailDrawer({
             </div>
             <div>
               <span>Mã vận đơn</span>
-              <strong>{order.shipping?.trackingCode || 'Chưa có'}</strong>
+              <strong className="admin-code-with-copy">
+                <span>{order.shipping?.trackingCode || 'Chưa có'}</span>
+                {order.shipping?.trackingCode ? (
+                  <button
+                    className="admin-copy-button"
+                    type="button"
+                    onClick={() => onCopyReference(order.shipping?.trackingCode ?? '', 'mã vận đơn')}
+                    aria-label="Sao chép mã vận đơn"
+                  >
+                    <CopyIcon />
+                  </button>
+                ) : null}
+              </strong>
             </div>
             <div>
               <span>Phí khách trả</span>
@@ -411,7 +607,7 @@ export function OrderDetailDrawer({
           </div>
         </section>
 
-        <section className="admin-drawer-section admin-order-section-main">
+        <section className="admin-drawer-section admin-order-section-main admin-order-section-items">
           <h3>Sản phẩm</h3>
           <div className="admin-order-item-list">
             {order.order_list.map((item) => (
@@ -428,7 +624,7 @@ export function OrderDetailDrawer({
           </div>
         </section>
 
-        <section className="admin-drawer-section admin-order-section-side">
+        <section className="admin-drawer-section admin-order-section-side admin-order-section-payments">
           <div className="admin-section-inline-heading">
             <h3>Lượt thanh toán</h3>
             <button className="admin-link-button" type="button" onClick={onRefresh}>
@@ -482,7 +678,7 @@ export function OrderDetailDrawer({
           )}
         </section>
 
-        <section className="admin-drawer-section admin-order-section-side">
+        <section className="admin-drawer-section admin-order-section-side admin-order-section-payment-adjust">
           <h3>Điều chỉnh thanh toán thủ công</h3>
           <p className="admin-muted-text">Chỉ dùng khi đã đối soát ngoài cổng thanh toán. Lý do bắt buộc và sẽ ghi nhật ký thao tác.</p>
           <div className="admin-drawer-actions">
@@ -503,7 +699,7 @@ export function OrderDetailDrawer({
           ) : null}
         </section>
 
-        <section className="admin-drawer-section admin-order-section-main">
+        <section className="admin-drawer-section admin-order-section-main admin-order-section-audit">
           <div className="admin-section-inline-heading">
             <h3>Nhật ký thao tác</h3>
             <button className="admin-link-button" type="button" onClick={onRefresh}>
@@ -514,7 +710,7 @@ export function OrderDetailDrawer({
             <p className="admin-muted-text">Chưa có nhật ký thao tác cho đơn này.</p>
           ) : (
             <div className="admin-audit-log-list">
-              {auditLogs.map((log) => (
+              {visibleAuditLogs.map((log) => (
                 <article className="admin-audit-log-card" key={log._id}>
                   <header>
                     <strong>{auditActionLabels[log.action]}</strong>
@@ -533,11 +729,20 @@ export function OrderDetailDrawer({
                   </dl>
                 </article>
               ))}
+              {hasMoreAuditLogs ? (
+                <button
+                  className="admin-audit-log-more-button"
+                  type="button"
+                  onClick={() => setVisibleAuditLogCount((current) => current + AUDIT_LOG_PAGE_SIZE)}
+                >
+                  Xem thêm {Math.min(AUDIT_LOG_PAGE_SIZE, auditLogs.length - visibleAuditLogCount)} thao tác
+                </button>
+              ) : null}
             </div>
           )}
         </section>
 
-        <section className="admin-drawer-section admin-order-section-side">
+        <section className="admin-drawer-section admin-order-section-side admin-order-section-actions">
           <h3>Xử lý đơn</h3>
           {hasPendingReturnRequest ? (
             <div className="admin-drawer-actions">
@@ -587,5 +792,13 @@ export function OrderDetailDrawer({
         </div>
       </aside>
     </div>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2Zm2 0h4a2 2 0 0 1 2 2v6h2V5h-8v2Zm-4 2v10h8V9H6Z" />
+    </svg>
   )
 }

@@ -1,21 +1,105 @@
 param(
   [switch]$Android,
   [switch]$KeepCache,
-  [switch]$ResetExpoGo
+  [switch]$ResetExpoGo,
+  [string]$AvdName = "Pixel_6"
 )
 
-$ANDROID_HOME = "C:\Users\granji\AppData\Local\Android\Sdk"
-$JAVA_HOME = "C:\Program Files\Java\jdk-17"
 $API_PORT = "5000"
-$AVD_NAME = "Pixel_6"
+
+function Resolve-AndroidSdkPath {
+  $candidates = @(
+    $env:ANDROID_HOME,
+    $env:ANDROID_SDK_ROOT,
+    (Join-Path $env:LOCALAPPDATA "Android\Sdk")
+  ) | Where-Object { $_ -and (Test-Path $_) }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path (Join-Path $candidate "platform-tools\adb.exe")) {
+      return $candidate
+    }
+  }
+
+  throw "Android SDK not found. Set ANDROID_HOME or install Android Studio SDK."
+}
+
+function Resolve-JavaHomePath {
+  if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME "bin\java.exe"))) {
+    return $env:JAVA_HOME
+  }
+
+  $javaRoot = "C:\Program Files\Java"
+  if (Test-Path $javaRoot) {
+    $candidate = Get-ChildItem $javaRoot -Directory |
+      Where-Object { Test-Path (Join-Path $_.FullName "bin\java.exe") } |
+      Sort-Object Name -Descending |
+      Select-Object -First 1
+
+    if ($candidate) {
+      return $candidate.FullName
+    }
+  }
+
+  return $null
+}
+
+$ANDROID_HOME = Resolve-AndroidSdkPath
+$JAVA_HOME = Resolve-JavaHomePath
 
 $env:ANDROID_HOME = $ANDROID_HOME
-$env:JAVA_HOME = $JAVA_HOME
-$env:PATH = "$JAVA_HOME\bin;$env:PATH"
-$ADB = "$ANDROID_HOME\platform-tools\adb.exe"
-$EMULATOR = "$ANDROID_HOME\emulator\emulator.exe"
+$env:ANDROID_SDK_ROOT = $ANDROID_HOME
+if ($JAVA_HOME) {
+  $env:JAVA_HOME = $JAVA_HOME
+}
+
+$androidTools = @(
+  (Join-Path $ANDROID_HOME "platform-tools"),
+  (Join-Path $ANDROID_HOME "emulator")
+)
+$javaTools = if ($JAVA_HOME) { @((Join-Path $JAVA_HOME "bin")) } else { @() }
+$env:PATH = (($javaTools + $androidTools + @($env:PATH)) -join ";")
+
+$ADB = Join-Path $ANDROID_HOME "platform-tools\adb.exe"
+$EMULATOR = Join-Path $ANDROID_HOME "emulator\emulator.exe"
 
 Set-Location $PSScriptRoot
+
+function Set-MobileEnvValue {
+  param(
+    [string]$Key,
+    [string]$Value
+  )
+
+  $envPath = Join-Path $PSScriptRoot ".env"
+  $lines = [System.Collections.Generic.List[string]]::new()
+  if (Test-Path $envPath) {
+    Get-Content $envPath | ForEach-Object { [void]$lines.Add($_) }
+  }
+  $updated = $false
+
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match "^\s*$([regex]::Escape($Key))=") {
+      $lines[$i] = "$Key=$Value"
+      $updated = $true
+      break
+    }
+  }
+
+  if (-not $updated) {
+    $lines.Add("$Key=$Value")
+  }
+
+  Set-Content -Path $envPath -Encoding ASCII -Value $lines
+}
+
+function Test-AndroidDeviceReady {
+  try {
+    $devices = & $ADB devices
+    return $devices -match "`tdevice"
+  } catch {
+    return $false
+  }
+}
 
 function Get-DevApiHost {
   $interfaces = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
@@ -92,11 +176,12 @@ $DEV_API_HOST = Get-DevApiHost
 if ($DEV_API_HOST) {
   $env:EXPO_PUBLIC_API_HOST = $DEV_API_HOST
   $env:EXPO_PUBLIC_API_PORT = $API_PORT
-  Set-Content -Path "$PSScriptRoot\.env" -Encoding ASCII -Value @(
-    "EXPO_PUBLIC_API_HOST=$DEV_API_HOST",
-    "EXPO_PUBLIC_API_PORT=$API_PORT"
-  )
+  $env:EXPO_PUBLIC_API_URL = if ($Android) { "http://127.0.0.1:$API_PORT/api" } else { "http://$DEV_API_HOST`:$API_PORT/api" }
+  Set-MobileEnvValue -Key "EXPO_PUBLIC_API_HOST" -Value $DEV_API_HOST
+  Set-MobileEnvValue -Key "EXPO_PUBLIC_API_PORT" -Value $API_PORT
+  Set-MobileEnvValue -Key "EXPO_PUBLIC_API_URL" -Value $env:EXPO_PUBLIC_API_URL
   Write-Output "[env] EXPO_PUBLIC_API_HOST=$DEV_API_HOST"
+  Write-Output "[env] EXPO_PUBLIC_API_URL=$env:EXPO_PUBLIC_API_URL"
 } else {
   Write-Output "[env] Could not detect LAN IP. Keeping existing mobile/.env."
 }
@@ -109,13 +194,23 @@ Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue
 
 if ($Android) {
   Write-Output "[1] Emulator..."
-  Get-Process emulator,qemu-system-x86_64 -ErrorAction SilentlyContinue |
-    Stop-Process -Force -ErrorAction SilentlyContinue
   & $ADB kill-server | Out-Null
   & $ADB start-server | Out-Null
-  Start-Process $EMULATOR -ArgumentList "-avd", $AVD_NAME, "-no-snapshot-load"
+
+  if (Test-AndroidDeviceReady) {
+    Write-Output "Android device already connected. Reusing it."
+  } else {
+    $availableAvds = & $EMULATOR -list-avds
+    if ($availableAvds -notcontains $AvdName) {
+      Write-Output "AVD '$AvdName' not found. Available AVDs:"
+      $availableAvds | ForEach-Object { Write-Output " - $_" }
+      throw "Create the AVD or pass -AvdName with an existing name."
+    }
+
+    Start-Process $EMULATOR -ArgumentList "-avd", $AvdName
+  }
 } else {
-  Write-Output "[1] Skip emulator. Use Expo QR, or run .\dev.ps1 -Android for $AVD_NAME."
+  Write-Output "[1] Skip emulator. Use Expo QR, or run .\dev.ps1 -Android for $AvdName."
 }
 
 if (Test-BackendHealth) {

@@ -69,6 +69,7 @@ export interface IOrderReturnRequest {
   reason: string;
   imageUrls?: string[];
   status: OrderReturnRequestStatus;
+  previousOrderStatus?: Extract<OrderStatus, 'delivered' | 'completed'> | null;
   requestedAt: Date;
   reviewedAt?: Date | null;
   reviewedBy?: Types.ObjectId | null;
@@ -123,6 +124,7 @@ export interface IOrder extends Document {
   paymentDeadlineAt?: Date | null;
   paymentDeadlineWarningSentAt?: Date | null;
   deliveredAt?: Date | null;
+  receivedAt?: Date | null;
   returnRequest?: IOrderReturnRequest | null;
   cancellation?: IOrderCancellation | null;
   shipping: IOrderShipping;
@@ -217,6 +219,7 @@ const orderReturnRequestSchema = new Schema<IOrderReturnRequest>(
       required: true,
       default: 'requested',
     },
+    previousOrderStatus: { type: String, enum: ['delivered', 'completed'], default: null },
     requestedAt: { type: Date, required: true, default: Date.now },
     reviewedAt: { type: Date, default: null },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -334,6 +337,7 @@ const orderSchema = new Schema<IOrder>(
     paymentDeadlineAt: { type: Date, default: null },
     paymentDeadlineWarningSentAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
+    receivedAt: { type: Date, default: null },
     returnRequest: { type: orderReturnRequestSchema, default: null },
     cancellation: { type: orderCancellationSchema, default: null },
     shipping: { type: orderShippingSchema, default: {} },

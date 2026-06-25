@@ -115,7 +115,7 @@ const purchasedItem = {
 
 const eligibleOrder = {
   _id: orderId,
-  status: 'delivered',
+  status: 'completed',
   paymentStatus: 'paid',
   order_list: [purchasedItem],
 };
@@ -154,7 +154,7 @@ describe('reviewService', () => {
     mockedProduct.find.mockReturnValue(query([]) as never);
   });
 
-  it('reports eligibility only when a delivered, paid order exists and no review exists', async () => {
+  it('reports eligibility only when a completed, paid order exists and no review exists', async () => {
     mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
     mockedReview.findOne.mockReturnValue(query(null) as never);
     mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
@@ -172,7 +172,7 @@ describe('reviewService', () => {
     expect(result).toEqual({
       canReview: true,
       reason: null,
-      orderStatus: 'delivered',
+      orderStatus: 'completed',
       paymentStatus: 'paid',
       reviewId: null,
       reviewStatus: null,
@@ -192,7 +192,7 @@ describe('reviewService', () => {
     expect(mockedOrder.findOne).not.toHaveBeenCalled();
   });
 
-  it('lists delivered order items with independent review eligibility', async () => {
+  it('lists completed order items with independent review eligibility', async () => {
     mockedOrder.find.mockReturnValue(query([{ ...eligibleOrder, orderCode: 'FS-001', deliveredAt: new Date() }]) as never);
     mockedReview.find.mockReturnValue(query([]) as never);
     mockedProduct.find.mockReturnValue(query([{ _id: productId }]) as never);
@@ -204,7 +204,7 @@ describe('reviewService', () => {
 
     expect(mockedOrder.find).toHaveBeenCalledWith({
       user_id: userId,
-      status: 'delivered',
+      status: 'completed',
       paymentStatus: 'paid',
       'order_list.productId': productId,
     });

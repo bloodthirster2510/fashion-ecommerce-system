@@ -77,6 +77,9 @@ const MAX_ORDER_EVIDENCE_IMAGES = 5;
 const MAX_ORDER_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const RETURN_WINDOW_DAYS = 7;
 const RETURN_WINDOW_MS = RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const AUTO_COMPLETE_DELIVERED_AFTER_DAYS = 7;
+const AUTO_COMPLETE_DELIVERED_AFTER_MS = AUTO_COMPLETE_DELIVERED_AFTER_DAYS * 24 * 60 * 60 * 1000;
+const AUTO_COMPLETE_BATCH_SIZE = 50;
 const DEFAULT_GHN_ITEM_WEIGHT_GRAMS = 500;
 const DEFAULT_GHN_PACKAGE_LENGTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_WIDTH_CM = 20;
@@ -192,7 +195,7 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
       'returnRequest.status': 'requested',
     }),
     countWith({
-      status: 'cancelled',
+      status: { $in: ['cancelled', 'returned'] },
       paymentStatus: 'paid',
     }),
     countWith({
@@ -208,7 +211,7 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
       ...readyOrderCondition,
     }),
     countWith({
-      status: 'shipping',
+      status: 'delivered',
       ...readyOrderCondition,
     }),
     countWith({
@@ -309,7 +312,7 @@ const generateInvoiceCode = (order: Pick<IOrder, '_id' | 'orderCode'>) => {
 };
 
 const ensureDeliveredInvoiceCode = (order: IOrder) => {
-  if (order.status === 'delivered' && !order.invoiceCode) {
+  if ((order.status === 'delivered' || order.status === 'completed') && !order.invoiceCode) {
     order.invoiceCode = generateInvoiceCode(order);
   }
 };
@@ -957,7 +960,7 @@ const awardLoyaltyPointsForDeliveredOrder = async (
   const updatedOrder = await Order.findOneAndUpdate(
     {
       _id: orderObjectId,
-      status: 'delivered',
+      status: { $in: ['delivered', 'completed'] },
       $or: [
         { loyaltyPointsAwarded: { $exists: false } },
         { loyaltyPointsAwarded: { $lte: 0 } },
@@ -1054,6 +1057,7 @@ const clawBackLoyaltyPointsForOrder = async (
     ],
     {
       returnDocument: 'after',
+      updatePipeline: true,
       ...(options.session ? { session: options.session } : {}),
     },
   );
@@ -1099,7 +1103,7 @@ const rollbackCouponUsageForCancelledOrder = async (
   }
 };
 
-const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder) => {
+const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder): Promise<IOrder> => {
   const session = await mongoose.startSession();
   let savedOrder: IOrder | null = null;
 
@@ -1589,7 +1593,7 @@ const confirmOrderReceived = async (userId: string, id: string) => {
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId);
 
-  if (order.status === 'delivered') {
+  if (order.status === 'completed') {
     if (!order.invoiceCode) {
       ensureDeliveredInvoiceCode(order);
       return order.save();
@@ -1597,20 +1601,17 @@ const confirmOrderReceived = async (userId: string, id: string) => {
     return order;
   }
 
-  if (order.status !== 'shipping') {
-    throw new SalesServiceError('Order can only be confirmed received while it is shipping', 400);
+  if (order.status !== 'delivered') {
+    throw new SalesServiceError('Order can only be confirmed received after it is delivered', 400);
   }
 
-  if (order.shipping?.status === 'failed') {
-    throw new SalesServiceError('Delivery has failed and must be reattempted before confirming receipt', 400);
-  }
-
-  assertOrderStatusTransition(order.status, 'delivered');
-  assertPaymentAllowsOrderStatus(order, 'delivered');
+  assertOrderStatusTransition(order.status, 'completed');
+  assertPaymentAllowsOrderStatus(order, 'completed');
   const before = createOrderChangeSnapshot(order);
-  const deliveredAt = new Date();
-  order.status = 'delivered';
-  order.deliveredAt = deliveredAt;
+  const receivedAt = new Date();
+  order.status = 'completed';
+  order.receivedAt = order.receivedAt ?? receivedAt;
+  order.deliveredAt = order.deliveredAt ?? receivedAt;
 
   if (order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';
@@ -1622,7 +1623,7 @@ const confirmOrderReceived = async (userId: string, id: string) => {
   };
 
   const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
-  await triggerOrderStatusChange(savedOrder, before, 'status_update', 'delivered');
+  await triggerOrderStatusChange(savedOrder, before, 'status_update');
   return savedOrder;
 };
 
@@ -1634,10 +1635,11 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
     return order;
   }
 
-  if (order.status !== 'delivered') {
+  if (order.status !== 'delivered' && order.status !== 'completed') {
     throw new SalesServiceError('Order can only request return after it is delivered', 400);
   }
 
+  const previousOrderStatus = order.status;
   assertReturnWindowIsOpen(order);
   assertOrderStatusTransition(order.status, 'return_requested');
   assertPaymentAllowsOrderStatus(order, 'return_requested');
@@ -1647,6 +1649,7 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
     reason: normalizeRequiredReturnReason(input?.reason),
     ...(evidenceImageUrls.length ? { imageUrls: evidenceImageUrls } : {}),
     status: 'requested',
+    previousOrderStatus,
     requestedAt: new Date(),
     reviewedAt: null,
     reviewedBy: null,
@@ -1677,7 +1680,7 @@ const reviewReturnRequest = async (
     assertPaymentAllowsOrderStatus(order, 'returned');
     order.status = 'returned';
   } else {
-    order.status = 'delivered';
+    order.status = order.returnRequest.previousOrderStatus === 'completed' ? 'completed' : 'delivered';
     ensureDeliveredInvoiceCode(order);
   }
 
@@ -1685,6 +1688,7 @@ const reviewReturnRequest = async (
     reason: order.returnRequest.reason,
     ...(order.returnRequest.imageUrls?.length ? { imageUrls: order.returnRequest.imageUrls } : {}),
     status: input.decision,
+    previousOrderStatus: order.returnRequest.previousOrderStatus ?? null,
     requestedAt: order.returnRequest.requestedAt,
     reviewedAt,
     reviewedBy,
@@ -1731,13 +1735,28 @@ const updateOrderStatus = async (
     };
   }
 
-  if (input.status === 'delivered' && order.paymentMethod === 'COD') {
+  if (input.status === 'completed') {
+    const completedAt = new Date();
+    order.receivedAt = order.receivedAt ?? completedAt;
+    order.deliveredAt = order.deliveredAt ?? completedAt;
+    order.shipping = {
+      ...(order.shipping ?? {}),
+      status: 'delivered',
+    };
+  }
+
+  if ((input.status === 'delivered' || input.status === 'completed') && order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';
   }
 
-  if (input.status === 'delivered') {
+  if (input.status === 'delivered' || input.status === 'completed') {
     const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
-    await triggerOrderStatusChange(savedOrder, before, 'status_update', 'delivered');
+    await triggerOrderStatusChange(
+      savedOrder,
+      before,
+      'status_update',
+      input.status === 'delivered' ? 'delivered' : undefined,
+    );
     return savedOrder;
   }
 
@@ -2011,7 +2030,7 @@ const isShippingWebhookAlreadyApplied = (
   if (order.shipping?.status !== input.status) return false;
   if (input.trackingCode?.trim() && order.shipping?.trackingCode !== input.trackingCode.trim()) return false;
   if (input.provider?.trim() && order.shipping?.provider !== input.provider.trim()) return false;
-  if (input.status === 'delivered') return order.status === 'delivered';
+  if (input.status === 'delivered') return order.status === 'delivered' || order.status === 'completed';
   if (input.status === 'cancelled') return order.status === 'cancelled';
   if (['picked', 'shipping', 'failed'].includes(input.status)) return order.status === 'shipping';
   return order.status === 'packed' || order.status === 'shipping';
@@ -2143,6 +2162,51 @@ const applyGhnShippingWebhook = async (payload: unknown) => (
   applyShippingWebhook(parseGhnWebhookPayload(payload))
 );
 
+const autoCompleteDeliveredOrders = async (now = new Date()) => {
+  const cutoff = new Date(now.getTime() - AUTO_COMPLETE_DELIVERED_AFTER_MS);
+  const orders = await Order.find({
+    status: 'delivered',
+    deliveredAt: { $lte: cutoff },
+  }).limit(AUTO_COMPLETE_BATCH_SIZE) as IOrder[];
+
+  const completedOrderIds: string[] = [];
+  const failures: Array<{ orderId: string; message: string }> = [];
+
+  for (const order of orders) {
+    const before = createOrderChangeSnapshot(order);
+    try {
+      order.status = 'completed';
+      order.receivedAt = order.receivedAt ?? now;
+      order.deliveredAt = order.deliveredAt ?? cutoff;
+      if (order.paymentMethod === 'COD') {
+        order.paymentStatus = 'paid';
+      }
+      order.shipping = {
+        ...(order.shipping ?? {}),
+        status: 'delivered',
+      };
+
+      const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
+      await triggerOrderStatusChange(savedOrder, before, 'status_update');
+      completedOrderIds.push(toIdString(savedOrder._id));
+    } catch (error) {
+      failures.push({
+        orderId: toIdString(order._id),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    cutoff,
+    scannedCount: orders.length,
+    completedCount: completedOrderIds.length,
+    failedCount: failures.length,
+    completedOrderIds,
+    failures,
+  };
+};
+
 export const orderService = {
   previewCheckout,
   createOrder,
@@ -2163,4 +2227,5 @@ export const orderService = {
   updateOrderStatus,
   updateOrderShipping,
   cancelOrderForPaymentDeadline,
+  autoCompleteDeliveredOrders,
 };

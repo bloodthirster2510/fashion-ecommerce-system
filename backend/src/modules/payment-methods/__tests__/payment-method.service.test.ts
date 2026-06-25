@@ -18,9 +18,16 @@ const userId = '665000000000000000000020';
 const paymentMethodId = '665000000000000000000090';
 
 describe('paymentMethodService', () => {
+  const previousEncryptionSecret = process.env.PAYMENT_METHOD_ENCRYPTION_SECRET;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.PAYMENT_METHOD_ENCRYPTION_SECRET = 'test-payment-method-secret';
     mockedPaymentMethod.updateMany.mockResolvedValue({} as never);
+  });
+
+  afterAll(() => {
+    process.env.PAYMENT_METHOD_ENCRYPTION_SECRET = previousEncryptionSecret;
   });
 
   it('creates bank refund accounts as pending and never defaults them immediately', async () => {
@@ -33,6 +40,7 @@ describe('paymentMethodService', () => {
       maskedInfo: '•••• 1234',
       bankCode: 'vcb',
       bankName: 'Vietcombank',
+      accountNumber: '0123456789',
       isDefault: true,
       metadata: {
         accountHolder: 'NGUYEN VAN A',
@@ -45,7 +53,38 @@ describe('paymentMethodService', () => {
     expect((payload.user_id as Types.ObjectId).toString()).toBe(userId);
     expect(payload.status).toBe('pending');
     expect(payload.isDefault).toBe(false);
+    expect(payload.accountNumberEncrypted).toEqual(expect.stringMatching(/^v1:/));
+    expect(payload.accountNumberEncrypted).not.toContain('0123456789');
     expect(mockedPaymentMethod.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reveals the encrypted bank account number for admin refund transfer', async () => {
+    mockedPaymentMethod.countDocuments.mockResolvedValue(0);
+    mockedPaymentMethod.create.mockImplementation(async (payload) => payload as never);
+
+    await paymentMethodService.createPaymentMethod(userId, {
+      type: 'BANK',
+      displayName: 'Hoan tien Vietcombank',
+      maskedInfo: '•••• 6789',
+      bankCode: 'VCB',
+      bankName: 'Vietcombank',
+      accountNumber: '0123456789',
+    });
+
+    const createdPayload = mockedPaymentMethod.create.mock.calls[0][0] as Record<string, unknown>;
+    const method = {
+      _id: new Types.ObjectId(paymentMethodId),
+      user_id: new Types.ObjectId(userId),
+      type: 'BANK',
+      accountNumberEncrypted: createdPayload.accountNumberEncrypted,
+    };
+    mockedPaymentMethod.findById.mockReturnValue({
+      select: jest.fn().mockResolvedValue(method),
+    } as never);
+
+    const result = await paymentMethodService.revealPaymentMethodAccountNumberForAdmin(paymentMethodId);
+
+    expect(result.accountNumber).toBe('0123456789');
   });
 
   it('creates the first VNPay method as verified and default', async () => {
@@ -83,6 +122,44 @@ describe('paymentMethodService', () => {
     ).rejects.toThrow('Only verified payment methods can be default');
 
     expect(mockedPaymentMethod.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('moves verified bank refund accounts back to pending when customer edits bank details', async () => {
+    const method = {
+      _id: new Types.ObjectId(paymentMethodId),
+      user_id: new Types.ObjectId(userId),
+      type: 'BANK',
+      displayName: 'Hoan tien Vietcombank',
+      maskedInfo: '•••• 1234',
+      bankCode: 'VCB',
+      bankName: 'Vietcombank',
+      status: 'verified',
+      isDefault: true,
+      metadata: {
+        accountHolder: 'NGUYEN VAN A',
+        accountNumberLast4: '1234',
+      },
+      save: jest.fn(),
+      toObject: jest.fn(function toObject() {
+        return { ...this };
+      }),
+    };
+    method.save.mockResolvedValue(method);
+    mockedPaymentMethod.findOne.mockResolvedValue(method as never);
+
+    await paymentMethodService.updatePaymentMethod(userId, paymentMethodId, {
+      bankCode: 'TCB',
+      bankName: 'Techcombank',
+      metadata: {
+        accountHolder: 'NGUYEN VAN A',
+        accountNumberLast4: '1234',
+        refundDestination: true,
+      },
+    });
+
+    expect(method.status).toBe('pending');
+    expect(method.isDefault).toBe(false);
+    expect(method.save).toHaveBeenCalled();
   });
 
   it('rejects checkout with a pending saved payment method', async () => {

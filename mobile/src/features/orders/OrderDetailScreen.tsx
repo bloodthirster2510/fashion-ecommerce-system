@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   Image,
   Modal,
   RefreshControl,
@@ -23,6 +24,10 @@ import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../them
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
+import {
+  paymentMethodsApi,
+  type PaymentMethodRecord,
+} from '../account/paymentMethodsApi';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import { orderApi, OrderApiError, type CustomerOrder, type OrderItem } from './orderApi';
 import {
@@ -119,11 +124,38 @@ const getShippingStatusBackground = (status?: string | null) => {
   return colors.goldSoft;
 };
 
+const formatCodeForDisplay = (value: string) =>
+  value.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '$1 ');
+
 const returnRequestStatusLabels: Record<string, string> = {
   requested: 'Chờ duyệt',
   approved: 'Đã duyệt',
   rejected: 'Đã từ chối',
 };
+
+const getPaymentMethodMetadataText = (method: PaymentMethodRecord, key: string) => {
+  const value = method.metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
+const getRefundMethodRank = (method: PaymentMethodRecord) => {
+  let rank = 20;
+  if (method.status === 'verified') rank -= 10;
+  if (method.isDefault) rank -= 5;
+  if (method.metadata?.refundDestination === true) rank -= 2;
+  return rank;
+};
+
+const getPreferredRefundMethod = (methods: PaymentMethodRecord[]) =>
+  [...methods]
+    .filter((method) => method.type === 'BANK' && method.status !== 'disabled')
+    .sort((left, right) => getRefundMethodRank(left) - getRefundMethodRank(right))[0] ?? null;
+
+const getRefundMethodTitle = (method: PaymentMethodRecord) =>
+  getPaymentMethodMetadataText(method, 'accountHolder') ?? method.displayName;
+
+const getRefundMethodSubtitle = (method: PaymentMethodRecord) =>
+  [method.bankName, method.bankCode, method.maskedInfo].filter(Boolean).join(' • ');
 
 const getAttentionToneColor = (tone: 'danger' | 'warning' | 'info' | 'success') => {
   if (tone === 'danger') return colors.danger;
@@ -165,11 +197,16 @@ const OrderDetailScreen = () => {
   const [returnReason, setReturnReason] = React.useState('');
   const [returnReasonError, setReturnReasonError] = React.useState('');
   const [returnEvidenceImages, setReturnEvidenceImages] = React.useState<EvidenceDraft[]>([]);
+  const [refundMethods, setRefundMethods] = React.useState<PaymentMethodRecord[]>([]);
+  const [isRefundMethodsLoading, setIsRefundMethodsLoading] = React.useState(false);
   // Lưu order_item_id đã được đánh giá để ẩn/đổi nhãn nút review trên từng dòng hàng.
   const [reviewedItemIds, setReviewedItemIds] = React.useState<Set<string>>(new Set());
+  const copyReference = React.useCallback((_label: string, value: string) => {
+    Clipboard.setString(value);
+  }, []);
 
   const loadOrder = React.useCallback(
-    async (mode: 'loading' | 'refresh' = 'loading') => {
+    async (mode: 'loading' | 'refresh' | 'silent' = 'loading') => {
       if (!session?.accessToken) {
         navigation.navigate('Login');
         return;
@@ -177,10 +214,12 @@ const OrderDetailScreen = () => {
 
       if (mode === 'loading') {
         setIsLoading(true);
-      } else {
+      } else if (mode === 'refresh') {
         setIsRefreshing(true);
       }
-      setErrorMessage('');
+      if (mode !== 'silent') {
+        setErrorMessage('');
+      }
 
       try {
         const response = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
@@ -199,6 +238,10 @@ const OrderDetailScreen = () => {
           setReviewedItemIds(new Set());
         }
       } catch (error) {
+        if (mode === 'silent') {
+          return;
+        }
+
         if (isUnauthorizedError(error)) {
           logout();
           navigation.reset({
@@ -210,8 +253,8 @@ const OrderDetailScreen = () => {
 
         setErrorMessage(getErrorMessage(error));
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (mode === 'loading') setIsLoading(false);
+        if (mode === 'refresh') setIsRefreshing(false);
       }
     },
     [logout, navigation, orderId, runWithAuth, session?.accessToken],
@@ -226,7 +269,7 @@ const OrderDetailScreen = () => {
   );
 
   const orderRealtime = useOrderRealtime(session?.accessToken, (event) => {
-    if (event.orderId === orderId) void loadOrder('refresh');
+    if (event.orderId === orderId) void loadOrder('silent');
   });
 
   React.useEffect(() => {
@@ -235,10 +278,34 @@ const OrderDetailScreen = () => {
   }, [orderId, orderRealtime]);
 
   React.useEffect(() => {
-    if (!isFocused || orderRealtime.connected) return;
-    const handle = setInterval(() => { void loadOrder('refresh'); }, 30_000);
+    if (!isFocused) return;
+    const handle = setInterval(() => {
+      void loadOrder('silent');
+    }, orderRealtime.connected ? 30_000 : 12_000);
     return () => clearInterval(handle);
   }, [isFocused, loadOrder, orderRealtime.connected]);
+
+  const loadRefundMethods = React.useCallback(async () => {
+    if (!session?.accessToken) {
+      setRefundMethods([]);
+      return;
+    }
+
+    setIsRefundMethodsLoading(true);
+    try {
+      const methods = await runWithAuth((accessToken) => paymentMethodsApi.list(accessToken));
+      setRefundMethods(methods.filter((method) => method.type === 'BANK' && method.status !== 'disabled'));
+    } catch {
+      setRefundMethods([]);
+    } finally {
+      setIsRefundMethodsLoading(false);
+    }
+  }, [runWithAuth, session?.accessToken]);
+
+  React.useEffect(() => {
+    if (!isFocused) return;
+    void loadRefundMethods();
+  }, [isFocused, loadRefundMethods]);
 
   const handleCancelOrder = () => {
     if (!order) return;
@@ -499,7 +566,17 @@ const OrderDetailScreen = () => {
     }
 
     if (type === 'return') {
-      handleRequestReturn();
+      const isReturnAvailable = canRequestReturn(order.status) && !order.returnRequest;
+      Alert.alert(
+        'Chính sách trả hàng',
+        'Shop hỗ trợ yêu cầu trả hàng trong 7 ngày sau khi đơn được giao. Bạn cần gửi lý do và ảnh minh chứng để admin duyệt.',
+        isReturnAvailable
+          ? [
+              { text: 'Để sau', style: 'cancel' },
+              { text: 'Gửi yêu cầu', onPress: handleRequestReturn },
+            ]
+          : [{ text: 'Đã hiểu' }],
+      );
       return;
     }
 
@@ -623,6 +700,7 @@ const OrderDetailScreen = () => {
     if (!order) return null;
 
     const shippingPayable = Math.max(0, order.shippingFee - order.shippingDiscountAmount);
+    const invoiceReference = order.invoiceCode || order.orderCode;
 
     return (
       <Modal visible={isInvoiceVisible} transparent animationType="fade" onRequestClose={() => setIsInvoiceVisible(false)}>
@@ -640,7 +718,17 @@ const OrderDetailScreen = () => {
 
             <View style={styles.invoiceCodeBox}>
               <Text style={styles.invoiceLabel}>Mã hóa đơn</Text>
-              <Text style={styles.invoiceCode}>{order.invoiceCode || order.orderCode}</Text>
+              <View style={styles.invoiceCodeRow}>
+                <Text style={styles.invoiceCode} numberOfLines={1}>{invoiceReference}</Text>
+                <TouchableOpacity
+                  style={styles.copyCodeButton}
+                  onPress={() => copyReference('Mã hóa đơn', invoiceReference)}
+                  activeOpacity={0.78}
+                  accessibilityLabel="Sao chép mã hóa đơn"
+                >
+                  <MaterialCommunityIcons name="content-copy" size={15} color={colors.brand} />
+                </TouchableOpacity>
+              </View>
               <Text style={styles.invoiceDate}>Ngày lập: {formatDate(order.createdAt)}</Text>
             </View>
 
@@ -714,6 +802,7 @@ const OrderDetailScreen = () => {
   const paymentDeadlineHours = paymentDeadlineRemainingMs === null
     ? null
     : Math.max(0, Math.ceil(paymentDeadlineRemainingMs / (60 * 60 * 1000)));
+  const displayOrderCode = formatCodeForDisplay(order.orderCode);
   const canRetryVNPayPayment =
     order.paymentMethod === 'VNPAY' &&
     order.paymentStatus !== 'paid' &&
@@ -721,6 +810,49 @@ const OrderDetailScreen = () => {
     order.status !== 'cancelled' &&
     order.status !== 'returned' &&
     (paymentDeadlineRemainingMs === null || paymentDeadlineRemainingMs > 0);
+  const preferredRefundMethod = getPreferredRefundMethod(refundMethods);
+  const showRefundSupport =
+    canReturn ||
+    Boolean(order.returnRequest) ||
+    order.status === 'cancelled' ||
+    order.status === 'returned' ||
+    order.paymentStatus === 'refunded';
+  const showRefundAmount =
+    (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') &&
+    (
+      order.status === 'cancelled' ||
+      order.status === 'returned' ||
+      order.returnRequest?.status === 'approved' ||
+      order.paymentStatus === 'refunded'
+    );
+  const refundSupportStatus = (() => {
+    if (order.paymentStatus === 'refunded') return 'Đã hoàn tiền';
+    if (order.returnRequest?.status === 'requested') return 'Đang chờ shop duyệt';
+    if (order.returnRequest?.status === 'approved') return 'Đã duyệt trả hàng';
+    if (order.returnRequest?.status === 'rejected') return 'Yêu cầu chưa được duyệt';
+    if (order.status === 'cancelled' && order.paymentStatus === 'paid') return 'Chờ shop hoàn tiền';
+    if (order.status === 'returned' && order.paymentStatus === 'paid') return 'Chờ shop hoàn tiền';
+    if (canReturn) return 'Có thể gửi yêu cầu';
+    return 'Theo chính sách của shop';
+  })();
+  const refundSupportText = (() => {
+    if (order.paymentStatus === 'refunded') {
+      return 'Shop đã ghi nhận hoàn tiền cho đơn này. Bạn có thể đối chiếu theo tài khoản nhận hoàn tiền đã lưu.';
+    }
+    if (order.returnRequest?.status === 'requested') {
+      return 'Yêu cầu trả hàng đã được gửi. Shop sẽ duyệt minh chứng và phản hồi trên đơn hàng này.';
+    }
+    if (order.returnRequest?.status === 'approved') {
+      return 'Yêu cầu đã được duyệt. Shop sẽ xử lý nhận hàng trả và hoàn tiền theo tài khoản bạn đã lưu.';
+    }
+    if (order.returnRequest?.status === 'rejected') {
+      return 'Yêu cầu chưa được duyệt. Bạn vẫn có thể tạo phiếu hỗ trợ nếu cần trao đổi thêm với shop.';
+    }
+    if ((order.status === 'cancelled' || order.status === 'returned') && order.paymentStatus === 'paid') {
+      return 'Đơn đã thanh toán cần được hoàn tiền. Hãy bảo đảm tài khoản nhận hoàn tiền đã được cập nhật chính xác.';
+    }
+    return 'Nếu sản phẩm có vấn đề, gửi yêu cầu kèm ảnh minh chứng để shop duyệt và hướng dẫn bước tiếp theo.';
+  })();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -753,24 +885,47 @@ const OrderDetailScreen = () => {
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadOrder('refresh')} tintColor={colors.brand} />}
       >
         <View style={styles.orderHero}>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroLabel}>Mã đơn hàng</Text>
-            <View style={styles.heroCodeRow}>
-              <Text style={styles.heroCode}>{order.orderCode}</Text>
-              <View style={[styles.heroStatusBadge, { backgroundColor: displayState.backgroundColor }]}>
-                <Text style={[styles.heroStatusText, { color: displayState.color }]}>{displayState.label}</Text>
-              </View>
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroLabelBlock}>
+              <Text style={styles.heroLabel}>Mã đơn hàng</Text>
+              <TouchableOpacity
+                style={styles.copyCodeButton}
+                onPress={() => copyReference('Mã đơn hàng', order.orderCode)}
+                activeOpacity={0.78}
+                accessibilityLabel="Sao chép mã đơn hàng"
+              >
+                <MaterialCommunityIcons name="content-copy" size={15} color={colors.brand} />
+              </TouchableOpacity>
             </View>
-            <Text style={styles.heroDate}>Ngày đặt: {formatDate(order.createdAt)}</Text>
-            <Text style={styles.heroDelivery}>
-              {displayState.deliveryLine}
-            </Text>
+
+            <TouchableOpacity style={styles.invoiceButton} onPress={() => setIsInvoiceVisible(true)} activeOpacity={0.84}>
+              <MaterialCommunityIcons name="file-document-outline" size={18} color={colors.text} />
+              <Text style={styles.invoiceButtonText}>Hóa đơn</Text>
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.invoiceButton} onPress={() => setIsInvoiceVisible(true)} activeOpacity={0.84}>
-            <MaterialCommunityIcons name="file-document-outline" size={22} color={colors.text} />
-            <Text style={styles.invoiceButtonText}>Hóa đơn</Text>
-          </TouchableOpacity>
+          <Text
+            style={styles.heroCode}
+            numberOfLines={2}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+            accessibilityLabel={`Mã đơn hàng ${order.orderCode}`}
+          >
+            {displayOrderCode}
+          </Text>
+
+          <View style={styles.heroMetaRow}>
+            <View style={[styles.heroStatusBadge, { backgroundColor: displayState.backgroundColor }]}>
+              <Text style={[styles.heroStatusText, { color: displayState.color }]} numberOfLines={1}>
+                {displayState.label}
+              </Text>
+            </View>
+            <Text style={styles.heroDate} numberOfLines={1}>Ngày đặt: {formatDate(order.createdAt)}</Text>
+          </View>
+
+          <Text style={styles.heroDelivery}>
+            {displayState.deliveryLine}
+          </Text>
         </View>
 
         {actionState ? (
@@ -859,12 +1014,81 @@ const OrderDetailScreen = () => {
           </View>
         ) : null}
 
+        {showRefundSupport ? (
+          <View style={styles.returnHelpCard}>
+            <View style={styles.returnHelpHeader}>
+              <View style={styles.returnHelpIcon}>
+                <MaterialCommunityIcons name={order.paymentStatus === 'refunded' ? 'cash-check' : 'archive-refresh-outline'} size={22} color={colors.brand} />
+              </View>
+              <View style={styles.returnHelpTitleGroup}>
+                <Text style={styles.returnHelpTitle}>Hoàn trả & hoàn tiền</Text>
+                <Text style={styles.returnHelpStatus}>{refundSupportStatus}</Text>
+              </View>
+            </View>
+            <Text style={styles.returnHelpText}>{refundSupportText}</Text>
+            {showRefundAmount ? (
+              <View style={styles.refundAmountRow}>
+                <Text style={styles.refundAmountLabel}>Số tiền liên quan</Text>
+                <Text style={styles.refundAmountValue}>{formatCurrency(order.totalAmount)}</Text>
+              </View>
+            ) : null}
+            <View style={styles.refundMethodCard}>
+              <View style={styles.refundMethodHeader}>
+                <MaterialCommunityIcons name="bank-outline" size={18} color={colors.brand} />
+                <Text style={styles.refundMethodHeading}>Tài khoản nhận hoàn tiền</Text>
+              </View>
+              {isRefundMethodsLoading ? (
+                <Text style={styles.refundMethodText}>Đang tải tài khoản nhận hoàn tiền...</Text>
+              ) : preferredRefundMethod ? (
+                <>
+                  <Text style={styles.refundMethodTitle}>{getRefundMethodTitle(preferredRefundMethod)}</Text>
+                  <Text style={styles.refundMethodText}>
+                    {getRefundMethodSubtitle(preferredRefundMethod) || 'Đã lưu tài khoản nhận hoàn tiền'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.refundMethodTitle}>Chưa có tài khoản nhận hoàn tiền</Text>
+                  <Text style={styles.refundMethodText}>
+                    Thêm tài khoản ngân hàng để shop có thông tin chuyển khoản khi duyệt hoàn tiền.
+                  </Text>
+                </>
+              )}
+              <TouchableOpacity
+                style={styles.refundMethodButton}
+                onPress={() => navigation.navigate('PaymentMethods')}
+                activeOpacity={0.84}
+              >
+                <Text style={styles.refundMethodButtonText}>
+                  {preferredRefundMethod ? 'Cập nhật tài khoản' : 'Thêm tài khoản'}
+                </Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={colors.brand} />
+              </TouchableOpacity>
+            </View>
+            {canReturn && !order.returnRequest ? (
+              <TouchableOpacity
+                style={styles.returnHelpButton}
+                onPress={handleRequestReturn}
+                activeOpacity={0.84}
+                disabled={isRequestingReturn}
+              >
+                {isRequestingReturn ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <MaterialCommunityIcons name="file-document-edit-outline" size={18} color={colors.white} />
+                )}
+                <Text style={styles.returnHelpButtonText}>Yêu cầu trả hàng</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           {order.order_list.map((item) => (
             <OrderProductItem
               key={item._id ?? `${item.sku}-${item.size}`}
               item={item}
-              isReviewable={order.status === 'delivered' && order.paymentStatus === 'paid'}
+              isReviewable={order.status === 'completed' && order.paymentStatus === 'paid'}
               isReviewed={!!item._id && reviewedItemIds.has(item._id)}
               onWriteReview={handleWriteReview}
             />
@@ -969,12 +1193,12 @@ const OrderDetailScreen = () => {
 
           <TouchableOpacity style={styles.supportRow} onPress={() => handleSupportAction('return')} activeOpacity={0.82}>
             <MaterialCommunityIcons name="archive-refresh-outline" size={20} color={colors.action} />
-            <Text style={styles.supportRowText}>{canReturn ? 'Trả hàng' : 'Chính sách trả hàng'}</Text>
+            <Text style={styles.supportRowText}>Chính sách trả hàng</Text>
             <MaterialCommunityIcons name="chevron-right" size={22} color={colors.action} />
           </TouchableOpacity>
         </View>
 
-        {canCancel || canConfirmDelivery || canReturn ? (
+        {canCancel || canConfirmDelivery ? (
           <View style={styles.bottomActions}>
             {canCancel ? (
               <TouchableOpacity
@@ -1005,22 +1229,6 @@ const OrderDetailScreen = () => {
                   <MaterialCommunityIcons name="package-variant-closed-check" size={20} color={colors.white} />
                 )}
                 <Text style={styles.confirmReceivedButtonText}>Đã nhận hàng</Text>
-              </TouchableOpacity>
-            ) : null}
-
-            {canReturn ? (
-              <TouchableOpacity
-                style={styles.returnButton}
-                onPress={handleRequestReturn}
-                activeOpacity={0.84}
-                disabled={isRequestingReturn}
-              >
-                {isRequestingReturn ? (
-                  <ActivityIndicator size="small" color={colors.brand} />
-                ) : (
-                  <MaterialCommunityIcons name="archive-refresh-outline" size={20} color={colors.brand} />
-                )}
-                <Text style={styles.returnButtonText}>Yêu cầu trả hàng</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -1094,13 +1302,22 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
     backgroundColor: colors.surface,
     padding: spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
+    alignItems: 'stretch',
     ...shadows.card,
   },
-  heroCopy: {
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  heroLabelBlock: {
     flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   heroLabel: {
     color: colors.text,
@@ -1108,20 +1325,31 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   heroCode: {
-    flex: 1,
     color: colors.text,
-    fontSize: 26,
+    fontSize: 28,
     lineHeight: 34,
     fontWeight: '900',
+    marginTop: 2,
   },
-  heroCodeRow: {
+  copyCodeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  heroMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: spacing.sm,
-    marginTop: 3,
+    marginTop: 2,
   },
   heroStatusBadge: {
+    maxWidth: '100%',
     borderRadius: radii.pill,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
@@ -1131,9 +1359,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   heroDate: {
+    flexShrink: 1,
     color: colors.textMuted,
     fontSize: 13,
-    marginTop: 6,
   },
   heroDelivery: {
     color: colors.success,
@@ -1142,19 +1370,20 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   invoiceButton: {
-    width: 92,
-    minHeight: 70,
+    minHeight: 38,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
     backgroundColor: colors.surface,
   },
   invoiceButtonText: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
   },
   statusCallout: {
@@ -1214,6 +1443,127 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
+  },
+  returnHelpCard: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
+    padding: spacing.lg,
+    gap: spacing.md,
+    ...shadows.card,
+  },
+  returnHelpHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  returnHelpIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  returnHelpTitleGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  returnHelpTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  returnHelpStatus: {
+    color: colors.brand,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  returnHelpText: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  refundAmountRow: {
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  refundAmountLabel: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  refundAmountValue: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  refundMethodCard: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  refundMethodHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  refundMethodHeading: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  refundMethodTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  refundMethodText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  refundMethodButton: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  refundMethodButtonText: {
+    color: colors.brand,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  returnHelpButton: {
+    minHeight: 46,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  returnHelpButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
   },
   section: {
     gap: spacing.md,
@@ -1593,9 +1943,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   invoiceCode: {
+    flexShrink: 1,
     color: colors.text,
     fontSize: 18,
     fontWeight: '900',
+    marginTop: 2,
+  },
+  invoiceCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     marginTop: 2,
   },
   invoiceDate: {

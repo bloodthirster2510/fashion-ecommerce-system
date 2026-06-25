@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Clipboard,
   Linking,
   Pressable,
   ScrollView,
@@ -262,6 +263,10 @@ const OrderSuccessScreen = () => {
     navigation.replace('OrderDetail', { orderId });
   };
 
+  const handleCopyOrderCode = () => {
+    Clipboard.setString(orderCode);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <ScrollView
@@ -288,7 +293,16 @@ const OrderSuccessScreen = () => {
         <View style={styles.card}>
           <View style={styles.cardRow}>
             <Text style={styles.cardLabel}>Mã đơn hàng</Text>
-            <Text style={styles.cardValueBold}>{orderCode}</Text>
+            <View style={styles.copyValueRow}>
+              <Text style={styles.cardValueBold} numberOfLines={1}>{orderCode}</Text>
+              <Pressable
+                style={styles.copyIconButton}
+                onPress={handleCopyOrderCode}
+                accessibilityLabel="Sao chép mã đơn hàng"
+              >
+                <MaterialCommunityIcons name="content-copy" size={15} color={colors.brand} />
+              </Pressable>
+            </View>
           </View>
           <View style={[styles.cardRow, styles.cardRowLast]}>
             <Text style={styles.cardLabel}>Tổng thanh toán</Text>
@@ -445,10 +459,27 @@ const styles = StyleSheet.create({
     color: colors.textBody,
   },
   cardValueBold: {
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: '700',
     color: colors.black,
     fontFamily: 'monospace',
+  },
+  copyValueRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
+  },
+  copyIconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandSoft,
   },
   cardValueAmount: {
     fontSize: 16,

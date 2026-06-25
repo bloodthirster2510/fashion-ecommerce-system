@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { API_BASE_URL } from '../../config/api';
+import { API_BASE_URLS } from '../../config/api';
 
 export type OrderRealtimeEvent = {
   type: 'shipping_update' | 'status_update' | 'payment_update' | 'summary';
@@ -18,14 +18,20 @@ export type OrderRealtimeEvent = {
   at: string;
 };
 
-const resolveSocketUrl = () => {
+const toSocketUrl = (apiBaseUrl: string) => {
   try {
-    const url = new URL(API_BASE_URL);
+    const url = new URL(apiBaseUrl);
     return `${url.protocol}//${url.host}`;
   } catch {
-    return 'http://localhost:5000';
+    return null;
   }
 };
+
+const SOCKET_URLS = Array.from(new Set(
+  API_BASE_URLS
+    .map(toSocketUrl)
+    .filter((value): value is string => Boolean(value)),
+));
 
 export const useOrderRealtime = (
   token: string | null | undefined,
@@ -36,10 +42,13 @@ export const useOrderRealtime = (
   const subscriptionsRef = useRef(new Set<string>());
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
+  const [socketUrlIndex, setSocketUrlIndex] = useState(0);
 
   useEffect(() => {
     if (!token) return;
-    const socket = io(resolveSocketUrl(), {
+    const socketUrl = SOCKET_URLS[socketUrlIndex] ?? 'http://localhost:5000';
+    let didConnect = false;
+    const socket = io(socketUrl, {
       path: '/realtime/orders',
       auth: { token },
       transports: ['websocket', 'polling'],
@@ -50,25 +59,32 @@ export const useOrderRealtime = (
     socketRef.current = socket;
 
     const handleConnect = () => {
+      didConnect = true;
       setConnected(true);
       subscriptionsRef.current.forEach((orderId) => socket.emit('order:subscribe', orderId));
     };
     const handleDisconnect = () => setConnected(false);
+    const handleConnectError = () => {
+      if (didConnect || SOCKET_URLS.length <= 1) return;
+      setSocketUrlIndex((current) => (current + 1) % SOCKET_URLS.length);
+    };
     const handleEvent = (event: OrderRealtimeEvent) => handlerRef.current(event);
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
     socket.on('order:event', handleEvent);
     if (!socket.connected) socket.connect();
 
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
       socket.off('order:event', handleEvent);
       socket.disconnect();
       socketRef.current = null;
       setConnected(false);
     };
-  }, [token]);
+  }, [socketUrlIndex, token]);
 
   return useMemo(() => ({
     connected,

@@ -15,25 +15,30 @@ const timelineSteps: TimelineStep[] = [
   { key: 'confirmed', label: 'Đã đặt đơn', helper: 'Shop tiếp nhận' },
   { key: 'packed', label: 'Chuẩn bị hàng', helper: 'Đóng gói' },
   { key: 'shipping', label: 'Đang giao', helper: 'Theo dõi vận chuyển' },
-  { key: 'delivered', label: 'Hoàn tất', helper: 'Đã nhận hàng' },
+  { key: 'delivered', label: 'Đã giao', helper: 'Chờ xác nhận' },
+  { key: 'completed', label: 'Hoàn tất', helper: 'Đã nhận hàng' },
 ];
 
 const getTimelineSteps = (order: CustomerOrder): TimelineStep[] => {
+  const baseSteps = order.returnRequest?.previousOrderStatus === 'delivered'
+    ? timelineSteps.filter((step) => step.key !== 'completed')
+    : timelineSteps;
+
   if (order.status === 'return_requested') {
     return [
-      ...timelineSteps,
+      ...baseSteps,
       { key: 'return_requested', label: 'Chờ duyệt trả', helper: 'Shop đang kiểm tra' },
     ];
   }
 
   if (order.status === 'returned') {
     return [
-      ...timelineSteps,
+      ...baseSteps,
       { key: 'returned', label: 'Đã trả hàng', helper: 'Shop đã nhận trả' },
     ];
   }
 
-  return timelineSteps;
+  return baseSteps;
 };
 
 const getProgressIndex = (order: CustomerOrder, steps: TimelineStep[]) => {

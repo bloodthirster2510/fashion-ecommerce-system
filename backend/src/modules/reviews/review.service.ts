@@ -309,7 +309,7 @@ const getEligibility = async (
     };
   }
 
-  if (order.status !== 'delivered') {
+  if (order.status !== 'completed') {
     return {
       canReview: false,
       reason: 'NOT_DELIVERED' as const,
@@ -380,7 +380,7 @@ const listEligibleItems = async (
   const productId = query.productId ? toObjectId(query.productId, 'productId') : null;
   const orderFilter: Record<string, unknown> = {
     user_id: userId,
-    status: 'delivered',
+    status: 'completed',
     paymentStatus: 'paid',
   };
   if (productId) orderFilter['order_list.productId'] = productId;
@@ -567,7 +567,7 @@ const createReview = async (
     .select('_id status paymentStatus order_list')
     .lean();
   if (!order) throw new ReviewServiceError('Order not found', 404);
-  if (order.status !== 'delivered') {
+  if (order.status !== 'completed') {
     throw new ReviewServiceError('You can only review an order after it has been delivered', 403);
   }
   if (order.paymentStatus !== 'paid') {
