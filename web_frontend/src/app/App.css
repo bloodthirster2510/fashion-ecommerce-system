@@ -53,6 +53,8 @@ input {
 .site-frame {
   width: 100%;
   min-height: 100svh;
+  display: flex;
+  flex-direction: column;
   background: var(--page);
 }
 
@@ -62,7 +64,7 @@ input {
 }
 
 .header-main {
-  min-height: 48px;
+  min-height: 76px;
   display: grid;
   grid-template-columns: auto minmax(220px, 1fr) auto;
   align-items: center;
@@ -72,60 +74,147 @@ input {
 }
 
 .brand {
+  display: block;
+  width: 260px;
+  height: 70px;
+  overflow: hidden;
   font-size: 22px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0;
 }
 
-.search.ant-input-search {
+.brand img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transform: translateY(-25%);
+}
+
+.search {
   width: min(100%, 440px);
-  justify-self: center;
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(234, 224, 207, 0.92);
-}
-
-.search .ant-input-group {
-  display: flex;
+  height: 48px;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) 62px;
   align-items: stretch;
-  border-radius: 999px;
+  justify-self: center;
+  padding: 1px;
+  border: 0;
+  border-radius: 11px;
   overflow: hidden;
+  background: #f3f3f3;
+  box-shadow: inset 0 0 0 1px #e2e6ea;
 }
 
-.search .ant-input,
-.search .ant-input-search-button {
-  height: 36px;
+.search .search-category-trigger {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid rgba(33, 52, 72, 0.18);
+  border-radius: 10px 0 0 10px !important;
+  background: #f3f3f3;
+  color: var(--color-dark);
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.search .search-category-trigger > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search .search-category-trigger:hover,
+.search .search-category-trigger:focus-visible {
+  background: #f3f3f3 !important;
+  color: var(--accent-dark) !important;
+}
+
+.search .search-category-trigger:disabled {
+  color: #788794;
+  background: #f3f3f3;
 }
 
 .search .ant-input {
+  width: 100%;
+  height: 100%;
   border-color: transparent;
-  border-radius: 999px 0 0 999px !important;
-  background: transparent;
+  border-radius: 0 !important;
+  background: #f3f3f3;
   color: var(--color-dark);
+  font-size: 15px;
+  box-shadow: none !important;
 }
 
-.search .ant-input-search-button {
-  width: 44px;
+.search .ant-input:hover,
+.search .ant-input:focus {
+  background: #f3f3f3;
+}
+
+.search .ant-input::placeholder {
+  color: #9aa5b5;
+}
+
+.search .search-submit {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin: 0;
+  padding: 0;
   border-color: transparent;
-  border-radius: 0 999px 999px 0 !important;
+  border-radius: 10px !important;
   background: var(--color-dark);
   color: var(--color-light);
-}
-
-.search .ant-input-group-addon {
-  width: 44px;
-  padding: 0;
-  border-radius: 0 999px 999px 0;
-  background: transparent;
-  overflow: hidden;
-}
-
-.search .ant-input-affix-wrapper,
-.search .ant-input-group-addon,
-.search .ant-input-search-button {
+  font-size: 20px;
   box-shadow: none;
+}
+
+.search .search-submit:hover {
+  border-color: var(--accent-dark) !important;
+  background: var(--accent-dark) !important;
+  color: var(--color-light) !important;
+}
+
+.search-category-option {
+  min-width: 210px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.search-category-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-category-option-gender {
+  color: #7b8994;
+  font-size: 11px;
+}
+
+.search-category-dropdown .ant-dropdown-menu {
+  max-height: min(420px, calc(100vh - 120px));
+  overflow-y: auto;
+}
+
+@media (max-width: 520px) {
+  .search {
+    grid-template-columns: 108px minmax(0, 1fr) 52px;
+  }
+
+  .search .search-category-trigger {
+    padding-inline: 10px;
+  }
 }
 
 .header-actions {
@@ -177,6 +266,7 @@ input {
 }
 
 .header-actions .client-action-button--cart {
+  position: relative;
   border-color: rgba(234, 224, 207, 0.34);
   background: rgba(53, 88, 114, 0.42);
 }
@@ -195,6 +285,26 @@ input {
   color: var(--color-dark);
   background: rgba(234, 224, 207, 0.92);
   font-size: 14px;
+}
+
+.cart-count-badge {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid var(--nav);
+  border-radius: 999px;
+  color: #fff;
+  background: #e11d2e;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .category-nav {
@@ -337,9 +447,12 @@ input {
 
 .slider {
   position: relative;
+  width: min(calc(100% - 48px), 1180px);
+  margin: 8px auto 0;
   overflow: hidden;
   background: #d9e5eb;
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .slider .slick-dots li button {
@@ -351,25 +464,21 @@ input {
   display: grid;
   place-items: center;
   overflow: hidden;
-  min-height: 210px;
+  height: 420px;
+  min-height: 420px;
 }
 
 .slide img {
   width: 100%;
-  height: 210px;
-  object-fit: cover;
-  opacity: 0.34;
-  transform: scale(1.04);
-  transition: transform 4200ms ease;
-}
-
-.slick-active .slide img {
-  transform: scale(1.12);
+  height: 420px;
+  display: block;
+  object-fit: contain;
+  opacity: 1;
 }
 
 .slide-copy {
   position: absolute;
-  inset-inline: 24px;
+  inset-inline: 48px;
   text-align: center;
   color: #263d4e;
   animation: slideCopyIn 480ms ease both;
@@ -377,13 +486,13 @@ input {
 
 .slide-copy span {
   display: block;
-  font-size: 30px;
+  font-size: 60px;
   font-weight: 800;
 }
 
 .slide-copy p {
-  margin: 8px 0 0;
-  font-size: 14px;
+  margin: 16px 0 0;
+  font-size: 28px;
   font-weight: 600;
 }
 
@@ -399,6 +508,8 @@ input {
 }
 
 .site-footer {
+  flex-shrink: 0;
+  margin-top: auto;
   color: var(--color-light);
   background: var(--footer);
 }
@@ -472,6 +583,40 @@ input {
   .search,
   .header-actions {
     justify-self: stretch;
+  }
+
+  .brand {
+    width: min(240px, 100%);
+    height: 66px;
+    justify-self: center;
+  }
+
+  .slide {
+    height: 280px;
+    min-height: 280px;
+  }
+
+  .slider {
+    width: calc(100% - 24px);
+    margin-top: 8px;
+    border-radius: 6px;
+  }
+
+  .slide img {
+    height: 280px;
+  }
+
+  .slide-copy {
+    inset-inline: 20px;
+  }
+
+  .slide-copy span {
+    font-size: 40px;
+  }
+
+  .slide-copy p {
+    margin-top: 10px;
+    font-size: 18px;
   }
 
   .header-actions,

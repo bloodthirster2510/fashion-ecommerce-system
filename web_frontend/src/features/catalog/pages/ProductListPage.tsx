@@ -93,7 +93,7 @@ const setListParam = (params: URLSearchParams, key: string, values?: string[]) =
   })
 }
 
-export function ProductListPage({ showSlider = false }: { showSlider?: boolean }) {
+export function ProductListPage() {
   const [search, setSearch] = useState(window.location.search)
   const query = useMemo(() => parseQuery(search), [search])
   const [productList, setProductList] = useState<ProductListResponse | null>(null)
@@ -217,7 +217,7 @@ export function ProductListPage({ showSlider = false }: { showSlider?: boolean }
 
   const selectedSort = sortOptions.find((option) => option.value === query.sort) ?? sortOptions[0]
   return (
-    <MainLayout showSlider={showSlider}>
+    <MainLayout>
       <main className="catalog-page">
         <CatalogHero categories={categories} query={query} fallbackCategoryId={productList?.items[0]?.category?._id} />
 
