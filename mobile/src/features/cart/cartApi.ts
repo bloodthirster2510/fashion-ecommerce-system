@@ -255,6 +255,7 @@ const request = async <T>(
     body?: Record<string, unknown>;
     timeoutMs?: number;
     retryOnTimeout?: boolean;
+    idempotencyKey?: string;
   } = {},
 ) => {
   const method = options.method ?? 'GET';
@@ -265,6 +266,7 @@ const request = async <T>(
     headers: {
       Authorization: `Bearer ${token}`,
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   }).catch((error: unknown) => {
@@ -318,6 +320,6 @@ export const cartApi = {
       method: 'POST',
       body: payload,
     }),
-  createOrder: (token: string, payload: CreateOrderPayload) =>
-    request<OrderResponse>('/orders', token, { method: 'POST', body: payload }),
+  createOrder: (token: string, payload: CreateOrderPayload, idempotencyKey: string) =>
+    request<OrderResponse>('/orders', token, { method: 'POST', body: payload, idempotencyKey }),
 };

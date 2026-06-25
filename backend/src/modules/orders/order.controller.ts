@@ -5,6 +5,7 @@ import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../
 import { auditLogService } from '../audit-logs/audit-log.service';
 import { SalesServiceError } from '../sales/sales.helpers';
 import { orderService } from './order.service';
+import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from './order.constants';
 import type {
   CancelOrderInput,
   CreateOrderInput,
@@ -16,18 +17,6 @@ import type {
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
-
-const ORDER_STATUSES: OrderStatus[] = [
-  'confirmed',
-  'packed',
-  'shipping',
-  'delivered',
-  'cancelled',
-  'return_requested',
-  'returned',
-];
-const PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'];
-const PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   return (
@@ -222,6 +211,7 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   keyword: parseString(req.query.keyword),
   from: parseDate(req.query.from, 'from'),
   to: parseDate(req.query.to, 'to'),
+  paymentDeadlineBefore: parseDate(req.query.paymentDeadlineBefore, 'paymentDeadlineBefore'),
   page: parsePositiveInteger(req.query.page, 'page'),
   limit: parsePositiveInteger(req.query.limit, 'limit'),
 });
@@ -348,7 +338,11 @@ const recordOrderShippingUpdateAudit = async ({
 
 const createOrder = async (req: Request, res: Response) => {
   try {
-    const input = req.body as CreateOrderInput;
+    const idempotencyKey = req.get('Idempotency-Key')?.trim();
+    if (idempotencyKey && !/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey)) {
+      return errorResponse(res, 'Invalid Idempotency-Key', 400);
+    }
+    const input = { ...req.body, idempotencyKey } as CreateOrderInput;
 
     if (!input.cartItemIds?.length || !input.paymentMethod) {
       return errorResponse(res, 'cartItemIds and paymentMethod are required', 400);

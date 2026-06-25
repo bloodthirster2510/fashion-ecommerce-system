@@ -1,4 +1,5 @@
 import { apiFetch } from '../../config/api';
+import { withCache } from '../../config/apiCache';
 import type { ApiResponse, ApiValidationError } from '../auth/types';
 
 export type CatalogGender = 'male' | 'female' | 'unisex';
@@ -227,8 +228,8 @@ const toQueryString = (query: Record<string, unknown>) => {
   return params.length ? `?${params.join('&')}` : '';
 };
 
-const request = async <T>(path: string): Promise<T> => {
-  const response = await apiFetch(path);
+const request = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
+  const response = await apiFetch(path, { signal });
   const payload = parseApiResponse<T>(await response.text());
 
   if (!response.ok) {
@@ -247,22 +248,37 @@ const request = async <T>(path: string): Promise<T> => {
   return payload.data;
 };
 
-const getProducts = (params: ProductListParams = {}) => {
-  return request<ProductListResponse>(`/products${toQueryString(params)}`);
+const CATEGORIES_CACHE_TTL_MS = 5 * 60 * 1000;
+const PRODUCT_DETAIL_CACHE_TTL_MS = 60 * 1000;
+const PRODUCT_DETAIL_STALE_MS = 5 * 60 * 1000;
+
+const getProducts = (params: ProductListParams = {}, signal?: AbortSignal) => {
+  return request<ProductListResponse>(`/products${toQueryString(params)}`, signal);
 };
 
-const getProductById = (productId: string) => {
-  return request<CatalogProductDetail>(`/products/${encodeURIComponent(productId)}`);
+const getProductById = (productId: string, signal?: AbortSignal) => {
+  const key = `product:${productId}`;
+  return withCache(
+    key,
+    () => request<CatalogProductDetail>(`/products/${encodeURIComponent(productId)}`, signal),
+    { ttlMs: PRODUCT_DETAIL_CACHE_TTL_MS, staleWhileRevalidateMs: PRODUCT_DETAIL_STALE_MS },
+  );
 };
 
-const getCategories = (params: CategoryListParams = {}) => {
-  return request<CatalogCategory[]>(`/categories${toQueryString({ activeOnly: true, ...params })}`);
+const getCategories = (params: CategoryListParams = {}, signal?: AbortSignal) => {
+  const query = toQueryString({ activeOnly: true, ...params });
+  const key = `categories:${query}`;
+  return withCache(
+    key,
+    () => request<CatalogCategory[]>(`/categories${query}`, signal),
+    { ttlMs: CATEGORIES_CACHE_TTL_MS },
+  );
 };
 
 export const catalogApi = {
   getProducts,
   getProductById,
   getCategories,
-  getBestSellers: (limit = 4) => getProducts({ sort: 'best_seller', page: 1, limit }),
-  getRecommended: (limit = 4) => getProducts({ sort: 'newest', page: 1, limit }),
+  getBestSellers: (limit = 4, signal?: AbortSignal) => getProducts({ sort: 'best_seller', page: 1, limit }, signal),
+  getRecommended: (limit = 4, signal?: AbortSignal) => getProducts({ sort: 'newest', page: 1, limit }, signal),
 };

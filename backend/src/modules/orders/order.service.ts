@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
@@ -7,9 +8,11 @@ import {
   Transaction,
   User,
   type IOrder,
+  type OrderPaymentStatus,
   type IUserAddress,
   type OrderPaymentMethod,
   type OrderStatus,
+  type TransactionStatus,
 } from '../../database/models';
 import { inventoryService } from '../inventory/inventory.service';
 import {
@@ -19,6 +22,10 @@ import {
 } from '../sales/sales.helpers';
 import { cartService } from '../cart/cart.service';
 import { transactionService } from '../payments/transaction.service';
+import {
+  getOrderPaymentDeadlineAt,
+  getOrderPaymentDeadlineWarningMs,
+} from '../payments/order-payment-deadline.config';
 import { paymentMethodService } from '../payment-methods/payment-method.service';
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
@@ -31,7 +38,17 @@ import type {
 } from '../shipping/shipping.types';
 import { shippingAreaMappingService } from '../shipping/shipping-area-mapping.service';
 import { GHNService } from '../shipping/ghn.service';
+import {
+  emitOrderUpdate,
+  type OrderRealtimeEventType,
+  type OrderShippingMilestone,
+} from '../realtime/order.gateway';
+import {
+  sendShippingUpdatePush,
+  type ShippingPushMilestone,
+} from '../notifications/push-notification.service';
 import type {
+  AdjustOrderPaymentStatusInput,
   CancelOrderInput,
   CreateOrderInput,
   OrderEvidenceImageInput,
@@ -44,6 +61,14 @@ import type {
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
+import {
+  ONLINE_PAYMENT_METHODS,
+  ORDER_STATUSES,
+  ORDER_STATUS_TRANSITIONS,
+  SHIPPING_MILESTONE_STATUSES,
+  SHIPPING_WEBHOOK_STATUSES,
+  SUPPORTED_PAYMENT_METHODS,
+} from './order.constants';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -52,31 +77,14 @@ const MAX_ORDER_EVIDENCE_IMAGES = 5;
 const MAX_ORDER_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const RETURN_WINDOW_DAYS = 7;
 const RETURN_WINDOW_MS = RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const AUTO_COMPLETE_DELIVERED_AFTER_DAYS = 7;
+const AUTO_COMPLETE_DELIVERED_AFTER_MS = AUTO_COMPLETE_DELIVERED_AFTER_DAYS * 24 * 60 * 60 * 1000;
+const AUTO_COMPLETE_BATCH_SIZE = 50;
 const DEFAULT_GHN_ITEM_WEIGHT_GRAMS = 500;
 const DEFAULT_GHN_PACKAGE_LENGTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_WIDTH_CM = 20;
 const DEFAULT_GHN_PACKAGE_HEIGHT_CM = 10;
 const DEFAULT_GHN_SERVICE_TYPE_ID = 2;
-const SUPPORTED_MVP_PAYMENT_METHODS: OrderPaymentMethod[] = ['COD', 'VNPAY'];
-const ONLINE_PAYMENT_METHODS: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'CARD', 'BANK'];
-const ORDER_STATUSES: OrderStatus[] = [
-  'confirmed',
-  'packed',
-  'shipping',
-  'delivered',
-  'cancelled',
-  'return_requested',
-  'returned',
-];
-const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  confirmed: ['packed', 'cancelled'],
-  packed: ['shipping', 'cancelled'],
-  shipping: ['delivered', 'return_requested'],
-  delivered: ['return_requested'],
-  return_requested: ['returned'],
-  returned: [],
-  cancelled: [],
-};
 
 const clampPagination = (query: OrderListQueryInput) => {
   const page = Math.max(query.page ?? DEFAULT_PAGE, DEFAULT_PAGE);
@@ -117,6 +125,10 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
       ...(query.from ? { $gte: query.from } : {}),
       ...(query.to ? { $lte: query.to } : {}),
     };
+  }
+
+  if (query.paymentDeadlineBefore) {
+    filter.paymentDeadlineAt = { $ne: null, $lte: query.paymentDeadlineBefore };
   }
 
   if (query.keyword) {
@@ -174,13 +186,16 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     ],
   };
 
-  const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk] = await Promise.all([
+  const now = new Date();
+  const deadlineSoonAt = new Date(now.getTime() + getOrderPaymentDeadlineWarningMs());
+
+  const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk, paymentDeadlineSoon] = await Promise.all([
     countWith({
       status: 'return_requested',
       'returnRequest.status': 'requested',
     }),
     countWith({
-      status: 'cancelled',
+      status: { $in: ['cancelled', 'returned'] },
       paymentStatus: 'paid',
     }),
     countWith({
@@ -196,7 +211,7 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
       ...readyOrderCondition,
     }),
     countWith({
-      status: 'shipping',
+      status: 'delivered',
       ...readyOrderCondition,
     }),
     countWith({
@@ -209,6 +224,12 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
         },
       ],
     }),
+    countWith({
+      status: 'confirmed',
+      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+      paymentStatus: { $in: ['pending', 'failed'] },
+      paymentDeadlineAt: { $gt: now, $lte: deadlineSoonAt },
+    }),
   ]);
 
   return {
@@ -220,6 +241,8 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
     readyToProcess: packingReady + handoffReady,
     deliveryConfirmations,
     paymentRisk,
+    paymentOverdueRisk: Math.max(0, paymentRisk - paymentDeadlineSoon),
+    paymentDeadlineSoon,
     totalPriority: returnRequests + refunds + packingReady + handoffReady + deliveryConfirmations + paymentRisk,
   };
 };
@@ -246,9 +269,9 @@ const assertCanReadOrder = (order: IOrder, userId: string, role?: string) => {
 };
 
 const assertSupportedPaymentMethod = (paymentMethod: OrderPaymentMethod) => {
-  if (!SUPPORTED_MVP_PAYMENT_METHODS.includes(paymentMethod)) {
+  if (!(SUPPORTED_PAYMENT_METHODS as readonly OrderPaymentMethod[]).includes(paymentMethod)) {
     throw new SalesServiceError(
-      `Payment method ${paymentMethod} is not supported in this phase. Supported: ${SUPPORTED_MVP_PAYMENT_METHODS.join(', ')}`,
+      `Payment method ${paymentMethod} is not supported in this phase. Supported: ${SUPPORTED_PAYMENT_METHODS.join(', ')}`,
       400,
     );
   }
@@ -266,7 +289,13 @@ const requireCheckoutQuoteVersion = (quoteVersion: string | undefined) => {
 };
 
 const isOnlinePaymentMethod = (paymentMethod: OrderPaymentMethod) =>
-  ONLINE_PAYMENT_METHODS.includes(paymentMethod);
+  (ONLINE_PAYMENT_METHODS as readonly OrderPaymentMethod[]).includes(paymentMethod);
+
+const toManualTransactionStatus = (paymentStatus: OrderPaymentStatus): TransactionStatus => {
+  if (paymentStatus === 'paid' || paymentStatus === 'refunded') return 'success';
+  if (paymentStatus === 'pending') return 'pending';
+  return 'failed';
+};
 
 const requiresPaidOnlineOrder = (status: OrderStatus) =>
   status !== 'confirmed' && status !== 'cancelled';
@@ -275,6 +304,17 @@ const getGatewayProvider = (paymentMethod: OrderPaymentMethod) => {
   if (paymentMethod === 'VNPAY') return 'vnpay' as const;
   if (paymentMethod === 'MOMO') return 'momo' as const;
   return null;
+};
+
+const generateInvoiceCode = (order: Pick<IOrder, '_id' | 'orderCode'>) => {
+  const base = order.orderCode?.trim().toUpperCase() || toIdString(order._id).slice(-10).toUpperCase();
+  return `INV-${base}`.slice(0, 40);
+};
+
+const ensureDeliveredInvoiceCode = (order: IOrder) => {
+  if ((order.status === 'delivered' || order.status === 'completed') && !order.invoiceCode) {
+    order.invoiceCode = generateInvoiceCode(order);
+  }
 };
 
 const assertOrderStatusTransition = (from: OrderStatus, to: OrderStatus) => {
@@ -307,6 +347,74 @@ const runBestEffort = async (context: string, task: Promise<unknown>) => {
   } catch (error) {
     logBestEffortFailure(context, error);
   }
+};
+
+type OrderChangeSnapshot = {
+  status: string;
+  paymentStatus: string;
+  deliveredAt: Date | null;
+  shipping: IOrder['shipping'] | null;
+};
+
+const createOrderChangeSnapshot = (order: IOrder): OrderChangeSnapshot => ({
+  status: order.status,
+  paymentStatus: order.paymentStatus,
+  deliveredAt: order.deliveredAt ?? null,
+  shipping: order.shipping
+    ? ({
+        ...order.shipping,
+        status: order.shipping.status ?? null,
+        trackingCode: order.shipping.trackingCode ?? null,
+      } as IOrder['shipping'])
+    : null,
+});
+
+const triggerOrderStatusChange = async (
+  order: IOrder,
+  before: OrderChangeSnapshot,
+  type: OrderRealtimeEventType,
+  milestone?: OrderShippingMilestone,
+) => {
+  const shippingStatusBefore = before.shipping?.status ?? null;
+  const shippingStatusAfter = order.shipping?.status ?? null;
+  if (before.status === order.status && shippingStatusBefore === shippingStatusAfter) return;
+
+  await runBestEffort(
+    'Failed to emit order realtime event',
+    Promise.resolve(emitOrderUpdate(order, type, {
+      status: before.status,
+      paymentStatus: before.paymentStatus,
+      shippingStatus: shippingStatusBefore,
+    }, milestone)),
+  );
+
+  if (milestone && ['picked', 'shipping', 'delivered', 'failed'].includes(milestone)) {
+    await runBestEffort(
+      'Failed to send shipping update push notification',
+      sendShippingUpdatePush({
+        userId: order.user_id.toString(),
+        orderId: order._id.toString(),
+        orderCode: order.orderCode,
+        milestone: milestone as ShippingPushMilestone,
+      }),
+    );
+  }
+};
+
+const triggerOrderPaymentChange = async (
+  order: IOrder,
+  before: OrderChangeSnapshot,
+) => {
+  if (before.paymentStatus === order.paymentStatus) return;
+
+  await runBestEffort(
+    'Failed to emit order payment realtime event',
+    Promise.resolve(emitOrderUpdate(order, 'payment_update', {
+      status: before.status,
+      paymentStatus: before.paymentStatus,
+      shippingStatus: before.shipping?.status ?? null,
+    })),
+  );
 };
 
 const toOrderItem = (item: CheckoutOrderItem) => ({
@@ -852,7 +960,7 @@ const awardLoyaltyPointsForDeliveredOrder = async (
   const updatedOrder = await Order.findOneAndUpdate(
     {
       _id: orderObjectId,
-      status: 'delivered',
+      status: { $in: ['delivered', 'completed'] },
       $or: [
         { loyaltyPointsAwarded: { $exists: false } },
         { loyaltyPointsAwarded: { $lte: 0 } },
@@ -949,6 +1057,7 @@ const clawBackLoyaltyPointsForOrder = async (
     ],
     {
       returnDocument: 'after',
+      updatePipeline: true,
       ...(options.session ? { session: options.session } : {}),
     },
   );
@@ -994,12 +1103,13 @@ const rollbackCouponUsageForCancelledOrder = async (
   }
 };
 
-const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder) => {
+const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder): Promise<IOrder> => {
   const session = await mongoose.startSession();
   let savedOrder: IOrder | null = null;
 
   try {
     await session.withTransaction(async () => {
+      ensureDeliveredInvoiceCode(order);
       const persistedOrder = await order.save({ session });
       savedOrder = await awardLoyaltyPointsForDeliveredOrder(persistedOrder, { session });
     });
@@ -1061,6 +1171,14 @@ const previewCheckout = async (userId: string, input: PreviewCheckoutInput) => {
 };
 
 const createOrder = async (userId: string, input: CreateOrderInput) => {
+  if (input.idempotencyKey) {
+    const existingOrder = await Order.findOne({
+      user_id: toObjectId(userId, 'userId'),
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (existingOrder) return existingOrder;
+  }
+
   assertSupportedPaymentMethod(input.paymentMethod);
   const normalizedQuoteVersion = requireCheckoutQuoteVersion(input.quoteVersion);
   const selectedPaymentMethod = await paymentMethodService.assertUsablePaymentMethodForCheckout({
@@ -1133,6 +1251,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
 
       const [order] = await Order.create([{
         _id: orderId,
+        idempotencyKey: input.idempotencyKey ?? null,
         orderCode: generateOrderCode(),
         user_id: toObjectId(userId, 'userId'),
         order_list: orderItems,
@@ -1164,6 +1283,10 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         paymentMethod: input.paymentMethod,
         paymentMethodId: selectedPaymentMethod?._id ?? null,
         paymentStatus: 'pending',
+        paymentDeadlineAt: isOnlinePaymentMethod(input.paymentMethod)
+          ? getOrderPaymentDeadlineAt()
+          : null,
+        paymentDeadlineWarningSentAt: null,
         shipping: {
           ...toOrderShippingSnapshot(pricing.shippingQuote),
           ...toShippingComparisonSnapshot(pricing.shippingComparison),
@@ -1198,6 +1321,17 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         ),
       );
     });
+  } catch (error) {
+    const duplicateKeyError = typeof error === 'object' && error !== null && 'code' in error
+      && (error as { code?: number }).code === 11000;
+    if (!duplicateKeyError || !input.idempotencyKey) throw error;
+
+    const existingOrder = await Order.findOne({
+      user_id: toObjectId(userId, 'userId'),
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (!existingOrder) throw error;
+    createdOrder = existingOrder;
   } finally {
     await session.endSession();
   }
@@ -1289,6 +1423,35 @@ const getOrderTransactions = async (userId: string, role: string | undefined, id
     .lean();
 };
 
+const adjustOrderPaymentStatus = async (
+  id: string,
+  input: AdjustOrderPaymentStatusInput,
+) => {
+  const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
+
+  if (order.paymentStatus === input.paymentStatus) {
+    return order;
+  }
+
+  order.paymentStatus = input.paymentStatus;
+  const updatedOrder = await order.save();
+
+  await transactionService.createManualAdjustmentTransaction({
+    userId: updatedOrder.user_id.toString(),
+    orderId: updatedOrder._id.toString(),
+    amount: updatedOrder.totalAmount,
+    paymentMethod: updatedOrder.paymentMethod,
+    paymentMethodId: updatedOrder.paymentMethodId?.toString() ?? null,
+    status: toManualTransactionStatus(input.paymentStatus),
+    reason: input.reason,
+    actorId: input.actorId,
+  });
+
+  await triggerOrderPaymentChange(updatedOrder, before);
+  return updatedOrder;
+};
+
 const restockCommittedOrder = async (order: IOrder) => {
   await Promise.all(
     order.order_list.map((item) =>
@@ -1329,6 +1492,42 @@ const restockCommittedOrder = async (order: IOrder) => {
   );
 };
 
+const cancelOrderForPaymentDeadline = async (orderId: string, now = new Date()) => {
+  const cancellationReason = 'Tự động hủy do quá hạn thanh toán 3 ngày';
+  const cancelledOrder = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      status: 'confirmed',
+      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
+      paymentStatus: { $in: ['pending', 'failed'] },
+      paymentDeadlineAt: { $lte: now },
+    },
+    {
+      $set: {
+        status: 'cancelled',
+        paymentStatus: 'failed',
+        cancellation: {
+          kind: 'payment-timeout',
+          reason: cancellationReason,
+          cancelledAt: now,
+          cancelledBy: null,
+          actorRole: 'system',
+        },
+      },
+    },
+    { returnDocument: 'after', runValidators: true },
+  );
+
+  if (!cancelledOrder) return null;
+
+  await restockCommittedOrder(cancelledOrder);
+  await rollbackCouponUsageForCancelledOrder(cancelledOrder);
+  return clawBackLoyaltyPointsForOrder(
+    cancelledOrder,
+    'Order cancelled due to payment deadline exceeded',
+  );
+};
+
 const cancelOrder = async (
   userId: string,
   role: string | undefined,
@@ -1337,6 +1536,7 @@ const cancelOrder = async (
 ) => {
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId, role);
+  const before = createOrderChangeSnapshot(order);
 
   if (order.status === 'cancelled') {
     throw new SalesServiceError('Order is already cancelled', 400);
@@ -1384,30 +1584,34 @@ const cancelOrder = async (
 
   await rollbackCouponUsageForCancelledOrder(cancelledOrder);
 
-  return clawBackLoyaltyPointsForOrder(cancelledOrder, 'Order cancelled after delivery');
+  const finalOrder = await clawBackLoyaltyPointsForOrder(cancelledOrder, 'Order cancelled after delivery');
+  await triggerOrderStatusChange(finalOrder, before, 'status_update', 'cancelled');
+  return finalOrder;
 };
 
 const confirmOrderReceived = async (userId: string, id: string) => {
   const order = await getOrderByIdOrThrow(id);
   assertCanReadOrder(order, userId);
 
-  if (order.status === 'delivered') {
+  if (order.status === 'completed') {
+    if (!order.invoiceCode) {
+      ensureDeliveredInvoiceCode(order);
+      return order.save();
+    }
     return order;
   }
 
-  if (order.status !== 'shipping') {
-    throw new SalesServiceError('Order can only be confirmed received while it is shipping', 400);
+  if (order.status !== 'delivered') {
+    throw new SalesServiceError('Order can only be confirmed received after it is delivered', 400);
   }
 
-  if (order.shipping?.status === 'failed') {
-    throw new SalesServiceError('Delivery has failed and must be reattempted before confirming receipt', 400);
-  }
-
-  assertOrderStatusTransition(order.status, 'delivered');
-  assertPaymentAllowsOrderStatus(order, 'delivered');
-  const deliveredAt = new Date();
-  order.status = 'delivered';
-  order.deliveredAt = deliveredAt;
+  assertOrderStatusTransition(order.status, 'completed');
+  assertPaymentAllowsOrderStatus(order, 'completed');
+  const before = createOrderChangeSnapshot(order);
+  const receivedAt = new Date();
+  order.status = 'completed';
+  order.receivedAt = order.receivedAt ?? receivedAt;
+  order.deliveredAt = order.deliveredAt ?? receivedAt;
 
   if (order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';
@@ -1418,7 +1622,9 @@ const confirmOrderReceived = async (userId: string, id: string) => {
     status: 'delivered',
   };
 
-  return saveDeliveredOrderWithLoyaltyAward(order);
+  const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
+  await triggerOrderStatusChange(savedOrder, before, 'status_update');
+  return savedOrder;
 };
 
 const requestReturn = async (userId: string, id: string, input: RequestReturnInput) => {
@@ -1429,10 +1635,11 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
     return order;
   }
 
-  if (order.status !== 'delivered') {
+  if (order.status !== 'delivered' && order.status !== 'completed') {
     throw new SalesServiceError('Order can only request return after it is delivered', 400);
   }
 
+  const previousOrderStatus = order.status;
   assertReturnWindowIsOpen(order);
   assertOrderStatusTransition(order.status, 'return_requested');
   assertPaymentAllowsOrderStatus(order, 'return_requested');
@@ -1442,6 +1649,7 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
     reason: normalizeRequiredReturnReason(input?.reason),
     ...(evidenceImageUrls.length ? { imageUrls: evidenceImageUrls } : {}),
     status: 'requested',
+    previousOrderStatus,
     requestedAt: new Date(),
     reviewedAt: null,
     reviewedBy: null,
@@ -1472,13 +1680,15 @@ const reviewReturnRequest = async (
     assertPaymentAllowsOrderStatus(order, 'returned');
     order.status = 'returned';
   } else {
-    order.status = 'delivered';
+    order.status = order.returnRequest.previousOrderStatus === 'completed' ? 'completed' : 'delivered';
+    ensureDeliveredInvoiceCode(order);
   }
 
   order.returnRequest = {
     reason: order.returnRequest.reason,
     ...(order.returnRequest.imageUrls?.length ? { imageUrls: order.returnRequest.imageUrls } : {}),
     status: input.decision,
+    previousOrderStatus: order.returnRequest.previousOrderStatus ?? null,
     requestedAt: order.returnRequest.requestedAt,
     reviewedAt,
     reviewedBy,
@@ -1506,13 +1716,14 @@ const updateOrderStatus = async (
     throw new SalesServiceError('Use the return request review workflow for return orders', 400);
   }
 
-  assertOrderStatusTransition(order.status, input.status);
-
   if (order.status === input.status) {
     return order;
   }
 
+  assertOrderStatusTransition(order.status, input.status);
+
   assertPaymentAllowsOrderStatus(order, input.status);
+  const before = createOrderChangeSnapshot(order);
 
   order.status = input.status;
 
@@ -1524,15 +1735,34 @@ const updateOrderStatus = async (
     };
   }
 
-  if (input.status === 'delivered' && order.paymentMethod === 'COD') {
+  if (input.status === 'completed') {
+    const completedAt = new Date();
+    order.receivedAt = order.receivedAt ?? completedAt;
+    order.deliveredAt = order.deliveredAt ?? completedAt;
+    order.shipping = {
+      ...(order.shipping ?? {}),
+      status: 'delivered',
+    };
+  }
+
+  if ((input.status === 'delivered' || input.status === 'completed') && order.paymentMethod === 'COD') {
     order.paymentStatus = 'paid';
   }
 
-  if (input.status === 'delivered') {
-    return saveDeliveredOrderWithLoyaltyAward(order);
+  if (input.status === 'delivered' || input.status === 'completed') {
+    const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
+    await triggerOrderStatusChange(
+      savedOrder,
+      before,
+      'status_update',
+      input.status === 'delivered' ? 'delivered' : undefined,
+    );
+    return savedOrder;
   }
 
-  return order.save();
+  const savedOrder = await order.save();
+  await triggerOrderStatusChange(savedOrder, before, 'status_update');
+  return savedOrder;
 };
 
 const getOrderGhnDestination = (order: IOrder) => {
@@ -1700,6 +1930,7 @@ const syncGhnShipment = async (id: string) => {
 
 const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) => {
   const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
   const nextCustomerFee = input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null;
 
   order.shipping = {
@@ -1721,6 +1952,7 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
     estimatedDeliveryDate: input.estimatedDeliveryDate ?? order.shipping?.estimatedDeliveryDate ?? null,
     rawQuote: input.rawQuote ?? order.shipping?.rawQuote ?? null,
     rawShipment: input.rawShipment ?? order.shipping?.rawShipment ?? null,
+    lastWebhookEventId: order.shipping?.lastWebhookEventId ?? null,
   };
 
   if (typeof nextCustomerFee === 'number' && Number.isFinite(nextCustomerFee)) {
@@ -1736,7 +1968,12 @@ const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) 
     );
   }
 
-  return order.save();
+  const savedOrder = await order.save();
+  const milestone = (SHIPPING_MILESTONE_STATUSES as readonly string[]).includes(savedOrder.shipping?.status ?? '')
+    ? savedOrder.shipping.status as OrderShippingMilestone
+    : undefined;
+  await triggerOrderStatusChange(savedOrder, before, 'shipping_update', milestone);
+  return savedOrder;
 };
 
 const getOrderForShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
@@ -1769,21 +2006,48 @@ const getOrderForShippingWebhook = async (input: SimulatedShippingWebhookInput) 
   throw new SalesServiceError('orderId, trackingCode or orderCode is required', 400);
 };
 
-const createWebhookOrderSnapshot = (order: IOrder) => ({
-  status: order.status,
-  paymentStatus: order.paymentStatus,
-  deliveredAt: order.deliveredAt ?? null,
-  shipping: order.shipping ?? null,
-});
+const createWebhookOrderSnapshot = createOrderChangeSnapshot;
+
+const createShippingWebhookEventId = (input: SimulatedShippingWebhookInput) => crypto
+  .createHash('sha256')
+  .update(JSON.stringify({
+    provider: input.provider ?? null,
+    orderId: input.orderId ?? null,
+    orderCode: input.orderCode ?? null,
+    trackingCode: input.trackingCode ?? null,
+    status: input.status,
+    deliveredAt: input.deliveredAt?.toISOString() ?? null,
+    rawPayload: input.rawPayload ?? null,
+  }))
+  .digest('hex');
+
+const isShippingWebhookAlreadyApplied = (
+  order: IOrder,
+  input: SimulatedShippingWebhookInput,
+  eventId: string,
+) => {
+  if (order.shipping?.lastWebhookEventId === eventId) return true;
+  if (order.shipping?.status !== input.status) return false;
+  if (input.trackingCode?.trim() && order.shipping?.trackingCode !== input.trackingCode.trim()) return false;
+  if (input.provider?.trim() && order.shipping?.provider !== input.provider.trim()) return false;
+  if (input.status === 'delivered') return order.status === 'delivered' || order.status === 'completed';
+  if (input.status === 'cancelled') return order.status === 'cancelled';
+  if (['picked', 'shipping', 'failed'].includes(input.status)) return order.status === 'shipping';
+  return order.status === 'packed' || order.status === 'shipping';
+};
 
 const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
-  if (!['ready', 'picking', 'picked', 'shipping', 'delivered', 'failed', 'cancelled'].includes(input.status)) {
+  if (!(SHIPPING_WEBHOOK_STATUSES as readonly string[]).includes(input.status)) {
     throw new SalesServiceError('Invalid shipping webhook status', 400);
   }
 
   const order = await getOrderForShippingWebhook(input);
   const before = createWebhookOrderSnapshot(order);
   const webhookReason = input.reason?.trim() || `Shipping partner reported ${input.status}`;
+  const webhookEventId = createShippingWebhookEventId(input);
+  if (isShippingWebhookAlreadyApplied(order, input, webhookEventId)) {
+    return { before, order, reason: webhookReason, duplicate: true };
+  }
   let shouldRestockAfterSave = false;
   const nextShipping = {
     ...(order.shipping ?? {}),
@@ -1791,6 +2055,7 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
     trackingCode: input.trackingCode ?? order.shipping?.trackingCode ?? null,
     status: input.status,
     rawShipment: input.rawPayload ?? order.shipping?.rawShipment ?? null,
+    lastWebhookEventId: webhookEventId,
   };
 
   if (input.status === 'ready' || input.status === 'picking') {
@@ -1881,6 +2146,11 @@ const applyShippingWebhook = async (input: SimulatedShippingWebhookInput) => {
     ? await clawBackLoyaltyPointsForOrder(savedOrder, 'Order cancelled after delivery')
     : savedOrder;
 
+  const milestone = (SHIPPING_MILESTONE_STATUSES as readonly string[]).includes(input.status)
+    ? input.status as OrderShippingMilestone
+    : undefined;
+  await triggerOrderStatusChange(finalOrder, before, 'shipping_update', milestone);
+
   return {
     before,
     order: finalOrder,
@@ -1892,6 +2162,51 @@ const applyGhnShippingWebhook = async (payload: unknown) => (
   applyShippingWebhook(parseGhnWebhookPayload(payload))
 );
 
+const autoCompleteDeliveredOrders = async (now = new Date()) => {
+  const cutoff = new Date(now.getTime() - AUTO_COMPLETE_DELIVERED_AFTER_MS);
+  const orders = await Order.find({
+    status: 'delivered',
+    deliveredAt: { $lte: cutoff },
+  }).limit(AUTO_COMPLETE_BATCH_SIZE) as IOrder[];
+
+  const completedOrderIds: string[] = [];
+  const failures: Array<{ orderId: string; message: string }> = [];
+
+  for (const order of orders) {
+    const before = createOrderChangeSnapshot(order);
+    try {
+      order.status = 'completed';
+      order.receivedAt = order.receivedAt ?? now;
+      order.deliveredAt = order.deliveredAt ?? cutoff;
+      if (order.paymentMethod === 'COD') {
+        order.paymentStatus = 'paid';
+      }
+      order.shipping = {
+        ...(order.shipping ?? {}),
+        status: 'delivered',
+      };
+
+      const savedOrder = await saveDeliveredOrderWithLoyaltyAward(order);
+      await triggerOrderStatusChange(savedOrder, before, 'status_update');
+      completedOrderIds.push(toIdString(savedOrder._id));
+    } catch (error) {
+      failures.push({
+        orderId: toIdString(order._id),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    cutoff,
+    scannedCount: orders.length,
+    completedCount: completedOrderIds.length,
+    failedCount: failures.length,
+    completedOrderIds,
+    failures,
+  };
+};
+
 export const orderService = {
   previewCheckout,
   createOrder,
@@ -1899,6 +2214,7 @@ export const orderService = {
   getOrders,
   getOrderById,
   getOrderTransactions,
+  adjustOrderPaymentStatus,
   cancelOrder,
   confirmOrderReceived,
   requestReturn,
@@ -1910,4 +2226,6 @@ export const orderService = {
   syncGhnShipment,
   updateOrderStatus,
   updateOrderShipping,
+  cancelOrderForPaymentDeadline,
+  autoCompleteDeliveredOrders,
 };

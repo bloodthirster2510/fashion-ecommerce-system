@@ -13,13 +13,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
-import StorefrontHeader from '../../components/layout/StorefrontHeader';
-import { colors, radii, spacing } from '../../theme';
+import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
+import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, type UserAddress } from '../account/accountApi';
 import {
@@ -29,7 +30,7 @@ import {
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
-import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
+import * as Crypto from 'expo-crypto';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
@@ -47,6 +48,8 @@ type CartNotice = {
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
+
+const CHECKOUT_PREVIEW_DEBOUNCE_MS = 450;
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
@@ -124,7 +127,6 @@ const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
-  const { summary: notificationSummary } = useCustomerNotifications();
   const [cart, setCart] = React.useState<CartResponse | null>(null);
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
@@ -140,6 +142,7 @@ const CartScreen = () => {
   const [couponCode, setCouponCode] = React.useState('');
   const [appliedCouponCodes, setAppliedCouponCodes] = React.useState<string[]>([]);
   const [checkoutPreview, setCheckoutPreview] = React.useState<CheckoutPreviewResponse | null>(null);
+  const [checkoutPreviewKey, setCheckoutPreviewKey] = React.useState('');
   const [isApplyingCoupon, setIsApplyingCoupon] = React.useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
   const [notice, setNotice] = React.useState<CartNotice | null>(null);
@@ -387,12 +390,14 @@ const CartScreen = () => {
     [runWithAuth, session?.accessToken, showNotice],
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useStaleFocusEffect(
+    () => {
       void loadCart();
       void loadAddresses();
       void loadPaymentMethods();
-    }, [loadAddresses, loadCart, loadPaymentMethods]),
+    },
+    [loadAddresses, loadCart, loadPaymentMethods],
+    { staleMs: 20 * 1000 },
   );
 
   React.useEffect(() => {
@@ -428,6 +433,16 @@ const CartScreen = () => {
         .join('|'),
     [selectedCheckoutItems],
   );
+  const checkoutPreviewRequestKey = React.useMemo(
+    () => [
+      selectedCheckoutItemKey,
+      selectedAddressKey,
+      appliedCouponCodes.join(','),
+      paymentMethod,
+    ].join('::'),
+    [appliedCouponCodes, paymentMethod, selectedAddressKey, selectedCheckoutItemKey],
+  );
+  const checkoutPreviewIsCurrent = Boolean(checkoutPreview && checkoutPreviewKey === checkoutPreviewRequestKey);
   const unavailableSelectedItems = selectedItems.filter((item) => item.isAvailable === false);
   const allItemsSelected = Boolean(
     cart?.product_list.length && cart.product_list.every((item) => item.isSelected),
@@ -499,6 +514,7 @@ const CartScreen = () => {
     unavailableSelectedItems.length === 0 &&
     Boolean(selectedAddress) &&
     Boolean(checkoutPreview?.quoteVersion) &&
+    checkoutPreviewIsCurrent &&
     !isPreviewLoading &&
     !isSubmitting &&
     (paymentMethod === 'COD' || paymentMethod === 'VNPAY');
@@ -516,24 +532,29 @@ const CartScreen = () => {
   React.useEffect(() => {
     if (!session?.accessToken || !selectedCheckoutItems.length) {
       setCheckoutPreview(null);
+      setCheckoutPreviewKey('');
+      setIsPreviewLoading(false);
       return;
     }
 
     let isActive = true;
     setIsPreviewLoading(true);
+    const previewKey = checkoutPreviewRequestKey;
 
-    runWithAuth((accessToken) =>
-      cartApi.previewCheckout(accessToken, {
-        cartItemIds: selectedCheckoutItems.map((item) => item._id),
-        ...getCheckoutAddressPayload(),
-        couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
-        paymentMethod,
-      }),
-    )
+    const handle = setTimeout(() => {
+      runWithAuth((accessToken) =>
+        cartApi.previewCheckout(accessToken, {
+          cartItemIds: selectedCheckoutItems.map((item) => item._id),
+          ...getCheckoutAddressPayload(),
+          couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
+          paymentMethod,
+        }),
+      )
       .then((preview) => {
         if (!isActive) return;
 
         setCheckoutPreview(preview);
+        setCheckoutPreviewKey(previewKey);
         const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? (preview.coupon ? [preview.coupon.code] : []);
         if (previewCodes.length) {
           setCouponCode('');
@@ -548,6 +569,7 @@ const CartScreen = () => {
         if (!isActive) return;
 
         setCheckoutPreview(null);
+        setCheckoutPreviewKey('');
         if (appliedCouponCodes.length) {
           setAppliedCouponCodes([]);
           showNotice({
@@ -562,12 +584,15 @@ const CartScreen = () => {
           setIsPreviewLoading(false);
         }
       });
+    }, CHECKOUT_PREVIEW_DEBOUNCE_MS);
 
     return () => {
       isActive = false;
+      clearTimeout(handle);
     };
   }, [
     appliedCouponCodes,
+    checkoutPreviewRequestKey,
     paymentMethod,
     getCheckoutAddressPayload,
     runWithAuth,
@@ -577,13 +602,6 @@ const CartScreen = () => {
     session?.accessToken,
     showNotice,
   ]);
-
-  const handleSearchSubmit = (keyword: string) => {
-    navigation.navigate('ProductList', {
-      title: `Tìm kiếm: ${keyword}`,
-      keyword,
-    });
-  };
 
   const updateCartState = (nextCart: CartResponse) => {
     setCart(nextCart);
@@ -748,8 +766,14 @@ const CartScreen = () => {
         throw new CartApiError('Voucher chưa được áp dụng cho đơn hàng này.');
       }
 
-      setCheckoutPreview(preview);
       const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? [preview.coupon.code];
+      setCheckoutPreview(preview);
+      setCheckoutPreviewKey([
+        selectedCheckoutItemKey,
+        selectedAddressKey,
+        previewCodes.join(','),
+        paymentMethod,
+      ].join('::'));
       setAppliedCouponCodes(previewCodes);
       setCouponCode('');
       showNotice({
@@ -874,6 +898,8 @@ const CartScreen = () => {
 
     try {
       setIsSubmitting(true);
+      // Keep the key stable if runWithAuth repeats the action after refreshing the token.
+      const idempotencyKey = Crypto.randomUUID();
       const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
         cartItemIds: selectedCheckoutItems.map((item) => item._id),
         paymentMethod,
@@ -882,7 +908,7 @@ const CartScreen = () => {
         ...getCheckoutAddressPayload(),
         couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
         orderNote: form.note.trim() || undefined,
-      }));
+      }, idempotencyKey));
 
       // Dọn dẹp form ngay sau khi tạo đơn thành công
       setForm((current) => ({ ...current, note: '' }));
@@ -960,6 +986,7 @@ const CartScreen = () => {
           );
 
           setCheckoutPreview(refreshedPreview);
+          setCheckoutPreviewKey(checkoutPreviewRequestKey);
           showNotice({
             tone: 'warning',
             title: 'Phí giao hàng vừa thay đổi',
@@ -968,6 +995,7 @@ const CartScreen = () => {
           return;
         } catch (refreshError) {
           setCheckoutPreview(null);
+          setCheckoutPreviewKey('');
           showNotice({
             tone: 'warning',
             title: 'Cần cập nhật lại phí giao hàng',
@@ -1629,25 +1657,25 @@ const CartScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <StorefrontHeader
-        menuIcon="arrow-left"
-        menuAccessibilityLabel="Trở về"
-        onMenuPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
-        onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-        onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
-        onCartPress={() => loadCart(true)}
-        onSearchSubmit={handleSearchSubmit}
-        onImageSearchPress={() => showNotice({
-          tone: 'info',
-          title: 'Tìm kiếm ảnh',
-          message: 'Tính năng này sẽ được bổ sung ở bước sau.',
-        })}
-        isAuthenticated={isAuthenticated}
-        userName={session?.user.name}
-        avatarImage={session?.user.avatarImage}
-        cartBadgeCount={cart?.summary.itemCount ?? notificationSummary?.cartItems ?? 0}
-        profileBadgeCount={notificationSummary?.total ?? 0}
-      />
+      <View style={styles.shortcutHeader}>
+        <TouchableOpacity
+          style={styles.shortcutHeaderAction}
+          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+          accessibilityLabel="Trở về"
+          activeOpacity={0.82}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+        </TouchableOpacity>
+        <Text style={styles.shortcutHeaderTitle}>Giỏ hàng</Text>
+        <TouchableOpacity
+          style={styles.shortcutHeaderAction}
+          onPress={() => loadCart(true)}
+          accessibilityLabel="Tải lại"
+          activeOpacity={0.82}
+        >
+          <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+        </TouchableOpacity>
+      </View>
 
       <ScrollView
         style={styles.content}
@@ -1665,6 +1693,7 @@ const CartScreen = () => {
           <StorefrontFooter />
         </View>
       </ScrollView>
+      <StorefrontBottomNav activeTab="cart" />
     </SafeAreaView>
   );
 };
@@ -1673,6 +1702,18 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.brand,
+  },
+  shortcutHeader: {
+    ...brandedHeaderStyles.container,
+  },
+  shortcutHeaderAction: {
+    ...brandedHeaderStyles.action,
+  },
+  shortcutHeaderTitle: {
+    ...brandedHeaderStyles.title,
+    flex: 1,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,

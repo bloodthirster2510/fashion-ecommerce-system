@@ -22,6 +22,7 @@ import { authApi, type AuthSession } from '../authApi';
 import { useGoogleAuth } from '../useGoogleAuth';
 import { useFacebookAuth } from '../useFacebookAuth';
 import { colors, sharedStyles } from '../../../theme';
+import ShopNameLogo from '../../../components/branding/ShopNameLogo';
 
 type AuthNavigationProp = StackNavigationProp<RootStackParamList>;
 
@@ -104,7 +105,9 @@ const LoginScreen = () => {
           <TouchableOpacity style={styles.headerBack} onPress={resetToHome}>
             <Text style={styles.headerBackIcon}>‹</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>FASHIONISTA</Text>
+          <View style={styles.headerTitle}>
+            <ShopNameLogo />
+          </View>
           <View style={styles.headerSpacer} />
         </View>
         <ScrollView
@@ -224,13 +227,15 @@ const styles = StyleSheet.create({
   flex: sharedStyles.flex,
   container: sharedStyles.authContainer,
   scrollContainer: sharedStyles.authScrollContent,
-  header: sharedStyles.authTopHeader,
+  header: {
+    ...sharedStyles.authTopHeader,
+    height: 72,
+  },
   headerBack: sharedStyles.authHeaderBack,
   headerBackIcon: sharedStyles.authHeaderBackIcon,
   headerTitle: {
-    ...sharedStyles.authHeaderTitle,
-    fontSize: 20,
-    lineHeight: 28,
+    flex: 1,
+    alignItems: 'center',
   },
   headerSpacer: sharedStyles.authHeaderSpacer,
   heading: {

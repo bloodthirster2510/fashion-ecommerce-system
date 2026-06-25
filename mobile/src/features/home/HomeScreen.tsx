@@ -5,6 +5,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import StorefrontHeader from '../../components/layout/StorefrontHeader';
+import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { colors, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -238,13 +239,11 @@ const HomeScreen = () => {
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
-        onCartPress={() => navigation.navigate('Cart')}
         onSearchSubmit={handleSearchSubmit}
         onImageSearchPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
-        cartBadgeCount={notificationSummary?.cartItems ?? 0}
         profileBadgeCount={notificationSummary?.total ?? 0}
       />
       <CategoryRail
@@ -312,6 +311,7 @@ const HomeScreen = () => {
         onSelectGender={handleGenderSelect}
         onSelectCategory={handleCategorySelect}
       />
+      <StorefrontBottomNav activeTab="home" />
     </SafeAreaView>
   );
 };

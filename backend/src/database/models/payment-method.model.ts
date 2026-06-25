@@ -9,6 +9,7 @@ export interface IPaymentMethod extends Document {
   provider: string;
   displayName: string;
   maskedInfo?: string | null;
+  accountNumberEncrypted?: string | null;
   bankCode?: string | null;
   bankName?: string | null;
   cardBrand?: string | null;
@@ -46,6 +47,7 @@ const paymentMethodSchema = new Schema<IPaymentMethod>(
       maxlength: 120,
     },
     maskedInfo: { type: String, trim: true, default: null, maxlength: 120 },
+    accountNumberEncrypted: { type: String, select: false, default: null },
     bankCode: { type: String, trim: true, uppercase: true, default: null, maxlength: 30 },
     bankName: { type: String, trim: true, default: null, maxlength: 120 },
     cardBrand: { type: String, trim: true, default: null, maxlength: 40 },

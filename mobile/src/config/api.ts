@@ -65,28 +65,16 @@ const isAbortError = (error: unknown) =>
   (error instanceof Error && /AbortError|aborted/i.test(error.message)) ||
   (typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError');
 
-const hasAuthorizationHeader = (headers: ApiFetchInit['headers']) => {
-  if (!headers) {
-    return false;
-  }
-
-  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
-    return headers.has('authorization');
-  }
-
-  if (Array.isArray(headers)) {
-    return headers.some(([key]) => key.toLowerCase() === 'authorization');
-  }
-
-  return Object.keys(headers).some((key) => key.toLowerCase() === 'authorization');
-};
-
 const fetchWithTimeout = async (url: string, init?: ApiFetchInit) => {
   const { timeoutMs = requestTimeoutMs, retryOnTimeout: _retryOnTimeout, ...fetchInit } = init ?? {};
   const controller = new AbortController();
   const callerSignal = fetchInit.signal;
   const abortFromCaller = () => controller.abort();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timedOutRef = { current: false };
+  const timeout = setTimeout(() => {
+    timedOutRef.current = true;
+    controller.abort();
+  }, timeoutMs);
 
   if (callerSignal?.aborted) {
     controller.abort();
@@ -99,6 +87,12 @@ const fetchWithTimeout = async (url: string, init?: ApiFetchInit) => {
       ...fetchInit,
       signal: controller.signal,
     });
+  } catch (error) {
+    const isCallerAbort = callerSignal?.aborted && !timedOutRef.current;
+    if (isCallerAbort) {
+      throw new DOMException('Aborted by caller', 'AbortError');
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
     callerSignal?.removeEventListener('abort', abortFromCaller);
@@ -118,13 +112,15 @@ const getOrderedApiBaseUrls = () => {
 
 export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const retryOnTimeout = init?.retryOnTimeout ?? true;
-  // Keep authenticated calls on the endpoint that successfully handled login.
-  // Using the first configured URL here breaks devices when login succeeds
-  // through a later LAN or Metro-derived candidate.
-  const baseUrls = hasAuthorizationHeader(init?.headers)
-    ? [preferredApiBaseUrl ?? API_BASE_URL]
-    : getOrderedApiBaseUrls();
+  const method = init?.method?.toUpperCase() ?? 'GET';
+  const retryOnTimeout = init?.retryOnTimeout ?? ['GET', 'HEAD', 'OPTIONS'].includes(method);
+  // Reads may fail over across known endpoints, including after session restore.
+  // Writes stay on one endpoint unless a caller explicitly opts into replay.
+  const baseUrls = retryOnTimeout
+    ? getOrderedApiBaseUrls()
+    : [preferredApiBaseUrl ?? API_BASE_URL];
+
+  const callerAborted = init?.signal?.aborted === true;
 
   for (const [index, baseUrl] of baseUrls.entries()) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
@@ -134,11 +130,17 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
       preferredApiBaseUrl = baseUrl;
       return response;
     } catch (error) {
+      const abortedByCaller = callerAborted || isAbortError(error);
+
       if (!isNetworkError(error)) {
         throw error;
       }
 
-      if (!retryOnTimeout && isAbortError(error)) {
+      if (!retryOnTimeout && abortedByCaller) {
+        throw error;
+      }
+
+      if (abortedByCaller) {
         throw error;
       }
 

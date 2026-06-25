@@ -9,9 +9,20 @@ import {
 } from './payments.service';
 import { paymentExpiryService } from './payment-expiry.service';
 import { transactionService } from './transaction.service';
+import { PAYMENT_STATUSES, TERMINAL_PAYMENT_STATUSES } from '../orders/order.constants';
+import { orderService } from '../orders/order.service';
 
 const getErrorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Internal Server Error';
+
+const getErrorStatusCode = (err: unknown) => (
+  typeof err === 'object' &&
+  err !== null &&
+  'statusCode' in err &&
+  typeof err.statusCode === 'number'
+    ? err.statusCode
+    : 500
+);
 
 const normalizeClientIp = (ip?: string) => {
   if (!ip || ip === '::1') {
@@ -37,16 +48,16 @@ const getClientIp = (req: Request) => {
 const canCreatePaymentForOrderStatus = (status: string) =>
   !['cancelled', 'returned'].includes(status);
 
-const ADMIN_PAYMENT_STATUSES: OrderPaymentStatus[] = ['pending', 'paid', 'failed', 'refunded'];
-const TERMINAL_PAYMENT_STATUSES: OrderPaymentStatus[] = ['paid', 'refunded'];
+const isWithinOrderPaymentDeadline = (deadline?: Date | string | null) =>
+  !deadline || new Date(deadline).getTime() > Date.now();
 
 const isTerminalPaymentStatus = (status: OrderPaymentStatus) =>
-  TERMINAL_PAYMENT_STATUSES.includes(status);
+  (TERMINAL_PAYMENT_STATUSES as readonly OrderPaymentStatus[]).includes(status);
 
 const parseAdminPaymentStatus = (value: unknown) => {
   const status = typeof value === 'string' ? value : '';
 
-  if (!ADMIN_PAYMENT_STATUSES.includes(status as OrderPaymentStatus)) {
+  if (!PAYMENT_STATUSES.includes(status as OrderPaymentStatus)) {
     return null;
   }
 
@@ -56,12 +67,6 @@ const parseAdminPaymentStatus = (value: unknown) => {
 const parseAdminReason = (value: unknown) => {
   const reason = typeof value === 'string' ? value.trim() : '';
   return reason.length >= 5 ? reason : null;
-};
-
-const toManualTransactionStatus = (paymentStatus: OrderPaymentStatus) => {
-  if (paymentStatus === 'paid' || paymentStatus === 'refunded') return 'success' as const;
-  if (paymentStatus === 'pending') return 'pending' as const;
-  return 'failed' as const;
 };
 
 type VNPayResponseResult = ReturnType<typeof verifyVNPayResponse>;
@@ -274,6 +279,10 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
       return error(res, 'Order cannot create a new payment URL', 400);
     }
 
+    if (!isWithinOrderPaymentDeadline(order.paymentDeadlineAt)) {
+      return error(res, 'Order payment deadline has expired', 409);
+    }
+
     const transaction = await transactionService.ensureVNPayAttemptForOrder({
       userId,
       orderId,
@@ -332,13 +341,15 @@ export const getOrderPaymentStatus = async (req: Request, res: Response) => {
       order.paymentMethod === 'VNPAY' &&
       order.paymentStatus !== 'paid' &&
       order.paymentStatus !== 'refunded' &&
-      canCreatePaymentForOrderStatus(order.status);
+      canCreatePaymentForOrderStatus(order.status) &&
+      isWithinOrderPaymentDeadline(order.paymentDeadlineAt);
 
     return ok(res, {
       orderId: order._id.toString(),
       orderCode: order.orderCode,
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,
+      paymentDeadlineAt: order.paymentDeadlineAt ?? null,
       canPayNow,
       latestTransaction: latestTransaction
         ? {
@@ -363,7 +374,7 @@ export const expireStalePaymentAttempts = async (_req: Request, res: Response) =
 
     return ok(res, {
       ...result,
-      policy: 'Payment attempts expire after the configured grace window. Expired latest attempts cancel confirmed unpaid online orders and restock inventory. Older expired attempts only mark the transaction expired.',
+      policy: 'Payment attempts expire after the configured grace window without cancelling the order. Unpaid online orders are cancelled only when their order payment deadline is exceeded.',
     }, 'Expired stale payment attempts');
   } catch (err: unknown) {
     return serverError(res, getErrorMessage(err));
@@ -388,30 +399,18 @@ export const adjustOrderPaymentStatus = async (req: Request, res: Response) => {
       return error(res, 'Reason is required and must be at least 5 characters', 400);
     }
 
-    const order = await Order.findById(orderId);
-    if (!order) {
-      return error(res, 'Order not found', 404);
-    }
-
+    const beforeOrder = await orderService.getOrderById(req.user!.userId, req.user?.role, orderId);
     const before = {
-      paymentStatus: order.paymentStatus,
-      status: order.status,
+      paymentStatus: beforeOrder.paymentStatus,
+      status: beforeOrder.status,
     };
 
-    if (order.paymentStatus === paymentStatus) {
-      return ok(res, order, 'Payment status already set');
+    if (beforeOrder.paymentStatus === paymentStatus) {
+      return ok(res, beforeOrder, 'Payment status already set');
     }
 
-    order.paymentStatus = paymentStatus;
-    const updatedOrder = await order.save();
-
-    await transactionService.createManualAdjustmentTransaction({
-      userId: order.user_id.toString(),
-      orderId: order._id.toString(),
-      amount: order.totalAmount,
-      paymentMethod: order.paymentMethod,
-      paymentMethodId: order.paymentMethodId?.toString() ?? null,
-      status: toManualTransactionStatus(paymentStatus),
+    const updatedOrder = await orderService.adjustOrderPaymentStatus(orderId, {
+      paymentStatus,
       reason,
       actorId: req.user!.userId,
     });
@@ -421,7 +420,7 @@ export const adjustOrderPaymentStatus = async (req: Request, res: Response) => {
       actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
       action: 'payment.adjust',
       targetType: 'Order',
-      targetId: order._id.toString(),
+      targetId: updatedOrder._id.toString(),
       reason,
       before,
       after: {
@@ -436,7 +435,10 @@ export const adjustOrderPaymentStatus = async (req: Request, res: Response) => {
 
     return ok(res, updatedOrder, 'Adjusted order payment status');
   } catch (err: unknown) {
-    return serverError(res, getErrorMessage(err));
+    const statusCode = getErrorStatusCode(err);
+    return statusCode === 500
+      ? serverError(res, getErrorMessage(err))
+      : error(res, getErrorMessage(err), statusCode);
   }
 };
 

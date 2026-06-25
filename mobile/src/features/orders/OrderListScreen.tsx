@@ -2,22 +2,21 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   orderApi,
@@ -30,25 +29,20 @@ import {
   type OrderStatusSummary,
 } from './orderApi';
 import {
-  canConfirmReceived,
-  formatCurrency,
-  formatDate,
-  getExtraItemText,
-  getOrderDisplayState,
   getOrderMatchesTab,
-  getOrderItemCount,
   getOrderTab,
   getOrderTabCount,
-  getPrimaryItem,
   orderNeedsPaymentAction,
-  orderNeedsUserAction,
   orderTabs,
+  onlinePaymentMethods,
   type OrderTabKey,
 } from './orderPresentation';
+import { useOrderRealtime } from './orderRealtime';
+import { OrderCard } from './components/OrderCard';
+import { OrderFilterPanel, type PaymentFilter } from './components/OrderFilterPanel';
 
 type OrderListNavigationProp = StackNavigationProp<RootStackParamList, 'Orders'>;
 type OrderListRouteProp = RouteProp<RootStackParamList, 'Orders'>;
-type PaymentFilter = 'all' | 'needs-payment' | 'cash' | 'transfer';
 
 const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   { key: 'all', label: 'Tất cả' },
@@ -57,9 +51,8 @@ const paymentFilters: Array<{ key: PaymentFilter; label: string }> = [
 ];
 
 const ORDER_PAGE_LIMIT = 20;
-const onlinePaymentMethods: OrderPaymentMethod[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
 const retryablePaymentStatuses: OrderPaymentStatus[] = ['pending', 'failed'];
-const closedPaymentActionStatuses = new Set<OrderStatus>(['cancelled', 'returned']);
+const closedPaymentActionStatuses = new Set<OrderStatus>(['completed', 'cancelled', 'returned']);
 const transferPaymentMethods = new Set<OrderPaymentMethod>(onlinePaymentMethods);
 const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   paymentFilters[0],
@@ -71,7 +64,7 @@ const getStatusesQuery = (status: OrderTabKey, filter: PaymentFilter) => {
   const tabStatuses = getOrderTab(status).statuses;
 
   if (filter !== 'needs-payment') {
-    return status === 'all' ? undefined : tabStatuses;
+    return tabStatuses;
   }
 
   return tabStatuses.filter((orderStatus) => !closedPaymentActionStatuses.has(orderStatus));
@@ -116,8 +109,6 @@ const isUnauthorizedError = (error: unknown) =>
   'status' in error &&
   (error as { status?: number }).status === 401;
 
-const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i.test(value.trim());
-
 const getErrorMessage = (error: unknown) => {
   if (error instanceof OrderApiError || error instanceof Error) {
     return error.message;
@@ -129,6 +120,7 @@ const getErrorMessage = (error: unknown) => {
 const OrderListScreen = () => {
   const navigation = useNavigation<OrderListNavigationProp>();
   const route = useRoute<OrderListRouteProp>();
+  const isFocused = useIsFocused();
   const { logout, runWithAuth, session } = useAuth();
   const initialStatus = getOrderTab(route.params?.status ?? 'active').key;
 
@@ -154,7 +146,7 @@ const OrderListScreen = () => {
   }, [searchText]);
 
   const loadOrders = React.useCallback(
-    async (status: OrderTabKey, mode: 'loading' | 'refresh' | 'more' = 'loading', page = 1) => {
+    async (status: OrderTabKey, mode: 'loading' | 'refresh' | 'more' | 'silent' = 'loading', page = 1) => {
       if (!session?.accessToken) {
         setOrders([]);
         setStatusSummary(null);
@@ -167,10 +159,10 @@ const OrderListScreen = () => {
         setIsLoading(true);
       } else if (mode === 'refresh') {
         setIsRefreshing(true);
-      } else {
+      } else if (mode === 'more') {
         setIsLoadingMore(true);
       }
-      if (mode !== 'more') {
+      if (mode !== 'more' && mode !== 'silent') {
         setErrorMessage('');
       }
 
@@ -197,6 +189,10 @@ const OrderListScreen = () => {
         setStatusSummary(response.statusSummary ?? null);
         setPagination(response.pagination ?? null);
       } catch (error) {
+        if (mode === 'silent') {
+          return;
+        }
+
         if (isUnauthorizedError(error)) {
           logout();
           navigation.reset({
@@ -212,19 +208,34 @@ const OrderListScreen = () => {
           setErrorMessage(getErrorMessage(error));
         }
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-        setIsLoadingMore(false);
+        if (mode === 'loading') setIsLoading(false);
+        if (mode === 'refresh') setIsRefreshing(false);
+        if (mode === 'more') setIsLoadingMore(false);
       }
     },
     [debouncedSearchText, logout, navigation, paymentFilter, runWithAuth, session?.accessToken],
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useStaleFocusEffect(
+    () => {
       void loadOrders(activeStatus);
-    }, [activeStatus, loadOrders]),
+    },
+    [activeStatus, loadOrders],
+    { runOnDepsChange: true, staleMs: 30 * 1000 },
   );
+
+  const orderRealtime = useOrderRealtime(session?.accessToken, () => {
+    void loadOrders(activeStatus, 'silent');
+  });
+
+  React.useEffect(() => {
+    if (!isFocused || !session?.accessToken) return;
+    const handle = setInterval(() => {
+      void loadOrders(activeStatus, 'silent');
+    }, orderRealtime.connected ? 30_000 : 12_000);
+
+    return () => clearInterval(handle);
+  }, [activeStatus, isFocused, loadOrders, orderRealtime.connected, session?.accessToken]);
 
   const handleRefresh = () => {
     void loadOrders(activeStatus, 'refresh');
@@ -273,7 +284,7 @@ const OrderListScreen = () => {
   const hasActiveFilters = Boolean(debouncedSearchText) || paymentFilter !== 'all';
   const selectedTab = getOrderTab(activeStatus);
   const hasVisiblePaymentAction = orders.some(orderNeedsPaymentAction);
-  const hasShippingAction = (statusSummary?.shipping ?? 0) > 0;
+  const hasShippingAction = (statusSummary?.delivered ?? 0) > 0;
 
   const shouldShowPaymentFilterDot = (filter: PaymentFilter) =>
     filter === 'needs-payment' && (hasVisiblePaymentAction || paymentFilter === 'needs-payment');
@@ -285,103 +296,6 @@ const OrderListScreen = () => {
     setSearchText('');
     setDebouncedSearchText('');
     setPaymentFilter('all');
-  };
-
-  const renderOrderCard = (order: CustomerOrder) => {
-    const primaryItem = getPrimaryItem(order);
-    const extraItemText = getExtraItemText(order);
-    const displayState = getOrderDisplayState(order);
-    const imageUri = primaryItem?.image?.trim();
-    const canConfirmDelivery = canConfirmReceived(order);
-    const requiresPayment = orderNeedsPaymentAction(order);
-    const requiresUserAction = orderNeedsUserAction(order);
-
-    return (
-      <TouchableOpacity
-        key={order._id}
-        style={[
-          styles.orderCard,
-          requiresUserAction && styles.orderCardAttention,
-          requiresPayment && styles.orderCardNeedsPayment,
-        ]}
-        activeOpacity={0.84}
-        onPress={() => navigation.navigate('OrderDetail', { orderId: order._id })}
-      >
-        <View style={styles.orderHeader}>
-          <View style={styles.orderTitleGroup}>
-            <Text style={styles.orderCode}>{order.orderCode}</Text>
-            <Text style={styles.orderDate}>Đặt ngày {formatDate(order.createdAt)}</Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: displayState.backgroundColor }]}>
-            {requiresUserAction ? <View style={[styles.statusBadgeDot, { backgroundColor: displayState.color }]} /> : null}
-            <Text style={[styles.statusBadgeText, { color: displayState.color }]}>{displayState.label}</Text>
-          </View>
-        </View>
-
-        <View style={styles.productRow}>
-          {isPreviewableImage(imageUri) ? (
-            <Image source={{ uri: imageUri }} style={styles.productImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.productImagePlaceholder}>
-              <MaterialCommunityIcons name="tshirt-crew-outline" size={26} color={colors.textSubtle} />
-            </View>
-          )}
-
-          <View style={styles.productInfo}>
-            <Text style={styles.productName} numberOfLines={2}>
-              {primaryItem?.name ?? 'Sản phẩm Fashionista'}
-            </Text>
-            <Text style={styles.productMeta} numberOfLines={1}>
-              {primaryItem ? `${primaryItem.color} • ${primaryItem.size} • SL: ${primaryItem.quantity}` : 'Đang cập nhật'}
-            </Text>
-            {extraItemText ? <Text style={styles.extraItemText}>{extraItemText}</Text> : null}
-          </View>
-
-          <View style={styles.priceGroup}>
-            <Text style={styles.totalLabel}>{getOrderItemCount(order)} món</Text>
-            <Text style={styles.totalAmount}>{formatCurrency(order.totalAmount)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.deliveryRow}>
-          <MaterialCommunityIcons
-            name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-            size={18}
-            color={displayState.color}
-          />
-          <Text style={[styles.deliveryText, { color: displayState.color }]}>
-            {displayState.description}
-          </Text>
-        </View>
-
-        <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={styles.secondaryAction}
-            onPress={() => navigation.navigate('OrderDetail', { orderId: order._id })}
-            activeOpacity={0.82}
-          >
-            <MaterialCommunityIcons name="receipt-text-outline" size={18} color={colors.brand} />
-            <Text style={styles.secondaryActionText}>Chi tiết</Text>
-          </TouchableOpacity>
-
-          {canConfirmDelivery ? (
-            <TouchableOpacity
-              style={styles.primaryAction}
-              onPress={() => handleConfirmReceived(order)}
-              activeOpacity={0.82}
-              disabled={isConfirmingId === order._id}
-            >
-              {isConfirmingId === order._id ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <MaterialCommunityIcons name="package-check" size={18} color={colors.white} />
-              )}
-              <Text style={styles.primaryActionText}>Đã nhận hàng</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </TouchableOpacity>
-    );
   };
 
   return (
@@ -396,66 +310,34 @@ const OrderListScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
           <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
         </View>
         <TouchableOpacity
-          style={styles.headerAction}
+          style={[styles.headerAction, (isRefreshing || isLoading) && styles.headerActionDisabled]}
           onPress={handleRefresh}
           activeOpacity={0.8}
           accessibilityLabel="Tải lại"
+          disabled={isRefreshing || isLoading}
         >
-          <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+          {isRefreshing || isLoading ? (
+            <ActivityIndicator size="small" color={colors.white} />
+          ) : (
+            <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+          )}
         </TouchableOpacity>
       </View>
 
       <View style={styles.content}>
-        <View style={styles.filterPanel}>
-          <View style={styles.searchBox}>
-            <MaterialCommunityIcons name="magnify" size={21} color={colors.textMuted} />
-            <TextInput
-              style={styles.searchInput}
-              value={searchText}
-              onChangeText={setSearchText}
-              placeholder="Tìm mã đơn, hóa đơn, sản phẩm"
-              placeholderTextColor={colors.textSubtle}
-              returnKeyType="search"
-            />
-            {searchText ? (
-              <TouchableOpacity onPress={() => setSearchText('')} style={styles.searchClearButton} activeOpacity={0.8}>
-                <MaterialCommunityIcons name="close-circle" size={19} color={colors.textSubtle} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.paymentFilters}>
-            {displayedPaymentFilters.map((item) => {
-              const isActive = paymentFilter === item.key;
-              const showDot = shouldShowPaymentFilterDot(item.key);
-
-              return (
-                <TouchableOpacity
-                  key={item.key}
-                  style={[styles.paymentFilterButton, isActive && styles.paymentFilterButtonActive]}
-                  onPress={() => setPaymentFilter(item.key)}
-                  activeOpacity={0.84}
-                >
-                  {showDot ? <View style={styles.filterActionDot} /> : null}
-                  <Text style={[styles.paymentFilterText, isActive && styles.paymentFilterTextActive]}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-
-            {hasActiveFilters ? (
-              <TouchableOpacity style={styles.resetFilterButton} onPress={clearFilters} activeOpacity={0.84}>
-                <MaterialCommunityIcons name="filter-remove-outline" size={17} color={colors.danger} />
-                <Text style={styles.resetFilterText}>Xóa lọc</Text>
-              </TouchableOpacity>
-            ) : null}
-          </ScrollView>
-        </View>
+        <OrderFilterPanel
+          hasActiveFilters={hasActiveFilters}
+          paymentFilter={paymentFilter}
+          paymentFilters={displayedPaymentFilters}
+          searchText={searchText}
+          onClearFilters={clearFilters}
+          onPaymentFilterChange={setPaymentFilter}
+          onSearchTextChange={setSearchText}
+          shouldShowPaymentFilterDot={shouldShowPaymentFilterDot}
+        />
 
         <View style={styles.tabsPanel}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsContent}>
@@ -532,7 +414,15 @@ const OrderListScreen = () => {
             </View>
           ) : (
             <>
-              {orders.map(renderOrderCard)}
+              {orders.map((order) => (
+                <OrderCard
+                  key={order._id}
+                  isConfirming={isConfirmingId === order._id}
+                  order={order}
+                  onConfirmReceived={handleConfirmReceived}
+                  onOpen={(nextOrder) => navigation.navigate('OrderDetail', { orderId: nextOrder._id })}
+                />
+              ))}
               {hasMoreOrders ? (
                 <TouchableOpacity
                   style={[styles.primaryButton, styles.loadMoreButton]}
@@ -576,26 +466,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   header: {
-    minHeight: 84,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...brandedHeaderStyles.container,
   },
   headerAction: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    ...brandedHeaderStyles.action,
+  },
+  headerActionDisabled: {
+    opacity: 0.7,
   },
   headerTitleGroup: {
-    flex: 1,
-    paddingHorizontal: 12,
+    ...brandedHeaderStyles.titleGroup,
+    alignItems: 'center',
   },
   brand: {
     color: colors.brandMist,
@@ -603,11 +484,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 25,
-    lineHeight: 32,
-    fontWeight: '800',
-    marginTop: 2,
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -829,6 +708,22 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
+  },
+  paymentDeadlineChip: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  paymentDeadlineChipText: {
+    color: colors.goldText,
+    fontSize: 11,
+    fontWeight: '900',
   },
   attentionBadge: {
     alignSelf: 'flex-start',

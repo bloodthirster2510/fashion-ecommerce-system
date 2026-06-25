@@ -1,7 +1,8 @@
 import React from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, shadows, spacing } from '../../theme';
+import { RemoteImage } from '../../components/media/RemoteImage';
 import type { CatalogProduct } from './catalogApi';
 
 type ProductCardProps = {
@@ -29,7 +30,7 @@ const ProductCard = ({ product, onPress, onCartPress }: ProductCardProps) => {
     >
       <View style={styles.imageWrap}>
         {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+          <RemoteImage uri={imageUri} style={styles.image} recyclingKey={product._id} />
         ) : (
           <View style={styles.placeholder}>
             <MaterialCommunityIcons name="tshirt-crew-outline" size={36} color={colors.brand} />

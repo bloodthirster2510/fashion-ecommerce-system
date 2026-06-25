@@ -4,9 +4,12 @@ export type AuditLogAction =
   | 'order.status_update'
   | 'order.shipping_update'
   | 'order.shipping_webhook'
+  | 'order.shipping_reconcile'
+  | 'order.auto_complete_delivered'
   | 'payment.adjust'
   | 'payment.expire'
   | 'payment_method.status_update'
+  | 'payment_method.account_reveal'
   | 'membership_ranking.create'
   | 'membership_ranking.update'
   | 'membership_ranking.status_update'
@@ -14,7 +17,10 @@ export type AuditLogAction =
   | 'support_ticket.update'
   | 'support_ticket.reply'
   | 'support_ticket.status_update'
-  | 'support_ticket.auto_close';
+  | 'support_ticket.auto_close'
+  | 'review.moderation'
+  | 'review.reply'
+  | 'review.reply_delete';
 
 export interface IAuditLog extends Document {
   actorId?: Types.ObjectId | null;
@@ -44,9 +50,12 @@ const auditLogSchema = new Schema<IAuditLog>(
         'order.status_update',
         'order.shipping_update',
         'order.shipping_webhook',
+        'order.shipping_reconcile',
+        'order.auto_complete_delivered',
         'payment.adjust',
         'payment.expire',
         'payment_method.status_update',
+        'payment_method.account_reveal',
         'membership_ranking.create',
         'membership_ranking.update',
         'membership_ranking.status_update',
@@ -55,6 +64,9 @@ const auditLogSchema = new Schema<IAuditLog>(
         'support_ticket.reply',
         'support_ticket.status_update',
         'support_ticket.auto_close',
+        'review.moderation',
+        'review.reply',
+        'review.reply_delete',
       ],
       required: true,
     },

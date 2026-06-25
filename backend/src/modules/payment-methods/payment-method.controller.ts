@@ -133,11 +133,41 @@ export const adminUpdatePaymentMethodStatus = async (req: Request, res: Response
       before: result.before,
       after: result.after,
       metadata: {
-        userId: result.method.user_id.toString(),
+        userId: result.userId,
       },
     });
 
     return ok(res, result.method);
+  } catch (error: unknown) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export const adminRevealPaymentMethodAccountNumber = async (req: Request, res: Response) => {
+  try {
+    const result = await paymentMethodService.revealPaymentMethodAccountNumberForAdmin(req.params.id as string);
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'payment_method.account_reveal',
+      targetType: 'PaymentMethod',
+      targetId: req.params.id as string,
+      reason: 'Reveal bank account number for refund transfer',
+      before: null,
+      after: null,
+      metadata: {
+        userId: result.method.user_id.toString(),
+        methodType: result.method.type,
+        bankCode: result.method.bankCode ?? null,
+      },
+    });
+
+    return ok(res, {
+      paymentMethodId: result.method._id.toString(),
+      accountNumber: result.accountNumber,
+    });
   } catch (error: unknown) {
     const { statusCode, message } = getErrorResponse(error);
     return errorResponse(res, message, statusCode);

@@ -17,7 +17,9 @@ export const STAFF_PERMISSION_VALUES: StaffPermission[] = [
   'loyalty.write',
   'customers.read',
   'customers.manage',
+  'reviews.read',
   'reviews.moderate',
+  'reviews.reply',
   'support.reply',
   'support.manage',
   'reports.read',
@@ -28,5 +30,8 @@ export const STAFF_PERMISSION_SET = new Set<string>(STAFF_PERMISSION_VALUES);
 export const expandImpliedStaffPermissions = (permissions: StaffPermission[]) => {
   const expanded = new Set(permissions);
   if (expanded.has('support.manage')) expanded.add('support.reply');
+  if (expanded.has('reviews.moderate') || expanded.has('reviews.reply')) {
+    expanded.add('reviews.read');
+  }
   return Array.from(expanded);
 };

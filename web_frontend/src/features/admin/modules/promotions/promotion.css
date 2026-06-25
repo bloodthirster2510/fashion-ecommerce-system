@@ -13,8 +13,46 @@
   background: #fff9e7;
 }
 
+.admin-promotion-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+  justify-content: initial;
+}
+
+.admin-promotion-filters .admin-user-search {
+  min-width: 0;
+}
+
+.admin-promotion-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-promotion-filter-actions button {
+  white-space: nowrap;
+}
+
 .admin-promotions-table {
   min-width: 1060px;
+}
+
+@media (max-width: 720px) {
+  .admin-promotion-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-promotion-filter-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-promotion-filter-actions .admin-link-button {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
 }
 
 .admin-promotion-code-cell {

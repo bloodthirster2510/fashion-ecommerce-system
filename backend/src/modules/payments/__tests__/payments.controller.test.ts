@@ -29,6 +29,13 @@ jest.mock('../payment-expiry.service', () => ({
   },
 }));
 
+jest.mock('../../orders/order.service', () => ({
+  orderService: {
+    getOrderById: jest.fn(),
+    adjustOrderPaymentStatus: jest.fn(),
+  },
+}));
+
 jest.mock('../../audit-logs/audit-log.service', () => ({
   auditLogService: {
     recordAuditLogBestEffort: jest.fn(),

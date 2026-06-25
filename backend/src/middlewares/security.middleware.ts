@@ -1,5 +1,7 @@
 import type { CorsOptions } from 'cors';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import crypto from 'crypto';
+import { RateLimitBucket as PersistentRateLimitBucket } from '../database/models/rate-limit-bucket.model';
 
 type Env = NodeJS.ProcessEnv | Record<string, string | undefined>;
 
@@ -22,6 +24,12 @@ const DEFAULT_API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_API_RATE_LIMIT_MAX = 600;
 const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const DEFAULT_COUPON_VALIDATE_RATE_LIMIT_MAX = 30;
+const DEFAULT_REVIEW_CREATE_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_REVIEW_CREATE_RATE_LIMIT_MAX = 5;
+const DEFAULT_REVIEW_MUTATION_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_REVIEW_MUTATION_RATE_LIMIT_MAX = 20;
+const DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_MAX = 60;
 
 const parseCsv = (value?: string) =>
   (value ?? '')
@@ -95,6 +103,7 @@ export const createCorsOptions = (env: Env = process.env): CorsOptions => ({
   allowedHeaders: [
     'Authorization',
     'Content-Type',
+    'Idempotency-Key',
     'X-Refresh-Token-Mode',
     'X-GHN-Webhook-Secret',
     'X-Shipping-Webhook-Secret',
@@ -136,12 +145,27 @@ type RateLimitOptions = {
 };
 
 const getClientIp = (req: Request) => {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
-    return forwardedFor.split(',')[0].trim();
-  }
-
+  // req.ip honors X-Forwarded-For only through Express's configured trust proxy policy.
   return req.ip || req.socket.remoteAddress || 'unknown';
+};
+
+const completeRateLimit = (
+  res: Response,
+  next: NextFunction,
+  bucket: RateLimitBucket,
+  max: number,
+  currentTime: number,
+) => {
+  res.setHeader('RateLimit-Limit', String(max));
+  res.setHeader('RateLimit-Remaining', String(Math.max(max - bucket.count, 0)));
+  res.setHeader('RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
+
+  if (bucket.count > max) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((bucket.resetAt - currentTime) / 1000))));
+    res.status(429).json({ message: 'Too many requests. Please try again later.' });
+    return;
+  }
+  next();
 };
 
 export const createRateLimitMiddleware = ({
@@ -171,38 +195,86 @@ export const createRateLimitMiddleware = ({
       }
     }
 
-    const remaining = Math.max(max - bucket.count, 0);
-    res.setHeader('RateLimit-Limit', String(max));
-    res.setHeader('RateLimit-Remaining', String(remaining));
-    res.setHeader('RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
-
-    if (bucket.count > max) {
-      res.setHeader('Retry-After', String(Math.ceil((bucket.resetAt - currentTime) / 1000)));
-      res.status(429).json({ message: 'Too many requests. Please try again later.' });
-      return;
-    }
-
-    next();
+    completeRateLimit(res, next, bucket, max, currentTime);
   };
 };
 
+const createPersistentRateLimitMiddleware = ({
+  windowMs,
+  max,
+  keyPrefix = 'rate-limit',
+  keyGenerator,
+}: RateLimitOptions): RequestHandler => async (req, res, next) => {
+  const currentTime = Date.now();
+  const rawKey = keyGenerator?.(req) ?? `${req.method}:${req.originalUrl}:${getClientIp(req)}`;
+  const key = `${keyPrefix}:${crypto.createHash('sha256').update(rawKey).digest('hex')}`;
+  const now = new Date(currentTime);
+  const nextResetAt = new Date(currentTime + windowMs);
+
+  try {
+    const updateBucket = () => PersistentRateLimitBucket.findOneAndUpdate(
+        { key },
+        [{
+          $set: {
+            count: {
+              $cond: [
+                { $gt: ['$resetAt', now] },
+                { $add: [{ $ifNull: ['$count', 0] }, 1] },
+                1,
+              ],
+            },
+            resetAt: { $cond: [{ $gt: ['$resetAt', now] }, '$resetAt', nextResetAt] },
+          },
+        }],
+        { upsert: true, new: true },
+      ).lean<{ count: number; resetAt: Date }>();
+
+    let bucket;
+    try {
+      bucket = await updateBucket();
+    } catch (error) {
+      const duplicateInsert = typeof error === 'object' && error !== null && 'code' in error
+        && (error as { code?: number }).code === 11000;
+      if (!duplicateInsert) throw error;
+      bucket = await updateBucket();
+    }
+
+    if (!bucket) throw new Error('Rate limit bucket was not persisted');
+    completeRateLimit(res, next, {
+      count: bucket.count,
+      resetAt: new Date(bucket.resetAt).getTime(),
+    }, max, currentTime);
+  } catch (error) {
+    console.error('Persistent rate limiter failed:', error instanceof Error ? error.message : String(error));
+    res.status(503).json({ message: 'Service temporarily unavailable' });
+  }
+};
+
+const configuredRateLimiter = (options: RateLimitOptions, env: Env) => {
+  const usePersistentStore = env.RATE_LIMIT_STORE === 'mongo'
+    || (env.NODE_ENV === 'production' && env.RATE_LIMIT_STORE !== 'memory');
+  return usePersistentStore
+    ? createPersistentRateLimitMiddleware(options)
+    : createRateLimitMiddleware(options);
+};
+
 export const createAuthRateLimitMiddleware = (env: Env = process.env) =>
-  createRateLimitMiddleware({
+  configuredRateLimiter({
     windowMs: parsePositiveInteger(env.AUTH_RATE_LIMIT_WINDOW_MS, DEFAULT_AUTH_RATE_LIMIT_WINDOW_MS),
     max: parsePositiveInteger(env.AUTH_RATE_LIMIT_MAX, DEFAULT_AUTH_RATE_LIMIT_MAX),
     keyPrefix: 'auth',
-  });
+  }, env);
 
 export const createApiRateLimitMiddleware = (env: Env = process.env) =>
-  createRateLimitMiddleware({
+  configuredRateLimiter({
     windowMs: parsePositiveInteger(env.API_RATE_LIMIT_WINDOW_MS, DEFAULT_API_RATE_LIMIT_WINDOW_MS),
     max: parsePositiveInteger(env.API_RATE_LIMIT_MAX, DEFAULT_API_RATE_LIMIT_MAX),
     keyPrefix: 'api',
     keyGenerator: (req) => `api:${getClientIp(req)}`,
-  });
+  }, env);
 
 export const createCouponValidateRateLimitMiddleware = (env: Env = process.env) =>
-  createRateLimitMiddleware({
+  configuredRateLimiter({
     windowMs: parsePositiveInteger(
       env.COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS,
       DEFAULT_COUPON_VALIDATE_RATE_LIMIT_WINDOW_MS,
@@ -213,4 +285,42 @@ export const createCouponValidateRateLimitMiddleware = (env: Env = process.env) 
       const clientKey = req.user?.userId ?? getClientIp(req);
       return `coupon-validate:${clientKey}`;
     },
-  });
+  }, env);
+
+const getAuthenticatedClientKey = (req: Request) => req.user?.userId ?? getClientIp(req);
+
+export const createReviewCreateRateLimitMiddleware = (env: Env = process.env) =>
+  configuredRateLimiter({
+    windowMs: parsePositiveInteger(
+      env.REVIEW_CREATE_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_REVIEW_CREATE_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(env.REVIEW_CREATE_RATE_LIMIT_MAX, DEFAULT_REVIEW_CREATE_RATE_LIMIT_MAX),
+    keyPrefix: 'review-create',
+    keyGenerator: (req) => `review-create:${getAuthenticatedClientKey(req)}`,
+  }, env);
+
+export const createReviewMutationRateLimitMiddleware = (env: Env = process.env) =>
+  configuredRateLimiter({
+    windowMs: parsePositiveInteger(
+      env.REVIEW_MUTATION_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_REVIEW_MUTATION_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(
+      env.REVIEW_MUTATION_RATE_LIMIT_MAX,
+      DEFAULT_REVIEW_MUTATION_RATE_LIMIT_MAX,
+    ),
+    keyPrefix: 'review-mutation',
+    keyGenerator: (req) => `review-mutation:${getAuthenticatedClientKey(req)}`,
+  }, env);
+
+export const createReviewHelpfulRateLimitMiddleware = (env: Env = process.env) =>
+  configuredRateLimiter({
+    windowMs: parsePositiveInteger(
+      env.REVIEW_HELPFUL_RATE_LIMIT_WINDOW_MS,
+      DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_WINDOW_MS,
+    ),
+    max: parsePositiveInteger(env.REVIEW_HELPFUL_RATE_LIMIT_MAX, DEFAULT_REVIEW_HELPFUL_RATE_LIMIT_MAX),
+    keyPrefix: 'review-helpful',
+    keyGenerator: (req) => `review-helpful:${getAuthenticatedClientKey(req)}`,
+  }, env);

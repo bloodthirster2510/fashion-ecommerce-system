@@ -76,6 +76,8 @@ const App = () => {
     let unsubscribe: (() => void) | undefined;
     subscribeToSupportNotifications((ticketId) => {
       if (navigationRef.isReady()) navigationRef.navigate('SupportTicketDetail', { ticketId });
+    }, (orderId) => {
+      if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { orderId });
     }).then((cleanup) => { unsubscribe = cleanup; }).catch(() => undefined);
     return () => unsubscribe?.();
   }, []);

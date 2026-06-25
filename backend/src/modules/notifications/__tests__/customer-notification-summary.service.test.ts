@@ -37,7 +37,9 @@ describe('customer notification summary service', () => {
     });
     expect(mockedOrder.countDocuments).toHaveBeenCalledWith(expect.objectContaining({
       user_id: expect.anything(),
-      $or: expect.any(Array),
+      $or: expect.arrayContaining([
+        expect.objectContaining({ status: 'delivered' }),
+      ]),
     }));
   });
 

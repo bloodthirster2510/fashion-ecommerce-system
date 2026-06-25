@@ -16,6 +16,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
+import ShopNameLogo from '../../components/branding/ShopNameLogo';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
@@ -30,6 +31,7 @@ import {
   ProductDetailVariant,
 } from './catalogApi';
 import ProductCard from './ProductCard';
+import ProductReviewsSection from '../reviews/ProductReviewsSection';
 
 type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
@@ -334,10 +336,13 @@ const ProductDetailScreen = () => {
 
   React.useEffect(() => loadProduct(), [loadProduct]);
 
+  const isAuthenticatedRef = React.useRef(isAuthenticated);
+  isAuthenticatedRef.current = isAuthenticated;
+
   React.useEffect(() => {
     let isCurrentRequest = true;
 
-    if (!isAuthenticated || !session?.accessToken) {
+    if (!isAuthenticatedRef.current) {
       setIsFavorited(false);
       setIsFavoriteLoading(false);
       return () => {
@@ -366,7 +371,7 @@ const ProductDetailScreen = () => {
     return () => {
       isCurrentRequest = false;
     };
-  }, [isAuthenticated, productId, runWithAuth, session?.accessToken]);
+  }, [productId, runWithAuth]);
 
   const selectedVariant = product?.variants.find((variant) => variant._id === selectedVariantId);
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);
@@ -564,7 +569,9 @@ const ProductDetailScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
         </TouchableOpacity>
 
-        <Text style={styles.headerBrand}>FASHIONISTA</Text>
+        <View style={styles.headerBrand}>
+          <ShopNameLogo />
+        </View>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
@@ -924,45 +931,7 @@ const ProductDetailScreen = () => {
         </View>
 
         <View style={styles.reviewSection}>
-          <Text style={styles.sectionTitle}>Đánh giá của khách hàng</Text>
-
-          <View style={styles.ratingPanel}>
-            <View style={styles.ratingScoreBlock}>
-              <Text style={styles.ratingScore}>{product.averageRating.toFixed(1)}</Text>
-              {renderStars(product.averageRating, 16)}
-              <Text style={styles.ratingCount}>{product.reviewCount} đánh giá</Text>
-            </View>
-
-            <View style={styles.ratingBars}>
-              {ratingDistribution.map((item) => (
-                <View key={item.rating} style={styles.ratingBarRow}>
-                  <Text style={styles.ratingBarLabel}>{item.rating}</Text>
-                  <MaterialCommunityIcons name="star" size={12} color={colors.goldDark} />
-                  <View style={styles.ratingTrack}>
-                    <View style={[styles.ratingFill, { width: `${Math.min(100, Math.max(0, item.percent))}%` }]} />
-                  </View>
-                  <Text style={styles.ratingBarCount}>{item.count}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.experiencePanel}>
-            {['Chất lượng', 'Đúng mô tả', 'Màu sắc'].map((label) => (
-              <View key={label} style={styles.experienceRow}>
-                <Text style={styles.experienceLabel}>{label}</Text>
-                {renderStars(product.averageRating, 13)}
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.reviewPlaceholder}>
-            <MaterialCommunityIcons name="comment-text-outline" size={24} color={colors.brand} />
-            <Text style={styles.reviewPlaceholderTitle}>Review chi tiết đang chờ module đánh giá</Text>
-            <Text style={styles.reviewPlaceholderText}>
-              Khi backend review sẵn sàng, khu này sẽ hiển thị ảnh thật, nội dung đánh giá và phản hồi của shop.
-            </Text>
-          </View>
+          <ProductReviewsSection productId={product._id} />
         </View>
 
         <View style={styles.recommendationSection}>
@@ -1028,11 +997,11 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand,
     paddingHorizontal: spacing.md,
-    paddingTop: 6,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
   },
   headerTop: {
-    minHeight: 34,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1045,11 +1014,7 @@ const styles = StyleSheet.create({
   },
   headerBrand: {
     flex: 1,
-    color: colors.white,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '800',
-    textAlign: 'center',
+    alignItems: 'center',
   },
   headerActions: {
     minWidth: 96,

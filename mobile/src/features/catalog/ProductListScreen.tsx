@@ -14,7 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { colors, radii, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -26,6 +26,8 @@ import {
   ProductSortOption,
 } from './catalogApi';
 import ProductCard from './ProductCard';
+import ShopNameLogo from '../../components/branding/ShopNameLogo';
+import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
@@ -474,27 +476,30 @@ const ProductListScreen = () => {
   }, [appliedFilters, categorySelectionGroups, getBrandLabel, updateAppliedFilters]);
 
   const loadProducts = React.useCallback(() => {
-    let isCurrentRequest = true;
+    const controller = new AbortController();
 
     setIsLoading(true);
     setError(null);
 
     catalogApi
-      .getProducts({
-        keyword: params?.keyword,
-        gender: appliedFilters.gender,
-        categoryId: toQueryArray(appliedFilters.categoryId),
-        brandId: toQueryArray(appliedFilters.brandId),
-        minPrice: appliedFilters.minPrice,
-        maxPrice: appliedFilters.maxPrice,
-        isNew: appliedFilters.isNew,
-        isSale: appliedFilters.isSale,
-        sort: appliedFilters.sort,
-        page,
-        limit: PRODUCT_PAGE_LIMIT,
-      })
+      .getProducts(
+        {
+          keyword: params?.keyword,
+          gender: appliedFilters.gender,
+          categoryId: toQueryArray(appliedFilters.categoryId),
+          brandId: toQueryArray(appliedFilters.brandId),
+          minPrice: appliedFilters.minPrice,
+          maxPrice: appliedFilters.maxPrice,
+          isNew: appliedFilters.isNew,
+          isSale: appliedFilters.isSale,
+          sort: appliedFilters.sort,
+          page,
+          limit: PRODUCT_PAGE_LIMIT,
+        },
+        controller.signal,
+      )
       .then((response) => {
-        if (!isCurrentRequest) return;
+        if (controller.signal.aborted) return;
 
         setProducts(response.items);
         setAvailableFilters(
@@ -506,7 +511,7 @@ const ProductListScreen = () => {
         setTotalItems(response.pagination.totalItems);
       })
       .catch((requestError: unknown) => {
-        if (!isCurrentRequest) return;
+        if (controller.signal.aborted) return;
 
         setProducts([]);
         setAvailableFilters(emptyAvailableFilters);
@@ -515,13 +520,13 @@ const ProductListScreen = () => {
         setError(requestError instanceof Error ? requestError.message : 'Không thể tải sản phẩm');
       })
       .finally(() => {
-        if (isCurrentRequest) {
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
       });
 
     return () => {
-      isCurrentRequest = false;
+      controller.abort();
     };
   }, [appliedFilters, page, params?.keyword]);
 
@@ -641,7 +646,7 @@ const ProductListScreen = () => {
         </TouchableOpacity>
 
         <View style={styles.titleBlock}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
+          <ShopNameLogo compact />
           <Text style={styles.title} numberOfLines={1}>
             {screenTitle}
           </Text>
@@ -932,6 +937,7 @@ const ProductListScreen = () => {
           </View>
         </View>
       </Modal>
+      <StorefrontBottomNav activeTab="catalog" />
     </SafeAreaView>
   );
 };
@@ -942,25 +948,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   header: {
-    minHeight: 78,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
+    ...brandedHeaderStyles.container,
   },
   headerAction: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...brandedHeaderStyles.action,
   },
   titleBlock: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: spacing.sm,
+    ...brandedHeaderStyles.titleGroup,
     alignItems: 'center',
   },
   brand: {
@@ -970,11 +964,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   title: {
-    color: colors.white,
-    fontSize: 20,
-    lineHeight: 27,
-    fontWeight: '800',
-    marginTop: 1,
+    ...brandedHeaderStyles.title,
   },
   content: {
     flex: 1,

@@ -1,8 +1,21 @@
 import mongoose, { Types, type ClientSession } from 'mongoose';
-import { Order, Product, Review, User, type IOrderItem } from '../../database/models';
+import {
+  Order,
+  Product,
+  Review,
+  ReviewHelpfulVote,
+  User,
+  type IOrderItem,
+  type IReviewImage,
+} from '../../database/models';
+import { auditLogService } from '../audit-logs/audit-log.service';
+import { cleanupReviewImages, uploadReviewImages } from './review-images';
 import type {
   AdminReviewListQueryInput,
   CreateReviewInput,
+  EligibleReviewItemsQueryInput,
+  ReviewAdminActor,
+  ReviewCriteriaInput,
   ReviewListQueryInput,
   ReviewModerationStatus,
   UpdateReviewInput,
@@ -39,9 +52,11 @@ type ReviewView = {
   order_item_id: Types.ObjectId;
   rating: number;
   comment: string;
-  images?: string[];
+  criteria?: ReviewCriteriaInput | null;
+  images?: Array<IReviewImage | string>;
   moderationStatus?: ReviewModerationStatus;
   moderationReasons?: string[];
+  helpfulCount?: number;
   adminReply?: string | null;
   repliedAt?: Date | null;
   createdAt: Date;
@@ -49,6 +64,25 @@ type ReviewView = {
 };
 
 type MyReviewView = Omit<ReviewView, 'product_id'> & { product_id: ProductView };
+
+type EligibleOrderView = {
+  _id: Types.ObjectId;
+  orderCode: string;
+  deliveredAt?: Date | null;
+  order_list: IOrderItem[];
+};
+
+type EligibleReviewView = {
+  _id: Types.ObjectId;
+  order_id: Types.ObjectId;
+  order_item_id: Types.ObjectId;
+  rating: number;
+  comment: string;
+  moderationStatus?: ReviewModerationStatus;
+  moderationReasons?: string[];
+  helpfulCount?: number;
+  createdAt: Date;
+};
 
 export class ReviewServiceError extends Error {
   constructor(message: string, public readonly statusCode: number) {
@@ -134,6 +168,19 @@ const isReviewerView = (value: Types.ObjectId | ReviewerView): value is Reviewer
 const isReviewOrderView = (value: Types.ObjectId | ReviewOrderView): value is ReviewOrderView =>
   'order_list' in value;
 
+const serializeImages = (images: Array<IReviewImage | string> = []) => images.map((image) => {
+  if (typeof image === 'string') {
+    return { _id: null, url: image, thumbnailUrl: image, width: null, height: null };
+  }
+  return {
+    _id: image._id?.toString() ?? null,
+    url: image.url,
+    thumbnailUrl: image.thumbnailUrl || image.url,
+    width: image.width ?? null,
+    height: image.height ?? null,
+  };
+});
+
 const serializeReview = (review: ReviewView) => {
   const user = isReviewerView(review.user_id) ? review.user_id : null;
   const order = isReviewOrderView(review.order_id) ? review.order_id : null;
@@ -145,11 +192,14 @@ const serializeReview = (review: ReviewView) => {
     _id: review._id.toString(),
     productId: review.product_id.toString(),
     orderId: (order?._id ?? review.order_id).toString(),
+    orderItemId: review.order_item_id.toString(),
     rating: review.rating,
     comment: review.comment,
-    images: review.images ?? [],
+    criteria: review.criteria ?? null,
+    images: serializeImages(review.images),
     moderationStatus: review.moderationStatus ?? 'visible',
     moderationReasons: review.moderationReasons ?? [],
+    helpfulCount: review.helpfulCount ?? 0,
     adminReply: review.adminReply ?? null,
     repliedAt: review.repliedAt ?? null,
     // Mọi review đều được tạo qua createReview và luôn gắn với một đơn đủ điều kiện.
@@ -178,14 +228,23 @@ const serializeReview = (review: ReviewView) => {
 
 const serializePublicReview = (review: ReviewView) => {
   const serialized = serializeReview(review);
-  const isContentRemoved = serialized.moderationStatus === 'hidden';
   return {
-    ...serialized,
-    // Public API không trả nội dung gốc/lý do nội bộ của review đã bị ẩn.
-    // Admin vẫn xem được dữ liệu đầy đủ qua listAdminReviews.
-    comment: isContentRemoved ? 'Nội dung đánh giá này đã bị xóa do vi phạm tiêu chuẩn cộng đồng.' : serialized.comment,
-    moderationReasons: [],
-    isContentRemoved,
+    _id: serialized._id,
+    productId: serialized.productId,
+    rating: serialized.rating,
+    comment: serialized.comment,
+    criteria: serialized.criteria,
+    images: serialized.images,
+    helpfulCount: serialized.helpfulCount,
+    hasVotedHelpful: false,
+    verifiedPurchase: serialized.verifiedPurchase,
+    purchasedVariant: serialized.purchasedVariant,
+    user: serialized.user,
+    adminReply: serialized.adminReply
+      ? { content: serialized.adminReply, repliedAt: serialized.repliedAt }
+      : null,
+    createdAt: serialized.createdAt,
+    updatedAt: serialized.updatedAt,
   };
 };
 
@@ -227,44 +286,180 @@ const withReviewTransaction = async <T>(operation: (session: ClientSession) => P
   return result;
 };
 
-const findEligibleOrder = async (userId: Types.ObjectId, productId: Types.ObjectId) => {
-  // Chỉ đơn đã giao và đã thanh toán mới được xem là đã mua thành công.
-  // Lấy đơn gần nhất để lưu bằng chứng mua hàng vào review.
-  return Order.findOne({
-    user_id: userId,
-    status: 'delivered',
-    paymentStatus: 'paid',
-    'order_list.productId': productId,
-  })
-    .sort({ deliveredAt: -1, createdAt: -1 })
-    .select('_id order_list')
-    .lean();
-};
-
-const getEligibility = async (userIdValue: string, productIdValue: string) => {
+const getEligibility = async (
+  userIdValue: string,
+  orderIdValue: string,
+  orderItemIdValue: string,
+) => {
   const userId = toObjectId(userIdValue, 'userId');
-  const productId = toObjectId(productIdValue, 'productId');
-  // Ba truy vấn độc lập nên chạy song song để giảm thời gian phản hồi.
-  const [product, existingReview, eligibleOrder] = await Promise.all([
-    Product.findById(productId).select('_id').lean(),
-    Review.findOne({ user_id: userId, product_id: productId })
+  const orderId = toObjectId(orderIdValue, 'orderId');
+  const orderItemId = toObjectId(orderItemIdValue, 'orderItemId');
+  const order = await Order.findOne({ _id: orderId, user_id: userId })
+    .select('_id status paymentStatus order_list')
+    .lean();
+
+  if (!order) {
+    return {
+      canReview: false,
+      reason: 'ORDER_NOT_FOUND' as const,
+      orderStatus: null,
+      paymentStatus: null,
+      reviewId: null,
+      reviewStatus: null,
+    };
+  }
+
+  if (order.status !== 'completed') {
+    return {
+      canReview: false,
+      reason: 'NOT_DELIVERED' as const,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      reviewId: null,
+      reviewStatus: null,
+    };
+  }
+
+  if (order.paymentStatus !== 'paid') {
+    return {
+      canReview: false,
+      reason: 'NOT_PAID' as const,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      reviewId: null,
+      reviewStatus: null,
+    };
+  }
+
+  const orderItem = order.order_list.find((item: IOrderItem) => item._id.equals(orderItemId));
+  if (!orderItem) {
+    return {
+      canReview: false,
+      reason: 'ITEM_NOT_FOUND' as const,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      reviewId: null,
+      reviewStatus: null,
+    };
+  }
+
+  const [product, existingReview] = await Promise.all([
+    Product.findOne({ _id: orderItem.productId, isActive: true }).select('_id').lean(),
+    Review.findOne({ order_id: orderId, order_item_id: orderItemId })
       .select('_id moderationStatus moderationReasons')
       .lean<{ _id: Types.ObjectId; moderationStatus?: ReviewModerationStatus; moderationReasons?: string[] } | null>(),
-    findEligibleOrder(userId, productId),
   ]);
 
   if (!product) {
-    throw new ReviewServiceError('Product not found', 404);
+    return {
+      canReview: false,
+      reason: 'PRODUCT_UNAVAILABLE' as const,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      reviewId: null,
+      reviewStatus: null,
+    };
   }
 
   return {
-    productId: productId.toString(),
-    canReview: Boolean(eligibleOrder) && !existingReview,
-    hasPurchased: Boolean(eligibleOrder),
-    hasReviewed: Boolean(existingReview),
+    canReview: !existingReview,
+    reason: existingReview ? 'ALREADY_REVIEWED' as const : null,
+    orderStatus: order.status,
+    paymentStatus: order.paymentStatus,
     reviewId: existingReview?._id.toString() ?? null,
     reviewStatus: existingReview?.moderationStatus ?? null,
-    moderationReasons: existingReview?.moderationReasons ?? [],
+  };
+};
+
+const listEligibleItems = async (
+  userIdValue: string,
+  query: EligibleReviewItemsQueryInput = {},
+) => {
+  const userId = toObjectId(userIdValue, 'userId');
+  const { page, limit } = normalizePagination(query);
+  const productId = query.productId ? toObjectId(query.productId, 'productId') : null;
+  const orderFilter: Record<string, unknown> = {
+    user_id: userId,
+    status: 'completed',
+    paymentStatus: 'paid',
+  };
+  if (productId) orderFilter['order_list.productId'] = productId;
+
+  const orders = await Order.find(orderFilter)
+    .select('_id orderCode deliveredAt order_list')
+    .sort({ deliveredAt: -1, createdAt: -1 })
+    .lean() as unknown as EligibleOrderView[];
+  if (orders.length === 0) {
+    return {
+      items: [],
+      pagination: { page, limit, totalItems: 0, totalPages: 0 },
+    };
+  }
+
+  const orderIds = orders.map((order) => order._id);
+  const productIds = [...new Set(orders.flatMap((order) => order.order_list.map(
+    (item) => item.productId.toString(),
+  )))].map((id) => new Types.ObjectId(id));
+  const [reviews, activeProducts] = await Promise.all([
+    Review.find({ user_id: userId, order_id: { $in: orderIds } })
+      .select('_id order_id order_item_id rating comment moderationStatus moderationReasons createdAt')
+      .lean() as unknown as Promise<EligibleReviewView[]>,
+    Product.find({ _id: { $in: productIds }, isActive: true }).select('_id').lean(),
+  ]);
+  const activeProductIds = new Set(activeProducts.map((product) => product._id.toString()));
+  const reviewByOrderItem = new Map(reviews.map((review) => [
+    `${review.order_id.toString()}:${review.order_item_id.toString()}`,
+    review,
+  ]));
+
+  const allItems = orders.flatMap((order) => order.order_list
+    .filter((item) => !productId || item.productId.equals(productId))
+    .map((item) => {
+      const review = reviewByOrderItem.get(`${order._id.toString()}:${item._id.toString()}`) ?? null;
+      const productAvailable = activeProductIds.has(item.productId.toString());
+      return {
+        orderId: order._id.toString(),
+        orderCode: order.orderCode,
+        deliveredAt: order.deliveredAt ?? null,
+        orderItemId: item._id.toString(),
+        product: {
+          _id: item.productId.toString(),
+          name: item.name,
+          image: item.image,
+        },
+        variant: {
+          variantId: item.variantId.toString(),
+          colorVariantId: item.colorVariantId.toString(),
+          fitType: item.fitType,
+          color: item.color,
+          size: item.size,
+          sku: item.sku,
+        },
+        canReview: productAvailable && !review,
+        reason: !productAvailable ? 'PRODUCT_UNAVAILABLE' as const
+          : review ? 'ALREADY_REVIEWED' as const
+            : null,
+        review: review ? {
+          _id: review._id.toString(),
+          rating: review.rating,
+          comment: review.comment,
+          status: review.moderationStatus ?? 'visible',
+          moderationReasons: review.moderationReasons ?? [],
+          createdAt: review.createdAt,
+        } : null,
+      };
+    }));
+  const filteredItems = allItems.filter((item) => {
+    if (query.status === 'eligible') return item.canReview;
+    if (query.status === 'reviewed') return Boolean(item.review);
+    return true;
+  });
+  const totalItems = filteredItems.length;
+  const start = (page - 1) * limit;
+
+  return {
+    items: filteredItems.slice(start, start + limit),
+    pagination: { page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
   };
 };
 
@@ -273,11 +468,7 @@ const listProductReviews = async (productIdValue: string, query: ReviewListQuery
   const { page, limit } = normalizePagination(query);
   const filter: Record<string, unknown> = {
     product_id: productId,
-    $or: [
-      { moderationStatus: 'visible' },
-      { moderationStatus: 'hidden' },
-      { moderationStatus: { $exists: false } },
-    ],
+    $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }],
   };
   if (query.rating !== undefined) filter.rating = query.rating;
 
@@ -286,6 +477,7 @@ const listProductReviews = async (productIdValue: string, query: ReviewListQuery
     oldest: { createdAt: 1 },
     rating_desc: { rating: -1, createdAt: -1 },
     rating_asc: { rating: 1, createdAt: -1 },
+    helpful: { helpfulCount: -1, createdAt: -1 },
   } as const;
   const sort = sortMap[query.sort ?? 'newest'];
 
@@ -332,6 +524,7 @@ const listMyReviews = async (userIdValue: string, query: ReviewListQueryInput = 
     oldest: { createdAt: 1 },
     rating_desc: { rating: -1, createdAt: -1 },
     rating_asc: { rating: 1, createdAt: -1 },
+    helpful: { helpfulCount: -1, createdAt: -1 },
   } as const;
   const [reviews, totalItems] = await Promise.all([
     Review.find(filter)
@@ -362,67 +555,137 @@ const listMyReviews = async (userIdValue: string, query: ReviewListQueryInput = 
   };
 };
 
-const createReview = async (userIdValue: string, input: CreateReviewInput) => {
+const createReview = async (
+  userIdValue: string,
+  input: CreateReviewInput,
+  files: Express.Multer.File[] = [],
+) => {
   const userId = toObjectId(userIdValue, 'userId');
-  const productId = toObjectId(input.productId, 'productId');
-  const product = await Product.findById(productId).select('_id').lean();
-  if (!product) throw new ReviewServiceError('Product not found', 404);
-
-  const existingReview = await Review.findOne({ user_id: userId, product_id: productId }).select('_id').lean();
-  if (existingReview) throw new ReviewServiceError('You have already reviewed this product', 409);
-
-  // Không nhận orderId từ client: server tự tìm đơn thuộc đúng người dùng để tránh giả mạo.
-  const order = await findEligibleOrder(userId, productId);
-  if (!order) {
-    throw new ReviewServiceError('You can only review a product after it has been purchased and delivered', 403);
+  const orderId = toObjectId(input.orderId, 'orderId');
+  const orderItemId = toObjectId(input.orderItemId, 'orderItemId');
+  const order = await Order.findOne({ _id: orderId, user_id: userId })
+    .select('_id status paymentStatus order_list')
+    .lean();
+  if (!order) throw new ReviewServiceError('Order not found', 404);
+  if (order.status !== 'completed') {
+    throw new ReviewServiceError('You can only review an order after it has been delivered', 403);
+  }
+  if (order.paymentStatus !== 'paid') {
+    throw new ReviewServiceError('You can only review a paid order', 403);
   }
 
-  const orderItem = order.order_list.find(
-    (item: IOrderItem) => item.productId.toString() === productId.toString(),
-  );
-  if (!orderItem) throw new ReviewServiceError('Purchased product was not found in the order', 409);
+  const orderItem = order.order_list.find((item: IOrderItem) => item._id.equals(orderItemId));
+  if (!orderItem) throw new ReviewServiceError('Order item not found', 404);
+  const productId = orderItem.productId;
+  const [product, existingReview] = await Promise.all([
+    Product.findOne({ _id: productId, isActive: true }).select('_id').lean(),
+    Review.findOne({ order_id: orderId, order_item_id: orderItemId }).select('_id').lean(),
+  ]);
+  if (!product) throw new ReviewServiceError('Product is unavailable', 409);
+  if (existingReview) throw new ReviewServiceError('This order item has already been reviewed', 409);
 
+  const moderation = moderateReview(input.comment);
+  const moderationHistory = moderation.moderationStatus === 'pending'
+    ? [{
+        action: 'auto_pending' as const,
+        fromStatus: 'visible' as const,
+        toStatus: 'pending' as const,
+        reason: moderation.moderationReasons.join(', '),
+        actorId: null,
+        actorRole: 'system' as const,
+        createdAt: new Date(),
+      }]
+    : [];
+
+  const createdReviewId = new Types.ObjectId();
+  let uploadedImages: Awaited<ReturnType<typeof uploadReviewImages>> = [];
+  let committed = false;
   try {
-    const createdReviewId = await withReviewTransaction(async (session) => {
+    uploadedImages = await uploadReviewImages(createdReviewId.toString(), files);
+    await withReviewTransaction(async (session) => {
       const [review] = await Review.create([{
+        _id: createdReviewId,
         user_id: userId,
         product_id: productId,
         order_id: order._id,
         order_item_id: orderItem._id,
         rating: input.rating,
         comment: input.comment.trim(),
-        ...moderateReview(input.comment),
+        criteria: input.criteria ?? null,
+        images: uploadedImages,
+        ...moderation,
+        moderationHistory,
       }], { session });
       await refreshProductRating(productId, session);
       return review._id;
     });
+    committed = true;
     const populated = await Review.findById(createdReviewId)
       .populate('user_id', '_id name avatarImage')
       .populate('order_id', '_id order_list')
       .lean();
     return serializeReview(populated as unknown as ReviewView);
   } catch (error: unknown) {
+    if (!committed && uploadedImages.length) await cleanupReviewImages(uploadedImages);
     // Kiểm tra phía trên cho thông báo sớm; unique index vẫn là lớp bảo vệ cuối
     // khi hai request tạo đánh giá đến gần như cùng lúc.
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) {
-      throw new ReviewServiceError('You have already reviewed this product', 409);
+      throw new ReviewServiceError('This order item has already been reviewed', 409);
     }
     throw error;
   }
 };
 
-const updateReview = async (userIdValue: string, reviewIdValue: string, input: UpdateReviewInput) => {
+const updateReview = async (
+  userIdValue: string,
+  reviewIdValue: string,
+  input: UpdateReviewInput,
+  files: Express.Multer.File[] = [],
+) => {
   const userId = toObjectId(userIdValue, 'userId');
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
-  await withReviewTransaction(async (session) => {
+  const existingReview = await Review.findOne({ _id: reviewId, user_id: userId })
+    .select('_id images')
+    .lean();
+  if (!existingReview) throw new ReviewServiceError('Review not found', 404);
+
+  const currentImages = (existingReview.images ?? []) as Array<IReviewImage | string>;
+  const requestedImageIds = input.keepImageIds === undefined
+    ? null
+    : new Set(input.keepImageIds);
+  const keptImages = requestedImageIds === null
+    ? currentImages
+    : currentImages.filter((image) => (
+        typeof image !== 'string' && requestedImageIds.has(image._id.toString())
+      ));
+  if (requestedImageIds && keptImages.length !== requestedImageIds.size) {
+    throw new ReviewServiceError('keepImageIds contains an image that does not belong to this review', 400);
+  }
+  if (keptImages.length + files.length > 5) {
+    throw new ReviewServiceError('A review can contain at most 5 images', 400);
+  }
+  const removedImages = currentImages.filter((image) => !keptImages.includes(image));
+  let uploadedImages: Awaited<ReturnType<typeof uploadReviewImages>> = [];
+
+  try {
+    uploadedImages = await uploadReviewImages(reviewId.toString(), files);
+    await withReviewTransaction(async (session) => {
     // Lọc kèm user_id để người dùng chỉ sửa được review của chính mình.
     const review = await Review.findOne({ _id: reviewId, user_id: userId }).session(session);
     if (!review) throw new ReviewServiceError('Review not found', 404);
 
     const wasHidden = review.moderationStatus === 'hidden';
+    const previousStatus = review.moderationStatus;
+    const previousComment = review.comment;
     if (input.rating !== undefined) review.rating = input.rating;
+    if (input.criteria !== undefined) review.criteria = input.criteria;
+    if (input.keepImageIds !== undefined || uploadedImages.length > 0) {
+      review.images = [...keptImages, ...uploadedImages] as IReviewImage[];
+    }
     if (input.comment !== undefined) review.comment = input.comment.trim();
-    if (input.comment !== undefined) {
+    // Chỉ chạy lại moderation khi comment thực sự thay đổi, tránh đẩy review visible về pending
+    // chỉ vì user mở modal rồi lưu lại mà không sửa nội dung.
+    if (input.comment !== undefined && review.comment !== previousComment) {
       const moderation = moderateReview(review.comment);
       // Review đã bị admin ẩn phải quay lại hàng chờ sau khi người dùng sửa,
       // không được tự động hiện lại chỉ vì nội dung mới vượt qua bộ lọc đơn giản.
@@ -432,11 +695,32 @@ const updateReview = async (userIdValue: string, reviewIdValue: string, input: U
       review.moderationReasons = wasHidden && moderation.moderationReasons.length === 0
         ? ['Nội dung đã chỉnh sửa cần được kiểm duyệt lại']
         : moderation.moderationReasons;
+      if (review.moderationStatus === 'pending' && previousStatus !== 'pending') {
+        review.moderationHistory ??= [];
+        review.moderationHistory.push({
+          action: 'auto_pending',
+          fromStatus: previousStatus,
+          toStatus: 'pending',
+          reason: review.moderationReasons.join(', '),
+          actorId: null,
+          actorRole: 'system',
+          createdAt: new Date(),
+        });
+      }
     }
     await review.save({ session });
     await refreshProductRating(review.product_id, session);
     return review._id;
-  });
+    });
+  } catch (error) {
+    if (uploadedImages.length) await cleanupReviewImages(uploadedImages);
+    throw error;
+  }
+  if (removedImages.length) {
+    await cleanupReviewImages(removedImages.filter(
+      (image): image is IReviewImage => typeof image !== 'string',
+    ));
+  }
   const populated = await Review.findById(reviewId)
     .populate('user_id', '_id name avatarImage')
     .populate('order_id', '_id order_list')
@@ -448,11 +732,56 @@ const deleteReview = async (userIdValue: string, reviewIdValue: string) => {
   const userId = toObjectId(userIdValue, 'userId');
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
   // Lọc kèm user_id để không lộ việc review có tồn tại nhưng thuộc người khác.
-  return withReviewTransaction(async (session) => {
+  const result = await withReviewTransaction(async (session) => {
     const review = await Review.findOneAndDelete({ _id: reviewId, user_id: userId }, { session });
     if (!review) throw new ReviewServiceError('Review not found', 404);
+    await ReviewHelpfulVote.deleteMany({ review_id: reviewId }, { session });
     await refreshProductRating(review.product_id, session);
-    return { reviewId: review._id.toString(), deleted: true };
+    return {
+      reviewId: review._id.toString(),
+      deleted: true,
+      images: ((review.images ?? []) as Array<IReviewImage | string>).filter(
+        (image): image is IReviewImage => typeof image !== 'string',
+      ),
+    };
+  });
+  if (result.images.length) await cleanupReviewImages(result.images);
+  return { reviewId: result.reviewId, deleted: result.deleted };
+};
+
+const toggleHelpfulVote = async (userIdValue: string, reviewIdValue: string) => {
+  const userId = toObjectId(userIdValue, 'userId');
+  const reviewId = toObjectId(reviewIdValue, 'reviewId');
+  const review = await Review.findById(reviewId)
+    .select('_id user_id moderationStatus helpfulCount')
+    .lean();
+  if (!review || (review.moderationStatus && review.moderationStatus !== 'visible')) {
+    throw new ReviewServiceError('Review not found', 404);
+  }
+  if (review.user_id.toString() === userId.toString()) {
+    throw new ReviewServiceError('You cannot mark your own review as helpful', 409);
+  }
+
+  return withReviewTransaction(async (session) => {
+    const removedVote = await ReviewHelpfulVote.findOneAndDelete(
+      { review_id: reviewId, user_id: userId },
+      { session },
+    );
+    let hasVotedHelpful = false;
+    if (!removedVote) {
+      try {
+        await ReviewHelpfulVote.create([{ review_id: reviewId, user_id: userId }], { session });
+        hasVotedHelpful = true;
+      } catch (error: unknown) {
+        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 11000)) {
+          throw error;
+        }
+        hasVotedHelpful = true;
+      }
+    }
+    const helpfulCount = await ReviewHelpfulVote.countDocuments({ review_id: reviewId }).session(session);
+    await Review.updateOne({ _id: reviewId }, { $set: { helpfulCount } }, { session });
+    return { reviewId: reviewId.toString(), helpfulCount, hasVotedHelpful };
   });
 };
 
@@ -535,7 +864,7 @@ const listAdminReviews = async (query: AdminReviewListQueryInput = {}) => {
       order: review.order_id ? { _id: review.order_id._id.toString(), orderCode: review.order_id.orderCode } : null,
       rating: review.rating,
       comment: review.comment,
-      images: review.images ?? [],
+      images: serializeImages(review.images as Array<IReviewImage | string> | undefined),
       status: review.moderationStatus ?? 'visible',
       moderationReasons: review.moderationReasons ?? [],
       adminReply: review.adminReply ?? null,
@@ -548,65 +877,257 @@ const listAdminReviews = async (query: AdminReviewListQueryInput = {}) => {
   };
 };
 
-const updateModerationStatus = async (reviewIdValue: string, status: ReviewModerationStatus) => {
-  const reviewId = toObjectId(reviewIdValue, 'reviewId');
-  return withReviewTransaction(async (session) => {
-    const review = await Review.findByIdAndUpdate(
-      reviewId,
-      { $set: { moderationStatus: status } },
-      { new: true, session },
-    );
-    if (!review) throw new ReviewServiceError('Review not found', 404);
-    await refreshProductRating(review.product_id, session);
-    return { reviewId: review._id.toString(), status: review.moderationStatus };
-  });
+const getModerationAction = (
+  fromStatus: ReviewModerationStatus,
+  toStatus: ReviewModerationStatus,
+) => {
+  if (toStatus === 'hidden') return 'hidden' as const;
+  if (fromStatus === 'hidden') return 'restored' as const;
+  return 'approved' as const;
 };
 
-const updateManyModerationStatuses = async (reviewIdValues: string[], status: ReviewModerationStatus) => {
+const getAdminReviewDetail = async (reviewIdValue: string) => {
+  const reviewId = toObjectId(reviewIdValue, 'reviewId');
+  const review = await Review.findById(reviewId)
+    .populate('product_id', '_id name product_image')
+    .populate('user_id', '_id name email avatarImage')
+    .populate('order_id', '_id orderCode order_list')
+    .populate('repliedBy', '_id name email role')
+    .lean();
+  if (!review) throw new ReviewServiceError('Review not found', 404);
+  const order = review.order_id as unknown as ReviewOrderView & { orderCode?: string };
+  const orderItem = order.order_list?.find((item) => item._id.toString() === review.order_item_id.toString());
+  return {
+    _id: review._id.toString(),
+    product: review.product_id ? {
+      _id: review.product_id._id.toString(), name: review.product_id.name, image: review.product_id.product_image,
+    } : null,
+    user: review.user_id ? {
+      _id: review.user_id._id.toString(), name: review.user_id.name, email: review.user_id.email, avatarImage: review.user_id.avatarImage ?? null,
+    } : null,
+    order: order ? { _id: order._id.toString(), orderCode: order.orderCode, item: orderItem ?? null } : null,
+    rating: review.rating,
+    comment: review.comment,
+    criteria: review.criteria ?? null,
+    images: serializeImages(review.images as Array<IReviewImage | string> | undefined),
+    status: review.moderationStatus ?? 'visible',
+    moderationReasons: review.moderationReasons ?? [],
+    moderationHistory: review.moderationHistory ?? [],
+    adminReply: review.adminReply ?? null,
+    repliedAt: review.repliedAt ?? null,
+    repliedBy: review.repliedBy ?? null,
+    createdAt: review.createdAt,
+    updatedAt: review.updatedAt,
+  };
+};
+
+const updateModerationStatus = async (
+  reviewIdValue: string,
+  status: ReviewModerationStatus,
+  actor: ReviewAdminActor,
+  reason?: string,
+) => {
+  const reviewId = toObjectId(reviewIdValue, 'reviewId');
+  const normalizedReason = reason?.trim() || null;
+  if (status === 'hidden' && (!normalizedReason || normalizedReason.length < 5)) {
+    throw new ReviewServiceError('Reason must contain between 5 and 500 characters when hiding a review', 400);
+  }
+  if (normalizedReason && normalizedReason.length > 500) {
+    throw new ReviewServiceError('Reason must contain between 5 and 500 characters', 400);
+  }
+
+  const result = await withReviewTransaction(async (session) => {
+    const review = await Review.findById(reviewId).session(session);
+    if (!review) throw new ReviewServiceError('Review not found', 404);
+    const previousStatus = review.moderationStatus ?? 'visible';
+    review.moderationStatus = status;
+    review.moderationReasons = status === 'hidden' && normalizedReason ? [normalizedReason] : [];
+    review.moderationHistory ??= [];
+    review.moderationHistory.push({
+      action: getModerationAction(previousStatus, status),
+      fromStatus: previousStatus,
+      toStatus: status,
+      reason: normalizedReason,
+      actorId: new Types.ObjectId(actor.userId),
+      actorRole: actor.role,
+      createdAt: new Date(),
+    });
+    await review.save({ session });
+    await refreshProductRating(review.product_id, session);
+    return { reviewId: review._id.toString(), status: review.moderationStatus, previousStatus };
+  });
+
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: actor.userId,
+    actorRole: actor.role,
+    action: 'review.moderation',
+    targetType: 'Review',
+    targetId: result.reviewId,
+    reason: normalizedReason,
+    before: { moderationStatus: result.previousStatus },
+    after: { moderationStatus: result.status },
+  });
+
+  return { reviewId: result.reviewId, status: result.status };
+};
+
+const updateManyModerationStatuses = async (
+  reviewIdValues: string[],
+  status: ReviewModerationStatus,
+  actor: ReviewAdminActor,
+  reason?: string,
+) => {
   // Dedupe trước khi update để count và refresh rating không bị nhân đôi khi UI gửi trùng id.
   const reviewIds = [...new Set(reviewIdValues)].map((value) => toObjectId(value, 'reviewId'));
   if (reviewIds.length === 0 || reviewIds.length > 100) {
     throw new ReviewServiceError('Select between 1 and 100 reviews', 400);
   }
-  return withReviewTransaction(async (session) => {
+  const normalizedReason = reason?.trim() || null;
+  if (status === 'hidden' && (!normalizedReason || normalizedReason.length < 5)) {
+    throw new ReviewServiceError('Reason must contain between 5 and 500 characters when hiding reviews', 400);
+  }
+  if (normalizedReason && normalizedReason.length > 500) {
+    throw new ReviewServiceError('Reason must contain between 5 and 500 characters', 400);
+  }
+
+  const result = await withReviewTransaction(async (session) => {
     const reviews = await Review.find({ _id: { $in: reviewIds } })
-      .select('_id product_id')
+      .select('_id product_id moderationStatus')
       .session(session)
       .lean();
-    await Review.updateMany(
-      { _id: { $in: reviewIds } },
-      { $set: { moderationStatus: status } },
-      { session },
-    );
+    const createdAt = new Date();
+    if (reviews.length > 0) {
+      await Promise.all(reviews.map((review) => {
+        const previousStatus = review.moderationStatus ?? 'visible';
+        return Review.updateOne(
+          { _id: review._id },
+          {
+            $set: {
+              moderationStatus: status,
+              moderationReasons: status === 'hidden' && normalizedReason ? [normalizedReason] : [],
+            },
+            $push: {
+              moderationHistory: {
+                action: getModerationAction(previousStatus, status),
+                fromStatus: previousStatus,
+                toStatus: status,
+                reason: normalizedReason,
+                actorId: new Types.ObjectId(actor.userId),
+                actorRole: actor.role,
+                createdAt,
+              },
+            },
+          },
+          { session },
+        );
+      }));
+    }
     const productIds = [...new Set(reviews.map((review) => review.product_id.toString()))];
     for (const productId of productIds) {
       await refreshProductRating(new Types.ObjectId(productId), session);
     }
-    return { updatedCount: reviews.length, status };
+    return {
+      updatedCount: reviews.length,
+      skippedCount: reviewIds.length - reviews.length,
+      status,
+      reviews: reviews.map((review) => ({
+        reviewId: review._id.toString(),
+        previousStatus: (review.moderationStatus ?? 'visible') as ReviewModerationStatus,
+      })),
+    };
   });
+
+  await Promise.all(result.reviews.map((review) => auditLogService.recordAuditLogBestEffort({
+    actorId: actor.userId,
+    actorRole: actor.role,
+    action: 'review.moderation',
+    targetType: 'Review',
+    targetId: review.reviewId,
+    reason: normalizedReason,
+    before: { moderationStatus: review.previousStatus },
+    after: { moderationStatus: status },
+    metadata: { bulk: true },
+  })));
+
+  return {
+    updatedCount: result.updatedCount,
+    skippedCount: result.skippedCount,
+    status: result.status,
+  };
 };
 
-const replyToReview = async (reviewIdValue: string, adminIdValue: string, reply: string) => {
+const replyToReview = async (reviewIdValue: string, actor: ReviewAdminActor, reply: string) => {
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
-  const adminId = toObjectId(adminIdValue, 'adminId');
-  const review = await Review.findByIdAndUpdate(
-    reviewId,
-    { $set: { adminReply: reply.trim(), repliedAt: new Date(), repliedBy: adminId } },
-    { new: true },
-  );
-  if (!review) throw new ReviewServiceError('Review not found', 404);
-  return { reviewId: review._id.toString(), adminReply: review.adminReply, repliedAt: review.repliedAt };
+  const adminId = toObjectId(actor.userId, 'adminId');
+  const result = await withReviewTransaction(async (session) => {
+    const review = await Review.findById(reviewId).session(session);
+    if (!review) throw new ReviewServiceError('Review not found', 404);
+    if (review.moderationStatus === 'hidden') {
+      throw new ReviewServiceError('A hidden review must be restored before replying', 409);
+    }
+    const previousReply = review.adminReply ?? null;
+    review.adminReply = reply.trim();
+    review.repliedAt = new Date();
+    review.repliedBy = adminId;
+    await review.save({ session });
+    return {
+      reviewId: review._id.toString(),
+      previousReply,
+      adminReply: review.adminReply,
+      repliedAt: review.repliedAt,
+    };
+  });
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: actor.userId,
+    actorRole: actor.role,
+    action: 'review.reply',
+    targetType: 'Review',
+    targetId: result.reviewId,
+    before: { adminReply: result.previousReply },
+    after: { adminReply: result.adminReply, repliedAt: result.repliedAt },
+  });
+  return { reviewId: result.reviewId, adminReply: result.adminReply, repliedAt: result.repliedAt };
+};
+
+const deleteReviewReply = async (reviewIdValue: string, actor: ReviewAdminActor) => {
+  const reviewId = toObjectId(reviewIdValue, 'reviewId');
+  const result = await withReviewTransaction(async (session) => {
+    const review = await Review.findById(reviewId).session(session);
+    if (!review) throw new ReviewServiceError('Review not found', 404);
+    const previousReply = review.adminReply ?? null;
+    const previousRepliedAt = review.repliedAt ?? null;
+    review.adminReply = null;
+    review.repliedAt = null;
+    review.repliedBy = null;
+    await review.save({ session });
+    return { reviewId: review._id.toString(), previousReply, previousRepliedAt };
+  });
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: actor.userId,
+    actorRole: actor.role,
+    action: 'review.reply_delete',
+    targetType: 'Review',
+    targetId: result.reviewId,
+    before: { adminReply: result.previousReply, repliedAt: result.previousRepliedAt },
+    after: { adminReply: null, repliedAt: null },
+  });
+
+  return { reviewId: result.reviewId, deleted: true };
 };
 
 export const reviewService = {
   getEligibility,
+  listEligibleItems,
   listProductReviews,
   listMyReviews,
   createReview,
   updateReview,
   deleteReview,
+  toggleHelpfulVote,
   listAdminReviews,
+  getAdminReviewDetail,
   updateModerationStatus,
   updateManyModerationStatuses,
   replyToReview,
+  deleteReviewReply,
 };

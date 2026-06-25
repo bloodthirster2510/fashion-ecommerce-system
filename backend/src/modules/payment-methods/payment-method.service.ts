@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Types } from 'mongoose';
 import {
   PaymentMethod,
@@ -11,8 +12,8 @@ import type { CreatePaymentMethodInput, UpdatePaymentMethodInput } from './payme
 const allowedTypes: PaymentMethodType[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
 const DEFAULTABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
 const CHECKOUT_USABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
+const PAYMENT_ACCOUNT_ENCRYPTION_VERSION = 'v1';
 const sensitiveFieldNames = [
-  'accountNumber',
   'account_number',
   'bankAccountNumber',
   'bank_account_number',
@@ -39,6 +40,66 @@ const toObjectId = (value: string, fieldName: string) => {
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const getPaymentAccountEncryptionKey = () => {
+  const secret =
+    process.env.PAYMENT_METHOD_ENCRYPTION_SECRET?.trim() ||
+    process.env.JWT_ACCESS_SECRET?.trim() ||
+    (process.env.NODE_ENV === 'production' ? '' : 'dev-payment-method-secret');
+
+  if (!secret) {
+    throw new SalesServiceError('Payment method encryption secret is not configured', 500);
+  }
+
+  return crypto.createHash('sha256').update(secret).digest();
+};
+
+const encryptAccountNumber = (accountNumber: string) => {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getPaymentAccountEncryptionKey(), iv);
+  const encrypted = Buffer.concat([
+    cipher.update(accountNumber, 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return [
+    PAYMENT_ACCOUNT_ENCRYPTION_VERSION,
+    iv.toString('base64url'),
+    authTag.toString('base64url'),
+    encrypted.toString('base64url'),
+  ].join(':');
+};
+
+const decryptAccountNumber = (encryptedAccountNumber: string) => {
+  const [version, ivText, authTagText, encryptedText] = encryptedAccountNumber.split(':');
+  if (version !== PAYMENT_ACCOUNT_ENCRYPTION_VERSION || !ivText || !authTagText || !encryptedText) {
+    throw new SalesServiceError('Stored payment account number is invalid', 500);
+  }
+
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    getPaymentAccountEncryptionKey(),
+    Buffer.from(ivText, 'base64url'),
+  );
+  decipher.setAuthTag(Buffer.from(authTagText, 'base64url'));
+
+  return Buffer.concat([
+    decipher.update(Buffer.from(encryptedText, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
+};
+
+const normalizeAccountNumber = (value: unknown) => {
+  const accountNumber = typeof value === 'string' ? value.replace(/\s+/g, '') : '';
+  if (!accountNumber) return null;
+
+  if (!/^\d{4,30}$/.test(accountNumber)) {
+    throw new SalesServiceError('Bank account number must contain 4 to 30 digits', 400);
+  }
+
+  return accountNumber;
+};
 
 const assertNoSensitiveFields = (input: Record<string, unknown>) => {
   const visit = (value: unknown) => {
@@ -85,6 +146,12 @@ const sanitizeMetadata = (value: unknown) => {
   });
 
   return result;
+};
+
+const getSensitiveSafeInput = <T extends { accountNumber?: string | null }>(input: T) => {
+  const safeInput = { ...input };
+  delete safeInput.accountNumber;
+  return safeInput as Record<string, unknown>;
 };
 
 const normalizeMaskedInfo = (value?: string | null) => {
@@ -147,18 +214,36 @@ const unsetDefaultPaymentMethods = (userId: string) =>
     { $set: { isDefault: false } },
   );
 
-const serializePaymentMethod = (method: IPaymentMethod) => method;
+const serializePaymentMethod = (
+  method: IPaymentMethod | Record<string, unknown>,
+  options: { includeStoredAccountFlag?: boolean } = {},
+) => {
+  const methodObject = typeof (method as IPaymentMethod).toObject === 'function'
+    ? (method as IPaymentMethod).toObject()
+    : { ...method };
+  const hasStoredAccountNumber = Boolean(methodObject.accountNumberEncrypted);
+
+  delete methodObject.accountNumberEncrypted;
+  if (options.includeStoredAccountFlag && methodObject.type === 'BANK') {
+    methodObject.hasStoredAccountNumber = hasStoredAccountNumber;
+  }
+
+  return methodObject;
+};
 
 const listPaymentMethods = async (userId: string) => {
-  return PaymentMethod.find({ user_id: toObjectId(userId, 'userId') })
+  const methods = await PaymentMethod.find({ user_id: toObjectId(userId, 'userId') })
     .sort({ isDefault: -1, updatedAt: -1 })
     .lean();
+
+  return methods.map((method) => serializePaymentMethod(method));
 };
 
 const createPaymentMethod = async (userId: string, input: CreatePaymentMethodInput) => {
-  assertNoSensitiveFields(input as Record<string, unknown>);
-
   const type = normalizeType(input.type);
+  assertNoSensitiveFields(getSensitiveSafeInput(input));
+
+  const accountNumber = normalizeAccountNumber(input.accountNumber);
   const initialStatus = getInitialStatus(type);
   const canBeDefault = DEFAULTABLE_STATUSES.includes(initialStatus);
   const existingDefaultableCount = await PaymentMethod.countDocuments({
@@ -177,6 +262,7 @@ const createPaymentMethod = async (userId: string, input: CreatePaymentMethodInp
     provider: getProvider(type, input.provider),
     displayName: getDisplayName(input, type),
     maskedInfo: getMaskedInfo(input, type),
+    accountNumberEncrypted: type === 'BANK' && accountNumber ? encryptAccountNumber(accountNumber) : null,
     bankCode: input.bankCode?.trim().toUpperCase() || null,
     bankName: input.bankName?.trim() || null,
     status: initialStatus,
@@ -211,9 +297,10 @@ const getPaymentMethodById = async (id: string) => {
 };
 
 const updatePaymentMethod = async (userId: string, id: string, input: UpdatePaymentMethodInput) => {
-  assertNoSensitiveFields(input as Record<string, unknown>);
+  assertNoSensitiveFields(getSensitiveSafeInput(input));
 
   const method = await getOwnedPaymentMethod(userId, id);
+  const accountNumber = normalizeAccountNumber(input.accountNumber);
 
   if (input.status !== undefined) {
     throw new SalesServiceError('Payment method status can only be updated by admin', 403);
@@ -227,18 +314,36 @@ const updatePaymentMethod = async (userId: string, id: string, input: UpdatePaym
     await unsetDefaultPaymentMethods(userId);
   }
 
+  const shouldReverifyBankMethod =
+    method.type === 'BANK' &&
+    (
+      input.accountNumber !== undefined ||
+      input.bankCode !== undefined ||
+      input.bankName !== undefined ||
+      input.metadata !== undefined
+    );
+
   if (input.displayName !== undefined) method.displayName = input.displayName.trim();
   if (input.maskedInfo !== undefined) method.maskedInfo = normalizeMaskedInfo(input.maskedInfo);
+  if (input.accountNumber !== undefined) {
+    method.accountNumberEncrypted = accountNumber ? encryptAccountNumber(accountNumber) : null;
+  }
   if (input.bankCode !== undefined) method.bankCode = input.bankCode?.trim().toUpperCase() || null;
   if (input.bankName !== undefined) method.bankName = input.bankName?.trim() || null;
   if (input.metadata !== undefined) method.metadata = sanitizeMetadata(input.metadata);
   if (input.isDefault !== undefined) method.isDefault = Boolean(input.isDefault);
 
+  if (shouldReverifyBankMethod) {
+    method.status = 'pending';
+    method.isDefault = false;
+  }
+
   if (!DEFAULTABLE_STATUSES.includes(method.status)) {
     method.isDefault = false;
   }
 
-  return method.save();
+  const savedMethod = await method.save();
+  return serializePaymentMethod(savedMethod);
 };
 
 const setDefaultPaymentMethod = async (userId: string, id: string) => {
@@ -250,20 +355,47 @@ const setDefaultPaymentMethod = async (userId: string, id: string) => {
 
   await unsetDefaultPaymentMethods(userId);
   method.isDefault = true;
-  return method.save();
+  const savedMethod = await method.save();
+  return serializePaymentMethod(savedMethod);
 };
 
 const disablePaymentMethod = async (userId: string, id: string) => {
   const method = await getOwnedPaymentMethod(userId, id);
   method.status = 'disabled';
   method.isDefault = false;
-  return method.save();
+  const savedMethod = await method.save();
+  return serializePaymentMethod(savedMethod);
 };
 
 const listUserPaymentMethodsForAdmin = async (userId: string) => {
-  return PaymentMethod.find({ user_id: toObjectId(userId, 'userId') })
+  const methods = await PaymentMethod.find({ user_id: toObjectId(userId, 'userId') })
+    .select('+accountNumberEncrypted')
     .sort({ isDefault: -1, updatedAt: -1 })
     .lean();
+
+  return methods.map((method) => serializePaymentMethod(method, { includeStoredAccountFlag: true }));
+};
+
+const revealPaymentMethodAccountNumberForAdmin = async (id: string) => {
+  const query = PaymentMethod.findById(toObjectId(id, 'paymentMethodId'));
+  const method = await query.select('+accountNumberEncrypted');
+
+  if (!method) {
+    throw new SalesServiceError('Payment method not found', 404);
+  }
+
+  if (method.type !== 'BANK') {
+    throw new SalesServiceError('Only bank refund accounts can be revealed', 400);
+  }
+
+  if (!method.accountNumberEncrypted) {
+    throw new SalesServiceError('Full bank account number has not been stored for this method', 404);
+  }
+
+  return {
+    method,
+    accountNumber: decryptAccountNumber(method.accountNumberEncrypted),
+  };
 };
 
 const updatePaymentMethodStatusForAdmin = async ({
@@ -301,7 +433,8 @@ const updatePaymentMethodStatusForAdmin = async ({
 
   return {
     before,
-    method: savedMethod,
+    userId: savedMethod.user_id.toString(),
+    method: serializePaymentMethod(savedMethod),
     after: {
       status: savedMethod.status,
       isDefault: savedMethod.isDefault,
@@ -340,6 +473,7 @@ export const paymentMethodService = {
   setDefaultPaymentMethod,
   disablePaymentMethod,
   listUserPaymentMethodsForAdmin,
+  revealPaymentMethodAccountNumberForAdmin,
   updatePaymentMethodStatusForAdmin,
   assertUsablePaymentMethodForCheckout,
 };

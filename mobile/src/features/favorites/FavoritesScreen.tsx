@@ -2,7 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
+  FlatList,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -13,10 +13,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { RemoteImage } from '../../components/media/RemoteImage';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { FavoriteProduct, favoritesApi } from './favoritesApi';
 
@@ -106,10 +108,12 @@ const FavoritesScreen = () => {
     [isAuthenticated, page, runWithAuth, session?.accessToken, submittedKeyword],
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
+  useStaleFocusEffect(
+    () => {
       void loadFavorites();
-    }, [loadFavorites]),
+    },
+    [loadFavorites],
+    { staleMs: 30 * 1000 },
   );
 
   const handleSearchSubmit = () => {
@@ -151,23 +155,23 @@ const FavoritesScreen = () => {
     navigation.navigate('ProductDetail', { productId: product._id });
   };
 
-  const renderProductCard = (product: FavoriteProduct) => {
-    const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
-    const originalPrice = product.originalPrice ?? product.price;
-    const isRemoving = removingProductId === product._id;
-    const favoritedDate = formatFavoriteDate(product.favoritedAt);
+  const renderProductCard = React.useCallback(
+    ({ item: product }: { item: FavoriteProduct }) => {
+      const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
+      const originalPrice = product.originalPrice ?? product.price;
+      const isRemoving = removingProductId === product._id;
+      const favoritedDate = formatFavoriteDate(product.favoritedAt);
 
-    return (
-      <TouchableOpacity
-        key={product._id}
-        style={styles.card}
-        onPress={() => handleProductPress(product)}
-        activeOpacity={0.86}
-        accessibilityLabel={`Xem ${product.name}`}
+      return (
+        <TouchableOpacity
+          style={styles.card}
+          onPress={() => handleProductPress(product)}
+          activeOpacity={0.86}
+          accessibilityLabel={`Xem ${product.name}`}
       >
         <View style={styles.imageWrap}>
           {imageUri ? (
-            <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+            <RemoteImage uri={imageUri} style={styles.image} recyclingKey={product._id} />
           ) : (
             <View style={styles.placeholder}>
               <MaterialCommunityIcons name="tshirt-crew-outline" size={34} color={colors.brand} />
@@ -232,7 +236,9 @@ const FavoritesScreen = () => {
         </View>
       </TouchableOpacity>
     );
-  };
+    },
+    [handleProductPress, removingProductId],
+  );
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -245,8 +251,7 @@ const FavoritesScreen = () => {
         <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
       </TouchableOpacity>
       <View style={styles.headerTitleBlock}>
-        <Text style={styles.headerBrand}>FASHIONISTA</Text>
-        <Text style={styles.headerTitle}>Yêu thích</Text>
+        <Text style={styles.headerTitle}>Sản phẩm yêu thích</Text>
       </View>
       <TouchableOpacity
         style={styles.headerButton}
@@ -330,9 +335,18 @@ const FavoritesScreen = () => {
 
         {items.length ? (
           <>
-            <View style={styles.grid}>
-              {items.map(renderProductCard)}
-            </View>
+            <FlatList
+              data={items}
+              keyExtractor={(item) => item._id}
+              renderItem={renderProductCard}
+              numColumns={2}
+              columnWrapperStyle={styles.grid}
+              contentContainerStyle={styles.gridContent}
+              scrollEnabled={false}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+            />
 
             {pagination.totalPages > 1 ? (
               <View style={styles.pagination}>
@@ -414,21 +428,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    minHeight: 76,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
+    ...brandedHeaderStyles.container,
   },
   headerButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...brandedHeaderStyles.action,
   },
   headerTitleBlock: {
-    flex: 1,
+    ...brandedHeaderStyles.titleGroup,
     alignItems: 'center',
   },
   headerBrand: {
@@ -438,10 +444,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -479,12 +484,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  gridContent: {
+    paddingBottom: spacing.md,
   },
   card: {
-    width: '47.5%',
+    flex: 1,
+    minWidth: 0,
     borderRadius: radii.sm,
     backgroundColor: colors.surface,
     overflow: 'hidden',

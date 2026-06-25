@@ -1,4 +1,5 @@
 import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
+import type { OrderShippingWebhookStatus } from './order.constants';
 
 export interface ShippingAddressInput {
   customerName: string;
@@ -18,6 +19,7 @@ export interface ShippingAddressInput {
 }
 
 export interface CreateOrderInput {
+  idempotencyKey?: string;
   cartItemIds: string[];
   addressId?: string;
   shippingAddress?: ShippingAddressInput;
@@ -48,6 +50,7 @@ export interface OrderListQueryInput {
   keyword?: string;
   from?: Date;
   to?: Date;
+  paymentDeadlineBefore?: Date;
   page?: number;
   limit?: number;
 }
@@ -55,6 +58,12 @@ export interface OrderListQueryInput {
 export interface UpdateOrderStatusInput {
   status: OrderStatus;
   reason?: string;
+}
+
+export interface AdjustOrderPaymentStatusInput {
+  paymentStatus: OrderPaymentStatus;
+  reason: string;
+  actorId: string;
 }
 
 export interface OrderEvidenceImageInput {
@@ -103,14 +112,7 @@ export interface UpdateOrderShippingInput {
   rawShipment?: Record<string, unknown> | null;
 }
 
-export type SimulatedShippingWebhookStatus =
-  | 'ready'
-  | 'picking'
-  | 'picked'
-  | 'shipping'
-  | 'delivered'
-  | 'failed'
-  | 'cancelled';
+export type SimulatedShippingWebhookStatus = OrderShippingWebhookStatus;
 
 export interface SimulatedShippingWebhookInput {
   orderId?: string;

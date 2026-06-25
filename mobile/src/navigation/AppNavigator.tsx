@@ -22,6 +22,8 @@ import FaqListScreen from '../features/support/FaqListScreen';
 import SupportTicketCreateScreen from '../features/support/SupportTicketCreateScreen';
 import SupportTicketListScreen from '../features/support/SupportTicketListScreen';
 import SupportTicketDetailScreen from '../features/support/SupportTicketDetailScreen';
+import ReviewComposerScreen from '../features/reviews/ReviewComposerScreen';
+import MyReviewsScreen from '../features/reviews/MyReviewsScreen';
 import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
 
 export type RootStackParamList = {
@@ -63,6 +65,24 @@ export type RootStackParamList = {
   OrderDetail: {
     orderId: string;
   };
+  ReviewComposer: {
+    orderId: string;
+    orderItemId: string;
+    orderCode: string;
+    productName: string;
+    productImage: string;
+    variantLabel: string;
+    editReviewId?: string;
+    editRating?: number;
+    editComment?: string;
+    editCriteria?: {
+      productQuality?: number;
+      descriptionMatch?: number;
+      sizeFit?: 'small' | 'true_to_size' | 'large';
+    } | null;
+    editImages?: Array<{ _id: string | null; url: string; thumbnailUrl: string }>;
+  };
+  MyReviews: undefined;
   SupportHome: undefined;
   FaqList: { category?: string } | undefined;
   SupportTicketCreate: {
@@ -93,7 +113,7 @@ const AppNavigator = () => {
   return (
     <Stack.Navigator
       initialRouteName="Home"
-      screenOptions={{ headerShown: false }}
+      screenOptions={{ headerShown: false, freezeOnBlur: true }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="ProductList" component={ProductListScreen} />
@@ -107,6 +127,8 @@ const AppNavigator = () => {
       <Stack.Screen name="Membership" component={MembershipScreen} />
       <Stack.Screen name="Orders" component={OrderListScreen} />
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
+      <Stack.Screen name="ReviewComposer" component={ReviewComposerScreen} />
+      <Stack.Screen name="MyReviews" component={MyReviewsScreen} />
       <Stack.Screen name="SupportHome" component={SupportHomeScreen} />
       <Stack.Screen name="FaqList" component={FaqListScreen} />
       <Stack.Screen name="SupportTicketCreate" component={SupportTicketCreateScreen} />

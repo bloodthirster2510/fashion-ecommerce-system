@@ -5,6 +5,7 @@ export type CreatePaymentMethodInput = {
   provider?: string;
   displayName?: string;
   maskedInfo?: string | null;
+  accountNumber?: string | null;
   bankCode?: string | null;
   bankName?: string | null;
   isDefault?: boolean;
@@ -14,6 +15,7 @@ export type CreatePaymentMethodInput = {
 export type UpdatePaymentMethodInput = {
   displayName?: string;
   maskedInfo?: string | null;
+  accountNumber?: string | null;
   bankCode?: string | null;
   bankName?: string | null;
   status?: PaymentMethodStatus;

@@ -18,7 +18,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import {
   paymentMethodsApi,
@@ -146,7 +146,8 @@ const getMethodMeta = (method: PaymentMethodRecord) => {
   ].filter(Boolean).join(' / ') || method.provider;
 };
 
-const getFormTitle = () => 'Thêm thông tin hoàn tiền';
+const getFormTitle = (isEditing: boolean) =>
+  isEditing ? 'Chỉnh sửa thông tin hoàn tiền' : 'Thêm thông tin hoàn tiền';
 
 const getMaskedAccount = (value: string) => {
   const normalizedValue = value.replace(/\s+/g, '');
@@ -164,6 +165,7 @@ const PaymentMethodsScreen = () => {
   const [pendingMethodId, setPendingMethodId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [isAddingMethod, setIsAddingMethod] = React.useState(false);
+  const [editingMethod, setEditingMethod] = React.useState<PaymentMethodRecord | null>(null);
   const [bankCode, setBankCode] = React.useState('');
   const [bankName, setBankName] = React.useState('');
   const [isBankPickerOpen, setIsBankPickerOpen] = React.useState(false);
@@ -235,49 +237,94 @@ const PaymentMethodsScreen = () => {
     setDisplayName('');
     setAccountHolder('');
     setAccountNumber('');
+    setEditingMethod(null);
   };
 
-  const handleCreatePaymentMethod = async () => {
+  const openAddForm = () => {
+    resetForm();
+    setIsAddingMethod(true);
+  };
+
+  const openEditForm = (method: PaymentMethodRecord) => {
+    const option = BANK_OPTIONS.find((bank) => bank.code === method.bankCode);
+    setEditingMethod(method);
+    setBankCode(method.bankCode ?? '');
+    setBankName(option?.shortName ?? method.bankName ?? '');
+    setBankSearchText('');
+    setIsBankPickerOpen(false);
+    setDisplayName(method.displayName);
+    setAccountHolder(getMetadataText(method, 'accountHolder') ?? '');
+    setAccountNumber('');
+    setIsAddingMethod(true);
+    scrollFormFieldIntoView();
+  };
+
+  const handleSavePaymentMethod = async () => {
     if (!session?.accessToken) {
       navigation.navigate('Login');
       return;
     }
 
     const normalizedAccountNumber = accountNumber.replace(/\s+/g, '');
+    const isEditing = Boolean(editingMethod);
     if (!selectedBank) {
       Alert.alert('Chọn ngân hàng', 'Bạn chọn ngân hàng phát hành thẻ hoặc tài khoản nhận hoàn tiền nha.');
       return;
     }
 
-    if (!accountHolder.trim() || normalizedAccountNumber.length < 4) {
+    if (!accountHolder.trim() || (!isEditing && normalizedAccountNumber.length < 4)) {
       Alert.alert('Thiếu thông tin', 'Bạn nhập tên chủ thẻ/tài khoản và số thẻ/tài khoản nhận hoàn tiền nha.');
       return;
     }
 
+    if (normalizedAccountNumber && normalizedAccountNumber.length < 4) {
+      Alert.alert('Số tài khoản chưa hợp lệ', 'Số thẻ/tài khoản nhận hoàn tiền cần ít nhất 4 chữ số.');
+      return;
+    }
+
+    const accountLast4 =
+      normalizedAccountNumber.slice(-4) ||
+      (editingMethod ? getMetadataText(editingMethod, 'accountNumberLast4') : '') ||
+      '';
+    const commonPayload = {
+      bankCode: selectedBank.code,
+      bankName: selectedBank.shortName,
+      displayName: displayName.trim() || undefined,
+      ...(normalizedAccountNumber
+        ? {
+            maskedInfo: getMaskedAccount(normalizedAccountNumber),
+            accountNumber: normalizedAccountNumber,
+          }
+        : {}),
+      metadata: {
+        accountHolder: accountHolder.trim(),
+        ...(accountLast4 ? { accountNumberLast4: accountLast4 } : {}),
+        bankFullName: selectedBank.name,
+        refundDestination: true,
+      },
+    };
+
     try {
       setIsSaving(true);
-      await runWithAuth((accessToken) =>
-        paymentMethodsApi.create(accessToken, {
-          type: 'BANK',
-          bankCode: selectedBank.code,
-          bankName: selectedBank.shortName,
-          displayName: displayName.trim() || undefined,
-          maskedInfo: getMaskedAccount(normalizedAccountNumber),
-          isDefault: defaultableMethods.length === 0,
-          metadata: {
-            accountHolder: accountHolder.trim(),
-            accountNumberLast4: normalizedAccountNumber.slice(-4),
-            bankFullName: selectedBank.name,
-            refundDestination: true,
-          },
-        }),
-      );
+      if (editingMethod) {
+        await runWithAuth((accessToken) =>
+          paymentMethodsApi.update(accessToken, editingMethod._id, commonPayload),
+        );
+      } else {
+        await runWithAuth((accessToken) =>
+          paymentMethodsApi.create(accessToken, {
+            type: 'BANK',
+            ...commonPayload,
+            isDefault: defaultableMethods.length === 0,
+          }),
+        );
+      }
 
       resetForm();
       setIsAddingMethod(false);
       await loadMethods(true);
-    } catch (createError) {
-      Alert.alert('Chưa lưu được phương thức', getErrorMessage(createError));
+    } catch (saveError) {
+      Alert.alert('Chưa lưu được phương thức', getErrorMessage(saveError));
     } finally {
       setIsSaving(false);
     }
@@ -537,6 +584,15 @@ const PaymentMethodsScreen = () => {
                 </TouchableOpacity>
               ) : null}
               <TouchableOpacity
+                style={styles.secondaryAction}
+                onPress={() => openEditForm(method)}
+                activeOpacity={0.84}
+                accessibilityLabel={`Chỉnh sửa ${method.displayName}`}
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={17} color={colors.brand} />
+                <Text style={styles.secondaryActionText}>Sửa</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.dangerAction}
                 onPress={() => handleRemove(method)}
                 activeOpacity={0.84}
@@ -591,7 +647,7 @@ const PaymentMethodsScreen = () => {
       return (
         <TouchableOpacity
           style={styles.addPanel}
-          onPress={() => setIsAddingMethod(true)}
+          onPress={openAddForm}
           activeOpacity={0.86}
         >
           <View style={styles.addIcon}>
@@ -606,13 +662,17 @@ const PaymentMethodsScreen = () => {
       );
     }
 
+    const isEditing = Boolean(editingMethod);
+
     return (
       <View style={styles.formCard}>
         <View style={styles.formHeader}>
           <View>
-            <Text style={styles.formTitle}>{getFormTitle()}</Text>
+            <Text style={styles.formTitle}>{getFormTitle(isEditing)}</Text>
             <Text style={styles.formSubtitle}>
-              Chọn ngân hàng và nhập thẻ/tài khoản nhận hoàn tiền.
+              {isEditing
+                ? 'Sửa thông tin nhận hoàn tiền. Nếu đổi số tài khoản, shop sẽ xác minh lại trước khi sử dụng.'
+                : 'Chọn ngân hàng và nhập thẻ/tài khoản nhận hoàn tiền.'}
             </Text>
           </View>
           <TouchableOpacity
@@ -622,7 +682,7 @@ const PaymentMethodsScreen = () => {
               resetForm();
             }}
             activeOpacity={0.84}
-            accessibilityLabel="Đóng form thêm phương thức"
+            accessibilityLabel="Đóng form phương thức thanh toán"
           >
             <MaterialCommunityIcons name="close" size={20} color={colors.textMuted} />
           </TouchableOpacity>
@@ -648,7 +708,7 @@ const PaymentMethodsScreen = () => {
           label: 'Số thẻ/tài khoản',
           value: accountNumber,
           onChangeText: setAccountNumber,
-          placeholder: 'Số thẻ hoặc tài khoản nhận hoàn tiền',
+          placeholder: isEditing ? 'Để trống nếu không đổi số tài khoản' : 'Số thẻ hoặc tài khoản nhận hoàn tiền',
           keyboardType: 'number-pad',
           onFocus: scrollFormFieldIntoView,
         })}
@@ -660,13 +720,15 @@ const PaymentMethodsScreen = () => {
             color={colors.goldText}
           />
           <Text style={[styles.infoText, styles.infoTextWarning]}>
-            Chỉ hiển thị số đã che. Thông tin hoàn tiền sẽ chờ admin xác minh trước khi sử dụng.
+            {isEditing
+              ? 'Nếu đổi ngân hàng, chủ tài khoản hoặc số tài khoản, thông tin sẽ chuyển về chờ admin xác minh.'
+              : 'Chỉ hiển thị số đã che. Thông tin hoàn tiền sẽ chờ admin xác minh trước khi sử dụng.'}
           </Text>
         </View>
 
         <TouchableOpacity
           style={[styles.primaryButton, isSaving && styles.primaryButtonDisabled]}
-          onPress={() => void handleCreatePaymentMethod()}
+          onPress={() => void handleSavePaymentMethod()}
           disabled={isSaving}
           activeOpacity={0.86}
         >
@@ -676,7 +738,7 @@ const PaymentMethodsScreen = () => {
             <>
               <MaterialCommunityIcons name="content-save-outline" size={19} color={colors.white} />
               <Text style={styles.primaryButtonText}>
-                Lưu thông tin hoàn tiền
+                {isEditing ? 'Lưu thay đổi' : 'Lưu thông tin hoàn tiền'}
               </Text>
             </>
           )}
@@ -774,8 +836,7 @@ const PaymentMethodsScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
-          <Text style={styles.headerTitle}>Hoàn tiền</Text>
+          <Text style={styles.headerTitle}>Phương thức thanh toán</Text>
           <Text style={styles.headerSubtitle}>Thẻ và tài khoản nhận hoàn tiền</Text>
         </View>
         <TouchableOpacity
@@ -808,27 +869,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    minHeight: 92,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...brandedHeaderStyles.container,
+    minHeight: 108,
   },
   headerAction: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    ...brandedHeaderStyles.action,
   },
   headerTitleGroup: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: 12,
+    ...brandedHeaderStyles.titleGroup,
+    alignItems: 'center',
   },
   brand: {
     color: colors.brandMist,
@@ -837,17 +886,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 25,
-    lineHeight: 32,
-    fontWeight: '800',
-    marginTop: 2,
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
+    textAlign: 'center',
   },
   headerSubtitle: {
     color: colors.brandPale,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+    textAlign: 'center',
   },
   content: {
     flex: 1,

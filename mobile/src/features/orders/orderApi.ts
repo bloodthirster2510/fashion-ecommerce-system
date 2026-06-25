@@ -9,6 +9,7 @@ export type OrderStatus =
   | 'packed'
   | 'shipping'
   | 'delivered'
+  | 'completed'
   | 'cancelled'
   | 'return_requested'
   | 'returned';
@@ -69,6 +70,7 @@ export type OrderReturnRequest = {
   reason: string;
   imageUrls?: string[];
   status: OrderReturnRequestStatus;
+  previousOrderStatus?: Extract<OrderStatus, 'delivered' | 'completed'> | null;
   requestedAt: string;
   reviewedAt?: string | null;
   reviewedBy?: string | null;
@@ -76,6 +78,7 @@ export type OrderReturnRequest = {
 };
 
 export type OrderCancellation = {
+  kind?: 'customer' | 'admin' | 'shipping' | 'payment-timeout' | null;
   reason?: string | null;
   imageUrls?: string[];
   cancelledAt: string;
@@ -106,12 +109,15 @@ export type CustomerOrder = {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: string | null;
   paymentStatus: OrderPaymentStatus;
+  paymentDeadlineAt?: string | null;
+  paymentDeadlineWarningSentAt?: string | null;
   returnRequest?: OrderReturnRequest | null;
   cancellation?: OrderCancellation | null;
   shipping?: OrderShipping | null;
   shippingAddress: OrderShippingAddress;
   orderNote?: string | null;
   deliveredAt?: string | null;
+  receivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

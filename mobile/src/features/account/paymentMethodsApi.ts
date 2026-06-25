@@ -28,6 +28,17 @@ export type CreatePaymentMethodPayload = {
   provider?: string;
   displayName?: string;
   maskedInfo?: string | null;
+  accountNumber?: string | null;
+  bankCode?: string | null;
+  bankName?: string | null;
+  isDefault?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type UpdatePaymentMethodPayload = {
+  displayName?: string;
+  maskedInfo?: string | null;
+  accountNumber?: string | null;
   bankCode?: string | null;
   bankName?: string | null;
   isDefault?: boolean;
@@ -93,6 +104,11 @@ export const paymentMethodsApi = {
   list: (token: string) => request<PaymentMethodRecord[]>('/payment-methods', token),
   create: (token: string, payload: CreatePaymentMethodPayload) =>
     request<PaymentMethodRecord>('/payment-methods', token, { method: 'POST', body: payload }),
+  update: (token: string, id: string, payload: UpdatePaymentMethodPayload) =>
+    request<PaymentMethodRecord>(`/payment-methods/${encodeURIComponent(id)}`, token, {
+      method: 'PATCH',
+      body: payload,
+    }),
   setDefault: (token: string, id: string) =>
     request<PaymentMethodRecord>(`/payment-methods/${encodeURIComponent(id)}/default`, token, {
       method: 'PATCH',

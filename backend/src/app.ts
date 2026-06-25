@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -9,6 +10,10 @@ import {
 } from './middlewares/security.middleware';
 
 const app = express();
+const trustedProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+if (Number.isInteger(trustedProxyHops) && trustedProxyHops > 0) {
+  app.set('trust proxy', trustedProxyHops);
+}
 const defaultBodyLimit = process.env.REQUEST_BODY_LIMIT?.trim() || '2mb';
 const orderEvidenceBodyLimit = process.env.ORDER_EVIDENCE_BODY_LIMIT?.trim() || '12mb';
 

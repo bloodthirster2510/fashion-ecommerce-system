@@ -2,9 +2,10 @@ import React from 'react';
 import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { supportApi } from './supportApi';
 import type { FaqArticle, SupportSummary } from './support.types';
@@ -34,7 +35,7 @@ export default function SupportHomeScreen() {
     runWithAuth((token) => supportApi.getSummary(token)).then(setSummary).catch(() => setSummary(null));
   }, [runWithAuth, search]);
 
-  useFocusEffect(React.useCallback(() => { load(); }, [load]));
+  useStaleFocusEffect(() => { load(); }, [load], { staleMs: 60 * 1000 });
 
   const enableNotifications = async () => {
     setError('');
@@ -52,7 +53,8 @@ export default function SupportHomeScreen() {
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
       <View style={s.header}>
         <TouchableOpacity style={s.back} onPress={() => navigation.goBack()} accessibilityLabel="Trở về"><MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} /></TouchableOpacity>
-        <Text style={s.headerTitle}>Hỗ trợ khách hàng</Text>
+        <Text style={s.headerTitle}>Hỗ trợ</Text>
+        <View style={s.back} />
       </View>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <View style={s.hero}><Text style={s.heroTitle}>Xin chào, chúng tôi có thể giúp gì?</Text><Text style={s.heroText}>Tìm câu trả lời nhanh hoặc gửi yêu cầu để đội ngũ CSKH hỗ trợ bạn.</Text></View>

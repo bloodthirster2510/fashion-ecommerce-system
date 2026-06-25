@@ -262,6 +262,18 @@
   background: #f7fafc;
 }
 
+.admin-orders-page .admin-status-pill.is-deadline-warning {
+  border-color: #efc77e;
+  color: #875814;
+  background: #fff7df;
+}
+
+.admin-orders-page .admin-status-pill.is-deadline-critical {
+  border-color: #efaa9a;
+  color: #9b351e;
+  background: #fff0ec;
+}
+
 .admin-payment-sections {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -542,6 +554,15 @@
   background: #fbfcfd;
 }
 
+.admin-order-row.is-realtime-updated td {
+  animation: admin-order-realtime-flash 1.2s ease-out;
+}
+
+@keyframes admin-order-realtime-flash {
+  0% { background: #e8f7ee; }
+  100% { background: transparent; }
+}
+
 .admin-order-row.is-payment-risk td:first-child {
   box-shadow: inset 4px 0 0 #c65d72;
 }
@@ -579,6 +600,53 @@
 .admin-shipping-cell strong {
   color: var(--admin-text);
   font-weight: 900;
+}
+
+.admin-code-with-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin-code-with-copy > strong,
+.admin-code-with-copy > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-code-with-copy.is-subtle {
+  color: var(--admin-muted);
+}
+
+.admin-copy-button {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d8e1e9;
+  border-radius: 999px;
+  color: var(--admin-accent-dark);
+  background: #fff;
+  cursor: pointer;
+}
+
+.admin-copy-button:hover,
+.admin-copy-button:focus-visible {
+  border-color: var(--admin-accent);
+  color: var(--admin-accent-dark);
+  background: #edf5fa;
+}
+
+.admin-copy-button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
 }
 
 .admin-order-status-cell {
@@ -729,6 +797,7 @@
 
 .admin-order-section-summary {
   grid-column: 1 / -1;
+  order: 0;
 }
 
 .admin-order-section-main {
@@ -737,6 +806,41 @@
 
 .admin-order-section-side {
   grid-column: 2;
+}
+
+.admin-order-section-issue {
+  order: 1;
+}
+
+.admin-order-section-actions {
+  order: 2;
+  border-color: #d6e4ee;
+  background: #f8fbfd;
+}
+
+.admin-order-section-refund {
+  order: 3;
+}
+
+.admin-order-section-shipping {
+  order: 4;
+}
+
+.admin-order-section-items {
+  order: 5;
+}
+
+.admin-order-section-payments {
+  order: 6;
+}
+
+.admin-order-section-payment-adjust {
+  order: 7;
+}
+
+.admin-order-section-audit {
+  grid-column: 1 / -1;
+  order: 8;
 }
 
 .admin-order-section-side .admin-drawer-actions {
@@ -896,6 +1000,23 @@
 .admin-payment-timeline {
   display: grid;
   gap: 10px;
+}
+
+.admin-audit-log-more-button {
+  min-height: 38px;
+  border: 1px dashed #b8c8d5;
+  border-radius: 9px;
+  color: #34566f;
+  background: #f8fbfd;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-audit-log-more-button:hover,
+.admin-audit-log-more-button:focus-visible {
+  border-color: var(--admin-accent);
+  background: #eef6fb;
 }
 
 .admin-return-request-card {
@@ -1168,6 +1289,124 @@
   line-height: 1.45;
 }
 
+.admin-refund-bank-note.is-caution {
+  border-color: #cbdde8;
+  color: #48677a;
+  background: #f4f9fc;
+}
+
+.admin-refund-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-refund-panel-header,
+.admin-refund-transfer-content,
+.admin-refund-account-card {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid #d7e5dc;
+  border-radius: 10px;
+  background: #f6fbf7;
+}
+
+.admin-refund-panel-header span,
+.admin-refund-transfer-content > span,
+.admin-refund-account-card > div > span {
+  color: #446454;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.admin-refund-panel-header strong {
+  color: #1f6b43;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.admin-refund-transfer-content strong {
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #1f4f39;
+  background: #e6f4ea;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.admin-refund-account-card {
+  border-color: #cfe2dc;
+  background: #fff;
+}
+
+.admin-refund-account-card > div > strong {
+  color: var(--admin-text);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.admin-refund-account-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.admin-refund-account-card dl div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-refund-account-card dt {
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-refund-account-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.admin-refund-account-number {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-inline-copy-button {
+  width: fit-content;
+  min-height: 30px;
+  border: 1px solid #bfd5c7;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #1f6b43;
+  background: #eff8f1;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-inline-copy-button:hover:not(:disabled),
+.admin-inline-copy-button:focus-visible:not(:disabled) {
+  border-color: #78b58c;
+  background: #e3f2e7;
+}
+
+.admin-inline-copy-button:disabled {
+  cursor: not-allowed;
+  color: #8aa096;
+  background: #f4f7f5;
+}
+
 .admin-payment-method-actions {
   display: flex;
   align-items: center;
@@ -1388,6 +1627,30 @@
   color: var(--admin-text);
   font-size: 13px;
   font-weight: 850;
+}
+
+.admin-reason-preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.admin-reason-preset-list button {
+  min-height: 32px;
+  border: 1px solid #cfdbe5;
+  border-radius: 999px;
+  padding: 0 11px;
+  color: #34566f;
+  background: #f5f9fc;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.admin-reason-preset-list button:hover:not(:disabled),
+.admin-reason-preset-list button:focus-visible:not(:disabled) {
+  border-color: var(--admin-accent);
+  background: #eef6fb;
 }
 
 .admin-order-action-grid input,

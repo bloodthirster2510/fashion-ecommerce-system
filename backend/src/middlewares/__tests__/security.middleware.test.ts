@@ -3,10 +3,12 @@ import {
   createApiRateLimitMiddleware,
   createCouponValidateRateLimitMiddleware,
   createRateLimitMiddleware,
+  createReviewCreateRateLimitMiddleware,
   createSecurityHeadersMiddleware,
   getAllowedCorsOrigins,
   isCorsOriginAllowed,
 } from '../security.middleware';
+import { RateLimitBucket } from '../../database/models/rate-limit-bucket.model';
 
 type MockResponse = Response & {
   setHeader: jest.Mock;
@@ -151,6 +153,24 @@ describe('security middleware', () => {
     expect(otherUserNext).toHaveBeenCalledTimes(1);
   });
 
+  it('rate limits review creation per authenticated user across IP addresses', () => {
+    const limiter = createReviewCreateRateLimitMiddleware({
+      REVIEW_CREATE_RATE_LIMIT_WINDOW_MS: '1000',
+      REVIEW_CREATE_RATE_LIMIT_MAX: '1',
+    });
+    const firstRequest = createAuthenticatedRequest('review-user', '203.0.113.10');
+    firstRequest.originalUrl = '/api/reviews';
+    const firstNext: NextFunction = jest.fn();
+    limiter(firstRequest, createMockResponse(), firstNext);
+    expect(firstNext).toHaveBeenCalledTimes(1);
+
+    const blockedRequest = createAuthenticatedRequest('review-user', '203.0.113.11');
+    blockedRequest.originalUrl = '/api/reviews';
+    const blockedResponse = createMockResponse();
+    limiter(blockedRequest, blockedResponse, jest.fn());
+    expect(blockedResponse.status).toHaveBeenCalledWith(429);
+  });
+
   it('rate limits API requests per client across routes', () => {
     const limiter = createApiRateLimitMiddleware({
       API_RATE_LIMIT_WINDOW_MS: '1000',
@@ -180,5 +200,36 @@ describe('security middleware', () => {
     const otherClientNext: NextFunction = jest.fn();
     limiter(createMockRequest('203.0.113.11'), createMockResponse(), otherClientNext);
     expect(otherClientNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not trust a client-supplied forwarded IP without trusted proxy configuration', () => {
+    const limiter = createRateLimitMiddleware({ windowMs: 1_000, max: 1 });
+    const firstRequest = createMockRequest('203.0.113.10');
+    firstRequest.headers['x-forwarded-for'] = '198.51.100.1';
+    limiter(firstRequest, createMockResponse(), jest.fn());
+
+    const secondRequest = createMockRequest('203.0.113.10');
+    secondRequest.headers['x-forwarded-for'] = '198.51.100.2';
+    const response = createMockResponse();
+    limiter(secondRequest, response, jest.fn());
+
+    expect(response.status).toHaveBeenCalledWith(429);
+  });
+
+  it('uses the shared MongoDB rate-limit store in production', async () => {
+    const lean = jest.fn().mockResolvedValue({ count: 1, resetAt: new Date(Date.now() + 1_000) });
+    const findOneAndUpdate = jest.spyOn(RateLimitBucket, 'findOneAndUpdate')
+      .mockReturnValue({ lean } as never);
+    const limiter = createApiRateLimitMiddleware({
+      NODE_ENV: 'production',
+      API_RATE_LIMIT_WINDOW_MS: '1000',
+      API_RATE_LIMIT_MAX: '2',
+    });
+    const next: NextFunction = jest.fn();
+
+    await limiter(createMockRequest(), createMockResponse(), next);
+
+    expect(findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });

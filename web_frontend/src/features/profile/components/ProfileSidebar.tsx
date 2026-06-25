@@ -15,6 +15,7 @@ const menuItems = [
   { key: 'profile', icon: <UserOutlined />, label: 'Thông tin cá nhân' },
   { key: 'cart', icon: <ShoppingCartOutlined />, label: 'Giỏ hàng' },
   { key: 'orders', icon: <HomeOutlined />, label: 'Đơn hàng của tôi' },
+  { key: 'reviews', icon: <StarOutlined />, label: 'Đánh giá của tôi' },
   { key: 'favorites', icon: <HeartOutlined />, label: 'Sản phẩm yêu thích' },
   { key: 'styling', icon: <SkinOutlined />, label: 'Phòng phối đồ ảo' },
   { key: 'ranking', icon: <StarOutlined />, label: 'Hạng thành viên' },
@@ -25,6 +26,8 @@ const menuItems = [
 
 const menuPaths: Record<string, string> = {
   profile: '/account',
+  orders: '/account/orders',
+  reviews: '/account/reviews',
   support: '/account/support',
 }
 

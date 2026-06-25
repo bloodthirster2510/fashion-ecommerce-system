@@ -90,7 +90,7 @@ export const seedReviewsForExistingOrders = async () => {
 
   for (const order of orders) {
     for (const item of order.order_list) {
-      const key = `${order.user_id}:${item.productId}`;
+      const key = `${order._id}:${item._id}`;
       if (uniqueKeys.has(key)) continue;
       uniqueKeys.add(key);
       candidates.push({ userId: order.user_id, productId: item.productId, orderId: order._id, orderItem: item });
@@ -111,7 +111,7 @@ export const seedReviewsForExistingOrders = async () => {
     const template = templates[index % templates.length];
     const repliedAt = template.reply ? new Date(Date.now() - index * 3_600_000) : null;
     const result = await Review.updateOne(
-      { user_id: candidate.userId, product_id: candidate.productId },
+      { order_id: candidate.orderId, order_item_id: candidate.orderItem._id },
       {
         $setOnInsert: {
           user_id: candidate.userId,
@@ -120,7 +120,15 @@ export const seedReviewsForExistingOrders = async () => {
           order_item_id: candidate.orderItem._id,
           rating: template.rating,
           comment: template.comment,
-          images: template.includeImage && candidate.orderItem.image ? [candidate.orderItem.image] : [],
+          images: template.includeImage && candidate.orderItem.image ? [{
+            url: candidate.orderItem.image,
+            thumbnailUrl: candidate.orderItem.image,
+            publicId: null,
+            mimeType: 'image/jpeg',
+            size: 0,
+            width: null,
+            height: null,
+          }] : [],
           moderationStatus: template.moderationStatus,
           moderationReasons: template.moderationReasons,
           adminReply: template.reply ?? null,

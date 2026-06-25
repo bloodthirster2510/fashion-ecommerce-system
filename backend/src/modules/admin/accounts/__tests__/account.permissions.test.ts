@@ -12,4 +12,17 @@ describe('account permissions', () => {
       'support.reply',
     ]);
   });
+
+  it('separates review permissions and implies read access for review actions', () => {
+    expect(STAFF_PERMISSION_VALUES).toEqual(expect.arrayContaining([
+      'reviews.read',
+      'reviews.moderate',
+      'reviews.reply',
+    ]));
+    expect(expandImpliedStaffPermissions(['reviews.moderate', 'reviews.reply'])).toEqual([
+      'reviews.moderate',
+      'reviews.reply',
+      'reviews.read',
+    ]);
+  });
 });

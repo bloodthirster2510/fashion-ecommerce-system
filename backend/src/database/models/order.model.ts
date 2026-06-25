@@ -1,16 +1,14 @@
 import { Schema, model, models, type Document, type Types } from 'mongoose';
+import {
+  ORDER_STATUSES,
+  PAYMENT_METHODS,
+  PAYMENT_STATUSES,
+  type OrderPaymentMethod,
+  type OrderPaymentStatus,
+  type OrderStatus,
+} from '../../modules/orders/order.constants';
 
-export type OrderStatus =
-  | 'confirmed'
-  | 'packed'
-  | 'shipping'
-  | 'delivered'
-  | 'cancelled'
-  | 'return_requested'
-  | 'returned';
-
-export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
-export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+export type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../modules/orders/order.constants';
 export type OrderReturnRequestStatus = 'requested' | 'approved' | 'rejected';
 
 export interface IOrderItem {
@@ -64,12 +62,14 @@ export interface IOrderShipping {
   estimatedDeliveryDate?: Date | null;
   rawQuote?: Record<string, unknown> | null;
   rawShipment?: Record<string, unknown> | null;
+  lastWebhookEventId?: string | null;
 }
 
 export interface IOrderReturnRequest {
   reason: string;
   imageUrls?: string[];
   status: OrderReturnRequestStatus;
+  previousOrderStatus?: Extract<OrderStatus, 'delivered' | 'completed'> | null;
   requestedAt: Date;
   reviewedAt?: Date | null;
   reviewedBy?: Types.ObjectId | null;
@@ -77,6 +77,7 @@ export interface IOrderReturnRequest {
 }
 
 export interface IOrderCancellation {
+  kind?: 'customer' | 'admin' | 'shipping' | 'payment-timeout' | null;
   reason?: string | null;
   imageUrls?: string[];
   cancelledAt: Date;
@@ -94,6 +95,7 @@ export interface IOrderLoyaltyRuleSnapshot {
 }
 
 export interface IOrder extends Document {
+  idempotencyKey?: string | null;
   orderCode: string;
   invoiceCode?: string | null;
   user_id: Types.ObjectId;
@@ -119,7 +121,10 @@ export interface IOrder extends Document {
   paymentMethod: OrderPaymentMethod;
   paymentMethodId?: Types.ObjectId | null;
   paymentStatus: OrderPaymentStatus;
+  paymentDeadlineAt?: Date | null;
+  paymentDeadlineWarningSentAt?: Date | null;
   deliveredAt?: Date | null;
+  receivedAt?: Date | null;
   returnRequest?: IOrderReturnRequest | null;
   cancellation?: IOrderCancellation | null;
   shipping: IOrderShipping;
@@ -196,6 +201,7 @@ const orderShippingSchema = new Schema<IOrderShipping>(
     estimatedDeliveryDate: { type: Date, default: null },
     rawQuote: { type: Schema.Types.Mixed, default: null },
     rawShipment: { type: Schema.Types.Mixed, default: null },
+    lastWebhookEventId: { type: String, trim: true, default: null, maxlength: 128 },
   },
   { _id: false },
 );
@@ -213,6 +219,7 @@ const orderReturnRequestSchema = new Schema<IOrderReturnRequest>(
       required: true,
       default: 'requested',
     },
+    previousOrderStatus: { type: String, enum: ['delivered', 'completed'], default: null },
     requestedAt: { type: Date, required: true, default: Date.now },
     reviewedAt: { type: Date, default: null },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -223,6 +230,7 @@ const orderReturnRequestSchema = new Schema<IOrderReturnRequest>(
 
 const orderCancellationSchema = new Schema<IOrderCancellation>(
   {
+    kind: { type: String, enum: ['customer', 'admin', 'shipping', 'payment-timeout'], default: null },
     reason: { type: String, trim: true, default: null, maxlength: 500 },
     imageUrls: {
       type: [{ type: String, trim: true, maxlength: 500 }],
@@ -249,6 +257,7 @@ const orderLoyaltyRuleSnapshotSchema = new Schema<IOrderLoyaltyRuleSnapshot>(
 
 const orderSchema = new Schema<IOrder>(
   {
+    idempotencyKey: { type: String, trim: true, default: null, maxlength: 100 },
     orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
     invoiceCode: { type: String, trim: true, default: null, maxlength: 40 },
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -305,13 +314,13 @@ const orderSchema = new Schema<IOrder>(
     totalAmount: { type: Number, required: true, min: 0 },
     status: {
       type: String,
-      enum: ['confirmed', 'packed', 'shipping', 'delivered', 'cancelled', 'return_requested', 'returned'],
+      enum: ORDER_STATUSES,
       required: true,
       default: 'confirmed',
     },
     paymentMethod: {
       type: String,
-      enum: ['COD', 'VNPAY', 'MOMO', 'CARD', 'BANK'],
+      enum: PAYMENT_METHODS,
       required: true,
     },
     paymentMethodId: {
@@ -321,11 +330,14 @@ const orderSchema = new Schema<IOrder>(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'refunded'],
+      enum: PAYMENT_STATUSES,
       required: true,
       default: 'pending',
     },
+    paymentDeadlineAt: { type: Date, default: null },
+    paymentDeadlineWarningSentAt: { type: Date, default: null },
     deliveredAt: { type: Date, default: null },
+    receivedAt: { type: Date, default: null },
     returnRequest: { type: orderReturnRequestSchema, default: null },
     cancellation: { type: orderCancellationSchema, default: null },
     shipping: { type: orderShippingSchema, default: {} },
@@ -336,7 +348,12 @@ const orderSchema = new Schema<IOrder>(
 );
 
 orderSchema.index({ orderCode: 1 }, { unique: true });
+orderSchema.index(
+  { user_id: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);
 orderSchema.index({ user_id: 1, createdAt: -1 });
 orderSchema.index({ status: 1, paymentMethod: 1, createdAt: -1 });
+orderSchema.index({ status: 1, paymentStatus: 1, paymentDeadlineAt: 1 });
 
 export const Order = models.Order || model<IOrder>('Order', orderSchema);

@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
+import ShopNameLogo from '../branding/ShopNameLogo';
 
 type HeaderIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
@@ -11,13 +12,11 @@ type StorefrontHeaderProps = {
   menuAccessibilityLabel?: string;
   onProfilePress?: () => void;
   onFavoritesPress?: () => void;
-  onCartPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
   onImageSearchPress?: () => void;
   isAuthenticated?: boolean;
   userName?: string;
   avatarImage?: string | null;
-  cartBadgeCount?: number;
   profileBadgeCount?: number;
 };
 
@@ -27,18 +26,22 @@ const StorefrontHeader = ({
   menuAccessibilityLabel = 'Mở menu',
   onProfilePress,
   onFavoritesPress,
-  onCartPress,
   onSearchSubmit,
   onImageSearchPress,
   isAuthenticated,
   userName,
   avatarImage,
-  cartBadgeCount = 0,
   profileBadgeCount = 0,
 }: StorefrontHeaderProps) => {
   const [searchTerm, setSearchTerm] = React.useState('');
+  const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
   const avatarUri = avatarImage?.trim();
   const userInitial = userName?.trim().charAt(0).toUpperCase() || 'U';
+  const canShowAvatar = Boolean(avatarUri && /^https?:\/\//i.test(avatarUri) && !avatarLoadFailed);
+
+  React.useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUri]);
 
   const handleSearchSubmit = () => {
     const keyword = searchTerm.trim();
@@ -57,10 +60,12 @@ const StorefrontHeader = ({
           accessibilityLabel={menuAccessibilityLabel}
           activeOpacity={0.8}
         >
-          <MaterialCommunityIcons name={menuIcon} size={24} color={colors.white} />
+          <MaterialCommunityIcons name={menuIcon} size={26} color={colors.white} />
         </TouchableOpacity>
 
-        <Text style={styles.brand}>FASHIONISTA</Text>
+        <View style={styles.brand}>
+          <ShopNameLogo />
+        </View>
 
         <View style={styles.actions}>
           <TouchableOpacity
@@ -69,20 +74,7 @@ const StorefrontHeader = ({
             accessibilityLabel="Sản phẩm yêu thích"
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="heart-outline" size={23} color={colors.white} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={onCartPress}
-            accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
-            {cartBadgeCount > 0 ? (
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
-              </View>
-            ) : null}
+            <MaterialCommunityIcons name="heart-outline" size={25} color={colors.white} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconButton, isAuthenticated && styles.profileButton]}
@@ -91,13 +83,19 @@ const StorefrontHeader = ({
             activeOpacity={0.8}
           >
             {isAuthenticated ? (
-              avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              canShowAvatar ? (
+                <Image
+                  key={avatarUri}
+                  source={{ uri: avatarUri }}
+                  style={styles.avatarImage}
+                  resizeMode="cover"
+                  onError={() => setAvatarLoadFailed(true)}
+                />
               ) : (
                 <Text style={styles.avatarInitial}>{userInitial}</Text>
               )
             ) : (
-              <MaterialCommunityIcons name="account-outline" size={23} color={colors.white} />
+              <MaterialCommunityIcons name="account-outline" size={25} color={colors.white} />
             )}
             {profileBadgeCount > 0 ? <View style={styles.notificationDot} /> : null}
           </TouchableOpacity>
@@ -105,7 +103,7 @@ const StorefrontHeader = ({
       </View>
 
       <View style={styles.searchRow}>
-        <MaterialCommunityIcons name="magnify" size={21} color={colors.textMuted} />
+        <MaterialCommunityIcons name="magnify" size={23} color={colors.textMuted} />
         <TextInput
           style={styles.searchInput}
           value={searchTerm}
@@ -121,7 +119,7 @@ const StorefrontHeader = ({
           accessibilityLabel="Tìm kiếm bằng hình ảnh"
           activeOpacity={0.8}
         >
-          <MaterialCommunityIcons name="camera-outline" size={21} color={colors.textMuted} />
+          <MaterialCommunityIcons name="camera-outline" size={23} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
     </View>
@@ -132,55 +130,32 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand,
     paddingHorizontal: spacing.md,
-    paddingTop: 6,
-    paddingBottom: 10,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
   },
   topRow: {
-    height: 32,
+    height: 50,
     flexDirection: 'row',
     alignItems: 'center',
   },
   brand: {
     flex: 1,
-    color: colors.white,
-    fontSize: 17,
-    lineHeight: 23,
-    fontWeight: '800',
-    textAlign: 'center',
+    alignItems: 'flex-start',
+    paddingLeft: spacing.xs,
   },
   actions: {
-    minWidth: 96,
+    minWidth: 84,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
+    gap: spacing.md,
   },
   iconButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -6,
-    right: -7,
-    minWidth: 17,
-    height: 17,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: colors.coral,
-    borderWidth: 1.5,
-    borderColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notificationBadgeText: {
-    color: colors.white,
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: '800',
   },
   notificationDot: {
     position: 'absolute',
@@ -194,12 +169,14 @@ const styles = StyleSheet.create({
     borderColor: colors.brand,
   },
   profileButton: {
-    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
   },
   avatarImage: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   avatarInitial: {
     color: colors.brandDark,
@@ -208,8 +185,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   searchRow: {
-    minHeight: 34,
-    marginTop: 7,
+    minHeight: 36,
+    marginTop: spacing.sm,
     borderRadius: radii.xs,
     backgroundColor: colors.surface,
     flexDirection: 'row',
@@ -218,15 +195,15 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    minHeight: 34,
+    minHeight: 36,
     paddingVertical: 0,
     paddingHorizontal: spacing.sm,
     color: colors.text,
     fontSize: 13,
   },
   cameraButton: {
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },

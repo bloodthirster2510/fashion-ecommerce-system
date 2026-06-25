@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Alert,
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,10 +15,13 @@ import { useAuth } from '../auth/AuthContext';
 import { authApi } from '../auth/authApi';
 import { accountApi, MembershipResponse } from './accountApi';
 import { couponApi } from '../coupons/couponApi';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { getMembershipTierVisualConfig } from './membershipVisual';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
+import ShopNameLogo from '../../components/branding/ShopNameLogo';
+import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
+import { RemoteImage } from '../../components/media/RemoteImage';
 
 type ProfileNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 
@@ -41,6 +43,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'personal-info', icon: 'account-outline', label: 'Thông tin cá nhân' },
   { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng' },
   { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi' },
+  { id: 'reviews', icon: 'star-outline', label: 'Đánh giá của tôi' },
   { id: 'favorites', icon: 'heart-outline', label: 'Sản phẩm yêu thích' },
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
@@ -65,18 +68,25 @@ const getInitial = (name?: string) => {
 const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i.test(value.trim());
 
 const ProfileScreen = () => {
-  const { logout, session, runWithAuth } = useAuth();
+  const { logout, session, runWithAuth, updateSessionUser } = useAuth();
   const navigation = useNavigation<ProfileNavigationProp>();
+  const sessionRef = React.useRef(session);
+  sessionRef.current = session;
   const user = session?.user;
   const displayName = user?.name || 'Khách hàng FASHIONISTA';
   const contact = user?.email || user?.phone || 'Cập nhật thông tin liên hệ';
   const avatarImage = user?.avatarImage;
   const avatarUri = typeof avatarImage === 'string' && isPreviewableImage(avatarImage) ? avatarImage.trim() : '';
+  const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
   const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
   const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUri]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -104,6 +114,27 @@ const ProfileScreen = () => {
           // should not open React Native's development LogBox.
           setMembershipData(null);
         });
+      runWithAuth((accessToken) => accountApi.getMe(accessToken))
+        .then((profile) => {
+          const current = sessionRef.current?.user;
+          const nextAvatarImage = profile.avatarImage ?? null;
+          const changed =
+            !current ||
+            current.name !== profile.name ||
+            current.email !== profile.email ||
+            current.phone !== profile.phone ||
+            (current.avatarImage ?? null) !== nextAvatarImage;
+
+          if (!changed) return;
+
+          updateSessionUser({
+            name: profile.name,
+            email: profile.email,
+            phone: profile.phone,
+            avatarImage: nextAvatarImage,
+          });
+        })
+        .catch(() => undefined);
       runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
         .then((response) => setVoucherCount(response.items.length))
         .catch(() => setVoucherCount(null));
@@ -121,7 +152,7 @@ const ProfileScreen = () => {
           setShippingOrderCount(null);
         });
       void refreshNotifications();
-    }, [logout, navigation, refreshNotifications, runWithAuth, session?.accessToken])
+    }, [logout, navigation, refreshNotifications, runWithAuth, session?.accessToken, updateSessionUser])
   );
 
   const handleMenuPress = (item: ProfileMenuItem) => {
@@ -135,6 +166,10 @@ const ProfileScreen = () => {
     }
     if (item.id === 'orders') {
       navigation.navigate('Orders');
+      return;
+    }
+    if (item.id === 'reviews') {
+      navigation.navigate('MyReviews');
       return;
     }
     if (item.id === 'favorites') {
@@ -199,28 +234,18 @@ const ProfileScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home')}
-          accessibilityLabel="Trở về"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
-        </TouchableOpacity>
-
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.brand}>FASHIONISTA</Text>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home')}
+            accessibilityLabel="Trở về"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Tài khoản</Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={handleLogout}
-          accessibilityLabel="Đăng xuất"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="logout" size={22} color={colors.white} />
-        </TouchableOpacity>
+        <ShopNameLogo compact />
       </View>
 
       <ScrollView
@@ -230,8 +255,12 @@ const ProfileScreen = () => {
       >
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+            {avatarUri && !avatarLoadFailed ? (
+              <RemoteImage
+                uri={avatarUri}
+                style={styles.avatarImage}
+                recyclingKey={`avatar:${user?._id ?? ''}`}
+              />
             ) : (
               <Text style={styles.avatarText}>{getInitial(displayName)}</Text>
             )}
@@ -326,7 +355,13 @@ const ProfileScreen = () => {
             </TouchableOpacity>
           ))}
         </View>
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.82}>
+          <MaterialCommunityIcons name="logout" size={20} color={colors.danger} />
+          <Text style={styles.logoutButtonText}>Đăng xuất</Text>
+        </TouchableOpacity>
       </ScrollView>
+      <StorefrontBottomNav activeTab="profile" />
     </SafeAreaView>
   );
 };
@@ -337,18 +372,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   header: {
-    minHeight: 84,
-    paddingHorizontal: spacing.xl,
-    paddingTop: 10,
-    paddingBottom: 18,
-    backgroundColor: colors.brand,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...brandedHeaderStyles.container,
   },
   headerTitleContainer: {
     flex: 1,
-    paddingHorizontal: 12,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   brand: {
     color: colors.brandMist,
@@ -357,19 +388,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   headerTitle: {
-    color: colors.white,
-    fontSize: 26,
-    lineHeight: 34,
-    fontWeight: '800',
-    marginTop: 2,
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
   },
   headerAction: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    ...brandedHeaderStyles.action,
   },
   content: {
     flex: 1,
@@ -545,6 +568,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  logoutButton: {
+    minHeight: 46,
+    marginTop: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radii.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  logoutButtonText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '800',
   },
   menuCard: {
     width: '31.2%',

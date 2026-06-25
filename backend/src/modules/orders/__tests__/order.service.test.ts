@@ -9,6 +9,7 @@ import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-p
 import { GHNService } from '../../shipping/ghn.service';
 import { loyaltyRuleService } from '../../admin/loyalty/loyalty-rule.service';
 import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
+import { emitOrderUpdate } from '../../realtime/order.gateway';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -68,6 +69,7 @@ jest.mock('../../promotions/coupons/coupon.service', () => ({
 jest.mock('../../payments/transaction.service', () => ({
   transactionService: {
     createPendingTransaction: jest.fn(),
+    createManualAdjustmentTransaction: jest.fn(),
     resolveTransaction: jest.fn(),
   },
 }));
@@ -86,6 +88,14 @@ jest.mock('../../admin/loyalty/loyalty-rule.service', () => ({
   },
 }));
 
+jest.mock('../../realtime/order.gateway', () => ({
+  emitOrderUpdate: jest.fn(),
+}));
+
+jest.mock('../../notifications/push-notification.service', () => ({
+  sendShippingUpdatePush: jest.fn().mockResolvedValue({ sent: 0 }),
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
@@ -98,6 +108,7 @@ const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
 const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyaltyRuleService>;
+const mockedEmitOrderUpdate = emitOrderUpdate as jest.MockedFunction<typeof emitOrderUpdate>;
 
 type MockSession = {
   withTransaction: jest.Mock;
@@ -256,6 +267,9 @@ describe('orderService', () => {
     mockedTransactionService.createPendingTransaction.mockResolvedValue({
       _id: new Types.ObjectId('665000000000000000000091'),
     } as never);
+    mockedTransactionService.createManualAdjustmentTransaction.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000092'),
+    } as never);
     mockedTransactionService.resolveTransaction.mockResolvedValue(null as never);
     mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
     mockedLoyaltyRuleService.getActiveRuleSnapshot.mockResolvedValue({
@@ -367,6 +381,7 @@ describe('orderService', () => {
           status: 'confirmed',
           paymentMethod: 'COD',
           paymentStatus: 'pending',
+          paymentDeadlineAt: null,
           shipping: expect.objectContaining({
             provider: 'FIXED',
             customerFee: 25000,
@@ -469,6 +484,14 @@ describe('orderService', () => {
       gatewayProvider: 'vnpay',
       session: mockSession,
     }));
+    expect(mockedOrder.create).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        paymentMethod: 'VNPAY',
+        paymentDeadlineAt: expect.any(Date),
+        paymentDeadlineWarningSentAt: null,
+      })],
+      { session: mockSession },
+    );
     expect(mockedInventoryService.commitReservations).not.toHaveBeenCalled();
     expect(mockedInventoryService.releaseReservations).not.toHaveBeenCalled();
     expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
@@ -886,17 +909,20 @@ describe('orderService', () => {
     expect(order.save).not.toHaveBeenCalled();
   });
 
-  it('lets the owning customer confirm a shipping order as delivered', async () => {
+  it('lets the owning customer confirm a delivered order as completed', async () => {
     const orderId = new Types.ObjectId('665000000000000000000052');
     const order = {
       _id: orderId,
+      orderCode: 'FSDELIVERED',
+      invoiceCode: null,
       user_id: new Types.ObjectId(userId),
-      status: 'shipping',
-      deliveredAt: null,
+      status: 'delivered',
+      deliveredAt: new Date('2026-06-24T08:00:00.000Z'),
+      receivedAt: null,
       paymentMethod: 'COD',
       paymentStatus: 'pending',
       shipping: {
-        status: 'delivering',
+        status: 'delivered',
       },
       order_list: [],
       save: jest.fn(),
@@ -906,16 +932,18 @@ describe('orderService', () => {
 
     const result = await orderService.confirmOrderReceived(userId, orderId.toString());
 
-    expect(order.status).toBe('delivered');
+    expect(order.status).toBe('completed');
     expect(order.paymentStatus).toBe('paid');
-    expect(order.deliveredAt).toEqual(expect.any(Date));
+    expect(order.invoiceCode).toBe('INV-FSDELIVERED');
+    expect(order.deliveredAt).toEqual(new Date('2026-06-24T08:00:00.000Z'));
+    expect(order.receivedAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
   });
 
-  it('awards loyalty points once when a customer confirms delivery', async () => {
-    const orderId = new Types.ObjectId('665000000000000000000066');
+  it('does not let the customer confirm receipt before carrier delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000064');
     const order = {
       _id: orderId,
       user_id: new Types.ObjectId(userId),
@@ -923,13 +951,39 @@ describe('orderService', () => {
       deliveredAt: null,
       paymentMethod: 'COD',
       paymentStatus: 'pending',
-      totalAmount: 385000,
-      loyaltyPointsAwarded: 0,
-      shipping: { status: 'delivering' },
+      shipping: {
+        status: 'shipping',
+      },
       order_list: [],
       save: jest.fn(),
     };
-    const awardedOrder = { ...order, status: 'delivered', loyaltyPointsAwarded: 385 };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.confirmOrderReceived(userId, orderId.toString()),
+    ).rejects.toThrow('Order can only be confirmed received after it is delivered');
+
+    expect(order.status).toBe('shipping');
+    expect(order.paymentStatus).toBe('pending');
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('awards loyalty points once when a customer confirms delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000066');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'delivered',
+      deliveredAt: new Date('2026-06-24T08:00:00.000Z'),
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+      loyaltyPointsAwarded: 0,
+      shipping: { status: 'delivered' },
+      order_list: [],
+      save: jest.fn(),
+    };
+    const awardedOrder = { ...order, status: 'completed', loyaltyPointsAwarded: 385 };
     order.save.mockResolvedValue(order as never);
     mockedOrder.findById.mockResolvedValue(order as never);
     mockedOrder.findOneAndUpdate.mockResolvedValue(awardedOrder as never);
@@ -939,7 +993,7 @@ describe('orderService', () => {
     const result = await orderService.confirmOrderReceived(userId, orderId.toString());
 
     expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ _id: orderId, status: 'delivered' }),
+      expect.objectContaining({ _id: orderId, status: { $in: ['delivered', 'completed'] } }),
       { $set: { loyaltyPointsAwarded: 385 } },
       expect.objectContaining({ session: mockSession }),
     );
@@ -974,7 +1028,7 @@ describe('orderService', () => {
 
     await expect(
       orderService.confirmOrderReceived(userId, orderId.toString()),
-    ).rejects.toThrow('Delivery has failed and must be reattempted before confirming receipt');
+    ).rejects.toThrow('Order can only be confirmed received after it is delivered');
 
     expect(order.status).toBe('shipping');
     expect(order.paymentStatus).toBe('pending');
@@ -1006,6 +1060,7 @@ describe('orderService', () => {
     expect(order.returnRequest).toEqual({
       reason: 'Size is not suitable',
       status: 'requested',
+      previousOrderStatus: 'delivered',
       requestedAt: expect.any(Date),
       reviewedAt: null,
       reviewedBy: null,
@@ -1071,6 +1126,7 @@ describe('orderService', () => {
     expect(order.returnRequest).toEqual({
       reason: 'Size is not suitable',
       status: 'approved',
+      previousOrderStatus: null,
       requestedAt: new Date('2026-01-01T00:00:00.000Z'),
       reviewedAt: expect.any(Date),
       reviewedBy: new Types.ObjectId(userId),
@@ -1127,7 +1183,7 @@ describe('orderService', () => {
     expect(mockedUser.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: new Types.ObjectId(userId) },
       [{ $set: { loyaltyPoint: { $max: [0, { $subtract: ['$loyaltyPoint', 385] }] } } }],
-      expect.objectContaining({ session: mockSession }),
+      expect.objectContaining({ session: mockSession, updatePipeline: true }),
     );
     expect(mockedLoyaltyPointHistory.create).toHaveBeenCalledWith(
       [expect.objectContaining({ orderId, type: 'adjust', delta: -385, balanceAfter: 0 })],
@@ -1167,11 +1223,50 @@ describe('orderService', () => {
     expect(order.returnRequest).toEqual({
       reason: 'Changed my mind',
       status: 'rejected',
+      previousOrderStatus: null,
       requestedAt: new Date('2026-01-01T00:00:00.000Z'),
       reviewedAt: expect.any(Date),
       reviewedBy: new Types.ObjectId(userId),
       reviewReason: 'Product was already used',
     });
+    expect(order.save).toHaveBeenCalled();
+    expect(result).toBe(order);
+  });
+
+  it('rejects a pending return request and restores the completed status when the customer had confirmed receipt', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000068');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'return_requested',
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      returnRequest: {
+        reason: 'Changed my mind',
+        status: 'requested',
+        previousOrderStatus: 'completed',
+        requestedAt: new Date('2026-01-01T00:00:00.000Z'),
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewReason: null,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.reviewReturnRequest(orderId.toString(), userId, {
+      decision: 'rejected',
+      reason: 'Product was already used',
+    });
+
+    expect(order.status).toBe('completed');
+    expect(order.returnRequest).toEqual(expect.objectContaining({
+      status: 'rejected',
+      previousOrderStatus: 'completed',
+      reviewReason: 'Product was already used',
+    }));
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
   });
@@ -1250,6 +1345,53 @@ describe('orderService', () => {
     expect(result.statusSummary.all).toBe(5);
   });
 
+  it('adjusts payment status through the orders service and emits realtime payment updates', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000070');
+    const actorId = '665000000000000000000071';
+    const order = {
+      _id: orderId,
+      orderCode: 'FSPAYMENT',
+      user_id: new Types.ObjectId(userId),
+      status: 'confirmed',
+      paymentMethod: 'VNPAY',
+      paymentMethodId: null,
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+      shipping: {
+        status: 'quoted',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'paid',
+      reason: 'Bank reconciliation completed',
+      actorId,
+    });
+
+    expect(result).toBe(order);
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.save).toHaveBeenCalled();
+    expect(mockedTransactionService.createManualAdjustmentTransaction).toHaveBeenCalledWith({
+      userId,
+      orderId: orderId.toString(),
+      amount: 385000,
+      paymentMethod: 'VNPAY',
+      paymentMethodId: null,
+      status: 'success',
+      reason: 'Bank reconciliation completed',
+      actorId,
+    });
+    expect(mockedEmitOrderUpdate).toHaveBeenCalledWith(order, 'payment_update', {
+      status: 'confirmed',
+      paymentStatus: 'pending',
+      shippingStatus: 'quoted',
+    });
+  });
+
   it('rejects invalid order status transitions', async () => {
     const orderId = new Types.ObjectId('665000000000000000000051');
     const order = {
@@ -1270,7 +1412,32 @@ describe('orderService', () => {
     expect(order.save).not.toHaveBeenCalled();
   });
 
-  it('lets admin complete a shipping order when delivery is confirmed externally', async () => {
+  it('does not let admin complete a shipping order before carrier delivery', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000059');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      shipping: {
+        status: 'shipping',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(
+      orderService.updateOrderStatus(orderId.toString(), { status: 'completed' }),
+    ).rejects.toThrow('Cannot transition order from shipping to completed');
+
+    expect(order.status).toBe('shipping');
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('lets admin mark a shipping order delivered when carrier delivery is confirmed externally', async () => {
     const orderId = new Types.ObjectId('665000000000000000000058');
     const order = {
       _id: orderId,
@@ -1339,6 +1506,89 @@ describe('orderService', () => {
     }));
     expect(result.reason).toBe('GHN delivered');
     expect(result.order).toBe(order);
+  });
+
+  it('acknowledges a repeated delivered webhook without saving or awarding twice', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000075');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-WEBHOOK-DUPLICATE',
+      status: 'delivered',
+      deliveredAt: new Date('2026-06-24T08:00:00.000Z'),
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      shipping: {
+        provider: 'GHN',
+        status: 'delivered',
+        trackingCode: 'GHN-DUPLICATE',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.applyShippingWebhook({
+      orderId: orderId.toString(),
+      status: 'delivered',
+      trackingCode: 'GHN-DUPLICATE',
+      rawPayload: { status: 'delivered' },
+    });
+
+    expect(result.duplicate).toBe(true);
+    expect(result.order).toBe(order);
+    expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('auto-completes delivered orders after the customer confirmation window', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000076');
+    const deliveredAt = new Date('2026-06-10T08:00:00.000Z');
+    const now = new Date('2026-06-18T08:00:00.000Z');
+    const order = {
+      _id: orderId,
+      orderCode: 'FSAUTOCOMPLETE',
+      invoiceCode: null,
+      user_id: new Types.ObjectId(userId),
+      status: 'delivered',
+      deliveredAt,
+      receivedAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'paid',
+      totalAmount: 0,
+      loyaltyPointsAwarded: 0,
+      shipping: {
+        status: 'delivered',
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    const limit = jest.fn().mockResolvedValue([order]);
+    mockedOrder.find.mockReturnValue({ limit } as never);
+
+    const result = await orderService.autoCompleteDeliveredOrders(now);
+
+    expect(mockedOrder.find).toHaveBeenCalledWith({
+      status: 'delivered',
+      deliveredAt: { $lte: new Date('2026-06-11T08:00:00.000Z') },
+    });
+    expect(limit).toHaveBeenCalledWith(50);
+    expect(order.status).toBe('completed');
+    expect(order.receivedAt).toBe(now);
+    expect(order.invoiceCode).toBe('INV-FSAUTOCOMPLETE');
+    expect(order.save).toHaveBeenCalledWith({ session: mockSession });
+    expect(mockedEmitOrderUpdate).toHaveBeenCalledWith(
+      order,
+      'status_update',
+      expect.objectContaining({ status: 'delivered' }),
+      undefined,
+    );
+    expect(result).toMatchObject({
+      scannedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      completedOrderIds: [orderId.toString()],
+    });
   });
 
   it('applies a simulated failed delivery webhook without completing the order', async () => {
@@ -1676,5 +1926,59 @@ describe('orderService', () => {
     ).rejects.toThrow('Online orders must be paid before processing');
 
     expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('cancels, restocks and rolls back benefits when the order payment deadline expires', async () => {
+    const now = new Date('2026-06-24T08:00:00.000Z');
+    const orderId = new Types.ObjectId('665000000000000000000055');
+    const couponId = new Types.ObjectId('665000000000000000000056');
+    const cancelledOrder = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-DEADLINE',
+      status: 'cancelled',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'failed',
+      paymentDeadlineAt: now,
+      couponId,
+      couponIds: [couponId],
+      loyaltyPointsAwarded: 0,
+      loyaltyPointsClawedBack: 0,
+      cancellation: { kind: 'payment-timeout' },
+      order_list: [{ productId, variantId, colorVariantId, size: 'M', quantity: 2 }],
+    };
+    mockedOrder.findOneAndUpdate.mockResolvedValue(cancelledOrder as never);
+    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+    mockedInventoryService.restoreImportRemainingQuantities.mockResolvedValue(undefined);
+
+    const result = await orderService.cancelOrderForPaymentDeadline(orderId.toString(), now);
+
+    expect(mockedOrder.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: orderId.toString(),
+        status: 'confirmed',
+        paymentStatus: { $in: ['pending', 'failed'] },
+        paymentDeadlineAt: { $lte: now },
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'cancelled',
+          paymentStatus: 'failed',
+          cancellation: expect.objectContaining({ kind: 'payment-timeout', actorRole: 'system' }),
+        }),
+      }),
+      { returnDocument: 'after', runValidators: true },
+    );
+    expect(mockedInventory.updateOne).toHaveBeenCalled();
+    expect(mockedInventoryService.restoreImportRemainingQuantities).toHaveBeenCalled();
+    expect(mockedProduct.updateOne).toHaveBeenCalled();
+    expect(mockedCouponService.rollbackRecordedCouponUsage).toHaveBeenCalledWith(orderId.toString(), {});
+    expect(mockedCouponService.rollbackCouponUsageReservation).toHaveBeenCalledWith(
+      couponId.toString(),
+      userId,
+      {},
+    );
+    expect(result).toBe(cancelledOrder);
   });
 });
