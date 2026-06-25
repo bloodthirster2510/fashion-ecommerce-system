@@ -1,4 +1,5 @@
 import type { RequestHandler, Response } from 'express';
+import { fromBuffer } from 'file-type';
 import multer from 'multer';
 
 export type MulterRequest = Express.Request & {
@@ -7,41 +8,6 @@ export type MulterRequest = Express.Request & {
 
 const storage = multer.memoryStorage();
 const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
-
-export const detectImageMimeType = (buffer: Buffer) => {
-  if (
-    buffer.length >= 3 &&
-    buffer[0] === 0xff &&
-    buffer[1] === 0xd8 &&
-    buffer[2] === 0xff
-  ) {
-    return 'image/jpeg';
-  }
-
-  if (
-    buffer.length >= 8 &&
-    buffer[0] === 0x89 &&
-    buffer[1] === 0x50 &&
-    buffer[2] === 0x4e &&
-    buffer[3] === 0x47 &&
-    buffer[4] === 0x0d &&
-    buffer[5] === 0x0a &&
-    buffer[6] === 0x1a &&
-    buffer[7] === 0x0a
-  ) {
-    return 'image/png';
-  }
-
-  if (
-    buffer.length >= 12 &&
-    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
-    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
-  ) {
-    return 'image/webp';
-  }
-
-  return null;
-};
 
 const getUploadedFiles = (req: Express.Request) => {
   if (req.file) {
@@ -59,12 +25,23 @@ const getUploadedFiles = (req: Express.Request) => {
   return Object.values(req.files).flat();
 };
 
-export const validateUploadedImageContent = (req: Express.Request) => {
+export const validateUploadedImageContent = async (req: Express.Request) => {
   const files = getUploadedFiles(req);
 
   for (const file of files) {
-    const detectedMimeType = detectImageMimeType(file.buffer);
-    if (!detectedMimeType || detectedMimeType !== file.mimetype) {
+    let detectedType: Awaited<ReturnType<typeof fromBuffer>>;
+
+    try {
+      detectedType = await fromBuffer(file.buffer);
+    } catch {
+      return new Error('Uploaded image content must match JPEG, PNG, or WEBP');
+    }
+
+    if (
+      !detectedType ||
+      !allowedMimeTypes.includes(detectedType.mime) ||
+      detectedType.mime !== file.mimetype
+    ) {
       return new Error('Uploaded image content must match JPEG, PNG, or WEBP');
     }
   }
@@ -126,19 +103,23 @@ export const handleMulterError = (error: unknown, res: Response) => {
 
 export const withMulterErrorHandling = (middleware: RequestHandler): RequestHandler => {
   return (req, res, next) => {
-    middleware(req, res, (error?: unknown) => {
+    middleware(req, res, async (error?: unknown) => {
       if (error) {
         handleMulterError(error, res);
         return;
       }
 
-      const contentValidationError = validateUploadedImageContent(req);
-      if (contentValidationError) {
-        handleMulterError(contentValidationError, res);
-        return;
-      }
+      try {
+        const contentValidationError = await validateUploadedImageContent(req);
+        if (contentValidationError) {
+          handleMulterError(contentValidationError, res);
+          return;
+        }
 
-      next();
+        next();
+      } catch (validationError) {
+        next(validationError);
+      }
     });
   };
 };
