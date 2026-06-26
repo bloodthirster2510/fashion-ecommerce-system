@@ -127,7 +127,7 @@
   overflow: hidden;
   border: 1px solid rgba(33, 52, 72, 0.1);
   background: #fff;
-  aspect-ratio: 16 / 5;
+  aspect-ratio: 12 / 5;
 }
 
 .catalog-hero-banner img {
@@ -1085,7 +1085,7 @@
   }
 
   .catalog-hero-banner {
-    aspect-ratio: 16 / 7;
+    aspect-ratio: 16 / 9;
   }
 
   .product-grid {

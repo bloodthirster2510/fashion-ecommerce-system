@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, Carousel, Input } from 'antd'
+import { Button, Dropdown, Input, type MenuProps } from 'antd'
 import { DownOutlined, HeartOutlined, SearchOutlined, ShoppingCartOutlined } from '@ant-design/icons'
-import heroImage from '../assets/images/hero.png'
+import { useAppDispatch, useAppSelector } from '../app/hooks'
+import { fetchCart } from '../features/cart/cart.slice'
 import { catalogService } from '../features/catalog/catalog.service'
 import type { CatalogCategory, CategoryGender } from '../features/catalog/catalog.types'
 import { LoginButton } from '../features/auth/components/LoginButton'
+import shopNameImage from '../assets/images/ShopName.png'
 
 type MainLayoutProps = {
   children: ReactNode
-  showSlider?: boolean
 }
 
 type ApparelGender = Exclude<CategoryGender, 'unisex'>
@@ -42,27 +43,6 @@ const shopContact = {
   email: import.meta.env.VITE_SHOP_EMAIL?.trim() || 'Đang cập nhật',
   hours: import.meta.env.VITE_SHOP_HOURS?.trim() || 'Đang cập nhật',
 }
-const slides = [
-  {
-    id: 'summer',
-    image: heroImage,
-    label: 'Bộ sưu tập mới',
-    description: 'Slider tự động chuyển với hiệu ứng fade.',
-  },
-  {
-    id: 'daily',
-    image: heroImage,
-    label: 'Phong cách hằng ngày',
-    description: 'Khung sẵn sàng thay banner thật khi có asset.',
-  },
-  {
-    id: 'sale',
-    image: heroImage,
-    label: 'Ưu đãi trong tuần',
-    description: 'Dùng Ant Design Carousel cho animation.',
-  },
-]
-
 type CategoryMenuGroup = {
   parent: CatalogCategory
   children: CatalogCategory[]
@@ -122,9 +102,15 @@ const buildCategoryMenu = (categories: CatalogCategory[], gender: ApparelGender)
 }
 
 function Header() {
+  const dispatch = useAppDispatch()
+  const currentUser = useAppSelector((state) => state.auth.currentUser)
+  const cart = useAppSelector((state) => state.cart.data)
   const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoryError, setCategoryError] = useState('')
+  const [searchCategoryId, setSearchCategoryId] = useState(
+    () => new URLSearchParams(window.location.search).get('categoryId') ?? '',
+  )
 
   useEffect(() => {
     let isMounted = true
@@ -152,6 +138,12 @@ function Header() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!currentUser) return
+
+    void dispatch(fetchCart())
+  }, [currentUser, dispatch])
+
   // Dữ liệu API giữ dạng flat list; memo hóa việc dựng menu để không tính lại
   // mỗi lần Header render vì login/search/action thay đổi.
   const menusByGender = useMemo(
@@ -162,19 +154,72 @@ function Header() {
     [categories],
   )
 
+  const selectedSearchCategory = useMemo(
+    () => categories.find((category) => category._id === searchCategoryId),
+    [categories, searchCategoryId],
+  )
+  const cartItemCount =
+    cart?.summary.itemCount ?? cart?.product_list.reduce((total, item) => total + item.quantity, 0) ?? 0
+
+  const searchCategoryItems = useMemo<MenuProps['items']>(() => {
+    const items = [...categories]
+      .sort((a, b) => a.gender.localeCompare(b.gender) || a.level - b.level || a.name.localeCompare(b.name, 'vi'))
+      .map((category) => ({
+        key: category._id,
+        label: (
+          <span className="search-category-option">
+            <span className="search-category-option-name">{category.name}</span>
+            <span className="search-category-option-gender">
+              {category.gender === 'male' ? 'Nam' : category.gender === 'female' ? 'Nữ' : 'Unisex'}
+            </span>
+          </span>
+        ),
+      }))
+
+    return [
+      { key: 'all', label: 'Tất cả danh mục' },
+      { type: 'divider' },
+      ...items,
+    ]
+  }, [categories])
+
+  const handleSearchCategoryClick: MenuProps['onClick'] = ({ key }) => {
+    setSearchCategoryId(key === 'all' ? '' : key)
+  }
+
   return (
     <header className="site-header">
       <div className="header-main">
         <a className="brand" href="/" aria-label="Trang chủ Fashionista">
-          FASHIONISTA
+          <img src={shopNameImage} alt="CD Shop" />
         </a>
 
-        <Input.Search
-          className="search"
-          placeholder="Bạn tìm gì hôm nay?"
-          aria-label="Tìm kiếm sản phẩm"
-          enterButton={<SearchOutlined />}
-        />
+        <form className="search" action="/products" method="get" role="search">
+          <Dropdown
+            disabled={isLoadingCategories || Boolean(categoryError)}
+            menu={{
+              items: searchCategoryItems,
+              onClick: handleSearchCategoryClick,
+              selectedKeys: [searchCategoryId || 'all'],
+            }}
+            overlayClassName="search-category-dropdown"
+            placement="bottomLeft"
+            trigger={['click']}
+          >
+            <Button
+              className="search-category-trigger"
+              type="text"
+              aria-label="Chọn danh mục tìm kiếm"
+              title={categoryError || undefined}
+            >
+              <span>{isLoadingCategories ? 'Đang tải...' : selectedSearchCategory?.name ?? 'Danh mục'}</span>
+              <DownOutlined aria-hidden="true" />
+            </Button>
+          </Dropdown>
+          <input type="hidden" name="categoryId" value={searchCategoryId} />
+          <Input name="keyword" placeholder="Tìm kiếm sản phẩm..." aria-label="Tìm kiếm sản phẩm" />
+          <Button className="search-submit" htmlType="submit" icon={<SearchOutlined />} aria-label="Tìm kiếm" />
+        </form>
 
         <nav className="header-actions" aria-label="Liên kết nhanh">
           <Button className="client-action-button client-action-button--favorite" type="text" href="/account?section=favorites">
@@ -183,11 +228,14 @@ function Header() {
               <HeartOutlined />
             </span>
           </Button>
-          <Button className="client-action-button client-action-button--cart" type="text" href="/account?section=cart">
+          <Button className="client-action-button client-action-button--cart" type="text" href="/cart">
             <span>Giỏ hàng</span>
             <span className="client-action-icon">
               <ShoppingCartOutlined />
             </span>
+            {currentUser && cartItemCount > 0 && (
+              <span className="cart-count-badge">{cartItemCount > 99 ? '99+' : cartItemCount}</span>
+            )}
           </Button>
           <LoginButton />
         </nav>
@@ -235,26 +283,6 @@ function Header() {
   )
 }
 
-function Slider() {
-  return (
-    <section className="slider" aria-label="Nội dung nổi bật">
-      <Carousel autoplay autoplaySpeed={3200} effect="fade" dots>
-        {slides.map((slide) => (
-          <div key={slide.id}>
-            <article className="slide">
-              <img src={slide.image} alt="" />
-              <div className="slide-copy">
-                <span>{slide.label}</span>
-                <p>{slide.description}</p>
-              </div>
-            </article>
-          </div>
-        ))}
-      </Carousel>
-    </section>
-  )
-}
-
 function Footer() {
   return (
     <footer className="site-footer">
@@ -298,11 +326,10 @@ function Footer() {
   )
 }
 
-export function MainLayout({ children, showSlider = true }: MainLayoutProps) {
+export function MainLayout({ children }: MainLayoutProps) {
   return (
     <div className="site-frame">
       <Header />
-      {showSlider && <Slider />}
       {children}
       <Footer />
     </div>

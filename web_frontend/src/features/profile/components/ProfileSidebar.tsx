@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Avatar, Menu } from 'antd'
+import { message } from 'antd'
 import {
   CreditCardOutlined,
   GiftOutlined,
@@ -8,8 +10,14 @@ import {
   ShoppingCartOutlined,
   SkinOutlined,
   StarOutlined,
+  UploadOutlined,
   UserOutlined,
 } from '@ant-design/icons'
+import { useAppDispatch } from '../../../app/hooks'
+import { tokenService } from '../../../services/tokenService'
+import { setCurrentUser } from '../../auth/auth.slice'
+import { profileService } from '../profile.service'
+import { readFileAsDataUrl } from '../profile.utils'
 
 const menuItems = [
   { key: 'profile', icon: <UserOutlined />, label: 'Thông tin cá nhân' },
@@ -26,8 +34,11 @@ const menuItems = [
 
 const menuPaths: Record<string, string> = {
   profile: '/account',
+  cart: '/cart',
   orders: '/account/orders',
   reviews: '/account/reviews',
+  ranking: '/account?section=ranking',
+  coupons: '/account?section=coupons',
   support: '/account/support',
 }
 
@@ -37,14 +48,69 @@ type ProfileSidebarProps = {
   selectedKey?: string
 }
 
-export function ProfileSidebar({ name, avatarImage, selectedKey = 'profile' }: ProfileSidebarProps) {
+export function ProfileSidebar({
+  name,
+  avatarImage,
+  selectedKey = 'profile',
+}: ProfileSidebarProps) {
+  const dispatch = useAppDispatch()
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+
+  const handleAvatarUpload = async (file: File) => {
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp']
+    const maxAvatarBytes = 3 * 1024 * 1024
+
+    if (!allowedMimeTypes.includes(file.type)) {
+      message.error('Ảnh đại diện phải là JPG, PNG hoặc WEBP.')
+      return
+    }
+
+    if (file.size > maxAvatarBytes) {
+      message.error('Ảnh đại diện tối đa 3MB.')
+      return
+    }
+
+    setIsUploadingAvatar(true)
+
+    try {
+      const imageBase64 = await readFileAsDataUrl(file)
+      const updatedUser = await profileService.uploadAvatar({
+        imageBase64,
+        mimeType: file.type,
+      })
+
+      tokenService.setCurrentUser(updatedUser)
+      dispatch(setCurrentUser(updatedUser))
+      message.success('Cập nhật ảnh đại diện thành công.')
+    } catch (uploadError) {
+      message.error(uploadError instanceof Error ? uploadError.message : 'Không thể cập nhật ảnh đại diện.')
+    } finally {
+      setIsUploadingAvatar(false)
+    }
+  }
+
   return (
     <aside className="account-sidebar" aria-label="Tài khoản">
       <div className="user-card">
-        <Avatar size={52} src={avatarImage || undefined} icon={<UserOutlined />} />
+        <div className="user-card-avatar">
+          <Avatar size={52} src={avatarImage || undefined} icon={<UserOutlined />} />
+          <label className={`avatar-update-button${isUploadingAvatar ? ' is-loading' : ''}`}>
+            <UploadOutlined />
+            <span>{isUploadingAvatar ? 'Đang lưu' : 'Cập nhật'}</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={isUploadingAvatar}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (file) void handleAvatarUpload(file)
+              }}
+            />
+          </label>
+        </div>
         <div>
           <strong>{name || 'Chào mừng!'}</strong>
-          <span>Tài khoản của bạn</span>
         </div>
       </div>
 

@@ -943,6 +943,11 @@
   margin: 14px 24px 0;
 }
 
+.admin-orders-page .admin-order-drawer .admin-order-drawer-notice {
+  margin: 14px 24px 0;
+  box-shadow: 0 8px 18px rgba(31, 45, 61, 0.08);
+}
+
 .admin-orders-page .admin-order-drawer .admin-order-warning {
   border-radius: 10px;
 }

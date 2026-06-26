@@ -592,6 +592,26 @@ describe('orderService', () => {
     });
   });
 
+  it('supports legacy saved addresses without wardCode during checkout preview', async () => {
+    const legacyAddress = { ...shippingAddress, _id: addressId, isDefault: true } as Record<string, unknown>;
+    delete legacyAddress.wardCode;
+    mockedUser.findById.mockReturnValue({
+      select: jest.fn().mockResolvedValue({ address: [legacyAddress] }),
+    } as never);
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+
+    await expect(orderService.previewCheckout(userId, {
+      cartItemIds: [cartItemId.toString()],
+      paymentMethod: 'COD',
+    })).resolves.toBeDefined();
+
+    expect(mockedPromotionPricingService.calculateCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shippingAddress: expect.objectContaining({ wardCode: expect.any(String) }),
+      }),
+    );
+  });
+
   it('returns the order when post-commit cart cleanup fails', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const order = {

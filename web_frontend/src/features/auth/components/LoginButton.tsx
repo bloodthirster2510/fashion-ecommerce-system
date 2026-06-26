@@ -3,6 +3,7 @@ import { LockOutlined, MailOutlined, UserOutlined } from '@ant-design/icons'
 import { Alert, Avatar, Button, Checkbox, Form, Input, Popover, message } from 'antd'
 import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { clearCurrentUser, setCurrentUser } from '../auth.slice'
+import { clearCart } from '../../cart/cart.slice'
 import { authService } from '../auth.service'
 import type { AuthUser } from '../auth.types'
 import { RegisterModal } from './RegisterModal'
@@ -63,6 +64,7 @@ export function LoginButton() {
 
     tokenService.clearSession()
     dispatch(clearCurrentUser())
+    dispatch(clearCart())
     message.success('Đã đăng xuất.')
   }
 

@@ -206,11 +206,14 @@ describe('inventoryService', () => {
           availableQuantity: -10,
         },
       },
+      { session: mockSession },
     );
-    expect(importRecord.deleteOne).toHaveBeenCalled();
+    expect(importRecord.deleteOne).toHaveBeenCalledWith({ session: mockSession });
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
   });
 
-  it('rolls back decremented inventory when deleting an import fails midway', async () => {
+  it('aborts the delete transaction when a conditional stock decrement fails midway', async () => {
     const importRecord = {
       _id: new Types.ObjectId(),
       productId: new Types.ObjectId(productId),
@@ -225,8 +228,7 @@ describe('inventoryService', () => {
     mockedInventoryImport.findById.mockResolvedValue(importRecord as never);
     mockedInventory.updateOne
       .mockResolvedValueOnce({ matchedCount: 1 } as never)
-      .mockResolvedValueOnce({ matchedCount: 0 } as never)
-      .mockResolvedValueOnce({ matchedCount: 1 } as never);
+      .mockResolvedValueOnce({ matchedCount: 0 } as never);
 
     await expect(
       inventoryService.deleteImport(importRecord._id.toString()),
@@ -235,21 +237,10 @@ describe('inventoryService', () => {
       statusCode: 409,
     });
 
-    expect(mockedInventory.updateOne).toHaveBeenLastCalledWith(
-      {
-        productId: importRecord.productId,
-        variantId: importRecord.variantId,
-        colorVariantId: importRecord.colorVariantId,
-        size: 'M',
-      },
-      {
-        $inc: {
-          quantity: 10,
-          availableQuantity: 10,
-        },
-      },
-    );
+    expect(mockedInventory.updateOne).toHaveBeenCalledTimes(2);
     expect(importRecord.deleteOne).not.toHaveBeenCalled();
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
   });
 
   it('rejects reservations when available inventory is insufficient', async () => {

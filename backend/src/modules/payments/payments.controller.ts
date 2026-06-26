@@ -442,12 +442,17 @@ export const adjustOrderPaymentStatus = async (req: Request, res: Response) => {
   }
 };
 
-const buildMobileReturnUrl = async (
+const buildClientReturnUrl = async (
   result: VNPayResponseResult,
   settledOrderId?: string | null,
 ) => {
   const mobileReturnUrl = process.env.VNPAY_MOBILE_RETURN_URL?.trim();
-  if (!mobileReturnUrl) {
+  const webFrontendUrl = (
+    process.env.CUSTOMER_FRONTEND_URL ||
+    process.env.FRONTEND_URL
+  )?.trim();
+
+  if (!mobileReturnUrl && !webFrontendUrl) {
     return null;
   }
 
@@ -466,7 +471,11 @@ const buildMobileReturnUrl = async (
     orderId = order?._id.toString() ?? null;
   }
 
-  const url = new URL(mobileReturnUrl);
+  // Web storefront is the primary checkout client. Keep the deep-link fallback
+  // for deployments that only configure the mobile application.
+  const url = webFrontendUrl
+    ? new URL(orderId ? `/orders/${orderId}` : '/account?section=orders', webFrontendUrl)
+    : new URL(mobileReturnUrl!);
   if (orderId) {
     url.searchParams.set('orderId', orderId);
   }
@@ -570,10 +579,10 @@ export const handleVNPayReturn = async (req: Request, res: Response) => {
   try {
     const result = verifyVNPayResponse(req.query);
     const settlement = await settleVNPayPayment(result);
-    const mobileReturnUrl = await buildMobileReturnUrl(result, settlement.orderId ?? null);
+    const clientReturnUrl = await buildClientReturnUrl(result, settlement.orderId ?? null);
 
-    if (mobileReturnUrl) {
-      return res.status(200).send(renderVNPayReturnPage(mobileReturnUrl, settlement.paymentStatus === 'paid'));
+    if (clientReturnUrl) {
+      return res.status(200).send(renderVNPayReturnPage(clientReturnUrl, settlement.paymentStatus === 'paid'));
     }
 
     return ok(res, { ...result, settlement }, 'Verified VNPay return');

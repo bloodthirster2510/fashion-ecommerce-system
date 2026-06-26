@@ -16,6 +16,7 @@ if (Number.isInteger(trustedProxyHops) && trustedProxyHops > 0) {
 }
 const defaultBodyLimit = process.env.REQUEST_BODY_LIMIT?.trim() || '2mb';
 const orderEvidenceBodyLimit = process.env.ORDER_EVIDENCE_BODY_LIMIT?.trim() || '12mb';
+const avatarBodyLimit = process.env.AVATAR_BODY_LIMIT?.trim() || '5mb';
 
 app.use(helmet());
 app.use(cors(createCorsOptions()));
@@ -29,6 +30,7 @@ app.use(
   ],
   express.json({ limit: orderEvidenceBodyLimit }),
 );
+app.use('/api/users/me/avatar', express.json({ limit: avatarBodyLimit }));
 app.use(express.json({ limit: defaultBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: defaultBodyLimit }));
 app.use(

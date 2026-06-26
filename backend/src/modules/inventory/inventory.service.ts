@@ -247,32 +247,6 @@ const didMatchUpdate = (result: unknown) => {
   return typeof matchedCount === 'number' ? matchedCount > 0 : true;
 };
 
-const rollbackInventoryImportDecrements = async (
-  productId: Types.ObjectId,
-  variantId: Types.ObjectId,
-  colorVariantId: Types.ObjectId,
-  details: InventoryImportDetailInput[],
-) => {
-  await Promise.all(
-    details.map((item) =>
-      Inventory.updateOne(
-        {
-          productId,
-          variantId,
-          colorVariantId,
-          size: item.size,
-        },
-        {
-          $inc: {
-            quantity: item.quantity,
-            availableQuantity: item.quantity,
-          },
-        },
-      ),
-    ),
-  );
-};
-
 const createImport = async (input: CreateInventoryImportInput) => {
   const productId = toObjectId(input.productId, 'productId');
   const variantId = toObjectId(input.variantId, 'variantId');
@@ -444,56 +418,57 @@ const getImportById = async (id: string) => {
 
 const deleteImport = async (id: string) => {
   assertValidObjectId(id, 'import id');
-
-  const importRecord = await InventoryImport.findById(id);
-  if (!importRecord) {
-    throw new InventoryServiceError('Import not found', 404);
-  }
-  const importDetails = importRecord.detail as InventoryImportDetailInput[];
-
-  if (importDetails.some((item) => (item.remainingQuantity ?? item.quantity) < item.quantity)) {
-    throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
-  }
-
-  const decrementedDetails: InventoryImportDetailInput[] = [];
+  const session = await mongoose.startSession();
+  let deletedImport: IInventoryImport | null = null;
 
   try {
-    for (const item of importDetails) {
-      const updateResult = await Inventory.updateOne(
-        {
-          productId: importRecord.productId,
-          variantId: importRecord.variantId,
-          colorVariantId: importRecord.colorVariantId,
-          size: item.size,
-          quantity: { $gte: item.quantity },
-          availableQuantity: { $gte: item.quantity },
-        },
-        {
-          $inc: {
-            quantity: -item.quantity,
-            availableQuantity: -item.quantity,
-          },
-        },
-      );
+    await session.withTransaction(async () => {
+      const importRecord = await InventoryImport.findById(id, null, { session });
+      if (!importRecord) {
+        throw new InventoryServiceError('Import not found', 404);
+      }
 
-      if (!didMatchUpdate(updateResult)) {
+      const importDetails = importRecord.detail as InventoryImportDetailInput[];
+      if (importDetails.some((item) => (item.remainingQuantity ?? item.quantity) < item.quantity)) {
         throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
       }
 
-      decrementedDetails.push(item);
-    }
+      for (const item of importDetails) {
+        const updateResult = await Inventory.updateOne(
+          {
+            productId: importRecord.productId,
+            variantId: importRecord.variantId,
+            colorVariantId: importRecord.colorVariantId,
+            size: item.size,
+            quantity: { $gte: item.quantity },
+            availableQuantity: { $gte: item.quantity },
+          },
+          {
+            $inc: {
+              quantity: -item.quantity,
+              availableQuantity: -item.quantity,
+            },
+          },
+          { session },
+        );
 
-    await importRecord.deleteOne();
-    return importRecord;
-  } catch (error) {
-    await rollbackInventoryImportDecrements(
-      importRecord.productId,
-      importRecord.variantId,
-      importRecord.colorVariantId,
-      decrementedDetails,
-    ).catch(() => undefined);
-    throw error;
+        if (!didMatchUpdate(updateResult)) {
+          throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+        }
+      }
+
+      await importRecord.deleteOne({ session });
+      deletedImport = importRecord;
+    });
+  } finally {
+    await session.endSession();
   }
+
+  if (!deletedImport) {
+    throw new InventoryServiceError('Failed to delete import', 500);
+  }
+
+  return deletedImport;
 };
 
 const adjustInventory = async (id: string, input: AdjustInventoryInput) => {

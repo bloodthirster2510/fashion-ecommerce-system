@@ -60,7 +60,12 @@ const genderLabels: Record<CatalogGender, string> = {
   unisex: 'Unisex',
 }
 
-const categoryRootsPerPage = 10
+const categoryRootsPerPage = 1
+
+type CategoryRootGroup = {
+  root: ManagedCategory
+  items: ManagedCategory[]
+}
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
@@ -129,6 +134,21 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
     const keyword = categoryKeyword.trim().toLocaleLowerCase('vi')
     const categoryById = new Map(categories.map((category) => [category._id, category]))
     const childrenByParentId = new Map<string, ManagedCategory[]>()
+    const matchesCategoryFilter = (category: ManagedCategory) => {
+      const matchesKeyword =
+        !keyword || category.name.toLocaleLowerCase('vi').includes(keyword)
+      const matchesGender = genderFilter === 'all' || category.gender === genderFilter
+      const matchesLevel =
+        categoryLevelFilter === 'all' ||
+        category.level === Number(categoryLevelFilter)
+      const matchesStatus =
+        categoryStatusFilter === 'all' ||
+        (categoryStatusFilter === 'active'
+          ? category.isActive
+          : !category.isActive)
+
+      return matchesKeyword && matchesGender && matchesLevel && matchesStatus
+    }
 
     categories.forEach((category) => {
       if (!category.parent_id || !categoryById.has(category.parent_id)) return
@@ -155,23 +175,8 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
     }
 
     const matchingGroups = roots
-      .map((root) => ({ root, items: collectGroup(root) }))
-      .filter(({ items }) =>
-        items.some((category) => {
-          const matchesKeyword =
-            !keyword || category.name.toLocaleLowerCase('vi').includes(keyword)
-          const matchesGender = genderFilter === 'all' || category.gender === genderFilter
-          const matchesLevel =
-            categoryLevelFilter === 'all' ||
-            category.level === Number(categoryLevelFilter)
-          const matchesStatus =
-            categoryStatusFilter === 'all' ||
-            (categoryStatusFilter === 'active'
-              ? category.isActive
-              : !category.isActive)
-          return matchesKeyword && matchesGender && matchesLevel && matchesStatus
-        }),
-      )
+      .map<CategoryRootGroup>((root) => ({ root, items: collectGroup(root) }))
+      .filter(({ items }) => items.some(matchesCategoryFilter))
     const totalRoots = matchingGroups.length
     const totalPages = Math.max(1, Math.ceil(totalRoots / categoryRootsPerPage))
     const safePage = Math.min(categoryPage, totalPages)
@@ -464,7 +469,8 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
             </div>
             <footer className="admin-table-footer admin-catalog-pagination">
               <span>
-                Nhóm danh mục {categoryPagination.startRoot} / {categoryPagination.totalRoots}
+                Danh mục gốc {categoryPagination.startRoot} /{' '}
+                {categoryPagination.totalRoots} nhóm danh mục
               </span>
               <div>
                 <button

@@ -161,6 +161,7 @@ export const updateMe = async (userId: string, data: {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
+  normalizeSavedAddressesForCurrentSchema(user);
   syncProfileCompleted(user);
   await user.save();
   return user;

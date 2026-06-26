@@ -37,6 +37,9 @@ export const getMe = async (req: Request, res: Response) => {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
     }
+    if (err && typeof err === 'object' && 'name' in err && (err as { name?: string }).name === 'ValidationError') {
+      return handleAddressError(res, err);
+    }
     return res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -97,11 +100,6 @@ export const addAddress = async (req: Request, res: Response) => {
 };
 
 export const updateAddress = async (req: Request, res: Response) => {
-  const errors = validateAddress(req.body);
-  if (errors.length > 0) {
-    return res.status(400).json({ message: 'Dữ liệu không hợp lệ', errors });
-  }
-
   try {
     const addresses = await userService.updateAddress(req.user!.userId, getParam(req.params.addressId), req.body);
     return ok(res, addresses, 'Cập nhật địa chỉ thành công');

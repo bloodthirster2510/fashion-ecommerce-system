@@ -19,6 +19,7 @@ const getErrorResponse = (e: unknown) => {
   };
 };
 
+//Chuẩn hóa chuỗi 
 const parseString = (value: unknown) => {
   if (Array.isArray(value)) {
     return parseString(value[0]);
@@ -50,6 +51,7 @@ const parseBoolean = (value: unknown, fieldName: string) => {
   throw new CategoryServiceError(`Invalid ${fieldName}`, 400);
 };
 
+//Tổng hợp bộ loc danh mục
 const parseCategoryListQuery = (req: Request): CategoryListQueryInput => {
   const gender = parseString(req.query.gender);
 
