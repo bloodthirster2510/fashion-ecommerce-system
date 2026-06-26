@@ -148,6 +148,13 @@
 }
 
 .account-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+.account-order-filters { max-width:100%; margin-bottom:14px; overflow-x:auto; }
+.account-order-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.account-order-logistics { display:flex; flex-wrap:wrap; gap:8px 14px; padding:10px 12px; border:1px solid #e6edf2; border-radius:8px; background:#f8fafc; color:#475569; font-size:12px; }
+.account-order-logistics > span { min-width:0; }
+.account-order-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; }
+.account-order-card:has(.ant-alert-warning),
+.account-order-card:has(.ant-alert-error) { border-color:#f1c66d; background:#fffdf8; }
 
 .profile-panel {
   width: 100%;
@@ -684,5 +691,14 @@
   .account-order-image {
     width: 56px !important;
     height: 56px !important;
+  }
+
+  .account-order-actions {
+    align-self: stretch;
+    justify-content: stretch;
+  }
+
+  .account-order-actions .ant-btn {
+    flex: 1;
   }
 }
