@@ -4,10 +4,12 @@ const fallbackStore = new Map<string, string>();
 let secureStorePromise: Promise<SecureStoreModule | null> | null = null;
 const canUseInMemoryFallback = () => typeof __DEV__ !== 'undefined' && __DEV__;
 
+declare const require: (moduleName: string) => unknown;
+
 const loadSecureStore = async () => {
   if (!secureStorePromise) {
-    secureStorePromise = import('expo-secure-store')
-      .then((module) => module)
+    secureStorePromise = Promise.resolve()
+      .then(() => require('expo-secure-store') as SecureStoreModule)
       .catch((error) => {
         if (canUseInMemoryFallback()) {
           console.warn('SecureStore is unavailable. Falling back to in-memory auth storage.', error);

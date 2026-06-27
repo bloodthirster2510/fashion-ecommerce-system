@@ -803,6 +803,8 @@ const ProductListScreen = () => {
         visible={isFilterSheetVisible}
         transparent
         animationType="slide"
+        hardwareAccelerated
+        statusBarTranslucent
         onRequestClose={() => setIsFilterSheetVisible(false)}
       >
         <View style={styles.modalRoot}>
@@ -1174,12 +1176,17 @@ const styles = StyleSheet.create({
   modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.34)',
+    zIndex: 1,
   },
   filterSheet: {
+    zIndex: 2,
+    elevation: 12,
+    width: '100%',
     maxHeight: '82%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
