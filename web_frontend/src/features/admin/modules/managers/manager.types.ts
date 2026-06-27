@@ -20,6 +20,9 @@ export type StaffPermission =
   | 'reviews.reply'
   | 'support.reply'
   | 'support.manage'
+  | 'virtual_try_on.read'
+  | 'virtual_try_on.manage'
+  | 'virtual_try_on.settings'
   | 'reports.read'
 
 export type InternalAccountRole = 'admin' | 'staff'

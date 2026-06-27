@@ -24,6 +24,11 @@ import SupportTicketListScreen from '../features/support/SupportTicketListScreen
 import SupportTicketDetailScreen from '../features/support/SupportTicketDetailScreen';
 import ReviewComposerScreen from '../features/reviews/ReviewComposerScreen';
 import MyReviewsScreen from '../features/reviews/MyReviewsScreen';
+import VirtualTryOnHomeScreen from '../features/virtualTryOn/VirtualTryOnHomeScreen';
+import VirtualTryOnBuilderScreen from '../features/virtualTryOn/VirtualTryOnBuilderScreen';
+import VirtualTryOnProcessingScreen from '../features/virtualTryOn/VirtualTryOnProcessingScreen';
+import VirtualTryOnResultScreen from '../features/virtualTryOn/VirtualTryOnResultScreen';
+import VirtualTryOnHistoryScreen from '../features/virtualTryOn/VirtualTryOnHistoryScreen';
 import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
 
 export type RootStackParamList = {
@@ -83,6 +88,18 @@ export type RootStackParamList = {
     editImages?: Array<{ _id: string | null; url: string; thumbnailUrl: string }>;
   };
   MyReviews: undefined;
+  VirtualTryOnHome: undefined;
+  VirtualTryOnBuilder: {
+    assetId?: string;
+    imageUrl?: string;
+  } | undefined;
+  VirtualTryOnProcessing: {
+    jobId: string;
+  };
+  VirtualTryOnResult: {
+    jobId: string;
+  };
+  VirtualTryOnHistory: undefined;
   SupportHome: undefined;
   FaqList: { category?: string } | undefined;
   SupportTicketCreate: {
@@ -129,6 +146,11 @@ const AppNavigator = () => {
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <Stack.Screen name="ReviewComposer" component={ReviewComposerScreen} />
       <Stack.Screen name="MyReviews" component={MyReviewsScreen} />
+      <Stack.Screen name="VirtualTryOnHome" component={VirtualTryOnHomeScreen} />
+      <Stack.Screen name="VirtualTryOnBuilder" component={VirtualTryOnBuilderScreen} />
+      <Stack.Screen name="VirtualTryOnProcessing" component={VirtualTryOnProcessingScreen} />
+      <Stack.Screen name="VirtualTryOnResult" component={VirtualTryOnResultScreen} />
+      <Stack.Screen name="VirtualTryOnHistory" component={VirtualTryOnHistoryScreen} />
       <Stack.Screen name="SupportHome" component={SupportHomeScreen} />
       <Stack.Screen name="FaqList" component={FaqListScreen} />
       <Stack.Screen name="SupportTicketCreate" component={SupportTicketCreateScreen} />

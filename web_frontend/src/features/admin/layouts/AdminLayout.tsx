@@ -18,6 +18,7 @@ import { ProductManagementPage } from '../modules/catalog/products/ProductManage
 import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
 import { ReviewManagementPage } from '../modules/reviews/ReviewManagementPage'
 import { SupportManagementPage } from '../modules/support/SupportManagementPage'
+import { VirtualTryOnManagementPage } from '../modules/virtual-try-on/VirtualTryOnManagementPage'
 import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
 import { useNotificationSummary } from '../notifications/notification-summary-context'
@@ -51,6 +52,7 @@ const navIcons: Record<NavId, () => ReactNode> = {
   promotions: CouponIcon,
   reviews: ReviewIcon,
   support: SupportIcon,
+  virtualTryOn: VirtualTryOnIcon,
   reports: ReportsIcon,
   settings: SettingsIcon,
 }
@@ -78,6 +80,7 @@ const routePermissions: Partial<Record<NavId, string>> = {
   promotions: 'promotions.read',
   reviews: 'reviews.read',
   support: 'support.reply',
+  virtualTryOn: 'virtual_try_on.read',
   reports: 'reports.read',
   settings: 'admin',
 }
@@ -274,6 +277,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'support') {
       return <SupportManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'virtualTryOn') {
+      return <VirtualTryOnManagementPage currentUser={currentUser} />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
@@ -670,6 +677,14 @@ function SupportIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3a8 8 0 0 0-8 8v4a3 3 0 0 0 3 3h2v-7H6a6 6 0 1 1 12 0h-3v7h2.2A5.5 5.5 0 0 1 12 21v-2a3.5 3.5 0 0 0 3.5-3.5V11h2.5v4h-1v1a3 3 0 0 0 3-3v-2a8 8 0 0 0-8-8Z" />
+    </svg>
+  )
+}
+
+function VirtualTryOnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3a3 3 0 0 0-3 3v1H6a2 2 0 0 0-2 2v3h2V9h3v2h6V9h3v9h-4v2h4a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3V6a3 3 0 0 0-3-3Zm-1 4V6a1 1 0 1 1 2 0v1h-2ZM8 13l2 2.2 2-2.2 2 2.2V21H6v-5.8L8 13Z" />
     </svg>
   )
 }

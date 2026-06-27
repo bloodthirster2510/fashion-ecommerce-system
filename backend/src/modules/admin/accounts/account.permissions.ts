@@ -22,6 +22,9 @@ export const STAFF_PERMISSION_VALUES: StaffPermission[] = [
   'reviews.reply',
   'support.reply',
   'support.manage',
+  'virtual_try_on.read',
+  'virtual_try_on.manage',
+  'virtual_try_on.settings',
   'reports.read',
 ];
 
@@ -30,6 +33,9 @@ export const STAFF_PERMISSION_SET = new Set<string>(STAFF_PERMISSION_VALUES);
 export const expandImpliedStaffPermissions = (permissions: StaffPermission[]) => {
   const expanded = new Set(permissions);
   if (expanded.has('support.manage')) expanded.add('support.reply');
+  if (expanded.has('virtual_try_on.manage') || expanded.has('virtual_try_on.settings')) {
+    expanded.add('virtual_try_on.read');
+  }
   if (expanded.has('reviews.moderate') || expanded.has('reviews.reply')) {
     expanded.add('reviews.read');
   }

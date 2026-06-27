@@ -12,6 +12,7 @@ export type AdminRouteId =
   | 'promotions'
   | 'reviews'
   | 'support'
+  | 'virtualTryOn'
   | 'reports'
   | 'settings'
 
@@ -55,6 +56,7 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'promotions',
   'reviews',
   'support',
+  'virtualTryOn',
 ]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
@@ -160,6 +162,13 @@ const adminRouteRecords: AdminRoute[] = [
     path: '/admin/support',
     label: 'Hỗ trợ',
     helper: 'Phiếu phản hồi',
+    group: 'service',
+  },
+  {
+    id: 'virtualTryOn',
+    path: '/admin/virtual-try-on',
+    label: 'Phối đồ ảo',
+    helper: 'Job AI, quota & provider',
     group: 'service',
   },
   {

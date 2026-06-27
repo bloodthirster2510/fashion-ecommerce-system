@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -74,7 +74,7 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
 
       <TouchableOpacity
         style={styles.tryOnButton}
-        onPress={() => Alert.alert('Phòng phối đồ ảo', 'Tính năng này đang được thiết kế và sẽ sớm ra mắt.')}
+        onPress={() => navigation.navigate(isAuthenticated ? 'VirtualTryOnHome' : 'Login')}
         accessibilityLabel="Phòng phối đồ ảo"
         activeOpacity={0.86}
       >
