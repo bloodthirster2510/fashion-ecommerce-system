@@ -18,6 +18,12 @@ import {
 } from '../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../utils/cloudinary.util';
 import { emitVirtualTryOnJobEvent } from '../realtime/virtual-try-on.gateway';
+import {
+  buildVirtualTryOnPrompt,
+  createVirtualTryOnProvider,
+  VirtualTryOnProviderError,
+  type VirtualTryOnProviderBinaryOutput,
+} from './providers';
 import type {
   CreateVirtualTryOnItemInput,
   CreateVirtualTryOnJobInput,
@@ -70,6 +76,19 @@ const allowedStatuses = new Set<VirtualTryOnJobStatus>([
   'failed',
   'canceled',
 ]);
+const blockedContextPromptPatterns = [
+  /\bnude\b/i,
+  /\bnaked\b/i,
+  /\bsex\b/i,
+  /\bporn\b/i,
+  /\berotic\b/i,
+  /\bunderwear\b/i,
+  /\blingerie\b/i,
+  /\bviolence\b/i,
+  /\bblood\b/i,
+  /\bweapon\b/i,
+  /\bkill\b/i,
+];
 
 const toObjectId = (id: string, field: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -96,6 +115,13 @@ const getFinalPrice = (price: number, discount: number) =>
 const getAssetType = (source: UploadAssetSource): VirtualTryOnAssetType =>
   source === 'camera' ? 'source_camera' : 'source_upload';
 
+const validateContextPromptSafety = (prompt?: string) => {
+  if (!prompt) return;
+  if (blockedContextPromptPatterns.some((pattern) => pattern.test(prompt))) {
+    throw new VirtualTryOnServiceError('Mo ta boi canh khong phu hop cho phoi do ao', 400, 'PROMPT_POLICY_BLOCKED');
+  }
+};
+
 const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   _id: asset._id.toString(),
   type: asset.type,
@@ -115,7 +141,6 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     _id: job.sourceAssetId,
     userId: job.userId,
   });
-
   return {
     _id: job._id.toString(),
     status: job.status,
@@ -167,7 +192,7 @@ const updateJobStatus = async (
   jobId: string,
   update: Partial<Pick<
     IVirtualTryOnJob,
-    'status' | 'progress' | 'generatedImageUrl' | 'generatedVideoUrl' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
+    'status' | 'progress' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
   >>,
   eventType: 'queued' | 'processing' | 'progress' | 'succeeded' | 'failed' | 'canceled',
 ) => {
@@ -182,27 +207,134 @@ const updateJobStatus = async (
 
 type VirtualTryOnProviderResult = {
   generatedImageUrl: string;
+  generatedImageAssetId?: Types.ObjectId | null;
   generatedVideoUrl?: string | null;
+  generatedVideoAssetId?: Types.ObjectId | null;
+  providerJobId?: string | null;
   providerMetadata?: Record<string, unknown>;
 };
 
+const mimeExtensions: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+};
+
+const getGeneratedFileName = (
+  job: IVirtualTryOnJob,
+  type: VirtualTryOnAssetType,
+  output: VirtualTryOnProviderBinaryOutput,
+) => {
+  const fallbackExtension = output.fileName.split('.').pop() || 'bin';
+  const extension = mimeExtensions[output.mimeType] || fallbackExtension;
+  return `${job._id.toString()}-${type}.${extension}`;
+};
+
+const persistGeneratedOutput = async (
+  job: IVirtualTryOnJob,
+  type: Extract<VirtualTryOnAssetType, 'generated_image' | 'generated_video'>,
+  output: VirtualTryOnProviderBinaryOutput,
+) => {
+  const uploaded = await uploadToCloudinary(
+    output.buffer,
+    getGeneratedFileName(job, type, output),
+    `fashion-ecommerce/virtual-try-on/users/${job.userId.toString()}/generated`,
+    output.mimeType.startsWith('video/') ? 'video' : 'image',
+  );
+
+  const asset = await VirtualTryOnAsset.create({
+    userId: job.userId,
+    type,
+    url: uploaded.secure_url,
+    thumbnailUrl: type === 'generated_image' ? uploaded.secure_url : undefined,
+    publicId: uploaded.public_id,
+    mimeType: output.mimeType,
+    width: uploaded.width,
+    height: uploaded.height,
+    bytes: uploaded.bytes,
+    source: 'ai_provider',
+    status: 'active',
+  });
+
+  return {
+    assetId: asset._id as Types.ObjectId,
+    url: uploaded.secure_url,
+  };
+};
+
+const buildProviderInput = (job: IVirtualTryOnJob) => {
+  const garments = job.selectedItems.map((item) => ({
+    role: item.role,
+    productId: item.productId.toString(),
+    variantId: item.variantId.toString(),
+    colorVariantId: item.colorVariantId.toString(),
+    imageUrl: item.imageSnapshot,
+    name: item.nameSnapshot,
+    color: item.colorSnapshot,
+    size: item.size,
+  }));
+  const prompt = buildVirtualTryOnPrompt({
+    garments,
+    preset: job.contextPreset,
+    customPrompt: job.contextPrompt,
+  });
+
+  return {
+    jobId: job._id.toString(),
+    userId: job.userId.toString(),
+    sourceImageUrl: job.sourceImageUrlSnapshot,
+    outfitMode: job.outfitMode,
+    outputMode: job.outputMode,
+    garments,
+    context: {
+      preset: job.contextPreset,
+      prompt: job.contextPrompt,
+      preserveOriginalBackground: job.contextPreset === 'none',
+    },
+    prompt: prompt.prompt,
+    negativePrompt: prompt.negativePrompt,
+  };
+};
+
 const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<VirtualTryOnProviderResult> => {
-  if (PROVIDER === 'mock') {
-    return {
-      generatedImageUrl: job.sourceImageUrlSnapshot,
-      generatedVideoUrl: null,
-      providerMetadata: {
-        mock: true,
-        note: 'Mock provider returns the source image until an AI image provider is configured.',
-      },
-    };
+  const provider = createVirtualTryOnProvider(PROVIDER);
+  const providerResult = await provider.generate(buildProviderInput(job));
+
+  let generatedImageUrl = providerResult.imageUrl;
+  let generatedImageAssetId: Types.ObjectId | null = null;
+  if (providerResult.image) {
+    const persistedImage = await persistGeneratedOutput(job, 'generated_image', providerResult.image);
+    generatedImageUrl = persistedImage.url;
+    generatedImageAssetId = persistedImage.assetId;
+  }
+  if (!generatedImageUrl) {
+    throw new VirtualTryOnProviderError('Provider did not return a generated image', 502, 'PROVIDER_OUTPUT_MISSING');
   }
 
-  throw new VirtualTryOnServiceError(
-    `Provider ${PROVIDER} chưa được tích hợp cho phối đồ ảo`,
-    502,
-    'PROVIDER_NOT_CONFIGURED',
-  );
+  let generatedVideoUrl = providerResult.videoUrl ?? null;
+  let generatedVideoAssetId: Types.ObjectId | null = null;
+  if (providerResult.video) {
+    const persistedVideo = await persistGeneratedOutput(job, 'generated_video', providerResult.video);
+    generatedVideoUrl = persistedVideo.url;
+    generatedVideoAssetId = persistedVideo.assetId;
+  }
+
+  return {
+    generatedImageUrl,
+    generatedImageAssetId,
+    generatedVideoUrl,
+    generatedVideoAssetId,
+    providerJobId: providerResult.providerJobId ?? null,
+    providerMetadata: {
+      ...(providerResult.metadata ?? {}),
+      outputMode: job.outputMode,
+      videoRequested: job.outputMode === 'image_and_video',
+      videoReturned: Boolean(generatedVideoUrl),
+    },
+  };
 };
 
 const delay = (ms: number) => {
@@ -234,8 +366,11 @@ const runProviderJob = async (jobId: string) => {
       {
         status: 'succeeded',
         progress: 100,
+        generatedImageAssetId: providerResult.generatedImageAssetId ?? null,
         generatedImageUrl: providerResult.generatedImageUrl,
+        generatedVideoAssetId: providerResult.generatedVideoAssetId ?? null,
         generatedVideoUrl: providerResult.generatedVideoUrl ?? null,
+        providerJobId: providerResult.providerJobId ?? null,
         providerMetadata: providerResult.providerMetadata ?? {},
         completedAt: new Date(),
       },
@@ -243,7 +378,11 @@ const runProviderJob = async (jobId: string) => {
     );
   } catch (error) {
     console.error('Virtual try-on provider worker failed:', error);
-    const serviceError = error instanceof VirtualTryOnServiceError ? error : null;
+    const serviceError = error instanceof VirtualTryOnServiceError
+      ? error
+      : error instanceof VirtualTryOnProviderError
+        ? new VirtualTryOnServiceError(error.message, error.statusCode, error.errorCode)
+        : null;
     await updateJobStatus(
       jobId,
       {
@@ -360,6 +499,8 @@ const validateCreateJobInput = (input: CreateVirtualTryOnJobInput) => {
   if (input.contextPrompt && input.contextPrompt.trim().length > 200) {
     throw new VirtualTryOnServiceError('Mô tả bối cảnh không được vượt quá 200 ký tự', 400);
   }
+
+  validateContextPromptSafety(input.contextPrompt);
 
   return {
     contextPreset,

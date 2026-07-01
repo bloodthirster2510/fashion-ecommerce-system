@@ -32,12 +32,15 @@ import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
 
-type MultiFilterKey = 'categoryId' | 'brandId';
+type MultiFilterKey = 'categoryId' | 'brandId' | 'color' | 'fitTypeId' | 'size';
 
 type ProductListFilters = {
   gender?: CatalogGender;
   categoryId: string[];
   brandId: string[];
+  color: string[];
+  fitTypeId: string[];
+  size: string[];
   minPrice?: number;
   maxPrice?: number;
   isSale?: boolean;
@@ -101,6 +104,32 @@ const genderLabels: Record<CatalogGender, string> = {
   unisex: 'Unisex',
 };
 
+const colorSwatchFallbacks: Record<string, string> = {
+  black: '#111827',
+  'trắng': '#ffffff',
+  white: '#ffffff',
+  'đen': '#111827',
+  'đỏ': '#dc2626',
+  red: '#dc2626',
+  'xanh': '#2563eb',
+  blue: '#2563eb',
+  'xanh lá': '#16a34a',
+  green: '#16a34a',
+  'vàng': '#facc15',
+  yellow: '#facc15',
+  'hồng': '#ec4899',
+  pink: '#ec4899',
+  'tím': '#7c3aed',
+  purple: '#7c3aed',
+  'xám': '#6b7280',
+  gray: '#6b7280',
+  'ghi': '#6b7280',
+  'nâu': '#92400e',
+  brown: '#92400e',
+  be: '#d6b98c',
+  beige: '#d6b98c',
+};
+
 const pricePresets = [
   { label: 'Tất cả', minPrice: undefined, maxPrice: undefined },
   { label: 'Dưới 200k', minPrice: undefined, maxPrice: 200000 },
@@ -110,6 +139,12 @@ const pricePresets = [
 
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+
+const getColorSwatch = (value: string) => {
+  const normalized = value.trim().toLocaleLowerCase('vi-VN');
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) return normalized;
+  return colorSwatchFallbacks[normalized] ?? colors.brandSoft;
+};
 
 const toArray = (value?: string | string[]) => {
   if (Array.isArray(value)) {
@@ -125,6 +160,9 @@ const normalizeFilters = (filters: ProductListFilters): ProductListFilters => ({
   ...filters,
   categoryId: uniqueStrings(filters.categoryId),
   brandId: uniqueStrings(filters.brandId),
+  color: uniqueStrings(filters.color),
+  fitTypeId: uniqueStrings(filters.fitTypeId),
+  size: uniqueStrings(filters.size),
 });
 
 const createFiltersFromParams = (params?: RootStackParamList['ProductList']): ProductListFilters =>
@@ -132,6 +170,9 @@ const createFiltersFromParams = (params?: RootStackParamList['ProductList']): Pr
     gender: params?.gender,
     categoryId: toArray(params?.categoryId),
     brandId: toArray(params?.brandId),
+    color: toArray(params?.color),
+    fitTypeId: toArray(params?.fitTypeId),
+    size: toArray(params?.size),
     minPrice: params?.minPrice,
     maxPrice: params?.maxPrice,
     isSale: params?.isSale,
@@ -319,12 +360,15 @@ const ProductListScreen = () => {
       JSON.stringify({
         brandId: params?.brandId,
         categoryId: params?.categoryId,
+        color: params?.color,
+        fitTypeId: params?.fitTypeId,
         gender: params?.gender,
         isNew: params?.isNew,
         isSale: params?.isSale,
         keyword: params?.keyword,
         maxPrice: params?.maxPrice,
         minPrice: params?.minPrice,
+        size: params?.size,
         sort: params?.sort,
       }),
     [params],
@@ -348,10 +392,12 @@ const ProductListScreen = () => {
       (appliedFilters.gender ? 1 : 0) +
       categorySelectionGroups.length +
       appliedFilters.brandId.length +
+      appliedFilters.color.length +
+      appliedFilters.fitTypeId.length +
+      appliedFilters.size.length +
       (appliedFilters.minPrice !== undefined || appliedFilters.maxPrice !== undefined ? 1 : 0) +
       (appliedFilters.isSale ? 1 : 0) +
-      (appliedFilters.isNew ? 1 : 0) +
-      (appliedFilters.sort !== 'newest' ? 1 : 0)
+      (appliedFilters.isNew ? 1 : 0)
     );
   }, [appliedFilters, categorySelectionGroups.length]);
 
@@ -389,6 +435,13 @@ const ProductListScreen = () => {
     setAppliedFilters((current) => normalizeFilters(updater(current)));
     setPage(1);
   }, []);
+
+  const clearAppliedFilters = React.useCallback(() => {
+    const nextFilters = createFiltersFromParams({ keyword: params?.keyword, title: params?.title });
+    setAppliedFilters(nextFilters);
+    setDraftFilters(nextFilters);
+    setPage(1);
+  }, [params?.keyword, params?.title]);
 
   const getBrandLabel = React.useCallback(
     (brandId: string) =>
@@ -435,6 +488,30 @@ const ProductListScreen = () => {
       });
     });
 
+    appliedFilters.size.forEach((size) => {
+      chips.push({
+        id: `size-${size}`,
+        label: `Size ${size}`,
+        onRemove: () => removeMultiValue('size', size),
+      });
+    });
+
+    appliedFilters.color.forEach((color) => {
+      chips.push({
+        id: `color-${color}`,
+        label: color,
+        onRemove: () => removeMultiValue('color', color),
+      });
+    });
+
+    appliedFilters.fitTypeId.forEach((fitType) => {
+      chips.push({
+        id: `fit-${fitType}`,
+        label: fitType,
+        onRemove: () => removeMultiValue('fitTypeId', fitType),
+      });
+    });
+
     if (appliedFilters.minPrice !== undefined || appliedFilters.maxPrice !== undefined) {
       chips.push({
         id: 'price',
@@ -464,14 +541,6 @@ const ProductListScreen = () => {
       });
     }
 
-    if (appliedFilters.sort !== 'newest') {
-      chips.push({
-        id: 'sort',
-        label: sortOptions.find((option) => option.value === appliedFilters.sort)?.label ?? 'Sắp xếp',
-        onRemove: () => updateAppliedFilters((current) => ({ ...current, sort: 'newest' })),
-      });
-    }
-
     return chips;
   }, [appliedFilters, categorySelectionGroups, getBrandLabel, updateAppliedFilters]);
 
@@ -488,6 +557,9 @@ const ProductListScreen = () => {
           gender: appliedFilters.gender,
           categoryId: toQueryArray(appliedFilters.categoryId),
           brandId: toQueryArray(appliedFilters.brandId),
+          color: toQueryArray(appliedFilters.color),
+          fitTypeId: toQueryArray(appliedFilters.fitTypeId),
+          size: toQueryArray(appliedFilters.size),
           minPrice: appliedFilters.minPrice,
           maxPrice: appliedFilters.maxPrice,
           isNew: appliedFilters.isNew,
@@ -673,6 +745,34 @@ const ProductListScreen = () => {
           </Text>
         </View>
 
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.sortRow}
+        >
+          {sortOptions.map((option) => {
+            const active = appliedFilters.sort === option.value;
+
+            return (
+              <TouchableOpacity
+                key={option.value}
+                style={[styles.sortChip, active && styles.sortChipActive]}
+                onPress={() => updateAppliedFilters((current) => ({ ...current, sort: option.value }))}
+                activeOpacity={0.82}
+              >
+                <MaterialCommunityIcons
+                  name={active ? 'check-circle' : 'sort'}
+                  size={16}
+                  color={active ? colors.white : colors.brand}
+                />
+                <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
         <View style={styles.filterToolbar}>
           <TouchableOpacity style={styles.filterButton} onPress={openFilterSheet} activeOpacity={0.82}>
             <MaterialCommunityIcons name="tune-variant" size={18} color={colors.brand} />
@@ -683,6 +783,12 @@ const ProductListScreen = () => {
               </View>
             ) : null}
           </TouchableOpacity>
+
+          {activeChips.length ? (
+            <TouchableOpacity style={styles.clearFilterButton} onPress={clearAppliedFilters} activeOpacity={0.82}>
+              <Text style={styles.clearFilterText}>Xóa tất cả</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <ScrollView
             horizontal
@@ -825,19 +931,6 @@ const ProductListScreen = () => {
               contentContainerStyle={styles.sheetContent}
             >
               {renderGroup(
-                'Sắp xếp theo',
-                <View style={styles.choiceWrap}>
-                  {sortOptions.map((option) =>
-                    renderChoice(option.label, draftFilters.sort === option.value, () =>
-                      setDraftFilters((current) => ({ ...current, sort: option.value })),
-                      undefined,
-                      option.value,
-                    ),
-                  )}
-                </View>,
-              )}
-
-              {renderGroup(
                 'Tình trạng',
                 <View style={styles.choiceWrap}>
                   {renderChoice('Hàng mới', Boolean(draftFilters.isNew), () =>
@@ -897,6 +990,63 @@ const ProductListScreen = () => {
                         </View>
                       </View>
                     ))}
+                  </View>
+                ) : null,
+              )}
+
+              {renderGroup(
+                'Size',
+                availableFilters.sizes.length ? (
+                  <View style={styles.choiceWrap}>
+                    {availableFilters.sizes.map((size) =>
+                      renderChoice(
+                        size,
+                        draftFilters.size.includes(size),
+                        () => toggleDraftValue('size', size),
+                        undefined,
+                        `size-${size}`,
+                      ),
+                    )}
+                  </View>
+                ) : null,
+              )}
+
+              {renderGroup(
+                'Màu sắc',
+                availableFilters.colors.length ? (
+                  <View style={styles.choiceWrap}>
+                    {availableFilters.colors.map((color) =>
+                      renderChoice(
+                        color,
+                        draftFilters.color.includes(color),
+                        () => toggleDraftValue('color', color),
+                        <View
+                          style={[
+                            styles.colorSwatch,
+                            { backgroundColor: getColorSwatch(color) },
+                            draftFilters.color.includes(color) && styles.colorSwatchActive,
+                          ]}
+                        />,
+                        `color-${color}`,
+                      ),
+                    )}
+                  </View>
+                ) : null,
+              )}
+
+              {renderGroup(
+                'Form dáng',
+                availableFilters.fitTypes.length ? (
+                  <View style={styles.choiceWrap}>
+                    {availableFilters.fitTypes.map((fitType) =>
+                      renderChoice(
+                        fitType,
+                        draftFilters.fitTypeId.includes(fitType),
+                        () => toggleDraftValue('fitTypeId', fitType),
+                        undefined,
+                        `fit-${fitType}`,
+                      ),
+                    )}
                   </View>
                 ) : null,
               )}
@@ -986,6 +1136,38 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '700',
   },
+  sortRow: {
+    minHeight: 40,
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  sortChip: {
+    minHeight: 36,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  sortChipActive: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  sortChipText: {
+    color: colors.brand,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  sortChipTextActive: {
+    color: colors.white,
+  },
   filterToolbar: {
     minHeight: 48,
     flexDirection: 'row',
@@ -1024,6 +1206,20 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 10,
     lineHeight: 13,
+    fontWeight: '800',
+  },
+  clearFilterButton: {
+    height: 38,
+    borderRadius: radii.xs,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearFilterText: {
+    color: colors.brand,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '800',
   },
   activeChipRow: {
@@ -1276,6 +1472,17 @@ const styles = StyleSheet.create({
   choiceTextActive: {
     color: colors.black,
     fontWeight: '800',
+  },
+  colorSwatch: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  colorSwatchActive: {
+    borderColor: colors.black,
+    borderWidth: 2,
   },
   resetButton: {
     minHeight: 42,

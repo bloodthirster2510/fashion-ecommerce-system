@@ -10,22 +10,23 @@ export interface CloudinaryUploadResult {
   bytes: number;
 }
 
+export type CloudinaryResourceType = 'image' | 'video';
 
 //Upload file to Cloudinary from buffer (multer memory storage)
 export const uploadToCloudinary = async (
   buffer: Buffer,
   fileName: string,
   folder: string = 'fashion-ecommerce',
+  resourceType: CloudinaryResourceType = 'image',
 ): Promise<CloudinaryUploadResult> => {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        resource_type: 'image',
+        resource_type: resourceType,
         folder,
         public_id: `${Date.now()}-${fileName.replace(/\.[^.]+$/, '')}`,
         overwrite: true,
-        quality: 'auto',
-        fetch_format: 'auto',
+        ...(resourceType === 'image' ? { quality: 'auto', fetch_format: 'auto' } : {}),
       },
       (error, result) => {
         if (error) {

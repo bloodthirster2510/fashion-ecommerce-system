@@ -1,0 +1,17 @@
+{
+  "inputs": {
+    "personImage": "12.inputs.image",
+    "topImage": "18.inputs.image",
+    "bottomImage": "21.inputs.image",
+    "dressImage": "22.inputs.image",
+    "shoesImage": "24.inputs.image",
+    "outerwearImage": "25.inputs.image",
+    "positivePrompt": "30.inputs.text",
+    "negativePrompt": "31.inputs.text",
+    "seed": "5.inputs.seed"
+  },
+  "outputs": {
+    "imageNodeIds": ["88"],
+    "videoNodeIds": ["96"]
+  }
+}
