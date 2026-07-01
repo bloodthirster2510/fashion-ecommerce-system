@@ -68,7 +68,7 @@ const readJsonFile = async <T>(filePath: string): Promise<T> => {
   try {
     const content = await readFile(path.resolve(filePath), 'utf8');
     return JSON.parse(content) as T;
-  } catch (error) {
+  } catch {
     throw new VirtualTryOnProviderError(
       `Cannot read ComfyUI config file: ${filePath}`,
       500,
@@ -248,8 +248,9 @@ const applyWorkflowInputs = async (
     );
   }
 
-  setMappedInput(workflow, workflowMap, 'positivePrompt', input.prompt)
-    || setMappedInput(workflow, workflowMap, 'prompt', input.prompt);
+  if (!setMappedInput(workflow, workflowMap, 'positivePrompt', input.prompt)) {
+    setMappedInput(workflow, workflowMap, 'prompt', input.prompt);
+  }
   setMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
   if (input.seed !== undefined) setMappedInput(workflow, workflowMap, 'seed', input.seed);
 
