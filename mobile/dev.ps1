@@ -1,11 +1,15 @@
 param(
   [switch]$Android,
+  [switch]$NoAndroid,
   [switch]$KeepCache,
   [switch]$ResetExpoGo,
+  [switch]$RestartEmulator,
+  [switch]$UseSnapshot,
   [string]$AvdName = "Pixel_6"
 )
 
 $API_PORT = "5000"
+$UseAndroid = -not $NoAndroid
 
 function Resolve-AndroidSdkPath {
   $candidates = @(
@@ -101,6 +105,21 @@ function Test-AndroidDeviceReady {
   }
 }
 
+function Stop-AndroidEmulators {
+  try {
+    $devices = & $ADB devices |
+      Where-Object { $_ -match "^emulator-\d+\s+" } |
+      ForEach-Object { ($_ -split "\s+")[0] }
+
+    foreach ($device in $devices) {
+      & $ADB -s $device emu kill | Out-Null
+    }
+  } catch {}
+
+  Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 function Get-DevApiHost {
   $interfaces = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
     Where-Object {
@@ -176,7 +195,7 @@ $DEV_API_HOST = Get-DevApiHost
 if ($DEV_API_HOST) {
   $env:EXPO_PUBLIC_API_HOST = $DEV_API_HOST
   $env:EXPO_PUBLIC_API_PORT = $API_PORT
-  $env:EXPO_PUBLIC_API_URL = if ($Android) { "http://127.0.0.1:$API_PORT/api" } else { "http://$DEV_API_HOST`:$API_PORT/api" }
+  $env:EXPO_PUBLIC_API_URL = if ($UseAndroid) { "http://127.0.0.1:$API_PORT/api" } else { "http://$DEV_API_HOST`:$API_PORT/api" }
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_HOST" -Value $DEV_API_HOST
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_PORT" -Value $API_PORT
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_URL" -Value $env:EXPO_PUBLIC_API_URL
@@ -192,10 +211,16 @@ Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue
     Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
   }
 
-if ($Android) {
+if ($UseAndroid) {
   Write-Output "[1] Emulator..."
   & $ADB kill-server | Out-Null
   & $ADB start-server | Out-Null
+
+  if ($RestartEmulator) {
+    Write-Output "Restarting Android emulator..."
+    Stop-AndroidEmulators
+    Start-Sleep -Seconds 3
+  }
 
   if (Test-AndroidDeviceReady) {
     Write-Output "Android device already connected. Reusing it."
@@ -207,10 +232,15 @@ if ($Android) {
       throw "Create the AVD or pass -AvdName with an existing name."
     }
 
-    Start-Process $EMULATOR -ArgumentList "-avd", $AvdName
+    $emulatorArgs = @("-avd", $AvdName)
+    if (-not $UseSnapshot) {
+      $emulatorArgs += "-no-snapshot-load"
+    }
+
+    Start-Process $EMULATOR -ArgumentList $emulatorArgs
   }
 } else {
-  Write-Output "[1] Skip emulator. Use Expo QR, or run .\dev.ps1 -Android for $AvdName."
+  Write-Output "[1] Skip emulator. Use Expo QR/LAN mode."
 }
 
 if (Test-BackendHealth) {
@@ -237,7 +267,7 @@ if ($backendReady) {
   Write-Output "Backend is not ready yet; continuing to Expo."
 }
 
-if ($Android) {
+if ($UseAndroid) {
   Write-Output "[3.5] Wait for Android device..."
   $androidReady = (Wait-AndroidDevice -TimeoutSeconds 90) -and (Wait-AndroidBoot -TimeoutSeconds 90)
   if ($androidReady) {
@@ -258,12 +288,12 @@ if ($Android) {
   $androidReady = $false
 }
 
-$expoArgs = @("expo", "start", "--lan", "--port", "8081")
+$expoArgs = @("expo", "start", "--go", "--lan", "--port", "8081")
 if (-not $KeepCache) {
   $expoArgs += "--clear"
 }
 
-if ($Android -and $androidReady) {
+if ($UseAndroid -and $androidReady) {
   $expoUrl = "exp://127.0.0.1:8081"
   $openAndroidCommand = @"
 `$deadline = (Get-Date).AddSeconds(60)
