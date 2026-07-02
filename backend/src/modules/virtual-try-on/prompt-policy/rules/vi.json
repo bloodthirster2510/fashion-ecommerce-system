@@ -1,0 +1,68 @@
+[
+  {
+    "key": "sexual_content_vi",
+    "category": "sexual_content",
+    "reasonCode": "PROMPT_SEXUAL_CONTENT",
+    "terms": [
+      "khỏa thân",
+      "khoa than",
+      "trần truồng",
+      "tran truong",
+      "gợi dục",
+      "goi duc",
+      "khiêu dâm",
+      "khieu dam",
+      "đồ lót",
+      "do lot",
+      "nội y",
+      "noi y",
+      "xuyên thấu",
+      "xuyen thau",
+      "tạo dáng gợi cảm",
+      "tao dang goi cam"
+    ]
+  },
+  {
+    "key": "violence_vi",
+    "category": "violence",
+    "reasonCode": "PROMPT_VIOLENCE",
+    "terms": [
+      "bạo lực",
+      "bao luc",
+      "máu me",
+      "mau me",
+      "vũ khí",
+      "vu khi",
+      "cầm dao",
+      "cam dao",
+      "caim dao",
+      "dao găm",
+      "dao gam",
+      "súng",
+      "sung",
+      "giết",
+      "giet",
+      "tự sát",
+      "tu sat",
+      "tự hại",
+      "tu hai"
+    ]
+  },
+  {
+    "key": "personal_data_vi",
+    "category": "personal_data",
+    "reasonCode": "PROMPT_PERSONAL_DATA",
+    "terms": [
+      "số điện thoại",
+      "so dien thoai",
+      "địa chỉ nhà",
+      "dia chi nha",
+      "căn cước công dân",
+      "can cuoc cong dan",
+      "chứng minh nhân dân",
+      "chung minh nhan dan",
+      "số thẻ ngân hàng",
+      "so the ngan hang"
+    ]
+  }
+]

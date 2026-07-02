@@ -1,0 +1,49 @@
+[
+  {
+    "key": "sexual_content_en",
+    "category": "sexual_content",
+    "reasonCode": "PROMPT_SEXUAL_CONTENT",
+    "terms": [
+      "nude",
+      "naked",
+      "sex",
+      "porn",
+      "erotic",
+      "sensual",
+      "sexy pose",
+      "underwear",
+      "lingerie",
+      "bikini only",
+      "see through"
+    ]
+  },
+  {
+    "key": "violence_en",
+    "category": "violence",
+    "reasonCode": "PROMPT_VIOLENCE",
+    "terms": [
+      "violence",
+      "blood",
+      "bloody",
+      "weapon",
+      "knife",
+      "gun",
+      "kill",
+      "suicide",
+      "self harm"
+    ]
+  },
+  {
+    "key": "personal_data_en",
+    "category": "personal_data",
+    "reasonCode": "PROMPT_PERSONAL_DATA",
+    "terms": [
+      "phone number",
+      "home address",
+      "credit card",
+      "id card",
+      "passport number",
+      "social security number"
+    ]
+  }
+]

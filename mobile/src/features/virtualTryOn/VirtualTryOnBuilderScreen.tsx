@@ -22,10 +22,12 @@ import type { TryOnContextPreset, TryOnItemRole, TryOnOutfitMode, TryOnSelectedI
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type TryOnProductSort = 'recommended' | 'price_asc' | 'price_desc';
+type TryOnGenderFilter = 'all' | 'male' | 'female' | 'unisex';
 
 type TryOnProductFilters = {
   categoryIds: string[];
   brandIds: string[];
+  gender: TryOnGenderFilter;
   isNew?: boolean;
   isSale?: boolean;
   sort: TryOnProductSort;
@@ -34,8 +36,23 @@ type TryOnProductFilters = {
 const defaultTryOnProductFilters: TryOnProductFilters = {
   categoryIds: [],
   brandIds: [],
+  gender: 'all',
   sort: 'recommended',
 };
+
+const tryOnPalette = {
+  ink: '#172231',
+  inkSoft: '#26384B',
+  champagne: '#F3C978',
+  champagneSoft: '#FFF4D9',
+  porcelain: '#FBF8F1',
+  mist: '#E8EEF1',
+  teal: '#2F6F73',
+  rose: '#C96F5B',
+  roseSoft: '#F8E6DF',
+  plum: '#5C506B',
+  line: '#D9DFE3',
+} as const;
 
 const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -68,6 +85,13 @@ const tryOnSortOptions: Array<{ key: TryOnProductSort; label: string }> = [
   { key: 'recommended', label: 'Gợi ý' },
   { key: 'price_asc', label: 'Giá thấp' },
   { key: 'price_desc', label: 'Giá cao' },
+];
+
+const genderFilterOptions: Array<{ key: TryOnGenderFilter; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
+  { key: 'all', label: 'Tất cả', icon: 'apps' },
+  { key: 'male', label: 'Nam', icon: 'gender-male' },
+  { key: 'female', label: 'Nữ', icon: 'gender-female' },
+  { key: 'unisex', label: 'Unisex', icon: 'gender-male-female' },
 ];
 
 const roleLabel: Record<TryOnItemRole, string> = {
@@ -229,7 +253,7 @@ const VirtualTryOnBuilderScreen = () => {
     let isCurrent = true;
     setIsLoading(true);
     catalogApi
-      .getProducts({ page: 1, limit: 24, sort: 'newest' })
+      .getProducts({ page: 1, limit: 60, sort: 'newest' })
       .then((response) => {
         if (isCurrent) setProducts(response.items);
       })
@@ -273,10 +297,18 @@ const VirtualTryOnBuilderScreen = () => {
     [activeSlot, products],
   );
 
+  const genderSlotProducts = React.useMemo(
+    () => slotProducts.filter((product) =>
+      productFilters.gender === 'all' ||
+      product.category?.gender === productFilters.gender,
+    ),
+    [productFilters.gender, slotProducts],
+  );
+
   const categoryFilterOptions = React.useMemo(() => {
     const options = new Map<string, string>();
 
-    slotProducts.forEach((product) => {
+    genderSlotProducts.forEach((product) => {
       if (product.category?._id && product.category.name) {
         options.set(product.category._id, product.category.name);
       }
@@ -285,12 +317,12 @@ const VirtualTryOnBuilderScreen = () => {
     return Array.from(options.entries())
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, 'vi-VN'));
-  }, [slotProducts]);
+  }, [genderSlotProducts]);
 
   const brandFilterOptions = React.useMemo(() => {
     const options = new Map<string, string>();
 
-    slotProducts.forEach((product) => {
+    genderSlotProducts.forEach((product) => {
       if (product.brand?._id && product.brand.name) {
         options.set(product.brand._id, product.brand.name);
       }
@@ -299,7 +331,7 @@ const VirtualTryOnBuilderScreen = () => {
     return Array.from(options.entries())
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, 'vi-VN'));
-  }, [slotProducts]);
+  }, [genderSlotProducts]);
 
   React.useEffect(() => {
     const availableCategoryIds = new Set(categoryFilterOptions.map((option) => option.id));
@@ -326,7 +358,7 @@ const VirtualTryOnBuilderScreen = () => {
 
   const filteredProducts = React.useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
-    const nextProducts = slotProducts.filter((product) => {
+    const nextProducts = genderSlotProducts.filter((product) => {
       const matchesKeyword = !keyword ||
         `${product.name} ${product.category?.name ?? ''} ${product.brand?.name ?? ''}`
           .toLowerCase()
@@ -352,11 +384,12 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     return nextProducts;
-  }, [productFilters, searchTerm, slotProducts]);
+  }, [genderSlotProducts, productFilters, searchTerm]);
 
   const productFilterCount =
     productFilters.categoryIds.length +
     productFilters.brandIds.length +
+    (productFilters.gender !== 'all' ? 1 : 0) +
     (productFilters.isNew ? 1 : 0) +
     (productFilters.isSale ? 1 : 0) +
     (productFilters.sort !== 'recommended' ? 1 : 0);
@@ -683,6 +716,30 @@ const VirtualTryOnBuilderScreen = () => {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.genderSegment}>
+          {genderFilterOptions.map((option) => {
+            const active = productFilters.gender === option.key;
+
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.genderChip, active && styles.genderChipActive]}
+                onPress={() => setProductFilters((current) => ({ ...current, gender: option.key }))}
+                activeOpacity={0.84}
+              >
+                <MaterialCommunityIcons
+                  name={option.icon}
+                  size={16}
+                  color={active ? tryOnPalette.ink : tryOnPalette.teal}
+                />
+                <Text style={[styles.genderChipText, active && styles.genderChipTextActive]} numberOfLines={1}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
         <View style={styles.productHeaderRow}>
           <Text style={styles.sectionTitle}>Chọn cho {activeSlot.label.toLowerCase()}</Text>
           <Text style={styles.productCount}>{filteredProducts.length} món</Text>
@@ -961,6 +1018,26 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetContent}>
+              <Text style={styles.filterGroupTitle}>Đối tượng</Text>
+              <View style={styles.filterChoiceWrap}>
+                {genderFilterOptions.map((option) => {
+                  const active = productFilters.gender === option.key;
+
+                  return (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[styles.filterChoice, active && styles.filterChoiceActive]}
+                      onPress={() => setProductFilters((current) => ({ ...current, gender: option.key }))}
+                      activeOpacity={0.82}
+                    >
+                      <Text style={[styles.filterChoiceText, active && styles.filterChoiceTextActive]}>
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
               {categoryFilterOptions.length ? (
                 <>
                   <Text style={styles.filterGroupTitle}>Loại sản phẩm</Text>
@@ -1061,21 +1138,25 @@ const VirtualTryOnBuilderScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.brand,
+    backgroundColor: tryOnPalette.ink,
   },
   header: {
-    minHeight: 70,
-    paddingHorizontal: spacing.md,
+    minHeight: 78,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.brand,
+    backgroundColor: tryOnPalette.ink,
     flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(243,201,120,0.22)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(243,201,120,0.26)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1092,17 +1173,19 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: tryOnPalette.mist,
   },
   scrollContent: {
     padding: spacing.md,
-    paddingBottom: 116,
+    paddingBottom: 128,
     gap: spacing.md,
   },
   sourceCard: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: tryOnPalette.inkSoft,
+    borderWidth: 1,
+    borderColor: 'rgba(243,201,120,0.26)',
+    padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
@@ -1113,7 +1196,9 @@ const styles = StyleSheet.create({
     height: 92,
     borderRadius: radii.sm,
     overflow: 'hidden',
-    backgroundColor: colors.brandSoft,
+    backgroundColor: 'rgba(243,201,120,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(243,201,120,0.38)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1125,20 +1210,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sourceTitle: {
-    color: colors.text,
+    color: colors.white,
     fontSize: 16,
     lineHeight: 22,
     fontWeight: '900',
   },
   sourceText: {
-    color: colors.textMuted,
+    color: '#DDE7EC',
     fontSize: 12,
     lineHeight: 18,
     marginTop: 2,
   },
   sectionTitle: {
-    color: colors.text,
-    fontSize: 17,
+    color: tryOnPalette.ink,
+    fontSize: 18,
     lineHeight: 23,
     fontWeight: '900',
     marginTop: spacing.sm,
@@ -1151,17 +1236,18 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 76,
     borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    backgroundColor: tryOnPalette.porcelain,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: tryOnPalette.line,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
     paddingHorizontal: spacing.xs,
+    ...shadows.card,
   },
   modeButtonActive: {
-    backgroundColor: colors.brand,
-    borderColor: colors.brand,
+    backgroundColor: tryOnPalette.ink,
+    borderColor: tryOnPalette.champagne,
   },
   modeText: {
     color: colors.brandDark,
@@ -1187,7 +1273,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   outfitProgress: {
-    color: colors.brand,
+    color: tryOnPalette.rose,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '900',
@@ -1201,8 +1287,8 @@ const styles = StyleSheet.create({
     minHeight: 128,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.porcelain,
     padding: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1224,18 +1310,18 @@ const styles = StyleSheet.create({
     width: '31.6%',
   },
   slotCardActive: {
-    borderColor: colors.brand,
-    backgroundColor: colors.brand,
+    borderColor: tryOnPalette.champagne,
+    backgroundColor: tryOnPalette.inkSoft,
   },
   slotCardFilled: {
-    backgroundColor: colors.surface,
-    borderColor: colors.brand,
+    backgroundColor: '#FFFDF8',
+    borderColor: tryOnPalette.rose,
   },
   slotIconWrap: {
     width: 58,
     height: 58,
     borderRadius: radii.sm,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: tryOnPalette.champagneSoft,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -1266,7 +1352,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   slotMeta: {
-    color: colors.brand,
+    color: tryOnPalette.teal,
     fontSize: 10,
     lineHeight: 14,
     fontWeight: '800',
@@ -1297,11 +1383,14 @@ const styles = StyleSheet.create({
   searchRow: {
     minHeight: 44,
     borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    ...shadows.card,
   },
   searchInput: {
     flex: 1,
@@ -1313,12 +1402,12 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: tryOnPalette.champagneSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   searchFilterButtonActive: {
-    backgroundColor: colors.brand,
+    backgroundColor: tryOnPalette.teal,
   },
   searchFilterBadge: {
     position: 'absolute',
@@ -1337,6 +1426,40 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 13,
     fontWeight: '900',
+  },
+  genderSegment: {
+    minHeight: 48,
+    borderRadius: radii.md,
+    backgroundColor: '#FFFDF8',
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    padding: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    ...shadows.card,
+  },
+  genderChip: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 6,
+  },
+  genderChipActive: {
+    backgroundColor: tryOnPalette.champagne,
+  },
+  genderChipText: {
+    color: tryOnPalette.ink,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  genderChipTextActive: {
+    color: tryOnPalette.ink,
   },
   loading: {
     paddingVertical: spacing.xl,
@@ -1362,19 +1485,20 @@ const styles = StyleSheet.create({
   productCard: {
     width: '47.8%',
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    borderColor: tryOnPalette.line,
+    borderRadius: radii.md,
+    backgroundColor: tryOnPalette.porcelain,
     overflow: 'hidden',
+    ...shadows.card,
   },
   productCardSelected: {
-    borderColor: colors.brand,
+    borderColor: tryOnPalette.rose,
     borderWidth: 2,
   },
   productImageWrap: {
     width: '100%',
     aspectRatio: 1,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: '#DFE8EA',
   },
   productImage: {
     width: '100%',
@@ -1385,12 +1509,14 @@ const styles = StyleSheet.create({
     left: spacing.sm,
     top: spacing.sm,
     borderRadius: radii.pill,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(23,34,49,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(243,201,120,0.42)',
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
   },
   roleBadgeText: {
-    color: colors.brandDark,
+    color: tryOnPalette.champagne,
     fontSize: 10,
     lineHeight: 13,
     fontWeight: '900',
@@ -1402,13 +1528,13 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: colors.brand,
+    backgroundColor: tryOnPalette.teal,
     alignItems: 'center',
     justifyContent: 'center',
   },
   productName: {
     minHeight: 38,
-    color: colors.text,
+    color: tryOnPalette.ink,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800',
@@ -1416,7 +1542,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   productPrice: {
-    color: colors.brand,
+    color: tryOnPalette.rose,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '900',
@@ -1424,6 +1550,9 @@ const styles = StyleSheet.create({
   productFooter: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(217,223,227,0.72)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1490,17 +1619,17 @@ const styles = StyleSheet.create({
   contextChip: {
     minHeight: 38,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: tryOnPalette.line,
     borderRadius: radii.pill,
-    backgroundColor: colors.surface,
+    backgroundColor: tryOnPalette.porcelain,
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
   },
   contextChipActive: {
-    backgroundColor: colors.brand,
-    borderColor: colors.brand,
+    backgroundColor: tryOnPalette.plum,
+    borderColor: tryOnPalette.plum,
   },
   contextText: {
     color: colors.brandDark,
@@ -1514,9 +1643,9 @@ const styles = StyleSheet.create({
   promptInput: {
     minHeight: 86,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: tryOnPalette.line,
     borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFDF8',
     padding: spacing.md,
     color: colors.text,
     fontSize: 14,
@@ -1525,10 +1654,10 @@ const styles = StyleSheet.create({
   },
   outputOptionCard: {
     minHeight: 86,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    backgroundColor: '#FFFDF8',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: tryOnPalette.line,
     padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1539,7 +1668,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radii.sm,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: tryOnPalette.champagneSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1564,8 +1693,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
+    borderTopColor: 'rgba(243,201,120,0.28)',
+    backgroundColor: tryOnPalette.ink,
     padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1573,13 +1702,13 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   footerLabel: {
-    color: colors.textMuted,
+    color: '#CAD6DC',
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
   },
   footerTotal: {
-    color: colors.text,
+    color: colors.white,
     fontSize: 17,
     lineHeight: 23,
     fontWeight: '900',
@@ -1588,7 +1717,7 @@ const styles = StyleSheet.create({
     minWidth: 170,
     minHeight: 50,
     borderRadius: radii.sm,
-    backgroundColor: colors.brand,
+    backgroundColor: tryOnPalette.rose,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -1806,7 +1935,7 @@ const styles = StyleSheet.create({
     maxHeight: '78%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: colors.surface,
+    backgroundColor: tryOnPalette.porcelain,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,

@@ -1,0 +1,42 @@
+[
+  {
+    "key": "ignore_instructions",
+    "category": "prompt_injection",
+    "reasonCode": "PROMPT_INJECTION",
+    "terms": [
+      "ignore previous instructions",
+      "ignore all instructions",
+      "ignore the above",
+      "bypass policy",
+      "bypass safety",
+      "disable safety",
+      "jailbreak",
+      "developer message",
+      "system prompt",
+      "reveal prompt",
+      "show hidden instructions",
+      "do not follow policy"
+    ]
+  },
+  {
+    "key": "ignore_instructions_vi",
+    "category": "prompt_injection",
+    "reasonCode": "PROMPT_INJECTION",
+    "terms": [
+      "bỏ qua hướng dẫn",
+      "bo qua huong dan",
+      "bỏ qua tất cả hướng dẫn",
+      "bo qua tat ca huong dan",
+      "không cần tuân thủ",
+      "khong can tuan thu",
+      "vượt qua chính sách",
+      "vuot qua chinh sach",
+      "tắt an toàn",
+      "tat an toan",
+      "hiện system prompt",
+      "hien system prompt",
+      "tiết lộ prompt",
+      "tiet lo prompt"
+    ]
+  }
+]

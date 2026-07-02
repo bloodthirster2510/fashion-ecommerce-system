@@ -85,5 +85,6 @@ export type AdminVirtualTryOnPromptTestResult = {
   reasonCode: string | null
   message: string | null
   maxLength: number
+  matchedCategory?: string
   matchedRule?: string
 }
