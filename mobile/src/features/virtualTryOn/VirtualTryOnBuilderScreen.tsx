@@ -16,7 +16,7 @@ import {
   type ProductDetailVariant,
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
-import { virtualTryOnApi } from './virtualTryOnApi';
+import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
 import type { TryOnContextPreset, TryOnItemRole, TryOnOutfitMode, TryOnSelectedItem } from './virtualTryOn.types';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
@@ -101,6 +101,61 @@ const roleLabel: Record<TryOnItemRole, string> = {
   shoes: 'Giày',
   accessory: 'Phụ kiện',
   outerwear: 'Áo khoác',
+};
+
+const imageValidationAlerts: Record<string, { title: string; message: string }> = {
+  NO_PERSON_DETECTED: {
+    title: 'Ảnh chưa phù hợp',
+    message: 'Bạn hãy chọn ảnh có một người rõ ràng để hệ thống thử đồ chính xác hơn.',
+  },
+  MULTIPLE_PEOPLE_DETECTED: {
+    title: 'Ảnh có nhiều người',
+    message: 'Bạn hãy dùng ảnh chỉ có một người chính trong khung hình.',
+  },
+  PERSON_TOO_SMALL: {
+    title: 'Người trong ảnh quá nhỏ',
+    message: 'Bạn hãy chọn ảnh chụp gần hơn, người chiếm phần lớn khung hình.',
+  },
+  BODY_NOT_VISIBLE: {
+    title: 'Chưa thấy đủ cơ thể',
+    message: 'Outfit này cần ảnh thấy rõ người hơn. Bạn hãy chọn ảnh nửa người hoặc toàn thân phù hợp.',
+  },
+  POSE_NOT_SUPPORTED: {
+    title: 'Tư thế khó xử lý',
+    message: 'Bạn hãy chọn ảnh đứng thẳng, mặt hướng camera và ít bị che khuất.',
+  },
+  IMAGE_TOO_BLURRY: {
+    title: 'Ảnh bị mờ',
+    message: 'Bạn hãy chọn hoặc chụp lại ảnh rõ nét hơn.',
+  },
+  IMAGE_TOO_DARK: {
+    title: 'Ảnh quá tối',
+    message: 'Bạn hãy chọn ảnh đủ sáng hơn để hệ thống nhận diện cơ thể tốt hơn.',
+  },
+  IMAGE_TOO_SMALL: {
+    title: 'Ảnh quá nhỏ',
+    message: 'Bạn hãy chọn ảnh có độ phân giải cao hơn.',
+  },
+  IMAGE_POLICY_BLOCKED: {
+    title: 'Ảnh không phù hợp',
+    message: 'Ảnh này không thể dùng để tạo phối đồ ảo. Bạn hãy chọn ảnh khác.',
+  },
+  VALIDATION_PROVIDER_FAILED: {
+    title: 'Chưa kiểm tra được ảnh',
+    message: 'Hệ thống đang chưa kiểm tra được ảnh này. Bạn hãy thử lại sau ít phút.',
+  },
+};
+
+const getCreateJobErrorAlert = (error: unknown) => {
+  if (error instanceof VirtualTryOnApiError && error.errorCode) {
+    const validationAlert = imageValidationAlerts[error.errorCode];
+    if (validationAlert) return validationAlert;
+  }
+
+  return {
+    title: 'Phối đồ ảo',
+    message: error instanceof Error ? error.message : 'Không thể tạo yêu cầu phối đồ.',
+  };
 };
 
 type OutfitSlot = {
@@ -564,8 +619,8 @@ const VirtualTryOnBuilderScreen = () => {
       );
       navigation.replace('VirtualTryOnProcessing', { jobId: job._id });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể tạo yêu cầu phối đồ.';
-      Alert.alert('Phối đồ ảo', message);
+      const alert = getCreateJobErrorAlert(error);
+      Alert.alert(alert.title, alert.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -592,7 +647,7 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
           <View style={styles.sourceCopy}>
             <Text style={styles.sourceTitle}>Ảnh của bạn</Text>
-            <Text style={styles.sourceText}>Ảnh này sẽ được dùng làm đầu vào cho kết quả phối đồ.</Text>
+            <Text style={styles.sourceText}>Ảnh sẽ được kiểm tra khi tạo kết quả. Hãy dùng ảnh một người, đủ sáng và rõ nét.</Text>
           </View>
         </View>
 

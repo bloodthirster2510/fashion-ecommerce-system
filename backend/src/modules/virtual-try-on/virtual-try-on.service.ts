@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { Types } from 'mongoose';
 import {
   Product,
@@ -24,6 +25,15 @@ import {
   VirtualTryOnProviderError,
   type VirtualTryOnProviderBinaryOutput,
 } from './providers';
+import {
+  createImageValidationProvider,
+  getConfiguredImageValidationProviderName,
+  getImageValidationReasonMessage,
+  getImageValidationReasonStatus,
+  type ImageValidationInput,
+  type ImageValidationReasonCode,
+  type ImageValidationResult,
+} from './image-validation';
 import { PROMPT_MAX_LENGTH, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
 import type {
   CreateVirtualTryOnItemInput,
@@ -49,6 +59,7 @@ const MAX_LIMIT = 50;
 const MAX_SELECTED_ITEMS = Number(process.env.VIRTUAL_TRY_ON_MAX_SELECTED_ITEMS || 4);
 const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
+const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 
 const allowedRoles = new Set<VirtualTryOnItemRole>([
   'top',
@@ -397,6 +408,108 @@ const findAssetForUser = async (userId: string, assetId: string) => {
   return asset;
 };
 
+const shouldFailOpenImageValidation = () => process.env.IMAGE_VALIDATION_FAIL_OPEN === 'true';
+
+const getImageValidationSource = (asset: IVirtualTryOnAsset): ImageValidationInput['source'] =>
+  asset.source === 'camera' ? 'camera' : 'upload';
+
+const downloadImageValidationBuffer = async (asset: IVirtualTryOnAsset) => {
+  const response = await axios.get<ArrayBuffer>(asset.url, {
+    responseType: 'arraybuffer',
+    timeout: IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS,
+  });
+
+  const responseMimeType = String(response.headers['content-type'] || '').split(';')[0].trim();
+  return {
+    buffer: Buffer.from(response.data),
+    mimeType: asset.mimeType || responseMimeType || 'image/jpeg',
+  };
+};
+
+const getPersonScoreThreshold = () => {
+  const threshold = Number(process.env.IMAGE_VALIDATION_PERSON_SCORE_THRESHOLD);
+  return Number.isFinite(threshold) ? threshold : 0.5;
+};
+
+const rejectImageValidationResult = (
+  result: ImageValidationResult,
+  reasonCode: ImageValidationReasonCode,
+): ImageValidationResult => ({
+  ...result,
+  allowed: false,
+  reasonCode,
+  message: getImageValidationReasonMessage(reasonCode),
+});
+
+const applyImageValidationPolicy = (result: ImageValidationResult): ImageValidationResult => {
+  if (!result.allowed) return result;
+  if (result.safetyFlags.length > 0) return rejectImageValidationResult(result, 'IMAGE_POLICY_BLOCKED');
+  if (result.quality.resolution === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_SMALL');
+  if (result.quality.blur === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_BLURRY');
+  if (result.quality.brightness === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_DARK');
+  if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
+    return rejectImageValidationResult(result, 'NO_PERSON_DETECTED');
+  }
+  if (result.personCount > 1) return rejectImageValidationResult(result, 'MULTIPLE_PEOPLE_DETECTED');
+  if (result.bodyVisibility === 'partial') return rejectImageValidationResult(result, 'BODY_NOT_VISIBLE');
+
+  return result;
+};
+
+const throwImageValidationError = (result: Pick<ImageValidationResult, 'reasonCode' | 'message'>): never => {
+  const reasonCode = result.reasonCode || 'NO_PERSON_DETECTED';
+  throw new VirtualTryOnServiceError(
+    result.message || getImageValidationReasonMessage(reasonCode),
+    getImageValidationReasonStatus(reasonCode),
+    reasonCode,
+  );
+};
+
+const validateSourceImageForJob = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+) => {
+  const providerName = getConfiguredImageValidationProviderName();
+  if (providerName === 'disabled') return;
+
+  let result: ImageValidationResult | undefined;
+  try {
+    const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
+    const provider = createImageValidationProvider(providerName);
+    result = applyImageValidationPolicy(await provider.validate({
+      imageBuffer: buffer,
+      mimeType,
+      width: sourceAsset.width ?? 0,
+      height: sourceAsset.height ?? 0,
+      bytes: sourceAsset.bytes ?? buffer.byteLength,
+      source: getImageValidationSource(sourceAsset),
+      outfitMode,
+    }));
+  } catch (error) {
+    if (shouldFailOpenImageValidation()) {
+      console.warn('Image validation failed open:', error);
+      return;
+    }
+
+    throwImageValidationError({
+      reasonCode: 'VALIDATION_PROVIDER_FAILED',
+      message: getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
+    });
+  }
+
+  if (!result) {
+    throw new VirtualTryOnServiceError(
+      getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
+      getImageValidationReasonStatus('VALIDATION_PROVIDER_FAILED'),
+      'VALIDATION_PROVIDER_FAILED',
+    );
+  }
+
+  if (!result.allowed) {
+    throwImageValidationError(result);
+  }
+};
+
 const resolveSelectedItem = (
   input: CreateVirtualTryOnItemInput,
   product: IProduct,
@@ -599,6 +712,8 @@ const createJob = async (
   }
 
   const sourceAsset = await findAssetForUser(userId, input.sourceAssetId);
+  await validateSourceImageForJob(sourceAsset, input.outfitMode);
+
   const selectedItems = await resolveSelectedItems(input.selectedItems);
 
   const job = await VirtualTryOnJob.create({
