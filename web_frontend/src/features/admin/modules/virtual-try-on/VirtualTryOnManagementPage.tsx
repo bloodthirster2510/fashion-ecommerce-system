@@ -7,11 +7,13 @@ import {
   hideVirtualTryOnJob,
   listVirtualTryOnJobs,
   retryVirtualTryOnJob,
+  testVirtualTryOnPrompt,
 } from './virtualTryOn.service'
 import type {
   AdminVirtualTryOnFilters,
   AdminVirtualTryOnJob,
   AdminVirtualTryOnJobList,
+  AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
   AdminVirtualTryOnSummary,
   VirtualTryOnJobStatus,
@@ -71,6 +73,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const [actionLoading, setActionLoading] = useState(false)
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [selectedJob, setSelectedJob] = useState<AdminVirtualTryOnJob | null>(null)
+  const [promptInput, setPromptInput] = useState('')
+  const [promptResult, setPromptResult] = useState<AdminVirtualTryOnPromptTestResult | null>(null)
+  const [promptTesting, setPromptTesting] = useState(false)
   const canManage = hasPermission(currentUser, 'virtual_try_on.manage')
   const canSettings = hasPermission(currentUser, 'virtual_try_on.settings')
 
@@ -133,6 +138,24 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const handleHide = (job: AdminVirtualTryOnJob) => {
     if (!window.confirm('Ẩn job này khỏi danh sách quản trị và lịch sử khách?')) return
     void runAction(() => hideVirtualTryOnJob(job._id), 'Đã ẩn job khỏi lịch sử.')
+  }
+
+  const handlePromptTest = async () => {
+    setPromptTesting(true)
+    setPromptResult(null)
+    try {
+      setPromptResult(await testVirtualTryOnPrompt(promptInput))
+    } catch (error) {
+      setPromptResult({
+        allowed: false,
+        normalizedPrompt: null,
+        reasonCode: 'REQUEST_FAILED',
+        message: error instanceof Error ? error.message : 'Khong the kiem tra prompt',
+        maxLength: settings?.promptMaxLength ?? 200,
+      })
+    } finally {
+      setPromptTesting(false)
+    }
   }
 
   const pagination = data?.pagination
@@ -226,6 +249,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <td>
                           <button className="admin-vto-job-link" type="button" onClick={() => setSelectedJob(job)}>
                             <strong>{job._id.slice(-8)}</strong>
+                            <span>{job.generatedImageUrl ? 'Co ket qua' : 'Chua co ket qua'}</span>
                             <span>{job.outputMode === 'image_and_video' ? 'Ảnh + video' : 'Ảnh'}</span>
                           </button>
                         </td>
@@ -295,6 +319,30 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         </section>
 
         <aside className="admin-vto-side">
+          <section className="admin-vto-panel admin-vto-prompt-panel">
+            <h2>Kiem tra prompt</h2>
+            <textarea
+              value={promptInput}
+              maxLength={settings?.promptMaxLength ?? 200}
+              onChange={(event) => setPromptInput(event.target.value)}
+              placeholder="Nhap mo ta boi canh de kiem tra"
+              rows={4}
+            />
+            <div className="admin-vto-prompt-actions">
+              <span>{promptInput.length}/{settings?.promptMaxLength ?? 200}</span>
+              <button type="button" disabled={promptTesting} onClick={() => void handlePromptTest()}>
+                {promptTesting ? 'Dang kiem tra...' : 'Kiem tra'}
+              </button>
+            </div>
+            {promptResult ? (
+              <div className={`admin-vto-prompt-result ${promptResult.allowed ? 'is-success' : 'is-error'}`}>
+                <strong>{promptResult.allowed ? 'Hop le' : 'Bi chan'}</strong>
+                <span>{promptResult.message || promptResult.reasonCode || promptResult.normalizedPrompt || 'Prompt co the su dung'}</span>
+                {promptResult.matchedRule ? <code>{promptResult.matchedRule}</code> : null}
+              </div>
+            ) : null}
+          </section>
+
           <section className="admin-vto-panel">
             <h2>Cấu hình hiện tại</h2>
             <dl>
@@ -352,6 +400,17 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               {selectedJob.errorMessage ? <p className="admin-vto-error-text">{selectedJob.errorCode}: {selectedJob.errorMessage}</p> : null}
             </section>
             <section>
+              <h3>Ket qua AI</h3>
+              {selectedJob.generatedImageUrl || selectedJob.generatedVideoUrl ? (
+                <div className="admin-vto-result-preview">
+                  {selectedJob.generatedImageUrl ? <img src={selectedJob.generatedImageUrl} alt="Ket qua phoi do" /> : null}
+                  {selectedJob.generatedVideoUrl ? <video src={selectedJob.generatedVideoUrl} controls /> : null}
+                </div>
+              ) : (
+                <p>Job chua co anh hoac video ket qua.</p>
+              )}
+            </section>
+            <section>
               <h3>Sản phẩm đã chọn</h3>
               <div className="admin-vto-drawer-items">
                 {selectedJob.selectedItems.map((item) => (
@@ -372,4 +431,3 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     </section>
   )
 }
-

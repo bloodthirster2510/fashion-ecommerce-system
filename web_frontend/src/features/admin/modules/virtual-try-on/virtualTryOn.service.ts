@@ -3,6 +3,7 @@ import type {
   AdminVirtualTryOnFilters,
   AdminVirtualTryOnJob,
   AdminVirtualTryOnJobList,
+  AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
   AdminVirtualTryOnSummary,
 } from './virtualTryOn.types'
@@ -28,6 +29,12 @@ export const getVirtualTryOnSummary = () =>
 export const getVirtualTryOnSettings = () =>
   requestAdmin<AdminVirtualTryOnSettings>('/admin/virtual-try-on/settings')
 
+export const testVirtualTryOnPrompt = (contextPrompt: string) =>
+  requestAdmin<AdminVirtualTryOnPromptTestResult>('/admin/virtual-try-on/prompt/test', {
+    method: 'POST',
+    body: JSON.stringify({ contextPrompt }),
+  })
+
 export const retryVirtualTryOnJob = (jobId: string) =>
   requestAdmin<AdminVirtualTryOnJob>(`/admin/virtual-try-on/jobs/${jobId}/retry`, {
     method: 'POST',
@@ -42,4 +49,3 @@ export const hideVirtualTryOnJob = (jobId: string) =>
   requestAdmin<AdminVirtualTryOnJob>(`/admin/virtual-try-on/jobs/${jobId}`, {
     method: 'DELETE',
   })
-

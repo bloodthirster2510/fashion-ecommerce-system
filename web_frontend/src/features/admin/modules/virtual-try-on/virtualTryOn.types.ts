@@ -76,5 +76,14 @@ export type AdminVirtualTryOnSettings = {
   maxSelectedItems: number
   maxConcurrentJobsPerUser: number
   sourceImageMaxMb: number
+  promptMaxLength: number
 }
 
+export type AdminVirtualTryOnPromptTestResult = {
+  allowed: boolean
+  normalizedPrompt: string | null
+  reasonCode: string | null
+  message: string | null
+  maxLength: number
+  matchedRule?: string
+}

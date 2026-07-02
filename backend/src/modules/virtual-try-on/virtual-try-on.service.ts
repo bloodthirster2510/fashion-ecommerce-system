@@ -89,6 +89,7 @@ const blockedContextPromptPatterns = [
   /\bweapon\b/i,
   /\bkill\b/i,
 ];
+const PROMPT_MAX_LENGTH = 200;
 
 const toObjectId = (id: string, field: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -115,11 +116,49 @@ const getFinalPrice = (price: number, discount: number) =>
 const getAssetType = (source: UploadAssetSource): VirtualTryOnAssetType =>
   source === 'camera' ? 'source_camera' : 'source_upload';
 
-const validateContextPromptSafety = (prompt?: string) => {
-  if (!prompt) return;
-  if (blockedContextPromptPatterns.some((pattern) => pattern.test(prompt))) {
-    throw new VirtualTryOnServiceError('Mo ta boi canh khong phu hop cho phoi do ao', 400, 'PROMPT_POLICY_BLOCKED');
+const normalizeContextPrompt = (prompt?: string) => prompt?.replace(/\s+/g, ' ').trim() || undefined;
+
+const validateContextPrompt = (prompt?: string) => {
+  const normalizedPrompt = normalizeContextPrompt(prompt);
+  if (!normalizedPrompt) {
+    return {
+      allowed: true,
+      normalizedPrompt: null,
+      reasonCode: null,
+      message: null,
+      maxLength: PROMPT_MAX_LENGTH,
+    };
   }
+
+  if (normalizedPrompt.length > PROMPT_MAX_LENGTH) {
+    return {
+      allowed: false,
+      normalizedPrompt: null,
+      reasonCode: 'PROMPT_TOO_LONG',
+      message: `Mo ta boi canh khong duoc vuot qua ${PROMPT_MAX_LENGTH} ky tu`,
+      maxLength: PROMPT_MAX_LENGTH,
+    };
+  }
+
+  const matchedPattern = blockedContextPromptPatterns.find((pattern) => pattern.test(normalizedPrompt));
+  if (matchedPattern) {
+    return {
+      allowed: false,
+      normalizedPrompt: null,
+      reasonCode: 'PROMPT_POLICY_BLOCKED',
+      message: 'Mo ta boi canh khong phu hop cho phoi do ao',
+      maxLength: PROMPT_MAX_LENGTH,
+      matchedRule: matchedPattern.source,
+    };
+  }
+
+  return {
+    allowed: true,
+    normalizedPrompt,
+    reasonCode: null,
+    message: null,
+    maxLength: PROMPT_MAX_LENGTH,
+  };
 };
 
 const serializeAsset = (asset: IVirtualTryOnAsset) => ({
@@ -496,16 +535,19 @@ const validateCreateJobInput = (input: CreateVirtualTryOnJobInput) => {
   if (outputMode === 'image_and_video' && !ENABLE_VIDEO) {
     throw new VirtualTryOnServiceError('Tạo video chưa được bật', 400);
   }
-  if (input.contextPrompt && input.contextPrompt.trim().length > 200) {
-    throw new VirtualTryOnServiceError('Mô tả bối cảnh không được vượt quá 200 ký tự', 400);
+  const promptValidation = validateContextPrompt(input.contextPrompt);
+  if (!promptValidation.allowed) {
+    throw new VirtualTryOnServiceError(
+      promptValidation.message || 'Mo ta boi canh khong hop le',
+      400,
+      promptValidation.reasonCode || 'PROMPT_INVALID',
+    );
   }
-
-  validateContextPromptSafety(input.contextPrompt);
 
   return {
     contextPreset,
     outputMode,
-    contextPrompt: input.contextPrompt?.trim() || undefined,
+    contextPrompt: promptValidation.normalizedPrompt || undefined,
   };
 };
 
@@ -944,7 +986,16 @@ const getAdminSettings = () => ({
   maxSelectedItems: MAX_SELECTED_ITEMS,
   maxConcurrentJobsPerUser: Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1),
   sourceImageMaxMb: 5,
+  promptMaxLength: PROMPT_MAX_LENGTH,
 });
+
+const testAdminPrompt = (input: unknown) => {
+  const contextPrompt = input && typeof input === 'object' && 'contextPrompt' in input
+    ? (input as { contextPrompt?: unknown }).contextPrompt
+    : undefined;
+
+  return validateContextPrompt(typeof contextPrompt === 'string' ? contextPrompt : undefined);
+};
 
 const retryAdminJob = async (jobId: string) => {
   const job = await VirtualTryOnJob.findOne({
@@ -1027,6 +1078,7 @@ export const virtualTryOnService = {
   listAdminJobs,
   getAdminSummary,
   getAdminSettings,
+  testAdminPrompt,
   retryAdminJob,
   cancelAdminJob,
   hideAdminJob,
