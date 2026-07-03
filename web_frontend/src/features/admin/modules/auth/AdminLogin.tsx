@@ -65,7 +65,7 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
       setErrorMessage(
         error instanceof TypeError
-          ? 'Khong ket noi duoc backend. Hay chay backend o port 5000.'
+          ? 'Không kết nối được backend. Hãy chạy backend ở port 5000.'
           : message,
       )
     } finally {

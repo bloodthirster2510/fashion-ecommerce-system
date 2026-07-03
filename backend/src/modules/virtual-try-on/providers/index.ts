@@ -24,13 +24,13 @@ export const createVirtualTryOnProvider = (providerName: string): VirtualTryOnPr
       return createComfyVirtualTryOnProvider();
     case 'disabled':
       throw new VirtualTryOnProviderError(
-        'Tinh nang phoi do ao dang tat',
+        'Tính năng phối đồ ảo đang tắt',
         503,
         'VIRTUAL_TRY_ON_DISABLED',
       );
     default:
       throw new VirtualTryOnProviderError(
-        `Provider ${providerName} chua duoc tich hop cho phoi do ao`,
+        `Provider ${providerName} chưa được tích hợp cho phối đồ ảo`,
         502,
         'PROVIDER_NOT_CONFIGURED',
       );

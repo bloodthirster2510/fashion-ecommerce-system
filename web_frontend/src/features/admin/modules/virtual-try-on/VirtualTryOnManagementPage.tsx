@@ -161,7 +161,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         allowed: false,
         normalizedPrompt: null,
         reasonCode: 'REQUEST_FAILED',
-        message: error instanceof Error ? error.message : 'Khong the kiem tra prompt',
+        message: error instanceof Error ? error.message : 'Không thể kiểm tra prompt',
         maxLength: settings?.promptMaxLength ?? 200,
       })
     } finally {
@@ -478,11 +478,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <h3>Kết quả AI</h3>
               {selectedJob.generatedImageUrl || selectedJob.generatedVideoUrl ? (
                 <div className="admin-vto-result-preview">
-                  {selectedJob.generatedImageUrl ? <img src={selectedJob.generatedImageUrl} alt="Ket qua phoi do" /> : null}
+                  {selectedJob.generatedImageUrl ? <img src={selectedJob.generatedImageUrl} alt="Kết quả phối đồ" /> : null}
                   {selectedJob.generatedVideoUrl ? <video src={selectedJob.generatedVideoUrl} controls /> : null}
                 </div>
               ) : (
-                <p>Job chua co anh hoac video ket qua.</p>
+                <p>Job chưa có ảnh hoặc video kết quả.</p>
               )}
             </section>
             <section>
