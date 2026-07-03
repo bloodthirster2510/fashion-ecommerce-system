@@ -5,6 +5,7 @@ import {
   User,
   VirtualTryOnAsset,
   VirtualTryOnJob,
+  VirtualTryOnPromptViolation,
   type IColorVariant,
   type IProduct,
   type IProductVariant,
@@ -47,6 +48,7 @@ export class VirtualTryOnServiceError extends Error {
     message: string,
     public readonly statusCode: number,
     public readonly errorCode?: string,
+    public readonly data?: unknown,
   ) {
     super(message);
     this.name = 'VirtualTryOnServiceError';
@@ -60,6 +62,7 @@ const MAX_SELECTED_ITEMS = Number(process.env.VIRTUAL_TRY_ON_MAX_SELECTED_ITEMS 
 const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
+const DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY = 5;
 
 const allowedRoles = new Set<VirtualTryOnItemRole>([
   'top',
@@ -88,6 +91,30 @@ const allowedStatuses = new Set<VirtualTryOnJobStatus>([
   'failed',
   'canceled',
 ]);
+
+const getPromptViolationLimitPerDay = () => {
+  const configuredLimit = Number(process.env.VIRTUAL_TRY_ON_PROMPT_VIOLATION_LIMIT_PER_DAY);
+  return Number.isFinite(configuredLimit) && configuredLimit > 0
+    ? Math.floor(configuredLimit)
+    : DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY;
+};
+
+const getLocalDayRange = (value = new Date()) => {
+  const start = new Date(value);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+};
+
+const formatPromptBlockUntil = (value: Date) =>
+  new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(value);
 
 const toObjectId = (id: string, field: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -572,6 +599,95 @@ const resolveSelectedItems = async (items: CreateVirtualTryOnItemInput[]) => {
   });
 };
 
+const getPromptPolicyData = (input: {
+  violationCount: number;
+  limit: number;
+  blockedUntil?: Date | null;
+}) => ({
+  violationCount: input.violationCount,
+  violationLimit: input.limit,
+  remainingViolations: Math.max(input.limit - input.violationCount, 0),
+  blockedUntil: input.blockedUntil?.toISOString() ?? null,
+});
+
+const throwActivePromptBlock = (violation: { violationCount?: number; blockedUntil?: Date | null }): never => {
+  const limit = getPromptViolationLimitPerDay();
+  const blockedUntil = violation.blockedUntil ?? getLocalDayRange().end;
+  throw new VirtualTryOnServiceError(
+    `Tính năng phối đồ ảo đang bị tạm khóa do nhập mô tả vi phạm nhiều lần. Bạn có thể thử lại sau ${formatPromptBlockUntil(blockedUntil)}.`,
+    429,
+    'PROMPT_POLICY_TEMPORARY_BLOCKED',
+    getPromptPolicyData({
+      violationCount: violation.violationCount ?? limit,
+      limit,
+      blockedUntil,
+    }),
+  );
+};
+
+const ensurePromptPolicyNotBlocked = async (userObjectId: Types.ObjectId, now = new Date()) => {
+  const activeBlock = await VirtualTryOnPromptViolation.findOne({
+    userId: userObjectId,
+    action: 'temporary_block',
+    blockedUntil: { $gt: now },
+  });
+
+  if (activeBlock) {
+    throwActivePromptBlock(activeBlock);
+  }
+};
+
+const normalizePromptForLog = (prompt?: string) => {
+  const normalized = prompt?.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  return (normalized || '(empty)').slice(0, 500);
+};
+
+const validatePromptForCreateJob = async (userObjectId: Types.ObjectId, prompt?: string) => {
+  const now = new Date();
+  await ensurePromptPolicyNotBlocked(userObjectId, now);
+
+  const promptValidation = validateVirtualTryOnPrompt(prompt);
+  if (promptValidation.allowed) return promptValidation;
+
+  const limit = getPromptViolationLimitPerDay();
+  const { start, end } = getLocalDayRange(now);
+  const previousViolationCount = await VirtualTryOnPromptViolation.countDocuments({
+    userId: userObjectId,
+    createdAt: { $gte: start, $lt: end },
+  });
+  const violationCount = previousViolationCount + 1;
+  const shouldBlock = violationCount >= limit;
+  const blockedUntil = shouldBlock ? end : null;
+
+  await VirtualTryOnPromptViolation.create({
+    userId: userObjectId,
+    prompt: normalizePromptForLog(prompt),
+    reasonCode: promptValidation.reasonCode || 'PROMPT_INVALID',
+    matchedCategory: promptValidation.matchedCategory,
+    matchedRule: promptValidation.matchedRule,
+    action: shouldBlock ? 'temporary_block' : 'warn',
+    violationCount,
+    blockedUntil,
+  });
+
+  const policyData = getPromptPolicyData({ violationCount, limit, blockedUntil });
+  if (shouldBlock) {
+    throw new VirtualTryOnServiceError(
+      `Bạn đã nhập mô tả vi phạm ${violationCount} lần hôm nay. Tính năng phối đồ ảo bị tạm khóa đến ${formatPromptBlockUntil(blockedUntil!)}.`,
+      429,
+      'PROMPT_POLICY_DAILY_LIMIT_REACHED',
+      policyData,
+    );
+  }
+
+  throw new VirtualTryOnServiceError(
+    `${promptValidation.message || 'Mô tả bối cảnh không hợp lệ'} Bạn còn ${policyData.remainingViolations} lần vi phạm hôm nay trước khi bị tạm khóa tính năng này.`,
+    400,
+    promptValidation.reasonCode || 'PROMPT_INVALID',
+    policyData,
+  );
+};
+
 const validateCreateJobInput = (input: CreateVirtualTryOnJobInput) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new VirtualTryOnServiceError('Request body must be an object', 400);
@@ -590,19 +706,10 @@ const validateCreateJobInput = (input: CreateVirtualTryOnJobInput) => {
   if (outputMode === 'image_and_video' && !ENABLE_VIDEO) {
     throw new VirtualTryOnServiceError('Tạo video chưa được bật', 400);
   }
-  const promptValidation = validateVirtualTryOnPrompt(input.contextPrompt);
-  if (!promptValidation.allowed) {
-    throw new VirtualTryOnServiceError(
-      promptValidation.message || 'Mo ta boi canh khong hop le',
-      400,
-      promptValidation.reasonCode || 'PROMPT_INVALID',
-    );
-  }
 
   return {
     contextPreset,
     outputMode,
-    contextPrompt: promptValidation.normalizedPrompt || undefined,
   };
 };
 
@@ -705,6 +812,7 @@ const createJob = async (
     if (existing) return serializeJob(existing);
   }
 
+  const promptValidation = await validatePromptForCreateJob(userObjectId, input.contextPrompt);
   const activeJobCount = await getActiveJobCount(userId);
   const maxConcurrent = Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1);
   if (activeJobCount >= maxConcurrent) {
@@ -723,7 +831,7 @@ const createJob = async (
     selectedItems,
     outfitMode: input.outfitMode,
     contextPreset: normalized.contextPreset,
-    contextPrompt: normalized.contextPrompt,
+    contextPrompt: promptValidation.normalizedPrompt || undefined,
     outputMode: normalized.outputMode,
     status: 'queued',
     progress: 0,
@@ -1008,6 +1116,8 @@ const getAdminSummary = async () => {
     succeeded,
     failed,
     canceled,
+    promptViolationsToday,
+    promptBlocksToday,
     latestFailedJobs,
   ] = await Promise.all([
     VirtualTryOnJob.countDocuments({ deletedAt: null }),
@@ -1017,6 +1127,8 @@ const getAdminSummary = async () => {
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'succeeded' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'failed' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'canceled' }),
+    VirtualTryOnPromptViolation.countDocuments({ createdAt: { $gte: dayStart } }),
+    VirtualTryOnPromptViolation.countDocuments({ action: 'temporary_block', createdAt: { $gte: dayStart } }),
     VirtualTryOnJob.find({ deletedAt: null, status: 'failed' }).sort({ updatedAt: -1 }).limit(5),
   ]);
 
@@ -1031,6 +1143,8 @@ const getAdminSummary = async () => {
     successRate: total ? Math.round((succeeded / total) * 100) : 0,
     provider: PROVIDER,
     videoEnabled: ENABLE_VIDEO,
+    promptViolationsToday,
+    promptBlocksToday,
     latestFailedJobs: await Promise.all(latestFailedJobs.map(serializeAdminJob)),
     generatedAt: now.toISOString(),
   };
@@ -1044,6 +1158,7 @@ const getAdminSettings = () => ({
   maxConcurrentJobsPerUser: Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1),
   sourceImageMaxMb: 5,
   promptMaxLength: PROMPT_MAX_LENGTH,
+  promptViolationLimitPerDay: getPromptViolationLimitPerDay(),
 });
 
 const testAdminPrompt = (input: unknown) => {

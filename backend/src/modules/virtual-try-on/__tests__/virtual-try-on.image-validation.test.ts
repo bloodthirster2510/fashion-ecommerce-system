@@ -4,6 +4,7 @@ import {
   Product,
   VirtualTryOnAsset,
   VirtualTryOnJob,
+  VirtualTryOnPromptViolation,
 } from '../../../database/models';
 import { virtualTryOnService } from '../virtual-try-on.service';
 
@@ -31,6 +32,11 @@ jest.mock('../../../database/models', () => ({
     findOne: jest.fn(),
     findOneAndUpdate: jest.fn(),
   },
+  VirtualTryOnPromptViolation: {
+    countDocuments: jest.fn(),
+    create: jest.fn(),
+    findOne: jest.fn(),
+  },
 }));
 
 jest.mock('../../realtime/virtual-try-on.gateway', () => ({
@@ -50,6 +56,11 @@ const mockedVirtualTryOnJob = VirtualTryOnJob as unknown as {
   create: jest.Mock;
   findOne: jest.Mock;
   findOneAndUpdate: jest.Mock;
+};
+const mockedVirtualTryOnPromptViolation = VirtualTryOnPromptViolation as unknown as {
+  countDocuments: jest.Mock;
+  create: jest.Mock;
+  findOne: jest.Mock;
 };
 
 const userId = '665000000000000000000020';
@@ -122,6 +133,9 @@ const setupCreateJobMocks = () => {
     data: Buffer.from('source-image'),
     headers: { 'content-type': 'image/jpeg' },
   });
+  mockedVirtualTryOnPromptViolation.findOne.mockResolvedValue(null);
+  mockedVirtualTryOnPromptViolation.countDocuments.mockResolvedValue(0);
+  mockedVirtualTryOnPromptViolation.create.mockResolvedValue({});
   mockedVirtualTryOnAsset.findOne.mockResolvedValue(sourceAsset);
   mockedVirtualTryOnJob.countDocuments.mockResolvedValue(0);
   mockedProduct.find.mockResolvedValue([product]);
@@ -205,5 +219,77 @@ describe('virtualTryOnService image validation', () => {
     expect(result._id).toBe(jobId.toString());
     expect(mockedAxios.get).not.toHaveBeenCalled();
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs prompt policy violations before image validation or job creation', async () => {
+    await expect(
+      virtualTryOnService.createJob(userId, {
+        ...createJobInput,
+        contextPrompt: 'tạo ảnh khỏa thân',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: 'PROMPT_SEXUAL_CONTENT',
+      statusCode: 400,
+      data: expect.objectContaining({
+        violationCount: 1,
+        violationLimit: 5,
+        remainingViolations: 4,
+      }),
+    });
+
+    expect(mockedVirtualTryOnPromptViolation.create).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'warn',
+      reasonCode: 'PROMPT_SEXUAL_CONTENT',
+      violationCount: 1,
+      blockedUntil: null,
+    }));
+    expect(mockedVirtualTryOnAsset.findOne).not.toHaveBeenCalled();
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+  });
+
+  it('temporarily blocks virtual try-on after the daily prompt violation limit', async () => {
+    mockedVirtualTryOnPromptViolation.countDocuments.mockResolvedValue(4);
+
+    await expect(
+      virtualTryOnService.createJob(userId, {
+        ...createJobInput,
+        contextPrompt: 'tạo ảnh khỏa thân',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: 'PROMPT_POLICY_DAILY_LIMIT_REACHED',
+      statusCode: 429,
+      data: expect.objectContaining({
+        violationCount: 5,
+        violationLimit: 5,
+        remainingViolations: 0,
+      }),
+    });
+
+    expect(mockedVirtualTryOnPromptViolation.create).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'temporary_block',
+      violationCount: 5,
+      blockedUntil: expect.any(Date),
+    }));
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects valid prompts while a prompt policy block is active', async () => {
+    mockedVirtualTryOnPromptViolation.findOne.mockResolvedValue({
+      violationCount: 5,
+      blockedUntil: new Date(Date.now() + 60 * 60 * 1000),
+    });
+
+    await expect(
+      virtualTryOnService.createJob(userId, {
+        ...createJobInput,
+        contextPrompt: 'quán cà phê ánh sáng tự nhiên',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: 'PROMPT_POLICY_TEMPORARY_BLOCKED',
+      statusCode: 429,
+    });
+
+    expect(mockedVirtualTryOnPromptViolation.create).not.toHaveBeenCalled();
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
   });
 });

@@ -13,13 +13,15 @@ export class VirtualTryOnApiError extends Error {
   errors?: ApiValidationError[];
   status?: number;
   errorCode?: string;
+  data?: unknown;
 
-  constructor(message: string, errors?: ApiValidationError[], status?: number, errorCode?: string) {
+  constructor(message: string, errors?: ApiValidationError[], status?: number, errorCode?: string, data?: unknown) {
     super(message);
     this.name = 'VirtualTryOnApiError';
     this.errors = errors;
     this.status = status;
     this.errorCode = errorCode;
+    this.data = data;
   }
 }
 
@@ -88,6 +90,7 @@ const request = async <T>(
       payload.errors,
       response.status,
       payload.errorCode,
+      payload.data,
     );
   }
 
@@ -156,4 +159,3 @@ export const virtualTryOnApi = {
       method: 'DELETE',
     }),
 };
-

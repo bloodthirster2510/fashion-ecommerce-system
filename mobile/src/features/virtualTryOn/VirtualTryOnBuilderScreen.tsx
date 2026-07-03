@@ -41,17 +41,18 @@ const defaultTryOnProductFilters: TryOnProductFilters = {
 };
 
 const tryOnPalette = {
-  ink: '#172231',
-  inkSoft: '#26384B',
-  champagne: '#F3C978',
-  champagneSoft: '#FFF4D9',
-  porcelain: '#FBF8F1',
-  mist: '#E8EEF1',
-  teal: '#2F6F73',
-  rose: '#C96F5B',
-  roseSoft: '#F8E6DF',
-  plum: '#5C506B',
-  line: '#D9DFE3',
+  ink: '#213448',
+  inkSoft: '#2F4A60',
+  champagne: '#F6C76B',
+  champagneSoft: '#FFF4DE',
+  porcelain: '#FFFFFF',
+  mist: '#F4F6F4',
+  teal: '#547792',
+  tealSoft: '#EDF4F7',
+  rose: '#D8755B',
+  roseSoft: '#FCE8E1',
+  plum: '#4E5F75',
+  line: '#DDE3E7',
 } as const;
 
 const formatPrice = (value: number) =>
@@ -146,10 +147,96 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
   },
 };
 
+const promptValidationAlerts: Record<string, { title: string; message: string }> = {
+  PROMPT_SEXUAL_CONTENT: {
+    title: 'Mô tả chưa phù hợp',
+    message: 'Mô tả bối cảnh có nội dung nhạy cảm. Bạn hãy nhập bối cảnh thời trang an toàn hơn.',
+  },
+  PROMPT_VIOLENCE: {
+    title: 'Mô tả chưa phù hợp',
+    message: 'Mô tả bối cảnh có nội dung bạo lực. Bạn hãy chọn một bối cảnh an toàn hơn.',
+  },
+  PROMPT_PERSONAL_DATA: {
+    title: 'Không dùng dữ liệu cá nhân',
+    message: 'Bạn hãy bỏ số điện thoại, địa chỉ, giấy tờ hoặc thông tin riêng tư khỏi mô tả.',
+  },
+  PROMPT_PROFANITY: {
+    title: 'Mô tả chưa phù hợp',
+    message: 'Mô tả có ngôn ngữ thô tục. Bạn hãy nhập bối cảnh thời trang lịch sự hơn.',
+  },
+  PROMPT_HATE_OR_HARASSMENT: {
+    title: 'Mô tả chưa phù hợp',
+    message: 'Mô tả có nội dung xúc phạm, quấy rối hoặc kỳ thị. Bạn hãy đổi sang bối cảnh an toàn hơn.',
+  },
+  PROMPT_INJECTION: {
+    title: 'Mô tả chưa hợp lệ',
+    message: 'Mô tả chỉ nên nói về bối cảnh phối đồ, phong cách, màu sắc hoặc dịp sử dụng.',
+  },
+  PROMPT_TOO_LONG: {
+    title: 'Mô tả quá dài',
+    message: 'Bạn hãy rút gọn mô tả bối cảnh trước khi tạo kết quả.',
+  },
+};
+
+type PromptPolicyErrorData = {
+  violationCount?: number;
+  violationLimit?: number;
+  remainingViolations?: number;
+  blockedUntil?: string | null;
+};
+
+const getPromptPolicyErrorData = (value: unknown): PromptPolicyErrorData | null => {
+  if (!value || typeof value !== 'object') return null;
+  return value as PromptPolicyErrorData;
+};
+
+const formatPromptBlockedUntil = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const appendPromptPolicyHint = (message: string, data: PromptPolicyErrorData | null) => {
+  if (!data || typeof data.remainingViolations !== 'number' || data.remainingViolations <= 0) {
+    return message;
+  }
+
+  return `${message}\n\nCòn ${data.remainingViolations} lần vi phạm hôm nay trước khi tính năng phối đồ ảo bị tạm khóa.`;
+};
+
 const getCreateJobErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError && error.errorCode) {
     const validationAlert = imageValidationAlerts[error.errorCode];
     if (validationAlert) return validationAlert;
+
+    const promptPolicyData = getPromptPolicyErrorData(error.data);
+    if (
+      error.errorCode === 'PROMPT_POLICY_DAILY_LIMIT_REACHED' ||
+      error.errorCode === 'PROMPT_POLICY_TEMPORARY_BLOCKED'
+    ) {
+      const blockedUntil = formatPromptBlockedUntil(promptPolicyData?.blockedUntil);
+      return {
+        title: 'Tạm khóa phối đồ ảo',
+        message: blockedUntil
+          ? `Bạn đã nhập mô tả vi phạm quá nhiều lần hôm nay. Tính năng tạo ảnh sẽ mở lại sau ${blockedUntil}.`
+          : (error.message || 'Tính năng tạo ảnh đang bị tạm khóa do nhập mô tả vi phạm nhiều lần.'),
+      };
+    }
+
+    const promptAlert = promptValidationAlerts[error.errorCode];
+    if (promptAlert) {
+      return {
+        ...promptAlert,
+        message: appendPromptPolicyHint(promptAlert.message, promptPolicyData),
+      };
+    }
   }
 
   return {
@@ -274,12 +361,14 @@ const VirtualTryOnBuilderScreen = () => {
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
   const [selectedItems, setSelectedItems] = React.useState<TryOnSelectedItem[]>([]);
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
-  const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('none');
+  const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
   const [includeVideo, setIncludeVideo] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
+  const [isProductListVisible, setIsProductListVisible] = React.useState(false);
   const [isProductFilterVisible, setIsProductFilterVisible] = React.useState(false);
+  const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [selectingProductId, setSelectingProductId] = React.useState<string | null>(null);
@@ -542,6 +631,7 @@ const VirtualTryOnBuilderScreen = () => {
 
     addSelectedItem(createSelectedItem(configuringProduct, selectedVariant, selectedColor, selectedSizeOption.size));
     closeVariantSelector();
+    setIsProductListVisible(false);
   };
 
   const removeSelectedItem = (productId: string) => {
@@ -563,6 +653,7 @@ const VirtualTryOnBuilderScreen = () => {
     selectedItems.length > 0 &&
     hasRequiredTopBottom &&
     (outfitMode !== 'full_set' || selectedItems.length >= 2);
+  const submitDisabled = !canSubmit || isSubmitting;
 
   const footerLabel = (() => {
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
@@ -577,7 +668,36 @@ const VirtualTryOnBuilderScreen = () => {
     return `${selectedSlotCount}/${outfitSlots.length} vị trí`;
   })();
 
-  const createJob = async () => {
+  const submitCreateJob = async (confirmedSourceAssetId: string) => {
+    setIsCreateConfirmVisible(false);
+    setIsSubmitting(true);
+    try {
+      const job = await runWithAuth((token) =>
+        virtualTryOnApi.createJob(token, {
+          sourceAssetId: confirmedSourceAssetId,
+          outfitMode,
+          selectedItems: selectedItems.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            colorVariantId: item.colorVariantId,
+            size: item.size,
+            role: item.role,
+          })),
+          contextPreset,
+          contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
+          outputMode: includeVideo ? 'image_and_video' : 'image',
+        }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      );
+      navigation.replace('VirtualTryOnProcessing', { jobId: job._id });
+    } catch (error) {
+      const alert = getCreateJobErrorAlert(error);
+      Alert.alert(alert.title, alert.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const createJob = () => {
     if (!sourceAssetId) {
       Alert.alert('Ảnh của bạn', 'Bạn cần tải ảnh hoặc chụp ảnh trước.');
       navigation.navigate('VirtualTryOnHome');
@@ -599,31 +719,16 @@ const VirtualTryOnBuilderScreen = () => {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const job = await runWithAuth((token) =>
-        virtualTryOnApi.createJob(token, {
-          sourceAssetId,
-          outfitMode,
-          selectedItems: selectedItems.map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            colorVariantId: item.colorVariantId,
-            size: item.size,
-            role: item.role,
-          })),
-          contextPreset,
-          contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
-          outputMode: includeVideo ? 'image_and_video' : 'image',
-        }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
-      );
-      navigation.replace('VirtualTryOnProcessing', { jobId: job._id });
-    } catch (error) {
-      const alert = getCreateJobErrorAlert(error);
-      Alert.alert(alert.title, alert.message);
-    } finally {
-      setIsSubmitting(false);
+    setIsCreateConfirmVisible(true);
+  };
+
+  const confirmCreateJob = () => {
+    if (!sourceAssetId) {
+      setIsCreateConfirmVisible(false);
+      return;
     }
+
+    void submitCreateJob(sourceAssetId);
   };
 
   return (
@@ -692,7 +797,10 @@ const VirtualTryOnBuilderScreen = () => {
                   active && styles.slotCardActive,
                   selectedItem && styles.slotCardFilled,
                 ]}
-                onPress={() => setActiveSlotKey(slot.key)}
+                onPress={() => {
+                  setActiveSlotKey(slot.key);
+                  setIsProductListVisible(true);
+                }}
                 activeOpacity={0.84}
               >
                 <View style={styles.slotIconWrap}>
@@ -703,7 +811,7 @@ const VirtualTryOnBuilderScreen = () => {
                       recyclingKey={`${slot.key}:${selectedItem.colorVariantId}`}
                     />
                   ) : (
-                    <MaterialCommunityIcons name={slot.icon} size={24} color={active ? colors.white : colors.brand} />
+                    <MaterialCommunityIcons name={slot.icon} size={24} color={active ? tryOnPalette.ink : colors.brand} />
                   )}
                 </View>
                 <View style={[styles.slotCopy, outfitSlots.length === 1 && styles.slotCardSingleCopy]}>
@@ -733,7 +841,10 @@ const VirtualTryOnBuilderScreen = () => {
                 {selectedItem ? (
                   <TouchableOpacity
                     style={[styles.slotRemoveButton, outfitSlots.length === 1 && styles.slotRemoveButtonSingle]}
-                    onPress={() => removeSelectedItem(selectedItem.productId)}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      removeSelectedItem(selectedItem.productId);
+                    }}
                     activeOpacity={0.75}
                   >
                     <MaterialCommunityIcons name="close" size={18} color={colors.textMuted} />
@@ -744,108 +855,20 @@ const VirtualTryOnBuilderScreen = () => {
           })}
         </View>
 
-        <View style={styles.searchRow}>
-          <MaterialCommunityIcons name="magnify" size={22} color={colors.textMuted} />
-          <TextInput
-            style={styles.searchInput}
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            placeholder="Tìm áo, quần, giày..."
-            placeholderTextColor={colors.textMuted}
-          />
-          <TouchableOpacity
-            style={[styles.searchFilterButton, productFilterCount > 0 && styles.searchFilterButtonActive]}
-            onPress={() => setIsProductFilterVisible(true)}
-            activeOpacity={0.82}
-          >
-            <MaterialCommunityIcons
-              name="tune-variant"
-              size={21}
-              color={productFilterCount > 0 ? colors.white : colors.brand}
-            />
-            {productFilterCount > 0 ? (
-              <View style={styles.searchFilterBadge}>
-                <Text style={styles.searchFilterBadgeText}>{productFilterCount}</Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.genderSegment}>
-          {genderFilterOptions.map((option) => {
-            const active = productFilters.gender === option.key;
-
-            return (
-              <TouchableOpacity
-                key={option.key}
-                style={[styles.genderChip, active && styles.genderChipActive]}
-                onPress={() => setProductFilters((current) => ({ ...current, gender: option.key }))}
-                activeOpacity={0.84}
-              >
-                <MaterialCommunityIcons
-                  name={option.icon}
-                  size={16}
-                  color={active ? tryOnPalette.ink : tryOnPalette.teal}
-                />
-                <Text style={[styles.genderChipText, active && styles.genderChipTextActive]} numberOfLines={1}>
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <View style={styles.productHeaderRow}>
-          <Text style={styles.sectionTitle}>Chọn cho {activeSlot.label.toLowerCase()}</Text>
-          <Text style={styles.productCount}>{filteredProducts.length} món</Text>
-        </View>
-        {isLoading ? (
-          <ActivityIndicator color={colors.brand} style={styles.loading} />
-        ) : filteredProducts.length ? (
-          <View style={styles.productGrid}>
-            {filteredProducts.map((product) => {
-              const selected = selectedItems.some((item) => item.productId === product._id);
-              const isSelecting = selectingProductId === product._id;
-              const productRole = inferRole(product);
-
-              return (
-                <TouchableOpacity
-                  key={product._id}
-                  style={[styles.productCard, selected && styles.productCardSelected]}
-                  onPress={() => selectProduct(product)}
-                  activeOpacity={0.86}
-                  disabled={isSelecting}
-                >
-                  <View style={styles.productImageWrap}>
-                    <RemoteImage uri={product.image} style={styles.productImage} recyclingKey={product._id} />
-                    <View style={styles.roleBadge}>
-                      <Text style={styles.roleBadgeText}>{roleLabel[productRole]}</Text>
-                    </View>
-                    {selected ? (
-                      <View style={styles.selectedMark}>
-                        <MaterialCommunityIcons name="check" size={18} color={colors.white} />
-                      </View>
-                    ) : null}
-                    {isSelecting ? <ActivityIndicator style={StyleSheet.absoluteFillObject} color={colors.brand} /> : null}
-                  </View>
-                  <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-                  <View style={styles.productFooter}>
-                    <Text style={styles.productPrice}>{formatPrice(product.finalPrice)}</Text>
-                    <MaterialCommunityIcons
-                      name={selected ? 'check-circle' : 'plus-circle-outline'}
-                      size={20}
-                      color={selected ? colors.brand : colors.textMuted}
-                    />
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+        <TouchableOpacity
+          style={styles.openProductListButton}
+          onPress={() => setIsProductListVisible(true)}
+          activeOpacity={0.84}
+        >
+          <View style={styles.openProductListIcon}>
+            <MaterialCommunityIcons name="wardrobe-outline" size={24} color={tryOnPalette.ink} />
           </View>
-        ) : (
-          <View style={styles.emptySelection}>
-            <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với vị trí này.</Text>
+          <View style={styles.openProductListCopy}>
+            <Text style={styles.openProductListText}>Chọn sản phẩm cho {activeSlot.label.toLowerCase()}</Text>
+            <Text style={styles.openProductListMeta}>{filteredProducts.length} món phù hợp</Text>
           </View>
-        )}
+          <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textMuted} />
+        </TouchableOpacity>
 
         <Text style={styles.sectionTitle}>Bối cảnh</Text>
         <View style={styles.contextGrid}>
@@ -904,21 +927,197 @@ const VirtualTryOnBuilderScreen = () => {
           </Text>
         </View>
         <TouchableOpacity
-          style={[styles.submitButton, (!canSubmit || isSubmitting) && styles.submitButtonDisabled]}
+          style={[styles.submitButton, submitDisabled && styles.submitButtonDisabled]}
           onPress={createJob}
-          disabled={!canSubmit || isSubmitting}
+          disabled={submitDisabled}
           activeOpacity={0.86}
         >
           {isSubmitting ? (
-            <ActivityIndicator color={colors.white} />
+            <ActivityIndicator color={colors.textMuted} />
           ) : (
             <>
-              <MaterialCommunityIcons name="auto-fix" size={22} color={colors.white} />
-              <Text style={styles.submitText}>Tạo kết quả</Text>
+              <MaterialCommunityIcons name="auto-fix" size={22} color={submitDisabled ? colors.textMuted : colors.white} />
+              <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo kết quả</Text>
             </>
           )}
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={isCreateConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsCreateConfirmVisible(false)}
+      >
+        <View style={styles.confirmModalRoot}>
+          <Pressable style={styles.confirmBackdrop} onPress={() => setIsCreateConfirmVisible(false)} />
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIconWrap}>
+              <MaterialCommunityIcons name="auto-fix" size={26} color={tryOnPalette.ink} />
+            </View>
+            <Text style={styles.confirmTitle}>Tạo kết quả phối đồ?</Text>
+            <Text style={styles.confirmText}>
+              Ảnh của bạn sẽ được kiểm tra trước khi tạo kết quả. Bạn có chắc muốn tạo ngay bây giờ?
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.confirmCancelButton}
+                onPress={() => setIsCreateConfirmVisible(false)}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.confirmCancelText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmPrimaryButton}
+                onPress={confirmCreateJob}
+                activeOpacity={0.86}
+              >
+                <Text style={styles.confirmPrimaryText}>Tạo kết quả</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isProductListVisible}
+        animationType="slide"
+        onRequestClose={() => setIsProductListVisible(false)}
+      >
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => setIsProductListVisible(false)}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => setIsProductFilterVisible(true)}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="tune-variant" size={22} color={colors.white} />
+              {productFilterCount > 0 ? (
+                <View style={styles.headerFilterBadge}>
+                  <Text style={styles.headerFilterBadgeText}>{productFilterCount}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={styles.productListContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.searchRow}>
+              <MaterialCommunityIcons name="magnify" size={22} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchTerm}
+                onChangeText={setSearchTerm}
+                placeholder="Tìm áo, quần, giày..."
+                placeholderTextColor={colors.textMuted}
+              />
+              <TouchableOpacity
+                style={[styles.searchFilterButton, productFilterCount > 0 && styles.searchFilterButtonActive]}
+                onPress={() => setIsProductFilterVisible(true)}
+                activeOpacity={0.82}
+              >
+                <MaterialCommunityIcons
+                  name="tune-variant"
+                  size={21}
+                  color={productFilterCount > 0 ? colors.white : colors.brand}
+                />
+                {productFilterCount > 0 ? (
+                  <View style={styles.searchFilterBadge}>
+                    <Text style={styles.searchFilterBadgeText}>{productFilterCount}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.genderSegment}>
+              {genderFilterOptions.map((option) => {
+                const active = productFilters.gender === option.key;
+
+                return (
+                  <TouchableOpacity
+                    key={option.key}
+                    style={[styles.genderChip, active && styles.genderChipActive]}
+                    onPress={() => setProductFilters((current) => ({ ...current, gender: option.key }))}
+                    activeOpacity={0.84}
+                  >
+                    <MaterialCommunityIcons
+                      name={option.icon}
+                      size={16}
+                      color={active ? tryOnPalette.ink : tryOnPalette.teal}
+                    />
+                    <Text style={[styles.genderChipText, active && styles.genderChipTextActive]} numberOfLines={1}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.productHeaderRow}>
+              <Text style={styles.sectionTitle}>Chọn cho {activeSlot.label.toLowerCase()}</Text>
+              <Text style={styles.productCount}>{filteredProducts.length} món</Text>
+            </View>
+            {isLoading ? (
+              <ActivityIndicator color={colors.brand} style={styles.loading} />
+            ) : filteredProducts.length ? (
+              <View style={styles.productGrid}>
+                {filteredProducts.map((product) => {
+                  const selected = selectedItems.some((item) => item.productId === product._id);
+                  const isSelecting = selectingProductId === product._id;
+                  const productRole = inferRole(product);
+
+                  return (
+                    <TouchableOpacity
+                      key={product._id}
+                      style={[styles.productCard, selected && styles.productCardSelected]}
+                      onPress={() => selectProduct(product)}
+                      activeOpacity={0.86}
+                      disabled={isSelecting}
+                    >
+                      <View style={styles.productImageWrap}>
+                        <RemoteImage uri={product.image} style={styles.productImage} recyclingKey={product._id} />
+                        <View style={styles.roleBadge}>
+                          <Text style={styles.roleBadgeText}>{roleLabel[productRole]}</Text>
+                        </View>
+                        {selected ? (
+                          <View style={styles.selectedMark}>
+                            <MaterialCommunityIcons name="check" size={18} color={colors.white} />
+                          </View>
+                        ) : null}
+                        {isSelecting ? <ActivityIndicator style={StyleSheet.absoluteFillObject} color={colors.brand} /> : null}
+                      </View>
+                      <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+                      <View style={styles.productFooter}>
+                        <Text style={styles.productPrice}>{formatPrice(product.finalPrice)}</Text>
+                        <MaterialCommunityIcons
+                          name={selected ? 'check-circle' : 'plus-circle-outline'}
+                          size={20}
+                          color={selected ? colors.brand : colors.textMuted}
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.emptySelection}>
+                <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với vị trí này.</Text>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal
         visible={Boolean(configuringProduct)}
@@ -1226,6 +1425,26 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 40,
   },
+  headerFilterBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  headerFilterBadgeText: {
+    color: colors.white,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+  },
   content: {
     flex: 1,
     backgroundColor: tryOnPalette.mist,
@@ -1233,6 +1452,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.md,
     paddingBottom: 128,
+    gap: spacing.md,
+  },
+  productListContent: {
+    padding: spacing.md,
+    paddingBottom: spacing.xl,
     gap: spacing.md,
   },
   sourceCard: {
@@ -1365,12 +1589,12 @@ const styles = StyleSheet.create({
     width: '31.6%',
   },
   slotCardActive: {
-    borderColor: tryOnPalette.champagne,
-    backgroundColor: tryOnPalette.inkSoft,
+    borderColor: tryOnPalette.teal,
+    backgroundColor: tryOnPalette.tealSoft,
   },
   slotCardFilled: {
-    backgroundColor: '#FFFDF8',
-    borderColor: tryOnPalette.rose,
+    backgroundColor: colors.surface,
+    borderColor: tryOnPalette.teal,
   },
   slotIconWrap: {
     width: 58,
@@ -1415,7 +1639,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   slotTextActive: {
-    color: colors.white,
+    color: tryOnPalette.ink,
   },
   slotRemoveButton: {
     position: 'absolute',
@@ -1435,10 +1659,46 @@ const styles = StyleSheet.create({
   slotSingleText: {
     textAlign: 'left',
   },
+  openProductListButton: {
+    minHeight: 68,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    ...shadows.card,
+  },
+  openProductListIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.sm,
+    backgroundColor: tryOnPalette.champagneSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  openProductListCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  openProductListText: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  openProductListMeta: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
   searchRow: {
     minHeight: 44,
     borderRadius: radii.sm,
-    backgroundColor: '#FFFDF8',
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     paddingHorizontal: spacing.md,
@@ -1485,7 +1745,7 @@ const styles = StyleSheet.create({
   genderSegment: {
     minHeight: 48,
     borderRadius: radii.md,
-    backgroundColor: '#FFFDF8',
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     padding: 5,
@@ -1547,7 +1807,7 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   productCardSelected: {
-    borderColor: tryOnPalette.rose,
+    borderColor: tryOnPalette.teal,
     borderWidth: 2,
   },
   productImageWrap: {
@@ -1700,7 +1960,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     borderRadius: radii.sm,
-    backgroundColor: '#FFFDF8',
+    backgroundColor: colors.surface,
     padding: spacing.md,
     color: colors.text,
     fontSize: 14,
@@ -1710,7 +1970,7 @@ const styles = StyleSheet.create({
   outputOptionCard: {
     minHeight: 86,
     borderRadius: radii.md,
-    backgroundColor: '#FFFDF8',
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     padding: spacing.md,
@@ -1748,8 +2008,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(243,201,120,0.28)',
-    backgroundColor: tryOnPalette.ink,
+    borderTopColor: tryOnPalette.line,
+    backgroundColor: colors.surface,
     padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1757,13 +2017,13 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   footerLabel: {
-    color: '#CAD6DC',
+    color: colors.textMuted,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
   },
   footerTotal: {
-    color: colors.white,
+    color: tryOnPalette.ink,
     fontSize: 17,
     lineHeight: 23,
     fontWeight: '900',
@@ -1772,19 +2032,102 @@ const styles = StyleSheet.create({
     minWidth: 170,
     minHeight: 50,
     borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.rose,
+    backgroundColor: tryOnPalette.ink,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
   },
   submitButtonDisabled: {
-    backgroundColor: colors.disabled,
+    backgroundColor: colors.border,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
   },
   submitText: {
     color: colors.white,
     fontSize: 15,
     lineHeight: 20,
+    fontWeight: '900',
+  },
+  submitTextDisabled: {
+    color: colors.textMuted,
+  },
+  confirmModalRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+    backgroundColor: 'transparent',
+  },
+  confirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17,24,39,0.44)',
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    alignItems: 'center',
+    ...shadows.card,
+  },
+  confirmIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: tryOnPalette.champagneSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  confirmTitle: {
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  confirmText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  confirmActions: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  confirmCancelButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmPrimaryButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radii.sm,
+    backgroundColor: tryOnPalette.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCancelText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  confirmPrimaryText: {
+    color: colors.white,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
   },
   variantModalRoot: {

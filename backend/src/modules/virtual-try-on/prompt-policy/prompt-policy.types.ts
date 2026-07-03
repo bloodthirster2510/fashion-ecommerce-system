@@ -11,6 +11,7 @@ export type PromptPolicyRule = {
   category: PromptPolicyCategory;
   reasonCode: string;
   terms: string[];
+  foldVietnamese?: boolean;
 };
 
 export type VirtualTryOnPromptValidationResult = {

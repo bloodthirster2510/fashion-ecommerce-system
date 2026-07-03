@@ -65,6 +65,8 @@ export type AdminVirtualTryOnSummary = {
   successRate: number
   provider: string
   videoEnabled: boolean
+  promptViolationsToday: number
+  promptBlocksToday: number
   latestFailedJobs: AdminVirtualTryOnJob[]
   generatedAt: string
 }
@@ -77,6 +79,7 @@ export type AdminVirtualTryOnSettings = {
   maxConcurrentJobsPerUser: number
   sourceImageMaxMb: number
   promptMaxLength: number
+  promptViolationLimitPerDay: number
 }
 
 export type AdminVirtualTryOnPromptTestResult = {

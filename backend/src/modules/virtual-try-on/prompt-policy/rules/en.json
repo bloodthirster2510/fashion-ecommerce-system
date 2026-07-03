@@ -11,10 +11,50 @@
       "erotic",
       "sensual",
       "sexy pose",
+      "explicit sexual",
+      "oral sex",
+      "blowjob",
+      "handjob",
+      "masturbate",
+      "orgasm",
+      "rape",
+      "sexual assault",
       "underwear",
       "lingerie",
       "bikini only",
       "see through"
+    ]
+  },
+  {
+    "key": "profanity_en",
+    "category": "unsafe_request",
+    "reasonCode": "PROMPT_PROFANITY",
+    "terms": [
+      "fuck",
+      "fucking",
+      "shit",
+      "bitch",
+      "asshole",
+      "motherfucker",
+      "dick",
+      "cock",
+      "pussy",
+      "cunt",
+      "wtf"
+    ]
+  },
+  {
+    "key": "hate_harassment_en",
+    "category": "hate_or_harassment",
+    "reasonCode": "PROMPT_HATE_OR_HARASSMENT",
+    "terms": [
+      "hate speech",
+      "racial slur",
+      "racist",
+      "white power",
+      "nazi",
+      "kill yourself",
+      "body shaming"
     ]
   },
   {

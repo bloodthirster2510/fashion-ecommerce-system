@@ -7,6 +7,7 @@ const handleError = (res: Response, error: unknown) => {
   if (error instanceof VirtualTryOnServiceError) {
     return errorResponse(res, error.message, error.statusCode, {
       ...(error.errorCode ? { errorCode: error.errorCode } : {}),
+      ...(error.data !== undefined ? { data: error.data } : {}),
     });
   }
 

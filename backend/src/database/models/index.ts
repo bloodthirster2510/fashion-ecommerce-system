@@ -27,4 +27,5 @@ export * from './support-ticket.model';
 export * from './user.model';
 export * from './virtual-try-on-asset.model';
 export * from './virtual-try-on-job.model';
+export * from './virtual-try-on-prompt-violation.model';
 

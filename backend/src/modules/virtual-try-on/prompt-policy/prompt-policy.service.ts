@@ -45,13 +45,21 @@ const normalizeSearchText = (value: string, foldVietnamese: boolean, mergeInWord
 
 const uniqueValues = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
 
-const buildSearchVariants = (value: string) => {
-  const spaced = uniqueValues([
+const buildSearchVariants = (value: string, options: { foldVietnamese?: boolean } = {}) => {
+  const foldVietnamese = options.foldVietnamese !== false;
+  const candidates = [
     normalizeSearchText(value, false),
-    normalizeSearchText(value, true),
     normalizeSearchText(value, false, true),
-    normalizeSearchText(value, true, true),
-  ]);
+  ];
+
+  if (foldVietnamese) {
+    candidates.push(
+      normalizeSearchText(value, true),
+      normalizeSearchText(value, true, true),
+    );
+  }
+
+  const spaced = uniqueValues(candidates);
 
   return {
     spaced,
@@ -71,11 +79,12 @@ const hasTerm = (candidate: string, term: string) => {
 };
 
 const findMatchedRule = (prompt: string) => {
-  const searchTexts = buildSearchVariants(prompt);
-
   for (const rule of promptPolicyRules) {
+    const searchOptions = { foldVietnamese: rule.foldVietnamese };
+    const searchTexts = buildSearchVariants(prompt, searchOptions);
+
     for (const term of rule.terms) {
-      const termsToCheck = buildSearchVariants(term);
+      const termsToCheck = buildSearchVariants(term, searchOptions);
       const matchesSpacedText = searchTexts.spaced.some((candidate) =>
         termsToCheck.spaced.some((searchTerm) => hasTerm(candidate, searchTerm)),
       );
@@ -111,7 +120,7 @@ export const validateVirtualTryOnPrompt = (prompt?: string): VirtualTryOnPromptV
       allowed: false,
       normalizedPrompt: null,
       reasonCode: 'PROMPT_TOO_LONG',
-      message: `Mo ta boi canh khong duoc vuot qua ${PROMPT_MAX_LENGTH} ky tu`,
+      message: `Mô tả bối cảnh không được vượt quá ${PROMPT_MAX_LENGTH} ký tự`,
       maxLength: PROMPT_MAX_LENGTH,
     };
   }
@@ -122,7 +131,7 @@ export const validateVirtualTryOnPrompt = (prompt?: string): VirtualTryOnPromptV
       allowed: false,
       normalizedPrompt: null,
       reasonCode: matchedRule.reasonCode,
-      message: 'Mo ta boi canh khong phu hop cho phoi do ao',
+      message: 'Mô tả bối cảnh không phù hợp cho phối đồ ảo',
       maxLength: PROMPT_MAX_LENGTH,
       matchedCategory: matchedRule.category,
       matchedRule: matchedRule.key,
