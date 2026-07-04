@@ -156,6 +156,24 @@ const updateCategory = async (req: Request, res: Response) => {
   }
 };
 
+const upsertCategorySizeTemplate = async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const category = await categoryService.upsertCategorySizeTemplate(id, {
+      name: req.body?.name,
+      sizes: req.body?.sizes,
+      measurementFields: req.body?.measurementFields,
+      categoryIds: req.body?.categoryIds,
+      excludedCategoryIds: req.body?.excludedCategoryIds,
+    });
+
+    return ok(res, category);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const getCategoryTemplate = async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
@@ -242,6 +260,7 @@ const getCategoryById = async (req: Request, res: Response) => {
 export {
   createCategory,
   updateCategory,
+  upsertCategorySizeTemplate,
   deleteCategory,
   deleteCategoryPermanently,
   getCategories,

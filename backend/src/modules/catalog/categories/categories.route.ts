@@ -12,6 +12,7 @@ import {
   getCategoryTemplate,
   listCategories,
   updateCategory,
+  upsertCategorySizeTemplate,
 } from './categories.controller';
 
 const customerCategoryRouter = Router();
@@ -36,6 +37,7 @@ adminCategoryRouter.get('/template/:id', catalogReaders, getCategoryTemplate);
 adminCategoryRouter.get('/:id', catalogReaders, getCategoryById);
 adminCategoryRouter.post('/', catalogWriters, categoryImageUpload, createCategory);
 adminCategoryRouter.post('/create', catalogWriters, categoryImageUpload, createCategory);
+adminCategoryRouter.patch('/:id/size-template', catalogWriters, upsertCategorySizeTemplate);
 adminCategoryRouter.put('/:id', catalogWriters, categoryImageUpload, updateCategory);
 adminCategoryRouter.put('/update/:id', catalogWriters, categoryImageUpload, updateCategory);
 adminCategoryRouter.delete('/:id/permanent', catalogWriters, deleteCategoryPermanently);

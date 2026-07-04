@@ -27,6 +27,7 @@ export interface ICategory extends Document {
   description: string;
   isLeaf: boolean;
   isSizeTemplateSource: boolean;
+  sizeTemplateName?: string;
   sizeTemplateSourceId?: Types.ObjectId | null;
   sizes: string[];
   measurementFields: IMeasurementField[];
@@ -67,6 +68,7 @@ const categorySchema = new Schema<ICategory>(
     description: { type: String, required: true, trim: true, minlength: 5, maxlength: 1000 },
     isLeaf: { type: Boolean, default: false },
     isSizeTemplateSource: { type: Boolean, default: false },
+    sizeTemplateName: { type: String, trim: true, maxlength: 80, default: '' },
     sizeTemplateSourceId: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
     sizes: {
       type: [String],
