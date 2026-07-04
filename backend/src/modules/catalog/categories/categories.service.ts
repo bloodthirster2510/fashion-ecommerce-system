@@ -9,6 +9,7 @@ import type {
   CreateCategoryInput,
   MeasurementFieldInput,
   UpdateCategoryInput,
+  UpsertCategorySizeTemplateInput,
 } from './categories.type';
 
 export class CategoryServiceError extends Error {
@@ -348,6 +349,110 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   });
 };
 
+const upsertCategorySizeTemplate = async (
+  id: string,
+  input: UpsertCategorySizeTemplateInput,
+) => {
+  assertValidCategoryId(id);
+  const integrationCategoryIds = Array.isArray(input.categoryIds) && input.categoryIds.length > 0
+    ? input.categoryIds.map((categoryId) => String(categoryId))
+    : [id];
+  const excludedCategoryIds = Array.isArray(input.excludedCategoryIds)
+    ? [...new Set(input.excludedCategoryIds.map((categoryId) => String(categoryId)))]
+    : [];
+
+  if (!integrationCategoryIds.includes(id)) {
+    integrationCategoryIds.unshift(id);
+  }
+  const uniqueIntegrationCategoryIds = [...new Set(integrationCategoryIds)];
+
+  uniqueIntegrationCategoryIds.forEach(assertValidCategoryId);
+  excludedCategoryIds.forEach(assertValidCategoryId);
+
+  const sourceCategory = await Category.findById(id);
+
+  if (!sourceCategory) {
+    throw new CategoryServiceError('Category not found', 404);
+  }
+
+  const integrationCategoryCount = await Category.countDocuments({
+    _id: { $in: uniqueIntegrationCategoryIds.map((categoryId) => new Types.ObjectId(categoryId)) },
+  });
+
+  if (integrationCategoryCount !== uniqueIntegrationCategoryIds.length) {
+    throw new CategoryServiceError('One or more integrated categories were not found', 404);
+  }
+
+  if (!Array.isArray(input.sizes) || input.sizes.length === 0) {
+    throw new CategoryServiceError('sizes must be a non-empty array', 400);
+  }
+
+  const normalizedSizes = normalizeSizes(input.sizes);
+  const normalizedMeasurementFields = input.measurementFields !== undefined
+    ? normalizeMeasurementFields(input.measurementFields)
+    : sourceCategory.measurementFields;
+  const templateName = String(input.name ?? '').trim();
+  const categories = await Category.find()
+    .select('_id parent_id')
+    .lean<CategoryManagementDocument[]>();
+  const targetCategoryIds = [
+    ...new Set(
+      uniqueIntegrationCategoryIds.flatMap((categoryId) =>
+        getDescendantIdsFromCategories(categories, categoryId),
+      ),
+    ),
+  ].filter((categoryId) => !excludedCategoryIds.includes(categoryId));
+  const descendantIds = targetCategoryIds
+    .filter((categoryId) => categoryId !== id)
+    .map((categoryId) => new Types.ObjectId(categoryId));
+
+  const updatedCategory = await Category.findByIdAndUpdate(
+    id,
+    {
+      isSizeTemplateSource: true,
+      sizeTemplateName: templateName || sourceCategory.sizeTemplateName || sourceCategory.name,
+      sizeTemplateSourceId: null,
+      sizes: normalizedSizes,
+      measurementFields: normalizedMeasurementFields,
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  );
+
+  if (!updatedCategory) {
+    throw new CategoryServiceError('Category not found', 404);
+  }
+
+  if (descendantIds.length > 0) {
+    await Category.updateMany(
+      { _id: { $in: descendantIds } },
+      {
+        isSizeTemplateSource: false,
+        sizeTemplateSourceId: updatedCategory._id,
+      },
+      { runValidators: true },
+    );
+  }
+
+  if (excludedCategoryIds.length > 0) {
+    await Category.updateMany(
+      {
+        _id: { $in: excludedCategoryIds.map((categoryId) => new Types.ObjectId(categoryId)) },
+        sizeTemplateSourceId: updatedCategory._id,
+      },
+      {
+        isSizeTemplateSource: false,
+        sizeTemplateSourceId: null,
+      },
+      { runValidators: true },
+    );
+  }
+
+  return updatedCategory;
+};
+
 type DeleteCategoryOptions = {
   cascadeProducts?: boolean;
 };
@@ -498,7 +603,7 @@ const getCategories = () => {
 const getCategoriesForManagement = async () => {
   const [categories, productCounts] = await Promise.all([
     Category.find()
-      .select('_id name parent_id level gender image description isActive createdAt updatedAt')
+      .select('_id name parent_id level gender image description isSizeTemplateSource sizeTemplateName sizeTemplateSourceId sizes measurementFields isActive createdAt updatedAt')
       .sort({ gender: 1, level: 1, name: 1 })
       .lean(),
     Product.aggregate<{ _id: Types.ObjectId; count: number; activeCount: number }>([
@@ -624,6 +729,7 @@ const getCategoryById = async (id: string) => {
 export const categoryService = {
   createCategory,
   updateCategory,
+  upsertCategorySizeTemplate,
   deleteCategory,
   deleteCategoryPermanently,
   getCategories,
