@@ -11,6 +11,7 @@ import {
   listManagedCategories,
   updateManagedBrand,
   updateManagedCategory,
+  upsertManagedCategorySizeTemplate,
 } from './catalog.service'
 import type {
   BrandInput,
@@ -18,6 +19,7 @@ import type {
   CategoryInput,
   ManagedBrand,
   ManagedCategory,
+  SizeTemplateInput,
 } from './catalog.types'
 import {
   BrandEditor,
@@ -28,6 +30,7 @@ import {
   EmptyRow,
   LoadingRow,
   RowActions,
+  SizeTemplateManager,
   StatusPill,
 } from './components/CatalogEditors'
 import { getPaginationItems } from '../../utils/pagination'
@@ -70,6 +73,9 @@ type CategoryRootGroup = {
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
 
+const getSizeTemplateLabel = (category?: ManagedCategory | null) =>
+  category?.sizeTemplateName?.trim() || category?.name || ''
+
 export function CatalogManagementPage({ currentUser }: CatalogManagementPageProps) {
   const [categories, setCategories] = useState<ManagedCategory[]>([])
   const [brands, setBrands] = useState<ManagedBrand[]>([])
@@ -81,6 +87,7 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
   const [brandStatusFilter, setBrandStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [categoryPage, setCategoryPage] = useState(1)
   const [editor, setEditor] = useState<EditorState>(null)
+  const [isManagingSizes, setIsManagingSizes] = useState(false)
   const [viewingCategory, setViewingCategory] = useState<ManagedCategory | null>(null)
   const [viewingBrand, setViewingBrand] = useState<ManagedBrand | null>(null)
   const [pendingDelete, setPendingDelete] = useState<DeleteState>(null)
@@ -127,6 +134,10 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category._id, category.name])),
+    [categories],
+  )
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category._id, category])),
     [categories],
   )
 
@@ -272,6 +283,25 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
     }
   }
 
+  const handleSaveSizeTemplate = async (
+    categoryId: string,
+    input: SizeTemplateInput,
+  ) => {
+    setIsSaving(true)
+    setNotice(null)
+
+    try {
+      await upsertManagedCategorySizeTemplate(categoryId, input)
+      setNotice({ type: 'success', message: 'Bộ size đã được áp dụng cho danh mục và danh mục con.' })
+      setIsManagingSizes(false)
+      await loadCatalog()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleDelete = async (mode: DeleteMode = 'soft') => {
     if (!pendingDelete) return
 
@@ -370,8 +400,10 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
           <CatalogSection
             title="Danh mục sản phẩm"
             actionLabel="+ Thêm danh mục"
+            secondaryActionLabel="Quản lý size"
             canWrite={canWrite}
             onAdd={() => setEditor({ type: 'category' })}
+            onSecondaryAction={() => setIsManagingSizes(true)}
           >
             <div className="admin-catalog-filters">
               <input
@@ -425,15 +457,16 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
                     <th>Tên danh mục</th>
                     <th>Danh mục cha</th>
                     <th>Giới tính</th>
+                    <th>Bộ size</th>
                     <th>Số sản phẩm</th>
                     <th>Trạng thái</th>
                     <th>Hành động</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {isLoading ? <LoadingRow colSpan={6} /> : null}
+                  {isLoading ? <LoadingRow colSpan={7} /> : null}
                   {!isLoading && categoryPagination.categories.length === 0 ? (
-                    <EmptyRow colSpan={6} label="Không có danh mục phù hợp." />
+                    <EmptyRow colSpan={7} label="Không có danh mục phù hợp." />
                   ) : null}
                   {!isLoading
                     ? categoryPagination.categories.map((category) => (
@@ -448,6 +481,19 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
                           </td>
                           <td>{category.parent_id ? categoryNameById.get(category.parent_id) ?? '-' : '-'}</td>
                           <td>{genderLabels[category.gender]}</td>
+                          <td>
+                            {category.isSizeTemplateSource ? (
+                              <span className="admin-size-badge is-source">
+                                {getSizeTemplateLabel(category)}
+                              </span>
+                            ) : category.sizeTemplateSourceId ? (
+                              <span className="admin-size-badge">
+                                {getSizeTemplateLabel(categoryById.get(category.sizeTemplateSourceId)) || 'Đã tích hợp'}
+                              </span>
+                            ) : (
+                              <span className="admin-size-badge is-empty">-</span>
+                            )}
+                          </td>
                           <td>{category.productCount}</td>
                           <td><StatusPill isActive={category.isActive} /></td>
                           <td>
@@ -614,6 +660,16 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
         />
       ) : null}
 
+      {isManagingSizes ? (
+        <SizeTemplateManager
+          categories={categories}
+          isSaving={isSaving}
+          errorMessage={notice?.type === 'error' ? notice.message : ''}
+          onClose={() => setIsManagingSizes(false)}
+          onSave={handleSaveSizeTemplate}
+        />
+      ) : null}
+
       {viewingCategory ? (
         <div className="admin-catalog-modal-layer" role="dialog" aria-modal="true" aria-labelledby="view-category-title">
           <button className="admin-catalog-modal-backdrop" type="button" aria-label="Đóng" onClick={() => setViewingCategory(null)} />
@@ -632,6 +688,16 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
               <dl>
                 <div><dt>Danh mục cha</dt><dd>{viewingCategory.parent_id ? categoryNameById.get(viewingCategory.parent_id) ?? '-' : '-'}</dd></div>
                 <div><dt>Giới tính</dt><dd>{genderLabels[viewingCategory.gender]}</dd></div>
+                <div>
+                  <dt>Bộ size</dt>
+                  <dd>
+                    {viewingCategory.isSizeTemplateSource
+                      ? `${getSizeTemplateLabel(viewingCategory)}: ${(viewingCategory.sizes ?? []).join(', ') || 'Chưa có size'}`
+                      : viewingCategory.sizeTemplateSourceId
+                        ? `Kế thừa từ ${getSizeTemplateLabel(categoryById.get(viewingCategory.sizeTemplateSourceId)) || 'bộ size khác'}`
+                        : '-'}
+                  </dd>
+                </div>
                 <div><dt>Số sản phẩm</dt><dd>{viewingCategory.productCount}</dd></div>
                 <div><dt>Trạng thái</dt><dd><StatusPill isActive={viewingCategory.isActive} /></dd></div>
                 <div className="is-wide"><dt>Mô tả</dt><dd>{viewingCategory.description || '-'}</dd></div>

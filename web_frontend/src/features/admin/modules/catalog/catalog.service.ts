@@ -4,28 +4,36 @@ import type {
   CategoryInput,
   ManagedBrand,
   ManagedCategory,
+  SizeTemplateInput,
 } from './catalog.types'
 
 const toCategoryFormData = (
   input: CategoryInput,
   imageFile?: File | null,
+  options: { includeImage?: boolean } = {},
 ) => {
+  const { includeImage = true } = options
   const formData = new FormData()
   formData.set('name', input.name)
   formData.set('parent_id', input.parent_id ?? '')
   formData.set('level', String(input.level))
   formData.set('gender', input.gender)
-  formData.set('image', input.image)
+  if (includeImage) formData.set('image', input.image)
   formData.set('description', input.description)
   formData.set('isActive', String(input.isActive))
   if (imageFile) formData.set('image', imageFile)
   return formData
 }
 
-const toBrandFormData = (input: BrandInput, imageFile?: File | null) => {
+const toBrandFormData = (
+  input: BrandInput,
+  imageFile?: File | null,
+  options: { includeImage?: boolean } = {},
+) => {
+  const { includeImage = true } = options
   const formData = new FormData()
   formData.set('name', input.name)
-  formData.set('image', input.image)
+  if (includeImage) formData.set('image', input.image)
   formData.set('isActive', String(input.isActive))
   if (imageFile) formData.set('image', imageFile)
   return formData
@@ -50,7 +58,18 @@ export const updateManagedCategory = (
 ) =>
   requestAdmin<ManagedCategory>(`/admin/categories/${categoryId}`, {
     method: 'PUT',
-    body: toCategoryFormData(input, imageFile),
+    body: toCategoryFormData(input, imageFile, {
+      includeImage: Boolean(imageFile) || Boolean(input.image.trim()),
+    }),
+  })
+
+export const upsertManagedCategorySizeTemplate = (
+  categoryId: string,
+  input: SizeTemplateInput,
+) =>
+  requestAdmin<ManagedCategory>(`/admin/categories/${categoryId}/size-template`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
   })
 
 export const deleteManagedCategory = (
@@ -78,7 +97,9 @@ export const createManagedBrand = (input: BrandInput, imageFile?: File | null) =
 export const updateManagedBrand = (brandId: string, input: BrandInput, imageFile?: File | null) =>
   requestAdmin<ManagedBrand>(`/admin/brands/${brandId}`, {
     method: 'PUT',
-    body: toBrandFormData(input, imageFile),
+    body: toBrandFormData(input, imageFile, {
+      includeImage: Boolean(imageFile) || Boolean(input.image.trim()),
+    }),
   })
 
 export const deleteManagedBrand = (brandId: string) =>
