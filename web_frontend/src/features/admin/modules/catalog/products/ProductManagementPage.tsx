@@ -692,6 +692,10 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
                                                       </span>
                                                     </div>
                                                     <div className="admin-variant-block-field">
+                                                      <span>Cảnh báo</span>
+                                                      <StockWarning low={stock.low} out={stock.out} />
+                                                    </div>
+                                                    <div className="admin-variant-block-field">
                                                       <span>Trạng thái kho</span>
                                                       <span className={`admin-inventory-status ${status.className}`}>
                                                         {status.label}

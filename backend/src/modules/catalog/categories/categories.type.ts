@@ -47,6 +47,14 @@ export interface UpdateCategoryInput {
   isActive?: boolean;
 }
 
+export interface UpsertCategorySizeTemplateInput {
+  name?: string;
+  sizes: string[];
+  measurementFields?: MeasurementFieldInput[];
+  categoryIds?: string[];
+  excludedCategoryIds?: string[];
+}
+
 export interface CategoryListQueryInput {
   gender?: CategoryGender;
   parentId?: string | null;
