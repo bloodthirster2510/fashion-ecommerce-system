@@ -825,7 +825,7 @@ const VirtualTryOnBuilderScreen = () => {
                   <MaterialCommunityIcons
                     name={mode.icon}
                     size={32}
-                    color={tryOnPalette.primary}
+                    color={active ? colors.white : tryOnPalette.primary}
                   />
                 </View>
                 <Text style={[styles.modeText, active && styles.modeTextActive]}>{mode.label}</Text>
@@ -934,7 +934,7 @@ const VirtualTryOnBuilderScreen = () => {
             <Text style={styles.openProductListText}>Chọn {activeSlot.label.toLowerCase()}</Text>
             <Text style={styles.openProductListMeta}>{filteredProducts.length} sản phẩm phù hợp</Text>
           </View>
-          <MaterialCommunityIcons name="arrow-right" size={24} color={tryOnPalette.primary} />
+          <MaterialCommunityIcons name="arrow-right" size={24} color={colors.white} />
         </TouchableOpacity>
 
         <View style={styles.sectionHeaderBlock}>
@@ -1691,8 +1691,8 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   modeButtonActive: {
-    backgroundColor: tryOnPalette.primarySoft,
-    borderColor: tryOnPalette.primaryLight,
+    backgroundColor: tryOnPalette.primary,
+    borderColor: tryOnPalette.primary,
   },
   modeIconWrap: {
     width: 56,
@@ -1705,8 +1705,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modeIconWrapActive: {
-    backgroundColor: tryOnPalette.surface,
-    borderColor: 'rgba(84,119,146,0.28)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.32)',
   },
   modeText: {
     color: tryOnPalette.ink,
@@ -1716,7 +1716,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   modeTextActive: {
-    color: tryOnPalette.ink,
+    color: colors.white,
   },
   modeDescription: {
     color: colors.textMuted,
@@ -1725,7 +1725,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   modeDescriptionActive: {
-    color: colors.textMuted,
+    color: tryOnPalette.headerSoft,
   },
   outfitHeaderRow: {
     flexDirection: 'row',
@@ -1866,9 +1866,9 @@ const styles = StyleSheet.create({
   openProductListButton: {
     minHeight: 82,
     borderRadius: radii.md,
-    backgroundColor: tryOnPalette.primarySoft,
+    backgroundColor: tryOnPalette.primary,
     borderWidth: 1,
-    borderColor: tryOnPalette.primaryLight,
+    borderColor: tryOnPalette.primary,
     padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1890,13 +1890,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   openProductListText: {
-    color: tryOnPalette.ink,
+    color: colors.white,
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '900',
   },
   openProductListMeta: {
-    color: colors.textMuted,
+    color: tryOnPalette.headerSoft,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
