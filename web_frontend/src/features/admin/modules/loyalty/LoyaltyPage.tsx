@@ -303,6 +303,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   const [tierSubmitAttempted, setTierSubmitAttempted] = useState(false)
   const [tierFormBaseline, setTierFormBaseline] = useState('')
   const [tierDiscardRequested, setTierDiscardRequested] = useState(false)
+  const [showTierAdvancedOptions, setShowTierAdvancedOptions] = useState(false)
   const [tierBatchProgress, setTierBatchProgress] = useState('')
   const [tierKeyword, setTierKeyword] = useState('')
   const [tierStatusFilter, setTierStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
@@ -446,6 +447,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     setTierFormBaseline(JSON.stringify(nextForm))
     setNotice(null)
     setTierSubmitAttempted(false)
+    setShowTierAdvancedOptions(false)
     setDialog({ type: 'create' })
   }
 
@@ -456,6 +458,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     setNotice(null)
     setTierSubmitAttempted(false)
     setTierDraftRestored(false)
+    setShowTierAdvancedOptions(true)
     setDialog({ type: 'edit', tier })
   }
 
@@ -1273,171 +1276,202 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
               {dialog.type === 'create' ? 'Thêm hạng thành viên' : 'Sửa hạng thành viên'}
             </h2>
             {notice ? <p className={`admin-notice is-${notice.type}`} role="status">{notice.message}</p> : null}
+            <p className="admin-tier-dialog-intro">
+              {dialog.type === 'create'
+                ? 'Điền vài thông tin chính để tạo hạng mới. Cấp hạng, khoảng điểm tối đa và giao diện thẻ đã được gợi ý sẵn.'
+                : 'Chỉnh thông tin vận hành và giao diện của hạng thành viên.'}
+            </p>
             {dialog.type === 'create' ? <div className="admin-tier-template-row"><span>Mẫu nhanh</span>{tierTemplates.map((template) => <button key={template.label} type="button" onClick={() => setTierForm((form) => ({ ...form, ...template.values }))}>{template.label}</button>)}</div> : null}
             {tierDraftRestored ? <div className="admin-tier-draft-notice"><span>Đã khôi phục bản nháp gần nhất.</span><button type="button" onClick={() => { window.localStorage.removeItem(tierDraftKey); setTierForm(emptyTierForm); setTierDraftRestored(false) }}>Bỏ bản nháp</button></div> : null}
-            <div className="admin-tier-context-row">
+            <div className="admin-tier-quick-layout">
               <div>
-                <span>Đứng sau</span>
-                <strong>{tierFormNeighbors.previous?.name ?? 'Đầu chương trình'}</strong>
-                <small>{tierFormNeighbors.previous ? `Từ ${formatNumber(tierFormNeighbors.previous.minPoint)} điểm` : 'Hạng đầu nên bắt đầu từ 0 điểm'}</small>
-              </div>
-              <div>
-                <span>Hạng đang chỉnh</span>
-                <strong>{tierForm.name || 'Hạng mới'}</strong>
-                <small>Cấp {tierForm.level || '—'} · từ {tierForm.minPoint ? formatNumber(Number(tierForm.minPoint)) : '—'} điểm</small>
-              </div>
-              <div>
-                <span>Đứng trước</span>
-                <strong>{tierFormNeighbors.next?.name ?? 'Hạng cao nhất'}</strong>
-                <small>{tierFormNeighbors.next ? `Từ ${formatNumber(tierFormNeighbors.next.minPoint)} điểm` : 'Không giới hạn điểm tối đa'}</small>
-              </div>
-            </div>
-            <div className="admin-tier-card-preview" style={{ backgroundColor: tierForm.cardColor, color: tierForm.textColor }}>
-              <span style={{ backgroundColor: tierForm.badgeColor }}>{membershipIconSymbols[tierForm.iconName] ?? membershipIconSymbols.star}</span>
-              <div><small>THẺ THÀNH VIÊN</small><strong>{tierForm.name || 'Tên hạng'}</strong><p>Cấp {tierForm.level || '—'} · Giảm {tierForm.discountPercent || 0}%</p></div>
-              <em>{tierForm.benefitDescription || 'Quyền lợi của thành viên sẽ hiển thị tại đây.'}</em>
-            </div>
-            <h3 className="admin-tier-form-section-title">Thông tin và quyền lợi</h3>
-            <div className="admin-account-form-grid">
-              <label>
-                <span>Tên hạng</span>
-                <input
-                  className={(tierSubmitAttempted || tierForm.name.length > 0) && tierErrors.name ? 'is-invalid' : ''}
-                  value={tierForm.name}
-                  onChange={(event) => setTierForm((form) => ({ ...form, name: event.target.value }))}
-                  required
-                  minLength={2}
-                  maxLength={30}
-                />
-                {(tierSubmitAttempted || tierForm.name.length > 0) && tierErrors.name ? <small className="admin-field-error">{tierErrors.name}</small> : null}
-              </label>
-              <label>
-                <span>Cấp hạng</span>
-                <input
-                  className={(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? 'is-invalid' : ''}
-                  type="number"
-                  value={tierForm.level}
-                  onChange={(event) => setTierForm((form) => ({ ...form, level: event.target.value }))}
-                  required
-                  min={1}
-                  max={20}
-                />
-                {(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? <small className="admin-field-error">{tierErrors.level}</small> : null}
-                <small className="admin-field-hint">Cấp càng cao tương ứng hạng càng cao. Khi thêm mới, hệ thống đã gợi ý cấp kế tiếp.</small>
-              </label>
-              <label>
-                <span>Điểm tối thiểu</span>
-                <input
-                  className={(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? 'is-invalid' : ''}
-                  type="number"
-                  value={tierForm.minPoint}
-                  onChange={(event) => setTierForm((form) => ({ ...form, minPoint: event.target.value }))}
-                  required
-                  min={0}
-                  max={100000000}
-                />
-                {(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? <small className="admin-field-error">{tierErrors.minPoint}</small> : null}
-                <small className="admin-field-hint">Nên cao hơn hạng trước và thấp hơn hạng kế tiếp để không chồng khoảng điểm.</small>
-              </label>
-              <label>
-                <span>Điểm tối đa (tự tính)</span>
-                <input
-                  type="text"
-                  value={suggestedMaxPoint === null ? 'Không giới hạn (hạng cao nhất)' : formatNumber(suggestedMaxPoint)}
-                  disabled
-                />
-                <small className="admin-field-hint">Tự động bằng điểm tối thiểu của hạng kế tiếp trừ 1, nên không cần nhập tay.</small>
-              </label>
-              <label>
-                <span>Giảm giá (%)</span>
-                <input
-                  className={(tierSubmitAttempted || tierForm.discountPercent.length > 0) && tierErrors.discountPercent ? 'is-invalid' : ''}
-                  type="number"
-                  value={tierForm.discountPercent}
-                  onChange={(event) =>
-                    setTierForm((form) => ({ ...form, discountPercent: event.target.value }))
-                  }
-                  required
-                  min={0}
-                  max={100}
-                  step={0.1}
-                />
-                {(tierSubmitAttempted || tierForm.discountPercent.length > 0) && tierErrors.discountPercent ? <small className="admin-field-error">{tierErrors.discountPercent}</small> : Number(tierForm.discountPercent) > 15 ? <small className="admin-field-error">Mức trên 15% có thể ảnh hưởng biên lợi nhuận.</small> : <small className="admin-field-hint">Gợi ý: Đồng 0%, Bạc 3%, Vàng 5%, Kim Cương 10%.</small>}
-              </label>
-              <label>
-                <span>Trạng thái</span>
-                <select
-                  value={tierForm.isActive ? 'active' : 'inactive'}
-                  onChange={(event) =>
-                    setTierForm((form) => ({ ...form, isActive: event.target.value === 'active' }))
-                  }
-                >
-                  <option value="active">Hoạt động</option>
-                  <option value="inactive">Tạm tắt</option>
-                </select>
-              </label>
-            </div>
-            <h3 className="admin-tier-form-section-title">Giao diện thẻ</h3>
-            <div className="admin-tier-palette-row" aria-label="Bảng màu gợi ý">
-              {tierPalettePresets.map((palette) => <button key={palette.name} type="button" style={{ backgroundColor: palette.card, color: palette.text }} onClick={() => setTierForm((form) => ({ ...form, cardColor: palette.card, textColor: palette.text, badgeColor: palette.badge }))}>{palette.name}</button>)}
-            </div>
-            <div className="admin-account-form-grid">
-              <label>
-                <span>Màu thẻ</span>
-                <input
-                  className={tierErrors.cardColor ? 'is-invalid' : ''}
-                  type="color"
-                  value={tierForm.cardColor}
-                  onChange={(event) => {
-                    const cardColor = event.target.value
-                    const textColor = getContrastRatio(cardColor, '#ffffff') >= getContrastRatio(cardColor, '#111827') ? '#ffffff' : '#111827'
-                    setTierForm((form) => ({ ...form, cardColor, textColor }))
-                  }}
-                />
-                {tierErrors.cardColor ? <small className="admin-field-error">{tierErrors.cardColor}</small> : null}
-              </label>
-              <label>
-                <span>Màu chữ</span>
-                <input
-                  className={tierErrors.textColor ? 'is-invalid' : ''}
-                  type="color"
-                  value={tierForm.textColor}
-                  onChange={(event) => setTierForm((form) => ({ ...form, textColor: event.target.value }))}
-                />
-                {tierErrors.textColor ? <small className="admin-field-error">{tierErrors.textColor}</small> : null}
-              </label>
-              <label>
-                <span>Màu badge</span>
-                <input
-                  type="color"
-                  value={tierForm.badgeColor}
-                  onChange={(event) => setTierForm((form) => ({ ...form, badgeColor: event.target.value }))}
-                />
-              </label>
-              <div className="admin-tier-icon-field">
-                <span>Icon</span>
-                <div className="admin-tier-icon-grid">
-                  {iconOptions.map((icon) => <button key={icon.value} type="button" className={tierForm.iconName === icon.value ? 'is-selected' : ''} aria-label={icon.label} title={icon.label} onClick={() => setTierForm((form) => ({ ...form, iconName: icon.value }))}>{membershipIconSymbols[icon.value] ?? '●'}</button>)}
+                <h3 className="admin-tier-form-section-title">Thông tin chính</h3>
+                <div className="admin-account-form-grid">
+                  <label>
+                    <span>Tên hạng</span>
+                    <input
+                      className={(tierSubmitAttempted || tierForm.name.length > 0) && tierErrors.name ? 'is-invalid' : ''}
+                      value={tierForm.name}
+                      onChange={(event) => setTierForm((form) => ({ ...form, name: event.target.value }))}
+                      required
+                      minLength={2}
+                      maxLength={30}
+                    />
+                    {(tierSubmitAttempted || tierForm.name.length > 0) && tierErrors.name ? <small className="admin-field-error">{tierErrors.name}</small> : null}
+                  </label>
+                  <label>
+                    <span>Điểm tối thiểu</span>
+                    <input
+                      className={(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? 'is-invalid' : ''}
+                      type="number"
+                      value={tierForm.minPoint}
+                      onChange={(event) => setTierForm((form) => ({ ...form, minPoint: event.target.value }))}
+                      required
+                      min={0}
+                      max={100000000}
+                    />
+                    {(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? <small className="admin-field-error">{tierErrors.minPoint}</small> : null}
+                    <small className="admin-field-hint">Mốc điểm để khách bắt đầu thuộc hạng này.</small>
+                  </label>
+                  <label>
+                    <span>Giảm giá (%)</span>
+                    <input
+                      className={(tierSubmitAttempted || tierForm.discountPercent.length > 0) && tierErrors.discountPercent ? 'is-invalid' : ''}
+                      type="number"
+                      value={tierForm.discountPercent}
+                      onChange={(event) =>
+                        setTierForm((form) => ({ ...form, discountPercent: event.target.value }))
+                      }
+                      required
+                      min={0}
+                      max={100}
+                      step={0.1}
+                    />
+                    {(tierSubmitAttempted || tierForm.discountPercent.length > 0) && tierErrors.discountPercent ? <small className="admin-field-error">{tierErrors.discountPercent}</small> : Number(tierForm.discountPercent) > 15 ? <small className="admin-field-error">Mức trên 15% có thể ảnh hưởng biên lợi nhuận.</small> : <small className="admin-field-hint">Ưu đãi áp dụng cho khách thuộc hạng này.</small>}
+                  </label>
+                  <label className="admin-tier-wide-field">
+                    <span>Quyền lợi</span>
+                    <textarea
+                      className={(tierSubmitAttempted || tierForm.benefitDescription.length > 0) && tierErrors.benefitDescription ? 'is-invalid' : ''}
+                      value={tierForm.benefitDescription}
+                      onChange={(event) =>
+                        setTierForm((form) => ({ ...form, benefitDescription: event.target.value }))
+                      }
+                      required
+                      minLength={2}
+                      maxLength={200}
+                      rows={3}
+                    />
+                    {(tierSubmitAttempted || tierForm.benefitDescription.length > 0) && tierErrors.benefitDescription ? <small className="admin-field-error">{tierErrors.benefitDescription}</small> : null}
+                    <small className="admin-character-count">{tierForm.benefitDescription.length}/200</small>
+                  </label>
                 </div>
               </div>
+              <aside className="admin-tier-quick-preview">
+                <div className="admin-tier-card-preview" style={{ backgroundColor: tierForm.cardColor, color: tierForm.textColor }}>
+                  <span style={{ backgroundColor: tierForm.badgeColor }}>{membershipIconSymbols[tierForm.iconName] ?? membershipIconSymbols.star}</span>
+                  <div><small>THẺ THÀNH VIÊN</small><strong>{tierForm.name || 'Tên hạng'}</strong><p>Cấp {tierForm.level || '—'} · Giảm {tierForm.discountPercent || 0}%</p></div>
+                  <em>{tierForm.benefitDescription || 'Quyền lợi của thành viên sẽ hiển thị tại đây.'}</em>
+                </div>
+                <div className="admin-tier-auto-summary">
+                  <span>Cấp {tierForm.level || '—'}</span>
+                  <span>{suggestedMaxPoint === null ? 'Không giới hạn điểm tối đa' : `Đến ${formatNumber(suggestedMaxPoint)} điểm`}</span>
+                  <span>{tierForm.isActive ? 'Đang hoạt động' : 'Tạm tắt'}</span>
+                </div>
+              </aside>
             </div>
-            <p className={`admin-tier-contrast ${tierContrastRatio >= 4.5 ? 'is-valid' : 'is-invalid'}`}>Độ tương phản {tierContrastRatio.toFixed(2)}:1 · {tierContrastRatio >= 4.5 ? 'Đạt chuẩn dễ đọc' : 'Cần tối thiểu 4.5:1'}</p>
-            <label>
-              <span>Quyền lợi</span>
-              <textarea
-                className={(tierSubmitAttempted || tierForm.benefitDescription.length > 0) && tierErrors.benefitDescription ? 'is-invalid' : ''}
-                value={tierForm.benefitDescription}
-                onChange={(event) =>
-                  setTierForm((form) => ({ ...form, benefitDescription: event.target.value }))
-                }
-                required
-                minLength={2}
-                maxLength={200}
-                rows={3}
-              />
-              {(tierSubmitAttempted || tierForm.benefitDescription.length > 0) && tierErrors.benefitDescription ? <small className="admin-field-error">{tierErrors.benefitDescription}</small> : null}
-              <small className="admin-character-count">{tierForm.benefitDescription.length}/200</small>
-            </label>
+
+            <button
+              className="admin-tier-advanced-toggle"
+              type="button"
+              aria-expanded={showTierAdvancedOptions}
+              onClick={() => setShowTierAdvancedOptions((visible) => !visible)}
+            >
+              {showTierAdvancedOptions ? 'Ẩn tùy chỉnh nâng cao' : 'Tùy chỉnh cấp, trạng thái và giao diện thẻ'}
+            </button>
+
+            <div className="admin-tier-advanced-panel" hidden={!showTierAdvancedOptions}>
+              <div className="admin-tier-context-row">
+                <div>
+                  <span>Đứng sau</span>
+                  <strong>{tierFormNeighbors.previous?.name ?? 'Đầu chương trình'}</strong>
+                  <small>{tierFormNeighbors.previous ? `Từ ${formatNumber(tierFormNeighbors.previous.minPoint)} điểm` : 'Hạng đầu nên bắt đầu từ 0 điểm'}</small>
+                </div>
+                <div>
+                  <span>Hạng đang chỉnh</span>
+                  <strong>{tierForm.name || 'Hạng mới'}</strong>
+                  <small>Cấp {tierForm.level || '—'} · từ {tierForm.minPoint ? formatNumber(Number(tierForm.minPoint)) : '—'} điểm</small>
+                </div>
+                <div>
+                  <span>Đứng trước</span>
+                  <strong>{tierFormNeighbors.next?.name ?? 'Hạng cao nhất'}</strong>
+                  <small>{tierFormNeighbors.next ? `Từ ${formatNumber(tierFormNeighbors.next.minPoint)} điểm` : 'Không giới hạn điểm tối đa'}</small>
+                </div>
+              </div>
+              <h3 className="admin-tier-form-section-title">Cấu hình chi tiết</h3>
+              <div className="admin-account-form-grid">
+                <label>
+                  <span>Cấp hạng</span>
+                  <input
+                    className={(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? 'is-invalid' : ''}
+                    type="number"
+                    value={tierForm.level}
+                    onChange={(event) => setTierForm((form) => ({ ...form, level: event.target.value }))}
+                    required
+                    min={1}
+                    max={20}
+                  />
+                  {(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? <small className="admin-field-error">{tierErrors.level}</small> : null}
+                  <small className="admin-field-hint">Cấp càng cao tương ứng hạng càng cao.</small>
+                </label>
+                <label>
+                  <span>Điểm tối đa (tự tính)</span>
+                  <input
+                    type="text"
+                    value={suggestedMaxPoint === null ? 'Không giới hạn (hạng cao nhất)' : formatNumber(suggestedMaxPoint)}
+                    disabled
+                  />
+                  <small className="admin-field-hint">Tự động theo hạng kế tiếp, không cần nhập tay.</small>
+                </label>
+                <label>
+                  <span>Trạng thái</span>
+                  <select
+                    value={tierForm.isActive ? 'active' : 'inactive'}
+                    onChange={(event) =>
+                      setTierForm((form) => ({ ...form, isActive: event.target.value === 'active' }))
+                    }
+                  >
+                    <option value="active">Hoạt động</option>
+                    <option value="inactive">Tạm tắt</option>
+                  </select>
+                </label>
+              </div>
+              <h3 className="admin-tier-form-section-title">Giao diện thẻ</h3>
+              <div className="admin-tier-palette-row" aria-label="Bảng màu gợi ý">
+                {tierPalettePresets.map((palette) => <button key={palette.name} type="button" style={{ backgroundColor: palette.card, color: palette.text }} onClick={() => setTierForm((form) => ({ ...form, cardColor: palette.card, textColor: palette.text, badgeColor: palette.badge }))}>{palette.name}</button>)}
+              </div>
+              <div className="admin-account-form-grid">
+                <label>
+                  <span>Màu thẻ</span>
+                  <input
+                    className={tierErrors.cardColor ? 'is-invalid' : ''}
+                    type="color"
+                    value={tierForm.cardColor}
+                    onChange={(event) => {
+                      const cardColor = event.target.value
+                      const textColor = getContrastRatio(cardColor, '#ffffff') >= getContrastRatio(cardColor, '#111827') ? '#ffffff' : '#111827'
+                      setTierForm((form) => ({ ...form, cardColor, textColor }))
+                    }}
+                  />
+                  {tierErrors.cardColor ? <small className="admin-field-error">{tierErrors.cardColor}</small> : null}
+                </label>
+                <label>
+                  <span>Màu chữ</span>
+                  <input
+                    className={tierErrors.textColor ? 'is-invalid' : ''}
+                    type="color"
+                    value={tierForm.textColor}
+                    onChange={(event) => setTierForm((form) => ({ ...form, textColor: event.target.value }))}
+                  />
+                  {tierErrors.textColor ? <small className="admin-field-error">{tierErrors.textColor}</small> : null}
+                </label>
+                <label>
+                  <span>Màu badge</span>
+                  <input
+                    type="color"
+                    value={tierForm.badgeColor}
+                    onChange={(event) => setTierForm((form) => ({ ...form, badgeColor: event.target.value }))}
+                  />
+                </label>
+                <div className="admin-tier-icon-field">
+                  <span>Icon</span>
+                  <div className="admin-tier-icon-grid">
+                    {iconOptions.map((icon) => <button key={icon.value} type="button" className={tierForm.iconName === icon.value ? 'is-selected' : ''} aria-label={icon.label} title={icon.label} onClick={() => setTierForm((form) => ({ ...form, iconName: icon.value }))}>{membershipIconSymbols[icon.value] ?? '●'}</button>)}
+                  </div>
+                </div>
+              </div>
+              <p className={`admin-tier-contrast ${tierContrastRatio >= 4.5 ? 'is-valid' : 'is-invalid'}`}>Độ tương phản {tierContrastRatio.toFixed(2)}:1 · {tierContrastRatio >= 4.5 ? 'Đạt chuẩn dễ đọc' : 'Cần tối thiểu 4.5:1'}</p>
+            </div>
             <div className="admin-dialog-actions">
               <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={closeDialog}>
                 Hủy
