@@ -35,6 +35,12 @@ type Notice = {
   message: string
 }
 
+type CustomerSummary = {
+  total: number
+  active: number
+  blocked: number
+}
+
 type PendingAction =
   | {
       type: 'status'
@@ -48,16 +54,29 @@ type PendingAction =
 
 const pageSize = 10
 
+const emptySummary: CustomerSummary = {
+  total: 0,
+  active: 0,
+  blocked: 0,
+}
+
 const statusFilterLabels: Record<StatusFilter, string> = {
-  all: 'Tất cả trạng thái',
-  active: 'Hoạt động',
-  blocked: 'Bị khóa',
+  all: 'Tất cả',
+  active: 'Đang hoạt động',
+  blocked: 'Đã khóa',
 }
 
 const getUserTitle = (user: ManagedUser) => user.name || user.email
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
+
+const formatNumber = (value: number) => value.toLocaleString('vi-VN')
+
+const formatPercent = (value: number) =>
+  new Intl.NumberFormat('vi-VN', {
+    maximumFractionDigits: 1,
+  }).format(value)
 
 export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const [users, setUsers] = useState<ManagedUser[]>([])
@@ -68,6 +87,8 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const [page, setPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [summary, setSummary] = useState<CustomerSummary>(emptySummary)
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isDrawerLoading, setIsDrawerLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -78,10 +99,35 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const canEditUsers =
     currentUser.role === 'admin' || currentUser.permissions?.includes('customers.manage') === true
 
-  const activeCount = useMemo(
-    () => users.filter((user) => user.isActive).length,
-    [users],
+  const activeRate = useMemo(
+    () => (summary.total > 0 ? (summary.active / summary.total) * 100 : 0),
+    [summary.active, summary.total],
   )
+
+  const summaryMeta = keyword ? 'Theo từ khóa hiện tại' : 'Toàn bộ khách mua hàng'
+
+  const loadCustomerSummary = useCallback(async () => {
+    setIsSummaryLoading(true)
+
+    try {
+      const [allResult, activeResult, blockedResult] = await Promise.all([
+        listManagedUsers({ keyword, role: 'user', status: 'all', page: 1, limit: 1 }),
+        listManagedUsers({ keyword, role: 'user', status: 'active', page: 1, limit: 1 }),
+        listManagedUsers({ keyword, role: 'user', status: 'blocked', page: 1, limit: 1 }),
+      ])
+
+      setSummary({
+        total: allResult.totalItems,
+        active: activeResult.totalItems,
+        blocked: blockedResult.totalItems,
+      })
+    } catch {
+      setSummary(emptySummary)
+    } finally {
+      setIsSummaryLoading(false)
+    }
+  }, [keyword])
+
   const loadUsers = useCallback(async () => {
     setIsLoading(true)
     setErrorMessage('')
@@ -117,6 +163,10 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   useEffect(() => {
     void loadUsers()
   }, [loadUsers])
+
+  useEffect(() => {
+    void loadCustomerSummary()
+  }, [loadCustomerSummary])
 
   const updateUserInState = (updatedUser: ManagedUser) => {
     setUsers((currentUsers) =>
@@ -169,6 +219,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
           pendingAction.nextActive,
         )
         updateUserInState(updatedUser)
+        void loadCustomerSummary()
         setNotice({
           type: 'success',
           message: pendingAction.nextActive
@@ -223,7 +274,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
           </span>
           <div>
             <strong>{getUserTitle(user)}</strong>
-            <small>{user.profileCompleted ? 'Đã hoàn thiện hồ sơ' : 'Chưa hoàn thiện hồ sơ'}</small>
+            <small>{user.email}</small>
           </div>
         </div>
       ),
@@ -233,9 +284,18 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       header: 'Liên hệ',
       render: (user) => (
         <div className="admin-contact-cell">
-          <span>{user.email}</span>
-          <small>{user.phone || 'Chưa có số điện thoại'}</small>
+          <span>{user.phone || 'Chưa có số điện thoại'}</span>
+          <small>{user.email}</small>
         </div>
+      ),
+    },
+    {
+      key: 'profile',
+      header: 'Hồ sơ',
+      render: (user) => (
+        <StatusBadge tone={user.profileCompleted ? 'info' : 'neutral'}>
+          {user.profileCompleted ? 'Đủ thông tin' : 'Thiếu thông tin'}
+        </StatusBadge>
       ),
     },
     {
@@ -243,13 +303,13 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       header: 'Trạng thái',
       render: (user) => (
         <StatusBadge tone={user.isActive ? 'success' : 'danger'}>
-          {user.isActive ? 'Hoạt động' : 'Bị khóa'}
+          {user.isActive ? 'Đang hoạt động' : 'Đã khóa'}
         </StatusBadge>
       ),
     },
     {
       key: 'points',
-      header: 'Điểm',
+      header: 'Điểm tích lũy',
       render: (user) => (user.loyaltyPoint ?? 0).toLocaleString('vi-VN'),
     },
     {
@@ -285,7 +345,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
     <section className="admin-ui-page" aria-busy={isLoading}>
       <PageHeader
         title="Khách hàng"
-        description="Tra cứu tài khoản mua hàng, kiểm tra trạng thái và xử lý khóa hoặc mở lại tài khoản khi cần."
+        description="Quản lý tài khoản khách mua hàng, thông tin liên hệ, trạng thái đăng nhập và điểm tích lũy."
         breadcrumbs={['Khách hàng', 'Danh sách']}
         actions={(
           <Button variant="secondary" onClick={() => void loadUsers()}>
@@ -295,9 +355,26 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       />
 
       <KpiGrid>
-        <KpiCard label="Tổng theo bộ lọc" value={totalItems.toLocaleString('vi-VN')} meta="Từ danh sách khách hàng" />
-        <KpiCard label="Trang hiện tại" value={users.length.toLocaleString('vi-VN')} meta={`${page}/${totalPages} trang`} />
-        <KpiCard label="Hoạt động trong trang" value={activeCount.toLocaleString('vi-VN')} meta="Tính trên dữ liệu đang hiển thị" />
+        <KpiCard
+          label="Tổng khách hàng"
+          value={isSummaryLoading ? '...' : formatNumber(summary.total)}
+          meta={summaryMeta}
+        />
+        <KpiCard
+          label="Đang hoạt động"
+          value={isSummaryLoading ? '...' : formatNumber(summary.active)}
+          meta="Có thể đăng nhập và mua hàng"
+        />
+        <KpiCard
+          label="Đã khóa"
+          value={isSummaryLoading ? '...' : formatNumber(summary.blocked)}
+          meta="Tạm dừng quyền đăng nhập"
+        />
+        <KpiCard
+          label="Tỷ lệ hoạt động"
+          value={isSummaryLoading ? '...' : `${formatPercent(activeRate)}%`}
+          meta="Trên nhóm khách đang lọc"
+        />
       </KpiGrid>
 
       <FilterBar>
@@ -306,7 +383,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
             type="search"
             value={keywordInput}
             onChange={(event) => setKeywordInput(event.target.value)}
-            placeholder="Tên, email hoặc số điện thoại"
+            placeholder="Tìm theo tên, email hoặc số điện thoại"
           />
         </Field>
 
@@ -347,7 +424,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
           items={users}
           getRowKey={(user) => user._id}
           isLoading={isLoading}
-          emptyText="Không có tài khoản phù hợp."
+          emptyText="Không tìm thấy khách hàng phù hợp."
           onRowClick={(user) => void handleOpenUser(user)}
         />
       )}

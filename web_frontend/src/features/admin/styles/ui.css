@@ -286,6 +286,57 @@
   background: var(--admin-surface-muted);
 }
 
+.admin-ui-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface-subtle);
+}
+
+.admin-ui-tabs button {
+  min-height: 34px;
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--admin-text-muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-ui-tabs button:hover {
+  color: var(--admin-text);
+}
+
+.admin-ui-tabs button.is-active {
+  border-color: var(--admin-border);
+  color: var(--admin-text);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
+}
+
+.admin-ui-tabs em {
+  min-width: 20px;
+  min-height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--admin-text-muted);
+  background: var(--admin-surface-muted);
+  font-style: normal;
+  font-size: 11px;
+}
+
 .admin-ui-table-card {
   overflow: hidden;
   border: 1px solid var(--admin-border);
