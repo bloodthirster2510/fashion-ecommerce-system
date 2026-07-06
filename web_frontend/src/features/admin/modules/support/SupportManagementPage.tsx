@@ -36,6 +36,19 @@ import type {
 } from './support.types'
 import './support.css'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
+import {
+  Button,
+  EmptyState,
+  Field,
+  FilterBar,
+  KpiCard,
+  KpiGrid,
+  PageHeader,
+  Pagination,
+  StatusBadge,
+  Tabs,
+  type TabItem,
+} from '../../components/ui'
 
 type SupportTab = 'tickets' | 'faqs' | 'analytics' | 'canned'
 
@@ -70,6 +83,22 @@ const emptyFaq: FaqPayload = {
   question: '', answer: '', category: 'orders', keywords: [], sortOrder: 0, isPublished: false,
 }
 
+const statusTones: Record<SupportTicketStatus, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
+  open: 'info',
+  in_progress: 'warning',
+  waiting_customer: 'neutral',
+  resolved: 'success',
+  closed: 'neutral',
+  spam: 'danger',
+}
+
+const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
+  low: 'neutral',
+  normal: 'info',
+  high: 'warning',
+  urgent: 'danger',
+}
+
 const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
@@ -92,6 +121,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const canMarkSpam = currentUser.role === 'admin'
   const [filters, setFilters] = useState<SupportFilters>({ page: 1, status: 'all' })
   const [tickets, setTickets] = useState<SupportTicket[]>([])
+  const [ticketPagination, setTicketPagination] = useState({ page: 1, limit: 20, totalItems: 0, totalPages: 1 })
   const [summary, setSummary] = useState<SupportSummary | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null)
@@ -123,6 +153,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     try {
       const [list, nextSummary] = await Promise.all([listSupportTickets(filters), getSupportSummary()])
       setTickets(list.items)
+      setTicketPagination(list.pagination)
       setSummary(nextSummary)
       if (!selectedId && list.items[0]) setSelectedId(list.items[0]._id)
     } catch (caught) {
@@ -210,6 +241,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
       try {
         const [list, nextSummary] = await Promise.all([listSupportTickets(filters), getSupportSummary()])
         setTickets(list.items)
+        setTicketPagination(list.pagination)
         setSummary(nextSummary)
       } catch { /* ignore realtime refresh errors */ }
     }, 600)
@@ -234,6 +266,14 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
   const selectedTicket = detail?.ticket
   const queueCount = useMemo(() => tickets.filter((ticket) => ticket.requiresReply).length, [tickets])
+  const supportTabs: Array<TabItem<SupportTab>> = [
+    { value: 'tickets', label: 'Ticket', badge: queueCount || undefined },
+    ...(canManage ? [
+      { value: 'faqs' as const, label: 'FAQ' },
+      { value: 'canned' as const, label: 'Mẫu trả lời' },
+      { value: 'analytics' as const, label: 'Báo cáo' },
+    ] : []),
+  ]
 
   const mutateTicket = async (payload: Parameters<typeof updateSupportTicket>[1]) => {
     if (!selectedId) return
@@ -303,42 +343,56 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   }
 
   return (
-    <section className="admin-support-page">
-      <header className="admin-support-header">
-        <div>
-          <p>CSKH</p>
-          <h1>Hỗ trợ & phản hồi</h1>
-          <span>Quản lý ticket khách hàng và nội dung câu hỏi thường gặp.</span>
-        </div>
-        <div className="admin-support-tabs" role="tablist" aria-label="Khu vực hỗ trợ">
-          <button className={tab === 'tickets' ? 'is-active' : ''} onClick={() => setTab('tickets')} type="button">Ticket {queueCount ? `(${queueCount})` : ''}</button>
-          {canManage && <button className={tab === 'faqs' ? 'is-active' : ''} onClick={() => setTab('faqs')} type="button">FAQ</button>}
-          {canManage && <button className={tab === 'canned' ? 'is-active' : ''} onClick={() => setTab('canned')} type="button">Mẫu trả lời</button>}
-          {canManage && <button className={tab === 'analytics' ? 'is-active' : ''} onClick={() => setTab('analytics')} type="button">Báo cáo</button>}
-        </div>
-      </header>
+    <section className="admin-ui-page admin-support-page">
+      <PageHeader
+        title="Hỗ trợ khách hàng"
+        description="Quản lý ticket, phản hồi khách hàng, mẫu trả lời và nội dung FAQ trong cùng một hàng đợi."
+        breadcrumbs={['CSKH', 'Hỗ trợ']}
+        actions={<Tabs items={supportTabs} value={tab} onChange={setTab} ariaLabel="Khu vực hỗ trợ" />}
+      />
 
       {error && <div className="admin-support-error" role="alert">{error}<button type="button" onClick={() => setError('')}>Đóng</button></div>}
 
       {tab === 'tickets' ? (
         <>
-          <div className="admin-support-kpis">
-            <Kpi label="Đang mở" value={summary?.totalOpen ?? 0} />
-            <Kpi label="Chờ admin" value={summary?.waitingAdmin ?? 0} tone="danger" />
-            <Kpi label="Chờ khách" value={summary?.waitingCustomer ?? 0} />
-            <Kpi label="Quá 24 giờ" value={summary?.overdue ?? 0} tone="warning" />
-          </div>
+          <KpiGrid>
+            <KpiCard label="Đang mở" value={summary?.totalOpen ?? 0} meta="Ticket chưa hoàn tất" />
+            <KpiCard label="Chờ phản hồi" value={summary?.waitingAdmin ?? 0} meta="Cần CSKH xử lý" />
+            <KpiCard label="Chờ khách" value={summary?.waitingCustomer ?? 0} meta="Đang đợi khách bổ sung" />
+            <KpiCard label="Quá 24 giờ" value={summary?.overdue ?? 0} meta="Cần ưu tiên kiểm tra" />
+          </KpiGrid>
 
-          <div className="admin-support-toolbar">
-            <input aria-label="Tìm ticket" placeholder="Mã ticket, khách hàng, mã đơn..." value={filters.search ?? ''} onChange={(event) => setFilters((old) => ({ ...old, search: event.target.value, page: 1 }))} />
-            <select aria-label="Lọc trạng thái" value={filters.status ?? 'all'} onChange={(event) => setFilters((old) => ({ ...old, status: event.target.value as SupportFilters['status'], page: 1 }))}>
-              <option value="all">Tất cả trạng thái</option>
-              {Object.entries(statusLabels)
-                .filter(([value]) => canMarkSpam || value !== 'spam')
-                .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-            <button type="button" onClick={() => void loadTickets()}>Làm mới</button>
-          </div>
+          <FilterBar>
+            <Field label="Tìm ticket" grow>
+              <input aria-label="Tìm ticket" placeholder="Mã ticket, khách hàng, mã đơn..." value={filters.search ?? ''} onChange={(event) => setFilters((old) => ({ ...old, search: event.target.value, page: 1 }))} />
+            </Field>
+            <Field label="Trạng thái">
+              <select aria-label="Lọc trạng thái" value={filters.status ?? 'all'} onChange={(event) => setFilters((old) => ({ ...old, status: event.target.value as SupportFilters['status'], page: 1 }))}>
+                <option value="all">Tất cả trạng thái</option>
+                {Object.entries(statusLabels)
+                  .filter(([value]) => canMarkSpam || value !== 'spam')
+                  .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="Ưu tiên">
+              <select aria-label="Lọc ưu tiên" value={filters.priority ?? 'all'} onChange={(event) => setFilters((old) => ({ ...old, priority: event.target.value as SupportFilters['priority'], page: 1 }))}>
+                <option value="all">Tất cả mức</option>
+                {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Field label="Danh mục">
+              <select aria-label="Lọc danh mục" value={filters.category ?? 'all'} onChange={(event) => setFilters((old) => ({ ...old, category: event.target.value as SupportFilters['category'], page: 1 }))}>
+                <option value="all">Tất cả danh mục</option>
+                {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </Field>
+            <Button variant="secondary" onClick={() => setFilters({ page: 1, status: 'all' })}>
+              Xóa lọc
+            </Button>
+            <Button variant="secondary" onClick={() => void loadTickets()}>
+              Làm mới
+            </Button>
+          </FilterBar>
 
           <div className="admin-support-workspace">
             <aside className="admin-support-queue" aria-label="Danh sách ticket">
@@ -347,18 +401,48 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
                   <span className="admin-support-ticket-top"><strong>{ticket.ticketCode}</strong><time>{formatDate(ticket.lastMessageAt)}</time></span>
                   <b>{ticket.subject}</b>
                   <span>{getPersonName(ticket)} · {categoryLabels[ticket.category]}</span>
-                  <span className="admin-support-ticket-bottom"><em className={`status-${ticket.status}`}>{statusLabels[ticket.status]}</em><small>{priorityLabels[ticket.priority]}</small></span>
+                  <span className="admin-support-ticket-bottom">
+                    <StatusBadge tone={statusTones[ticket.status]}>{statusLabels[ticket.status]}</StatusBadge>
+                    <StatusBadge tone={priorityTones[ticket.priority]}>{priorityLabels[ticket.priority]}</StatusBadge>
+                  </span>
                 </button>
-              )) : <p className="admin-support-empty">Không có ticket phù hợp.</p>}
+              )) : (
+                <EmptyState
+                  title="Không có ticket phù hợp"
+                  description="Thử đổi bộ lọc hoặc làm mới hàng đợi để kiểm tra ticket mới."
+                />
+              )}
+              {ticketPagination.totalPages > 1 ? (
+                <Pagination
+                  page={ticketPagination.page}
+                  totalPages={ticketPagination.totalPages}
+                  totalItems={ticketPagination.totalItems}
+                  isDisabled={loading}
+                  onPageChange={(page) => setFilters((old) => ({ ...old, page }))}
+                />
+              ) : null}
             </aside>
 
             <main className="admin-support-detail">
               {detailLoading ? <p className="admin-support-empty">Đang tải hội thoại...</p> : selectedTicket ? (
                 <>
                   <header className="admin-support-detail-header">
-                    <div><p>{selectedTicket.ticketCode}</p><h2>{selectedTicket.subject}</h2><span>{getPersonName(selectedTicket)} · {typeLabels[selectedTicket.type]}</span></div>
+                    <div>
+                      <p>{selectedTicket.ticketCode}</p>
+                      <h2>{selectedTicket.subject}</h2>
+                      <span>{getPersonName(selectedTicket)} · {typeLabels[selectedTicket.type]}</span>
+                      <div className="admin-support-detail-badges">
+                        <StatusBadge tone={statusTones[selectedTicket.status]}>{statusLabels[selectedTicket.status]}</StatusBadge>
+                        <StatusBadge tone={priorityTones[selectedTicket.priority]}>{priorityLabels[selectedTicket.priority]}</StatusBadge>
+                        {selectedTicket.requiresReply ? <StatusBadge tone="danger">Cần phản hồi</StatusBadge> : null}
+                      </div>
+                    </div>
                     <div className="admin-support-actions">
-                      {!selectedTicket.assignedTo && <button style={{ minHeight: 40, border: 0, borderRadius: 9, padding: '0 12px', background: '#537f99', color: '#fff', fontWeight: 700 }} type="button" disabled={submitting} onClick={() => void mutateTicket({ assignedTo: currentUser._id })}>Nhận xử lý</button>}
+                      {!selectedTicket.assignedTo && (
+                        <Button variant="primary" disabled={submitting} onClick={() => void mutateTicket({ assignedTo: currentUser._id })}>
+                          Nhận xử lý
+                        </Button>
+                      )}
                       <select aria-label="Mức ưu tiên" value={selectedTicket.priority} disabled={submitting} onChange={(event) => void mutateTicket({ priority: event.target.value as SupportPriority })}>
                         {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
