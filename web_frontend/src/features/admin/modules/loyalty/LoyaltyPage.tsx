@@ -24,6 +24,18 @@ import './loyalty.css'
 import { LoyaltyRulesPanel } from './components/LoyaltyRulesPanel'
 import { useToast } from '../../notifications/notification-context'
 import { AdminEmptyIllustration } from '../../components/AdminEmptyIllustration'
+import {
+  Button,
+  DataTable,
+  EmptyState,
+  Field,
+  FilterBar,
+  KpiCard,
+  KpiGrid,
+  PageHeader,
+  StatusBadge,
+  type DataTableColumn,
+} from '../../components/ui'
 
 type LoyaltyPageProps = {
   currentUser: AdminUser
@@ -129,27 +141,27 @@ const membershipIconSymbols: Record<string, string> = {
 const policyCards = [
   {
     title: 'Cộng điểm',
-    value: 'floor(totalAmount / 1000)',
-    note: 'Chỉ cộng khi đơn chuyển sang delivered.',
+    value: '1 điểm / 1.000đ',
+    note: 'Chỉ cộng khi đơn hàng đã giao thành công.',
   },
   {
     title: 'Trừ điểm',
-    value: 'Adjustment âm',
-    note: 'Áp dụng khi hoàn/trả sau khi đã cộng điểm.',
+    value: 'Điều chỉnh giảm',
+    note: 'Áp dụng khi hoàn trả hoặc cần thu hồi điểm đã cộng.',
   },
   {
     title: 'Giảm theo hạng',
     value: 'Sau coupon sản phẩm',
-    note: 'Ghi vào Order.membershipDiscountAmount.',
+    note: 'Tính vào phần giảm giá thành viên của đơn hàng.',
   },
 ]
 
 const integrationChecks = [
-  'Coupon có thể giới hạn theo eligibleMembershipRanks.',
-  'Checkout lấy tier từ loyaltyPoint hiện tại.',
-  'Khách hàng xem hạng, điểm và tiến trình nâng hạng ở profile.',
-  'Support có category membership để xử lý khiếu nại điểm/hạng.',
-  'Thay đổi hạng/quy tắc điểm cần ghi audit log.',
+  'Voucher có thể áp dụng riêng cho từng hạng thành viên.',
+  'Trang thanh toán tự xác định hạng từ điểm tích lũy hiện tại.',
+  'Khách hàng xem hạng, điểm và tiến trình nâng hạng trong hồ sơ.',
+  'CSKH có nhóm vấn đề thành viên để xử lý khiếu nại điểm hoặc hạng.',
+  'Mọi thay đổi hạng và quy tắc điểm cần được ghi lịch sử quản trị.',
 ]
 
 const getErrorMessage = (error: unknown) =>
@@ -672,12 +684,143 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     : ''
   const filteredPointHistory = pointHistory
   const pointHistorySummary = historySummary
+  const totalTierMembers = sortedTiers.reduce((total, tier) => total + (tier.memberCount ?? 0), 0)
+  const highestDiscountPercent = sortedTiers.reduce(
+    (highestDiscount, tier) => Math.max(highestDiscount, tier.discountPercent),
+    0,
+  )
   const visibleHistoryPages = useMemo(() => {
     const totalPages = historyPagination.totalPages
     const firstPage = Math.max(1, Math.min(historyPagination.page - 2, totalPages - 4))
     const lastPage = Math.min(totalPages, firstPage + 4)
     return Array.from({ length: Math.max(0, lastPage - firstPage + 1) }, (_, index) => firstPage + index)
   }, [historyPagination.page, historyPagination.totalPages])
+
+  const tierColumns: Array<DataTableColumn<MembershipRanking>> = [
+    {
+      key: 'tier',
+      header: 'Hạng',
+      render: (tier) => (
+        <div className="admin-loyalty-tier-cell">
+          <strong>{tier.name}</strong>
+          <small>Cấp {tier.level}</small>
+        </div>
+      ),
+    },
+    {
+      key: 'points',
+      header: 'Điểm yêu cầu',
+      render: (tier) => `${formatNumber(tier.minPoint)} - ${formatNumber(tier.maxPoint)}`,
+    },
+    {
+      key: 'discount',
+      header: 'Ưu đãi',
+      render: (tier) => `${tier.discountPercent}%`,
+    },
+    {
+      key: 'benefit',
+      header: 'Quyền lợi',
+      render: (tier) => tier.benefitDescription || 'Chưa mô tả',
+    },
+    {
+      key: 'members',
+      header: 'Thành viên',
+      render: (tier) => (
+        <Button
+          variant="ghost"
+          disabled={!tier._id}
+          onClick={() => void handleViewTierMembers(tier)}
+        >
+          {formatNumber(tier.memberCount ?? 0)}
+        </Button>
+      ),
+    },
+    {
+      key: 'preview',
+      header: 'Thẻ',
+      render: (tier) => (
+        <div
+          className="admin-loyalty-visual-preview"
+          style={{
+            backgroundColor: tier.cardColor ?? '#5b788a',
+            color: tier.textColor ?? '#ffffff',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{ backgroundColor: tier.badgeColor ?? tier.cardColor ?? '#5b788a' }}
+          />
+          <strong title={tier.iconName ?? 'star'} aria-label={tier.iconName ?? 'star'}>
+            {membershipIconSymbols[tier.iconName ?? 'star'] ?? membershipIconSymbols.star}
+          </strong>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      render: (tier) => (
+        <StatusBadge tone={tier.isActive !== false ? 'success' : 'neutral'}>
+          {tier.isActive !== false ? 'Đang áp dụng' : 'Tạm tắt'}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      render: (tier) => {
+        const tierIndex = sortedTiers.findIndex((item) => item._id === tier._id)
+        const hasPersistedTier = Boolean(tier._id)
+        const isActive = tier.isActive !== false
+
+        return (
+          <div className="admin-row-actions" onClick={(event) => event.stopPropagation()}>
+            <Button
+              variant="secondary"
+              disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
+              onClick={() => openEditDialog(tier)}
+            >
+              Sửa
+            </Button>
+            <details className="admin-action-menu">
+              <summary aria-label={`Thao tác với hạng ${tier.name}`}>•••</summary>
+              <div>
+                <button
+                  type="button"
+                  disabled={!canManageLoyalty || tierIndex <= 0 || actionLoading}
+                  onClick={() => void moveTier(tier, -1)}
+                >
+                  Đưa lên
+                </button>
+                <button
+                  type="button"
+                  disabled={!canManageLoyalty || tierIndex >= sortedTiers.length - 1 || actionLoading}
+                  onClick={() => void moveTier(tier, 1)}
+                >
+                  Đưa xuống
+                </button>
+                <button
+                  type="button"
+                  disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
+                  onClick={() => openStatusDialog(tier, !isActive)}
+                >
+                  {isActive ? 'Tạm tắt' : 'Bật lại'}
+                </button>
+                <button
+                  className="is-danger"
+                  type="button"
+                  disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
+                  onClick={() => openDeleteDialog(tier)}
+                >
+                  Xóa
+                </button>
+              </div>
+            </details>
+          </div>
+        )
+      },
+    },
+  ]
 
   const exportPointHistoryCsv = async () => {
     if (!selectedLoyaltyUser) return
@@ -760,210 +903,122 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   }
 
   return (
-    <section className="admin-loyalty-page">
-      <div className="admin-page-heading">
-        <div>
-          <p>Khách hàng / Membership</p>
-          <h1>Chương trình thành viên</h1>
-        </div>
+    <section className="admin-ui-page admin-loyalty-page">
+      <PageHeader
+        title="Chương trình thành viên"
+        description="Quản lý hạng thành viên, mốc điểm, quyền lợi và điều chỉnh điểm tích lũy cho khách hàng."
+        breadcrumbs={['Khách hàng', 'Thành viên']}
+        actions={(
+          <Button
+            variant="primary"
+            disabled={!canManageLoyalty}
+            onClick={openCreateDialog}
+          >
+            Thêm hạng
+          </Button>
+        )}
+      />
 
-        <button
-          className="admin-primary-button"
-          type="button"
-          disabled={!canManageLoyalty}
-          onClick={openCreateDialog}
-        >
-          Thêm hạng
-        </button>
-      </div>
-
-      <div className="admin-notice admin-loyalty-notice">
-        <strong>Admin có thể quản lý hạng, điểm tích lũy và quyền lợi khách hàng tại đây.</strong>
-        <span>
-          Điểm được cộng khi đơn giao thành công, thu hồi khi hoàn trả và lưu lịch sử theo từng đơn hàng.
-        </span>
-      </div>
-
-      <div className="admin-user-stats admin-loyalty-stats">
-        <div>
-          <span>Hạng đang hoạt động</span>
-          <strong>{activeTierCount}</strong>
-        </div>
-        <div>
-          <span>Hạng cao nhất</span>
-          <strong>{highestTier?.name ?? 'N/A'}</strong>
-        </div>
-        <div>
-          <span>Ưu đãi tối đa</span>
-          <strong>{highestTier ? `${highestTier.discountPercent}%` : '0%'}</strong>
-        </div>
-      </div>
+      <KpiGrid>
+        <KpiCard
+          label="Tổng hạng"
+          value={formatNumber(sortedTiers.length)}
+          meta={`${formatNumber(activeTierCount)} hạng đang áp dụng`}
+        />
+        <KpiCard
+          label="Hạng cao nhất"
+          value={highestTier?.name ?? 'Chưa có'}
+          meta={highestTier ? `Từ ${formatNumber(highestTier.minPoint)} điểm` : 'Chưa cấu hình'}
+        />
+        <KpiCard
+          label="Ưu đãi tối đa"
+          value={`${highestDiscountPercent}%`}
+          meta="Theo cấu hình hạng hiện tại"
+        />
+        <KpiCard
+          label="Thành viên đã xếp hạng"
+          value={formatNumber(totalTierMembers)}
+          meta="Tổng theo dữ liệu từng hạng"
+        />
+      </KpiGrid>
 
       <div className="admin-loyalty-grid">
-        <section className={`admin-table-shell admin-loyalty-table${isLoading && sortedTiers.length ? ' is-refreshing' : ''}`}>
+        <section className={`admin-loyalty-table${isLoading && sortedTiers.length ? ' is-refreshing' : ''}`}>
           <div className="admin-section-heading">
             <div>
-              <p>Cấu hình hạng</p>
+              <p>Hạng thành viên</p>
               <h2>Điều kiện điểm và quyền lợi</h2>
             </div>
             {actionLoading ? <span>Đang xử lý...</span> : isLoading ? <span>Đang tải...</span> : null}
           </div>
 
           {error ? (
-            <div className="admin-notice is-error admin-loyalty-load-error">
-              <span>{error}</span>
-              <button
-                className="admin-link-button"
-                type="button"
-                disabled={isLoading}
-                onClick={() => void loadTiers()}
-              >
-                Thử lại
-              </button>
-            </div>
+            <EmptyState
+              title="Không tải được hạng thành viên"
+              description={error}
+              action={(
+                <Button variant="secondary" disabled={isLoading} onClick={() => void loadTiers()}>
+                  Thử lại
+                </Button>
+              )}
+            />
           ) : null}
 
-          <div className="admin-loyalty-tier-filters">
-            <label>
-              <span>Tìm hạng</span>
-              <input value={tierKeyword} onChange={(event) => setTierKeyword(event.target.value)} placeholder="Tên hoặc quyền lợi" />
-            </label>
-            <label>
-              <span>Trạng thái</span>
-              <select value={tierStatusFilter} onChange={(event) => setTierStatusFilter(event.target.value as typeof tierStatusFilter)}>
+          <FilterBar>
+            <Field label="Tìm hạng" grow>
+              <input
+                value={tierKeyword}
+                onChange={(event) => setTierKeyword(event.target.value)}
+                placeholder="Tìm theo tên hạng hoặc quyền lợi"
+              />
+            </Field>
+            <Field label="Trạng thái">
+              <select
+                value={tierStatusFilter}
+                onChange={(event) => setTierStatusFilter(event.target.value as typeof tierStatusFilter)}
+              >
                 <option value="all">Tất cả</option>
-                <option value="active">Hoạt động</option>
+                <option value="active">Đang áp dụng</option>
                 <option value="inactive">Tạm tắt</option>
               </select>
-            </label>
-          </div>
+            </Field>
+          </FilterBar>
+
           {tierConfigurationWarnings.map((warning) => <p className="admin-smart-warning" key={warning}>{warning}</p>)}
 
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Hạng</th>
-                <th>Điểm yêu cầu</th>
-                <th>Giảm giá</th>
-                <th>Quyền lợi</th>
-                <th>Thành viên</th>
-                <th>Hiển thị</th>
-                <th>Trạng thái</th>
-                <th>Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && sortedTiers.length === 0 ? (
-                <tr>
-                  <td colSpan={8}>
-                    <div className="admin-table-skeleton" aria-label="Đang tải hạng thành viên">{Array.from({ length: 5 }, (_, index) => <span key={index} />)}</div>
-                  </td>
-                </tr>
-              ) : null}
+          {!isLoading && !error && sortedTiers.length === 0 ? (
+            <EmptyState
+              title="Chưa có hạng thành viên"
+              description="Tạo hạng đầu tiên hoặc dùng bộ hạng mẫu để bắt đầu chương trình thành viên."
+              action={(
+                <div className="admin-loyalty-empty-actions">
+                  <Button variant="primary" disabled={!canManageLoyalty} onClick={openCreateDialog}>
+                    Thêm hạng
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!canManageLoyalty || actionLoading}
+                    onClick={() => void createDefaultTierSet()}
+                  >
+                    Tạo bộ hạng mẫu
+                  </Button>
+                </div>
+              )}
+            />
+          ) : null}
 
-              {!isLoading && !error && sortedTiers.length === 0 ? (
-                <tr>
-                  <td colSpan={8}>
-                    <div className="admin-loyalty-empty-state">
-                      <AdminEmptyIllustration variant="tier" />
-                      <strong>Chưa có hạng thành viên nào</strong>
-                      <span>Bấm “Thêm hạng” để bắt đầu cấu hình chương trình loyalty.</span>
-                      <button
-                        className="admin-secondary-button"
-                        type="button"
-                        disabled={!canManageLoyalty}
-                        onClick={openCreateDialog}
-                      >
-                        Thêm hạng
-                      </button>
-                      <button className="admin-link-button" type="button" disabled={!canManageLoyalty || actionLoading} onClick={() => void createDefaultTierSet()}>
-                        Tạo nhanh bộ hạng mẫu
-                      </button>
-                      {tierBatchProgress ? <small role="status">{tierBatchProgress}</small> : null}
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
+          {tierBatchProgress ? <p className="admin-smart-warning" role="status">{tierBatchProgress}</p> : null}
 
-              {!isLoading && sortedTiers.length > 0 && visibleTiers.length === 0 ? (
-                <tr><td colSpan={8}>Không có hạng phù hợp bộ lọc.</td></tr>
-              ) : null}
+          {sortedTiers.length > 0 && !error ? (
+            <DataTable
+              columns={tierColumns}
+              items={visibleTiers}
+              getRowKey={(tier) => tier._id ?? `${tier.level}-${tier.name}`}
+              isLoading={isLoading && sortedTiers.length === 0}
+              emptyText="Không có hạng phù hợp bộ lọc."
+            />
+          ) : null}
 
-              {visibleTiers.map((tier, index) => {
-                const hasPersistedTier = Boolean(tier._id)
-                const isActive = tier.isActive !== false
-
-                return (
-                  <tr className={selectedTierFilter?._id === tier._id ? 'is-tier-selected' : ''} key={tier._id ?? `${tier.level}-${tier.name}-${index}`}>
-                    <td data-label="Hạng">
-                      <strong>{tier.name}</strong>
-                      <span>Level {tier.level}</span>
-                    </td>
-                    <td data-label="Điểm yêu cầu">
-                      {formatNumber(tier.minPoint)} - {formatNumber(tier.maxPoint)}
-                    </td>
-                    <td data-label="Giảm giá">{tier.discountPercent}%</td>
-                    <td data-label="Quyền lợi">{tier.benefitDescription || 'Chưa mô tả'}</td>
-                    <td data-label="Thành viên">
-                      <button
-                        className="admin-link-button admin-loyalty-member-link"
-                        type="button"
-                        disabled={!hasPersistedTier}
-                        onClick={() => void handleViewTierMembers(tier)}
-                      >
-                        {formatNumber(tier.memberCount ?? 0)}
-                      </button>
-                    </td>
-                    <td data-label="Hiển thị">
-                      <div
-                        className="admin-loyalty-visual-preview"
-                        style={{
-                          backgroundColor: tier.cardColor ?? '#5b788a',
-                          color: tier.textColor ?? '#ffffff',
-                        }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{ backgroundColor: tier.badgeColor ?? tier.cardColor ?? '#5b788a' }}
-                        />
-                        <strong title={tier.iconName ?? 'star'} aria-label={tier.iconName ?? 'star'}>
-                          {membershipIconSymbols[tier.iconName ?? 'star'] ?? membershipIconSymbols.star}
-                        </strong>
-                      </div>
-                    </td>
-                    <td data-label="Trạng thái">
-                      <span
-                        className={`admin-status-pill${isActive ? ' is-active' : ' is-blocked'}`}
-                      >
-                        {isActive ? 'Hoạt động' : 'Tạm tắt'}
-                      </span>
-                    </td>
-                    <td data-label="Thao tác">
-                      <div className="admin-row-actions">
-                        <button
-                          className="admin-link-button"
-                          type="button"
-                          disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-                          onClick={() => openEditDialog(tier)}
-                        >
-                          Sửa
-                        </button>
-                        <details className="admin-action-menu">
-                          <summary aria-label={`Thao tác với hạng ${tier.name}`}>•••</summary>
-                          <div>
-                            <button type="button" disabled={!canManageLoyalty || sortedTiers.findIndex((item) => item._id === tier._id) === 0 || actionLoading} onClick={() => void moveTier(tier, -1)}>Đưa lên</button>
-                            <button type="button" disabled={!canManageLoyalty || sortedTiers.findIndex((item) => item._id === tier._id) === sortedTiers.length - 1 || actionLoading} onClick={() => void moveTier(tier, 1)}>Đưa xuống</button>
-                            <button type="button" disabled={!canManageLoyalty || !hasPersistedTier || actionLoading} onClick={() => openStatusDialog(tier, !isActive)}>{isActive ? 'Tắt' : 'Bật'}</button>
-                            <button className="is-danger" type="button" disabled={!canManageLoyalty || !hasPersistedTier || actionLoading} onClick={() => openDeleteDialog(tier)}>Xóa</button>
-                          </div>
-                        </details>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
           {isLoading && sortedTiers.length ? <div className="admin-table-refresh-indicator" role="status">Đang cập nhật hạng...</div> : null}
         </section>
 
@@ -1168,7 +1223,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
         <div className="admin-section-heading">
           <div>
             <p>Liên kết nghiệp vụ</p>
-            <h2>Những nơi bị ảnh hưởng khi đổi loyalty</h2>
+            <h2>Những nơi bị ảnh hưởng khi đổi chương trình thành viên</h2>
           </div>
         </div>
 
