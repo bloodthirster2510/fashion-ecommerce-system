@@ -26,7 +26,6 @@ import { useToast } from '../../notifications/notification-context'
 import { AdminEmptyIllustration } from '../../components/AdminEmptyIllustration'
 import {
   Button,
-  DataTable,
   EmptyState,
   Field,
   FilterBar,
@@ -34,7 +33,6 @@ import {
   KpiGrid,
   PageHeader,
   StatusBadge,
-  type DataTableColumn,
 } from '../../components/ui'
 
 type LoyaltyPageProps = {
@@ -112,14 +110,23 @@ const emptyTierForm: TierFormState = {
   isActive: true,
 }
 
+const tierPalettePresets = [
+  { name: 'Đồng', card: '#8f5b34', text: '#ffffff', badge: '#d19a66' },
+  { name: 'Bạc', card: '#59636e', text: '#ffffff', badge: '#c0c7cf' },
+  { name: 'Vàng', card: '#6f5310', text: '#ffffff', badge: '#d4af37' },
+  { name: 'Bạch kim', card: '#1f2937', text: '#ffffff', badge: '#d1d5db' },
+  { name: 'Kim cương', card: '#20546b', text: '#ffffff', badge: '#8bd5ee' },
+  { name: 'VIP', card: '#3f3f46', text: '#ffffff', badge: '#facc15' },
+]
+
 const iconOptions = [
-  { value: 'star', label: 'Star' },
-  { value: 'shield-star', label: 'Shield star' },
-  { value: 'crown', label: 'Crown' },
-  { value: 'diamond-stone', label: 'Diamond' },
-  { value: 'medal-outline', label: 'Medal' },
-  { value: 'trophy-outline', label: 'Trophy' },
-  { value: 'certificate-outline', label: 'Certificate' },
+  { value: 'star', label: 'Ngôi sao' },
+  { value: 'shield-star', label: 'Khiên sao' },
+  { value: 'crown', label: 'Vương miện' },
+  { value: 'diamond-stone', label: 'Kim cương' },
+  { value: 'medal-outline', label: 'Huy chương' },
+  { value: 'trophy-outline', label: 'Cúp' },
+  { value: 'certificate-outline', label: 'Chứng nhận' },
 ]
 
 const tierTemplates: Array<{ label: string; values: Partial<TierFormState> }> = [
@@ -181,6 +188,33 @@ const toTierForm = (tier: MembershipRanking): TierFormState => ({
   isActive: tier.isActive !== false,
 })
 
+const getSuggestedTierForm = (tiers: MembershipRanking[]): TierFormState => {
+  const orderedTiers = [...tiers].sort((first, second) => first.level - second.level)
+  const lastTier = orderedTiers[orderedTiers.length - 1]
+  const previousTier = orderedTiers[orderedTiers.length - 2]
+  const nextLevel = lastTier ? lastTier.level + 1 : 1
+  const pointStep = lastTier
+    ? Math.max(1000, previousTier ? lastTier.minPoint - previousTier.minPoint : Math.max(lastTier.minPoint, 1000))
+    : 0
+  const palette = tierPalettePresets[(nextLevel - 1) % tierPalettePresets.length]
+  const nextDiscount = lastTier ? Math.min(30, Math.round((lastTier.discountPercent + 2) * 10) / 10) : 0
+
+  return {
+    ...emptyTierForm,
+    name: nextLevel <= tierPalettePresets.length ? palette.name : `Hạng ${nextLevel}`,
+    level: String(nextLevel),
+    minPoint: String(lastTier ? lastTier.minPoint + pointStep : 0),
+    discountPercent: String(nextDiscount),
+    benefitDescription: lastTier
+      ? `Quyền lợi cao hơn ${lastTier.name}; chỉnh lại ưu đãi trước khi lưu.`
+      : 'Tích điểm và nhận ưu đãi dành cho thành viên.',
+    cardColor: palette.card,
+    textColor: palette.text,
+    badgeColor: palette.badge,
+    iconName: nextLevel >= 5 ? 'diamond-stone' : nextLevel >= 3 ? 'crown' : 'star',
+  }
+}
+
 const getRelativeLuminance = (hexColor: string) => {
   const channels = hexColor.slice(1).match(/.{2}/g)
   if (!channels || channels.length !== 3) {
@@ -206,7 +240,7 @@ const validateTierForm = (form: TierFormState): TierFieldErrors => {
   const minPoint = Number(form.minPoint)
   const discountPercent = Number(form.discountPercent)
   if (form.name.trim().length < 2) errors.name = 'Tên hạng cần ít nhất 2 ký tự.'
-  if (!Number.isInteger(level) || level < 1 || level > 20) errors.level = 'Level phải là số nguyên từ 1 đến 20.'
+  if (!Number.isInteger(level) || level < 1 || level > 20) errors.level = 'Cấp hạng phải là số nguyên từ 1 đến 20.'
   if (!Number.isInteger(minPoint) || minPoint < 0 || minPoint > 100000000) errors.minPoint = 'Điểm tối thiểu phải là số nguyên từ 0 đến 100.000.000.'
   if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) errors.discountPercent = 'Mức giảm phải nằm trong khoảng 0–100%.'
   if (form.benefitDescription.trim().length < 2) errors.benefitDescription = 'Quyền lợi cần ít nhất 2 ký tự.'
@@ -227,7 +261,7 @@ const toTierPayload = (form: TierFormState): MembershipRankingPayload => {
   }
 
   if (!Number.isInteger(level) || level < 1 || level > 20) {
-    throw new Error('Level phải là số nguyên từ 1 đến 20')
+    throw new Error('Cấp hạng phải là số nguyên từ 1 đến 20')
   }
 
   if (!Number.isInteger(minPoint) || minPoint < 0 || minPoint > 100000000) {
@@ -365,12 +399,28 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     })
     return warnings
   }, [sortedTiers])
+  const editingTierId = dialog?.type === 'edit' ? dialog.tier._id : undefined
   const suggestedMaxPoint = useMemo(() => {
     const minPoint = Number(tierForm.minPoint)
     if (!Number.isFinite(minPoint)) return null
-    const nextTier = sortedTiers.find((tier) => tier.minPoint > minPoint)
+    const nextTier = sortedTiers
+      .filter((tier) => tier._id !== editingTierId)
+      .find((tier) => tier.minPoint > minPoint)
     return nextTier ? Math.max(minPoint, nextTier.minPoint - 1) : null
-  }, [sortedTiers, tierForm.minPoint])
+  }, [editingTierId, sortedTiers, tierForm.minPoint])
+  const tierFormNeighbors = useMemo(() => {
+    const minPoint = Number(tierForm.minPoint)
+    const comparableTiers = sortedTiers.filter((tier) => tier._id !== editingTierId)
+    if (!Number.isFinite(minPoint)) return { previous: null as MembershipRanking | null, next: null as MembershipRanking | null }
+
+    let previous: MembershipRanking | null = null
+    let next: MembershipRanking | null = null
+    comparableTiers.forEach((tier) => {
+      if (tier.minPoint < minPoint) previous = tier
+      if (!next && tier.minPoint > minPoint) next = tier
+    })
+    return { previous, next }
+  }, [editingTierId, sortedTiers, tierForm.minPoint])
 
   const replaceTier = (updatedTier: MembershipRanking) => {
     setTiers((currentTiers) =>
@@ -379,7 +429,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   }
 
   const openCreateDialog = () => {
-    let nextForm = emptyTierForm
+    let nextForm = getSuggestedTierForm(sortedTiers)
     const rawDraft = window.localStorage.getItem(tierDraftKey)
     if (rawDraft) {
       try {
@@ -696,132 +746,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     return Array.from({ length: Math.max(0, lastPage - firstPage + 1) }, (_, index) => firstPage + index)
   }, [historyPagination.page, historyPagination.totalPages])
 
-  const tierColumns: Array<DataTableColumn<MembershipRanking>> = [
-    {
-      key: 'tier',
-      header: 'Hạng',
-      render: (tier) => (
-        <div className="admin-loyalty-tier-cell">
-          <strong>{tier.name}</strong>
-          <small>Cấp {tier.level}</small>
-        </div>
-      ),
-    },
-    {
-      key: 'points',
-      header: 'Điểm yêu cầu',
-      render: (tier) => `${formatNumber(tier.minPoint)} - ${formatNumber(tier.maxPoint)}`,
-    },
-    {
-      key: 'discount',
-      header: 'Ưu đãi',
-      render: (tier) => `${tier.discountPercent}%`,
-    },
-    {
-      key: 'benefit',
-      header: 'Quyền lợi',
-      render: (tier) => tier.benefitDescription || 'Chưa mô tả',
-    },
-    {
-      key: 'members',
-      header: 'Thành viên',
-      render: (tier) => (
-        <Button
-          variant="ghost"
-          disabled={!tier._id}
-          onClick={() => void handleViewTierMembers(tier)}
-        >
-          {formatNumber(tier.memberCount ?? 0)}
-        </Button>
-      ),
-    },
-    {
-      key: 'preview',
-      header: 'Thẻ',
-      render: (tier) => (
-        <div
-          className="admin-loyalty-visual-preview"
-          style={{
-            backgroundColor: tier.cardColor ?? '#5b788a',
-            color: tier.textColor ?? '#ffffff',
-          }}
-        >
-          <span
-            aria-hidden="true"
-            style={{ backgroundColor: tier.badgeColor ?? tier.cardColor ?? '#5b788a' }}
-          />
-          <strong title={tier.iconName ?? 'star'} aria-label={tier.iconName ?? 'star'}>
-            {membershipIconSymbols[tier.iconName ?? 'star'] ?? membershipIconSymbols.star}
-          </strong>
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Trạng thái',
-      render: (tier) => (
-        <StatusBadge tone={tier.isActive !== false ? 'success' : 'neutral'}>
-          {tier.isActive !== false ? 'Đang áp dụng' : 'Tạm tắt'}
-        </StatusBadge>
-      ),
-    },
-    {
-      key: 'actions',
-      header: 'Thao tác',
-      render: (tier) => {
-        const tierIndex = sortedTiers.findIndex((item) => item._id === tier._id)
-        const hasPersistedTier = Boolean(tier._id)
-        const isActive = tier.isActive !== false
-
-        return (
-          <div className="admin-row-actions" onClick={(event) => event.stopPropagation()}>
-            <Button
-              variant="secondary"
-              disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-              onClick={() => openEditDialog(tier)}
-            >
-              Sửa
-            </Button>
-            <details className="admin-action-menu">
-              <summary aria-label={`Thao tác với hạng ${tier.name}`}>•••</summary>
-              <div>
-                <button
-                  type="button"
-                  disabled={!canManageLoyalty || tierIndex <= 0 || actionLoading}
-                  onClick={() => void moveTier(tier, -1)}
-                >
-                  Đưa lên
-                </button>
-                <button
-                  type="button"
-                  disabled={!canManageLoyalty || tierIndex >= sortedTiers.length - 1 || actionLoading}
-                  onClick={() => void moveTier(tier, 1)}
-                >
-                  Đưa xuống
-                </button>
-                <button
-                  type="button"
-                  disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-                  onClick={() => openStatusDialog(tier, !isActive)}
-                >
-                  {isActive ? 'Tạm tắt' : 'Bật lại'}
-                </button>
-                <button
-                  className="is-danger"
-                  type="button"
-                  disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
-                  onClick={() => openDeleteDialog(tier)}
-                >
-                  Xóa
-                </button>
-              </div>
-            </details>
-          </div>
-        )
-      },
-    },
-  ]
-
   const exportPointHistoryCsv = async () => {
     if (!selectedLoyaltyUser) return
     setIsLoadingHistory(true)
@@ -1010,13 +934,121 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
           {tierBatchProgress ? <p className="admin-smart-warning" role="status">{tierBatchProgress}</p> : null}
 
           {sortedTiers.length > 0 && !error ? (
-            <DataTable
-              columns={tierColumns}
-              items={visibleTiers}
-              getRowKey={(tier) => tier._id ?? `${tier.level}-${tier.name}`}
-              isLoading={isLoading && sortedTiers.length === 0}
-              emptyText="Không có hạng phù hợp bộ lọc."
-            />
+            <div className="admin-tier-ladder" role="list" aria-label="Các hạng thành viên">
+              {visibleTiers.length ? visibleTiers.map((tier) => {
+                const tierIndex = sortedTiers.findIndex((item) => item._id === tier._id)
+                const nextTier = sortedTiers[tierIndex + 1]
+                const hasPersistedTier = Boolean(tier._id)
+                const isActive = tier.isActive !== false
+                const maxPointText = nextTier ? formatNumber(Math.max(tier.minPoint, nextTier.minPoint - 1)) : 'Không giới hạn'
+
+                return (
+                  <article className="admin-tier-ladder-item" key={tier._id ?? `${tier.level}-${tier.name}`} role="listitem">
+                    <div className="admin-tier-ladder-rank">
+                      <span>Cấp</span>
+                      <strong>{tier.level}</strong>
+                    </div>
+                    <div
+                      className="admin-tier-ladder-card"
+                      style={{
+                        backgroundColor: tier.cardColor ?? '#5b788a',
+                        color: tier.textColor ?? '#ffffff',
+                      }}
+                    >
+                      <span aria-hidden="true" style={{ backgroundColor: tier.badgeColor ?? tier.cardColor ?? '#5b788a' }}>
+                        {membershipIconSymbols[tier.iconName ?? 'star'] ?? membershipIconSymbols.star}
+                      </span>
+                      <strong>{tier.name}</strong>
+                    </div>
+                    <div className="admin-tier-ladder-main">
+                      <div>
+                        <h3>{tier.name}</h3>
+                        <p>{tier.benefitDescription || 'Chưa mô tả quyền lợi.'}</p>
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>Khoảng điểm</dt>
+                          <dd>{formatNumber(tier.minPoint)} - {maxPointText}</dd>
+                        </div>
+                        <div>
+                          <dt>Ưu đãi</dt>
+                          <dd>{tier.discountPercent}%</dd>
+                        </div>
+                        <div>
+                          <dt>Thành viên</dt>
+                          <dd>
+                            <button
+                              className="admin-link-button"
+                              type="button"
+                              disabled={!tier._id}
+                              onClick={() => void handleViewTierMembers(tier)}
+                            >
+                              {formatNumber(tier.memberCount ?? 0)}
+                            </button>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Trạng thái</dt>
+                          <dd>
+                            <StatusBadge tone={isActive ? 'success' : 'neutral'}>
+                              {isActive ? 'Đang áp dụng' : 'Tạm tắt'}
+                            </StatusBadge>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                    <div className="admin-tier-ladder-actions">
+                      <Button
+                        variant="secondary"
+                        disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
+                        onClick={() => openEditDialog(tier)}
+                      >
+                        Sửa
+                      </Button>
+                      <details className="admin-action-menu">
+                        <summary aria-label={`Thao tác với hạng ${tier.name}`}>•••</summary>
+                        <div>
+                          <button
+                            type="button"
+                            disabled={!canManageLoyalty || tierIndex <= 0 || actionLoading}
+                            onClick={() => void moveTier(tier, -1)}
+                          >
+                            Đưa lên
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canManageLoyalty || tierIndex >= sortedTiers.length - 1 || actionLoading}
+                            onClick={() => void moveTier(tier, 1)}
+                          >
+                            Đưa xuống
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
+                            onClick={() => openStatusDialog(tier, !isActive)}
+                          >
+                            {isActive ? 'Tạm tắt' : 'Bật lại'}
+                          </button>
+                          <button
+                            className="is-danger"
+                            type="button"
+                            disabled={!canManageLoyalty || !hasPersistedTier || actionLoading}
+                            onClick={() => openDeleteDialog(tier)}
+                          >
+                            Xóa
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  </article>
+                )
+              }) : (
+                <EmptyState
+                  title="Không có hạng phù hợp"
+                  description="Thử đổi từ khóa hoặc trạng thái lọc để xem lại danh sách hạng."
+                />
+              )}
+            </div>
           ) : null}
 
           {isLoading && sortedTiers.length ? <div className="admin-table-refresh-indicator" role="status">Đang cập nhật hạng...</div> : null}
@@ -1243,9 +1275,26 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
             {notice ? <p className={`admin-notice is-${notice.type}`} role="status">{notice.message}</p> : null}
             {dialog.type === 'create' ? <div className="admin-tier-template-row"><span>Mẫu nhanh</span>{tierTemplates.map((template) => <button key={template.label} type="button" onClick={() => setTierForm((form) => ({ ...form, ...template.values }))}>{template.label}</button>)}</div> : null}
             {tierDraftRestored ? <div className="admin-tier-draft-notice"><span>Đã khôi phục bản nháp gần nhất.</span><button type="button" onClick={() => { window.localStorage.removeItem(tierDraftKey); setTierForm(emptyTierForm); setTierDraftRestored(false) }}>Bỏ bản nháp</button></div> : null}
+            <div className="admin-tier-context-row">
+              <div>
+                <span>Đứng sau</span>
+                <strong>{tierFormNeighbors.previous?.name ?? 'Đầu chương trình'}</strong>
+                <small>{tierFormNeighbors.previous ? `Từ ${formatNumber(tierFormNeighbors.previous.minPoint)} điểm` : 'Hạng đầu nên bắt đầu từ 0 điểm'}</small>
+              </div>
+              <div>
+                <span>Hạng đang chỉnh</span>
+                <strong>{tierForm.name || 'Hạng mới'}</strong>
+                <small>Cấp {tierForm.level || '—'} · từ {tierForm.minPoint ? formatNumber(Number(tierForm.minPoint)) : '—'} điểm</small>
+              </div>
+              <div>
+                <span>Đứng trước</span>
+                <strong>{tierFormNeighbors.next?.name ?? 'Hạng cao nhất'}</strong>
+                <small>{tierFormNeighbors.next ? `Từ ${formatNumber(tierFormNeighbors.next.minPoint)} điểm` : 'Không giới hạn điểm tối đa'}</small>
+              </div>
+            </div>
             <div className="admin-tier-card-preview" style={{ backgroundColor: tierForm.cardColor, color: tierForm.textColor }}>
               <span style={{ backgroundColor: tierForm.badgeColor }}>{membershipIconSymbols[tierForm.iconName] ?? membershipIconSymbols.star}</span>
-              <div><small>FASHIONISTA MEMBER</small><strong>{tierForm.name || 'Tên hạng'}</strong><p>Level {tierForm.level || '—'} · Giảm {tierForm.discountPercent || 0}%</p></div>
+              <div><small>THẺ THÀNH VIÊN</small><strong>{tierForm.name || 'Tên hạng'}</strong><p>Cấp {tierForm.level || '—'} · Giảm {tierForm.discountPercent || 0}%</p></div>
               <em>{tierForm.benefitDescription || 'Quyền lợi của thành viên sẽ hiển thị tại đây.'}</em>
             </div>
             <h3 className="admin-tier-form-section-title">Thông tin và quyền lợi</h3>
@@ -1274,7 +1323,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   max={20}
                 />
                 {(tierSubmitAttempted || tierForm.level.length > 0) && tierErrors.level ? <small className="admin-field-error">{tierErrors.level}</small> : null}
-                <small className="admin-field-hint">Level càng cao tương ứng hạng càng cao.</small>
+                <small className="admin-field-hint">Cấp càng cao tương ứng hạng càng cao. Khi thêm mới, hệ thống đã gợi ý cấp kế tiếp.</small>
               </label>
               <label>
                 <span>Điểm tối thiểu</span>
@@ -1288,7 +1337,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   max={100000000}
                 />
                 {(tierSubmitAttempted || tierForm.minPoint.length > 0) && tierErrors.minPoint ? <small className="admin-field-error">{tierErrors.minPoint}</small> : null}
-                <small className="admin-field-hint">Ví dụ 5.000 điểm tương ứng khoảng 5 triệu đồng chi tiêu với rule mặc định.</small>
+                <small className="admin-field-hint">Nên cao hơn hạng trước và thấp hơn hạng kế tiếp để không chồng khoảng điểm.</small>
               </label>
               <label>
                 <span>Điểm tối đa (tự tính)</span>
@@ -1297,7 +1346,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
                   value={suggestedMaxPoint === null ? 'Không giới hạn (hạng cao nhất)' : formatNumber(suggestedMaxPoint)}
                   disabled
                 />
-                <small className="admin-field-hint">Tự động bằng điểm tối thiểu của hạng kế tiếp trừ 1.</small>
+                <small className="admin-field-hint">Tự động bằng điểm tối thiểu của hạng kế tiếp trừ 1, nên không cần nhập tay.</small>
               </label>
               <label>
                 <span>Giảm giá (%)</span>
@@ -1330,12 +1379,7 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
             </div>
             <h3 className="admin-tier-form-section-title">Giao diện thẻ</h3>
             <div className="admin-tier-palette-row" aria-label="Bảng màu gợi ý">
-              {[
-                { name: 'Đồng', card: '#8f5b34', text: '#ffffff', badge: '#d19a66' },
-                { name: 'Bạc', card: '#59636e', text: '#ffffff', badge: '#c0c7cf' },
-                { name: 'Vàng', card: '#6f5310', text: '#ffffff', badge: '#d4af37' },
-                { name: 'Kim cương', card: '#20546b', text: '#ffffff', badge: '#8bd5ee' },
-              ].map((palette) => <button key={palette.name} type="button" style={{ backgroundColor: palette.card, color: palette.text }} onClick={() => setTierForm((form) => ({ ...form, cardColor: palette.card, textColor: palette.text, badgeColor: palette.badge }))}>{palette.name}</button>)}
+              {tierPalettePresets.map((palette) => <button key={palette.name} type="button" style={{ backgroundColor: palette.card, color: palette.text }} onClick={() => setTierForm((form) => ({ ...form, cardColor: palette.card, textColor: palette.text, badgeColor: palette.badge }))}>{palette.name}</button>)}
             </div>
             <div className="admin-account-form-grid">
               <label>
