@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -32,15 +32,30 @@ const statusLabel: Record<VirtualTryOnJob['status'], string> = {
 };
 
 const contextLabel: Record<string, string> = {
-  none: 'Không đổi nền',
+  none: 'Giữ nền cũ',
   work: 'Đi làm',
   casual: 'Đi chơi',
   party: 'Dự tiệc',
   travel: 'Du lịch',
   sport: 'Thể thao',
   date: 'Hẹn hò',
-  custom: 'Tự mô tả',
+  custom: 'Tự nhập',
 };
+
+const studioPalette = {
+  ink: '#213448',
+  primaryDark: '#213448',
+  primary: '#547792',
+  primarySoft: '#EDF4F7',
+  header: '#547792',
+  headerSoft: '#DDE7EC',
+  panel: '#FFFFFF',
+  canvas: '#F6FAFD',
+  cloth: '#EAF3F8',
+  line: '#DDE7EC',
+  success: '#198754',
+  successSoft: '#EAF7EF',
+} as const;
 
 const VirtualTryOnHomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -50,6 +65,40 @@ const VirtualTryOnHomeScreen = () => {
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isUploading, setIsUploading] = React.useState(false);
+  const heroLift = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heroLift, {
+          toValue: 1,
+          duration: 2200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heroLift, {
+          toValue: 0,
+          duration: 2200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+    return () => animation.stop();
+  }, [heroLift]);
+
+  const heroAnimatedStyle = {
+    transform: [
+      {
+        translateY: heroLift.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -4],
+        }),
+      },
+    ],
+  };
 
   const requireLogin = React.useCallback(() => {
     if (isAuthenticated) return true;
@@ -162,6 +211,8 @@ const VirtualTryOnHomeScreen = () => {
     });
   };
 
+  const pendingJob = latestJob && ['queued', 'processing'].includes(latestJob.status) ? latestJob : null;
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
@@ -169,8 +220,8 @@ const VirtualTryOnHomeScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Phối đồ ảo</Text>
-          <Text style={styles.headerSubtitle}>Thử outfit bằng ảnh của bạn</Text>
+          <Text style={styles.headerKicker}>Fit Studio</Text>
+          <Text style={styles.headerTitle}>Phòng phối đồ ảo</Text>
         </View>
         <TouchableOpacity
           style={styles.headerButton}
@@ -183,31 +234,56 @@ const VirtualTryOnHomeScreen = () => {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <View style={styles.heroImageWrap}>
-            {latestAsset ? (
-              <RemoteImage uri={latestAsset.url} style={styles.heroImage} recyclingKey={latestAsset._id} />
-            ) : (
-              <View style={styles.emptyHeroImage}>
-                <MaterialCommunityIcons name="account-outline" size={54} color={colors.brand} />
-              </View>
-            )}
-          </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Tạo outfit từ ảnh thật</Text>
+            <Text style={styles.heroEyebrow}>Phòng thử đồ cá nhân</Text>
+            <Text style={styles.heroTitle}>Thử đồ trên ảnh của bạn</Text>
             <Text style={styles.heroText}>
-              Chọn ảnh toàn thân rõ sáng, thêm sản phẩm yêu thích rồi để AI dựng kết quả thử đồ.
+              Chọn ảnh rõ người, thêm vài món đồ phù hợp rồi xem bộ phối hoàn chỉnh.
             </Text>
           </View>
+
+          <View style={styles.heroStage}>
+            <Animated.View style={[styles.heroImageWrap, heroAnimatedStyle]}>
+              {latestAsset ? (
+                <RemoteImage uri={latestAsset.url} style={styles.heroImage} recyclingKey={latestAsset._id} />
+              ) : (
+                <View style={styles.emptyHeroImage}>
+                  <MaterialCommunityIcons name="account-outline" size={64} color={studioPalette.primary} />
+                </View>
+              )}
+              <View style={[styles.heroBadge, latestAsset && styles.heroBadgeReady]}>
+                <MaterialCommunityIcons name={latestAsset ? 'check' : 'camera-outline'} size={16} color={colors.white} />
+                <Text style={styles.heroBadgeText}>{latestAsset ? 'Ảnh đã sẵn sàng' : 'Cần ảnh người mặc'}</Text>
+              </View>
+            </Animated.View>
+          </View>
+
+          {latestAsset ? (
+            <TouchableOpacity style={styles.heroPrimaryButton} onPress={continueWithLatestAsset} activeOpacity={0.86}>
+              <Text style={styles.heroPrimaryText}>Tiếp tục phối đồ</Text>
+              <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.actionGrid}>
           <TouchableOpacity style={styles.primaryAction} onPress={pickImage} disabled={isUploading} activeOpacity={0.86}>
-            <MaterialCommunityIcons name="upload-outline" size={23} color={colors.white} />
-            <Text style={styles.primaryActionText}>Tải ảnh</Text>
+            <View style={styles.actionIconPrimary}>
+              <MaterialCommunityIcons name="upload-outline" size={30} color={studioPalette.ink} />
+            </View>
+            <View style={styles.actionCopy}>
+              <Text style={styles.primaryActionText}>Tải ảnh</Text>
+              <Text style={styles.actionMeta}>Ảnh toàn thân có sẵn</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryAction} onPress={takePhoto} disabled={isUploading} activeOpacity={0.86}>
-            <MaterialCommunityIcons name="camera-outline" size={23} color={colors.brandDark} />
-            <Text style={styles.secondaryActionText}>Chụp ảnh</Text>
+            <View style={styles.actionIconSecondary}>
+              <MaterialCommunityIcons name="camera-outline" size={30} color={studioPalette.primary} />
+            </View>
+            <View style={styles.actionCopy}>
+              <Text style={styles.secondaryActionText}>Chụp mới</Text>
+              <Text style={styles.secondaryActionMeta}>Chụp ảnh mới để thử đồ</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -218,34 +294,26 @@ const VirtualTryOnHomeScreen = () => {
           </View>
         ) : null}
 
-        {latestAsset ? (
-          <TouchableOpacity style={styles.continueCard} onPress={continueWithLatestAsset} activeOpacity={0.86}>
-            <MaterialCommunityIcons name="creation-outline" size={24} color={colors.brand} />
-            <View style={styles.continueCopy}>
-              <Text style={styles.continueTitle}>Tiếp tục với ảnh gần nhất</Text>
-              <Text style={styles.continueText}>Chọn sản phẩm và bối cảnh để tạo kết quả mới.</Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textMuted} />
-          </TouchableOpacity>
-        ) : null}
-
-        {latestJob && ['queued', 'processing'].includes(latestJob.status) ? (
-          <TouchableOpacity style={styles.processingCard} onPress={() => openJob(latestJob)} activeOpacity={0.86}>
+        {pendingJob ? (
+          <TouchableOpacity style={styles.processingCard} onPress={() => openJob(pendingJob)} activeOpacity={0.86}>
             <View style={styles.progressCircle}>
-              <Text style={styles.progressText}>{latestJob.progress}%</Text>
+              <Text style={styles.progressText}>{pendingJob.progress}%</Text>
             </View>
             <View style={styles.continueCopy}>
-              <Text style={styles.continueTitle}>Kết quả đang được tạo</Text>
-              <Text style={styles.continueText}>Bạn có thể quay lại xem tiến trình bất cứ lúc nào.</Text>
+              <Text style={styles.continueTitle}>Một bộ phối đang được tạo</Text>
+              <Text style={styles.continueText}>Quá trình thử đồ vẫn đang chạy trong nền.</Text>
             </View>
+            <MaterialCommunityIcons name="chevron-right" size={26} color={studioPalette.ink} />
           </TouchableOpacity>
         ) : null}
 
         <View style={styles.guideCard}>
-          <Text style={styles.sectionTitle}>Ảnh nên như thế nào?</Text>
-          {['Đứng thẳng, chụp toàn thân', 'Nền sáng và ít vật thể che người', 'Ánh sáng tự nhiên, ảnh không quá mờ'].map((item) => (
+          <Text style={styles.sectionTitle}>Ảnh phù hợp để thử đồ</Text>
+          {['Chỉ có một người trong ảnh', 'Thấy rõ dáng người', 'Ảnh đủ sáng và rõ nét'].map((item) => (
             <View key={item} style={styles.guideRow}>
-              <MaterialCommunityIcons name="check" size={20} color={colors.success} />
+              <View style={styles.guideIcon}>
+                <MaterialCommunityIcons name="check" size={16} color={colors.white} />
+              </View>
               <Text style={styles.guideText}>{item}</Text>
             </View>
           ))}
@@ -296,13 +364,13 @@ const VirtualTryOnHomeScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.header,
   },
   header: {
-    minHeight: 78,
-    paddingHorizontal: spacing.md,
+    minHeight: 82,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -311,12 +379,21 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
     paddingHorizontal: spacing.md,
+  },
+  headerKicker: {
+    color: studioPalette.headerSoft,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
   },
   headerTitle: {
     color: colors.white,
@@ -333,27 +410,34 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: studioPalette.canvas,
   },
   scrollContent: {
-    padding: spacing.md,
+    padding: spacing.lg,
     paddingBottom: spacing.xxl,
     gap: spacing.lg,
   },
   hero: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    flexDirection: 'row',
-    gap: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.panel,
+    padding: spacing.lg,
+    gap: spacing.lg,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
     ...shadows.card,
   },
+  heroStage: {
+    width: '100%',
+  },
   heroImageWrap: {
-    width: 116,
-    aspectRatio: 0.72,
-    borderRadius: radii.sm,
+    width: '100%',
+    aspectRatio: 0.92,
+    borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: colors.brandSoft,
+    backgroundColor: studioPalette.cloth,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    position: 'relative',
   },
   heroImage: {
     width: '100%',
@@ -363,23 +447,69 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.brandSoft,
+    backgroundColor: studioPalette.cloth,
+  },
+  heroBadge: {
+    position: 'absolute',
+    left: spacing.md,
+    bottom: spacing.md,
+    minHeight: 32,
+    borderRadius: radii.pill,
+    backgroundColor: studioPalette.primary,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  heroBadgeReady: {
+    backgroundColor: studioPalette.success,
+  },
+  heroBadgeText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
   },
   heroCopy: {
-    flex: 1,
-    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  heroEyebrow: {
+    color: studioPalette.primary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
   },
   heroTitle: {
-    color: colors.text,
-    fontSize: 20,
-    lineHeight: 26,
+    color: studioPalette.primaryDark,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '900',
   },
   heroText: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
     marginTop: spacing.sm,
+  },
+  heroPrimaryButton: {
+    alignSelf: 'flex-start',
+    borderRadius: radii.pill,
+    minHeight: 52,
+    backgroundColor: studioPalette.primary,
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  heroPrimaryText: {
+    color: colors.white,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
   },
   actionGrid: {
     flexDirection: 'row',
@@ -387,38 +517,68 @@ const styles = StyleSheet.create({
   },
   primaryAction: {
     flex: 1,
-    minHeight: 52,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
+    minHeight: 118,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.panel,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    padding: spacing.md,
+    justifyContent: 'space-between',
     ...shadows.card,
   },
+  actionIconPrimary: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: studioPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionIconSecondary: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: studioPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCopy: {
+    gap: 2,
+  },
   primaryActionText: {
-    color: colors.white,
-    fontSize: 15,
-    lineHeight: 20,
+    color: studioPalette.ink,
+    fontSize: 18,
+    lineHeight: 23,
     fontWeight: '900',
+  },
+  actionMeta: {
+    color: studioPalette.ink,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   secondaryAction: {
     flex: 1,
-    minHeight: 52,
+    minHeight: 118,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
+    borderColor: studioPalette.line,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
+    padding: spacing.md,
+    justifyContent: 'space-between',
+    ...shadows.card,
   },
   secondaryActionText: {
-    color: colors.brandDark,
-    fontSize: 15,
-    lineHeight: 20,
+    color: studioPalette.ink,
+    fontSize: 18,
+    lineHeight: 23,
     fontWeight: '900',
+  },
+  secondaryActionMeta: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   inlineLoading: {
     borderRadius: radii.sm,
@@ -444,27 +604,29 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   processingCard: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.brandSoft,
-    padding: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.panel,
+    padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
   },
   progressCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
     borderWidth: 3,
-    borderColor: colors.brand,
+    borderColor: studioPalette.primary,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
   },
   progressText: {
-    color: colors.brandDark,
-    fontSize: 11,
-    lineHeight: 14,
+    color: studioPalette.ink,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: '900',
   },
   continueCopy: {
@@ -472,26 +634,29 @@ const styles = StyleSheet.create({
   },
   continueTitle: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
   },
   continueText: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
     marginTop: 2,
   },
   guideCard: {
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
-    padding: spacing.md,
-    gap: spacing.sm,
+    padding: spacing.lg,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: '900',
   },
   guideRow: {
@@ -499,12 +664,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
+  guideIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: studioPalette.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   guideText: {
     flex: 1,
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '700',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -512,9 +685,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   linkText: {
-    color: colors.brand,
-    fontSize: 13,
-    lineHeight: 18,
+    color: studioPalette.primary,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
   },
   listLoading: {
@@ -528,7 +701,7 @@ const styles = StyleSheet.create({
   jobCard: {
     width: '47.8%',
     minWidth: 0,
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
     overflow: 'hidden',
     ...shadows.card,
@@ -553,28 +726,28 @@ const styles = StyleSheet.create({
   },
   jobBadgeText: {
     color: colors.white,
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '900',
   },
   jobTitle: {
     minHeight: 36,
     color: colors.text,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
   },
   jobMeta: {
     color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
   },
   emptyState: {
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
     padding: spacing.xl,
     alignItems: 'center',
@@ -582,17 +755,16 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
   },
   emptyText: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
   },
 });
 
 export default VirtualTryOnHomeScreen;
-

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -17,11 +17,26 @@ type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProce
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 
 const steps = [
-  'Đã nhận yêu cầu',
-  'Chuẩn bị ảnh và sản phẩm',
-  'AI đang tạo kết quả',
-  'Lưu vào lịch sử',
+  'Nhận ảnh người mặc',
+  'Ghép các món đã chọn',
+  'Tạo ảnh thử đồ',
+  'Lưu kết quả',
 ];
+
+const studioPalette = {
+  ink: '#213448',
+  primaryDark: '#213448',
+  primary: '#547792',
+  primarySoft: '#EDF4F7',
+  primaryPale: '#DDE7EC',
+  header: '#547792',
+  headerSoft: '#DDE7EC',
+  surface: '#FFFFFF',
+  canvas: '#F6FAFD',
+  line: '#DDE7EC',
+  success: '#198754',
+  successSoft: '#EAF7EF',
+} as const;
 
 const VirtualTryOnProcessingScreen = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -116,34 +131,48 @@ const VirtualTryOnProcessingScreen = () => {
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('VirtualTryOnHome')} activeOpacity={0.8}>
           <MaterialCommunityIcons name="close" size={24} color={colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Đang xử lý</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerKicker}>Fit Studio</Text>
+          <Text style={styles.headerTitle}>Đang tạo ảnh thử đồ</Text>
+        </View>
         <View style={styles.headerSpacer} />
       </View>
 
-      <View style={styles.content}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {isLoading && !job ? (
-          <ActivityIndicator color={colors.brand} />
+          <View style={styles.loadingCard}>
+            <ActivityIndicator color={studioPalette.primary} />
+            <Text style={styles.loadingText}>Đang chuẩn bị ảnh thử đồ...</Text>
+          </View>
         ) : (
           <>
             <View style={styles.previewCard}>
-              <View style={styles.imageWrap}>
-                {job?.sourceImageUrl ? (
-                  <RemoteImage uri={job.sourceImageUrl} style={styles.image} recyclingKey={job._id} />
-                ) : (
-                  <MaterialCommunityIcons name="image-outline" size={42} color={colors.brand} />
-                )}
+              <View style={styles.previewTop}>
+                <View style={styles.imageWrap}>
+                  {job?.sourceImageUrl ? (
+                    <RemoteImage uri={job.sourceImageUrl} style={styles.image} recyclingKey={job._id} />
+                  ) : (
+                    <MaterialCommunityIcons name="image-outline" size={44} color={studioPalette.ink} />
+                  )}
+                </View>
+                <View style={styles.previewCopy}>
+                  <Text style={styles.kickerText}>Đang thử đồ</Text>
+                  <Text style={styles.title}>
+                    {job?.status === 'failed' ? 'Chưa tạo được ảnh thử đồ' : 'Hệ thống đang tạo ảnh thử đồ cho bạn'}
+                  </Text>
+                  <Text style={styles.subtitle}>
+                    Kết quả sẽ nằm trong lịch sử phối đồ khi hoàn tất.
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.title}>
-                {job?.status === 'failed' ? 'Chưa tạo được kết quả' : 'AI đang tạo kết quả cho bạn'}
-              </Text>
-              <Text style={styles.subtitle}>
-                Bạn có thể rời màn này. Kết quả sẽ tự lưu trong lịch sử phối đồ.
-              </Text>
 
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${Math.max(8, progress)}%` }]} />
               </View>
-              <Text style={styles.progressText}>{progress}%</Text>
+              <View style={styles.progressFooter}>
+                <Text style={styles.progressLabel}>{job?.status === 'queued' ? 'Đang xếp hàng' : 'Đang xử lý'}</Text>
+                <Text style={styles.progressText}>{progress}%</Text>
+              </View>
             </View>
 
             <View style={styles.stepsCard}>
@@ -154,7 +183,10 @@ const VirtualTryOnProcessingScreen = () => {
                     <View style={[styles.stepDot, done && styles.stepDotDone]}>
                       {done ? <MaterialCommunityIcons name="check" size={14} color={colors.white} /> : null}
                     </View>
-                    <Text style={[styles.stepText, done && styles.stepTextDone]}>{step}</Text>
+                    <View style={styles.stepCopy}>
+                      <Text style={[styles.stepText, done && styles.stepTextDone]}>{step}</Text>
+                      <Text style={styles.stepMeta}>{done ? 'Đã xong' : index === activeStep + 1 ? 'Sắp tới' : 'Đang chờ'}</Text>
+                    </View>
                   </View>
                 );
               })}
@@ -173,12 +205,13 @@ const VirtualTryOnProcessingScreen = () => {
 
             {job && ['queued', 'processing'].includes(job.status) ? (
               <TouchableOpacity style={styles.cancelButton} onPress={cancel} activeOpacity={0.86}>
+                <MaterialCommunityIcons name="close" size={18} color={studioPalette.ink} />
                 <Text style={styles.cancelText}>Hủy yêu cầu</Text>
               </TouchableOpacity>
             ) : null}
           </>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -186,13 +219,13 @@ const VirtualTryOnProcessingScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.header,
   },
   header: {
-    minHeight: 70,
-    paddingHorizontal: spacing.md,
+    minHeight: 82,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -201,40 +234,79 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
+  headerCopy: {
     flex: 1,
+    minWidth: 0,
+    paddingHorizontal: spacing.md,
+  },
+  headerKicker: {
+    color: studioPalette.headerSoft,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  headerTitle: {
     color: colors.white,
     fontSize: 22,
     lineHeight: 28,
     fontWeight: '900',
-    textAlign: 'center',
   },
   headerSpacer: {
     width: 40,
   },
   content: {
     flex: 1,
-    backgroundColor: colors.background,
-    padding: spacing.md,
+    backgroundColor: studioPalette.canvas,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
     justifyContent: 'center',
     gap: spacing.lg,
   },
-  previewCard: {
-    borderRadius: radii.sm,
+  loadingCard: {
+    minHeight: 150,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
-    padding: spacing.xl,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
     ...shadows.card,
   },
+  loadingText: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  previewCard: {
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.surface,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    padding: spacing.lg,
+    ...shadows.card,
+  },
+  previewTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
   imageWrap: {
-    width: 150,
+    width: 118,
     aspectRatio: 0.72,
-    borderRadius: radii.sm,
+    borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: colors.brandSoft,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: 'rgba(246,199,107,0.42)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -242,46 +314,69 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  previewCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  kickerText: {
+    color: studioPalette.primary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
   title: {
-    color: colors.text,
-    fontSize: 20,
+    color: studioPalette.ink,
+    fontSize: 21,
     lineHeight: 27,
     fontWeight: '900',
-    textAlign: 'center',
-    marginTop: spacing.lg,
+    marginTop: 4,
   },
   subtitle: {
     color: colors.textMuted,
     fontSize: 13,
     lineHeight: 19,
-    textAlign: 'center',
+    fontWeight: '700',
     marginTop: spacing.sm,
   },
   progressTrack: {
     width: '100%',
     height: 10,
     borderRadius: 5,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: studioPalette.primarySoft,
     overflow: 'hidden',
     marginTop: spacing.xl,
   },
   progressFill: {
     height: '100%',
     borderRadius: 5,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.primaryPale,
   },
-  progressText: {
-    color: colors.brand,
+  progressFooter: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  progressLabel: {
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '900',
-    marginTop: spacing.sm,
+  },
+  progressText: {
+    color: studioPalette.primary,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900',
   },
   stepsCard: {
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
     padding: spacing.lg,
     gap: spacing.md,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
   },
   stepRow: {
     flexDirection: 'row',
@@ -289,21 +384,25 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   stepDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: colors.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepDotDone: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
+    backgroundColor: studioPalette.success,
+    borderColor: studioPalette.success,
+  },
+  stepCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   stepText: {
     color: colors.textMuted,
-    fontSize: 14,
+    fontSize: 15,
     lineHeight: 20,
     fontWeight: '700',
   },
@@ -311,8 +410,15 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '900',
   },
+  stepMeta: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    marginTop: 2,
+  },
   errorCard: {
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.dangerSoft,
     padding: spacing.lg,
     gap: spacing.sm,
@@ -330,10 +436,10 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     alignSelf: 'flex-start',
-    minHeight: 40,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
+    minHeight: 46,
+    borderRadius: radii.pill,
+    backgroundColor: studioPalette.primary,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -346,21 +452,22 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   cancelButton: {
-    minHeight: 46,
-    borderRadius: radii.sm,
+    minHeight: 52,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   cancelText: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 19,
+    color: studioPalette.ink,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '900',
   },
 });
 
 export default VirtualTryOnProcessingScreen;
-

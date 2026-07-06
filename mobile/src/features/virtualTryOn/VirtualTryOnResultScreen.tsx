@@ -20,15 +20,30 @@ const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
 const contextLabel: Record<string, string> = {
-  none: 'Không đổi nền',
+  none: 'Giữ nền cũ',
   work: 'Đi làm',
   casual: 'Đi chơi',
   party: 'Dự tiệc',
   travel: 'Du lịch',
   sport: 'Thể thao',
   date: 'Hẹn hò',
-  custom: 'Tự mô tả',
+  custom: 'Tự nhập',
 };
+
+const studioPalette = {
+  ink: '#213448',
+  primaryDark: '#213448',
+  primary: '#547792',
+  primarySoft: '#EDF4F7',
+  primaryPale: '#DDE7EC',
+  header: '#547792',
+  headerSoft: '#DDE7EC',
+  surface: '#FFFFFF',
+  canvas: '#F6FAFD',
+  line: '#DDE7EC',
+  success: '#198754',
+  successSoft: '#EAF7EF',
+} as const;
 
 const VirtualTryOnResultScreen = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -71,7 +86,7 @@ const VirtualTryOnResultScreen = () => {
     if (!job) return;
     const itemWithoutSize = job.selectedItems.find((item) => !item.size);
     if (itemWithoutSize) {
-      Alert.alert('Chọn size', `Sản phẩm ${itemWithoutSize.nameSnapshot} chưa có size để thêm vào giỏ.`);
+      Alert.alert('Chọn kích cỡ', `Sản phẩm ${itemWithoutSize.nameSnapshot} chưa có kích cỡ để thêm vào giỏ.`);
       return;
     }
 
@@ -88,12 +103,12 @@ const VirtualTryOnResultScreen = () => {
           });
         }
       });
-      Alert.alert('Đã thêm vào giỏ', 'Toàn bộ set đồ đã được thêm vào giỏ hàng.', [
+      Alert.alert('Đã thêm vào giỏ', 'Toàn bộ sản phẩm trong bộ phối đã được thêm vào giỏ hàng.', [
         { text: 'Ở lại' },
         { text: 'Xem giỏ', onPress: () => navigation.navigate('Cart') },
       ]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không thể thêm set vào giỏ.';
+      const message = error instanceof Error ? error.message : 'Không thể thêm bộ phối vào giỏ.';
       Alert.alert('Giỏ hàng', message);
     } finally {
       setIsAddingCart(false);
@@ -108,7 +123,10 @@ const VirtualTryOnResultScreen = () => {
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.8}>
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Kết quả phối đồ</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerKicker}>Fit Studio</Text>
+          <Text style={styles.headerTitle}>Kết quả thử đồ</Text>
+        </View>
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('VirtualTryOnHome')} activeOpacity={0.8}>
           <MaterialCommunityIcons name="home-outline" size={23} color={colors.white} />
         </TouchableOpacity>
@@ -121,18 +139,6 @@ const VirtualTryOnResultScreen = () => {
       ) : job ? (
         <>
           <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.badgeRow}>
-              <View style={styles.contextBadge}>
-                <MaterialCommunityIcons name="map-marker-radius-outline" size={17} color={colors.brandDark} />
-                <Text style={styles.contextText}>{contextLabel[job.contextPreset] ?? 'Phối đồ'}</Text>
-              </View>
-              {job.provider === 'mock' ? (
-                <View style={styles.mockBadge}>
-                  <Text style={styles.mockText}>Mock AI</Text>
-                </View>
-              ) : null}
-            </View>
-
             <View style={styles.resultImageWrap}>
               {imageUrl ? (
                 <RemoteImage uri={imageUrl} style={styles.resultImage} recyclingKey={`${job._id}-result`} />
@@ -141,19 +147,46 @@ const VirtualTryOnResultScreen = () => {
                   <MaterialCommunityIcons name="image-outline" size={48} color={colors.brand} />
                 </View>
               )}
+              <View style={styles.resultOverlay}>
+                <View style={styles.contextBadge}>
+                  <MaterialCommunityIcons name="map-marker-radius-outline" size={17} color={studioPalette.ink} />
+                  <Text style={styles.contextText}>{contextLabel[job.contextPreset] ?? 'Phối đồ'}</Text>
+                </View>
+                {job.provider === 'mock' ? (
+                  <View style={styles.mockBadge}>
+                    <Text style={styles.mockText}>Bản thử nghiệm</Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
+
+            {job.generatedImageUrl && job.sourceImageUrl ? (
+              <View style={styles.compareStrip}>
+                <View style={styles.compareTile}>
+                  <RemoteImage uri={job.sourceImageUrl} style={styles.compareImage} recyclingKey={`${job._id}-source`} />
+                  <Text style={styles.compareLabel}>Trước</Text>
+                </View>
+                <View style={styles.compareArrow}>
+                  <MaterialCommunityIcons name="arrow-right" size={20} color={studioPalette.ink} />
+                </View>
+                <View style={styles.compareTile}>
+                  <RemoteImage uri={job.generatedImageUrl} style={styles.compareImage} recyclingKey={`${job._id}-generated`} />
+                  <Text style={styles.compareLabel}>Sau</Text>
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionButton} onPress={shareResult} activeOpacity={0.86}>
-                <MaterialCommunityIcons name="share-variant-outline" size={21} color={colors.brandDark} />
+                <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
                 <Text style={styles.actionText}>Chia sẻ</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionButton}
-                onPress={() => Alert.alert('Tải ảnh', 'Ảnh kết quả đang được lưu trên Cloudinary. Tính năng lưu vào máy sẽ bổ sung sau.')}
+                onPress={() => Alert.alert('Tải ảnh', 'Tính năng lưu ảnh vào máy sẽ được bổ sung sau.')}
                 activeOpacity={0.86}
               >
-                <MaterialCommunityIcons name="download-outline" size={21} color={colors.brandDark} />
+                <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
                 <Text style={styles.actionText}>Tải về</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -164,12 +197,15 @@ const VirtualTryOnResultScreen = () => {
                 })}
                 activeOpacity={0.86}
               >
-                <MaterialCommunityIcons name="reload" size={21} color={colors.brandDark} />
-                <Text style={styles.actionText}>Tạo lại</Text>
+                <MaterialCommunityIcons name="reload" size={24} color={studioPalette.ink} />
+                <Text style={styles.actionText}>Phối lại</Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.sectionTitle}>Chi tiết set đồ</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Bộ đồ trên ảnh</Text>
+              <Text style={styles.sectionMeta}>{job.selectedItems.length} món</Text>
+            </View>
             <View style={styles.itemList}>
               {job.selectedItems.map((item, index) => (
                 <View key={`${item.productId}-${item.colorVariantId}`} style={styles.itemCard}>
@@ -187,7 +223,10 @@ const VirtualTryOnResultScreen = () => {
             </View>
 
             <View style={styles.totalCard}>
-              <Text style={styles.totalLabel}>Tổng giá trị</Text>
+              <View>
+                <Text style={styles.totalLabel}>Tổng giá trị bộ phối</Text>
+                <Text style={styles.totalSubtext}>Sẵn sàng thêm tất cả vào giỏ</Text>
+              </View>
               <Text style={styles.totalValue}>{formatPrice(job.totalFinalPrice)}</Text>
             </View>
           </ScrollView>
@@ -204,7 +243,7 @@ const VirtualTryOnResultScreen = () => {
               ) : (
                 <>
                   <MaterialCommunityIcons name="cart-plus" size={23} color={colors.white} />
-                  <Text style={styles.cartText}>Thêm cả set - {formatPrice(job.totalFinalPrice)}</Text>
+                  <Text style={styles.cartText}>Thêm cả bộ - {formatPrice(job.totalFinalPrice)}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -222,13 +261,13 @@ const VirtualTryOnResultScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.header,
   },
   header: {
-    minHeight: 70,
-    paddingHorizontal: spacing.md,
+    minHeight: 82,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.brand,
+    backgroundColor: studioPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -237,31 +276,43 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
+  headerCopy: {
     flex: 1,
+    minWidth: 0,
+    paddingHorizontal: spacing.md,
+  },
+  headerKicker: {
+    color: studioPalette.headerSoft,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  headerTitle: {
     color: colors.white,
     fontSize: 22,
     lineHeight: 28,
     fontWeight: '900',
-    textAlign: 'center',
   },
   loadingWrap: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: studioPalette.canvas,
     alignItems: 'center',
     justifyContent: 'center',
   },
   content: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: studioPalette.canvas,
   },
   scrollContent: {
-    padding: spacing.md,
-    paddingBottom: 110,
-    gap: spacing.md,
+    padding: spacing.lg,
+    paddingBottom: 118,
+    gap: spacing.lg,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -272,28 +323,28 @@ const styles = StyleSheet.create({
   contextBadge: {
     minHeight: 36,
     borderRadius: radii.pill,
-    backgroundColor: colors.surface,
+    backgroundColor: studioPalette.primaryPale,
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
   },
   contextText: {
-    color: colors.brandDark,
+    color: studioPalette.ink,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '900',
   },
   mockBadge: {
-    minHeight: 30,
+    minHeight: 36,
     borderRadius: radii.pill,
-    backgroundColor: colors.goldSoft,
+    backgroundColor: 'rgba(255,255,255,0.88)',
     paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   mockText: {
-    color: colors.goldText,
+    color: studioPalette.ink,
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '900',
@@ -301,9 +352,9 @@ const styles = StyleSheet.create({
   resultImageWrap: {
     width: '100%',
     aspectRatio: 0.78,
-    borderRadius: radii.sm,
+    borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: colors.brandSoft,
+    backgroundColor: studioPalette.primarySoft,
     ...shadows.card,
   },
   resultImage: {
@@ -315,37 +366,97 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionRow: {
+  resultOverlay: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    top: spacing.md,
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  actionButton: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+  compareStrip: {
+    minHeight: 104,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primarySoft,
+    padding: spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
+    gap: spacing.md,
+    ...shadows.card,
+  },
+  compareTile: {
+    width: 86,
+    alignItems: 'center',
     gap: spacing.xs,
   },
-  actionText: {
-    color: colors.brandDark,
+  compareImage: {
+    width: 70,
+    height: 70,
+    borderRadius: radii.sm,
+    backgroundColor: studioPalette.primarySoft,
+  },
+  compareArrow: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: studioPalette.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compareLabel: {
+    color: studioPalette.ink,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '900',
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  actionButton: {
+    flex: 1,
+    minHeight: 74,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    ...shadows.card,
+  },
+  actionText: {
+    color: studioPalette.ink,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
   sectionTitle: {
     color: colors.text,
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
+  },
+  sectionMeta: {
+    color: studioPalette.primary,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   itemList: {
     gap: spacing.sm,
   },
   itemCard: {
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
     padding: spacing.md,
     flexDirection: 'row',
@@ -354,41 +465,42 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   itemImage: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.xs,
+    width: 72,
+    height: 72,
+    borderRadius: radii.sm,
   },
   itemCopy: {
     flex: 1,
   },
   itemIndex: {
-    color: colors.textMuted,
+    color: studioPalette.primary,
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   itemName: {
     color: colors.text,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '900',
   },
   itemMeta: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  itemPrice: {
-    color: colors.brand,
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: '700',
+  },
+  itemPrice: {
+    color: studioPalette.primary,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
   },
   totalCard: {
     borderWidth: 1.5,
-    borderColor: colors.brand,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brandSoft,
+    borderColor: studioPalette.primaryPale,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primarySoft,
     padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
@@ -400,10 +512,17 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '900',
   },
+  totalSubtext: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
   totalValue: {
-    color: colors.brand,
-    fontSize: 19,
-    lineHeight: 25,
+    color: studioPalette.primary,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '900',
   },
   footer: {
@@ -414,12 +533,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.surface,
-    padding: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
   },
   cartButton: {
-    minHeight: 52,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brand,
+    minHeight: 58,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -431,8 +552,8 @@ const styles = StyleSheet.create({
   },
   cartText: {
     color: colors.white,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '900',
   },
   emptyText: {
@@ -444,4 +565,3 @@ const styles = StyleSheet.create({
 });
 
 export default VirtualTryOnResultScreen;
-

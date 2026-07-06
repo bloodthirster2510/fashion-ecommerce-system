@@ -77,8 +77,8 @@ const request = async <T>(
     const message = error instanceof Error ? error.message : '';
     throw new VirtualTryOnApiError(
       /AbortError|aborted/i.test(message)
-        ? 'Tạo kết quả mất quá lâu. Bạn có thể kiểm tra lại kết nối rồi thử lại.'
-        : 'Không kết nối được tới phòng phối đồ. Bạn kiểm tra lại mạng hoặc backend.',
+        ? 'Tạo ảnh thử đồ mất quá lâu. Bạn có thể kiểm tra lại kết nối rồi thử lại.'
+        : 'Không kết nối được tới phòng phối đồ. Bạn kiểm tra lại mạng rồi thử lại.',
     );
   });
   const payload = parseApiResponse<T>(await response.text());

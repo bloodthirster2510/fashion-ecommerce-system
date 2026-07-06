@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -21,6 +21,7 @@ import type { TryOnContextPreset, TryOnItemRole, TryOnOutfitMode, TryOnSelectedI
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
+type FashionIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type TryOnProductSort = 'recommended' | 'price_asc' | 'price_desc';
 type TryOnGenderFilter = 'all' | 'male' | 'female' | 'unisex';
 
@@ -42,17 +43,20 @@ const defaultTryOnProductFilters: TryOnProductFilters = {
 
 const tryOnPalette = {
   ink: '#213448',
-  inkSoft: '#2F4A60',
-  champagne: '#F6C76B',
-  champagneSoft: '#FFF4DE',
-  porcelain: '#FFFFFF',
-  mist: '#F4F6F4',
-  teal: '#547792',
-  tealSoft: '#EDF4F7',
-  rose: '#D8755B',
-  roseSoft: '#FCE8E1',
-  plum: '#4E5F75',
-  line: '#DDE3E7',
+  primaryDark: '#213448',
+  primary: '#547792',
+  primaryLight: '#6B8CA8',
+  primarySoft: '#EDF4F7',
+  primaryPale: '#DDE7EC',
+  header: '#547792',
+  headerSoft: '#DDE7EC',
+  surface: '#FFFFFF',
+  canvas: '#F6FAFD',
+  teal: '#198754',
+  tealSoft: '#EAF7EF',
+  line: '#DDE7EC',
+  success: '#198754',
+  successSoft: '#EAF7EF',
 } as const;
 
 const formatPrice = (value: number) =>
@@ -64,22 +68,22 @@ const outfitModes: Array<{
   key: TryOnOutfitMode;
   label: string;
   description: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon: FashionIconName;
 }> = [
-  { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm', icon: 'tshirt-crew-outline' },
-  { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'human' },
-  { key: 'full_set', label: 'Full set', description: 'Ghép nhiều món thành outfit', icon: 'wardrobe-outline' },
+  { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm', icon: 'tshirt-crew' },
+  { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'hanger' },
+  { key: 'full_set', label: 'Nhiều món', description: 'Ghép nhiều món thành bộ phối', icon: 'wardrobe' },
 ];
 
 const contextOptions: Array<{ key: TryOnContextPreset; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
-  { key: 'none', label: 'Không đổi nền', icon: 'image-outline' },
+  { key: 'none', label: 'Giữ nền cũ', icon: 'image-outline' },
   { key: 'work', label: 'Đi làm', icon: 'briefcase-outline' },
   { key: 'casual', label: 'Đi chơi', icon: 'party-popper' },
   { key: 'party', label: 'Dự tiệc', icon: 'glass-cocktail' },
   { key: 'travel', label: 'Du lịch', icon: 'airplane' },
   { key: 'sport', label: 'Thể thao', icon: 'run' },
   { key: 'date', label: 'Hẹn hò', icon: 'heart-outline' },
-  { key: 'custom', label: 'Tự mô tả', icon: 'pencil-outline' },
+  { key: 'custom', label: 'Tự nhập', icon: 'pencil-outline' },
 ];
 
 const tryOnSortOptions: Array<{ key: TryOnProductSort; label: string }> = [
@@ -119,7 +123,7 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
   },
   BODY_NOT_VISIBLE: {
     title: 'Chưa thấy đủ cơ thể',
-    message: 'Outfit này cần ảnh thấy rõ người hơn. Bạn hãy chọn ảnh nửa người hoặc toàn thân phù hợp.',
+    message: 'Kiểu phối này cần ảnh thấy rõ người hơn. Bạn hãy chọn ảnh nửa người hoặc toàn thân phù hợp.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
@@ -250,7 +254,7 @@ type OutfitSlot = {
   label: string;
   helper: string;
   roles: TryOnItemRole[];
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon: FashionIconName;
   required?: boolean;
 };
 
@@ -272,15 +276,15 @@ const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
 
   if (mode === 'top_bottom') {
     return [
-      { key: 'top', label: 'Áo', helper: 'Chọn áo', roles: ['top', 'outerwear'], icon: 'tshirt-crew-outline', required: true },
+      { key: 'top', label: 'Áo', helper: 'Chọn áo', roles: ['top', 'outerwear'], icon: 'tshirt-v', required: true },
       { key: 'bottom', label: 'Quần', helper: 'Chọn quần', roles: ['bottom'], icon: 'human-male-height', required: true },
     ];
   }
 
   return [
-    { key: 'top', label: 'Áo', helper: 'Áo, áo khoác', roles: ['top', 'outerwear'], icon: 'tshirt-crew-outline' },
-    { key: 'outfit', label: 'Quần/Váy', helper: 'Quần, jean, váy, đầm', roles: ['bottom', 'dress'], icon: 'human-female' },
-    { key: 'shoes', label: 'Giày', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-sneaker' },
+    { key: 'top', label: 'Áo', helper: 'Áo, áo khoác', roles: ['top', 'outerwear'], icon: 'tshirt-v' },
+    { key: 'outfit', label: 'Quần/Váy', helper: 'Quần, jean, váy, đầm', roles: ['bottom', 'dress'], icon: 'hanger' },
+    { key: 'shoes', label: 'Giày', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-formal' },
   ];
 };
 
@@ -377,6 +381,7 @@ const VirtualTryOnBuilderScreen = () => {
   const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
   const [selectedSize, setSelectedSize] = React.useState<string>();
+  const iconPulse = React.useRef(new Animated.Value(0)).current;
 
   const sourceAssetId = route.params?.assetId;
   const sourceImageUrl = route.params?.imageUrl;
@@ -392,6 +397,39 @@ const VirtualTryOnBuilderScreen = () => {
     selectedSizeOption &&
     isSizeAvailableForColor(selectedVariant, selectedColorId, selectedSizeOption),
   );
+
+  React.useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(iconPulse, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconPulse, {
+          toValue: 0,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+    return () => animation.stop();
+  }, [iconPulse]);
+
+  const activeIconAnimatedStyle = {
+    transform: [
+      {
+        scale: iconPulse.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1, 1.045],
+        }),
+      },
+    ],
+  };
 
   React.useEffect(() => {
     let isCurrent = true;
@@ -577,7 +615,7 @@ const VirtualTryOnBuilderScreen = () => {
       const color = variant?.colors[0];
 
       if (!variant || !color) {
-        Alert.alert('Sản phẩm', 'Sản phẩm này chưa có biến thể phù hợp để phối đồ.');
+        Alert.alert('Sản phẩm', 'Sản phẩm này chưa có màu hoặc kích cỡ phù hợp để phối đồ.');
         return;
       }
 
@@ -662,10 +700,10 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     if (outfitMode === 'full_set' && selectedItems.length < 2) {
-      return 'Chọn ít nhất 2 món';
+      return 'Cần 2 món';
     }
 
-    return `${selectedSlotCount}/${outfitSlots.length} vị trí`;
+    return `${selectedSlotCount}/${outfitSlots.length} món`;
   })();
 
   const submitCreateJob = async (confirmedSourceAssetId: string) => {
@@ -715,7 +753,7 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     if (outfitMode === 'full_set' && selectedItems.length < 2) {
-      Alert.alert('Chọn full set', 'Bạn hãy chọn ít nhất 2 món để hệ thống dựng outfit rõ hơn.');
+      Alert.alert('Chọn thêm sản phẩm', 'Bạn hãy chọn ít nhất 2 món để hệ thống tạo bộ phối rõ hơn.');
       return;
     }
 
@@ -731,33 +769,49 @@ const VirtualTryOnBuilderScreen = () => {
     void submitCreateJob(sourceAssetId);
   };
 
+  const outfitTotal = selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.8}>
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Chọn outfit</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerKicker}>Fit Studio</Text>
+          <Text style={styles.headerTitle}>Phòng phối đồ ảo</Text>
+        </View>
         <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.sourceCard}>
+        <View style={styles.studioHero}>
           <View style={styles.sourceImageWrap}>
             {sourceImageUrl ? (
               <RemoteImage uri={sourceImageUrl} style={styles.sourceImage} recyclingKey={sourceAssetId} />
             ) : (
-              <MaterialCommunityIcons name="image-outline" size={36} color={colors.brand} />
+              <MaterialCommunityIcons name="image-outline" size={44} color={tryOnPalette.ink} />
             )}
           </View>
-          <View style={styles.sourceCopy}>
-            <Text style={styles.sourceTitle}>Ảnh của bạn</Text>
-            <Text style={styles.sourceText}>Ảnh sẽ được kiểm tra khi tạo kết quả. Hãy dùng ảnh một người, đủ sáng và rõ nét.</Text>
+          <View style={styles.studioCopy}>
+            <Text style={styles.studioEyebrow}>Ảnh người mặc</Text>
+            <Text style={styles.studioTitle}>Thử đồ trên ảnh thật của bạn</Text>
+            <Text style={styles.studioText}>
+              Chọn ảnh người mặc, thêm sản phẩm và chọn bối cảnh để tạo ảnh phối đồ.
+            </Text>
+            <View style={styles.studioStepRow}>
+              <View style={styles.studioStepActive}><Text style={[styles.studioStepText, styles.studioStepTextActive]}>1 Ảnh</Text></View>
+              <View style={styles.studioStep}><Text style={styles.studioStepText}>2 Bộ đồ</Text></View>
+              <View style={styles.studioStep}><Text style={styles.studioStepText}>3 Kết quả</Text></View>
+            </View>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Chế độ phối</Text>
-        <View style={styles.modeRow}>
+        <View style={styles.sectionHeaderBlock}>
+          <Text style={styles.sectionTitle}>Chế độ phối</Text>
+          <Text style={styles.sectionHint}>Chọn cách bạn muốn thử đồ trên ảnh.</Text>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modeRail}>
           {outfitModes.map((mode) => {
             const active = outfitMode === mode.key;
             return (
@@ -765,24 +819,35 @@ const VirtualTryOnBuilderScreen = () => {
                 key={mode.key}
                 style={[styles.modeButton, active && styles.modeButtonActive]}
                 onPress={() => setOutfitMode(mode.key)}
-                activeOpacity={0.82}
+                activeOpacity={0.84}
               >
-                <MaterialCommunityIcons name={mode.icon} size={20} color={active ? colors.white : colors.brandDark} />
+                <View style={[styles.modeIconWrap, active && styles.modeIconWrapActive]}>
+                  <MaterialCommunityIcons
+                    name={mode.icon}
+                    size={32}
+                    color={tryOnPalette.primary}
+                  />
+                </View>
                 <Text style={[styles.modeText, active && styles.modeTextActive]}>{mode.label}</Text>
-                <Text style={[styles.modeDescription, active && styles.modeTextActive]} numberOfLines={2}>
+                <Text style={[styles.modeDescription, active && styles.modeDescriptionActive]} numberOfLines={2}>
                   {mode.description}
                 </Text>
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
         <View style={styles.outfitHeaderRow}>
-          <Text style={styles.sectionTitle}>Outfit của bạn</Text>
-          <Text style={styles.outfitProgress}>{footerLabel}</Text>
+          <View>
+            <Text style={styles.sectionTitle}>Bộ đồ đang phối</Text>
+            <Text style={styles.sectionHint}>Thêm sản phẩm vào từng phần của bộ đồ.</Text>
+          </View>
+          <View style={styles.outfitProgressPill}>
+            <Text style={styles.outfitProgress}>{footerLabel}</Text>
+          </View>
         </View>
         <View style={styles.slotGrid}>
-          {outfitSlots.map((slot) => {
+          {outfitSlots.map((slot, index) => {
             const active = activeSlot.key === slot.key;
             const selectedItem = getSelectedItemForSlot(slot);
 
@@ -791,9 +856,6 @@ const VirtualTryOnBuilderScreen = () => {
                 key={slot.key}
                 style={[
                   styles.slotCard,
-                  outfitSlots.length === 1 && styles.slotCardSingle,
-                  outfitSlots.length === 2 && styles.slotCardTwo,
-                  outfitSlots.length === 3 && styles.slotCardThree,
                   active && styles.slotCardActive,
                   selectedItem && styles.slotCardFilled,
                 ]}
@@ -801,9 +863,16 @@ const VirtualTryOnBuilderScreen = () => {
                   setActiveSlotKey(slot.key);
                   setIsProductListVisible(true);
                 }}
-                activeOpacity={0.84}
+                activeOpacity={0.86}
               >
-                <View style={styles.slotIconWrap}>
+                <View style={styles.slotNumber}>
+                  <Text style={styles.slotNumberText}>{index + 1}</Text>
+                </View>
+                <Animated.View style={[
+                  styles.slotIconWrap,
+                  active && !selectedItem && styles.slotIconWrapActive,
+                  active && !selectedItem && activeIconAnimatedStyle,
+                ]}>
                   {selectedItem ? (
                     <RemoteImage
                       uri={selectedItem.imageSnapshot}
@@ -811,45 +880,43 @@ const VirtualTryOnBuilderScreen = () => {
                       recyclingKey={`${slot.key}:${selectedItem.colorVariantId}`}
                     />
                   ) : (
-                    <MaterialCommunityIcons name={slot.icon} size={24} color={active ? tryOnPalette.ink : colors.brand} />
+                    <MaterialCommunityIcons
+                      name={slot.icon}
+                      size={38}
+                      color={tryOnPalette.primary}
+                    />
                   )}
-                </View>
-                <View style={[styles.slotCopy, outfitSlots.length === 1 && styles.slotCardSingleCopy]}>
-                  <Text style={[
-                    styles.slotLabel,
-                    outfitSlots.length === 1 && styles.slotSingleText,
-                    active && !selectedItem && styles.slotTextActive,
-                  ]}>
+                </Animated.View>
+                <View style={styles.slotCopy}>
+                  <Text style={[styles.slotLabel, active && !selectedItem && styles.slotTextActive]}>
                     {slot.label}
                   </Text>
                   <Text
-                    style={[
-                      styles.slotHelper,
-                      outfitSlots.length === 1 && styles.slotSingleText,
-                      active && !selectedItem && styles.slotTextActive,
-                    ]}
+                    style={[styles.slotHelper, active && !selectedItem && styles.slotTextActive]}
                     numberOfLines={selectedItem ? 2 : 1}
                   >
                     {selectedItem ? selectedItem.nameSnapshot : slot.helper}
                   </Text>
-                  {selectedItem ? (
-                    <Text style={[styles.slotMeta, outfitSlots.length === 1 && styles.slotSingleText]} numberOfLines={1}>
-                      {[selectedItem.colorSnapshot, selectedItem.size].filter(Boolean).join(' / ') || roleLabel[selectedItem.role]}
-                    </Text>
-                  ) : null}
+                  <Text style={styles.slotMeta} numberOfLines={1}>
+                    {selectedItem
+                      ? ([selectedItem.colorSnapshot, selectedItem.size].filter(Boolean).join(' / ') || roleLabel[selectedItem.role])
+                      : `${filteredProducts.length} món phù hợp`}
+                  </Text>
                 </View>
                 {selectedItem ? (
                   <TouchableOpacity
-                    style={[styles.slotRemoveButton, outfitSlots.length === 1 && styles.slotRemoveButtonSingle]}
+                    style={styles.slotRemoveButton}
                     onPress={(event) => {
                       event.stopPropagation();
                       removeSelectedItem(selectedItem.productId);
                     }}
                     activeOpacity={0.75}
                   >
-                    <MaterialCommunityIcons name="close" size={18} color={colors.textMuted} />
+                    <MaterialCommunityIcons name="close" size={18} color={colors.white} />
                   </TouchableOpacity>
-                ) : null}
+                ) : (
+                  <MaterialCommunityIcons name="chevron-right" size={28} color={colors.textMuted} />
+                )}
               </TouchableOpacity>
             );
           })}
@@ -858,19 +925,22 @@ const VirtualTryOnBuilderScreen = () => {
         <TouchableOpacity
           style={styles.openProductListButton}
           onPress={() => setIsProductListVisible(true)}
-          activeOpacity={0.84}
+          activeOpacity={0.86}
         >
           <View style={styles.openProductListIcon}>
-            <MaterialCommunityIcons name="wardrobe-outline" size={24} color={tryOnPalette.ink} />
+            <MaterialCommunityIcons name="wardrobe-outline" size={30} color={tryOnPalette.primary} />
           </View>
           <View style={styles.openProductListCopy}>
-            <Text style={styles.openProductListText}>Chọn sản phẩm cho {activeSlot.label.toLowerCase()}</Text>
-            <Text style={styles.openProductListMeta}>{filteredProducts.length} món phù hợp</Text>
+            <Text style={styles.openProductListText}>Chọn {activeSlot.label.toLowerCase()}</Text>
+            <Text style={styles.openProductListMeta}>{filteredProducts.length} sản phẩm phù hợp</Text>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textMuted} />
+          <MaterialCommunityIcons name="arrow-right" size={24} color={tryOnPalette.primary} />
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>Bối cảnh</Text>
+        <View style={styles.sectionHeaderBlock}>
+          <Text style={styles.sectionTitle}>Bối cảnh kết quả</Text>
+          <Text style={styles.sectionHint}>Không gian, ánh sáng và dịp mặc cho ảnh cuối.</Text>
+        </View>
         <View style={styles.contextGrid}>
           {contextOptions.map((option) => {
             const active = contextPreset === option.key;
@@ -881,7 +951,7 @@ const VirtualTryOnBuilderScreen = () => {
                 onPress={() => setContextPreset(option.key)}
                 activeOpacity={0.82}
               >
-                <MaterialCommunityIcons name={option.icon} size={18} color={active ? colors.white : colors.brandDark} />
+                <MaterialCommunityIcons name={option.icon} size={20} color={tryOnPalette.ink} />
                 <Text style={[styles.contextText, active && styles.contextTextActive]}>{option.label}</Text>
               </TouchableOpacity>
             );
@@ -899,22 +969,21 @@ const VirtualTryOnBuilderScreen = () => {
           />
         ) : null}
 
-        <Text style={styles.sectionTitle}>Tùy chọn kết quả</Text>
         <View style={styles.outputOptionCard}>
           <View style={styles.outputOptionIcon}>
-            <MaterialCommunityIcons name="movie-open-play-outline" size={24} color={colors.brand} />
+            <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
           </View>
           <View style={styles.outputOptionCopy}>
-            <Text style={styles.outputOptionTitle}>Tạo thêm video</Text>
+            <Text style={styles.outputOptionTitle}>Thêm chuyển động</Text>
             <Text style={styles.outputOptionText}>
-              Kết quả sẽ lâu hơn, dùng khi bạn muốn xem outfit chuyển động.
+              Tạo thêm video ngắn cho bộ đồ, thời gian xử lý sẽ lâu hơn ảnh tĩnh.
             </Text>
           </View>
           <Switch
             value={includeVideo}
             onValueChange={setIncludeVideo}
-            trackColor={{ false: colors.border, true: colors.brandPale }}
-            thumbColor={includeVideo ? colors.brand : colors.white}
+            trackColor={{ false: colors.border, true: tryOnPalette.primarySoft }}
+            thumbColor={includeVideo ? tryOnPalette.primary : colors.white}
           />
         </View>
       </ScrollView>
@@ -923,7 +992,7 @@ const VirtualTryOnBuilderScreen = () => {
         <View>
           <Text style={styles.footerLabel}>{footerLabel}</Text>
           <Text style={styles.footerTotal}>
-            {formatPrice(selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0))}
+            {formatPrice(outfitTotal)}
           </Text>
         </View>
         <TouchableOpacity
@@ -937,7 +1006,7 @@ const VirtualTryOnBuilderScreen = () => {
           ) : (
             <>
               <MaterialCommunityIcons name="auto-fix" size={22} color={submitDisabled ? colors.textMuted : colors.white} />
-              <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo kết quả</Text>
+              <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo ảnh</Text>
             </>
           )}
         </TouchableOpacity>
@@ -955,9 +1024,9 @@ const VirtualTryOnBuilderScreen = () => {
             <View style={styles.confirmIconWrap}>
               <MaterialCommunityIcons name="auto-fix" size={26} color={tryOnPalette.ink} />
             </View>
-            <Text style={styles.confirmTitle}>Tạo kết quả phối đồ?</Text>
+            <Text style={styles.confirmTitle}>Tạo ảnh thử đồ?</Text>
             <Text style={styles.confirmText}>
-              Ảnh của bạn sẽ được kiểm tra trước khi tạo kết quả. Bạn có chắc muốn tạo ngay bây giờ?
+              Ảnh của bạn sẽ được kiểm tra trước khi xử lý. Bạn có chắc muốn tạo ngay bây giờ?
             </Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity
@@ -972,7 +1041,7 @@ const VirtualTryOnBuilderScreen = () => {
                 onPress={confirmCreateJob}
                 activeOpacity={0.86}
               >
-                <Text style={styles.confirmPrimaryText}>Tạo kết quả</Text>
+                <Text style={styles.confirmPrimaryText}>Tạo ảnh</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -993,7 +1062,7 @@ const VirtualTryOnBuilderScreen = () => {
             >
               <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
+            <Text style={styles.productHeaderTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
             <TouchableOpacity
               style={styles.headerButton}
               onPress={() => setIsProductFilterVisible(true)}
@@ -1030,7 +1099,7 @@ const VirtualTryOnBuilderScreen = () => {
                 <MaterialCommunityIcons
                   name="tune-variant"
                   size={21}
-                  color={productFilterCount > 0 ? colors.white : colors.brand}
+                  color={productFilterCount > 0 ? tryOnPalette.ink : tryOnPalette.primary}
                 />
                 {productFilterCount > 0 ? (
                   <View style={styles.searchFilterBadge}>
@@ -1065,7 +1134,7 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
 
             <View style={styles.productHeaderRow}>
-              <Text style={styles.sectionTitle}>Chọn cho {activeSlot.label.toLowerCase()}</Text>
+              <Text style={styles.sectionTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
               <Text style={styles.productCount}>{filteredProducts.length} món</Text>
             </View>
             {isLoading ? (
@@ -1112,7 +1181,7 @@ const VirtualTryOnBuilderScreen = () => {
               </View>
             ) : (
               <View style={styles.emptySelection}>
-                <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với vị trí này.</Text>
+                <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với phần này.</Text>
               </View>
             )}
           </ScrollView>
@@ -1151,14 +1220,14 @@ const VirtualTryOnBuilderScreen = () => {
                       {selectedVariant ? formatPrice(selectedVariant.finalPrice) : formatPrice(configuringProduct.finalPrice)}
                     </Text>
                     <Text style={styles.variantProductMeta} numberOfLines={2}>
-                      {[selectedVariant?.fitType?.label, selectedColor?.color, selectedSize].filter(Boolean).join(' / ') || 'Chọn biến thể'}
+                      {[selectedVariant?.fitType?.label, selectedColor?.color, selectedSize].filter(Boolean).join(' / ') || 'Chọn màu và kích cỡ'}
                     </Text>
                   </View>
                 </View>
 
                 {configuringProduct.variants.length > 1 ? (
                   <View style={styles.variantSection}>
-                    <Text style={styles.variantSectionTitle}>Form dáng</Text>
+                    <Text style={styles.variantSectionTitle}>Dáng mặc</Text>
                     <View style={styles.variantChoiceWrap}>
                       {configuringProduct.variants.map((variant) => {
                         const active = variant._id === selectedVariantId;
@@ -1204,7 +1273,7 @@ const VirtualTryOnBuilderScreen = () => {
                 </View>
 
                 <View style={styles.variantSection}>
-                  <Text style={styles.variantSectionTitle}>Size</Text>
+                  <Text style={styles.variantSectionTitle}>Kích cỡ</Text>
                   <View style={styles.variantChoiceWrap}>
                     {selectedVariant?.sizes.map((sizeOption) => {
                       const active = sizeOption.size === selectedSize;
@@ -1246,7 +1315,7 @@ const VirtualTryOnBuilderScreen = () => {
               activeOpacity={0.86}
             >
               <MaterialCommunityIcons name="check" size={21} color={colors.white} />
-              <Text style={styles.variantConfirmText}>Dùng biến thể này</Text>
+              <Text style={styles.variantConfirmText}>Dùng lựa chọn này</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1272,7 +1341,7 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetContent}>
-              <Text style={styles.filterGroupTitle}>Đối tượng</Text>
+              <Text style={styles.filterGroupTitle}>Dành cho</Text>
               <View style={styles.filterChoiceWrap}>
                 {genderFilterOptions.map((option) => {
                   const active = productFilters.gender === option.key;
@@ -1392,33 +1461,51 @@ const VirtualTryOnBuilderScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: tryOnPalette.ink,
+    backgroundColor: tryOnPalette.header,
   },
   header: {
     minHeight: 78,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: tryOnPalette.ink,
+    backgroundColor: tryOnPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(243,201,120,0.22)',
+    borderBottomColor: 'rgba(255,255,255,0.16)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     borderWidth: 1,
-    borderColor: 'rgba(243,201,120,0.26)',
+    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
+  headerCopy: {
     flex: 1,
+    minWidth: 0,
+    paddingHorizontal: spacing.md,
+  },
+  headerKicker: {
+    color: tryOnPalette.headerSoft,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  headerTitle: {
     color: colors.white,
     fontSize: 22,
     lineHeight: 28,
+    fontWeight: '900',
+  },
+  productHeaderTitle: {
+    flex: 1,
+    color: colors.white,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: '900',
     textAlign: 'center',
   },
@@ -1437,7 +1524,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
     borderWidth: 1,
-    borderColor: colors.white,
+    borderColor: tryOnPalette.surface,
   },
   headerFilterBadgeText: {
     color: colors.white,
@@ -1447,12 +1534,12 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: tryOnPalette.mist,
+    backgroundColor: tryOnPalette.canvas,
   },
   scrollContent: {
-    padding: spacing.md,
-    paddingBottom: 128,
-    gap: spacing.md,
+    padding: spacing.lg,
+    paddingBottom: 132,
+    gap: spacing.lg,
   },
   productListContent: {
     padding: spacing.md,
@@ -1461,9 +1548,9 @@ const styles = StyleSheet.create({
   },
   sourceCard: {
     borderRadius: radii.md,
-    backgroundColor: tryOnPalette.inkSoft,
+    backgroundColor: tryOnPalette.surface,
     borderWidth: 1,
-    borderColor: 'rgba(243,201,120,0.26)',
+    borderColor: 'rgba(84,119,146,0.22)',
     padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1471,13 +1558,13 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   sourceImageWrap: {
-    width: 74,
-    height: 92,
-    borderRadius: radii.sm,
+    width: 112,
+    height: 150,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: 'rgba(243,201,120,0.14)',
+    backgroundColor: tryOnPalette.primarySoft,
     borderWidth: 1,
-    borderColor: 'rgba(243,201,120,0.38)',
+    borderColor: 'rgba(84,119,146,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1500,78 +1587,179 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 2,
   },
+  studioHero: {
+    borderRadius: radii.md,
+    backgroundColor: tryOnPalette.surface,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    padding: spacing.md,
+    flexDirection: 'row',
+    gap: spacing.md,
+    ...shadows.card,
+  },
+  studioCopy: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  studioEyebrow: {
+    color: tryOnPalette.primary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  studioTitle: {
+    color: tryOnPalette.ink,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  studioText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+    marginTop: spacing.sm,
+  },
+  studioStepRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  studioStep: {
+    minHeight: 28,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.surface,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  studioStepActive: {
+    minHeight: 28,
+    borderRadius: radii.pill,
+    backgroundColor: tryOnPalette.primaryPale,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  studioStepText: {
+    color: tryOnPalette.ink,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  studioStepTextActive: {
+    color: tryOnPalette.ink,
+  },
+  sectionHeaderBlock: {
+    gap: 3,
+  },
   sectionTitle: {
     color: tryOnPalette.ink,
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: '900',
-    marginTop: spacing.sm,
+  },
+  sectionHint: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   modeRow: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  modeRail: {
+    gap: spacing.md,
+    paddingRight: spacing.lg,
+  },
   modeButton: {
-    flex: 1,
-    minHeight: 76,
-    borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.porcelain,
+    width: 166,
+    minHeight: 132,
+    borderRadius: radii.md,
+    backgroundColor: tryOnPalette.surface,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    paddingHorizontal: spacing.xs,
+    justifyContent: 'space-between',
+    padding: spacing.md,
     ...shadows.card,
   },
   modeButtonActive: {
-    backgroundColor: tryOnPalette.ink,
-    borderColor: tryOnPalette.champagne,
+    backgroundColor: tryOnPalette.primarySoft,
+    borderColor: tryOnPalette.primaryLight,
+  },
+  modeIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: tryOnPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: 'rgba(84,119,146,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modeIconWrapActive: {
+    backgroundColor: tryOnPalette.surface,
+    borderColor: 'rgba(84,119,146,0.28)',
   },
   modeText: {
-    color: colors.brandDark,
-    fontSize: 11,
-    lineHeight: 15,
+    color: tryOnPalette.ink,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
+    marginTop: spacing.md,
   },
   modeTextActive: {
-    color: colors.white,
+    color: tryOnPalette.ink,
   },
   modeDescription: {
     color: colors.textMuted,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '700',
-    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  modeDescriptionActive: {
+    color: colors.textMuted,
   },
   outfitHeaderRow: {
-    marginTop: spacing.sm,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  outfitProgressPill: {
+    minHeight: 34,
+    borderRadius: radii.pill,
+    backgroundColor: tryOnPalette.primarySoft,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   outfitProgress: {
-    color: tryOnPalette.rose,
-    fontSize: 12,
-    lineHeight: 16,
+    color: tryOnPalette.primary,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
   slotGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   slotCard: {
-    minHeight: 128,
-    borderRadius: radii.sm,
+    minHeight: 104,
+    borderRadius: radii.md,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
-    backgroundColor: tryOnPalette.porcelain,
-    padding: spacing.sm,
+    backgroundColor: tryOnPalette.surface,
+    padding: spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
+    gap: spacing.md,
     position: 'relative',
     ...shadows.card,
   },
@@ -1589,28 +1777,49 @@ const styles = StyleSheet.create({
     width: '31.6%',
   },
   slotCardActive: {
-    borderColor: tryOnPalette.teal,
-    backgroundColor: tryOnPalette.tealSoft,
+    borderColor: tryOnPalette.primaryLight,
+    backgroundColor: tryOnPalette.primarySoft,
   },
   slotCardFilled: {
     backgroundColor: colors.surface,
-    borderColor: tryOnPalette.teal,
+    borderColor: tryOnPalette.success,
+  },
+  slotNumber: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: tryOnPalette.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slotNumberText: {
+    color: tryOnPalette.ink,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
   },
   slotIconWrap: {
-    width: 58,
-    height: 58,
-    borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.champagneSoft,
+    width: 72,
+    height: 78,
+    borderRadius: 20,
+    backgroundColor: tryOnPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: 'rgba(84,119,146,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  slotIconWrapActive: {
+    backgroundColor: tryOnPalette.surface,
+    borderColor: 'rgba(84,119,146,0.28)',
   },
   slotImage: {
     width: '100%',
     height: '100%',
   },
   slotCopy: {
-    width: '100%',
+    flex: 1,
+    minWidth: 0,
     justifyContent: 'center',
   },
   slotCardSingleCopy: {
@@ -1618,37 +1827,32 @@ const styles = StyleSheet.create({
   },
   slotLabel: {
     color: colors.text,
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
-    textAlign: 'center',
   },
   slotHelper: {
     color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
     marginTop: 2,
-    textAlign: 'center',
   },
   slotMeta: {
-    color: tryOnPalette.teal,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '800',
-    marginTop: 2,
-    textAlign: 'center',
+    color: tryOnPalette.success,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    marginTop: 5,
   },
   slotTextActive: {
     color: tryOnPalette.ink,
   },
   slotRemoveButton: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.background,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: tryOnPalette.success,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1660,22 +1864,24 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   openProductListButton: {
-    minHeight: 68,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    minHeight: 82,
+    borderRadius: radii.md,
+    backgroundColor: tryOnPalette.primarySoft,
     borderWidth: 1,
-    borderColor: tryOnPalette.line,
-    padding: spacing.md,
+    borderColor: tryOnPalette.primaryLight,
+    padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     ...shadows.card,
   },
   openProductListIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.champagneSoft,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: tryOnPalette.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(84,119,146,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1684,20 +1890,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   openProductListText: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
+    color: tryOnPalette.ink,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
   },
   openProductListMeta: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
     marginTop: 2,
   },
   searchRow: {
-    minHeight: 44,
-    borderRadius: radii.sm,
+    minHeight: 54,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
@@ -1709,20 +1916,20 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 52,
     color: colors.text,
-    fontSize: 14,
+    fontSize: 16,
   },
   searchFilterButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: tryOnPalette.champagneSoft,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: tryOnPalette.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   searchFilterButtonActive: {
-    backgroundColor: tryOnPalette.teal,
+    backgroundColor: tryOnPalette.primaryPale,
   },
   searchFilterBadge: {
     position: 'absolute',
@@ -1743,7 +1950,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   genderSegment: {
-    minHeight: 48,
+    minHeight: 54,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -1756,7 +1963,7 @@ const styles = StyleSheet.create({
   },
   genderChip: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 42,
     borderRadius: radii.sm,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1765,12 +1972,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   genderChipActive: {
-    backgroundColor: tryOnPalette.champagne,
+    backgroundColor: tryOnPalette.primaryPale,
   },
   genderChipText: {
     color: tryOnPalette.ink,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '900',
   },
   genderChipTextActive: {
@@ -1788,8 +1995,8 @@ const styles = StyleSheet.create({
   },
   productCount: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '800',
   },
   productGrid: {
@@ -1802,12 +2009,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     borderRadius: radii.md,
-    backgroundColor: tryOnPalette.porcelain,
+    backgroundColor: tryOnPalette.surface,
     overflow: 'hidden',
     ...shadows.card,
   },
   productCardSelected: {
-    borderColor: tryOnPalette.teal,
+    borderColor: tryOnPalette.success,
     borderWidth: 2,
   },
   productImageWrap: {
@@ -1826,14 +2033,14 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: 'rgba(23,34,49,0.92)',
     borderWidth: 1,
-    borderColor: 'rgba(243,201,120,0.42)',
+    borderColor: 'rgba(221,231,236,0.42)',
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
   },
   roleBadgeText: {
-    color: tryOnPalette.champagne,
-    fontSize: 10,
-    lineHeight: 13,
+    color: tryOnPalette.primaryPale,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '900',
   },
   selectedMark: {
@@ -1843,23 +2050,23 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: tryOnPalette.teal,
+    backgroundColor: tryOnPalette.success,
     alignItems: 'center',
     justifyContent: 'center',
   },
   productName: {
-    minHeight: 38,
+    minHeight: 44,
     color: tryOnPalette.ink,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '900',
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
   },
   productPrice: {
-    color: tryOnPalette.rose,
-    fontSize: 13,
-    lineHeight: 18,
+    color: tryOnPalette.primary,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
   },
   productFooter: {
@@ -1916,15 +2123,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptySelection: {
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
-    padding: spacing.lg,
+    padding: spacing.xl,
   },
   emptySelectionText: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
     textAlign: 'center',
+    fontWeight: '800',
   },
   contextGrid: {
     flexDirection: 'row',
@@ -1932,43 +2140,43 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   contextChip: {
-    minHeight: 38,
+    minHeight: 46,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     borderRadius: radii.pill,
-    backgroundColor: tryOnPalette.porcelain,
-    paddingHorizontal: spacing.md,
+    backgroundColor: tryOnPalette.surface,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   contextChipActive: {
-    backgroundColor: tryOnPalette.plum,
-    borderColor: tryOnPalette.plum,
+    backgroundColor: tryOnPalette.primaryPale,
+    borderColor: tryOnPalette.primaryPale,
   },
   contextText: {
     color: colors.brandDark,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   contextTextActive: {
-    color: colors.white,
+    color: tryOnPalette.ink,
   },
   promptInput: {
-    minHeight: 86,
+    minHeight: 104,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
     borderRadius: radii.sm,
     backgroundColor: colors.surface,
     padding: spacing.md,
     color: colors.text,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     textAlignVertical: 'top',
   },
   outputOptionCard: {
-    minHeight: 86,
+    minHeight: 96,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -1980,10 +2188,10 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   outputOptionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.champagneSoft,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: tryOnPalette.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1992,14 +2200,15 @@ const styles = StyleSheet.create({
   },
   outputOptionTitle: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '900',
   },
   outputOptionText: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
     marginTop: 2,
   },
   footer: {
@@ -2010,7 +2219,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: tryOnPalette.line,
     backgroundColor: colors.surface,
-    padding: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -2018,21 +2229,21 @@ const styles = StyleSheet.create({
   },
   footerLabel: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '800',
   },
   footerTotal: {
     color: tryOnPalette.ink,
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '900',
   },
   submitButton: {
-    minWidth: 170,
-    minHeight: 50,
-    borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.ink,
+    minWidth: 178,
+    minHeight: 56,
+    borderRadius: radii.md,
+    backgroundColor: tryOnPalette.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -2045,8 +2256,8 @@ const styles = StyleSheet.create({
   },
   submitText: {
     color: colors.white,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '900',
   },
   submitTextDisabled: {
@@ -2076,7 +2287,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: tryOnPalette.champagneSoft,
+    backgroundColor: tryOnPalette.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
@@ -2114,7 +2325,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 46,
     borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.ink,
+    backgroundColor: tryOnPalette.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2125,7 +2336,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   confirmPrimaryText: {
-    color: colors.white,
+    color: tryOnPalette.ink,
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
@@ -2237,8 +2448,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   variantChoiceActive: {
-    borderColor: colors.brand,
-    backgroundColor: colors.brand,
+    borderColor: tryOnPalette.success,
+    backgroundColor: tryOnPalette.success,
   },
   variantChoiceText: {
     color: colors.textMuted,
@@ -2263,7 +2474,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   colorChoiceActive: {
-    borderColor: colors.brand,
+    borderColor: tryOnPalette.success,
     borderWidth: 2,
     backgroundColor: colors.surface,
   },
@@ -2281,7 +2492,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   colorChoiceTextActive: {
-    color: colors.brand,
+    color: tryOnPalette.success,
   },
   sizeChoice: {
     minWidth: 48,
@@ -2305,7 +2516,7 @@ const styles = StyleSheet.create({
   variantConfirmButton: {
     minHeight: 50,
     borderRadius: radii.sm,
-    backgroundColor: colors.brand,
+    backgroundColor: tryOnPalette.success,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2333,7 +2544,7 @@ const styles = StyleSheet.create({
     maxHeight: '78%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: tryOnPalette.porcelain,
+    backgroundColor: tryOnPalette.surface,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
@@ -2389,8 +2600,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterChoiceActive: {
-    borderColor: colors.brand,
-    backgroundColor: colors.brand,
+    borderColor: tryOnPalette.primaryPale,
+    backgroundColor: tryOnPalette.primaryPale,
   },
   filterChoiceText: {
     color: colors.textMuted,
@@ -2399,7 +2610,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   filterChoiceTextActive: {
-    color: colors.white,
+    color: tryOnPalette.ink,
   },
 });
 
