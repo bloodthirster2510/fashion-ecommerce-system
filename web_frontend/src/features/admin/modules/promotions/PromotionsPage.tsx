@@ -31,8 +31,20 @@ import type {
 import { OptionPicker, type PickerOption } from './components/OptionPicker'
 import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { useToast } from '../../notifications/notification-context'
-import { AdminEmptyIllustration } from '../../components/AdminEmptyIllustration'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
+import {
+  Button,
+  DataTable,
+  EmptyState,
+  Field,
+  FilterBar,
+  KpiCard,
+  KpiGrid,
+  PageHeader,
+  Pagination,
+  StatusBadge,
+  type DataTableColumn,
+} from '../../components/ui'
 import './promotion.css'
 
 type PromotionsPageProps = {
@@ -102,6 +114,13 @@ const displayStatusMeta: Record<CouponDisplayStatus, { label: string; className:
   upcoming: { label: 'Sắp mở', className: 'is-warning' },
 }
 
+const displayStatusTone: Record<CouponDisplayStatus, 'success' | 'neutral' | 'danger' | 'warning'> = {
+  active: 'success',
+  inactive: 'neutral',
+  expired: 'danger',
+  upcoming: 'warning',
+}
+
 const eligibleUserTypeOptions: Array<{ value: CouponEligibleUserType; label: string }> = [
   { value: 'all', label: 'Tất cả khách' },
   { value: 'new_user', label: 'Khách mới' },
@@ -137,8 +156,8 @@ const durationPresets = [
 
 const couponTemplates: Array<{ label: string; description: string; values: Partial<CouponFormState>; durationDays: number }> = [
   { label: 'Chào mừng khách mới', description: 'Giảm 10% · mỗi khách 1 lần', values: { name: 'Chào mừng khách mới', discountType: 'percent', discountValue: '10', maxDiscountAmount: '100000', minOrderAmount: '200000', perUserLimit: '1', eligibleUserTypes: ['new_user'], isPublic: true }, durationDays: 30 },
-  { label: 'Freeship từ 300K', description: 'Miễn phí vận chuyển toàn shop', values: { name: 'Freeship đơn từ 300K', discountType: 'free_shipping', discountValue: '0', maxDiscountAmount: '', minOrderAmount: '300000', perUserLimit: '1', eligibleUserTypes: ['all'], isPublic: true }, durationDays: 30 },
-  { label: 'Tri ân thành viên', description: 'Giảm 15% · dành cho member', values: { name: 'Tri ân thành viên', discountType: 'percent', discountValue: '15', maxDiscountAmount: '200000', minOrderAmount: '500000', perUserLimit: '1', eligibleUserTypes: ['member'], isPublic: false }, durationDays: 14 },
+  { label: 'Miễn phí vận chuyển', description: 'Cho đơn từ 300K · toàn shop', values: { name: 'Miễn phí vận chuyển đơn từ 300K', discountType: 'free_shipping', discountValue: '0', maxDiscountAmount: '', minOrderAmount: '300000', perUserLimit: '1', eligibleUserTypes: ['all'], isPublic: true }, durationDays: 30 },
+  { label: 'Tri ân thành viên', description: 'Giảm 15% · dành cho thành viên', values: { name: 'Tri ân thành viên', discountType: 'percent', discountValue: '15', maxDiscountAmount: '200000', minOrderAmount: '500000', perUserLimit: '1', eligibleUserTypes: ['member'], isPublic: false }, durationDays: 14 },
 ]
 
 const formatCurrency = (value: number) =>
@@ -715,11 +734,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const activeCount = couponSummary.activeCount
   const publicCount = couponSummary.publicCount
   const usedCount = couponSummary.usedCount
-  const visiblePages = useMemo(() => {
-    const firstPage = Math.max(1, Math.min(page - 2, totalPages - 4))
-    const lastPage = Math.min(totalPages, firstPage + 4)
-    return Array.from({ length: Math.max(0, lastPage - firstPage + 1) }, (_, index) => firstPage + index)
-  }, [page, totalPages])
 
   const replaceCoupon = (updatedCoupon: AdminCoupon) => {
     setCoupons((currentCoupons) =>
@@ -1139,6 +1153,130 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         ? `${couponForm.discountValue || 0}%${couponForm.maxDiscountAmount ? ` · tối đa ${formatCurrency(Number(couponForm.maxDiscountAmount))}` : ''}`
         : formatCurrency(Number(couponForm.discountValue || 0))
   const filteredUsage = dialog?.type === 'detail' ? dialog.usage.items : []
+  const couponColumns: Array<DataTableColumn<AdminCoupon>> = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Chọn tất cả voucher trên trang"
+          aria-checked={selectedCouponIds.length > 0 && selectedCouponIds.length < coupons.length ? 'mixed' : undefined}
+          checked={coupons.length > 0 && selectedCouponIds.length === coupons.length}
+          onChange={toggleAllCoupons}
+        />
+      ),
+      render: (coupon) => (
+        <input
+          type="checkbox"
+          aria-label={`Chọn voucher ${coupon.code}`}
+          checked={selectedCouponIds.includes(coupon._id)}
+          onChange={() => toggleCouponSelection(coupon._id)}
+          onClick={(event) => event.stopPropagation()}
+        />
+      ),
+    },
+    {
+      key: 'voucher',
+      header: 'Voucher',
+      render: (coupon) => (
+        <div className="admin-promotion-code-cell">
+          <strong>{coupon.code}</strong>
+          <span>{coupon.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'discount',
+      header: 'Giá trị',
+      render: (coupon) => (
+        <div className="admin-promotion-stack-cell">
+          <strong>{getDiscountText(coupon)}</strong>
+          <span>Đơn từ {formatCurrency(coupon.minOrderAmount)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'conditions',
+      header: 'Điều kiện',
+      render: (coupon) => (
+        <div className="admin-promotion-stack-cell" title={`${getAudienceText(coupon)} · ${getScopeText(coupon)}`}>
+          <strong>{getAudienceText(coupon)}</strong>
+          <span>{getScopeText(coupon)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'time',
+      header: 'Hiệu lực',
+      render: (coupon) => {
+        const remainingUsage =
+          coupon.usageLimit == null
+            ? 'Không giới hạn'
+            : `${Math.max(0, coupon.usageLimit - coupon.usedCount)} / ${coupon.usageLimit}`
+
+        return (
+          <div className="admin-promotion-stack-cell">
+            <strong>{formatDateTime(coupon.startAt)}</strong>
+            <span>Đến {formatDateTime(coupon.endAt)}</span>
+            <span>Còn lượt: {remainingUsage}</span>
+          </div>
+        )
+      },
+    },
+    {
+      key: 'visibility',
+      header: 'Hiển thị',
+      render: (coupon) => (
+        <StatusBadge tone={coupon.isPublic ? 'info' : 'neutral'}>
+          {coupon.isPublic ? 'Công khai' : 'Riêng tư'}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      render: (coupon) => {
+        const status = getCouponStatus(coupon)
+        return (
+          <StatusBadge tone={displayStatusTone[status]}>
+            {displayStatusMeta[status].label}
+          </StatusBadge>
+        )
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      render: (coupon) => {
+        const status = getCouponStatus(coupon)
+        const canToggleCouponStatus = status === 'active' || status === 'inactive'
+
+        return (
+          <div className="admin-row-actions" onClick={(event) => event.stopPropagation()}>
+            <Button variant="secondary" disabled={actionLoading} onClick={() => void openDetailDialog(coupon)}>
+              Xem
+            </Button>
+            <details className="admin-action-menu">
+              <summary aria-label={`Thao tác với ${coupon.code}`}>•••</summary>
+              <div>
+                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => openEditDialog(coupon)}>Sửa</button>
+                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => openDuplicateDialog(coupon)}>Nhân bản</button>
+                <button
+                  type="button"
+                  disabled={!canManagePromotions || actionLoading || !canToggleCouponStatus}
+                  title={canToggleCouponStatus ? undefined : 'Không thể đổi trạng thái voucher chưa bắt đầu hoặc đã hết hạn'}
+                  onClick={() => void handleStatusChange(coupon, !coupon.isActive)}
+                >
+                  {coupon.isActive ? 'Tắt' : 'Bật'}
+                </button>
+                <button className="is-danger" type="button" disabled={!canManagePromotions || actionLoading} onClick={() => void openDeleteDialog(coupon)}>Xóa</button>
+              </div>
+            </details>
+          </div>
+        )
+      },
+    },
+  ]
 
   const exportUsageCsv = async () => {
     if (!dialog || dialog.type !== 'detail') return
@@ -1272,37 +1410,44 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   })
 
   return (
-    <section className="admin-promotions-page" aria-busy={isLoading}>
-      <header className="admin-page-heading">
-        <div>
-          <p>Marketing / Voucher</p>
-          <h1>Khuyến mãi</h1>
-        </div>
+    <section className="admin-ui-page admin-promotions-page" aria-busy={isLoading}>
+      <PageHeader
+        title="Khuyến mãi"
+        description="Quản lý voucher, đối tượng áp dụng, thời hạn hiệu lực và lượt sử dụng trong các chiến dịch bán hàng."
+        breadcrumbs={['Marketing', 'Voucher']}
+        actions={(
+          <Button
+            variant="primary"
+            disabled={!canManagePromotions}
+            onClick={openCreateDialog}
+          >
+            Tạo voucher
+          </Button>
+        )}
+      />
 
-        <button
-          className="admin-primary-button"
-          type="button"
-          disabled={!canManagePromotions}
-          onClick={openCreateDialog}
-        >
-          Tạo voucher
-        </button>
-      </header>
-
-      <div className="admin-user-stats admin-promotion-stats">
-        <div>
-          <span>Voucher trong kết quả lọc</span>
-          <strong>{totalItems}</strong>
-        </div>
-        <div>
-          <span>Đang bật trong kết quả lọc</span>
-          <strong>{activeCount}</strong>
-        </div>
-        <div>
-          <span>Lượt dùng trong kết quả lọc</span>
-          <strong>{usedCount}</strong>
-        </div>
-      </div>
+      <KpiGrid>
+        <KpiCard
+          label="Tổng voucher"
+          value={formatNumber(couponSummary.totalCoupons)}
+          meta={keyword ? 'Theo từ khóa hiện tại' : 'Tất cả chiến dịch'}
+        />
+        <KpiCard
+          label="Đang chạy"
+          value={formatNumber(activeCount)}
+          meta="Có thể áp dụng cho đơn hợp lệ"
+        />
+        <KpiCard
+          label="Đã sử dụng"
+          value={formatNumber(usedCount)}
+          meta="Tổng lượt dùng trong kết quả lọc"
+        />
+        <KpiCard
+          label="Công khai"
+          value={formatNumber(publicCount)}
+          meta="Voucher hiển thị cho khách"
+        />
+      </KpiGrid>
 
       {selectedCouponIds.length ? (
         <div className="admin-bulk-toolbar" role="toolbar" aria-label="Thao tác hàng loạt">
@@ -1316,19 +1461,43 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
       <CampaignAnalyticsPanel currentUser={currentUser} />
 
-      <div className="admin-table-toolbar admin-promotion-filters">
-        <label className="admin-user-search">
-          <span>Tìm kiếm</span>
+      <FilterBar actions={(
+        <div className="admin-promotion-filter-actions">
+          <Button variant="secondary" onClick={() => void loadCoupons()}>
+            Làm mới
+          </Button>
+          <Button variant="secondary" disabled={actionLoading} onClick={() => void exportCouponsCsv()}>
+            Xuất CSV
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setKeywordInput('')
+              setStatusFilter('all')
+              setDiscountFilter('all')
+              setVisibilityFilter('all')
+              setAudienceFilter('all_filter')
+              setRankFilter('')
+              setDateFromFilter('')
+              setDateToFilter('')
+              setSort('created_desc')
+              setPage(1)
+            }}
+          >
+            Xóa lọc
+          </Button>
+        </div>
+      )}>
+        <Field label="Tìm kiếm" grow>
           <input
             type="search"
             value={keywordInput}
             onChange={(event) => setKeywordInput(event.target.value)}
-            placeholder="Mã, tên hoặc mô tả voucher"
+            placeholder="Tìm mã, tên hoặc mô tả voucher"
           />
-        </label>
+        </Field>
 
-        <label>
-          <span>Trạng thái</span>
+        <Field label="Trạng thái">
           <select
             value={statusFilter}
             onChange={(event) => {
@@ -1342,57 +1511,50 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
               </option>
             ))}
           </select>
-        </label>
+        </Field>
 
-        <label>
-          <span>Loại giảm</span>
+        <Field label="Loại giảm">
           <select value={discountFilter} onChange={(event) => { setDiscountFilter(event.target.value as CouponDiscountFilter); setPage(1) }}>
             <option value="all">Tất cả</option>
             <option value="percent">Phần trăm</option>
             <option value="fixed">Số tiền</option>
-            <option value="free_shipping">Freeship</option>
+            <option value="free_shipping">Miễn phí vận chuyển</option>
           </select>
-        </label>
+        </Field>
 
-        <label>
-          <span>Hiển thị</span>
+        <Field label="Hiển thị">
           <select value={visibilityFilter} onChange={(event) => { setVisibilityFilter(event.target.value as CouponVisibilityFilter); setPage(1) }}>
             <option value="all">Tất cả</option>
-            <option value="public">Public</option>
-            <option value="private">Private</option>
+            <option value="public">Công khai</option>
+            <option value="private">Riêng tư</option>
           </select>
-        </label>
+        </Field>
 
-        <label>
-          <span>Đối tượng</span>
+        <Field label="Đối tượng">
           <select value={audienceFilter} onChange={(event) => { setAudienceFilter(event.target.value as CouponAudienceFilter); setPage(1) }}>
             <option value="all_filter">Tất cả</option>
             <option value="all">Mọi khách</option>
             <option value="new_user">Khách mới</option>
             <option value="member">Thành viên</option>
           </select>
-        </label>
+        </Field>
 
-        <label>
-          <span>Hạng thành viên</span>
+        <Field label="Hạng thành viên">
           <select value={rankFilter} onChange={(event) => { setRankFilter(event.target.value); setPage(1) }}>
             <option value="">Tất cả hạng</option>
             {tiers.filter((tier) => tier._id).map((tier) => <option key={tier._id} value={tier._id}>{tier.name}</option>)}
           </select>
-        </label>
+        </Field>
 
-        <label>
-          <span>Hiệu lực từ</span>
+        <Field label="Hiệu lực từ">
           <input type="date" value={dateFromFilter} max={dateToFilter || undefined} onChange={(event) => { setDateFromFilter(event.target.value); setPage(1) }} />
-        </label>
+        </Field>
 
-        <label>
-          <span>Hiệu lực đến</span>
+        <Field label="Hiệu lực đến">
           <input type="date" value={dateToFilter} min={dateFromFilter || undefined} onChange={(event) => { setDateToFilter(event.target.value); setPage(1) }} />
-        </label>
+        </Field>
 
-        <label>
-          <span>Sắp xếp</span>
+        <Field label="Sắp xếp">
           <select
             value={sort}
             onChange={(event) => {
@@ -1406,18 +1568,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
             <option value="usage_desc">Dùng nhiều nhất</option>
             <option value="code_asc">Mã A-Z</option>
           </select>
-        </label>
-
-        <div className="admin-promotion-filter-actions">
-          <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
-            Làm mới
-          </button>
-          <button className="admin-secondary-button" type="button" disabled={actionLoading} onClick={() => void exportCouponsCsv()}>
-            Xuất CSV
-          </button>
-          <button className="admin-link-button" type="button" onClick={() => { setKeywordInput(''); setStatusFilter('all'); setDiscountFilter('all'); setVisibilityFilter('all'); setAudienceFilter('all_filter'); setRankFilter(''); setDateFromFilter(''); setDateToFilter(''); setSort('created_desc'); setPage(1) }}>Xóa bộ lọc</button>
-        </div>
-      </div>
+        </Field>
+      </FilterBar>
 
       {tierReferenceError || categoryReferenceError || productReferenceError ? (
         <p className="admin-notice admin-promotion-reference-warning" role="status">
@@ -1426,163 +1578,37 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       ) : null}
 
       {errorMessage ? (
-        <div className="admin-empty-state" role="alert">
-          <strong>Không tải được voucher</strong>
-          <span>{errorMessage}</span>
-          <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
-            Thử lại
-          </button>
-        </div>
+        <EmptyState
+          title="Không tải được voucher"
+          description={errorMessage}
+          role="alert"
+          action={(
+            <Button variant="secondary" onClick={() => void loadCoupons()}>
+              Thử lại
+            </Button>
+          )}
+        />
       ) : (
-        <div className={`admin-table-shell admin-promotions-table-shell${isLoading && coupons.length ? ' is-refreshing' : ''}`}>
-          <table className="admin-table admin-promotions-table">
-            <thead>
-              <tr>
-                <th className="admin-selection-cell"><input type="checkbox" aria-label="Chọn tất cả voucher trên trang" aria-checked={selectedCouponIds.length > 0 && selectedCouponIds.length < coupons.length ? 'mixed' : undefined} checked={coupons.length > 0 && selectedCouponIds.length === coupons.length} onChange={toggleAllCoupons} /></th>
-                <th aria-sort={sort === 'code_asc' ? 'ascending' : 'none'}>Voucher</th>
-                <th>Giá trị</th>
-                <th>Điều kiện</th>
-                <th aria-sort={sort === 'end_asc' ? 'ascending' : 'none'}>Hạn dùng</th>
-                <th>Hiển thị</th>
-                <th>Trạng thái</th>
-                <th>Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && coupons.length === 0 ? (
-                <tr>
-                  <td colSpan={8}>
-                    <div className="admin-table-skeleton" aria-label="Đang tải voucher">{Array.from({ length: 5 }, (_, index) => <span key={index} />)}</div>
-                  </td>
-                </tr>
-              ) : null}
-
-              {!isLoading && coupons.length === 0 ? (
-                <tr>
-                    <td colSpan={8}>
-                    <div className="admin-promotion-empty-state">
-                      <AdminEmptyIllustration variant="voucher" />
-                      <strong>Không có voucher phù hợp</strong>
-                      <span>Thử đổi bộ lọc hoặc tạo voucher mới.</span>
-                      <button
-                        className="admin-secondary-button"
-                        type="button"
-                        disabled={!canManagePromotions}
-                        onClick={openCreateDialog}
-                      >
-                        Tạo voucher
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-
-              {coupons.map((coupon) => {
-                    const status = getCouponStatus(coupon)
-                    const statusMeta = displayStatusMeta[status]
-                    const canToggleCouponStatus = status === 'active' || status === 'inactive'
-                    const remainingUsage =
-                      coupon.usageLimit == null
-                        ? 'Không giới hạn'
-                        : `${Math.max(0, coupon.usageLimit - coupon.usedCount)} / ${coupon.usageLimit}`
-
-                    return (
-                      <tr key={coupon._id}>
-                        <td className="admin-selection-cell" data-label="Chọn"><input type="checkbox" aria-label={`Chọn voucher ${coupon.code}`} checked={selectedCouponIds.includes(coupon._id)} onChange={() => toggleCouponSelection(coupon._id)} /></td>
-                        <td data-label="Voucher">
-                          <div className="admin-promotion-code-cell">
-                            <strong>{coupon.code}</strong>
-                            <span>{coupon.name}</span>
-                          </div>
-                        </td>
-                        <td data-label="Giá trị">
-                          <strong>{getDiscountText(coupon)}</strong>
-                          <span>Đơn từ {formatCurrency(coupon.minOrderAmount)}</span>
-                        </td>
-                        <td data-label="Điều kiện" title={`${getAudienceText(coupon)} · ${getScopeText(coupon)}`}>
-                          {getAudienceText(coupon)}
-                          <span>{getScopeText(coupon)}</span>
-                        </td>
-                        <td data-label="Hạn dùng">
-                          {formatDateTime(coupon.startAt)}
-                          <span>Đến {formatDateTime(coupon.endAt)}</span>
-                          <span>Còn lượt: {remainingUsage}</span>
-                        </td>
-                        <td data-label="Hiển thị">
-                          <span className={`admin-status-pill ${coupon.isPublic ? 'is-active' : 'is-warning'}`}>
-                            {coupon.isPublic ? 'Public' : 'Private'}
-                          </span>
-                        </td>
-                        <td data-label="Trạng thái">
-                          <span className={`admin-status-pill ${statusMeta.className}`}>
-                            {statusMeta.label}
-                          </span>
-                        </td>
-                        <td data-label="Thao tác">
-                          <div className="admin-row-actions">
-                            <button
-                              className="admin-link-button"
-                              type="button"
-                              disabled={actionLoading}
-                              onClick={() => void openDetailDialog(coupon)}
-                            >
-                              Xem
-                            </button>
-                            <details className="admin-action-menu">
-                              <summary aria-label={`Thao tác với ${coupon.code}`}>•••</summary>
-                              <div>
-                                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => openEditDialog(coupon)}>Sửa</button>
-                                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => openDuplicateDialog(coupon)}>Nhân bản</button>
-                                <button type="button" disabled={!canManagePromotions || actionLoading || !canToggleCouponStatus} title={canToggleCouponStatus ? undefined : 'Không thể đổi trạng thái voucher chưa bắt đầu hoặc đã hết hạn'} onClick={() => void handleStatusChange(coupon, !coupon.isActive)}>{coupon.isActive ? 'Tắt' : 'Bật'}</button>
-                                <button className="is-danger" type="button" disabled={!canManagePromotions || actionLoading} onClick={() => void openDeleteDialog(coupon)}>Xóa</button>
-                              </div>
-                            </details>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-            </tbody>
-          </table>
+        <div className={`admin-promotions-table-shell${isLoading && coupons.length ? ' is-refreshing' : ''}`}>
+          <DataTable
+            columns={couponColumns}
+            items={coupons}
+            getRowKey={(coupon) => coupon._id}
+            isLoading={isLoading}
+            emptyText="Không có voucher phù hợp."
+            onRowClick={(coupon) => void openDetailDialog(coupon)}
+          />
           {isLoading && coupons.length ? <div className="admin-table-refresh-indicator" role="status">Đang cập nhật dữ liệu...</div> : null}
         </div>
       )}
 
-      <footer className="admin-table-footer">
-        <span>
-          Trang {page} / {totalPages} • Public: {publicCount}
-        </span>
-        <div>
-          <button
-            className="admin-secondary-button"
-            type="button"
-            disabled={page <= 1 || isLoading}
-            onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-          >
-            Trước
-          </button>
-          {visiblePages.map((pageNumber) => (
-            <button
-              key={pageNumber}
-              className={`${pageNumber === page ? 'admin-primary-button' : 'admin-secondary-button'} admin-pagination-page`}
-              type="button"
-              disabled={isLoading}
-              aria-current={pageNumber === page ? 'page' : undefined}
-              onClick={() => setPage(pageNumber)}
-            >
-              {pageNumber}
-            </button>
-          ))}
-          <button
-            className="admin-secondary-button"
-            type="button"
-            disabled={page >= totalPages || isLoading}
-            onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
-          >
-            Sau
-          </button>
-        </div>
-      </footer>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        isDisabled={isLoading}
+        onPageChange={setPage}
+      />
 
       {dialog?.type === 'detail' ? (
         <div ref={dialogRef} tabIndex={-1} className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-coupon-detail-title">
@@ -1700,7 +1726,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           <form className="admin-account-dialog admin-coupon-dialog" onSubmit={handleSubmitCoupon} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.requestSubmit() }} onInvalid={() => { setShowCouponErrors(true); setNotice({ type: 'error', message: 'Kiểm tra lại các trường được đánh dấu.' }) }}>
             <header className="admin-coupon-dialog-header">
               <div>
-                <span>Marketing voucher</span>
+                <span>Thiết lập voucher</span>
                 <h2 id="admin-coupon-dialog-title">
                   {dialog.type === 'create' ? 'Tạo voucher' : dialog.type === 'duplicate' ? 'Nhân bản voucher' : 'Sửa voucher'}
                 </h2>
@@ -1964,7 +1990,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                         onChange={(event) => setCouponForm((form) => ({ ...form, isPublic: event.target.checked }))}
                       />
                       <span>
-                        <strong>Public</strong>
+                        <strong>Công khai</strong>
                         <small>Hiển thị trong danh sách ưu đãi của khách</small>
                       </span>
                     </label>
@@ -2097,7 +2123,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
                   </div>
                   <div>
                     <span>Hiển thị</span>
-                    <strong>{couponForm.isPublic ? 'Public' : 'Private'} · {couponForm.isActive ? 'Đang bật' : 'Đang tắt'}</strong>
+                    <strong>{couponForm.isPublic ? 'Công khai' : 'Riêng tư'} · {couponForm.isActive ? 'Đang bật' : 'Đang tắt'}</strong>
                   </div>
                 </div>
               </aside>

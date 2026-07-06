@@ -39,6 +39,23 @@
   min-width: 1060px;
 }
 
+.admin-promotion-stack-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-promotion-stack-cell strong {
+  color: var(--admin-text);
+  font-weight: 850;
+}
+
+.admin-promotion-stack-cell span,
+.admin-promotion-code-cell span {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 @media (max-width: 720px) {
   .admin-promotion-filters {
     grid-template-columns: 1fr;
@@ -1090,7 +1107,7 @@
 .admin-selection-cell { width: 42px; text-align: center; }
 .admin-selection-cell input { width: 16px; height: 16px; accent-color: var(--admin-accent); }
 .admin-promotions-table-shell { position: relative; }
-.admin-promotions-table-shell.is-refreshing table { opacity: .68; }
+.admin-promotions-table-shell.is-refreshing .admin-ui-table-card { opacity: .68; }
 .admin-table-refresh-indicator { position: sticky; bottom: 8px; width: max-content; margin: -38px auto 8px; padding: 7px 12px; border-radius: 999px; color: #fff; background: #315f83; font-size: 11px; font-weight: 800; box-shadow: 0 8px 20px rgba(31,45,61,.18); }
 
 @media (max-width: 980px) {

@@ -147,7 +147,7 @@ const adminRouteRecords: AdminRoute[] = [
     id: 'promotions',
     path: '/admin/promotions',
     label: 'Khuyến mãi',
-    helper: 'Coupon & chiến dịch',
+    helper: 'Voucher & chiến dịch',
     group: 'marketing',
   },
   {
