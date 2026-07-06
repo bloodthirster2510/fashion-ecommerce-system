@@ -337,9 +337,11 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                   <button
                     aria-current={isActive ? 'page' : undefined}
                     aria-disabled={isDisabled || undefined}
+                    aria-label={`${item.label}: ${item.helper}`}
                     className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
                     type="button"
                     key={item.id}
+                    title={item.helper}
                     onClick={() => (isDisabled ? undefined : handleNavigate(item))}
                   >
                     <Icon />
@@ -348,7 +350,6 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                         {item.label}
                         {isDisabled ? <em className="admin-nav-badge">Sắp ra mắt</em> : null}
                       </strong>
-                      <small>{item.helper}</small>
                     </span>
                     {!isDisabled && notificationBadge ? (
                       <em
@@ -372,6 +373,11 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
             <strong>{activeRoute?.label ?? 'Không có quyền truy cập'}</strong>
             <span>{activeRoute?.helper ?? 'Liên hệ quản trị viên để được cấp quyền'}</span>
           </div>
+
+          <button className="admin-command-trigger" type="button" aria-label="Tìm kiếm nhanh trong admin">
+            <span>Tìm kiếm hoặc nhảy nhanh</span>
+            <kbd>Ctrl K</kbd>
+          </button>
 
           <div className="admin-topbar-actions">
             <div className="admin-notification-center" ref={notificationCenterRef}>

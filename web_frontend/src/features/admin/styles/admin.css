@@ -1,16 +1,16 @@
+@import './tokens.css';
+@import './ui.css';
+
 :root {
-  --admin-sidebar: #1f2d3d;
-  --admin-sidebar-soft: #31465d;
-  --admin-sidebar-muted: #a6b7c7;
-  --admin-accent: #5f86a2;
-  --admin-accent-dark: #315f83;
-  --admin-bg: #f4f6f8;
-  --admin-surface: #ffffff;
-  --admin-line: #dce2e7;
-  --admin-muted: #68798a;
-  --admin-text: #24313f;
-  --admin-danger: #9b351e;
-  --admin-danger-bg: #fff2ee;
+  --admin-sidebar: var(--admin-surface);
+  --admin-sidebar-soft: var(--admin-surface-muted);
+  --admin-sidebar-muted: var(--admin-text-muted);
+  --admin-accent-dark: var(--admin-accent-hover);
+  --admin-bg: var(--admin-bg-app);
+  --admin-line: var(--admin-border);
+  --admin-muted: var(--admin-text-muted);
+  --admin-danger: var(--admin-status-danger);
+  --admin-danger-bg: var(--admin-status-danger-bg);
 }
 
 * {

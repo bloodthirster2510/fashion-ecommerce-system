@@ -1,3 +1,4 @@
+import { Button, Drawer, StatusBadge } from '../../../components/ui'
 import type { AdminUser } from '../../auth/adminSession'
 import type { ManagedUser } from '../customer.types'
 import { formatDate } from '../customer.utils'
@@ -38,58 +39,37 @@ export function CustomerDetailDrawer({
   const primaryAddress = addresses.find((address) => address.isDefault) ?? addresses[0]
 
   return (
-    <div className="admin-drawer-layer" role="presentation">
-      <button
-        aria-label="Đóng chi tiết khách hàng"
-        className="admin-drawer-backdrop"
-        type="button"
-        onClick={onClose}
-      />
-
-      <aside className="admin-user-drawer" aria-label="Chi tiết khách hàng">
-        <header className="admin-drawer-header">
-          <div className="admin-user-identity">
-            <span className="admin-user-avatar" aria-hidden="true">
-              {getDisplayName(user).trim().charAt(0).toUpperCase() || 'U'}
-            </span>
-            <div>
-              <h2>{getDisplayName(user)}</h2>
-              <p>{user.email}</p>
-            </div>
-          </div>
-
-          <button className="admin-icon-button" type="button" aria-label="Đóng" onClick={onClose}>
-            ×
-          </button>
-        </header>
-
+    <Drawer
+      isOpen={Boolean(user)}
+      title={getDisplayName(user)}
+      description={user.email}
+      onClose={onClose}
+    >
         {isLoading ? <div className="admin-drawer-loading">Đang tải chi tiết...</div> : null}
 
         <section className="admin-drawer-section" aria-label="Trạng thái tài khoản">
           <div className="admin-detail-row">
             <span>Trạng thái</span>
-            <strong className={`admin-status-pill ${user.isActive ? 'is-active' : 'is-blocked'}`}>
+            <StatusBadge tone={user.isActive ? 'success' : 'danger'}>
               {user.isActive ? 'Hoạt động' : 'Bị khóa'}
-            </strong>
+            </StatusBadge>
           </div>
 
           <div className="admin-drawer-actions">
-            <button
-              className={user.isActive ? 'admin-danger-button' : 'admin-primary-button'}
-              type="button"
+            <Button
+              variant={user.isActive ? 'danger' : 'primary'}
               disabled={!canManageUser}
               onClick={() => onRequestStatusChange(user, !user.isActive)}
             >
               {user.isActive ? 'Khóa tài khoản' : 'Mở khóa'}
-            </button>
-            <button
-              className="admin-secondary-button"
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
               disabled={!canManageUser}
               onClick={() => onRequestPasswordReset(user)}
             >
               Yêu cầu đổi mật khẩu
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -144,8 +124,7 @@ export function CustomerDetailDrawer({
             Cần quyền customers.manage để đổi trạng thái hoặc yêu cầu đổi mật khẩu.
           </p>
         ) : null}
-      </aside>
-    </div>
+    </Drawer>
   )
 }
 

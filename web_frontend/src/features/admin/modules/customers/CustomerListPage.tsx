@@ -1,4 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Button,
+  DataTable,
+  EmptyState,
+  Field,
+  FilterBar,
+  KpiCard,
+  KpiGrid,
+  Modal,
+  PageHeader,
+  Pagination,
+  StatusBadge,
+  type DataTableColumn,
+} from '../../components/ui'
 import type { AdminUser } from '../auth/adminSession'
 import { CustomerDetailDrawer } from './components/CustomerDetailDrawer'
 import { formatDate } from './customer.utils'
@@ -68,7 +82,6 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
     () => users.filter((user) => user.isActive).length,
     [users],
   )
-
   const loadUsers = useCallback(async () => {
     setIsLoading(true)
     setErrorMessage('')
@@ -199,47 +212,105 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       : `Hệ thống sẽ thu hồi phiên đăng nhập hiện tại của ${getUserTitle(pendingAction.user)}.`
     : ''
 
+  const columns: Array<DataTableColumn<ManagedUser>> = [
+    {
+      key: 'customer',
+      header: 'Khách hàng',
+      render: (user) => (
+        <div className="admin-user-cell">
+          <span className="admin-user-avatar" aria-hidden="true">
+            {getUserTitle(user).trim().charAt(0).toUpperCase() || 'U'}
+          </span>
+          <div>
+            <strong>{getUserTitle(user)}</strong>
+            <small>{user.profileCompleted ? 'Đã hoàn thiện hồ sơ' : 'Chưa hoàn thiện hồ sơ'}</small>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'contact',
+      header: 'Liên hệ',
+      render: (user) => (
+        <div className="admin-contact-cell">
+          <span>{user.email}</span>
+          <small>{user.phone || 'Chưa có số điện thoại'}</small>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Trạng thái',
+      render: (user) => (
+        <StatusBadge tone={user.isActive ? 'success' : 'danger'}>
+          {user.isActive ? 'Hoạt động' : 'Bị khóa'}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: 'points',
+      header: 'Điểm',
+      render: (user) => (user.loyaltyPoint ?? 0).toLocaleString('vi-VN'),
+    },
+    {
+      key: 'createdAt',
+      header: 'Ngày tạo',
+      render: (user) => formatDate(user.createdAt),
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      render: (user) => {
+        const canManageRow = canEditUsers && currentUser._id !== user._id
+
+        return (
+          <div className="admin-row-actions" onClick={(event) => event.stopPropagation()}>
+            <Button variant="secondary" onClick={() => void handleOpenUser(user)}>
+              Xem
+            </Button>
+            <Button
+              variant={user.isActive ? 'danger' : 'secondary'}
+              disabled={!canManageRow}
+              onClick={() => requestStatusChange(user, !user.isActive)}
+            >
+              {user.isActive ? 'Khóa' : 'Mở'}
+            </Button>
+          </div>
+        )
+      },
+    },
+  ]
+
   return (
-    <section className="admin-users-page" aria-busy={isLoading}>
-      <header className="admin-page-heading">
-        <div>
-          <p>Quản lý tài khoản</p>
-          <h1>Khách hàng</h1>
-        </div>
+    <section className="admin-ui-page" aria-busy={isLoading}>
+      <PageHeader
+        title="Khách hàng"
+        description="Tra cứu tài khoản mua hàng, kiểm tra trạng thái và xử lý khóa hoặc mở lại tài khoản khi cần."
+        breadcrumbs={['Khách hàng', 'Danh sách']}
+        actions={(
+          <Button variant="secondary" onClick={() => void loadUsers()}>
+            Làm mới
+          </Button>
+        )}
+      />
 
-        <button className="admin-secondary-button" type="button" onClick={() => void loadUsers()}>
-          Làm mới
-        </button>
-      </header>
+      <KpiGrid>
+        <KpiCard label="Tổng theo bộ lọc" value={totalItems.toLocaleString('vi-VN')} meta="Từ danh sách khách hàng" />
+        <KpiCard label="Trang hiện tại" value={users.length.toLocaleString('vi-VN')} meta={`${page}/${totalPages} trang`} />
+        <KpiCard label="Hoạt động trong trang" value={activeCount.toLocaleString('vi-VN')} meta="Tính trên dữ liệu đang hiển thị" />
+      </KpiGrid>
 
-      <div className="admin-user-stats" aria-label="Thống kê khách hàng">
-        <div>
-          <span>Tổng tài khoản</span>
-          <strong>{totalItems}</strong>
-        </div>
-        <div>
-          <span>Đang hiển thị</span>
-          <strong>{users.length}</strong>
-        </div>
-        <div>
-          <span>Hoạt động</span>
-          <strong>{activeCount}</strong>
-        </div>
-      </div>
-
-      <div className="admin-table-toolbar">
-        <label className="admin-user-search">
-          <span>Tìm kiếm</span>
+      <FilterBar>
+        <Field label="Tìm kiếm" grow>
           <input
             type="search"
             value={keywordInput}
             onChange={(event) => setKeywordInput(event.target.value)}
             placeholder="Tên, email hoặc số điện thoại"
           />
-        </label>
+        </Field>
 
-        <label>
-          <span>Trạng thái</span>
+        <Field label="Trạng thái">
           <select
             value={statusFilter}
             onChange={(event) => changeStatusFilter(event.target.value as StatusFilter)}
@@ -250,8 +321,8 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
               </option>
             ))}
           </select>
-        </label>
-      </div>
+        </Field>
+      </FilterBar>
 
       {notice ? (
         <p className={`admin-notice is-${notice.type}`} role="status">
@@ -260,124 +331,34 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       ) : null}
 
       {errorMessage ? (
-        <div className="admin-empty-state" role="alert">
-          <strong>Không tải được danh sách</strong>
-          <span>{errorMessage}</span>
-          <button className="admin-secondary-button" type="button" onClick={() => void loadUsers()}>
-            Thử lại
-          </button>
-        </div>
+        <EmptyState
+          title="Không tải được danh sách"
+          description={errorMessage}
+          role="alert"
+          action={(
+            <Button variant="secondary" onClick={() => void loadUsers()}>
+              Thử lại
+            </Button>
+          )}
+        />
       ) : (
-        <div className="admin-table-shell">
-          <table className="admin-users-table">
-            <thead>
-              <tr>
-                <th>Khách hàng</th>
-                <th>Liên hệ</th>
-                <th>Trạng thái</th>
-                <th>Điểm</th>
-                <th>Ngày tạo</th>
-                <th>Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6}>
-                    <div className="admin-table-loading">Đang tải danh sách...</div>
-                  </td>
-                </tr>
-              ) : null}
-
-              {!isLoading && users.length === 0 ? (
-                <tr>
-                  <td colSpan={6}>
-                    <div className="admin-table-loading">Không có tài khoản phù hợp.</div>
-                  </td>
-                </tr>
-              ) : null}
-
-              {!isLoading
-                ? users.map((user) => {
-                    const canManageRow = canEditUsers && currentUser._id !== user._id
-
-                    return (
-                      <tr key={user._id}>
-                        <td>
-                          <div className="admin-user-cell">
-                            <span className="admin-user-avatar" aria-hidden="true">
-                              {getUserTitle(user).trim().charAt(0).toUpperCase() || 'U'}
-                            </span>
-                            <div>
-                              <strong>{getUserTitle(user)}</strong>
-                              <small>{user.profileCompleted ? 'Đã hoàn thiện hồ sơ' : 'Chưa hoàn thiện hồ sơ'}</small>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="admin-contact-cell">
-                            <span>{user.email}</span>
-                            <small>{user.phone || 'Chưa có số điện thoại'}</small>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`admin-status-pill ${user.isActive ? 'is-active' : 'is-blocked'}`}>
-                            {user.isActive ? 'Hoạt động' : 'Bị khóa'}
-                          </span>
-                        </td>
-                        <td>{user.loyaltyPoint ?? 0}</td>
-                        <td>{formatDate(user.createdAt)}</td>
-                        <td>
-                          <div className="admin-row-actions">
-                            <button
-                              className="admin-link-button"
-                              type="button"
-                              onClick={() => void handleOpenUser(user)}
-                            >
-                              Xem
-                            </button>
-                            <button
-                              className={user.isActive ? 'admin-danger-link' : 'admin-link-button'}
-                              type="button"
-                              disabled={!canManageRow}
-                              onClick={() => requestStatusChange(user, !user.isActive)}
-                            >
-                              {user.isActive ? 'Khóa' : 'Mở'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })
-                : null}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          items={users}
+          getRowKey={(user) => user._id}
+          isLoading={isLoading}
+          emptyText="Không có tài khoản phù hợp."
+          onRowClick={(user) => void handleOpenUser(user)}
+        />
       )}
 
-      <footer className="admin-table-footer">
-        <span>
-          Trang {page} / {totalPages}
-        </span>
-        <div>
-          <button
-            className="admin-secondary-button"
-            type="button"
-            disabled={page <= 1 || isLoading}
-            onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-          >
-            Trước
-          </button>
-          <button
-            className="admin-secondary-button"
-            type="button"
-            disabled={page >= totalPages || isLoading}
-            onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
-          >
-            Sau
-          </button>
-        </div>
-      </footer>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        isDisabled={isLoading}
+        onPageChange={setPage}
+      />
 
       <CustomerDetailDrawer
         user={selectedUser}
@@ -388,32 +369,30 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
         onRequestPasswordReset={requestPasswordReset}
       />
 
-      {pendingAction ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-confirm-title">
-          <div className="admin-confirm-box">
-            <h2 id="admin-confirm-title">{confirmTitle}</h2>
-            <p>{confirmBody}</p>
-            <div>
-              <button
-                className="admin-secondary-button"
-                type="button"
-                disabled={actionLoading}
-                onClick={() => setPendingAction(null)}
-              >
-                Hủy
-              </button>
-              <button
-                className="admin-primary-button"
-                type="button"
-                disabled={actionLoading}
-                onClick={() => void handleConfirmAction()}
-              >
-                {actionLoading ? 'Đang xử lý...' : 'Xác nhận'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <Modal
+        isOpen={Boolean(pendingAction)}
+        title={confirmTitle}
+        description={confirmBody}
+        onClose={() => setPendingAction(null)}
+        actions={(
+          <>
+            <Button
+              variant="secondary"
+              disabled={actionLoading}
+              onClick={() => setPendingAction(null)}
+            >
+              Hủy
+            </Button>
+            <Button
+              variant="primary"
+              disabled={actionLoading}
+              onClick={() => void handleConfirmAction()}
+            >
+              {actionLoading ? 'Đang xử lý...' : 'Xác nhận'}
+            </Button>
+          </>
+        )}
+      />
     </section>
   )
 }
