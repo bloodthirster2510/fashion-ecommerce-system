@@ -59,8 +59,8 @@ export const paymentSections: Array<{
 }> = [
   {
     key: 'all',
-    label: 'V?n h?nh ??n h?ng',
-    helper: 'Theo d?i to?n b? ??n c?n x? l?, kh?ng gi?i h?n theo ph??ng th?c thanh to?n.',
+    label: 'Vận hành đơn hàng',
+    helper: 'Theo dõi toàn bộ đơn cần xử lý, không giới hạn theo phương thức thanh toán.',
     methods: supportedPaymentMethods,
   },
   {
