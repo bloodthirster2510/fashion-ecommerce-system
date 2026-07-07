@@ -36,7 +36,6 @@ import { NotificationSummaryProvider } from '../notifications/NotificationSummar
 import { useNotificationSummary } from '../notifications/notification-summary-context'
 import type { NotificationSummary } from '../notifications/notification-summary.types'
 import { CommandMenu, type CommandMenuItem } from '../components/ui'
-import shopNameImage from '../../../assets/images/ShopName.png'
 
 const ManagerListPage = lazy(() =>
   import('../modules/managers/ManagerListPage').then((module) => ({ default: module.ManagerListPage })),
@@ -139,6 +138,14 @@ const routePermissions: Partial<Record<NavId, string>> = {
   reports: 'reports.read',
   settings: 'admin',
 }
+
+const navHelperOverrides: Partial<Record<NavId, string>> = {
+  orders: 'Xử lý & giao hàng',
+  ordersLookup: 'Tra cứu & hóa đơn',
+  ordersOnline: 'Đối soát online',
+}
+
+const getNavHelper = (item: NavItem) => navHelperOverrides[item.id] ?? item.helper
 
 const canAccessRoute = (user: AdminUser, route: NavItem) => {
   if (user.role === 'admin') {
@@ -514,10 +521,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     <main className={`admin-layout${isSidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}>
       <aside className="admin-sidebar" aria-label="Admin navigation">
         <div className="admin-brand">
-          <span className="admin-sidebar-logo">
-            <img src={shopNameImage} alt="CD Shop" />
+          <span className="admin-brand-copy">
+            <strong>CD Shop</strong>
+            <small>Admin Workspace</small>
           </span>
-          <span>Admin Workspace</span>
           <button
             className="admin-sidebar-toggle"
             type="button"
@@ -544,16 +551,17 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                     !(item.id === 'orders' && (orderSectionParam === 'online' || orderSectionParam === 'cod'))
                 const isDisabled = !item.isImplemented
                 const notificationBadge = getNavNotificationBadge(item.id, summary)
+                const navHelper = getNavHelper(item)
 
                 return (
                   <button
                     aria-current={isActive ? 'page' : undefined}
                     aria-disabled={isDisabled || undefined}
-                    aria-label={`${item.label}: ${item.helper}`}
+                    aria-label={`${item.label}: ${navHelper}`}
                     className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
                     type="button"
                     key={item.id}
-                    title={item.helper}
+                    title={navHelper}
                     onClick={() => (isDisabled ? undefined : handleNavigate(item))}
                   >
                     <Icon />
@@ -562,6 +570,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                         {item.label}
                         {isDisabled ? <em className="admin-nav-badge">Sắp ra mắt</em> : null}
                       </strong>
+                      <small>{navHelper}</small>
                     </span>
                     {!isDisabled && notificationBadge ? (
                       <em
