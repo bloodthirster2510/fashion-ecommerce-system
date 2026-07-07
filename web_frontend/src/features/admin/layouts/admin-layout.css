@@ -215,12 +215,12 @@
 }
 
 .admin-nav-item.is-active {
-  border-color: rgba(255, 255, 255, 0.36);
-  color: #f3f8fb;
-  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.58);
+  color: #203346;
+  background: #eef4f9;
   box-shadow:
     inset 4px 0 0 #fff,
-    0 10px 20px rgba(20, 33, 46, 0.14);
+    0 10px 20px rgba(12, 24, 36, 0.18);
 }
 
 .admin-nav-item.is-child {
@@ -243,10 +243,12 @@
 
 .admin-nav-item.is-child.is-active,
 .admin-nav-item.is-child.is-active:hover {
-  border-color: transparent;
-  color: #f3f8fb;
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: inset 2px 0 0 #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #203346;
+  background: #eef4f9;
+  box-shadow:
+    inset 2px 0 0 #fff,
+    0 8px 16px rgba(12, 24, 36, 0.16);
 }
 
 .admin-nav-item.is-child strong {
@@ -289,6 +291,10 @@
   color: #fff;
 }
 
+.admin-nav-item.is-active strong {
+  color: #203346;
+}
+
 .admin-nav-item small {
   overflow: hidden;
   color: #c3d1dc;
@@ -300,7 +306,7 @@
 }
 
 .admin-nav-item.is-active small {
-  color: #dfeaf4;
+  color: #5f6f7d;
 }
 
 .admin-nav-item.is-disabled {
