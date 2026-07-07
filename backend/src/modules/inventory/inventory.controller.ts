@@ -1,11 +1,16 @@
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
+import { productService } from '../catalog/products/product.service';
 import { InventoryServiceError, inventoryService } from './inventory.service';
 import type {
   AdjustInventoryInput,
   CreateInventoryImportInput,
+  CreateInventoryReceiptInput,
   InventoryImportListQueryInput,
   InventoryListQueryInput,
+  InventoryReceiptListQueryInput,
+  InventoryReceiptStatus,
+  UpdateInventoryReceiptInput,
   ReserveInventoryInput,
 } from './inventory.types';
 
@@ -128,10 +133,67 @@ const parseImportQuery = (req: Request): InventoryImportListQueryInput => ({
   limit: parsePositiveInteger(req.query.limit, 'limit'),
 });
 
+const parseReceiptStatus = (value: unknown): InventoryReceiptStatus | undefined => {
+  const status = parseString(value);
+  if (!status) return undefined;
+
+  if (!['draft', 'confirmed', 'cancelled'].includes(status)) {
+    throw new InventoryServiceError('Invalid status', 400);
+  }
+
+  return status as InventoryReceiptStatus;
+};
+
+const parseReceiptQuery = (req: Request): InventoryReceiptListQueryInput => ({
+  status: parseReceiptStatus(req.query.status),
+  from: parseDate(req.query.from, 'from'),
+  to: parseDate(req.query.to, 'to'),
+  page: parsePositiveInteger(req.query.page, 'page'),
+  limit: parsePositiveInteger(req.query.limit, 'limit'),
+});
+
+const parseBodyDate = (value: unknown, fieldName: string) => {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    throw new InventoryServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new InventoryServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  return date;
+};
+
+const getAuthenticatedUserId = (req: Request) => req.user?.userId;
+
+const normalizeReceiptBody = <T extends CreateInventoryReceiptInput | UpdateInventoryReceiptInput>(body: T): T => ({
+  ...body,
+  importDate: parseBodyDate(body.importDate, 'importDate'),
+});
+
 const getInventory = async (req: Request, res: Response) => {
   try {
     const result = await inventoryService.getInventory(parseInventoryQuery(req));
     return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getInventoryProducts = async (_req: Request, res: Response) => {
+  try {
+    const products = await productService.getManagementProducts();
+    return ok(res, products);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
@@ -153,6 +215,68 @@ const getImports = async (req: Request, res: Response) => {
   try {
     const result = await inventoryService.getImports(parseImportQuery(req));
     return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getReceipts = async (req: Request, res: Response) => {
+  try {
+    const result = await inventoryService.getReceipts(parseReceiptQuery(req));
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getReceiptById = async (req: Request, res: Response) => {
+  try {
+    const receipt = await inventoryService.getReceiptById(req.params.id as string);
+    return ok(res, receipt);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const createReceipt = async (req: Request, res: Response) => {
+  try {
+    const body = normalizeReceiptBody(req.body as CreateInventoryReceiptInput);
+    const receipt = await inventoryService.createReceipt(body, getAuthenticatedUserId(req));
+    return created(res, receipt);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const updateReceipt = async (req: Request, res: Response) => {
+  try {
+    const body = normalizeReceiptBody(req.body as UpdateInventoryReceiptInput);
+    const receipt = await inventoryService.updateReceipt(req.params.id as string, body);
+    return ok(res, receipt);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const confirmReceipt = async (req: Request, res: Response) => {
+  try {
+    const receipt = await inventoryService.confirmReceipt(req.params.id as string);
+    return ok(res, receipt);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const cancelReceipt = async (req: Request, res: Response) => {
+  try {
+    const receipt = await inventoryService.cancelReceipt(req.params.id as string);
+    return ok(res, receipt);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
@@ -291,8 +415,10 @@ const expireReservations = async (_req: Request, res: Response) => {
 
 export {
   adjustInventory,
+  cancelReceipt,
   commitReservations,
   createImport,
+  createReceipt,
   deleteInventory,
   deleteImport,
   expireReservations,
@@ -300,7 +426,12 @@ export {
   getImportSuppliers,
   getImports,
   getInventory,
+  getInventoryProducts,
   getLowStockInventory,
+  getReceiptById,
+  getReceipts,
+  confirmReceipt,
   releaseReservations,
   reserveInventory,
+  updateReceipt,
 };

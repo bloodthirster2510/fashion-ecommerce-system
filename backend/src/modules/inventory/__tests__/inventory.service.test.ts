@@ -1,5 +1,5 @@
 import mongoose, { Types } from 'mongoose';
-import { Inventory, InventoryImport, InventoryReservation, Product } from '../../../database/models';
+import { Inventory, InventoryImport, InventoryReceipt, InventoryReservation, Product } from '../../../database/models';
 import { InventoryServiceError, inventoryService } from '../inventory.service';
 
 jest.mock('../../../database/models', () => ({
@@ -15,10 +15,18 @@ jest.mock('../../../database/models', () => ({
   },
   InventoryImport: {
     create: jest.fn(),
+    exists: jest.fn(),
     find: jest.fn(),
     findById: jest.fn(),
     countDocuments: jest.fn(),
     distinct: jest.fn(),
+  },
+  InventoryReceipt: {
+    create: jest.fn(),
+    find: jest.fn(),
+    findById: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+    countDocuments: jest.fn(),
   },
   InventoryReservation: {
     create: jest.fn(),
@@ -29,6 +37,7 @@ jest.mock('../../../database/models', () => ({
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedInventoryImport = InventoryImport as jest.Mocked<typeof InventoryImport>;
+const mockedInventoryReceipt = InventoryReceipt as jest.Mocked<typeof InventoryReceipt>;
 const mockedInventoryReservation = InventoryReservation as jest.Mocked<typeof InventoryReservation>;
 const startSessionSpy = jest.spyOn(mongoose, 'startSession');
 
@@ -77,12 +86,28 @@ const productDocument = {
   ],
 };
 
+const createQueryLikePromise = <T>(value: T) => {
+  const query = Promise.resolve(value) as Promise<T> & { session: jest.Mock };
+  query.session = jest.fn().mockResolvedValue(value);
+
+  return query;
+};
+
+const mockReceiptCodeLookup = (receiptCodes: string[] = []) => {
+  const lean = jest.fn().mockResolvedValue(receiptCodes.map((receiptCode) => ({ receiptCode })));
+  const select = jest.fn().mockReturnValue({ lean });
+  mockedInventoryReceipt.find.mockReturnValue({ select } as never);
+
+  return { select, lean };
+};
+
 describe('inventoryService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     mockSession = createMockSession();
     startSessionSpy.mockResolvedValue(mockSession as never);
-    mockedProduct.findById.mockResolvedValue(productDocument as never);
+    mockedProduct.findById.mockReturnValue(createQueryLikePromise(productDocument) as never);
+    mockReceiptCodeLookup();
   });
 
   it('creates an import record and increments inventory quantities', async () => {
@@ -175,6 +200,298 @@ describe('inventoryService', () => {
     expect(mockSession.endSession).toHaveBeenCalledTimes(1);
   });
 
+  it('creates a draft receipt with a generated PN code and calculated totals', async () => {
+    mockReceiptCodeLookup(['PN00001', 'PN00009']);
+    const receiptRecord = { _id: new Types.ObjectId(), receiptCode: 'PN00010' };
+    mockedInventoryReceipt.create.mockResolvedValue(receiptRecord as never);
+
+    const result = await inventoryService.createReceipt(
+      {
+        supplierName: ' Công Ty ABC ',
+        note: ' Nhập bổ sung ',
+        importDate: new Date('2026-07-04T00:00:00.000Z'),
+        lines: [
+          {
+            productId,
+            variantId,
+            colorVariantId,
+            detail: [
+              { size: ' M ', quantity: 3, importPrice: 100000 },
+              { size: 'L', quantity: 2, importPrice: 120000 },
+            ],
+          },
+        ],
+      },
+      userId,
+    );
+
+    expect(result).toBe(receiptRecord);
+    expect(mockedInventoryReceipt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiptCode: 'PN00010',
+        supplierName: 'Công Ty ABC',
+        note: 'Nhập bổ sung',
+        createdBy: expect.any(Types.ObjectId),
+        status: 'draft',
+        totalQuantity: 5,
+        totalAmount: 540000,
+        lines: [
+          {
+            productId: expect.any(Types.ObjectId),
+            variantId: expect.any(Types.ObjectId),
+            colorVariantId: expect.any(Types.ObjectId),
+            detail: [
+              { size: 'M', quantity: 3, importPrice: 100000 },
+              { size: 'L', quantity: 2, importPrice: 120000 },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(mockedInventoryImport.create).not.toHaveBeenCalled();
+    expect(mockedInventory.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('retries generated receipt codes when a duplicate key race happens', async () => {
+    mockReceiptCodeLookup(['PN00001']);
+    const duplicateKeyError = Object.assign(new Error('duplicate key'), { code: 11000 });
+    const receiptRecord = { _id: new Types.ObjectId(), receiptCode: 'PN00002' };
+
+    mockedInventoryReceipt.create
+      .mockRejectedValueOnce(duplicateKeyError)
+      .mockResolvedValueOnce(receiptRecord as never);
+
+    const result = await inventoryService.createReceipt({
+      lines: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          detail: [{ size: 'M', quantity: 1 }],
+        },
+      ],
+    });
+
+    expect(result).toBe(receiptRecord);
+    expect(mockedInventoryReceipt.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns a conflict when an admin-provided receipt code already exists', async () => {
+    const duplicateKeyError = Object.assign(new Error('duplicate key'), { code: 11000 });
+    mockedInventoryReceipt.create.mockRejectedValue(duplicateKeyError);
+
+    await expect(
+      inventoryService.createReceipt({
+        receiptCode: 'PN00010',
+        lines: [
+          {
+            productId,
+            variantId,
+            colorVariantId,
+            detail: [{ size: 'M', quantity: 1 }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Receipt code already exists',
+      statusCode: 409,
+    });
+  });
+
+  it('rejects unsafe receipt quantities before writing data', async () => {
+    await expect(
+      inventoryService.createReceipt({
+        lines: [
+          {
+            productId,
+            variantId,
+            colorVariantId,
+            detail: [{ size: 'M', quantity: 1_000_001 }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Import detail quantity must be an integer greater than or equal to 1',
+      statusCode: 400,
+    });
+
+    expect(mockedInventoryReceipt.create).not.toHaveBeenCalled();
+  });
+
+  it('confirms a draft receipt by creating linked import lots and incrementing inventory', async () => {
+    const receiptId = new Types.ObjectId();
+    const receiptRecord = {
+      _id: receiptId,
+      receiptCode: 'PN00007',
+      supplierName: 'Công Ty ABC',
+      status: 'confirmed',
+      lines: [
+        {
+          productId: new Types.ObjectId(productId),
+          variantId: new Types.ObjectId(variantId),
+          colorVariantId: new Types.ObjectId(colorVariantId),
+          detail: [
+            { size: 'M', quantity: 4, importPrice: 100000 },
+            { size: 'L', quantity: 6, importPrice: 100000 },
+          ],
+        },
+      ],
+    };
+    const importRecord = { _id: new Types.ObjectId() };
+
+    mockedInventoryReceipt.findOneAndUpdate.mockResolvedValue(receiptRecord as never);
+    mockedInventoryImport.exists.mockReturnValue({ session: jest.fn().mockResolvedValue(null) } as never);
+    mockedInventoryImport.create.mockResolvedValue([importRecord] as never);
+    mockedInventory.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() } as never);
+
+    const result = await inventoryService.confirmReceipt(receiptId.toString());
+
+    expect(result).toBe(receiptRecord);
+    expect(mockedInventoryImport.create).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          importCode: 'PN00007-01',
+          receiptId,
+          receiptCode: 'PN00007',
+          supplierName: 'Công Ty ABC',
+          productId: expect.any(Types.ObjectId),
+          variantId: expect.any(Types.ObjectId),
+          colorVariantId: expect.any(Types.ObjectId),
+          detail: [
+            { size: 'M', quantity: 4, remainingQuantity: 4, importPrice: 100000 },
+            { size: 'L', quantity: 6, remainingQuantity: 6, importPrice: 100000 },
+          ],
+          totalAmount: 1000000,
+        }),
+      ],
+      { session: mockSession },
+    );
+    expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(receiptRecord.status).toBe('confirmed');
+    expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects confirmation when a draft receipt has no product lines', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      receiptCode: 'PN00008',
+      status: 'draft',
+      lines: [],
+      save: jest.fn(),
+    };
+    mockedInventoryReceipt.findOneAndUpdate.mockResolvedValue(receiptRecord as never);
+
+    await expect(
+      inventoryService.confirmReceipt(receiptRecord._id.toString()),
+    ).rejects.toMatchObject({
+      message: 'Receipt must include at least one product before confirmation',
+      statusCode: 400,
+    });
+
+    expect(mockedInventoryImport.create).not.toHaveBeenCalled();
+    expect(mockedInventory.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an already confirmed receipt without creating duplicate import lots', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      receiptCode: 'PN00009',
+      status: 'confirmed',
+      lines: [
+        {
+          productId: new Types.ObjectId(productId),
+          variantId: new Types.ObjectId(variantId),
+          colorVariantId: new Types.ObjectId(colorVariantId),
+          detail: [{ size: 'M', quantity: 2, importPrice: 100000 }],
+        },
+      ],
+    };
+    mockedInventoryReceipt.findOneAndUpdate.mockResolvedValue(null);
+    mockedInventoryReceipt.findById.mockReturnValue({
+      session: jest.fn().mockResolvedValue(receiptRecord),
+    } as never);
+
+    const result = await inventoryService.confirmReceipt(receiptRecord._id.toString());
+
+    expect(result).toBe(receiptRecord);
+    expect(mockedInventoryImport.create).not.toHaveBeenCalled();
+    expect(mockedInventory.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('updates only draft receipts and recalculates totals', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      status: 'draft',
+      receiptCode: 'PN00011',
+      supplierName: '',
+      note: '',
+      importDate: new Date('2026-07-04T00:00:00.000Z'),
+      lines: [],
+      totalQuantity: 0,
+      totalAmount: 0,
+      save: jest.fn().mockImplementation(function save(this: unknown) {
+        return Promise.resolve(this);
+      }),
+    };
+    mockedInventoryReceipt.findById.mockResolvedValue(receiptRecord as never);
+
+    const result = await inventoryService.updateReceipt(receiptRecord._id.toString(), {
+      supplierName: 'Nhà cung cấp mới',
+      lines: [
+        {
+          productId,
+          variantId,
+          colorVariantId,
+          detail: [{ size: 'M', quantity: 8, importPrice: 50000 }],
+        },
+      ],
+    });
+
+    expect(result).toBe(receiptRecord);
+    expect(receiptRecord.supplierName).toBe('Nhà cung cấp mới');
+    expect(receiptRecord.totalQuantity).toBe(8);
+    expect(receiptRecord.totalAmount).toBe(400000);
+    expect(receiptRecord.save).toHaveBeenCalled();
+  });
+
+  it('rejects editing a confirmed receipt', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      status: 'confirmed',
+    };
+    mockedInventoryReceipt.findById.mockResolvedValue(receiptRecord as never);
+
+    await expect(
+      inventoryService.updateReceipt(receiptRecord._id.toString(), {
+        supplierName: 'Không hợp lệ',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Only draft receipts can be edited',
+      statusCode: 409,
+    });
+  });
+
+  it('cancels only draft receipts', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      status: 'draft',
+      cancelledAt: null,
+      save: jest.fn().mockImplementation(function save(this: unknown) {
+        return Promise.resolve(this);
+      }),
+    };
+    mockedInventoryReceipt.findById.mockResolvedValue(receiptRecord as never);
+
+    const result = await inventoryService.cancelReceipt(receiptRecord._id.toString());
+
+    expect(result).toBe(receiptRecord);
+    expect(receiptRecord.status).toBe('cancelled');
+    expect(receiptRecord.cancelledAt).toBeInstanceOf(Date);
+    expect(receiptRecord.save).toHaveBeenCalled();
+  });
+
   it('deletes an import with conditional stock decrements', async () => {
     const importRecord = {
       _id: new Types.ObjectId(),
@@ -211,6 +528,31 @@ describe('inventoryService', () => {
     expect(importRecord.deleteOne).toHaveBeenCalledWith({ session: mockSession });
     expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
     expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects deleting an import lot generated from a receipt', async () => {
+    const receiptId = new Types.ObjectId();
+    const importRecord = {
+      _id: new Types.ObjectId(),
+      receiptId,
+      productId: new Types.ObjectId(productId),
+      variantId: new Types.ObjectId(variantId),
+      colorVariantId: new Types.ObjectId(colorVariantId),
+      detail: [{ size: 'M', quantity: 10, remainingQuantity: 10 }],
+      deleteOne: jest.fn().mockResolvedValue(undefined),
+    };
+
+    mockedInventoryImport.findById.mockResolvedValue(importRecord as never);
+
+    await expect(
+      inventoryService.deleteImport(importRecord._id.toString()),
+    ).rejects.toMatchObject({
+      message: 'Cannot delete an import lot generated from a receipt',
+      statusCode: 409,
+    });
+
+    expect(mockedInventory.updateOne).not.toHaveBeenCalled();
+    expect(importRecord.deleteOne).not.toHaveBeenCalled();
   });
 
   it('aborts the delete transaction when a conditional stock decrement fails midway', async () => {
@@ -467,9 +809,29 @@ describe('inventoryService', () => {
       {
         returnDocument: 'before',
         runValidators: true,
+        session: mockSession,
       },
     );
     expect(sort).toHaveBeenCalledWith({ createdAt: -1 });
+    expect(mockedInventoryImport.create).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          supplierName: 'Điều chỉnh tồn kho',
+          productId: previousInventory.productId,
+          variantId: previousInventory.variantId,
+          colorVariantId: previousInventory.colorVariantId,
+          detail: [
+            {
+              size: 'M',
+              quantity: 5,
+              remainingQuantity: 5,
+            },
+          ],
+          totalAmount: 0,
+        }),
+      ],
+      { session: mockSession },
+    );
     expect(result).toBe(updatedInventory);
   });
 
@@ -522,6 +884,7 @@ describe('inventoryService', () => {
       {
         returnDocument: 'before',
         runValidators: true,
+        session: mockSession,
       },
     );
     expect(sort).toHaveBeenCalledWith({ createdAt: 1 });

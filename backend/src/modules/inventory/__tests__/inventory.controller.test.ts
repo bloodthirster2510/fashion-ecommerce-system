@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
-import { getInventory } from '../inventory.controller';
+import { createReceipt, getInventory, getInventoryProducts } from '../inventory.controller';
+import { productService } from '../../catalog/products/product.service';
 import { InventoryServiceError, inventoryService } from '../inventory.service';
 
 jest.mock('../inventory.service', () => ({
@@ -13,11 +14,19 @@ jest.mock('../inventory.service', () => ({
     }
   },
   inventoryService: {
+    createReceipt: jest.fn(),
     getInventory: jest.fn(),
   },
 }));
 
+jest.mock('../../catalog/products/product.service', () => ({
+  productService: {
+    getManagementProducts: jest.fn(),
+  },
+}));
+
 const mockedInventoryService = inventoryService as jest.Mocked<typeof inventoryService>;
+const mockedProductService = productService as jest.Mocked<typeof productService>;
 
 const createResponse = () => {
   const res = {
@@ -30,6 +39,19 @@ const createResponse = () => {
 
 const createRequest = (query: Request['query'] = {}) => ({
   query,
+}) as Request;
+
+const createReceiptRequest = () => ({
+  body: {
+    receiptCode: 'PN00012',
+    importDate: '2026-07-04',
+    lines: [],
+  },
+  user: {
+    userId: '665000000000000000000020',
+    email: 'admin@example.com',
+    role: 'admin',
+  },
 }) as Request;
 
 describe('inventory controller error handling', () => {
@@ -63,5 +85,41 @@ describe('inventory controller error handling', () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith({ message: 'Invalid productId' });
+  });
+
+  it('passes authenticated user and parsed import date when creating a receipt', async () => {
+    const receipt = { _id: 'receipt-id', receiptCode: 'PN00012' };
+    mockedInventoryService.createReceipt.mockResolvedValue(receipt as never);
+    const res = createResponse();
+
+    await createReceipt(createReceiptRequest(), res);
+
+    expect(mockedInventoryService.createReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receiptCode: 'PN00012',
+        importDate: expect.any(Date),
+      }),
+      '665000000000000000000020',
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Created',
+      data: receipt,
+    });
+  });
+
+  it('loads products through the inventory controller', async () => {
+    const products = [{ _id: 'product-id', name: 'Áo sơ mi' }];
+    mockedProductService.getManagementProducts.mockResolvedValue(products as never);
+    const res = createResponse();
+
+    await getInventoryProducts(createRequest(), res);
+
+    expect(mockedProductService.getManagementProducts).toHaveBeenCalledTimes(1);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Success',
+      data: products,
+    });
   });
 });
