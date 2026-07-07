@@ -7,7 +7,8 @@
   display: grid;
   grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(0, 1fr));
   align-items: end;
-  overflow: hidden;
+  gap: 14px;
+  padding: 16px;
 }
 
 .admin-orders-page .admin-table-toolbar.is-lookup > label,
@@ -20,6 +21,21 @@
 .admin-orders-page .admin-table-toolbar.is-lookup > label select {
   width: 100%;
   min-width: 0;
+  min-height: 44px;
+  font-size: 15px;
+}
+
+.admin-orders-page .admin-table-toolbar.is-lookup > label input {
+  padding-inline: 14px;
+}
+
+.admin-orders-page .admin-table-toolbar.is-lookup > label select {
+  padding-left: 12px;
+}
+
+.admin-orders-page .admin-table-toolbar.is-lookup > label span {
+  font-size: 13px;
+  font-weight: 850;
 }
 
 .admin-order-date-presets {
@@ -35,8 +51,9 @@
 }
 
 .admin-order-date-presets .admin-secondary-button {
-  min-height: 38px;
-  padding-inline: 12px;
+  min-height: 44px;
+  padding-inline: 14px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -46,9 +63,9 @@
   align-self: end;
   flex-wrap: wrap;
   gap: 8px 12px;
-  min-height: 38px;
+  min-height: 44px;
   margin: 0;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: 1px solid #d8e1e9;
   border-radius: 8px;
   background: #fff;
@@ -111,8 +128,9 @@
 }
 
 .admin-order-saved-view-actions .admin-secondary-button {
-  min-height: 38px;
-  padding-inline: 12px;
+  min-height: 44px;
+  padding-inline: 14px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
