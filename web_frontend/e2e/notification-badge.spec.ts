@@ -8,8 +8,9 @@ test('admin notification badges summarize work and navigate from the bell panel'
   await page.getByRole('button', { name: 'Xem bố cục demo' }).click()
   await expect(page).toHaveURL(/\/admin\/orders$/)
 
-  await expect(page.getByRole('button', { name: /Hóa đơn & đơn hàng.*6 đơn cần xử lý/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Kho hàng.*4 biến thể tồn kho thấp/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Thanh toán online:/ }).locator('.admin-nav-notification-badge')).toHaveText('2')
+  await expect(page.getByRole('button', { name: /^Thanh toán COD:/ }).locator('.admin-nav-notification-badge')).toHaveText('4')
+  await expect(page.getByRole('button', { name: /^Kho hàng:/ }).locator('.admin-nav-notification-badge')).toBeVisible()
 
   await page.getByRole('button', { name: '12 việc cần chú ý' }).click()
   const panel = page.getByRole('region', { name: 'Việc cần chú ý' })
