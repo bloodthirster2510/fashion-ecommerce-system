@@ -145,6 +145,25 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
   return filter;
 };
 
+const getOrderSort = (
+  query: OrderListQueryInput,
+  fallback: NonNullable<OrderListQueryInput['sort']>,
+): Record<string, 1 | -1> => {
+  switch (query.sort ?? fallback) {
+    case 'created_asc':
+      return { createdAt: 1 };
+    case 'total_desc':
+      return { totalAmount: -1, createdAt: -1 };
+    case 'total_asc':
+      return { totalAmount: 1, createdAt: -1 };
+    case 'payment_deadline_asc':
+      return { paymentDeadlineAt: 1, createdAt: -1 };
+    case 'created_desc':
+    default:
+      return { createdAt: -1 };
+  }
+};
+
 const buildStatusSummary = async (filter: Record<string, unknown>) => {
   const summaryFilter = { ...filter };
   delete summaryFilter.status;
@@ -1448,7 +1467,7 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
 
   const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
-      .sort({ createdAt: -1 })
+      .sort(getOrderSort(query, 'created_desc'))
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
@@ -1477,7 +1496,7 @@ const getOrders = async (query: OrderListQueryInput) => {
 
   const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
-      .sort({ createdAt: 1 })
+      .sort(getOrderSort(query, 'created_asc'))
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),

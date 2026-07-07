@@ -1357,12 +1357,34 @@ describe('orderService', () => {
       { $match: { paymentMethod: { $in: ['VNPAY', 'MOMO'] }, paymentStatus: { $in: ['paid', 'refunded'] } } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
+    expect(findQuery.sort).toHaveBeenCalledWith({ createdAt: 1 });
     expect(findQuery.skip).toHaveBeenCalledWith(5);
     expect(result.items).toBe(orderItems);
     expect(result.statusSummary.confirmed).toBe(3);
     expect(result.statusSummary.cancelled).toBe(1);
     expect(result.statusSummary.returned).toBe(1);
     expect(result.statusSummary.all).toBe(5);
+  });
+
+  it('applies admin order list sort options', async () => {
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(0 as never);
+    mockedOrder.aggregate.mockResolvedValue([] as never);
+
+    await orderService.getOrders({
+      sort: 'total_desc',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(findQuery.sort).toHaveBeenCalledWith({ totalAmount: -1, createdAt: -1 });
   });
 
   it('adjusts payment status through the orders service and emits realtime payment updates', async () => {
