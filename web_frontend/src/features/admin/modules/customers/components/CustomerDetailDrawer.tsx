@@ -14,7 +14,7 @@ type CustomerDetailDrawerProps = {
   onRequestPasswordReset: (user: ManagedUser) => void
 }
 
-type CustomerDetailTab = 'overview' | 'addresses' | 'admin'
+type CustomerDetailTab = 'overview' | 'addresses' | 'orders' | 'activity' | 'notes' | 'admin'
 
 const genderLabels = {
   male: 'Nam',
@@ -24,6 +24,9 @@ const genderLabels = {
 const detailTabs: Array<TabItem<CustomerDetailTab>> = [
   { value: 'overview', label: 'Tổng quan' },
   { value: 'addresses', label: 'Địa chỉ' },
+  { value: 'orders', label: 'Đơn hàng' },
+  { value: 'activity', label: 'Tương tác' },
+  { value: 'notes', label: 'Ghi chú' },
   { value: 'admin', label: 'Quản trị' },
 ]
 
@@ -146,6 +149,39 @@ export function CustomerDetailDrawer({
           ) : (
             <p className="admin-muted-text">Khách hàng chưa lưu địa chỉ.</p>
           )}
+        </section>
+      ) : null}
+
+      {activeTab === 'orders' ? (
+        <section className="admin-drawer-section admin-drawer-tab-panel" aria-label="Đơn hàng khách hàng">
+          <div className="admin-customer-placeholder">
+            <strong>Chưa nối dữ liệu đơn hàng</strong>
+            <p>
+              Tab này sẽ hiển thị các đơn gần nhất, tổng chi tiêu và link sang tra cứu đơn khi backend có endpoint theo khách hàng.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === 'activity' ? (
+        <section className="admin-drawer-section admin-drawer-tab-panel" aria-label="Tương tác khách hàng">
+          <div className="admin-customer-placeholder">
+            <strong>Chưa có timeline tương tác</strong>
+            <p>
+              Có thể gom lịch sử đăng ký, đăng nhập, đơn hàng, yêu cầu hỗ trợ và thay đổi quản trị vào đây ở bước backend tiếp theo.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === 'notes' ? (
+        <section className="admin-drawer-section admin-drawer-tab-panel" aria-label="Ghi chú nội bộ">
+          <div className="admin-customer-placeholder">
+            <strong>Chưa có ghi chú nội bộ</strong>
+            <p>
+              Backend hiện chưa có model ghi chú khách hàng, nên tab này giữ chỗ đúng layout và tránh hiển thị dữ liệu giả.
+            </p>
+          </div>
         </section>
       ) : null}
 

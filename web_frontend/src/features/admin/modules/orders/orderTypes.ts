@@ -29,10 +29,15 @@ export type OrderTabGroupKey = 'flow' | 'exceptions' | 'lookup'
 export type OrderQueueKey = 'packing' | 'handoff' | 'delivery' | 'blocked' | 'review' | 'refund' | 'payment-deadline'
 export type PaymentSectionKey = 'online' | 'cod'
 export type ShippingSimulationStatus = 'picked' | 'shipping' | 'delivered' | 'failed'
+export type OrderTableColumnKey = 'customer' | 'total' | 'status' | 'createdAt'
 
 export type Notice = {
   type: 'success' | 'error'
   message: string
+  action?: {
+    label: string
+    onClick: () => void
+  }
 }
 
 export type ShippingUpdateDialogValues = {

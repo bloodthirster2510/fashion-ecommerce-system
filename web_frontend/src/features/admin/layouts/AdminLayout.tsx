@@ -1,4 +1,27 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import {
+  BarChart3,
+  Bell,
+  Boxes,
+  CreditCard,
+  Crown,
+  Gauge,
+  Headset,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  ShieldCheck,
+  Shirt,
+  ShoppingCart,
+  Search,
+  Star,
+  Tags,
+  TicketPercent,
+  Truck,
+  Users,
+  WandSparkles,
+  type LucideIcon,
+} from 'lucide-react'
 import { hasPermission, type AdminUser } from '../modules/auth/adminSession'
 import {
   IMPLEMENTED_ADMIN_ROUTE_IDS,
@@ -8,22 +31,46 @@ import {
   type AdminRoute,
   type AdminRouteId,
 } from '../config/adminRoutes'
-import { ManagerListPage } from '../modules/managers/ManagerListPage'
-import { CatalogManagementPage } from '../modules/catalog/CatalogManagementPage'
-import { CustomerListPage } from '../modules/customers/CustomerListPage'
-import { LoyaltyPage } from '../modules/loyalty/LoyaltyPage'
-import { PromotionsPage } from '../modules/promotions/PromotionsPage'
-import { OrderListPage } from '../modules/orders/OrderListPage'
-import { ProductManagementPage } from '../modules/catalog/products/ProductManagementPage'
-import { InventoryManagementPage } from '../modules/inventory/InventoryManagementPage'
-import { ReviewManagementPage } from '../modules/reviews/ReviewManagementPage'
-import { SupportManagementPage } from '../modules/support/SupportManagementPage'
-import { VirtualTryOnManagementPage } from '../modules/virtual-try-on/VirtualTryOnManagementPage'
 import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
 import { useNotificationSummary } from '../notifications/notification-summary-context'
 import type { NotificationSummary } from '../notifications/notification-summary.types'
+import { CommandMenu, type CommandMenuItem } from '../components/ui'
 import shopNameImage from '../../../assets/images/ShopName.png'
+
+const ManagerListPage = lazy(() =>
+  import('../modules/managers/ManagerListPage').then((module) => ({ default: module.ManagerListPage })),
+)
+const CatalogManagementPage = lazy(() =>
+  import('../modules/catalog/CatalogManagementPage').then((module) => ({ default: module.CatalogManagementPage })),
+)
+const CustomerListPage = lazy(() =>
+  import('../modules/customers/CustomerListPage').then((module) => ({ default: module.CustomerListPage })),
+)
+const LoyaltyPage = lazy(() =>
+  import('../modules/loyalty/LoyaltyPage').then((module) => ({ default: module.LoyaltyPage })),
+)
+const PromotionsPage = lazy(() =>
+  import('../modules/promotions/PromotionsPage').then((module) => ({ default: module.PromotionsPage })),
+)
+const OrderListPage = lazy(() =>
+  import('../modules/orders/OrderListPage').then((module) => ({ default: module.OrderListPage })),
+)
+const ProductManagementPage = lazy(() =>
+  import('../modules/catalog/products/ProductManagementPage').then((module) => ({ default: module.ProductManagementPage })),
+)
+const InventoryManagementPage = lazy(() =>
+  import('../modules/inventory/InventoryManagementPage').then((module) => ({ default: module.InventoryManagementPage })),
+)
+const ReviewManagementPage = lazy(() =>
+  import('../modules/reviews/ReviewManagementPage').then((module) => ({ default: module.ReviewManagementPage })),
+)
+const SupportManagementPage = lazy(() =>
+  import('../modules/support/SupportManagementPage').then((module) => ({ default: module.SupportManagementPage })),
+)
+const VirtualTryOnManagementPage = lazy(() =>
+  import('../modules/virtual-try-on/VirtualTryOnManagementPage').then((module) => ({ default: module.VirtualTryOnManagementPage })),
+)
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -32,29 +79,36 @@ type AdminLayoutProps = {
 
 type NavId = AdminRouteId
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
+const ADMIN_SIDEBAR_COLLAPSED_KEY = 'admin.sidebar.collapsed'
+const adminContentFallback = (
+  <div className="admin-content-loading" role="status">
+    Đang tải màn hình...
+  </div>
+)
 
 type NavItem = AdminRoute & {
-  icon: () => ReactNode
+  icon: LucideIcon
   isImplemented: boolean
 }
 
-const navIcons: Record<NavId, () => ReactNode> = {
-  overview: DashboardIcon,
-  accounts: ShieldUserIcon,
-  customers: UsersIcon,
-  loyalty: LoyaltyIcon,
-  products: ProductsIcon,
-  catalog: TagsIcon,
-  orders: OrdersIcon,
-  ordersOnline: PaymentOnlineIcon,
-  ordersCod: PaymentCodIcon,
-  inventory: InventoryIcon,
-  promotions: CouponIcon,
-  reviews: ReviewIcon,
-  support: SupportIcon,
-  virtualTryOn: VirtualTryOnIcon,
-  reports: ReportsIcon,
-  settings: SettingsIcon,
+const navIcons: Record<NavId, LucideIcon> = {
+  overview: Gauge,
+  accounts: ShieldCheck,
+  customers: Users,
+  loyalty: Crown,
+  products: Shirt,
+  catalog: Tags,
+  orders: ShoppingCart,
+  ordersLookup: Search,
+  ordersOnline: CreditCard,
+  ordersCod: Truck,
+  inventory: Boxes,
+  promotions: TicketPercent,
+  reviews: Star,
+  support: Headset,
+  virtualTryOn: WandSparkles,
+  reports: BarChart3,
+  settings: Settings,
 }
 
 const implementedAdminRouteIds = new Set<NavId>(IMPLEMENTED_ADMIN_ROUTE_IDS)
@@ -74,6 +128,7 @@ const routePermissions: Partial<Record<NavId, string>> = {
   products: 'products.read',
   catalog: 'catalog.read',
   orders: 'orders.read',
+  ordersLookup: 'orders.read',
   ordersOnline: 'orders.read',
   ordersCod: 'orders.read',
   inventory: 'inventory.read',
@@ -102,6 +157,10 @@ const canEnterRoute = (user: AdminUser, route: NavItem) =>
   route.isImplemented && canAccessRoute(user, route)
 
 const getActiveSectionFromPath = () => {
+  if (window.location.pathname === '/admin/orders/online' || window.location.pathname === '/admin/orders/cod') {
+    return 'orders'
+  }
+
   const route = getAdminRouteByPath(window.location.pathname)
 
   return route && isImplementedRoute(route.id) ? route.id : 'orders'
@@ -109,6 +168,38 @@ const getActiveSectionFromPath = () => {
 
 const notifyAdminNavigation = () => {
   window.dispatchEvent(new Event(ADMIN_NAVIGATION_EVENT))
+}
+
+const getCurrentAdminLocation = () => ({
+  pathname: window.location.pathname,
+  search: window.location.search,
+})
+
+const getOrdersAliasTarget = (pathname: string, search: string) => {
+  const section = pathname === '/admin/orders/cod'
+    ? 'cod'
+    : pathname === '/admin/orders/online'
+      ? 'online'
+      : null
+
+  if (!section) return null
+
+  const params = new URLSearchParams(search)
+  params.set('section', section)
+  const query = params.toString()
+
+  return `/admin/orders${query ? `?${query}` : ''}`
+}
+
+const getRouteNavigationTarget = (route: AdminRoute) =>
+  getOrdersAliasTarget(route.path, '') ?? route.path
+
+const getStoredSidebarCollapsed = () => {
+  try {
+    return window.localStorage.getItem(ADMIN_SIDEBAR_COLLAPSED_KEY) === 'true'
+  } catch {
+    return false
+  }
 }
 
 export function AdminLayout(props: AdminLayoutProps) {
@@ -124,6 +215,9 @@ export function AdminLayout(props: AdminLayoutProps) {
 function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
   const [activeSection, setActiveSection] = useState<NavId>(() => getActiveSectionFromPath())
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(getStoredSidebarCollapsed)
+  const [currentLocation, setCurrentLocation] = useState(getCurrentAdminLocation)
   const notificationCenterRef = useRef<HTMLDivElement>(null)
   const { summary, loading: notificationLoading, error: notificationError, refresh } = useNotificationSummary()
   const displayName = currentUser.name || currentUser.email
@@ -141,9 +235,88 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
   const fallbackRouteId = fallbackRoute?.id
   const fallbackRoutePath = fallbackRoute?.path
   const renderedSection = activeRoute?.id
+  const groupLabelById = new Map(adminRouteGroups.map((group) => [group.id, group.label]))
+
+  const navigateToTarget = (item: NavItem, target = getRouteNavigationTarget(item)) => {
+    setNotificationsOpen(false)
+    setCommandOpen(false)
+    setActiveSection(item.id === 'ordersOnline' || item.id === 'ordersCod' ? 'orders' : item.id)
+
+    if (`${window.location.pathname}${window.location.search}` !== target) {
+      window.history.pushState(null, '', target)
+      notifyAdminNavigation()
+    }
+  }
+
+  const getEnterableRoute = (routeId: NavId) => enterableNavItems.find((item) => item.id === routeId)
+  const quickCommandItems: CommandMenuItem[] = []
+  const ordersRoute = getEnterableRoute('orders')
+  const ordersLookupRoute = getEnterableRoute('ordersLookup')
+  const promotionsRoute = getEnterableRoute('promotions')
+  const supportRoute = getEnterableRoute('support')
+
+  if (ordersRoute) {
+    quickCommandItems.push({
+      key: 'quick-orders-packing',
+      label: 'Đơn cần đóng gói',
+      description: 'Mở queue vận hành đang chờ xử lý',
+      group: 'Thao tác nhanh',
+      onSelect: () => navigateToTarget(ordersRoute, '/admin/orders?queue=packing'),
+    })
+  }
+
+  if (ordersLookupRoute) {
+    quickCommandItems.push({
+      key: 'quick-orders-lookup',
+      label: 'Tra cứu đơn hàng',
+      description: 'Mở bộ lọc đầy đủ và saved view',
+      group: 'Thao tác nhanh',
+      onSelect: () => navigateToTarget(ordersLookupRoute),
+    })
+  }
+
+  if (promotionsRoute) {
+    quickCommandItems.push({
+      key: 'quick-create-coupon',
+      label: 'Tạo voucher',
+      description: 'Mở nhanh màn khuyến mãi',
+      group: 'Thao tác nhanh',
+      onSelect: () => navigateToTarget(promotionsRoute, '/admin/promotions?action=create'),
+    })
+  }
+
+  if (supportRoute) {
+    quickCommandItems.push({
+      key: 'quick-support-open',
+      label: 'Ticket đang mở',
+      description: 'Nhảy về hàng đợi CSKH',
+      group: 'Thao tác nhanh',
+      onSelect: () => navigateToTarget(supportRoute),
+    })
+  }
+  const commandItems: CommandMenuItem[] = [
+    ...quickCommandItems,
+    ...enterableNavItems.map((item) => ({
+      key: item.id,
+      label: item.label,
+      description: item.helper,
+      group: groupLabelById.get(item.group),
+      onSelect: () => navigateToTarget(item),
+    })),
+  ]
 
   useEffect(() => {
     const syncSectionWithPath = () => {
+      const aliasTarget = getOrdersAliasTarget(window.location.pathname, window.location.search)
+
+      if (aliasTarget) {
+        window.history.replaceState(null, '', aliasTarget)
+        setCurrentLocation(getCurrentAdminLocation())
+        setActiveSection('orders')
+        return
+      }
+
+      setCurrentLocation(getCurrentAdminLocation())
       const currentRoute = getAdminRouteByPath(window.location.pathname)
 
       if (
@@ -197,20 +370,38 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     }
   }, [notificationsOpen])
 
-  const handleNavigate = (item: NavItem) => {
-    setNotificationsOpen(false)
-    setActiveSection(item.id)
-
-    if (`${window.location.pathname}${window.location.search}` !== item.path) {
-      window.history.pushState(null, '', item.path)
-      notifyAdminNavigation()
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setNotificationsOpen(false)
+        setCommandOpen((open) => !open)
+      }
     }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ADMIN_SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed))
+    } catch {
+      // Ignore storage failures; collapse still works for the current session.
+    }
+  }, [isSidebarCollapsed])
+
+  const handleNavigate = (item: NavItem) => {
+    navigateToTarget(item)
   }
 
   const handleNotificationNavigate = (item: NavItem, queue?: string) => {
-    const target = queue ? `${item.path}?queue=${encodeURIComponent(queue)}` : item.path
+    const baseTarget = getRouteNavigationTarget(item)
+    const target = queue
+      ? `${baseTarget}${baseTarget.includes('?') ? '&' : '?'}queue=${encodeURIComponent(queue)}`
+      : baseTarget
     setNotificationsOpen(false)
-    setActiveSection(item.id)
+    setActiveSection(item.id === 'ordersOnline' || item.id === 'ordersCod' ? 'orders' : item.id)
 
     if (`${window.location.pathname}${window.location.search}` !== target) {
       window.history.pushState(null, '', target)
@@ -245,18 +436,24 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'orders') {
-      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
-      return <OrderListPage key={`orders-${initialTabKey ?? 'all'}`} currentUser={currentUser} initialTabKey={initialTabKey} />
+      const searchParams = new URLSearchParams(currentLocation.search)
+      const initialTabKey = searchParams.get('queue') ?? undefined
+      const paymentSection = searchParams.get('section') === 'cod' ? 'cod' : 'online'
+
+      return (
+        <OrderListPage
+          key={`orders-${paymentSection}-${initialTabKey ?? 'packing'}`}
+          currentUser={currentUser}
+          paymentSection={paymentSection}
+          lockPaymentSection
+          initialTabKey={initialTabKey}
+        />
+      )
     }
 
-    if (renderedSection === 'ordersOnline') {
-      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
-      return <OrderListPage key={`orders-online-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="online" lockPaymentSection initialTabKey={initialTabKey} />
-    }
-
-    if (renderedSection === 'ordersCod') {
-      const initialTabKey = new URLSearchParams(window.location.search).get('queue') ?? undefined
-      return <OrderListPage key={`orders-cod-${initialTabKey ?? 'packing'}`} currentUser={currentUser} paymentSection="cod" lockPaymentSection initialTabKey={initialTabKey} />
+    if (renderedSection === 'ordersLookup') {
+      const initialTabKey = new URLSearchParams(currentLocation.search).get('queue') ?? undefined
+      return <OrderListPage key={`orders-lookup-${initialTabKey ?? 'all'}`} currentUser={currentUser} initialTabKey={initialTabKey} />
     }
 
     if (renderedSection === 'catalog') {
@@ -313,13 +510,22 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
   const totalNotifications = summary?.total ?? 0
 
   return (
-    <main className="admin-layout">
+    <main className={`admin-layout${isSidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}>
       <aside className="admin-sidebar" aria-label="Admin navigation">
         <div className="admin-brand">
           <span className="admin-sidebar-logo">
             <img src={shopNameImage} alt="CD Shop" />
           </span>
           <span>Admin Workspace</span>
+          <button
+            className="admin-sidebar-toggle"
+            type="button"
+            aria-label={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+            title={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+          </button>
         </div>
 
         <nav className="admin-nav">
@@ -374,7 +580,16 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
             <span>{activeRoute?.helper ?? 'Liên hệ quản trị viên để được cấp quyền'}</span>
           </div>
 
-          <button className="admin-command-trigger" type="button" aria-label="Tìm kiếm nhanh trong admin">
+          <button
+            className="admin-command-trigger"
+            type="button"
+            aria-label="Tìm kiếm nhanh trong admin"
+            aria-expanded={commandOpen}
+            onClick={() => {
+              setNotificationsOpen(false)
+              setCommandOpen(true)
+            }}
+          >
             <span>Tìm kiếm hoặc nhảy nhanh</span>
             <kbd>Ctrl K</kbd>
           </button>
@@ -389,7 +604,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                 aria-controls="admin-notification-panel"
                 onClick={() => setNotificationsOpen((open) => !open)}
               >
-                <BellIcon />
+                <Bell aria-hidden="true" />
                 {totalNotifications > 0 ? (
                   <span className="admin-notification-total" aria-hidden="true">
                     {formatBadgeCount(totalNotifications)}
@@ -458,8 +673,17 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
           </div>
         </header>
 
-        <div className="admin-content">{renderContent()}</div>
+        <div className="admin-content">
+          <Suspense fallback={adminContentFallback}>
+            {renderContent()}
+          </Suspense>
+        </div>
       </section>
+      <CommandMenu
+        isOpen={commandOpen}
+        items={commandItems}
+        onClose={() => setCommandOpen(false)}
+      />
     </main>
   )
 }
@@ -573,140 +797,4 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       tone: 'danger' as NotificationTone,
     } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null)
-}
-
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 22a2.8 2.8 0 0 0 2.7-2h-5.4A2.8 2.8 0 0 0 12 22Zm7-6-2-2.2V10a5 5 0 0 0-4-4.9V3h-2v2.1A5 5 0 0 0 7 10v3.8L5 16v2h14v-2Z" />
-    </svg>
-  )
-}
-
-function DashboardIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 13h7V4H4v9Zm9 7h7v-7h-7v7ZM4 20h7v-5H4v5Zm13-16v5h-4V4h4Zm3 0v5h-2V4h2Zm-7 7h7v1h-7v-1Z" />
-    </svg>
-  )
-}
-
-function ShieldUserIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 2 4 5.4v6.3c0 4.5 3.1 8.5 8 10.3 4.9-1.8 8-5.8 8-10.3V5.4L12 2Zm0 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Zm4.5 10.1h-9v-.9c0-2 1.8-3.4 4.5-3.4s4.5 1.4 4.5 3.4v.9Z" />
-    </svg>
-  )
-}
-
-function UsersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8.5 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM2.5 19.5h11v-1.2c0-3-2.2-5.3-5.5-5.3s-5.5 2.3-5.5 5.3v1.2Zm12.6 0h6.4v-1c0-2.6-1.8-4.5-4.7-4.5-.8 0-1.5.1-2.1.4.8 1 1.2 2.3 1.2 3.8v1.3Z" />
-    </svg>
-  )
-}
-
-function LoyaltyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3 5 6v5c0 4.8 3.1 8.6 7 10 3.9-1.4 7-5.2 7-10V6l-7-3Zm0 3.1 4 1.7V11c0 3.3-1.8 5.8-4 7-2.2-1.2-4-3.7-4-7V7.8l4-1.7Zm-1 3.4h2v2h2v2h-2v2h-2v-2H9v-2h2v-2Z" />
-    </svg>
-  )
-}
-
-function ProductsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 4h14l-1.2 16H6.2L5 4Zm3 4v2h8V8H8Zm0 4v2h6v-2H8Z" />
-    </svg>
-  )
-}
-
-function TagsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 4h7l9 9-7 7-9-9V4Zm4 5.5A1.5 1.5 0 1 0 8 6.5a1.5 1.5 0 0 0 0 3Zm5.5-5.5H16l6 6-2.2 2.2-6.3-6.3V4Z" />
-    </svg>
-  )
-}
-
-function OrdersIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 4h2.3l1.1 10.2A3 3 0 0 0 9.4 17H18v-2H9.4a1 1 0 0 1-1-.9L8.3 13h9.9a2 2 0 0 0 1.9-1.4L22 6H7.1L6.8 4H3v2Zm6 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm9 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
-    </svg>
-  )
-}
-
-function PaymentOnlineIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 6h18v12H3V6Zm2 2v2h14V8H5Zm0 5v3h14v-3H5Zm2 1h5v1H7v-1Zm10-9h2v2h-2V5Zm-4 0h2v2h-2V5Z" />
-    </svg>
-  )
-}
-
-function PaymentCodIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 6h16v12H4V6Zm2 2v8h12V8H6Zm6 1.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Zm-4 0h2v1H8v-1Zm6 5h2v1h-2v-1ZM3 10h2v4H3v-4Zm16 0h2v4h-2v-4Z" />
-    </svg>
-  )
-}
-
-function InventoryIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 7 12 3l8 4v10l-8 4-8-4V7Zm3.1.2 4.9 2.5 4.9-2.5L12 4.8 7.1 7.2ZM6 8.8v7l5 2.5v-7L6 8.8Zm7 9.5 5-2.5v-7l-5 2.5v7Z" />
-    </svg>
-  )
-}
-
-function CouponIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 6h16v4a2 2 0 0 0 0 4v4H4v-4a2 2 0 0 0 0-4V6Zm5 4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm6 7 3-8h-2l-3 8h2Zm.5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
-    </svg>
-  )
-}
-
-function ReviewIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9L12 3Z" />
-    </svg>
-  )
-}
-
-function SupportIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3a8 8 0 0 0-8 8v4a3 3 0 0 0 3 3h2v-7H6a6 6 0 1 1 12 0h-3v7h2.2A5.5 5.5 0 0 1 12 21v-2a3.5 3.5 0 0 0 3.5-3.5V11h2.5v4h-1v1a3 3 0 0 0 3-3v-2a8 8 0 0 0-8-8Z" />
-    </svg>
-  )
-}
-
-function VirtualTryOnIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3a3 3 0 0 0-3 3v1H6a2 2 0 0 0-2 2v3h2V9h3v2h6V9h3v9h-4v2h4a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3V6a3 3 0 0 0-3-3Zm-1 4V6a1 1 0 1 1 2 0v1h-2ZM8 13l2 2.2 2-2.2 2 2.2V21H6v-5.8L8 13Z" />
-    </svg>
-  )
-}
-
-function ReportsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 20V4h2v16H5Zm6 0V9h2v11h-2Zm6 0V6h2v14h-2Z" />
-    </svg>
-  )
-}
-
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4c0-.5-.1-1-.2-1.5l2-1.5-2-3.5-2.4 1a8 8 0 0 0-2.6-1.5L14.5 2h-5l-.4 2.5a8 8 0 0 0-2.6 1.5l-2.3-1-2 3.5 2 1.5A8 8 0 0 0 4 12c0 .5.1 1 .2 1.5l-2 1.5 2 3.5 2.3-1a8 8 0 0 0 2.6 1.5l.4 2.5h5l.4-2.5a8 8 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5c.1-.5.1-1 .1-1.5Z" />
-    </svg>
-  )
 }

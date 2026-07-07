@@ -5,13 +5,6 @@
   gap: 16px;
   min-width: 0;
 }
-.admin-support-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-}
-.admin-support-header p,
 .admin-support-detail-header p {
   margin: 0;
   color: #6c8796;
@@ -20,34 +13,12 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-.admin-support-header h1,
 .admin-support-detail-header h2 {
   margin: 4px 0;
   color: #173044;
 }
-.admin-support-header > div > span,
 .admin-support-detail-header span {
   color: #6f7f8a;
-}
-.admin-support-tabs {
-  display: flex;
-  padding: 4px;
-  background: #eaf1f4;
-  border-radius: 12px;
-}
-.admin-support-tabs button {
-  border: 0;
-  background: transparent;
-  padding: 9px 16px;
-  border-radius: 9px;
-  color: #58707e;
-  font-weight: 700;
-  cursor: pointer;
-}
-.admin-support-tabs button.is-active {
-  background: #fff;
-  color: #173044;
-  box-shadow: 0 2px 9px #16324618;
 }
 .admin-support-error {
   display: flex;
@@ -112,7 +83,6 @@
   flex: 1;
   min-width: 160px;
 }
-.admin-support-toolbar button,
 .admin-support-composer button,
 .admin-support-dialog footer button {
   min-height: 40px;
@@ -397,13 +367,6 @@
 .admin-support-faq-list aside em.published {
   color: #2b7750;
 }
-.admin-support-faq-list aside button {
-  border: 1px solid #cad8df;
-  background: #fff;
-  border-radius: 8px;
-  padding: 7px 10px;
-  cursor: pointer;
-}
 .admin-support-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -505,8 +468,6 @@
 .admin-support-canned-form label { display: flex; gap: 8px; align-items: center; }
 .admin-support-canned-form label input { width: auto; }
 .admin-support-canned-form > div { display: flex; gap: 8px; }
-.admin-support-canned-form button,
-.admin-support-canned-list button { border: 0; border-radius: 8px; padding: 9px 13px; cursor: pointer; }
 .admin-support-canned-list { display: grid; gap: 12px; }
 .admin-support-canned-list article { display: flex; justify-content: space-between; gap: 16px; }
 .admin-support-canned-list article p { white-space: pre-wrap; color: #526b7a; }
@@ -529,13 +490,6 @@
   .admin-support-canned { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
-  .admin-support-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .admin-support-tabs > * {
-    flex: 1;
-  }
   .admin-support-kpis {
     grid-template-columns: 1fr 1fr;
   }

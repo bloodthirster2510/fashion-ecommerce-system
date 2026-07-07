@@ -21,6 +21,7 @@
   font-size: 13px;
   font-weight: 800;
   line-height: 1;
+  box-shadow: 0 1px 1px rgba(17, 24, 39, 0.04);
   transition:
     background 160ms ease,
     border-color 160ms ease,
@@ -37,6 +38,7 @@
   border-color: var(--admin-accent);
   color: #fff;
   background: var(--admin-accent);
+  box-shadow: 0 6px 14px rgba(17, 24, 39, 0.14);
 }
 
 .admin-ui-button--primary:not(:disabled):hover {
@@ -45,14 +47,14 @@
 }
 
 .admin-ui-button--secondary {
-  border-color: var(--admin-border);
-  color: var(--admin-text);
-  background: var(--admin-surface);
+  border-color: #cbd5e1;
+  color: #1f2937;
+  background: #fff;
 }
 
 .admin-ui-button--secondary:not(:disabled):hover {
-  border-color: var(--admin-border-strong);
-  background: var(--admin-surface-muted);
+  border-color: #94a3b8;
+  background: #f8fafc;
 }
 
 .admin-ui-button--danger {
@@ -68,12 +70,14 @@
 
 .admin-ui-button--ghost {
   border-color: transparent;
-  color: var(--admin-text);
+  color: #475569;
   background: transparent;
+  box-shadow: none;
 }
 
 .admin-ui-button--ghost:not(:disabled):hover {
-  background: var(--admin-surface-muted);
+  color: #111827;
+  background: #eef2f6;
 }
 
 .admin-ui-button--icon {
@@ -153,6 +157,8 @@
 }
 
 .admin-ui-kpi-card {
+  position: relative;
+  overflow: hidden;
   min-height: 92px;
   display: grid;
   gap: var(--admin-space-2);
@@ -164,10 +170,63 @@
   box-shadow: var(--admin-shadow-sm);
 }
 
+.admin-ui-kpi-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--admin-kpi-accent, var(--admin-border-strong));
+}
+
+.admin-ui-kpi-card--success {
+  --admin-kpi-accent: #0e9f6e;
+  --admin-kpi-tint: #ecfdf5;
+}
+
+.admin-ui-kpi-card--info {
+  --admin-kpi-accent: #2563eb;
+  --admin-kpi-tint: #eff6ff;
+}
+
+.admin-ui-kpi-card--warning {
+  --admin-kpi-accent: #c2780f;
+  --admin-kpi-tint: #fffbeb;
+}
+
+.admin-ui-kpi-card--accent {
+  --admin-kpi-accent: #7c3aed;
+  --admin-kpi-tint: #f5f3ff;
+}
+
+.admin-ui-kpi-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--admin-space-2);
+}
+
 .admin-ui-kpi-card__label {
   color: var(--admin-text-muted);
   font-size: 12px;
   font-weight: 750;
+}
+
+.admin-ui-kpi-card__icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--admin-kpi-accent, var(--admin-border-strong)) 24%, transparent);
+  border-radius: 8px;
+  color: var(--admin-kpi-accent, var(--admin-text-muted));
+  background: var(--admin-kpi-tint, var(--admin-surface-muted));
+}
+
+.admin-ui-kpi-card__icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.25;
 }
 
 .admin-ui-kpi-card__value {
@@ -566,6 +625,118 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--admin-space-2);
+}
+
+.admin-ui-command-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: start center;
+  padding: 12svh 16px 24px;
+  background: rgba(17, 24, 39, 0.34);
+}
+
+.admin-ui-command-menu {
+  width: min(100%, 620px);
+  overflow: hidden;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-lg);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-lg);
+}
+
+.admin-ui-command-menu input {
+  width: 100%;
+  min-height: 54px;
+  padding: 0 18px;
+  border: 0;
+  border-bottom: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  background: var(--admin-surface);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 750;
+  outline: 0;
+}
+
+.admin-ui-command-list {
+  max-height: min(420px, 62svh);
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+}
+
+.admin-ui-command-list button {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--admin-space-3);
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--admin-radius);
+  color: var(--admin-text);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.admin-ui-command-list button:hover,
+.admin-ui-command-list button.is-active,
+.admin-ui-command-list button:focus-visible {
+  border-color: var(--admin-border);
+  background: var(--admin-surface-muted);
+  outline: 0;
+}
+
+.admin-ui-command-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.admin-ui-command-list span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-ui-command-list strong,
+.admin-ui-command-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-ui-command-list strong {
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.admin-ui-command-list small {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.admin-ui-command-list em {
+  flex: 0 0 auto;
+  color: var(--admin-text-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.admin-ui-command-list p {
+  margin: 0;
+  padding: 28px 12px;
+  color: var(--admin-text-muted);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 750;
 }
 
 @media (max-width: 900px) {

@@ -50,6 +50,16 @@ input {
   min-height: 100svh;
 }
 
+.app-route-loading {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  color: #213448;
+  background: #f7f8fa;
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .site-frame {
   width: 100%;
   min-height: 100svh;

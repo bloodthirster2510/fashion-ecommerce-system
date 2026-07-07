@@ -36,6 +36,15 @@ export type ManagedUserList = {
   totalPages: number
 }
 
+export type ManagedUserSummary = {
+  total: number
+  active: number
+  blocked: number
+  completedProfiles: number
+  activeLast30Days: number
+  newLast7Days: number
+}
+
 export type ManagedUserFilters = {
   keyword?: string
   role?: ManagedUserRole | 'all'

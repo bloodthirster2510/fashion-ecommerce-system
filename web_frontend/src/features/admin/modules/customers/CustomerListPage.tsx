@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Button,
   DataTable,
   EmptyState,
   Field,
   FilterBar,
-  KpiCard,
-  KpiGrid,
   Modal,
   PageHeader,
   Pagination,
@@ -19,10 +17,12 @@ import { formatDate } from './customer.utils'
 import {
   forceManagedUserPasswordReset,
   getManagedUser,
+  getManagedUserSummary,
   listManagedUsers,
   updateManagedUserStatus,
 } from './customer.service'
-import type { ManagedUser } from './customer.types'
+import { CustomerKpiSummary } from './components/CustomerKpiSummary'
+import type { ManagedUser, ManagedUserSummary } from './customer.types'
 
 type CustomerListPageProps = {
   currentUser: AdminUser
@@ -33,12 +33,6 @@ type StatusFilter = 'all' | 'active' | 'blocked'
 type Notice = {
   type: 'success' | 'error'
   message: string
-}
-
-type CustomerSummary = {
-  total: number
-  active: number
-  blocked: number
 }
 
 type PendingAction =
@@ -54,10 +48,13 @@ type PendingAction =
 
 const pageSize = 10
 
-const emptySummary: CustomerSummary = {
+const emptySummary: ManagedUserSummary = {
   total: 0,
   active: 0,
   blocked: 0,
+  completedProfiles: 0,
+  activeLast30Days: 0,
+  newLast7Days: 0,
 }
 
 const statusFilterLabels: Record<StatusFilter, string> = {
@@ -71,13 +68,6 @@ const getUserTitle = (user: ManagedUser) => user.name || user.email
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
 
-const formatNumber = (value: number) => value.toLocaleString('vi-VN')
-
-const formatPercent = (value: number) =>
-  new Intl.NumberFormat('vi-VN', {
-    maximumFractionDigits: 1,
-  }).format(value)
-
 export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null)
@@ -87,7 +77,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const [page, setPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
-  const [summary, setSummary] = useState<CustomerSummary>(emptySummary)
+  const [summary, setSummary] = useState<ManagedUserSummary>(emptySummary)
   const [isSummaryLoading, setIsSummaryLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isDrawerLoading, setIsDrawerLoading] = useState(false)
@@ -99,28 +89,13 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   const canEditUsers =
     currentUser.role === 'admin' || currentUser.permissions?.includes('customers.manage') === true
 
-  const activeRate = useMemo(
-    () => (summary.total > 0 ? (summary.active / summary.total) * 100 : 0),
-    [summary.active, summary.total],
-  )
-
   const summaryMeta = keyword ? 'Theo từ khóa hiện tại' : 'Toàn bộ khách mua hàng'
 
   const loadCustomerSummary = useCallback(async () => {
     setIsSummaryLoading(true)
 
     try {
-      const [allResult, activeResult, blockedResult] = await Promise.all([
-        listManagedUsers({ keyword, role: 'user', status: 'all', page: 1, limit: 1 }),
-        listManagedUsers({ keyword, role: 'user', status: 'active', page: 1, limit: 1 }),
-        listManagedUsers({ keyword, role: 'user', status: 'blocked', page: 1, limit: 1 }),
-      ])
-
-      setSummary({
-        total: allResult.totalItems,
-        active: activeResult.totalItems,
-        blocked: blockedResult.totalItems,
-      })
+      setSummary(await getManagedUserSummary(keyword))
     } catch {
       setSummary(emptySummary)
     } finally {
@@ -354,28 +329,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
         )}
       />
 
-      <KpiGrid>
-        <KpiCard
-          label="Tổng khách hàng"
-          value={isSummaryLoading ? '...' : formatNumber(summary.total)}
-          meta={summaryMeta}
-        />
-        <KpiCard
-          label="Đang hoạt động"
-          value={isSummaryLoading ? '...' : formatNumber(summary.active)}
-          meta="Có thể đăng nhập và mua hàng"
-        />
-        <KpiCard
-          label="Đã khóa"
-          value={isSummaryLoading ? '...' : formatNumber(summary.blocked)}
-          meta="Tạm dừng quyền đăng nhập"
-        />
-        <KpiCard
-          label="Tỷ lệ hoạt động"
-          value={isSummaryLoading ? '...' : `${formatPercent(activeRate)}%`}
-          meta="Trên nhóm khách đang lọc"
-        />
-      </KpiGrid>
+      <CustomerKpiSummary summary={summary} isLoading={isSummaryLoading} meta={summaryMeta} />
 
       <FilterBar>
         <Field label="Tìm kiếm" grow>

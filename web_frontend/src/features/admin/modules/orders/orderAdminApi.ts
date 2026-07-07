@@ -143,10 +143,20 @@ export type OrderListFilters = {
   paymentMethods?: AdminOrderPaymentMethod[]
   paymentStatus?: AdminOrderPaymentStatus | 'all'
   keyword?: string
+  dateFrom?: string
+  dateTo?: string
+  sort?: AdminOrderListSort
   page?: number
   limit?: number
   paymentDeadlineBefore?: string
 }
+
+export type AdminOrderListSort =
+  | 'created_desc'
+  | 'created_asc'
+  | 'total_desc'
+  | 'total_asc'
+  | 'payment_deadline_asc'
 
 export type OrderListResponse = {
   items: AdminOrder[]
@@ -264,6 +274,18 @@ const buildOrderListQuery = (filters: OrderListFilters) => {
 
   if (filters.paymentDeadlineBefore) {
     params.set('paymentDeadlineBefore', filters.paymentDeadlineBefore)
+  }
+
+  if (filters.dateFrom) {
+    params.set('dateFrom', filters.dateFrom)
+  }
+
+  if (filters.dateTo) {
+    params.set('dateTo', filters.dateTo)
+  }
+
+  if (filters.sort) {
+    params.set('sort', filters.sort)
   }
 
   params.set('page', String(filters.page ?? 1))

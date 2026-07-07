@@ -226,6 +226,29 @@
   gap: 10px;
 }
 
+.admin-customer-placeholder {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed var(--admin-line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-customer-placeholder strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.admin-customer-placeholder p {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .admin-address-block__header {
   display: flex;
   align-items: center;

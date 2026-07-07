@@ -1,4 +1,5 @@
 export * from './Button'
+export * from './CommandMenu'
 export * from './DataTable'
 export * from './Drawer'
 export * from './EmptyState'

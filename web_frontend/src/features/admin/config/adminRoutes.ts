@@ -6,6 +6,7 @@ export type AdminRouteId =
   | 'products'
   | 'catalog'
   | 'orders'
+  | 'ordersLookup'
   | 'ordersOnline'
   | 'ordersCod'
   | 'inventory'
@@ -50,6 +51,7 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'products',
   'catalog',
   'orders',
+  'ordersLookup',
   'ordersOnline',
   'ordersCod',
   'inventory',
@@ -120,6 +122,13 @@ const adminRouteRecords: AdminRoute[] = [
     path: '/admin/orders',
     label: 'Hóa đơn & đơn hàng',
     helper: 'Tra cứu mã đơn, hóa đơn & lịch sử',
+    group: 'sales',
+  },
+  {
+    id: 'ordersLookup',
+    path: '/admin/orders/lookup',
+    label: 'Tra cứu đơn hàng',
+    helper: 'Tìm hóa đơn, khách hàng, thanh toán & vận chuyển',
     group: 'sales',
   },
   {
