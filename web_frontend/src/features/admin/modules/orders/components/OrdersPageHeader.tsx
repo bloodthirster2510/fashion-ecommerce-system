@@ -32,7 +32,7 @@ export function OrdersPageHeader({
               disabled={!canExpirePayments || isActionLoading}
               onClick={() => void onExpireStalePayments()}
             >
-              Hết hạn thanh toán quá hạn
+              Xử lý thanh toán quá hạn
             </Button>
           ) : null}
           <Button variant="secondary" onClick={() => void onRefresh()}>
