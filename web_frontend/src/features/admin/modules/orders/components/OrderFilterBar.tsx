@@ -63,7 +63,7 @@ export function OrderFilterBar({
   const visibleColumnSet = new Set(visibleColumns)
 
   return (
-    <div className="admin-table-toolbar">
+    <div className={`admin-table-toolbar${isLookupMode ? ' is-lookup' : ''}`}>
       <label className="admin-user-search">
         <span>Tìm kiếm</span>
         <input

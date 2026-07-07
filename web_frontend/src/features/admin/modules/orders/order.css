@@ -3,12 +3,35 @@
   margin: 0 auto;
 }
 
+.admin-orders-page .admin-table-toolbar.is-lookup {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(0, 1fr));
+  align-items: end;
+  overflow: hidden;
+}
+
+.admin-orders-page .admin-table-toolbar.is-lookup > label,
+.admin-orders-page .admin-table-toolbar.is-lookup .admin-user-search {
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-orders-page .admin-table-toolbar.is-lookup input,
+.admin-orders-page .admin-table-toolbar.is-lookup select {
+  width: 100%;
+  min-width: 0;
+}
+
 .admin-order-date-presets {
   display: flex;
   align-items: end;
   align-self: end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.admin-table-toolbar.is-lookup .admin-order-date-presets {
+  grid-column: 1 / span 2;
 }
 
 .admin-order-date-presets .admin-secondary-button {
@@ -29,6 +52,12 @@
   border: 1px solid #d8e1e9;
   border-radius: 8px;
   background: #fff;
+}
+
+.admin-table-toolbar.is-lookup .admin-order-column-toggle {
+  grid-column: 3 / span 3;
+  width: 100%;
+  min-width: 0;
 }
 
 .admin-order-column-toggle legend {
@@ -64,6 +93,11 @@
   align-self: end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.admin-table-toolbar.is-lookup .admin-order-saved-view-actions {
+  grid-column: 6;
+  justify-content: flex-end;
 }
 
 .admin-order-saved-view-actions .admin-secondary-button {
@@ -1713,6 +1747,20 @@
 }
 
 @media (max-width: 1100px) {
+  .admin-orders-page .admin-table-toolbar.is-lookup {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-table-toolbar.is-lookup .admin-order-date-presets,
+  .admin-table-toolbar.is-lookup .admin-order-column-toggle,
+  .admin-table-toolbar.is-lookup .admin-order-saved-view-actions {
+    grid-column: 1 / -1;
+  }
+
+  .admin-table-toolbar.is-lookup .admin-order-saved-view-actions {
+    justify-content: flex-start;
+  }
+
   .admin-order-drawer-body {
     grid-template-columns: 1fr;
     gap: 0;
@@ -1726,6 +1774,10 @@
 }
 
 @media (max-width: 720px) {
+  .admin-orders-page .admin-table-toolbar.is-lookup {
+    grid-template-columns: 1fr;
+  }
+
   .admin-section-inline-heading,
   .admin-payment-method-card,
   .admin-payment-attempt header,
