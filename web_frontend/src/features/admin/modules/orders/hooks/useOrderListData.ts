@@ -103,7 +103,7 @@ export function useOrderListData({
   const activeTab = orderTabs.find((tab) => tab.key === activeTabKey) ?? orderTabs[0]
   const activePaymentSection =
     paymentSections.find((section) => section.key === activePaymentSectionKey) ?? paymentSections[0]
-  const pageTitle = lockPaymentSection ? activePaymentSection.label : 'Tra cứu hóa đơn & đơn hàng'
+  const pageTitle = lockPaymentSection ? activePaymentSection.label : 'Tra cứu đơn hàng & hóa đơn'
   const pageHelper = lockPaymentSection ? activePaymentSection.helper : 'Tìm theo mã đơn, mã hóa đơn, khách hàng hoặc sản phẩm'
 
   useEffect(() => {

@@ -130,8 +130,8 @@ export const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null
     return {
       kind: 'payment-risk',
       tone: 'danger',
-      label: 'Vướng thanh toán',
-      helper: 'Chưa ghi nhận thanh toán, chưa nên xử lý giao hàng.',
+      label: 'Cần đối soát thanh toán',
+      helper: 'Chưa ghi nhận thanh toán, tạm dừng xử lý giao hàng.',
     }
   }
 
@@ -157,7 +157,7 @@ export const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null
     return {
       kind: 'delivery',
       tone: 'success',
-      label: 'Chờ giao thành công',
+      label: 'Chờ xác nhận giao',
       helper: 'Có thể hoàn tất đơn khi shipper hoặc đối tác vận chuyển báo đã giao tới khách.',
     }
   }

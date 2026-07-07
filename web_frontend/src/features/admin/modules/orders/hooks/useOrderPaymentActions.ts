@@ -75,7 +75,7 @@ export function useOrderPaymentActions({
       const result = await expireStalePayments()
       setNotice({
         type: 'success',
-        message: `Đã chuyển ${result.expiredCount} lượt thanh toán quá hạn sang hết hạn. Đơn sẽ tự hủy khi quá 3 ngày.`,
+        message: `Đã đánh dấu ${result.expiredCount} lượt thanh toán quá hạn là hết hạn. Đơn sẽ tự hủy khi quá 3 ngày.`,
       })
       await loadOrders()
       requestAdminNotificationRefresh()

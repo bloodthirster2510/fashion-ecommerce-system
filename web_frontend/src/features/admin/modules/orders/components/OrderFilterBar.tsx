@@ -70,7 +70,7 @@ export function OrderFilterBar({
           type="search"
           value={keywordInput}
           onChange={(event) => onKeywordInputChange(event.target.value)}
-          placeholder="Mã đơn, hóa đơn hoặc sản phẩm"
+          placeholder="Mã đơn, mã hóa đơn hoặc sản phẩm"
         />
       </label>
 
@@ -125,7 +125,7 @@ export function OrderFilterBar({
               <option value="created_asc">Cũ nhất</option>
               <option value="total_desc">Tổng tiền cao</option>
               <option value="total_asc">Tổng tiền thấp</option>
-              <option value="payment_deadline_asc">Hạn thanh toán gần</option>
+              <option value="payment_deadline_asc">Hạn thanh toán gần nhất</option>
             </select>
           </label>
 

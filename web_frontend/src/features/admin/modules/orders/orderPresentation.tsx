@@ -65,13 +65,13 @@ export const paymentSections: Array<{
   },
   {
     key: 'online',
-    label: 'Thanh toán online',
-    helper: 'VNPay cần ghi nhận tiền trước khi xử lý giao. MoMo, thẻ và chuyển khoản chưa mở trong MVP.',
+    label: 'Đơn thanh toán online',
+    helper: 'Chỉ xử lý giao hàng khi đã ghi nhận thanh toán VNPay. MoMo, thẻ và chuyển khoản chưa mở trong MVP.',
     methods: onlinePaymentMethods,
   },
   {
     key: 'cod',
-    label: 'COD',
+    label: 'Đơn COD',
     helper: 'Đơn thu tiền khi nhận hàng, ưu tiên đóng gói, giao hàng và xác nhận đã giao.',
     methods: codPaymentMethods,
   },
@@ -84,7 +84,7 @@ export const orderTabs: OrderTab[] = [
   {
     key: 'packing',
     label: 'Cần đóng gói',
-    helper: 'Đơn đã đủ điều kiện thanh toán/COD và đang chờ kiểm tra, đóng gói.',
+    helper: 'Đơn đã đủ điều kiện xử lý và đang chờ kiểm tra, đóng gói.',
     group: 'flow',
     statuses: ['confirmed'],
     queue: 'packing',
@@ -99,7 +99,7 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'delivery',
-    label: 'Chờ giao thành công',
+    label: 'Chờ xác nhận giao',
     helper: 'Đơn đang giao, cần xác nhận khi đối tác báo đã giao tới khách.',
     group: 'flow',
     statuses: ['shipping'],
@@ -107,7 +107,7 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'review',
-    label: 'Duyệt trả hàng',
+    label: 'Duyệt yêu cầu trả hàng',
     helper: 'Yêu cầu đổi/trả cần kiểm tra lý do, minh chứng và thời hạn 7 ngày từ lúc giao.',
     group: 'exceptions',
     statuses: ['return_requested'],
@@ -115,7 +115,7 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'refund',
-    label: 'Hoàn tiền',
+    label: 'Cần hoàn tiền',
     helper: 'Đơn đã thanh toán nhưng bị hủy hoặc đã nhận trả, cần đối soát và hoàn tiền thủ công.',
     group: 'exceptions',
     statuses: ['cancelled', 'returned'],
@@ -124,7 +124,7 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'payment-deadline',
-    label: 'Sắp quá hạn thanh toán',
+    label: 'Thanh toán sắp quá hạn',
     helper: 'Đơn online chưa thanh toán sẽ tự hủy khi quá hạn 3 ngày.',
     group: 'exceptions',
     statuses: ['confirmed'],
@@ -132,7 +132,7 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'all',
-    label: 'Tất cả',
+    label: 'Tất cả đơn',
     helper: 'Tra cứu toàn bộ đơn, hóa đơn, thanh toán và vận chuyển.',
     group: 'lookup',
   },
@@ -164,14 +164,14 @@ export const statusLabels: Record<AdminOrderStatus, string> = {
 export const paymentStatusLabels: Record<AdminOrderPaymentStatus, string> = {
   pending: 'Chờ thanh toán',
   paid: 'Đã thanh toán',
-  failed: 'Thanh toán lỗi',
+  failed: 'Thanh toán thất bại',
   refunded: 'Đã hoàn tiền',
 }
 
 export const paymentMethodStatusLabels: Record<AdminPaymentMethodStatus, string> = {
   pending: 'Đang xác minh',
   verified: 'Sẵn sàng',
-  expired: 'Hết hạn',
+  expired: 'Đã hết hạn',
   disabled: 'Đã tắt',
 }
 
@@ -195,11 +195,11 @@ export const getPaymentMethodStatusActions = (status: AdminPaymentMethodStatus) 
 
   if (status === 'verified') {
     actions.push({ status: 'pending', label: 'Chờ xác minh', className: 'admin-secondary-button' })
-    actions.push({ status: 'expired', label: 'Hết hạn', className: 'admin-secondary-button' })
+    actions.push({ status: 'expired', label: 'Đánh dấu hết hạn', className: 'admin-secondary-button' })
   }
 
   if (status !== 'disabled') {
-    actions.push({ status: 'disabled', label: 'Tắt', className: 'admin-danger-button' })
+    actions.push({ status: 'disabled', label: 'Tắt phương thức', className: 'admin-danger-button' })
   }
 
   return actions
@@ -214,7 +214,7 @@ export const paymentMethodLabels: Record<AdminOrderPaymentMethod, string> = {
 }
 
 export const transactionStatusLabels: Record<AdminTransaction['status'], string> = {
-  pending: 'Đang chờ',
+  pending: 'Chờ thanh toán',
   success: 'Thành công',
   failed: 'Thất bại',
   expired: 'Đã hết hạn',
@@ -231,7 +231,7 @@ export const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'order.shipping_update': 'Cập nhật vận chuyển',
   'order.shipping_webhook': 'Webhook vận chuyển',
   'payment.adjust': 'Điều chỉnh thanh toán',
-  'payment.expire': 'Hết hạn thanh toán',
+  'payment.expire': 'Đánh dấu thanh toán hết hạn',
   'payment_method.status_update': 'Cập nhật phương thức thanh toán',
   'payment_method.account_reveal': 'Xem số tài khoản hoàn tiền',
 }
@@ -306,7 +306,7 @@ export const getNoNextOrderStepMessage = (order: AdminOrder) => {
 export const getStatusActionLabel = (status: AdminOrderStatus) => {
   if (status === 'packed') return 'Đóng gói xong'
   if (status === 'shipping') return 'Bàn giao vận chuyển'
-  if (status === 'delivered') return 'Xác nhận đã giao'
+  if (status === 'delivered') return 'Xác nhận giao thành công'
   if (status === 'completed') return 'Khách đã nhận hàng'
   if (status === 'cancelled') return 'Hủy đơn'
 
@@ -355,7 +355,7 @@ export const getReturnWindowStatus = (order: AdminOrder) => {
       }
     : {
         className: 'admin-status-pill is-soft',
-        label: `Hết hạn trả từ ${formatDate(deadline.toISOString())}`,
+        label: `Hết hạn trả hàng từ ${formatDate(deadline.toISOString())}`,
       }
 }
 
