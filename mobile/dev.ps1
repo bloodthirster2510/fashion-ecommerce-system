@@ -1,11 +1,17 @@
 param(
   [switch]$Android,
+  [switch]$NoAndroid,
   [switch]$KeepCache,
   [switch]$ResetExpoGo,
+  [switch]$RestartEmulator,
+  [switch]$UseSnapshot,
+  [switch]$Tunnel,
+  [int]$BootTimeoutSeconds = 180,
   [string]$AvdName = "Pixel_6"
 )
 
 $API_PORT = "5000"
+$UseAndroid = -not $NoAndroid
 
 function Resolve-AndroidSdkPath {
   $candidates = @(
@@ -101,6 +107,58 @@ function Test-AndroidDeviceReady {
   }
 }
 
+function Test-ExpoGoInstalled {
+  try {
+    $package = (& $ADB shell pm list packages host.exp.exponent 2>$null).Trim()
+    return $package -eq "package:host.exp.exponent"
+  } catch {
+    return $false
+  }
+}
+
+function Resolve-AvdName {
+  param(
+    [string]$RequestedName,
+    [string[]]$AvailableAvds
+  )
+
+  if ($AvailableAvds -contains $RequestedName) {
+    return $RequestedName
+  }
+
+  $normalizedRequested = $RequestedName -replace "[\s_-]+", ""
+  $matchingAvd = $AvailableAvds |
+    Where-Object { ($_ -replace "[\s_-]+", "") -ieq $normalizedRequested } |
+    Select-Object -First 1
+
+  if (-not $matchingAvd) {
+    $matchingAvd = $AvailableAvds |
+      Where-Object { ($_ -replace "[\s_-]+", "").StartsWith($normalizedRequested, [System.StringComparison]::OrdinalIgnoreCase) } |
+      Select-Object -First 1
+  }
+
+  if ($matchingAvd) {
+    return $matchingAvd
+  }
+
+  return $null
+}
+
+function Stop-AndroidEmulators {
+  try {
+    $devices = & $ADB devices |
+      Where-Object { $_ -match "^emulator-\d+\s+" } |
+      ForEach-Object { ($_ -split "\s+")[0] }
+
+    foreach ($device in $devices) {
+      & $ADB -s $device emu kill | Out-Null
+    }
+  } catch {}
+
+  Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 function Get-DevApiHost {
   $interfaces = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
     Where-Object {
@@ -176,7 +234,7 @@ $DEV_API_HOST = Get-DevApiHost
 if ($DEV_API_HOST) {
   $env:EXPO_PUBLIC_API_HOST = $DEV_API_HOST
   $env:EXPO_PUBLIC_API_PORT = $API_PORT
-  $env:EXPO_PUBLIC_API_URL = if ($Android) { "http://127.0.0.1:$API_PORT/api" } else { "http://$DEV_API_HOST`:$API_PORT/api" }
+  $env:EXPO_PUBLIC_API_URL = "http://$DEV_API_HOST`:$API_PORT/api"
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_HOST" -Value $DEV_API_HOST
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_PORT" -Value $API_PORT
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_URL" -Value $env:EXPO_PUBLIC_API_URL
@@ -192,25 +250,38 @@ Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue
     Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
   }
 
-if ($Android) {
+if ($UseAndroid) {
   Write-Output "[1] Emulator..."
   & $ADB kill-server | Out-Null
   & $ADB start-server | Out-Null
+
+  if ($RestartEmulator) {
+    Write-Output "Restarting Android emulator..."
+    Stop-AndroidEmulators
+    Start-Sleep -Seconds 3
+  }
 
   if (Test-AndroidDeviceReady) {
     Write-Output "Android device already connected. Reusing it."
   } else {
     $availableAvds = & $EMULATOR -list-avds
-    if ($availableAvds -notcontains $AvdName) {
+    $resolvedAvdName = Resolve-AvdName -RequestedName $AvdName -AvailableAvds $availableAvds
+    if (-not $resolvedAvdName) {
       Write-Output "AVD '$AvdName' not found. Available AVDs:"
       $availableAvds | ForEach-Object { Write-Output " - $_" }
       throw "Create the AVD or pass -AvdName with an existing name."
     }
 
-    Start-Process $EMULATOR -ArgumentList "-avd", $AvdName
+    $emulatorArgs = @("-avd", $resolvedAvdName, "-netdelay", "none", "-netspeed", "full")
+    if (-not $UseSnapshot) {
+      $emulatorArgs += "-no-snapshot-load"
+    }
+
+    Write-Output "Starting Android emulator: $resolvedAvdName"
+    Start-Process $EMULATOR -ArgumentList $emulatorArgs
   }
 } else {
-  Write-Output "[1] Skip emulator. Use Expo QR, or run .\dev.ps1 -Android for $AvdName."
+  Write-Output "[1] Skip emulator. Use Expo QR/LAN mode."
 }
 
 if (Test-BackendHealth) {
@@ -237,13 +308,18 @@ if ($backendReady) {
   Write-Output "Backend is not ready yet; continuing to Expo."
 }
 
-if ($Android) {
+if ($UseAndroid) {
   Write-Output "[3.5] Wait for Android device..."
-  $androidReady = (Wait-AndroidDevice -TimeoutSeconds 90) -and (Wait-AndroidBoot -TimeoutSeconds 90)
+  $androidReady = (Wait-AndroidDevice -TimeoutSeconds $BootTimeoutSeconds) -and (Wait-AndroidBoot -TimeoutSeconds $BootTimeoutSeconds)
   if ($androidReady) {
     & $ADB reverse tcp:$API_PORT tcp:$API_PORT | Out-Null
     & $ADB reverse tcp:8081 tcp:8081 | Out-Null
     Write-Output "ADB reverse configured: localhost:$API_PORT -> computer, localhost:8081 -> computer"
+    if (Test-ExpoGoInstalled) {
+      Write-Output "Expo Go is installed on Android."
+    } else {
+      Write-Output "Expo Go is not installed on Android. Expo CLI may prompt to install it."
+    }
     if ($ResetExpoGo) {
       & $ADB shell pm clear host.exp.exponent | Out-Null
       Write-Output "Expo Go app data cleared."
@@ -258,29 +334,32 @@ if ($Android) {
   $androidReady = $false
 }
 
-$expoArgs = @("expo", "start", "--lan", "--port", "8081")
+if ($DEV_API_HOST) {
+  $env:EXPO_PUBLIC_API_HOST = $DEV_API_HOST
+  $env:EXPO_PUBLIC_API_PORT = $API_PORT
+  $env:EXPO_PUBLIC_API_URL = if ($UseAndroid -and $androidReady) { "http://127.0.0.1:$API_PORT/api" } else { "http://$DEV_API_HOST`:$API_PORT/api" }
+  Set-MobileEnvValue -Key "EXPO_PUBLIC_API_HOST" -Value $DEV_API_HOST
+  Set-MobileEnvValue -Key "EXPO_PUBLIC_API_PORT" -Value $API_PORT
+  Set-MobileEnvValue -Key "EXPO_PUBLIC_API_URL" -Value $env:EXPO_PUBLIC_API_URL
+  Write-Output "[env] Final EXPO_PUBLIC_API_URL=$env:EXPO_PUBLIC_API_URL"
+}
+
+$expoArgs = @("expo", "start", "--go", "--port", "8081")
+if ($UseAndroid -and $androidReady) {
+  if ($Tunnel) {
+    $expoArgs += "--tunnel"
+  } else {
+    $expoArgs += "--localhost"
+  }
+  $expoArgs += "--android"
+} elseif ($Tunnel) {
+  $expoArgs += "--tunnel"
+} else {
+  $expoArgs += "--lan"
+}
+
 if (-not $KeepCache) {
   $expoArgs += "--clear"
-}
-
-if ($Android -and $androidReady) {
-  $expoUrl = "exp://127.0.0.1:8081"
-  $openAndroidCommand = @"
-`$deadline = (Get-Date).AddSeconds(60)
-while ((Get-Date) -lt `$deadline) {
-  try {
-    `$response = Invoke-WebRequest -UseBasicParsing "http://localhost:8081/status" -TimeoutSec 2
-    if (`$response.StatusCode -eq 200) {
-      & "$ADB" shell am start -a android.intent.action.VIEW -d "$expoUrl" host.exp.exponent | Out-Null
-      exit 0
-    }
-  } catch {}
-
-  Start-Sleep -Seconds 1
-}
-"@
-  Start-Process powershell -WindowStyle Hidden -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $openAndroidCommand
-  Write-Output "Expo will open on Android via ADB: $expoUrl"
 }
 
 Write-Output "[4] Start Expo dev server..."

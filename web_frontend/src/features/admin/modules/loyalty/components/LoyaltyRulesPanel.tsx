@@ -39,6 +39,11 @@ const toRuleForm = (rule: LoyaltyRule): LoyaltyRulePayload => ({
 
 const formatNumber = (value: number) => new Intl.NumberFormat('vi-VN').format(value)
 const getError = (error: unknown) => error instanceof Error ? error.message : 'Không thể xử lý quy tắc điểm'
+const roundModeLabels: Record<LoyaltyRulePayload['roundMode'], string> = {
+  floor: 'Làm tròn xuống',
+  round: 'Làm tròn gần nhất',
+  ceil: 'Làm tròn lên',
+}
 
 export function LoyaltyRulesPanel({ currentUser }: Props) {
   const { showToast } = useToast()
@@ -177,7 +182,7 @@ export function LoyaltyRulesPanel({ currentUser }: Props) {
   return (
     <section className="admin-loyalty-rules">
       <div className="admin-section-heading">
-        <div><p>Rules engine</p><h2>Cấu hình công thức tích điểm</h2></div>
+        <div><p>Quy tắc điểm</p><h2>Cấu hình cách tích điểm</h2></div>
         <button className="admin-secondary-button" type="button" disabled={!canManage || loading} onClick={() => showForm ? closeForm() : openCreateForm()}>
           {showForm ? 'Đóng form' : 'Thêm quy tắc'}
         </button>
@@ -197,7 +202,7 @@ export function LoyaltyRulesPanel({ currentUser }: Props) {
       <div className="admin-loyalty-rule-list">
         {rules.length ? rules.map((rule) => (
           <article key={rule._id}>
-            <div><strong>{rule.name}</strong><span>{formatNumber(rule.spendAmount)}₫ = {formatNumber(rule.pointsEarned)} điểm · đơn từ {formatNumber(rule.minOrderAmount)}₫ · làm tròn {rule.roundMode}</span></div>
+            <div><strong>{rule.name}</strong><span>{formatNumber(rule.spendAmount)}₫ = {formatNumber(rule.pointsEarned)} điểm · đơn từ {formatNumber(rule.minOrderAmount)}₫ · {roundModeLabels[rule.roundMode]}</span></div>
             <span className={`admin-status-pill ${rule.isActive ? 'is-active' : 'is-blocked'}`}>{rule.isActive ? 'Đang áp dụng' : 'Tạm tắt'}</span>
             <button className="admin-link-button" type="button" disabled={!canManage || loading} onClick={() => openEditForm(rule)}>Sửa</button>
             <button className="admin-link-button" type="button" disabled={!canManage || loading} onClick={() => void toggle(rule)}>{rule.isActive ? 'Tắt' : 'Kích hoạt'}</button>

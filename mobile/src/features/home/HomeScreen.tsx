@@ -265,7 +265,7 @@ const HomeScreen = () => {
             title="Phòng thử đồ"
             description="Trải nghiệm thử đồ ảo ngay tại nhà"
             icon="wardrobe-outline"
-            onPress={() => handleComingSoon('Phòng thử đồ')}
+            onPress={() => navigation.navigate(isAuthenticated ? 'VirtualTryOnHome' : 'Login')}
           />
           <FeatureCard
             title="Tìm kiếm sản phẩm bằng hình ảnh"

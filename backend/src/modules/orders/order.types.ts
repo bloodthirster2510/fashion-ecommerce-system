@@ -40,6 +40,13 @@ export interface PreviewCheckoutInput {
   couponCodes?: string[];
 }
 
+export type OrderListSort =
+  | 'created_desc'
+  | 'created_asc'
+  | 'total_desc'
+  | 'total_asc'
+  | 'payment_deadline_asc';
+
 export interface OrderListQueryInput {
   status?: OrderStatus;
   statuses?: OrderStatus[];
@@ -51,6 +58,7 @@ export interface OrderListQueryInput {
   from?: Date;
   to?: Date;
   paymentDeadlineBefore?: Date;
+  sort?: OrderListSort;
   page?: number;
   limit?: number;
 }

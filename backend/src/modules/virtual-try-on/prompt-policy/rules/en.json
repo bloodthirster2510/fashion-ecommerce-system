@@ -1,0 +1,89 @@
+[
+  {
+    "key": "sexual_content_en",
+    "category": "sexual_content",
+    "reasonCode": "PROMPT_SEXUAL_CONTENT",
+    "terms": [
+      "nude",
+      "naked",
+      "sex",
+      "porn",
+      "erotic",
+      "sensual",
+      "sexy pose",
+      "explicit sexual",
+      "oral sex",
+      "blowjob",
+      "handjob",
+      "masturbate",
+      "orgasm",
+      "rape",
+      "sexual assault",
+      "underwear",
+      "lingerie",
+      "bikini only",
+      "see through"
+    ]
+  },
+  {
+    "key": "profanity_en",
+    "category": "unsafe_request",
+    "reasonCode": "PROMPT_PROFANITY",
+    "terms": [
+      "fuck",
+      "fucking",
+      "shit",
+      "bitch",
+      "asshole",
+      "motherfucker",
+      "dick",
+      "cock",
+      "pussy",
+      "cunt",
+      "wtf"
+    ]
+  },
+  {
+    "key": "hate_harassment_en",
+    "category": "hate_or_harassment",
+    "reasonCode": "PROMPT_HATE_OR_HARASSMENT",
+    "terms": [
+      "hate speech",
+      "racial slur",
+      "racist",
+      "white power",
+      "nazi",
+      "kill yourself",
+      "body shaming"
+    ]
+  },
+  {
+    "key": "violence_en",
+    "category": "violence",
+    "reasonCode": "PROMPT_VIOLENCE",
+    "terms": [
+      "violence",
+      "blood",
+      "bloody",
+      "weapon",
+      "knife",
+      "gun",
+      "kill",
+      "suicide",
+      "self harm"
+    ]
+  },
+  {
+    "key": "personal_data_en",
+    "category": "personal_data",
+    "reasonCode": "PROMPT_PERSONAL_DATA",
+    "terms": [
+      "phone number",
+      "home address",
+      "credit card",
+      "id card",
+      "passport number",
+      "social security number"
+    ]
+  }
+]

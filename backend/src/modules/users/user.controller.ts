@@ -144,6 +144,18 @@ export const getUsers = async (req: Request, res: Response) => {
   }
 };
 
+export const getCustomerSummary = async (req: Request, res: Response) => {
+  try {
+    const result = await userService.getCustomerSummary(req.query);
+    return ok(res, result);
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
+      return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
+    }
+    return res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
 export const getUserById = async (req: Request, res: Response) => {
   try {
     const user = await userService.getUserById(getParam(req.params.id));

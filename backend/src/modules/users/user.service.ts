@@ -49,6 +49,36 @@ const parseStatusFilter = (value: unknown) => {
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const buildAdminCustomerFilter = (query: {
+  role?: unknown;
+  isActive?: unknown;
+  keyword?: unknown;
+}) => {
+  const filter: Record<string, unknown> = { role: 'user' };
+  const role = firstString(query.role);
+  const keyword = firstString(query.keyword);
+  const isActive = parseStatusFilter(query.isActive);
+
+  if (role && role !== 'user') {
+    throw { status: 400, message: 'Role không hợp lệ' };
+  }
+
+  if (isActive !== undefined) {
+    filter.isActive = isActive;
+  }
+
+  if (keyword) {
+    const escapedKeyword = escapeRegExp(keyword.slice(0, 80));
+    filter.$or = [
+      { name: { $regex: escapedKeyword, $options: 'i' } },
+      { email: { $regex: escapedKeyword, $options: 'i' } },
+      { phone: { $regex: escapedKeyword, $options: 'i' } },
+    ];
+  }
+
+  return filter;
+};
+
 const hasCompletedProfile = (user: IUser) =>
   Boolean(user.phone && user.gender && user.dateOfBirth && Array.isArray(user.address) && user.address.length > 0);
 
@@ -344,30 +374,7 @@ export const getUsers = async (query: {
   page?: unknown;
   limit?: unknown;
 }) => {
-  const filter: Record<string, unknown> = { role: 'user' };
-  const role = firstString(query.role);
-  const keyword = firstString(query.keyword);
-  const isActive = parseStatusFilter(query.isActive);
-
-  if (role) {
-    if (role !== 'user') {
-      throw { status: 400, message: 'Role không hợp lệ' };
-    }
-  }
-
-  if (isActive !== undefined) {
-    filter.isActive = isActive;
-  }
-
-  if (keyword) {
-    const escapedKeyword = escapeRegExp(keyword.slice(0, 80));
-    filter.$or = [
-      { name: { $regex: escapedKeyword, $options: 'i' } },
-      { email: { $regex: escapedKeyword, $options: 'i' } },
-      { phone: { $regex: escapedKeyword, $options: 'i' } },
-    ];
-  }
-
+  const filter = buildAdminCustomerFilter(query);
   const page = parsePositiveInteger(query.page, 1, 10000);
   const limit = parsePositiveInteger(query.limit, 10, 100);
   const skip = (page - 1) * limit;
@@ -387,6 +394,37 @@ export const getUsers = async (query: {
     page,
     limit,
     totalPages: Math.ceil(total / limit),
+  };
+};
+
+export const getCustomerSummary = async (query: { keyword?: unknown }) => {
+  const filter = buildAdminCustomerFilter({ keyword: query.keyword, role: 'user' });
+  const active30dBoundary = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const new7dBoundary = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const [
+    total,
+    active,
+    blocked,
+    completedProfiles,
+    activeLast30Days,
+    newLast7Days,
+  ] = await Promise.all([
+    User.countDocuments(filter),
+    User.countDocuments({ ...filter, isActive: true }),
+    User.countDocuments({ ...filter, isActive: false }),
+    User.countDocuments({ ...filter, profileCompleted: true }),
+    User.countDocuments({ ...filter, isActive: true, lastLoginAt: { $gte: active30dBoundary } }),
+    User.countDocuments({ ...filter, createdAt: { $gte: new7dBoundary } }),
+  ]);
+
+  return {
+    total,
+    active,
+    blocked,
+    completedProfiles,
+    activeLast30Days,
+    newLast7Days,
   };
 };
 

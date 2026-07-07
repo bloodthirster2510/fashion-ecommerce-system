@@ -490,10 +490,10 @@ const CartScreen = () => {
     !addressHasShippingCodes,
   );
   const shippingProviderLabel = shippingQuote?.provider === 'GHN'
-    ? 'GHN toi uu'
+    ? 'GHN tối ưu'
     : shippingComparison?.comparisonStatus === 'fallback'
       ? 'Phí tạm tính'
-      : 'Gia toi uu';
+      : 'Giá tối ưu';
   const shippingStatusText = isPreviewLoading
     ? 'Đang tính phí giao hàng...'
     : !selectedCheckoutItems.length

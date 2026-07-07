@@ -10,6 +10,7 @@ import type {
   CancelOrderInput,
   CreateOrderInput,
   OrderListQueryInput,
+  OrderListSort,
   PreviewCheckoutInput,
   RequestReturnInput,
   ReviewReturnRequestInput,
@@ -17,6 +18,14 @@ import type {
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
+
+const ORDER_LIST_SORTS = [
+  'created_desc',
+  'created_asc',
+  'total_desc',
+  'total_asc',
+  'payment_deadline_asc',
+] as const;
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   return (
@@ -103,6 +112,17 @@ const parseDate = (value: unknown, fieldName: string) => {
   const date = new Date(stringValue);
   if (Number.isNaN(date.getTime())) {
     throw new SalesServiceError(`Invalid ${fieldName}`, 400);
+  }
+
+  return date;
+};
+
+const parseDateTo = (value: unknown, fieldName: string) => {
+  const stringValue = parseString(value);
+  const date = parseDate(value, fieldName);
+
+  if (date && stringValue && /^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
+    date.setUTCHours(23, 59, 59, 999);
   }
 
   return date;
@@ -201,6 +221,20 @@ const parsePaymentStatuses = (value: unknown) => {
   return uniquePaymentStatuses as OrderPaymentStatus[];
 };
 
+const parseOrderListSort = (value: unknown): OrderListQueryInput['sort'] => {
+  const sort = parseString(value);
+
+  if (!sort) {
+    return undefined;
+  }
+
+  if (!ORDER_LIST_SORTS.includes(sort as OrderListSort)) {
+    throw new SalesServiceError('Invalid order sort', 400);
+  }
+
+  return sort as OrderListSort;
+};
+
 const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   status: parseStatus(req.query.status),
   statuses: parseStatuses(req.query.statuses),
@@ -209,9 +243,10 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   paymentStatus: parsePaymentStatus(req.query.paymentStatus),
   paymentStatuses: parsePaymentStatuses(req.query.paymentStatuses),
   keyword: parseString(req.query.keyword),
-  from: parseDate(req.query.from, 'from'),
-  to: parseDate(req.query.to, 'to'),
+  from: parseDate(req.query.dateFrom ?? req.query.from, 'dateFrom'),
+  to: parseDateTo(req.query.dateTo ?? req.query.to, 'dateTo'),
   paymentDeadlineBefore: parseDate(req.query.paymentDeadlineBefore, 'paymentDeadlineBefore'),
+  sort: parseOrderListSort(req.query.sort),
   page: parsePositiveInteger(req.query.page, 'page'),
   limit: parsePositiveInteger(req.query.limit, 'limit'),
 });

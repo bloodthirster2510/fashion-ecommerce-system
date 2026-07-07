@@ -9,6 +9,7 @@ import { couponLifecycleScheduler } from './modules/promotions/coupons/coupon-li
 import { supportTicketLifecycleScheduler } from './modules/support/support-ticket-lifecycle.scheduler';
 import { supportGateway } from './modules/realtime/support.gateway';
 import { orderGateway } from './modules/realtime/order.gateway';
+import { virtualTryOnGateway } from './modules/realtime/virtual-try-on.gateway';
 import { shippingReconcileScheduler } from './modules/shipping/shipping-reconcile.scheduler';
 import { orderAutoCompleteScheduler } from './modules/orders/order-auto-complete.scheduler';
 
@@ -33,6 +34,7 @@ const startServer = async () => {
   const server = http.createServer(app);
   supportGateway.attach(server);
   orderGateway.attach(server);
+  virtualTryOnGateway.attach(server);
 
   server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
@@ -58,7 +60,7 @@ const startServer = async () => {
     forceExitTimer.unref?.();
 
     try {
-      await Promise.all([supportGateway.close(), orderGateway.close()]);
+      await Promise.all([supportGateway.close(), orderGateway.close(), virtualTryOnGateway.close()]);
       if (server.listening) {
         await new Promise<void>((resolve, reject) => {
           server.close((error) => error ? reject(error) : resolve());

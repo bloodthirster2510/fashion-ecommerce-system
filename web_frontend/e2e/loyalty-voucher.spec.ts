@@ -10,7 +10,7 @@ const enterDemoAdmin = async (page: Page) => {
 
 test('voucher wizard supports templates, advanced options and cost preview', async ({ page }) => {
   await enterDemoAdmin(page)
-  await page.getByRole('button', { name: /Khuyến mãi Coupon/ }).click()
+  await page.getByRole('button', { name: /^Khuyến mãi:/ }).click()
   await page.getByRole('button', { name: 'Tạo voucher', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Tạo voucher' })
   await dialog.getByRole('button', { name: /Chào mừng khách mới/ }).click()
@@ -25,11 +25,12 @@ test('voucher wizard supports templates, advanced options and cost preview', asy
 
 test('tier dialog validates inline and confirms discarding dirty edits', async ({ page }) => {
   await enterDemoAdmin(page)
-  await page.getByRole('button', { name: /Chương trình thành viên Hạng/ }).click()
+  await page.getByRole('button', { name: /^Chương trình thành viên:/ }).click()
   await page.getByRole('button', { name: 'Thêm hạng', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Thêm hạng thành viên' })
   await dialog.locator('.admin-tier-template-row').getByRole('button', { name: 'Đồng', exact: true }).click()
-  await expect(dialog.getByText('FASHIONISTA MEMBER')).toBeVisible()
+  await expect(dialog.getByText('THẺ THÀNH VIÊN')).toBeVisible()
+  await expect(dialog.locator('.admin-tier-card-preview strong')).toHaveText('Đồng')
   await dialog.getByLabel('Tên hạng').fill('A')
   await expect(dialog.getByText('Tên hạng cần ít nhất 2 ký tự.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Hủy' }).click()
@@ -38,7 +39,7 @@ test('tier dialog validates inline and confirms discarding dirty edits', async (
 
 test('campaign form validates fields and confirms dirty close', async ({ page }) => {
   await enterDemoAdmin(page)
-  await page.getByRole('button', { name: /Khuyến mãi Coupon/ }).click()
+  await page.getByRole('button', { name: /^Khuyến mãi:/ }).click()
   await page.getByRole('button', { name: 'Tạo chiến dịch', exact: true }).click()
   await page.getByLabel('Mã chiến dịch').fill('x')
   await expect(page.getByText('Mã gồm 2–40 ký tự in hoa, số, “_” hoặc “-”.')).toBeVisible()

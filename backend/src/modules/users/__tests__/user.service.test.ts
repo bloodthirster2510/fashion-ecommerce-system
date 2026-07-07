@@ -4,6 +4,7 @@ import {
   deleteAddress,
   forcePasswordReset,
   getAddresses,
+  getCustomerSummary,
   getMe,
   getUsers,
   updateMe,
@@ -241,6 +242,38 @@ describe('User Service', () => {
       expect(result.items).toEqual(mockUsers);
       expect(result.totalItems).toBe(1);
       expect(result.page).toBe(1);
+    });
+  });
+
+  describe('getCustomerSummary', () => {
+    it('should return aggregate customer counters', async () => {
+      (User.countDocuments as jest.Mock)
+        .mockResolvedValueOnce(12)
+        .mockResolvedValueOnce(9)
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(7)
+        .mockResolvedValueOnce(5)
+        .mockResolvedValueOnce(2);
+
+      const result = await getCustomerSummary({ keyword: 'anna' });
+
+      expect(result).toEqual({
+        total: 12,
+        active: 9,
+        blocked: 3,
+        completedProfiles: 7,
+        activeLast30Days: 5,
+        newLast7Days: 2,
+      });
+      expect(User.countDocuments).toHaveBeenCalledTimes(6);
+      expect(User.countDocuments).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        role: 'user',
+        $or: expect.any(Array),
+      }));
+      expect(User.countDocuments).toHaveBeenNthCalledWith(5, expect.objectContaining({
+        isActive: true,
+        lastLoginAt: expect.objectContaining({ $gte: expect.any(Date) }),
+      }));
     });
   });
 

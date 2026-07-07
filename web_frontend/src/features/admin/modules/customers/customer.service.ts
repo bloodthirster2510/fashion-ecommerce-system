@@ -4,6 +4,7 @@ import type {
   ManagedUserFilters,
   ManagedUserList,
   ManagedUserRole,
+  ManagedUserSummary,
 } from './customer.types'
 
 type ManagedUserApiResponse = Omit<ManagedUser, 'isActive'> & {
@@ -62,6 +63,18 @@ export const listManagedUsers = (filters: ManagedUserFilters) => {
 
 export const getManagedUser = (id: string) =>
   requestAdmin<ManagedUserApiResponse>(`/admin/users/${id}`).then(normalizeManagedUserStatus)
+
+export const getManagedUserSummary = (keyword = '') => {
+  const params = new URLSearchParams()
+  const trimmedKeyword = keyword.trim()
+
+  if (trimmedKeyword) {
+    params.set('keyword', trimmedKeyword)
+  }
+
+  const query = params.toString()
+  return requestAdmin<ManagedUserSummary>(`/admin/users/summary${query ? `?${query}` : ''}`)
+}
 
 export const updateManagedUserStatus = (id: string, isActive: boolean) =>
   requestAdmin<ManagedUserApiResponse>(`/admin/users/${id}/status`, {

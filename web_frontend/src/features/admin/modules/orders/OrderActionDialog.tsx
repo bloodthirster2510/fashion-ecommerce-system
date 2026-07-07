@@ -29,7 +29,7 @@ const getReasonPresets = (action: OrderActionDialogState) => {
       return [
         'Cổng thanh toán báo lỗi',
         'Không ghi nhận được tiền',
-        'Giao dịch hết hạn thanh toán',
+        'Giao dịch đã hết hạn',
       ]
     }
 
@@ -132,8 +132,8 @@ export function OrderActionDialog({
     if (action.type === 'return-review') return action.decision === 'approved' ? 'Duyệt trả hàng' : 'Từ chối trả hàng'
     if (action.type === 'shipping') return 'Cập nhật vận đơn'
     if (action.type === 'cancel-ghn') return 'Hủy vận đơn GHN'
-    if (action.type === 'payment-status') return 'Điều chỉnh thanh toán'
-    return 'Cập nhật phương thức'
+    if (action.type === 'payment-status') return 'Cập nhật trạng thái'
+    return 'Cập nhật phương thức thanh toán'
   })()
 
   const title = (() => {
@@ -142,7 +142,7 @@ export function OrderActionDialog({
     if (action.type === 'return-review') return action.decision === 'approved' ? 'Duyệt yêu cầu trả hàng' : 'Từ chối yêu cầu trả hàng'
     if (action.type === 'shipping') return 'Cập nhật vận đơn'
     if (action.type === 'cancel-ghn') return 'Hủy vận đơn GHN'
-    if (action.type === 'payment-status') return 'Điều chỉnh trạng thái thanh toán'
+    if (action.type === 'payment-status') return 'Điều chỉnh thanh toán'
     return 'Cập nhật phương thức thanh toán'
   })()
 

@@ -1,0 +1,64 @@
+import type {
+  VirtualTryOnContextPreset,
+  VirtualTryOnItemRole,
+  VirtualTryOnOutfitMode,
+  VirtualTryOnOutputMode,
+} from '../../../database/models';
+
+export type VirtualTryOnProviderGarment = {
+  role: VirtualTryOnItemRole;
+  productId: string;
+  variantId: string;
+  colorVariantId: string;
+  imageUrl: string;
+  name: string;
+  color?: string;
+  size?: string;
+};
+
+export type VirtualTryOnProviderInput = {
+  jobId: string;
+  userId: string;
+  sourceImageUrl: string;
+  outfitMode: VirtualTryOnOutfitMode;
+  outputMode: VirtualTryOnOutputMode;
+  garments: VirtualTryOnProviderGarment[];
+  context: {
+    preset: VirtualTryOnContextPreset;
+    prompt?: string;
+    preserveOriginalBackground: boolean;
+  };
+  prompt: string;
+  negativePrompt: string;
+  seed?: number;
+};
+
+export type VirtualTryOnProviderBinaryOutput = {
+  buffer: Buffer;
+  mimeType: string;
+  fileName: string;
+};
+
+export type VirtualTryOnProviderResult = {
+  imageUrl?: string;
+  image?: VirtualTryOnProviderBinaryOutput;
+  videoUrl?: string | null;
+  video?: VirtualTryOnProviderBinaryOutput | null;
+  providerJobId?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export interface VirtualTryOnProvider {
+  generate(input: VirtualTryOnProviderInput): Promise<VirtualTryOnProviderResult>;
+}
+
+export class VirtualTryOnProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode = 502,
+    public readonly errorCode = 'PROVIDER_FAILED',
+  ) {
+    super(message);
+    this.name = 'VirtualTryOnProviderError';
+  }
+}

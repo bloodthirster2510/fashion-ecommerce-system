@@ -6,12 +6,14 @@ export type AdminRouteId =
   | 'products'
   | 'catalog'
   | 'orders'
+  | 'ordersLookup'
   | 'ordersOnline'
   | 'ordersCod'
   | 'inventory'
   | 'promotions'
   | 'reviews'
   | 'support'
+  | 'virtualTryOn'
   | 'reports'
   | 'settings'
 
@@ -49,12 +51,14 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'products',
   'catalog',
   'orders',
+  'ordersLookup',
   'ordersOnline',
   'ordersCod',
   'inventory',
   'promotions',
   'reviews',
   'support',
+  'virtualTryOn',
 ]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
@@ -116,21 +120,28 @@ const adminRouteRecords: AdminRoute[] = [
   {
     id: 'orders',
     path: '/admin/orders',
-    label: 'Hóa đơn & đơn hàng',
-    helper: 'Tra cứu mã đơn, hóa đơn & lịch sử',
+    label: 'Vận hành đơn hàng',
+    helper: 'Xử lý đơn, thanh toán & giao hàng',
+    group: 'sales',
+  },
+  {
+    id: 'ordersLookup',
+    path: '/admin/orders/lookup',
+    label: 'Tra cứu đơn & hóa đơn',
+    helper: 'Tìm mã đơn, khách hàng & vận chuyển',
     group: 'sales',
   },
   {
     id: 'ordersOnline',
     path: '/admin/orders/online',
-    label: 'Thanh toán online',
-    helper: 'Đối soát VNPay, MoMo & thẻ',
+    label: 'Đơn thanh toán online',
+    helper: 'Đối soát trước khi xử lý giao',
     group: 'sales',
   },
   {
     id: 'ordersCod',
     path: '/admin/orders/cod',
-    label: 'Thanh toán COD',
+    label: 'Đơn COD',
     helper: 'Thu tiền khi nhận hàng',
     group: 'sales',
   },
@@ -145,7 +156,7 @@ const adminRouteRecords: AdminRoute[] = [
     id: 'promotions',
     path: '/admin/promotions',
     label: 'Khuyến mãi',
-    helper: 'Coupon & chiến dịch',
+    helper: 'Voucher & chiến dịch',
     group: 'marketing',
   },
   {
@@ -160,6 +171,13 @@ const adminRouteRecords: AdminRoute[] = [
     path: '/admin/support',
     label: 'Hỗ trợ',
     helper: 'Phiếu phản hồi',
+    group: 'service',
+  },
+  {
+    id: 'virtualTryOn',
+    path: '/admin/virtual-try-on',
+    label: 'Phối đồ ảo',
+    helper: 'Job AI, quota & provider',
     group: 'service',
   },
   {

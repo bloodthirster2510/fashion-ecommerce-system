@@ -1,7 +1,14 @@
 import { ConfigProvider } from 'antd'
 import 'antd/dist/reset.css'
+import { Suspense } from 'react'
 import { Router } from './router'
 import './App.css'
+
+const appLoadingFallback = (
+  <main className="app-route-loading" role="status">
+    Đang tải màn hình...
+  </main>
+)
 
 function App() {
   return (
@@ -14,7 +21,9 @@ function App() {
         },
       }}
     >
-      <Router />
+      <Suspense fallback={appLoadingFallback}>
+        <Router />
+      </Suspense>
     </ConfigProvider>
   )
 }

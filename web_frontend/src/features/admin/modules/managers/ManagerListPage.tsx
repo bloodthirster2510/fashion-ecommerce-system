@@ -54,6 +54,8 @@ const impliedPermissions: Partial<Record<StaffPermission, StaffPermission>> = {
   'loyalty.write': 'loyalty.read',
   'customers.manage': 'customers.read',
   'support.manage': 'support.reply',
+  'virtual_try_on.manage': 'virtual_try_on.read',
+  'virtual_try_on.settings': 'virtual_try_on.read',
 }
 
 const defaultStaffPermissions: StaffPermission[] = [

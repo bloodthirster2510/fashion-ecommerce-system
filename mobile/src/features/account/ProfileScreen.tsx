@@ -176,6 +176,10 @@ const ProfileScreen = () => {
       navigation.navigate('Favorites');
       return;
     }
+    if (item.id === 'outfits') {
+      navigation.navigate(session?.accessToken ? 'VirtualTryOnHome' : 'Login');
+      return;
+    }
     if (item.id === 'membership') {
       navigation.navigate('Membership');
       return;

@@ -159,7 +159,7 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
         const right = selected[rightIndex]
         const sharedAudience = left.eligibleUserTypes.some((type) => right.eligibleUserTypes.includes(type))
         const overlaps = new Date(left.startAt) <= new Date(right.endAt) && new Date(right.startAt) <= new Date(left.endAt)
-        if (sharedAudience && overlaps) warnings.push(`${left.code} và ${right.code} trùng thời gian và đối tượng; stacking có thể giảm quá sâu.`)
+        if (sharedAudience && overlaps) warnings.push(`${left.code} và ${right.code} trùng thời gian và đối tượng; dùng chung có thể giảm quá sâu.`)
         else if (sharedAudience) warnings.push(`${left.code} và ${right.code} cùng nhóm khách mục tiêu.`)
         else if (overlaps) warnings.push(`${left.code} và ${right.code} có thời gian hiệu lực chồng nhau.`)
       }
@@ -276,7 +276,7 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
   return (
     <section className="admin-growth-panel">
       <div className="admin-section-heading">
-        <div><p>Campaign & analytics</p><h2>Hiệu quả khuyến mãi</h2></div>
+        <div><p>Chiến dịch & phân tích</p><h2>Hiệu quả khuyến mãi</h2></div>
         <button className="admin-secondary-button" type="button" disabled={!canManage || loading} onClick={() => showForm ? closeForm() : openCreateForm()}>
           {showForm ? 'Đóng form' : 'Tạo chiến dịch'}
         </button>
@@ -333,14 +333,14 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
           <label><span>Tên chiến dịch</span><input className={(submitAttempted || form.name.length > 0) && formErrors.name ? 'is-invalid' : ''} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required minLength={2} />{(submitAttempted || form.name.length > 0) && formErrors.name ? <small className="admin-field-error">{formErrors.name}</small> : null}</label>
           <label><span>Bắt đầu</span><input className={formErrors.startAt ? 'is-invalid' : ''} type="datetime-local" value={form.startAt} onChange={(event) => setForm({ ...form, startAt: event.target.value })} required />{formErrors.startAt ? <small className="admin-field-error">{formErrors.startAt}</small> : null}</label>
           <label><span>Kết thúc</span><input className={formErrors.endAt ? 'is-invalid' : ''} type="datetime-local" value={form.endAt} min={form.startAt} onChange={(event) => setForm({ ...form, endAt: event.target.value })} required />{formErrors.endAt ? <small className="admin-field-error">{formErrors.endAt}</small> : null}</label>
-          <label><span>Cho phép stacking</span><input type="checkbox" checked={form.allowCouponStacking} onChange={(event) => setForm({ ...form, allowCouponStacking: event.target.checked, maxCouponsPerOrder: event.target.checked ? 2 : 1 })} /></label>
+          <label><span>Cho phép dùng nhiều voucher</span><input type="checkbox" checked={form.allowCouponStacking} onChange={(event) => setForm({ ...form, allowCouponStacking: event.target.checked, maxCouponsPerOrder: event.target.checked ? 2 : 1 })} /></label>
           <label><span>Tối đa voucher/đơn</span><input className={formErrors.maxCouponsPerOrder ? 'is-invalid' : ''} type="number" min={form.allowCouponStacking ? 2 : 1} max={3} disabled={!form.allowCouponStacking} value={form.maxCouponsPerOrder} onChange={(event) => setForm({ ...form, maxCouponsPerOrder: Number(event.target.value) })} /><small>Tối đa N voucher/đơn nghĩa là khách chỉ được áp N voucher trong số đã chọn.</small>{formErrors.maxCouponsPerOrder ? <small className="admin-field-error">{formErrors.maxCouponsPerOrder}</small> : null}</label>
           <fieldset>
             <legend>Voucher trong chiến dịch</legend>
             <div className="admin-campaign-coupon-toolbar">
               <input type="search" value={couponSearch} onChange={(event) => setCouponSearch(event.target.value)} placeholder="Tìm mã hoặc tên voucher" />
               <select value={couponStatus} onChange={(event) => setCouponStatus(event.target.value as typeof couponStatus)}><option value="active">Đang chạy</option><option value="expired">Hết hạn</option><option value="all">Tất cả trạng thái</option></select>
-              <select value={couponDiscountType} onChange={(event) => setCouponDiscountType(event.target.value as typeof couponDiscountType)}><option value="all">Tất cả loại giảm</option><option value="percent">Phần trăm</option><option value="fixed">Số tiền</option><option value="free_shipping">Freeship</option></select>
+              <select value={couponDiscountType} onChange={(event) => setCouponDiscountType(event.target.value as typeof couponDiscountType)}><option value="all">Tất cả loại giảm</option><option value="percent">Phần trăm</option><option value="fixed">Số tiền</option><option value="free_shipping">Miễn phí vận chuyển</option></select>
             </div>
             <div className="admin-campaign-coupon-list">
               {filteredCoupons.map((coupon) => <label key={coupon._id}><input type="checkbox" checked={form.couponIds.includes(coupon._id)} onChange={() => toggleCoupon(coupon._id)} /> <span>{coupon.code}<small>{coupon.name}</small></span></label>)}
@@ -358,7 +358,7 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
       <div className="admin-campaign-list">
         {campaigns.length ? campaigns.map((campaign) => (
           <article key={campaign._id}>
-            <div><strong>{campaign.code} · {campaign.name}</strong><span>{campaign.couponIds.length} voucher · {campaign.allowCouponStacking ? `stack tối đa ${campaign.maxCouponsPerOrder}` : 'không stack'}</span></div>
+            <div><strong>{campaign.code} · {campaign.name}</strong><span>{campaign.couponIds.length} voucher · {campaign.allowCouponStacking ? `tối đa ${campaign.maxCouponsPerOrder} voucher/đơn` : 'mỗi đơn 1 voucher'}</span></div>
             <span className={`admin-status-pill ${campaign.isActive ? 'is-active' : 'is-blocked'}`}>{campaign.isActive ? 'Đang bật' : 'Tạm tắt'}</span>
             <button className="admin-link-button" type="button" disabled={!canManage || loading} onClick={() => openEditForm(campaign)}>Sửa</button>
             <button className="admin-link-button" type="button" disabled={!canManage || loading} onClick={() => void toggleStatus(campaign)}>{campaign.isActive ? 'Tắt' : 'Bật'}</button>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, useCallback, useEffect, useState } from 'react'
 import { AdminLogin } from '../features/admin/modules/auth/AdminLogin'
 import { ForcePasswordChange } from '../features/admin/modules/auth/ForcePasswordChange'
 import '../features/admin/styles/admin.css'
@@ -14,18 +14,39 @@ import {
   ADMIN_LOGIN_PATH,
 } from '../features/admin/config/adminRoutes'
 import { logoutAdmin, refreshAdminSession } from '../features/admin/modules/auth/auth.service'
-import { AdminLayout } from '../features/admin/layouts/AdminLayout'
-import { ProductDetailPage } from '../features/catalog/pages/ProductDetailPage'
-import { ProductListPage } from '../features/catalog/pages/ProductListPage'
-import { ProfilePage } from '../features/profile/pages/ProfilePage'
-import { SupportPage } from '../features/support/SupportPage'
-import { AccountOrdersPage } from '../features/profile/pages/AccountOrdersPage'
-import { MyReviewsPage } from '../features/profile/pages/MyReviewsPage'
-import { HomePage } from '../features/home/pages/HomePage'
-import { CartPage } from '../features/cart/pages/CartPage'
-import { OrderDetailPage } from '../features/orders/pages/OrderDetailPage'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
+
+const AdminLayout = lazy(() =>
+  import('../features/admin/layouts/AdminLayout').then((module) => ({ default: module.AdminLayout })),
+)
+const ProductDetailPage = lazy(() =>
+  import('../features/catalog/pages/ProductDetailPage').then((module) => ({ default: module.ProductDetailPage })),
+)
+const ProductListPage = lazy(() =>
+  import('../features/catalog/pages/ProductListPage').then((module) => ({ default: module.ProductListPage })),
+)
+const ProfilePage = lazy(() =>
+  import('../features/profile/pages/ProfilePage').then((module) => ({ default: module.ProfilePage })),
+)
+const SupportPage = lazy(() =>
+  import('../features/support/SupportPage').then((module) => ({ default: module.SupportPage })),
+)
+const AccountOrdersPage = lazy(() =>
+  import('../features/profile/pages/AccountOrdersPage').then((module) => ({ default: module.AccountOrdersPage })),
+)
+const MyReviewsPage = lazy(() =>
+  import('../features/profile/pages/MyReviewsPage').then((module) => ({ default: module.MyReviewsPage })),
+)
+const HomePage = lazy(() =>
+  import('../features/home/pages/HomePage').then((module) => ({ default: module.HomePage })),
+)
+const CartPage = lazy(() =>
+  import('../features/cart/pages/CartPage').then((module) => ({ default: module.CartPage })),
+)
+const OrderDetailPage = lazy(() =>
+  import('../features/orders/pages/OrderDetailPage').then((module) => ({ default: module.OrderDetailPage })),
+)
 
 export function Router() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>

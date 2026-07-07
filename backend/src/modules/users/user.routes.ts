@@ -34,6 +34,7 @@ customerUserRouter.get('/me/membership', authenticate, async (req: Request, res:
 });
 
 adminUserRouter.get('/', canReadCustomers, userController.getUsers);
+adminUserRouter.get('/summary', canReadCustomers, userController.getCustomerSummary);
 adminUserRouter.get('/:id', canReadCustomers, userController.getUserById);
 adminUserRouter.patch('/:id/status', canManageCustomerStatus, userController.updateUserStatus);
 adminUserRouter.patch('/:id/role', adminOnly, userController.updateUserRole);

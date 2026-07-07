@@ -66,6 +66,46 @@
 
 .admin-loyalty-table {
   min-width: 0;
+  padding-bottom: 16px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
+}
+
+.admin-loyalty-table .admin-ui-filter-bar,
+.admin-loyalty-table .admin-ui-table-card,
+.admin-loyalty-table .admin-ui-empty-state,
+.admin-loyalty-table .admin-smart-warning {
+  margin-right: 16px;
+  margin-left: 16px;
+}
+
+.admin-loyalty-table .admin-ui-filter-bar {
+  margin-top: 16px;
+}
+
+.admin-loyalty-tier-cell {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-loyalty-tier-cell strong {
+  color: var(--admin-text);
+  font-weight: 850;
+}
+
+.admin-loyalty-tier-cell small {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-loyalty-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 
 .admin-loyalty-visual-preview {
@@ -87,6 +127,134 @@
   flex: 0 0 auto;
   border: 2px solid rgba(255, 255, 255, 0.5);
   border-radius: 50%;
+}
+
+.admin-tier-ladder {
+  display: grid;
+  gap: 10px;
+  margin: 16px;
+}
+
+.admin-tier-ladder-item {
+  display: grid;
+  grid-template-columns: 54px minmax(132px, 0.26fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #dce6ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.admin-tier-ladder-rank {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #334155;
+  background: #f1f5f9;
+}
+
+.admin-tier-ladder-rank span {
+  align-self: end;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.admin-tier-ladder-rank strong {
+  align-self: start;
+  color: var(--admin-text);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.admin-tier-ladder-card {
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.admin-tier-ladder-card span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.48);
+  border-radius: 50%;
+  font-size: 16px;
+}
+
+.admin-tier-ladder-card strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-tier-ladder-main {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-tier-ladder-main h3,
+.admin-tier-ladder-main p,
+.admin-tier-ladder-main dl {
+  margin: 0;
+}
+
+.admin-tier-ladder-main h3 {
+  color: var(--admin-text);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.admin-tier-ladder-main p {
+  color: var(--admin-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.admin-tier-ladder-main dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.admin-tier-ladder-main dl > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-tier-ladder-main dt {
+  color: var(--admin-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.admin-tier-ladder-main dd {
+  margin: 0;
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.admin-tier-ladder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .admin-loyalty-empty-state {
@@ -478,6 +646,23 @@
   .admin-loyalty-rule-list article {
     grid-template-columns: 1fr;
   }
+
+  .admin-tier-quick-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-tier-quick-preview .admin-tier-card-preview {
+    min-height: 150px;
+  }
+
+  .admin-tier-ladder-item {
+    grid-template-columns: 48px minmax(128px, 0.38fr) minmax(0, 1fr);
+  }
+
+  .admin-tier-ladder-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
 }
 
 .admin-loyalty-table tr.is-tier-selected td { background: #eef6fb; }
@@ -506,6 +691,7 @@
 .admin-tier-dialog { width: min(calc(100vw - 32px), 820px); max-height: min(92svh, 820px); padding: 0; overflow-y: auto; }
 .admin-tier-dialog > h2,
 .admin-tier-dialog > h3,
+.admin-tier-dialog > .admin-tier-dialog-intro,
 .admin-tier-dialog > .admin-notice,
 .admin-tier-dialog > .admin-account-form-grid,
 .admin-tier-dialog > label,
@@ -518,7 +704,29 @@
 .admin-tier-draft-notice { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 20px 12px; padding: 8px 10px; border-radius: 7px; color: #315f83; background: #eef6fb; font-size: 12px; font-weight: 750; }
 .admin-tier-draft-notice button { border: 0; color: #315f83; background: transparent; cursor: pointer; font-weight: 850; }
 .admin-tier-dialog > h2 { margin-top: 20px; }
-.admin-tier-form-section-title { margin-top: 18px; margin-bottom: 10px; color: var(--admin-text); font-size: 14px; }
+.admin-tier-dialog-intro { margin-top: 4px; margin-bottom: 14px; color: var(--admin-text-muted); font-size: 13px; font-weight: 700; line-height: 1.45; }
+.admin-tier-quick-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; margin: 0 20px; }
+.admin-tier-quick-layout > div { min-width: 0; }
+.admin-tier-quick-layout .admin-account-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.admin-tier-wide-field { grid-column: 1 / -1; }
+.admin-tier-quick-preview { min-width: 0; display: grid; align-content: start; gap: 10px; }
+.admin-tier-quick-preview .admin-tier-card-preview { min-height: 174px; margin: 0; padding: 18px; }
+.admin-tier-auto-summary { display: flex; flex-wrap: wrap; gap: 7px; }
+.admin-tier-auto-summary span { padding: 5px 8px; border-radius: 999px; color: #475569; background: #f1f5f9; font-size: 11px; font-weight: 850; }
+.admin-tier-advanced-toggle { width: calc(100% - 40px); min-height: 38px; margin: 16px 20px 0; border: 1px dashed #cbd8e3; border-radius: 8px; color: #334155; background: #f8fbfd; cursor: pointer; font-weight: 850; }
+.admin-tier-advanced-toggle:hover { border-color: #94a3b8; background: #f1f5f9; }
+.admin-tier-advanced-panel { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #edf1f4; }
+.admin-tier-advanced-panel[hidden] { display: none; }
+.admin-tier-advanced-panel > .admin-account-form-grid,
+.admin-tier-advanced-panel > .admin-tier-palette-row,
+.admin-tier-advanced-panel > .admin-tier-contrast,
+.admin-tier-advanced-panel > .admin-tier-form-section-title { margin-right: 20px; margin-left: 20px; }
+.admin-tier-context-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 20px 14px; }
+.admin-tier-context-row > div { min-width: 0; display: grid; gap: 4px; padding: 11px 12px; border: 1px solid #e3ebf2; border-radius: 8px; background: #f8fbfd; }
+.admin-tier-context-row span { color: var(--admin-text-muted); font-size: 11px; font-weight: 850; }
+.admin-tier-context-row strong { overflow: hidden; color: var(--admin-text); font-size: 13px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+.admin-tier-context-row small { color: var(--admin-text-muted); font-size: 12px; font-weight: 700; }
+.admin-tier-form-section-title { margin-top: 0; margin-bottom: 10px; color: var(--admin-text); font-size: 14px; }
 .admin-tier-card-preview { min-height: 190px; display: grid; grid-template-columns: auto 1fr; gap: 14px; margin: 0 20px; padding: 22px; border-radius: 14px; box-shadow: 0 12px 28px rgba(31,45,61,.2); }
 .admin-tier-card-preview > span { width: 54px; height: 54px; display: grid; place-items: center; border: 2px solid rgba(255,255,255,.45); border-radius: 50%; font-size: 28px; }
 .admin-tier-card-preview > div { display: grid; align-content: center; gap: 3px; }
@@ -547,7 +755,7 @@
 .admin-rule-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .admin-loyalty-rule-list article { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
 .admin-loyalty-table { position: relative; }
-.admin-loyalty-table.is-refreshing table { opacity: .68; }
+.admin-loyalty-table.is-refreshing .admin-ui-table-card { opacity: .68; }
 .admin-loyalty-table .admin-table-refresh-indicator { position: sticky; bottom: 8px; width: max-content; margin: -38px auto 8px; padding: 7px 12px; border-radius: 999px; color: #fff; background: #315f83; font-size: 11px; font-weight: 800; }
 .admin-loyalty-impact-list span { gap: 9px; }
 .admin-loyalty-impact-list b { width: 22px; height: 22px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #18794e; background: #eef8f3; }
@@ -559,16 +767,39 @@
 @media (max-width: 780px) {
   .admin-loyalty-tier-filters,
   .admin-loyalty-history-date-filters { grid-template-columns: 1fr; }
-  .admin-loyalty-table table thead { display: none; }
-  .admin-loyalty-table table,
-  .admin-loyalty-table tbody,
-  .admin-loyalty-table tr,
-  .admin-loyalty-table td { display: block; width: 100%; }
-  .admin-loyalty-table tbody { display: grid; gap: 12px; padding: 12px; }
-  .admin-loyalty-table tr { padding: 10px 12px; border: 1px solid var(--admin-line); border-radius: 9px; }
-  .admin-loyalty-table td { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; padding: 7px 0; border: 0; }
-  .admin-loyalty-table td::before { content: attr(data-label); color: var(--admin-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
-  .admin-loyalty-table td[colspan]::before { display: none; }
+  .admin-loyalty-table .admin-table thead { display: none; }
+  .admin-loyalty-table .admin-table,
+  .admin-loyalty-table .admin-table tbody,
+  .admin-loyalty-table .admin-table tr,
+  .admin-loyalty-table .admin-table td { display: block; width: 100%; }
+  .admin-loyalty-table .admin-table tbody { display: grid; gap: 12px; padding: 12px; }
+  .admin-loyalty-table .admin-table tr { padding: 10px 12px; border: 1px solid var(--admin-line); border-radius: 9px; }
+  .admin-loyalty-table .admin-table td { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; padding: 7px 0; border: 0; }
+  .admin-loyalty-table .admin-table td::before { content: attr(data-label); color: var(--admin-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+  .admin-loyalty-table .admin-table td[colspan]::before { display: none; }
+  .admin-tier-ladder-item,
+  .admin-tier-quick-layout .admin-account-form-grid,
+  .admin-tier-context-row {
+    grid-template-columns: 1fr;
+  }
+  .admin-tier-ladder-rank {
+    width: 100%;
+    height: auto;
+    grid-template-columns: auto 1fr;
+    justify-items: start;
+    gap: 6px;
+    padding: 9px 11px;
+  }
+  .admin-tier-ladder-rank span,
+  .admin-tier-ladder-rank strong {
+    align-self: center;
+  }
+  .admin-tier-ladder-main dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-tier-ladder-actions {
+    grid-column: auto;
+  }
   .admin-tier-icon-grid { grid-template-columns: repeat(4, 40px); }
   .admin-loyalty-history-heading { align-items: flex-start; flex-direction: column; }
 }

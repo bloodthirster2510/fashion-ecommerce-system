@@ -17,6 +17,7 @@ import { customerCouponRouter } from '../modules/promotions/coupons/coupon.route
 import userRouter from '../modules/users/user.routes';
 import supportRouter from '../modules/support/support.routes';
 import customerNotificationSummaryRouter from '../modules/notifications/customer-notification-summary.routes';
+import virtualTryOnRouter from '../modules/virtual-try-on/virtual-try-on.route';
 
 const router = Router();
 
@@ -38,5 +39,6 @@ router.use('/coupons', customerCouponRouter);
 router.use('/users', userRouter);
 router.use('/support', supportRouter);
 router.use('/notifications', customerNotificationSummaryRouter);
+router.use('/virtual-try-on', virtualTryOnRouter);
 
 export default router;

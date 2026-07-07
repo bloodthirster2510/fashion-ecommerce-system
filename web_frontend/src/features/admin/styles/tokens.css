@@ -1,0 +1,48 @@
+:root {
+  --admin-bg-app: #f7f8fa;
+  --admin-surface: #ffffff;
+  --admin-surface-muted: #f3f4f6;
+  --admin-surface-subtle: #fafafa;
+  --admin-border: #e5e7eb;
+  --admin-border-strong: #d1d5db;
+  --admin-text: #111827;
+  --admin-text-muted: #6b7280;
+  --admin-text-subtle: #9ca3af;
+  --admin-accent: #111827;
+  --admin-accent-hover: #374151;
+  --admin-focus: rgba(17, 24, 39, 0.14);
+  --admin-status-success: #0e9f6e;
+  --admin-status-success-bg: #e8f7ef;
+  --admin-status-warning: #b7791f;
+  --admin-status-warning-bg: #fff7df;
+  --admin-status-danger: #dc2626;
+  --admin-status-danger-bg: #fee2e2;
+  --admin-status-info: #2563eb;
+  --admin-status-info-bg: #e7efff;
+  --admin-radius-sm: 6px;
+  --admin-radius: 8px;
+  --admin-radius-lg: 12px;
+  --admin-shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.06);
+  --admin-shadow-md: 0 4px 12px rgba(17, 24, 39, 0.08);
+  --admin-shadow-lg: 0 18px 45px rgba(17, 24, 39, 0.16);
+  --admin-space-1: 4px;
+  --admin-space-2: 8px;
+  --admin-space-3: 12px;
+  --admin-space-4: 16px;
+  --admin-space-5: 24px;
+  --admin-space-6: 32px;
+  --admin-sidebar-w: 268px;
+  --admin-sidebar-collapsed-w: 64px;
+  --admin-topbar-h: 56px;
+
+  /* Backward-compatible aliases for modules not migrated yet. */
+  --admin-sidebar: var(--admin-surface);
+  --admin-sidebar-soft: var(--admin-surface-muted);
+  --admin-sidebar-muted: var(--admin-text-muted);
+  --admin-accent-dark: var(--admin-accent-hover);
+  --admin-bg: var(--admin-bg-app);
+  --admin-line: var(--admin-border);
+  --admin-muted: var(--admin-text-muted);
+  --admin-danger: var(--admin-status-danger);
+  --admin-danger-bg: var(--admin-status-danger-bg);
+}
