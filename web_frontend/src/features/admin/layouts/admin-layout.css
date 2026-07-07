@@ -235,38 +235,34 @@
 }
 
 .admin-nav-item.is-child {
-  width: calc(100% - 26px);
-  min-height: 42px;
-  margin-left: 26px;
-  padding: 8px 10px;
-  color: #aab7c8;
+  width: calc(100% - 18px);
+  min-height: 38px;
+  margin-left: 18px;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  color: #b8c6d6;
+  box-shadow: inset 2px 0 0 rgba(148, 163, 184, 0.22);
 }
 
 .admin-nav-item.is-child:hover {
   border-color: transparent;
   color: #f8fafc;
   background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 2px 0 0 rgba(203, 213, 225, 0.42);
 }
 
 .admin-nav-item.is-child.is-active,
 .admin-nav-item.is-child.is-active:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-  color: #111827;
-  background: #fff;
+  border-color: transparent;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.11);
+  box-shadow: inset 2px 0 0 #93c5fd;
 }
 
 .admin-nav-item.is-child strong {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
-}
-
-.admin-nav-item.is-child::before {
-  content: "";
-  position: absolute;
-  left: -14px;
-  width: 8px;
-  height: 1px;
-  background: rgba(148, 163, 184, 0.44);
 }
 
 .admin-nav-item svg {
@@ -279,8 +275,8 @@
 }
 
 .admin-nav-item.is-child svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
 }
 
 .admin-nav-item span {
@@ -352,6 +348,10 @@
 
 .admin-nav-item.is-active .admin-nav-notification-badge {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+
+.admin-nav-item.is-child.is-active .admin-nav-notification-badge {
+  box-shadow: 0 0 0 2px #223047;
 }
 
 .admin-nav-notification-badge.is-warning {
