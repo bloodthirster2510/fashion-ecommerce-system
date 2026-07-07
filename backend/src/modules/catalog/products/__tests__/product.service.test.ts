@@ -209,6 +209,48 @@ describe('productService', () => {
     });
   });
 
+  it('falls back to the parent size template when a category template source pointer is stale', async () => {
+    const staleSourceId = '665000000000000000000020';
+    const parentCategoryId = '665000000000000000000021';
+    const product = { _id: productId, name: 'Basic T-shirt' };
+
+    mockedCategory.findById
+      .mockResolvedValueOnce({ _id: categoryId, isActive: true } as never)
+      .mockResolvedValueOnce({
+        _id: categoryId,
+        isActive: true,
+        isSizeTemplateSource: false,
+        sizeTemplateSourceId: new Types.ObjectId(staleSourceId),
+        parent_id: new Types.ObjectId(parentCategoryId),
+      } as never)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        _id: parentCategoryId,
+        isSizeTemplateSource: true,
+        sizes: ['M'],
+        measurementFields: [
+          { key: 'shoulder', label: 'Shoulder', unit: 'cm', required: true, sortOrder: 1 },
+          { key: 'chest', label: 'Chest', unit: 'cm', required: true, sortOrder: 2 },
+          { key: 'length', label: 'Length', unit: 'cm', required: true, sortOrder: 3 },
+        ],
+        fitTypes: [
+          {
+            _id: new Types.ObjectId('665000000000000000000010'),
+            key: 'regular',
+            label: 'Regular',
+            sortOrder: 1,
+            isActive: true,
+          },
+        ],
+      } as never);
+    mockedProduct.create.mockResolvedValue(product as never);
+
+    const result = await productService.createProduct(createProductInput);
+
+    expect(mockedProduct.create).toHaveBeenCalled();
+    expect(result).toBe(product);
+  });
+
   it('throws 400 when brand is inactive', async () => {
     mockedBrand.findById.mockResolvedValue({ _id: brandId, isActive: false } as never);
 
