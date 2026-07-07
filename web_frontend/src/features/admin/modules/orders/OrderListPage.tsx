@@ -35,7 +35,7 @@ const writeClipboardText = async (value: string) => {
 
 export function OrderListPage({
   currentUser,
-  paymentSection = 'online',
+  paymentSection = 'all',
   lockPaymentSection = false,
   initialTabKey,
 }: OrdersPageProps) {

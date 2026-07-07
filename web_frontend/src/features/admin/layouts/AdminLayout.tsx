@@ -438,7 +438,8 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     if (renderedSection === 'orders') {
       const searchParams = new URLSearchParams(currentLocation.search)
       const initialTabKey = searchParams.get('queue') ?? undefined
-      const paymentSection = searchParams.get('section') === 'cod' ? 'cod' : 'online'
+      const sectionParam = searchParams.get('section')
+      const paymentSection = sectionParam === 'cod' ? 'cod' : sectionParam === 'online' ? 'online' : 'all'
 
       return (
         <OrderListPage
@@ -534,8 +535,13 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
               <span className="admin-nav-group-label">{group.label}</span>
               {group.items.map((item) => {
                 const Icon = item.icon
-                const isActive = item.id === renderedSection
+                const orderSectionParam = new URLSearchParams(currentLocation.search).get('section')
                 const isOrderPaymentRoute = item.id === 'ordersOnline' || item.id === 'ordersCod'
+                const isActive = isOrderPaymentRoute
+                  ? renderedSection === 'orders' &&
+                    orderSectionParam === (item.id === 'ordersCod' ? 'cod' : 'online')
+                  : item.id === renderedSection &&
+                    !(item.id === 'orders' && (orderSectionParam === 'online' || orderSectionParam === 'cod'))
                 const isDisabled = !item.isImplemented
                 const notificationBadge = getNavNotificationBadge(item.id, summary)
 

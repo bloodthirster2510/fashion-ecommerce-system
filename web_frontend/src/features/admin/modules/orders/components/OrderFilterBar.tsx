@@ -81,7 +81,7 @@ export function OrderFilterBar({
           disabled={!isLookupMode && activePaymentSectionKey === 'cod'}
           onChange={(event) => onPaymentMethodChange(event.target.value as AdminOrderPaymentMethod | 'all')}
         >
-          <option value="all">{isLookupMode ? 'Tất cả phương thức' : 'Tất cả online'}</option>
+          <option value="all">T?t c? ph??ng th?c</option>
           {(isLookupMode ? allPaymentMethods : getPaymentSectionMethods(activePaymentSectionKey)).map((value) => (
             <option key={value} value={value}>
               {paymentMethodLabels[value]}

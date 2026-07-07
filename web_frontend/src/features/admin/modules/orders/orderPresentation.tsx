@@ -58,6 +58,12 @@ export const paymentSections: Array<{
   methods: AdminOrderPaymentMethod[]
 }> = [
   {
+    key: 'all',
+    label: 'V?n h?nh ??n h?ng',
+    helper: 'Theo d?i to?n b? ??n c?n x? l?, kh?ng gi?i h?n theo ph??ng th?c thanh to?n.',
+    methods: supportedPaymentMethods,
+  },
+  {
     key: 'online',
     label: 'Thanh toán online',
     helper: 'VNPay cần ghi nhận tiền trước khi xử lý giao. MoMo, thẻ và chuyển khoản chưa mở trong MVP.',
@@ -72,7 +78,7 @@ export const paymentSections: Array<{
 ]
 
 export const getPaymentSectionMethods = (sectionKey: PaymentSectionKey) =>
-  paymentSections.find((section) => section.key === sectionKey)?.methods ?? onlinePaymentMethods
+  paymentSections.find((section) => section.key === sectionKey)?.methods ?? supportedPaymentMethods
 
 export const orderTabs: OrderTab[] = [
   {
