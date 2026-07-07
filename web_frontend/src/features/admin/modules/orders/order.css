@@ -16,8 +16,8 @@
   min-width: 0;
 }
 
-.admin-orders-page .admin-table-toolbar.is-lookup input,
-.admin-orders-page .admin-table-toolbar.is-lookup select {
+.admin-orders-page .admin-table-toolbar.is-lookup > label input,
+.admin-orders-page .admin-table-toolbar.is-lookup > label select {
   width: 100%;
   min-width: 0;
 }
@@ -80,9 +80,19 @@
   font-weight: 800;
 }
 
-.admin-order-column-toggle input {
-  width: 14px;
-  height: 14px;
+.admin-order-column-toggle label span {
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.15;
+}
+
+.admin-order-column-toggle input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  min-height: 16px;
   margin: 0;
   accent-color: #111827;
 }
