@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -56,6 +56,8 @@ const studioPalette = {
   success: '#198754',
   successSoft: '#EAF7EF',
 } as const;
+
+const virtualTryOnHeroImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
 
 const VirtualTryOnHomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
@@ -247,9 +249,7 @@ const VirtualTryOnHomeScreen = () => {
               {latestAsset ? (
                 <RemoteImage uri={latestAsset.url} style={styles.heroImage} recyclingKey={latestAsset._id} />
               ) : (
-                <View style={styles.emptyHeroImage}>
-                  <MaterialCommunityIcons name="account-outline" size={64} color={studioPalette.primary} />
-                </View>
+                <Image source={virtualTryOnHeroImage} style={styles.heroImage} resizeMode="cover" />
               )}
               <View style={[styles.heroBadge, latestAsset && styles.heroBadgeReady]}>
                 <MaterialCommunityIcons name={latestAsset ? 'check' : 'camera-outline'} size={16} color={colors.white} />
@@ -442,12 +442,6 @@ const styles = StyleSheet.create({
   heroImage: {
     width: '100%',
     height: '100%',
-  },
-  emptyHeroImage: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: studioPalette.cloth,
   },
   heroBadge: {
     position: 'absolute',
