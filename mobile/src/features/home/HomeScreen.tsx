@@ -18,6 +18,8 @@ import { useCustomerNotifications } from '../notifications/CustomerNotificationP
 
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
+const virtualTryOnFeatureImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
+
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
   const { isAuthenticated, session } = useAuth();
@@ -237,6 +239,8 @@ const HomeScreen = () => {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StorefrontHeader
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
+        menuIcon="filter-variant"
+        menuAccessibilityLabel="Mở bộ lọc sản phẩm"
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
@@ -265,12 +269,14 @@ const HomeScreen = () => {
             title="Phòng thử đồ"
             description="Trải nghiệm thử đồ ảo ngay tại nhà"
             icon="wardrobe-outline"
+            imageSource={virtualTryOnFeatureImage}
             onPress={() => navigation.navigate(isAuthenticated ? 'VirtualTryOnHome' : 'Login')}
           />
           <FeatureCard
             title="Tìm kiếm sản phẩm bằng hình ảnh"
             description="Chụp hoặc tải ảnh lên để tìm sản phẩm tương tự"
             icon="camera-iris"
+            supportingIcons={['filter-variant']}
             onPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
           />
         </View>

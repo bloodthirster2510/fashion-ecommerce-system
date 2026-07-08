@@ -67,6 +67,7 @@ const VirtualTryOnHomeScreen = () => {
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isUploading, setIsUploading] = React.useState(false);
+  const [isDeletingAsset, setIsDeletingAsset] = React.useState(false);
   const heroLift = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -193,6 +194,35 @@ const VirtualTryOnHomeScreen = () => {
     }
   };
 
+  const removeLatestAsset = () => {
+    if (!latestAsset) return;
+    Alert.alert(
+      'Bỏ ảnh này?',
+      'Ảnh đang chọn sẽ được gỡ khỏi phòng thử đồ. Bạn có thể tải ảnh khác lên bất cứ lúc nào.',
+      [
+        { text: 'Giữ lại', style: 'cancel' },
+        {
+          text: 'Bỏ ảnh',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setIsDeletingAsset(true);
+              try {
+                await runWithAuth((token) => virtualTryOnApi.deleteAsset(token, latestAsset._id));
+                setLatestAsset(null);
+              } catch (error) {
+                const message = error instanceof Error ? error.message : 'Không thể bỏ ảnh lúc này.';
+                Alert.alert('Bỏ ảnh', message);
+              } finally {
+                setIsDeletingAsset(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   const openJob = (job: VirtualTryOnJob) => {
     if (job.status === 'succeeded') {
       navigation.navigate('VirtualTryOnResult', { jobId: job._id });
@@ -251,6 +281,21 @@ const VirtualTryOnHomeScreen = () => {
               ) : (
                 <Image source={virtualTryOnHeroImage} style={styles.heroImage} resizeMode="cover" />
               )}
+              {latestAsset ? (
+                <TouchableOpacity
+                  style={styles.removeAssetButton}
+                  onPress={removeLatestAsset}
+                  activeOpacity={0.82}
+                  accessibilityLabel="Bỏ ảnh đã tải lên"
+                  disabled={isDeletingAsset}
+                >
+                  {isDeletingAsset ? (
+                    <ActivityIndicator size="small" color={colors.white} />
+                  ) : (
+                    <MaterialCommunityIcons name="close" size={18} color={colors.white} />
+                  )}
+                </TouchableOpacity>
+              ) : null}
               <View style={[styles.heroBadge, latestAsset && styles.heroBadgeReady]}>
                 <MaterialCommunityIcons name={latestAsset ? 'check' : 'camera-outline'} size={16} color={colors.white} />
                 <Text style={styles.heroBadgeText}>{latestAsset ? 'Ảnh đã sẵn sàng' : 'Cần ảnh người mặc'}</Text>
@@ -442,6 +487,19 @@ const styles = StyleSheet.create({
   heroImage: {
     width: '100%',
     height: '100%',
+  },
+  removeAssetButton: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(33,52,72,0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroBadge: {
     position: 'absolute',
