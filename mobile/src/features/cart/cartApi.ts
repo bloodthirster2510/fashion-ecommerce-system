@@ -1,5 +1,6 @@
 import { apiFetch } from '../../config/api';
 import type { ApiResponse, ApiValidationError } from '../auth/types';
+import { getRecommendationSessionId } from '../recommendation/recommendationSession';
 
 const CART_READ_TIMEOUT_MS = 20000;
 const CART_WRITE_TIMEOUT_MS = 30000;
@@ -10,6 +11,7 @@ export type AddCartItemPayload = {
   colorVariantId: string;
   size: string;
   quantity: number;
+  recommendationRequestId?: string;
 };
 
 export type UpdateCartItemPayload = {
@@ -259,12 +261,14 @@ const request = async <T>(
   } = {},
 ) => {
   const method = options.method ?? 'GET';
+  const recommendationSessionId = await getRecommendationSessionId();
   const response = await apiFetch(path, {
     method,
     timeoutMs: options.timeoutMs ?? (method === 'GET' ? CART_READ_TIMEOUT_MS : CART_WRITE_TIMEOUT_MS),
     retryOnTimeout: options.retryOnTimeout ?? method === 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
+      'X-Session-Id': recommendationSessionId,
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
     },

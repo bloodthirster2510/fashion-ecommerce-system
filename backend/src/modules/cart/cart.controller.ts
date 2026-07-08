@@ -43,6 +43,12 @@ const getErrorResponse = (e: unknown) => {
 
 const getUserId = (req: Request) => req.user!.userId;
 
+const getRecommendationSessionId = (req: Request) => {
+  const value = req.headers['x-session-id'];
+  const sessionId = (Array.isArray(value) ? value[0] : value)?.trim();
+  return sessionId || undefined;
+};
+
 const getCart = async (req: Request, res: Response) => {
   try {
     const cart = await cartService.getCart(getUserId(req));
@@ -55,7 +61,10 @@ const getCart = async (req: Request, res: Response) => {
 
 const addCartItem = async (req: Request, res: Response) => {
   try {
-    const input = req.body as AddCartItemInput;
+    const input = {
+      ...(req.body as AddCartItemInput),
+      recommendationSessionId: getRecommendationSessionId(req),
+    };
 
     if (!input.productId || !input.variantId || !input.colorVariantId || !input.size || input.quantity === undefined) {
       return errorResponse(res, 'productId, variantId, colorVariantId, size, and quantity are required', 400);

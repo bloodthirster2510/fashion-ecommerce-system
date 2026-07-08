@@ -4,6 +4,8 @@ export interface AddCartItemInput {
   colorVariantId: string;
   size: string;
   quantity: number;
+  recommendationRequestId?: string;
+  recommendationSessionId?: string;
 }
 
 export interface UpdateCartItemInput {

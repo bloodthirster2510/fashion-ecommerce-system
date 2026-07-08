@@ -29,6 +29,8 @@ import {
 } from '../account/paymentMethodsApi';
 import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
+import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 
@@ -128,6 +130,9 @@ const CartScreen = () => {
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
   const [cart, setCart] = React.useState<CartResponse | null>(null);
+  const [cartRecommendationItems, setCartRecommendationItems] = React.useState<RecommendationItem[]>([]);
+  const [cartRecommendationRequestId, setCartRecommendationRequestId] = React.useState<string | null>(null);
+  const [cartRecommendationAlgorithmVersion, setCartRecommendationAlgorithmVersion] = React.useState<string | null>(null);
   const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
   const [isAddressLoading, setIsAddressLoading] = React.useState(false);
@@ -271,6 +276,9 @@ const CartScreen = () => {
     async (silent = false) => {
       if (!session?.accessToken) {
         setCart(null);
+        setCartRecommendationItems([]);
+        setCartRecommendationRequestId(null);
+        setCartRecommendationAlgorithmVersion(null);
         setIsLoading(false);
         return;
       }
@@ -284,6 +292,17 @@ const CartScreen = () => {
       try {
         const nextCart = await runWithAuth((accessToken) => cartApi.getCart(accessToken));
         setCart(nextCart);
+        void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(6, accessToken))
+          .then((response) => {
+            setCartRecommendationItems(response.items);
+            setCartRecommendationRequestId(response.requestId);
+            setCartRecommendationAlgorithmVersion(response.algorithmVersion);
+          })
+          .catch(() => {
+            setCartRecommendationItems([]);
+            setCartRecommendationRequestId(null);
+            setCartRecommendationAlgorithmVersion(null);
+          });
       } catch (error) {
         showNotice({
           tone: 'error',
@@ -297,6 +316,33 @@ const CartScreen = () => {
     },
     [runWithAuth, session?.accessToken, showNotice],
   );
+
+  const recordCartRecommendationEvent = React.useCallback((item: RecommendationItem, eventType: 'impression' | 'click') => {
+    if (!cartRecommendationRequestId) {
+      return;
+    }
+
+    const payload = {
+      requestId: cartRecommendationRequestId,
+      eventType,
+      context: 'cart' as const,
+      recommendedProductId: item.product._id,
+      algorithmVersion: cartRecommendationAlgorithmVersion ?? undefined,
+      score: item.score,
+      rank: item.rank,
+      reasonCodes: item.reasonCodes,
+    };
+
+    void runWithAuth((accessToken) => recommendationApi.recordEvent(payload, accessToken)).catch(() => undefined);
+  }, [cartRecommendationAlgorithmVersion, cartRecommendationRequestId, runWithAuth]);
+  const {
+    recommendationSectionRef,
+    checkRecommendationVisibility,
+  } = useRecommendationImpressions({
+    requestId: cartRecommendationRequestId,
+    items: cartRecommendationItems,
+    onImpression: (item) => recordCartRecommendationEvent(item, 'impression'),
+  });
 
   const loadAddresses = React.useCallback(
     async (silent = false) => {
@@ -1138,6 +1184,67 @@ const CartScreen = () => {
     );
   };
 
+  const handleCartRecommendationPress = (item: RecommendationItem) => {
+    recordCartRecommendationEvent(item, 'click');
+    navigation.navigate('ProductDetail', {
+      productId: item.product._id,
+      recommendationRequestId: cartRecommendationRequestId ?? undefined,
+    });
+  };
+
+  const renderCartRecommendations = () => {
+    if (!cartRecommendationItems.length) {
+      return null;
+    }
+
+    return (
+      <View
+        ref={recommendationSectionRef}
+        collapsable={false}
+        style={styles.recommendationSection}
+      >
+        <View style={styles.recommendationHeader}>
+          <Text style={styles.sectionTitle}>Có thể bạn cũng thích</Text>
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.recommendationRow}
+        >
+          {cartRecommendationItems.map((item) => {
+            const imageUri = item.product.image?.trim();
+
+            return (
+              <TouchableOpacity
+                key={`${cartRecommendationRequestId}-${item.product._id}`}
+                style={styles.recommendationCard}
+                activeOpacity={0.86}
+                onPress={() => handleCartRecommendationPress(item)}
+              >
+                <View style={styles.recommendationImageWrap}>
+                  {isRemoteImage(imageUri) ? (
+                    <Image source={{ uri: imageUri }} style={styles.recommendationImage} />
+                  ) : (
+                    <MaterialCommunityIcons name="image-outline" size={24} color={colors.textSubtle} />
+                  )}
+                </View>
+                <Text style={styles.recommendationName} numberOfLines={2}>
+                  {item.product.name}
+                </Text>
+                <Text style={styles.recommendationPrice}>
+                  {formatCurrency(item.product.finalPrice)}
+                </Text>
+                <Text style={styles.recommendationReason} numberOfLines={1}>
+                  {item.reason}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
   const renderInput = (
     placeholder: string,
     value: string,
@@ -1467,6 +1574,8 @@ const CartScreen = () => {
           {cart.product_list.map(renderCartItem)}
         </View>
 
+        {renderCartRecommendations()}
+
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Thông tin đơn hàng</Text>
           <View style={styles.formStack}>
@@ -1683,6 +1792,8 @@ const CartScreen = () => {
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
         showsVerticalScrollIndicator={false}
+        onScroll={checkRecommendationVisibility}
+        scrollEventThrottle={100}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart(true)} tintColor={colors.brand} />
         }
@@ -1841,6 +1952,59 @@ const styles = StyleSheet.create({
   itemList: {
     paddingHorizontal: spacing.md,
     gap: spacing.md,
+  },
+  recommendationSection: {
+    marginTop: spacing.xl,
+  },
+  recommendationHeader: {
+    paddingHorizontal: spacing.md,
+  },
+  recommendationRow: {
+    paddingHorizontal: spacing.md,
+    gap: spacing.md,
+  },
+  recommendationCard: {
+    width: 142,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.sm,
+  },
+  recommendationImageWrap: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: radii.xs,
+    backgroundColor: colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
+  },
+  recommendationImage: {
+    width: '100%',
+    height: '100%',
+  },
+  recommendationName: {
+    minHeight: 36,
+    color: colors.black,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  recommendationPrice: {
+    color: colors.brand,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  recommendationReason: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 2,
   },
   cartItem: {
     borderRadius: radii.sm,

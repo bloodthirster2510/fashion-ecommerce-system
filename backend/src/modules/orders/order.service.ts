@@ -24,6 +24,8 @@ import {
   toObjectId,
 } from '../sales/sales.helpers';
 import { cartService } from '../cart/cart.service';
+import { interactionService } from '../interactions/interaction.service';
+import { recommendationService } from '../recommendations/recommendation.service';
 import { transactionService } from '../payments/transaction.service';
 import {
   getOrderPaymentDeadlineAt,
@@ -451,6 +453,7 @@ const toOrderItem = (item: CheckoutOrderItem) => ({
   image: item.image,
   quantity: item.quantity,
   priceAtPurchased: item.priceAtPurchased,
+  recommendationRequestId: item.recommendationRequestId ?? null,
 });
 
 type IdLike = Types.ObjectId | string | { toString(): string };
@@ -1449,13 +1452,50 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   if (!createdOrder) {
     throw new SalesServiceError('Failed to create order', 500);
   }
+  const finalizedOrder = createdOrder;
+  const persistedOrderItems = finalizedOrder.order_list?.length
+    ? finalizedOrder.order_list
+    : orderItems.map((item, index) => ({
+        ...item,
+        _id: `line-${index + 1}`,
+      }));
 
   await runBestEffort(
     'Failed to delete cart items after order creation',
     cartService.deleteCartItems(userId, input.cartItemIds),
   );
+  await runBestEffort(
+    'Failed to record purchase interactions',
+    interactionService.recordPurchaseInteractions(
+      userId,
+      persistedOrderItems.map((item) => ({
+        sourceId: `${toIdString(finalizedOrder._id)}:${toIdString(item._id)}`,
+        productId: toIdString(item.productId),
+        variantId: toIdString(item.variantId),
+        colorVariantId: toIdString(item.colorVariantId),
+        size: item.size,
+        quantity: item.quantity,
+      })),
+      { orderId: toIdString(finalizedOrder._id) || orderId.toString(), orderCode: finalizedOrder.orderCode },
+    ),
+  );
+  await runBestEffort(
+    'Failed to record recommendation purchase conversions',
+    Promise.all(
+      persistedOrderItems
+        .filter((item) => Boolean(item.recommendationRequestId))
+        .map((item) =>
+          recommendationService.recordRecommendationConversionEvent({
+            userId,
+            requestId: item.recommendationRequestId,
+            recommendedProductId: toIdString(item.productId),
+            eventType: 'purchase',
+          }),
+        ),
+    ),
+  );
 
-  return createdOrder;
+  return finalizedOrder;
 };
 
 const getMyOrders = async (userId: string, query: OrderListQueryInput) => {

@@ -50,6 +50,7 @@ export type RootStackParamList = {
   } | undefined;
   ProductDetail: {
     productId: string;
+    recommendationRequestId?: string;
   };
   Cart: {
     couponCode?: string;

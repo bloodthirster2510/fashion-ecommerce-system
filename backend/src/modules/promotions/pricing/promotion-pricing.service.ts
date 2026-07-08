@@ -109,6 +109,7 @@ const buildCheckoutSelections = async (items: ICartItem[]): Promise<CheckoutCart
         quantity: item.quantity,
         priceAtPurchased: resolved.finalPrice,
         categoryId: resolved.product.category_id,
+        recommendationRequestId: item.recommendationRequestId ?? null,
       };
 
       return {

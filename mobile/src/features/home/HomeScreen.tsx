@@ -10,6 +10,9 @@ import { colors, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { catalogApi, CatalogCategory, CatalogGender, CatalogProduct } from '../catalog/catalogApi';
+import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
+import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import CategoryDrawer from './components/CategoryDrawer';
 import CategoryRail, { CategoryRailItem } from './components/CategoryRail';
 import FeatureCard from './components/FeatureCard';
@@ -22,13 +25,16 @@ const virtualTryOnFeatureImage = require('../../../assets/virtual-try-on/hero-st
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
-  const { isAuthenticated, session } = useAuth();
+  const { isAuthenticated, session, runWithAuth } = useAuth();
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
   const [isCategoryDrawerVisible, setIsCategoryDrawerVisible] = React.useState(false);
   const [categories, setCategories] = React.useState<CatalogCategory[]>([]);
   const [isCategoryLoading, setIsCategoryLoading] = React.useState(false);
   const [bestSellers, setBestSellers] = React.useState<CatalogProduct[]>([]);
   const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
+  const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
+  const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
+  const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
   const [isProductLoading, setIsProductLoading] = React.useState(true);
   const [bestSellerError, setBestSellerError] = React.useState<string | null>(null);
   const [recommendationError, setRecommendationError] = React.useState<string | null>(null);
@@ -43,6 +49,47 @@ const HomeScreen = () => {
       categories.length ? availableCategoryGenders.has(gender) : gender !== 'unisex',
     [availableCategoryGenders, categories.length],
   );
+
+  const recordInteraction = React.useCallback((payload: InteractionPayload) => {
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) => interactionApi.recordInteraction(payload, accessToken)).catch(() => undefined);
+      return;
+    }
+
+    void interactionApi.recordInteraction(payload).catch(() => undefined);
+  }, [isAuthenticated, runWithAuth]);
+
+  const recordRecommendationEvent = React.useCallback((item: RecommendationItem, eventType: 'impression' | 'click') => {
+    if (!recommendationRequestId) {
+      return;
+    }
+
+    const payload = {
+      requestId: recommendationRequestId,
+      eventType,
+      context: 'home' as const,
+      recommendedProductId: item.product._id,
+      algorithmVersion: recommendationAlgorithmVersion,
+      score: item.score,
+      rank: item.rank,
+      reasonCodes: item.reasonCodes,
+    };
+
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) => recommendationApi.recordEvent(payload, accessToken)).catch(() => undefined);
+      return;
+    }
+
+    void recommendationApi.recordEvent(payload).catch(() => undefined);
+  }, [isAuthenticated, recommendationAlgorithmVersion, recommendationRequestId, runWithAuth]);
+  const {
+    recommendationSectionRef,
+    checkRecommendationVisibility,
+  } = useRecommendationImpressions({
+    requestId: recommendationRequestId,
+    items: recommendationItems,
+    onImpression: (item) => recordRecommendationEvent(item, 'impression'),
+  });
 
   const loadCategories = React.useCallback(() => {
     let isCurrentRequest = true;
@@ -77,8 +124,15 @@ const HomeScreen = () => {
     setIsProductLoading(true);
     setBestSellerError(null);
     setRecommendationError(null);
+    setRecommendationItems([]);
+    setRecommendationRequestId(null);
+    setRecommendationAlgorithmVersion(undefined);
 
-    Promise.allSettled([catalogApi.getBestSellers(4), catalogApi.getRecommended(4)])
+    const recommendationPromise = isAuthenticated
+      ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(4, accessToken))
+      : recommendationApi.getPersonalRecommendations(4);
+
+    Promise.allSettled([catalogApi.getBestSellers(4), recommendationPromise])
       .then(([bestSellerResult, recommendationResult]) => {
         if (!isCurrentRequest) return;
 
@@ -90,8 +144,14 @@ const HomeScreen = () => {
         }
 
         if (recommendationResult.status === 'fulfilled') {
-          setRecommendations(recommendationResult.value.items);
+          setRecommendationItems(recommendationResult.value.items);
+          setRecommendationRequestId(recommendationResult.value.requestId);
+          setRecommendationAlgorithmVersion(recommendationResult.value.algorithmVersion);
+          setRecommendations(recommendationResult.value.items.map((item) => item.product));
         } else {
+          setRecommendationItems([]);
+          setRecommendationRequestId(null);
+          setRecommendationAlgorithmVersion(undefined);
           setRecommendations([]);
           setRecommendationError('Không tải được sản phẩm gợi ý');
         }
@@ -105,7 +165,7 @@ const HomeScreen = () => {
     return () => {
       isCurrentRequest = false;
     };
-  }, []);
+  }, [isAuthenticated, runWithAuth]);
 
   React.useEffect(() => loadCategories(), [loadCategories]);
   React.useEffect(() => loadHomeProducts(), [loadHomeProducts]);
@@ -208,6 +268,12 @@ const HomeScreen = () => {
   );
 
   const handleSearchSubmit = (keyword: string) => {
+    recordInteraction({
+      actionType: 'search',
+      source: 'search',
+      metadata: { keyword },
+    });
+
     navigation.navigate('ProductList', {
       title: `Tìm kiếm: ${keyword}`,
       keyword,
@@ -235,6 +301,31 @@ const HomeScreen = () => {
     Alert.alert('Giỏ hàng', 'Bạn mở chi tiết sản phẩm để chọn màu, size và số lượng trước nha.');
   };
 
+  const handleRecommendationProductPress = (product: CatalogProduct) => {
+    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === product._id);
+
+    if (item) {
+      recordRecommendationEvent(item, 'click');
+    }
+
+    if (product._id) {
+      navigation.navigate('ProductDetail', {
+        productId: product._id,
+        recommendationRequestId: recommendationRequestId ?? undefined,
+      });
+    }
+  };
+
+  const handleRecommendationCartPress = (product: CatalogProduct) => {
+    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === product._id);
+
+    if (item) {
+      recordRecommendationEvent(item, 'click');
+    }
+
+    handleCartPress(product);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StorefrontHeader
@@ -258,6 +349,8 @@ const HomeScreen = () => {
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={checkRecommendationVisibility}
+        scrollEventThrottle={100}
       >
         <View style={styles.hero}>
           <Text style={styles.heroTitle}>FASHIONISTA</Text>
@@ -292,6 +385,7 @@ const HomeScreen = () => {
           onCartPress={handleCartPress}
         />
 
+        <View ref={recommendationSectionRef} collapsable={false}>
         <ProductSection
           title="Bạn cũng có thể thích"
           products={recommendations}
@@ -299,9 +393,10 @@ const HomeScreen = () => {
           error={recommendationError}
           onRetry={loadHomeProducts}
           onViewMore={() => navigateToProductList({ title: 'Bạn cũng có thể thích', sort: 'newest' })}
-          onProductPress={handleProductPress}
-          onCartPress={handleCartPress}
+          onProductPress={handleRecommendationProductPress}
+          onCartPress={handleRecommendationCartPress}
         />
+        </View>
 
         <View style={styles.footerGap}>
           <StorefrontFooter />

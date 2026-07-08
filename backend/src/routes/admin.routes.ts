@@ -17,6 +17,7 @@ import { adminReviewRouter } from '../modules/reviews/review.route';
 import notificationSummaryRouter from '../modules/admin/notifications/notification-summary.routes';
 import adminSupportRouter from '../modules/admin/support/admin-support.routes';
 import adminVirtualTryOnRouter from '../modules/virtual-try-on/virtual-try-on.admin.route';
+import adminRecommendationRouter from '../modules/recommendations/recommendation.admin.route';
 
 const adminRouter = Router();
 
@@ -37,6 +38,7 @@ adminRouter.use('/reviews', adminReviewRouter);
 adminRouter.use('/notifications', notificationSummaryRouter);
 adminRouter.use('/support', adminSupportRouter);
 adminRouter.use('/virtual-try-on', adminVirtualTryOnRouter);
+adminRouter.use('/recommendations', adminRecommendationRouter);
 adminRouter.use('/', adminPaymentMethodRouter);
 
 export default adminRouter;

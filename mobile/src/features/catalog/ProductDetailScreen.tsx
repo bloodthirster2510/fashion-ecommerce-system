@@ -22,6 +22,9 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi } from '../cart/cartApi';
 import { favoritesApi } from '../favorites/favoritesApi';
+import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
+import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import {
   catalogApi,
   CatalogProduct,
@@ -257,6 +260,9 @@ const ProductDetailScreen = () => {
   const { productId } = route.params;
   const [product, setProduct] = React.useState<CatalogProductDetail | null>(null);
   const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
+  const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
+  const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
+  const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRecommendationLoading, setIsRecommendationLoading] = React.useState(false);
   const [isAddingToCart, setIsAddingToCart] = React.useState(false);
@@ -281,6 +287,48 @@ const ProductDetailScreen = () => {
     setQuantity(1);
   }, []);
 
+  const recordInteraction = React.useCallback((payload: InteractionPayload) => {
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) => interactionApi.recordInteraction(payload, accessToken)).catch(() => undefined);
+      return;
+    }
+
+    void interactionApi.recordInteraction(payload).catch(() => undefined);
+  }, [isAuthenticated, runWithAuth]);
+
+  const recordRecommendationEvent = React.useCallback((item: RecommendationItem, eventType: 'impression' | 'click') => {
+    if (!recommendationRequestId) {
+      return;
+    }
+
+    const payload = {
+      requestId: recommendationRequestId,
+      eventType,
+      context: 'product_detail_similar' as const,
+      sourceProductId: productId,
+      recommendedProductId: item.product._id,
+      algorithmVersion: recommendationAlgorithmVersion,
+      score: item.score,
+      rank: item.rank,
+      reasonCodes: item.reasonCodes,
+    };
+
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) => recommendationApi.recordEvent(payload, accessToken)).catch(() => undefined);
+      return;
+    }
+
+    void recommendationApi.recordEvent(payload).catch(() => undefined);
+  }, [isAuthenticated, productId, recommendationAlgorithmVersion, recommendationRequestId, runWithAuth]);
+  const {
+    recommendationSectionRef,
+    checkRecommendationVisibility,
+  } = useRecommendationImpressions({
+    requestId: recommendationRequestId,
+    items: recommendationItems,
+    onImpression: (item) => recordRecommendationEvent(item, 'impression'),
+  });
+
   const loadProduct = React.useCallback(() => {
     let isCurrentRequest = true;
 
@@ -288,6 +336,9 @@ const ProductDetailScreen = () => {
     setIsRecommendationLoading(false);
     setError(null);
     setRecommendations([]);
+    setRecommendationItems([]);
+    setRecommendationRequestId(null);
+    setRecommendationAlgorithmVersion(undefined);
 
     catalogApi
       .getProductById(productId)
@@ -299,19 +350,24 @@ const ProductDetailScreen = () => {
         setIsLoading(false);
         setIsRecommendationLoading(true);
 
-        const recommendationParams = detail.category?._id
-          ? { categoryId: detail.category._id, sort: 'newest' as const, page: 1, limit: 6 }
-          : { sort: 'newest' as const, page: 1, limit: 6 };
+        const recommendationPromise = isAuthenticated
+          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 4, accessToken))
+          : recommendationApi.getSimilarProducts(detail._id, 4);
 
-        catalogApi
-          .getProducts(recommendationParams)
+        recommendationPromise
           .then((response) => {
             if (isCurrentRequest) {
-              setRecommendations(response.items.filter((item) => item._id !== detail._id).slice(0, 4));
+              setRecommendationItems(response.items);
+              setRecommendationRequestId(response.requestId);
+              setRecommendationAlgorithmVersion(response.algorithmVersion);
+              setRecommendations(response.items.map((item) => item.product));
             }
           })
           .catch(() => {
             if (isCurrentRequest) {
+              setRecommendationItems([]);
+              setRecommendationRequestId(null);
+              setRecommendationAlgorithmVersion(undefined);
               setRecommendations([]);
             }
           })
@@ -332,9 +388,24 @@ const ProductDetailScreen = () => {
     return () => {
       isCurrentRequest = false;
     };
-  }, [initializeSelection, productId]);
+  }, [initializeSelection, isAuthenticated, productId, runWithAuth]);
 
   React.useEffect(() => loadProduct(), [loadProduct]);
+
+  React.useEffect(() => {
+    if (!product?._id) {
+      return;
+    }
+
+    recordInteraction({
+      productId: product._id,
+      actionType: 'view',
+      source: 'product_detail',
+      metadata: {
+        recommendationRequestId: route.params.recommendationRequestId,
+      },
+    });
+  }, [product?._id, recordInteraction, route.params.recommendationRequestId]);
 
   const isAuthenticatedRef = React.useRef(isAuthenticated);
   isAuthenticatedRef.current = isAuthenticated;
@@ -408,6 +479,12 @@ const ProductDetailScreen = () => {
     const keyword = searchTerm.trim();
 
     if (keyword) {
+      recordInteraction({
+        actionType: 'search',
+        source: 'search',
+        metadata: { keyword, fromProductId: productId },
+      });
+
       navigation.navigate('ProductList', {
         title: `Tìm kiếm: ${keyword}`,
         keyword,
@@ -485,6 +562,7 @@ const ProductDetailScreen = () => {
         colorVariantId: selectedColor._id,
         size: selectedSizeOption.size,
         quantity,
+        recommendationRequestId: route.params.recommendationRequestId,
       }));
 
       if (action === 'buy') {
@@ -541,6 +619,21 @@ const ProductDetailScreen = () => {
       );
     } finally {
       setIsFavoriteLoading(false);
+    }
+  };
+
+  const handleRecommendationProductPress = (nextProduct: CatalogProduct) => {
+    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === nextProduct._id);
+
+    if (item) {
+      recordRecommendationEvent(item, 'click');
+    }
+
+    if (nextProduct._id) {
+      navigation.navigate('ProductDetail', {
+        productId: nextProduct._id,
+        recommendationRequestId: recommendationRequestId ?? undefined,
+      });
     }
   };
 
@@ -660,6 +753,8 @@ const ProductDetailScreen = () => {
         style={styles.content}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 122 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        onScroll={checkRecommendationVisibility}
+        scrollEventThrottle={100}
       >
         <View style={styles.breadcrumb}>
           <ScrollView
@@ -934,8 +1029,12 @@ const ProductDetailScreen = () => {
           <ProductReviewsSection productId={product._id} />
         </View>
 
-        <View style={styles.recommendationSection}>
-          <Text style={styles.sectionTitle}>Bạn cũng có thể thích</Text>
+        <View
+          ref={recommendationSectionRef}
+          collapsable={false}
+          style={styles.recommendationSection}
+        >
+          <Text style={styles.sectionTitle}>Sản phẩm tương tự</Text>
 
           {isRecommendationLoading ? (
             <View style={styles.recommendationState}>
@@ -948,8 +1047,8 @@ const ProductDetailScreen = () => {
                 <View key={item._id} style={styles.recommendationItem}>
                   <ProductCard
                     product={item}
-                    onPress={(nextProduct) => navigation.navigate('ProductDetail', { productId: nextProduct._id })}
-                    onCartPress={(nextProduct) => navigation.navigate('ProductDetail', { productId: nextProduct._id })}
+                    onPress={handleRecommendationProductPress}
+                    onCartPress={handleRecommendationProductPress}
                   />
                 </View>
               ))}

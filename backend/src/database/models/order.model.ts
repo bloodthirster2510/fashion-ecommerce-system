@@ -24,6 +24,7 @@ export interface IOrderItem {
   image: string;
   quantity: number;
   priceAtPurchased: number;
+  recommendationRequestId?: string | null;
 }
 
 export interface IOrderShippingAddress {
@@ -157,6 +158,7 @@ const orderItemSchema = new Schema<IOrderItem>(
       validate: integerMinValidator(1),
     },
     priceAtPurchased: { type: Number, required: true, min: 0 },
+    recommendationRequestId: { type: String, trim: true, maxlength: 120, default: null },
   },
   { _id: true },
 );

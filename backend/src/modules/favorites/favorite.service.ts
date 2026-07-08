@@ -7,6 +7,7 @@ import {
   type IProductVariant,
 } from '../../database/models';
 import { getFinalPrice, toIdString } from '../sales/sales.helpers';
+import { interactionService } from '../interactions/interaction.service';
 import type {
   FavoriteListQueryInput,
   FavoriteListResponse,
@@ -412,11 +413,14 @@ const addFavorite = async (userId: string, productIdValue: string) => {
     throw new FavoriteServiceError('Product is not available', 404);
   }
 
-  await Favorite.updateOne(
+  const result = await Favorite.updateOne(
     { user_id: userObjectId, product_id: productObjectId },
     { $setOnInsert: { user_id: userObjectId, product_id: productObjectId } },
     { upsert: true },
   );
+  if (result.upsertedCount) {
+    void interactionService.recordFavoriteBestEffort(userId, productObjectId.toString());
+  }
 
   return {
     productId: productObjectId.toString(),

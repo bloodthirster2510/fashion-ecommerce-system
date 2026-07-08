@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { Cart, Inventory, Product } from '../../../database/models';
 import { cartService } from '../cart.service';
 import { resolveSaleItem } from '../../sales/sales.helpers';
+import { recommendationService } from '../../recommendations/recommendation.service';
 
 jest.mock('../../../database/models', () => ({
   Cart: {
@@ -25,10 +26,17 @@ jest.mock('../../sales/sales.helpers', () => {
   };
 });
 
+jest.mock('../../recommendations/recommendation.service', () => ({
+  recommendationService: {
+    recordRecommendationConversionEventBestEffort: jest.fn(),
+  },
+}));
+
 const mockedCart = Cart as jest.Mocked<typeof Cart>;
 const mockedInventory = Inventory as unknown as { find: jest.Mock };
 const mockedProduct = Product as unknown as { find: jest.Mock };
 const mockedResolveSaleItem = resolveSaleItem as jest.MockedFunction<typeof resolveSaleItem>;
+const mockedRecommendationService = recommendationService as jest.Mocked<typeof recommendationService>;
 
 const userId = '665000000000000000000020';
 const productId = new Types.ObjectId('665000000000000000000003');
@@ -92,6 +100,47 @@ describe('cartService', () => {
     });
     expect(cart.save).toHaveBeenCalled();
     expect(result.summary.subTotal).toBe(360000);
+  });
+
+  it('records recommendation add-to-cart conversion when request id is present', async () => {
+    const cart = {
+      _id: new Types.ObjectId(),
+      user_id: new Types.ObjectId(userId),
+      product_list: [],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedCart.findOne.mockResolvedValue(null);
+    mockedCart.create.mockResolvedValue(cart as never);
+    mockedResolveSaleItem.mockResolvedValue({
+      product: { name: 'Basic Tee' },
+      variant: {},
+      color: { color: 'Black' },
+      inventory: { availableQuantity: 10 },
+      productId,
+      variantId,
+      colorVariantId,
+      size: 'M',
+      sku: 'INV-TEE-BLK-M',
+      finalPrice: 180000,
+      fitType: 'Regular',
+      image: 'https://example.com/black.png',
+    } as never);
+
+    await cartService.addCartItem(userId, {
+      productId: productId.toString(),
+      variantId: variantId.toString(),
+      colorVariantId: colorVariantId.toString(),
+      size: 'M',
+      quantity: 1,
+      recommendationRequestId: 'rec_123',
+    });
+
+    expect(mockedRecommendationService.recordRecommendationConversionEventBestEffort).toHaveBeenCalledWith({
+      userId,
+      requestId: 'rec_123',
+      recommendedProductId: productId.toString(),
+      eventType: 'add_to_cart',
+    });
   });
 
   it('rejects adding more of an existing item than available inventory', async () => {

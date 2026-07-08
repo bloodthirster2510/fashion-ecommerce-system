@@ -14,6 +14,8 @@
     "migrate:coupon-index": "node scripts/migrate-coupon-code-index.js",
     "migrate:reviews": "node scripts/migrate-review-schema.js",
     "migrate:payment-deadlines": "node scripts/migrate-order-payment-deadlines.js",
+    "recommendations:backfill": "npm run build && node dist/scripts/recommendation-backfill.js",
+    "recommendations:evaluate": "npm run build && node dist/scripts/recommendation-evaluate.js",
     "test": "jest --passWithNoTests",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand"
   },

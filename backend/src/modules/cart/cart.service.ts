@@ -17,6 +17,8 @@ import {
   toIdString,
   toObjectId,
 } from '../sales/sales.helpers';
+import { interactionService } from '../interactions/interaction.service';
+import { recommendationService } from '../recommendations/recommendation.service';
 import type {
   AddCartItemInput,
   SelectAllCartItemsInput,
@@ -170,6 +172,7 @@ const summarizeCart = async (cart: ICart | null) => {
         quantity: item.quantity,
         priceAtAddedTime: item.priceAtAddedTime,
         isSelected: item.isSelected,
+        recommendationRequestId: item.recommendationRequestId ?? undefined,
         lineTotal: item.quantity * item.priceAtAddedTime,
         name: product?.name,
         brand: getBrandSnapshot(product?.brand_id),
@@ -198,6 +201,11 @@ const getCart = async (userId: string) => {
 const addCartItem = async (userId: string, input: AddCartItemInput) => {
   const quantity = Number(input.quantity);
   assertPositiveQuantity(quantity);
+  const recommendationRequestId = input.recommendationRequestId?.trim() || null;
+
+  if (recommendationRequestId && recommendationRequestId.length > 120) {
+    throw new SalesServiceError('Invalid recommendationRequestId', 400);
+  }
 
   const resolved = await resolveSaleItem(
     input.productId,
@@ -223,6 +231,9 @@ const addCartItem = async (userId: string, input: AddCartItemInput) => {
     existingItem.priceAtAddedTime = resolved.finalPrice;
     existingItem.sku = resolved.sku;
     existingItem.isSelected = true;
+    if (recommendationRequestId) {
+      existingItem.recommendationRequestId = recommendationRequestId;
+    }
   } else {
     cart.product_list.push({
       _id: new Types.ObjectId(),
@@ -234,10 +245,28 @@ const addCartItem = async (userId: string, input: AddCartItemInput) => {
       quantity,
       priceAtAddedTime: resolved.finalPrice,
       isSelected: true,
+      recommendationRequestId,
     });
   }
 
   await cart.save();
+  void interactionService.recordAddToCartBestEffort(userId, {
+    productId: toIdString(resolved.productId),
+    variantId: toIdString(resolved.variantId),
+    colorVariantId: toIdString(resolved.colorVariantId),
+    size: resolved.size,
+    quantity,
+  });
+  if (recommendationRequestId) {
+    void recommendationService.recordRecommendationConversionEventBestEffort({
+      userId,
+      sessionId: input.recommendationSessionId,
+      requestId: recommendationRequestId,
+      recommendedProductId: toIdString(resolved.productId),
+      eventType: 'add_to_cart',
+    });
+  }
+
   return summarizeCart(cart);
 };
 

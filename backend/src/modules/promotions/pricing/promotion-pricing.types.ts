@@ -35,6 +35,7 @@ export interface CheckoutOrderItem {
   quantity: number;
   priceAtPurchased: number;
   categoryId: Types.ObjectId;
+  recommendationRequestId?: string | null;
 }
 
 export interface CheckoutCartItemSelection {
