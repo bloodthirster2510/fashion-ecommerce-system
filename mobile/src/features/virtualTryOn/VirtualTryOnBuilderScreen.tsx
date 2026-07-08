@@ -896,10 +896,13 @@ const VirtualTryOnBuilderScreen = () => {
                   >
                     {selectedItem ? selectedItem.nameSnapshot : slot.helper}
                   </Text>
-                  <Text style={styles.slotMeta} numberOfLines={1}>
+                  <Text
+                    style={[styles.slotMeta, selectedItem ? styles.slotMetaSelected : styles.slotMetaEmpty]}
+                    numberOfLines={1}
+                  >
                     {selectedItem
                       ? ([selectedItem.colorSnapshot, selectedItem.size].filter(Boolean).join(' / ') || roleLabel[selectedItem.role])
-                      : `${filteredProducts.length} món phù hợp`}
+                      : `Chạm để chọn ${slot.label.toLowerCase()}`}
                   </Text>
                 </View>
                 {selectedItem ? (
@@ -1835,11 +1838,16 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   slotMeta: {
-    color: tryOnPalette.success,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '900',
     marginTop: 5,
+  },
+  slotMetaSelected: {
+    color: tryOnPalette.success,
+  },
+  slotMetaEmpty: {
+    color: tryOnPalette.primary,
   },
   slotTextActive: {
     color: tryOnPalette.ink,
