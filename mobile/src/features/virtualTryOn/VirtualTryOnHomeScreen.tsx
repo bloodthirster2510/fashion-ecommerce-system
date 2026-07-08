@@ -761,7 +761,7 @@ const styles = StyleSheet.create({
   },
   assetSelectedBadge: {
     position: 'absolute',
-    top: 6,
+    bottom: 6,
     right: 6,
     width: 24,
     height: 24,
@@ -775,11 +775,11 @@ const styles = StyleSheet.create({
   assetDeleteButton: {
     position: 'absolute',
     top: 6,
-    left: 6,
+    right: 6,
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: 'rgba(204, 0, 0, 0.9)',
+    backgroundColor: 'rgba(204, 0, 0, 0.62)',
     borderWidth: 1.5,
     borderColor: colors.white,
     alignItems: 'center',
