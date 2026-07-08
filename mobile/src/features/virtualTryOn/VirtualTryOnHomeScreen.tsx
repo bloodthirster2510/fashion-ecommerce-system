@@ -289,6 +289,34 @@ const VirtualTryOnHomeScreen = () => {
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.studioFlowCard}>
+          {[
+            { label: 'Chọn ảnh', icon: latestAsset ? 'check-circle' : 'image-plus', active: true, done: Boolean(latestAsset) },
+            { label: 'Phối đồ', icon: 'hanger', active: Boolean(latestAsset), done: false },
+            { label: 'Xem kết quả', icon: 'sparkles', active: Boolean(pendingJob), done: false },
+          ].map((step, index) => (
+            <View key={step.label} style={styles.flowStepWrap}>
+              <View
+                style={[
+                  styles.flowIcon,
+                  step.active && styles.flowIconActive,
+                  step.done && styles.flowIconDone,
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={step.icon as keyof typeof MaterialCommunityIcons.glyphMap}
+                  size={18}
+                  color={step.active || step.done ? colors.white : studioPalette.primary}
+                />
+              </View>
+              <Text style={[styles.flowLabel, (step.active || step.done) && styles.flowLabelActive]} numberOfLines={1}>
+                {step.label}
+              </Text>
+              {index < 2 ? <View style={[styles.flowLine, step.done && styles.flowLineDone]} /> : null}
+            </View>
+          ))}
+        </View>
+
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
             <Text style={styles.heroEyebrow}>Phòng thử đồ cá nhân</Text>
@@ -534,6 +562,63 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xxl,
     gap: spacing.lg,
+  },
+  studioFlowCard: {
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.panel,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    ...shadows.card,
+  },
+  flowStepWrap: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  flowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  flowIconActive: {
+    backgroundColor: studioPalette.primary,
+    borderColor: studioPalette.primary,
+  },
+  flowIconDone: {
+    backgroundColor: studioPalette.success,
+    borderColor: studioPalette.success,
+  },
+  flowLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+    marginTop: spacing.xs,
+  },
+  flowLabelActive: {
+    color: studioPalette.ink,
+  },
+  flowLine: {
+    position: 'absolute',
+    top: 19,
+    right: '-50%',
+    width: '100%',
+    height: 2,
+    backgroundColor: studioPalette.line,
+    zIndex: 0,
+  },
+  flowLineDone: {
+    backgroundColor: studioPalette.success,
   },
   hero: {
     borderRadius: radii.md,

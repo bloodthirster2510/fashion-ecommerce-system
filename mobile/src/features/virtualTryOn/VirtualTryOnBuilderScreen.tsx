@@ -800,8 +800,8 @@ const VirtualTryOnBuilderScreen = () => {
               Chọn ảnh người mặc, thêm sản phẩm và chọn bối cảnh để tạo ảnh phối đồ.
             </Text>
             <View style={styles.studioStepRow}>
-              <View style={styles.studioStepActive}><Text style={[styles.studioStepText, styles.studioStepTextActive]}>1 Ảnh</Text></View>
-              <View style={styles.studioStep}><Text style={styles.studioStepText}>2 Bộ đồ</Text></View>
+              <View style={[styles.studioStep, styles.studioStepDone]}><Text style={[styles.studioStepText, styles.studioStepTextDone]}>1 Ảnh</Text></View>
+              <View style={styles.studioStepActive}><Text style={[styles.studioStepText, styles.studioStepTextActive]}>2 Bộ đồ</Text></View>
               <View style={styles.studioStep}><Text style={styles.studioStepText}>3 Kết quả</Text></View>
             </View>
           </View>
@@ -989,27 +989,66 @@ const VirtualTryOnBuilderScreen = () => {
       </ScrollView>
 
       <View style={styles.footer}>
-        <View>
-          <Text style={styles.footerLabel}>{footerLabel}</Text>
-          <Text style={styles.footerTotal}>
-            {formatPrice(outfitTotal)}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={[styles.submitButton, submitDisabled && styles.submitButtonDisabled]}
-          onPress={createJob}
-          disabled={submitDisabled}
-          activeOpacity={0.86}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.footerTray}
         >
-          {isSubmitting ? (
-            <ActivityIndicator color={colors.textMuted} />
-          ) : (
-            <>
-              <MaterialCommunityIcons name="auto-fix" size={22} color={submitDisabled ? colors.textMuted : colors.white} />
-              <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo ảnh</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          {outfitSlots.map((slot) => {
+            const selectedItem = getSelectedItemForSlot(slot);
+
+            return (
+              <TouchableOpacity
+                key={slot.key}
+                style={[styles.footerTraySlot, selectedItem && styles.footerTraySlotFilled]}
+                onPress={() => {
+                  setActiveSlotKey(slot.key);
+                  setIsProductListVisible(true);
+                }}
+                activeOpacity={0.84}
+              >
+                {selectedItem ? (
+                  <RemoteImage
+                    uri={selectedItem.imageSnapshot}
+                    style={styles.footerTrayImage}
+                    recyclingKey={`footer:${slot.key}:${selectedItem.colorVariantId}`}
+                  />
+                ) : (
+                  <View style={styles.footerTrayIcon}>
+                    <MaterialCommunityIcons name={slot.icon} size={20} color={tryOnPalette.primary} />
+                  </View>
+                )}
+                <Text style={styles.footerTrayLabel} numberOfLines={1}>
+                  {selectedItem ? roleLabel[selectedItem.role] : slot.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.footerActions}>
+          <View style={styles.footerSummary}>
+            <Text style={styles.footerLabel}>{footerLabel}</Text>
+            <Text style={styles.footerTotal}>
+              {formatPrice(outfitTotal)}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.submitButton, submitDisabled && styles.submitButtonDisabled]}
+            onPress={createJob}
+            disabled={submitDisabled}
+            activeOpacity={0.86}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color={colors.textMuted} />
+            ) : (
+              <>
+                <MaterialCommunityIcons name="auto-fix" size={22} color={submitDisabled ? colors.textMuted : colors.white} />
+                <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo ảnh</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <Modal
@@ -1538,7 +1577,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
-    paddingBottom: 132,
+    paddingBottom: 214,
     gap: spacing.lg,
   },
   productListContent: {
@@ -1647,6 +1686,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  studioStepDone: {
+    backgroundColor: tryOnPalette.successSoft,
+    borderColor: tryOnPalette.success,
+  },
   studioStepText: {
     color: tryOnPalette.ink,
     fontSize: 11,
@@ -1655,6 +1698,9 @@ const styles = StyleSheet.create({
   },
   studioStepTextActive: {
     color: tryOnPalette.ink,
+  },
+  studioStepTextDone: {
+    color: tryOnPalette.success,
   },
   sectionHeaderBlock: {
     gap: 3,
@@ -2222,10 +2268,56 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  footerTray: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  footerTraySlot: {
+    width: 76,
+    minHeight: 78,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.primarySoft,
+    padding: spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  footerTraySlotFilled: {
+    backgroundColor: colors.surface,
+    borderColor: tryOnPalette.success,
+  },
+  footerTrayImage: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.xs,
+  },
+  footerTrayIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.xs,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerTrayLabel: {
+    color: tryOnPalette.ink,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  footerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  footerSummary: {
+    flex: 1,
+    minWidth: 0,
   },
   footerLabel: {
     color: colors.textMuted,

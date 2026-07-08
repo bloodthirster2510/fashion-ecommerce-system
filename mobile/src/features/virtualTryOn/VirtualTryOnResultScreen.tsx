@@ -233,6 +233,17 @@ const VirtualTryOnResultScreen = () => {
 
           <View style={styles.footer}>
             <TouchableOpacity
+              style={styles.tryAgainButton}
+              onPress={() => navigation.navigate('VirtualTryOnBuilder', {
+                assetId: job.sourceAsset?._id,
+                imageUrl: job.sourceImageUrl,
+              })}
+              activeOpacity={0.86}
+            >
+              <MaterialCommunityIcons name="reload" size={22} color={studioPalette.ink} />
+              <Text style={styles.tryAgainText}>Phối lại</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.cartButton, isAddingCart && styles.cartButtonDisabled]}
               onPress={addSetToCart}
               disabled={isAddingCart}
@@ -536,8 +547,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  tryAgainButton: {
+    minHeight: 58,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  tryAgainText: {
+    color: studioPalette.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
   },
   cartButton: {
+    flex: 1,
     minHeight: 58,
     borderRadius: radii.md,
     backgroundColor: studioPalette.primary,
@@ -555,6 +587,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
     fontWeight: '900',
+    flexShrink: 1,
+    textAlign: 'center',
   },
   emptyText: {
     color: colors.textMuted,
