@@ -770,6 +770,7 @@ const VirtualTryOnBuilderScreen = () => {
   };
 
   const outfitTotal = selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0);
+  const activeModeOption = outfitModes.find((mode) => mode.key === outfitMode) ?? outfitModes[0];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -811,31 +812,29 @@ const VirtualTryOnBuilderScreen = () => {
           <Text style={styles.sectionTitle}>Chế độ phối</Text>
           <Text style={styles.sectionHint}>Chọn cách bạn muốn thử đồ trên ảnh.</Text>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modeRail}>
+        <View style={styles.modeSegment}>
           {outfitModes.map((mode) => {
             const active = outfitMode === mode.key;
             return (
               <TouchableOpacity
                 key={mode.key}
-                style={[styles.modeButton, active && styles.modeButtonActive]}
+                style={[styles.modeSegmentButton, active && styles.modeSegmentButtonActive]}
                 onPress={() => setOutfitMode(mode.key)}
                 activeOpacity={0.84}
               >
-                <View style={[styles.modeIconWrap, active && styles.modeIconWrapActive]}>
-                  <MaterialCommunityIcons
-                    name={mode.icon}
-                    size={32}
-                    color={active ? colors.white : tryOnPalette.primary}
-                  />
-                </View>
-                <Text style={[styles.modeText, active && styles.modeTextActive]}>{mode.label}</Text>
-                <Text style={[styles.modeDescription, active && styles.modeDescriptionActive]} numberOfLines={2}>
-                  {mode.description}
+                <MaterialCommunityIcons
+                  name={mode.icon}
+                  size={20}
+                  color={active ? tryOnPalette.ink : tryOnPalette.primary}
+                />
+                <Text style={[styles.modeSegmentText, active && styles.modeSegmentTextActive]} numberOfLines={1}>
+                  {mode.label}
                 </Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
+        <Text style={styles.modeSegmentHint}>{activeModeOption.description}</Text>
 
         <View style={styles.outfitHeaderRow}>
           <View>
@@ -934,7 +933,9 @@ const VirtualTryOnBuilderScreen = () => {
             <Text style={styles.openProductListText}>Chọn {activeSlot.label.toLowerCase()}</Text>
             <Text style={styles.openProductListMeta}>{filteredProducts.length} sản phẩm phù hợp</Text>
           </View>
-          <MaterialCommunityIcons name="arrow-right" size={24} color={colors.white} />
+          <View style={styles.openProductListArrow}>
+            <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
+          </View>
         </TouchableOpacity>
 
         <View style={styles.sectionHeaderBlock}>
@@ -989,43 +990,6 @@ const VirtualTryOnBuilderScreen = () => {
       </ScrollView>
 
       <View style={styles.footer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.footerTray}
-        >
-          {outfitSlots.map((slot) => {
-            const selectedItem = getSelectedItemForSlot(slot);
-
-            return (
-              <TouchableOpacity
-                key={slot.key}
-                style={[styles.footerTraySlot, selectedItem && styles.footerTraySlotFilled]}
-                onPress={() => {
-                  setActiveSlotKey(slot.key);
-                  setIsProductListVisible(true);
-                }}
-                activeOpacity={0.84}
-              >
-                {selectedItem ? (
-                  <RemoteImage
-                    uri={selectedItem.imageSnapshot}
-                    style={styles.footerTrayImage}
-                    recyclingKey={`footer:${slot.key}:${selectedItem.colorVariantId}`}
-                  />
-                ) : (
-                  <View style={styles.footerTrayIcon}>
-                    <MaterialCommunityIcons name={slot.icon} size={20} color={tryOnPalette.primary} />
-                  </View>
-                )}
-                <Text style={styles.footerTrayLabel} numberOfLines={1}>
-                  {selectedItem ? roleLabel[selectedItem.role] : slot.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
         <View style={styles.footerActions}>
           <View style={styles.footerSummary}>
             <Text style={styles.footerLabel}>{footerLabel}</Text>
@@ -1577,7 +1541,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
-    paddingBottom: 214,
+    paddingBottom: 132,
     gap: spacing.lg,
   },
   productListContent: {
@@ -1717,61 +1681,47 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '700',
   },
-  modeRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  modeRail: {
-    gap: spacing.md,
-    paddingRight: spacing.lg,
-  },
-  modeButton: {
-    width: 166,
-    minHeight: 132,
+  modeSegment: {
+    minHeight: 66,
     borderRadius: radii.md,
-    backgroundColor: tryOnPalette.surface,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
-    justifyContent: 'space-between',
-    padding: spacing.md,
+    backgroundColor: colors.surface,
+    padding: 5,
+    flexDirection: 'row',
+    gap: 5,
     ...shadows.card,
   },
-  modeButtonActive: {
-    backgroundColor: tryOnPalette.primary,
-    borderColor: tryOnPalette.primary,
-  },
-  modeIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: tryOnPalette.primarySoft,
+  modeSegmentButton: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: 'rgba(84,119,146,0.18)',
+    borderColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 4,
   },
-  modeIconWrapActive: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderColor: 'rgba(255,255,255,0.32)',
+  modeSegmentButtonActive: {
+    backgroundColor: tryOnPalette.primarySoft,
+    borderColor: tryOnPalette.primaryPale,
   },
-  modeText: {
-    color: tryOnPalette.ink,
-    fontSize: 17,
-    lineHeight: 22,
+  modeSegmentText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '900',
-    marginTop: spacing.md,
   },
-  modeTextActive: {
-    color: colors.white,
+  modeSegmentTextActive: {
+    color: tryOnPalette.ink,
   },
-  modeDescription: {
+  modeSegmentHint: {
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '800',
-  },
-  modeDescriptionActive: {
-    color: tryOnPalette.headerSoft,
+    marginTop: -spacing.sm,
   },
   outfitHeaderRow: {
     flexDirection: 'row',
@@ -1910,22 +1860,22 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   openProductListButton: {
-    minHeight: 82,
+    minHeight: 78,
     borderRadius: radii.md,
-    backgroundColor: tryOnPalette.primary,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: tryOnPalette.primary,
-    padding: spacing.lg,
+    borderColor: tryOnPalette.line,
+    padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     ...shadows.card,
   },
   openProductListIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: tryOnPalette.surface,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: tryOnPalette.primarySoft,
     borderWidth: 1,
     borderColor: 'rgba(84,119,146,0.22)',
     alignItems: 'center',
@@ -1936,17 +1886,25 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   openProductListText: {
-    color: colors.white,
+    color: tryOnPalette.ink,
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '900',
   },
   openProductListMeta: {
-    color: tryOnPalette.headerSoft,
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
     marginTop: 2,
+  },
+  openProductListArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: tryOnPalette.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchRow: {
     minHeight: 54,
@@ -2269,45 +2227,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
     gap: spacing.md,
-  },
-  footerTray: {
-    gap: spacing.sm,
-    paddingRight: spacing.lg,
-  },
-  footerTraySlot: {
-    width: 76,
-    minHeight: 78,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: tryOnPalette.line,
-    backgroundColor: tryOnPalette.primarySoft,
-    padding: spacing.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-  },
-  footerTraySlotFilled: {
-    backgroundColor: colors.surface,
-    borderColor: tryOnPalette.success,
-  },
-  footerTrayImage: {
-    width: 48,
-    height: 48,
-    borderRadius: radii.xs,
-  },
-  footerTrayIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footerTrayLabel: {
-    color: tryOnPalette.ink,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '900',
   },
   footerActions: {
     flexDirection: 'row',
