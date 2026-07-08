@@ -63,11 +63,11 @@ const VirtualTryOnHomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { isAuthenticated, runWithAuth } = useAuth();
   const [latestAsset, setLatestAsset] = React.useState<VirtualTryOnAsset | null>(null);
+  const [assetLibrary, setAssetLibrary] = React.useState<VirtualTryOnAsset[]>([]);
   const [latestJob, setLatestJob] = React.useState<VirtualTryOnJob | null>(null);
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isUploading, setIsUploading] = React.useState(false);
-  const [isDeletingAsset, setIsDeletingAsset] = React.useState(false);
   const heroLift = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -112,6 +112,7 @@ const VirtualTryOnHomeScreen = () => {
   const loadDashboard = React.useCallback(() => {
     if (!isAuthenticated) {
       setLatestAsset(null);
+      setAssetLibrary([]);
       setLatestJob(null);
       setJobs([]);
       return;
@@ -126,7 +127,12 @@ const VirtualTryOnHomeScreen = () => {
         virtualTryOnApi.getJobs(token, { limit: 4 }),
       ]);
       if (!isCurrent) return;
-      setLatestAsset(assetsResponse.items[0] ?? null);
+      setAssetLibrary(assetsResponse.items);
+      setLatestAsset((current) => (
+        current && assetsResponse.items.some((asset) => asset._id === current._id)
+          ? current
+          : null
+      ));
       setLatestJob(latest);
       setJobs(jobsResponse.items);
     })
@@ -149,6 +155,7 @@ const VirtualTryOnHomeScreen = () => {
     try {
       const asset = await runWithAuth((token) => virtualTryOnApi.uploadAsset(token, uri, source));
       setLatestAsset(asset);
+      setAssetLibrary((current) => [asset, ...current.filter((item) => item._id !== asset._id)]);
       navigation.navigate('VirtualTryOnBuilder', {
         assetId: asset._id,
         imageUrl: asset.url,
@@ -198,26 +205,13 @@ const VirtualTryOnHomeScreen = () => {
     if (!latestAsset) return;
     Alert.alert(
       'Bỏ ảnh này?',
-      'Ảnh đang chọn sẽ được gỡ khỏi phòng thử đồ. Bạn có thể tải ảnh khác lên bất cứ lúc nào.',
+      'Ảnh chỉ được bỏ khỏi lượt phối hiện tại và vẫn nằm trong kho ảnh của bạn.',
       [
         { text: 'Giữ lại', style: 'cancel' },
         {
           text: 'Bỏ ảnh',
           style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setIsDeletingAsset(true);
-              try {
-                await runWithAuth((token) => virtualTryOnApi.deleteAsset(token, latestAsset._id));
-                setLatestAsset(null);
-              } catch (error) {
-                const message = error instanceof Error ? error.message : 'Không thể bỏ ảnh lúc này.';
-                Alert.alert('Bỏ ảnh', message);
-              } finally {
-                setIsDeletingAsset(false);
-              }
-            })();
-          },
+          onPress: () => setLatestAsset(null),
         },
       ],
     );
@@ -287,13 +281,8 @@ const VirtualTryOnHomeScreen = () => {
                   onPress={removeLatestAsset}
                   activeOpacity={0.82}
                   accessibilityLabel="Bỏ ảnh đã tải lên"
-                  disabled={isDeletingAsset}
                 >
-                  {isDeletingAsset ? (
-                    <ActivityIndicator size="small" color={colors.white} />
-                  ) : (
-                    <MaterialCommunityIcons name="close" size={18} color={colors.white} />
-                  )}
+                  <MaterialCommunityIcons name="close" size={18} color={colors.white} />
                 </TouchableOpacity>
               ) : null}
               <View style={[styles.heroBadge, latestAsset && styles.heroBadgeReady]}>
@@ -331,6 +320,44 @@ const VirtualTryOnHomeScreen = () => {
             </View>
           </TouchableOpacity>
         </View>
+
+        {isAuthenticated && assetLibrary.length ? (
+          <View style={styles.assetLibraryCard}>
+            <View style={styles.assetLibraryHeader}>
+              <View>
+                <Text style={styles.assetLibraryTitle}>Kho ảnh của bạn</Text>
+                <Text style={styles.assetLibraryText}>Chọn lại ảnh đã tải lên để phối đồ nhanh hơn.</Text>
+              </View>
+              <Text style={styles.assetLibraryCount}>{assetLibrary.length} ảnh</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assetLibraryList}>
+              {assetLibrary.map((asset) => {
+                const selected = latestAsset?._id === asset._id;
+
+                return (
+                  <TouchableOpacity
+                    key={asset._id}
+                    style={[styles.assetThumbButton, selected && styles.assetThumbButtonSelected]}
+                    onPress={() => setLatestAsset(asset)}
+                    activeOpacity={0.84}
+                    accessibilityLabel={selected ? 'Ảnh đang được chọn' : 'Chọn ảnh này để phối đồ'}
+                  >
+                    <RemoteImage
+                      uri={asset.thumbnailUrl || asset.url}
+                      style={styles.assetThumbImage}
+                      recyclingKey={`asset-library-${asset._id}`}
+                    />
+                    {selected ? (
+                      <View style={styles.assetSelectedBadge}>
+                        <MaterialCommunityIcons name="check" size={15} color={colors.white} />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {isUploading ? (
           <View style={styles.inlineLoading}>
@@ -631,6 +658,73 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '800',
+  },
+  assetLibraryCard: {
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.panel,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  assetLibraryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  assetLibraryTitle: {
+    color: studioPalette.ink,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  assetLibraryText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  assetLibraryCount: {
+    color: studioPalette.primary,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  assetLibraryList: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  assetThumbButton: {
+    width: 82,
+    height: 104,
+    borderRadius: radii.sm,
+    overflow: 'hidden',
+    backgroundColor: studioPalette.cloth,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    position: 'relative',
+  },
+  assetThumbButtonSelected: {
+    borderColor: studioPalette.success,
+  },
+  assetThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  assetSelectedBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: studioPalette.success,
+    borderWidth: 1.5,
+    borderColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inlineLoading: {
     borderRadius: radii.sm,
