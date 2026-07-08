@@ -733,9 +733,6 @@ const getNavNotificationBadge = (
     ordersCod: summary.orders.cod > 0
       ? { count: summary.orders.cod, tone: 'danger', label: `${summary.orders.cod} đơn COD cần xử lý` }
       : undefined,
-    inventory: summary.lowStockVariants > 0
-      ? { count: summary.lowStockVariants, tone: 'warning', label: `${summary.lowStockVariants} biến thể tồn kho thấp`, dot: true }
-      : undefined,
     promotions: summary.expiringCoupons > 0
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
       : undefined,
