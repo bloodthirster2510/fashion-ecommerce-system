@@ -1611,8 +1611,17 @@ describe('orderService', () => {
     const result = await orderService.autoCompleteDeliveredOrders(now);
 
     expect(mockedOrder.find).toHaveBeenCalledWith({
-      status: 'delivered',
-      deliveredAt: { $lte: new Date('2026-06-11T08:00:00.000Z') },
+      $or: [
+        {
+          status: 'delivered',
+          deliveredAt: { $lte: new Date('2026-06-11T08:00:00.000Z') },
+        },
+        {
+          status: 'shipping',
+          'shipping.estimatedDeliveryDate': { $lte: new Date('2026-06-11T08:00:00.000Z') },
+          'shipping.status': { $nin: ['failed', 'cancelled'] },
+        },
+      ],
     });
     expect(limit).toHaveBeenCalledWith(50);
     expect(order.status).toBe('completed');
@@ -1623,6 +1632,55 @@ describe('orderService', () => {
       order,
       'status_update',
       expect.objectContaining({ status: 'delivered' }),
+      undefined,
+    );
+    expect(result).toMatchObject({
+      scannedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      completedOrderIds: [orderId.toString()],
+    });
+  });
+
+  it('auto-completes stale shipping orders after the estimated delivery window', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000079');
+    const estimatedDeliveryDate = new Date('2026-06-12T08:00:00.000Z');
+    const now = new Date('2026-06-20T08:00:00.000Z');
+    const order = {
+      _id: orderId,
+      orderCode: 'FSSTALESHIP',
+      invoiceCode: null,
+      user_id: new Types.ObjectId(userId),
+      status: 'shipping',
+      deliveredAt: null,
+      receivedAt: null,
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 0,
+      loyaltyPointsAwarded: 0,
+      shipping: {
+        status: 'shipping',
+        estimatedDeliveryDate,
+      },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    const limit = jest.fn().mockResolvedValue([order]);
+    mockedOrder.find.mockReturnValue({ limit } as never);
+
+    const result = await orderService.autoCompleteDeliveredOrders(now);
+
+    expect(order.status).toBe('completed');
+    expect(order.paymentStatus).toBe('paid');
+    expect(order.deliveredAt).toBe(estimatedDeliveryDate);
+    expect(order.receivedAt).toBe(now);
+    expect(order.shipping.status).toBe('delivered');
+    expect(order.invoiceCode).toBe('INV-FSSTALESHIP');
+    expect(mockedEmitOrderUpdate).toHaveBeenCalledWith(
+      order,
+      'status_update',
+      expect.objectContaining({ status: 'shipping' }),
       undefined,
     );
     expect(result).toMatchObject({

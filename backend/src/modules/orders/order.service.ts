@@ -2278,8 +2278,17 @@ const applyGhnShippingWebhook = async (payload: unknown) => (
 const autoCompleteDeliveredOrders = async (now = new Date()) => {
   const cutoff = new Date(now.getTime() - AUTO_COMPLETE_DELIVERED_AFTER_MS);
   const orders = await Order.find({
-    status: 'delivered',
-    deliveredAt: { $lte: cutoff },
+    $or: [
+      {
+        status: 'delivered',
+        deliveredAt: { $lte: cutoff },
+      },
+      {
+        status: 'shipping',
+        'shipping.estimatedDeliveryDate': { $lte: cutoff },
+        'shipping.status': { $nin: ['failed', 'cancelled'] },
+      },
+    ],
   }).limit(AUTO_COMPLETE_BATCH_SIZE) as IOrder[];
 
   const completedOrderIds: string[] = [];
@@ -2288,9 +2297,12 @@ const autoCompleteDeliveredOrders = async (now = new Date()) => {
   for (const order of orders) {
     const before = createOrderChangeSnapshot(order);
     try {
+      const inferredDeliveredAt = order.status === 'shipping'
+        ? order.shipping?.estimatedDeliveryDate ?? cutoff
+        : order.deliveredAt ?? cutoff;
       order.status = 'completed';
       order.receivedAt = order.receivedAt ?? now;
-      order.deliveredAt = order.deliveredAt ?? cutoff;
+      order.deliveredAt = order.deliveredAt ?? inferredDeliveredAt;
       if (order.paymentMethod === 'COD') {
         order.paymentStatus = 'paid';
       }
