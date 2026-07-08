@@ -268,7 +268,7 @@ const HomeScreen = () => {
           <FeatureCard
             title="Phòng thử đồ"
             description="Trải nghiệm thử đồ ảo ngay tại nhà"
-            icon="wardrobe-outline"
+            icon="hanger"
             imageSource={virtualTryOnFeatureImage}
             onPress={() => navigation.navigate(isAuthenticated ? 'VirtualTryOnHome' : 'Login')}
           />

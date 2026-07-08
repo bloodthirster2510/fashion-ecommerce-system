@@ -71,8 +71,8 @@ const outfitModes: Array<{
   icon: FashionIconName;
 }> = [
   { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm', icon: 'tshirt-crew' },
-  { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'hanger' },
-  { key: 'full_set', label: 'Nhiều món', description: 'Ghép nhiều món thành bộ phối', icon: 'wardrobe' },
+  { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'tshirt-v' },
+  { key: 'full_set', label: 'Nhiều món', description: 'Ghép nhiều món thành bộ phối', icon: 'hanger' },
 ];
 
 const contextOptions: Array<{ key: TryOnContextPreset; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
@@ -268,7 +268,7 @@ const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
         label: 'Sản phẩm',
         helper: 'Chọn 1 món bất kỳ',
         roles: allTryOnRoles,
-        icon: 'hanger',
+        icon: 'plus-circle-outline',
         required: true,
       },
     ];
@@ -277,7 +277,7 @@ const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
   if (mode === 'top_bottom') {
     return [
       { key: 'top', label: 'Áo', helper: 'Chọn áo', roles: ['top', 'outerwear'], icon: 'tshirt-v', required: true },
-      { key: 'bottom', label: 'Quần', helper: 'Chọn quần', roles: ['bottom'], icon: 'human-male-height', required: true },
+      { key: 'bottom', label: 'Quần', helper: 'Chọn quần', roles: ['bottom'], icon: 'hanger', required: true },
     ];
   }
 
@@ -927,7 +927,7 @@ const VirtualTryOnBuilderScreen = () => {
           activeOpacity={0.86}
         >
           <View style={styles.openProductListIcon}>
-            <MaterialCommunityIcons name="wardrobe-outline" size={30} color={tryOnPalette.primary} />
+            <MaterialCommunityIcons name="plus" size={30} color={tryOnPalette.primary} />
           </View>
           <View style={styles.openProductListCopy}>
             <Text style={styles.openProductListText}>Chọn {activeSlot.label.toLowerCase()}</Text>
