@@ -1,4 +1,5 @@
-import {useCallback, useEffect, useMemo,useState,} from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
 import type { AdminUser } from '../auth/adminSession'
 import {
   createManagedBrand,
@@ -24,16 +25,15 @@ import type {
 import {
   BrandEditor,
   BrandStatIcon,
-  CatalogSection,
   CategoryEditor,
   CategoryStatIcon,
-  EmptyRow,
-  LoadingRow,
-  RowActions,
   SizeTemplateManager,
-  StatusPill,
 } from './components/CatalogEditors'
-import { getPaginationItems } from '../../utils/pagination'
+import { BrandManagementSection } from './components/BrandManagementSection'
+import { CatalogDeleteConfirmDialog } from './components/CatalogDeleteConfirmDialog'
+import { CategoryManagementSection } from './components/CategoryManagementSection'
+import { BrandDetailDialog, CategoryDetailDialog } from './components/CatalogDetailDialogs'
+import type { CatalogDeleteMode, CatalogStatusFilter } from './catalogDisplay.helpers'
 import './catalog.css'
 
 type CatalogManagementPageProps = {
@@ -55,15 +55,8 @@ type DeleteState =
   | { type: 'brand'; item: ManagedBrand }
   | null
 
-type DeleteMode = 'soft' | 'permanent'
-
-const genderLabels: Record<CatalogGender, string> = {
-  male: 'Nam',
-  female: 'Nữ',
-  unisex: 'Unisex',
-}
-
 const categoryRootsPerPage = 1
+const catalogMutationClient = new QueryClient()
 
 type CategoryRootGroup = {
   root: ManagedCategory
@@ -73,27 +66,31 @@ type CategoryRootGroup = {
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
 
-const getSizeTemplateLabel = (category?: ManagedCategory | null) =>
-  category?.sizeTemplateName?.trim() || category?.name || ''
-
 export function CatalogManagementPage({ currentUser }: CatalogManagementPageProps) {
+  return (
+    <QueryClientProvider client={catalogMutationClient}>
+      <CatalogManagementContent currentUser={currentUser} />
+    </QueryClientProvider>
+  )
+}
+
+function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   const [categories, setCategories] = useState<ManagedCategory[]>([])
   const [brands, setBrands] = useState<ManagedBrand[]>([])
   const [categoryKeyword, setCategoryKeyword] = useState('')
   const [brandKeyword, setBrandKeyword] = useState('')
   const [genderFilter, setGenderFilter] = useState<'all' | CatalogGender>('all')
   const [categoryLevelFilter, setCategoryLevelFilter] = useState<'all' | string>('all')
-  const [categoryStatusFilter, setCategoryStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [brandStatusFilter, setBrandStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [categoryStatusFilter, setCategoryStatusFilter] = useState<CatalogStatusFilter>('all')
+  const [brandStatusFilter, setBrandStatusFilter] = useState<CatalogStatusFilter>('all')
   const [categoryPage, setCategoryPage] = useState(1)
   const [editor, setEditor] = useState<EditorState>(null)
   const [isManagingSizes, setIsManagingSizes] = useState(false)
   const [viewingCategory, setViewingCategory] = useState<ManagedCategory | null>(null)
   const [viewingBrand, setViewingBrand] = useState<ManagedBrand | null>(null)
   const [pendingDelete, setPendingDelete] = useState<DeleteState>(null)
-  const [pendingDeleteMode, setPendingDeleteMode] = useState<DeleteMode | null>(null)
+  const [pendingDeleteMode, setPendingDeleteMode] = useState<CatalogDeleteMode | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [loadError, setLoadError] = useState('')
 
@@ -233,29 +230,157 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
     })
   }, [brands, brandKeyword, brandStatusFilter])
 
+  const saveCategoryMutation = useMutation({
+    mutationFn: ({
+      input,
+      imageFile,
+      categoryId,
+    }: {
+      input: CategoryInput
+      imageFile?: File | null
+      categoryId?: string
+    }) =>
+      categoryId
+        ? updateManagedCategory(categoryId, input, imageFile)
+        : createManagedCategory(input, imageFile),
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async (_savedCategory, variables) => {
+      setNotice({
+        type: 'success',
+        message: variables.categoryId
+          ? 'Danh mục đã được cập nhật.'
+          : 'Danh mục mới đã sẵn sàng để sử dụng.',
+      })
+      setEditor(null)
+      await loadCatalog()
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const saveBrandMutation = useMutation({
+    mutationFn: ({
+      input,
+      imageFile,
+      brandId,
+    }: {
+      input: BrandInput
+      imageFile?: File | null
+      brandId?: string
+    }) =>
+      brandId
+        ? updateManagedBrand(brandId, input, imageFile)
+        : createManagedBrand(input, imageFile),
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async (_savedBrand, variables) => {
+      setNotice({
+        type: 'success',
+        message: variables.brandId
+          ? 'Thương hiệu đã được cập nhật.'
+          : 'Thương hiệu mới đã sẵn sàng để sử dụng.',
+      })
+      setEditor(null)
+      await loadCatalog()
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const saveSizeTemplateMutation = useMutation({
+    mutationFn: ({
+      categoryId,
+      input,
+    }: {
+      categoryId: string
+      input: SizeTemplateInput
+    }) => upsertManagedCategorySizeTemplate(categoryId, input),
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async () => {
+      setNotice({ type: 'success', message: 'Bộ size đã được áp dụng cho danh mục và danh mục con.' })
+      setIsManagingSizes(false)
+      await loadCatalog()
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const deleteCatalogMutation = useMutation({
+    mutationFn: async ({
+      target,
+      mode,
+    }: {
+      target: DeleteState
+      mode: CatalogDeleteMode
+    }) => {
+      if (!target) {
+        throw new Error('Chưa chọn mục catalog cần xử lý.')
+      }
+
+      if (target.type === 'category') {
+        if (mode === 'permanent') {
+          await deleteManagedCategoryPermanently(target.item._id)
+        } else {
+          await deleteManagedCategory(target.item._id, {
+            cascadeProducts: target.item.activeProductCount > 0,
+          })
+        }
+      } else if (mode === 'permanent') {
+        await deleteManagedBrandPermanently(target.item._id)
+      } else {
+        await deleteManagedBrand(target.item._id)
+      }
+
+      return { target, mode }
+    },
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async ({ target, mode }) => {
+      if (target.type === 'category') {
+        setNotice({
+          type: 'success',
+          message: mode === 'permanent'
+            ? 'Danh mục đã được gỡ khỏi hệ thống.'
+            : 'Danh mục đã tạm ngừng hiển thị.',
+        })
+      } else {
+        setNotice({
+          type: 'success',
+          message: mode === 'permanent'
+            ? 'Thương hiệu đã được gỡ khỏi hệ thống.'
+            : 'Thương hiệu đã tạm ngừng hiển thị.',
+        })
+      }
+      setPendingDelete(null)
+      setPendingDeleteMode(null)
+      await loadCatalog()
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const isSaving =
+    saveCategoryMutation.isPending ||
+    saveBrandMutation.isPending ||
+    saveSizeTemplateMutation.isPending ||
+    deleteCatalogMutation.isPending
+
   const handleSaveCategory = async (
     input: CategoryInput,
     imageFile?: File | null,
     categoryId?: string,
   ) => {
-    setIsSaving(true)
-    setNotice(null)
-
-    try {
-      if (categoryId) {
-        await updateManagedCategory(categoryId, input, imageFile)
-        setNotice({ type: 'success', message: 'Danh mục đã được cập nhật.' })
-      } else {
-        await createManagedCategory(input, imageFile)
-        setNotice({ type: 'success', message: 'Danh mục mới đã sẵn sàng để sử dụng.' })
-      }
-      setEditor(null)
-      await loadCatalog()
-    } catch (error) {
-      setNotice({ type: 'error', message: getErrorMessage(error) })
-    } finally {
-      setIsSaving(false)
-    }
+    await saveCategoryMutation.mutateAsync({ input, imageFile, categoryId }).catch(() => undefined)
   }
 
   const handleSaveBrand = async (
@@ -263,87 +388,28 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
     imageFile?: File | null,
     brandId?: string,
   ) => {
-    setIsSaving(true)
-    setNotice(null)
-
-    try {
-      if (brandId) {
-        await updateManagedBrand(brandId, input, imageFile)
-        setNotice({ type: 'success', message: 'Thương hiệu đã được cập nhật.' })
-      } else {
-        await createManagedBrand(input, imageFile)
-        setNotice({ type: 'success', message: 'Thương hiệu mới đã sẵn sàng để sử dụng.' })
-      }
-      setEditor(null)
-      await loadCatalog()
-    } catch (error) {
-      setNotice({ type: 'error', message: getErrorMessage(error) })
-    } finally {
-      setIsSaving(false)
-    }
+    await saveBrandMutation.mutateAsync({ input, imageFile, brandId }).catch(() => undefined)
   }
 
   const handleSaveSizeTemplate = async (
     categoryId: string,
     input: SizeTemplateInput,
   ) => {
-    setIsSaving(true)
-    setNotice(null)
-
-    try {
-      await upsertManagedCategorySizeTemplate(categoryId, input)
-      setNotice({ type: 'success', message: 'Bộ size đã được áp dụng cho danh mục và danh mục con.' })
-      setIsManagingSizes(false)
-      await loadCatalog()
-    } catch (error) {
-      setNotice({ type: 'error', message: getErrorMessage(error) })
-    } finally {
-      setIsSaving(false)
-    }
+    await saveSizeTemplateMutation.mutateAsync({ categoryId, input }).catch(() => undefined)
   }
 
-  const handleDelete = async (mode: DeleteMode = 'soft') => {
+  const handleDelete = async (mode: CatalogDeleteMode = 'soft') => {
     if (!pendingDelete) return
 
-    setIsSaving(true)
-    setNotice(null)
-
-    try {
-      if (pendingDelete.type === 'category') {
-        if (mode === 'permanent') {
-          await deleteManagedCategoryPermanently(pendingDelete.item._id)
-          setNotice({ type: 'success', message: 'Danh mục đã được gỡ khỏi hệ thống.' })
-        } else {
-          await deleteManagedCategory(pendingDelete.item._id, {
-            cascadeProducts: pendingDelete.item.activeProductCount > 0,
-          })
-          setNotice({ type: 'success', message: 'Danh mục đã tạm ngừng hiển thị.' })
-        }
-      } else {
-        if (mode === 'permanent') {
-          await deleteManagedBrandPermanently(pendingDelete.item._id)
-          setNotice({ type: 'success', message: 'Thương hiệu đã được gỡ khỏi hệ thống.' })
-        } else {
-          await deleteManagedBrand(pendingDelete.item._id)
-          setNotice({ type: 'success', message: 'Thương hiệu đã tạm ngừng hiển thị.' })
-        }
-      }
-      setPendingDelete(null)
-      setPendingDeleteMode(null)
-      await loadCatalog()
-    } catch (error) {
-      setNotice({ type: 'error', message: getErrorMessage(error) })
-    } finally {
-      setIsSaving(false)
-    }
+    await deleteCatalogMutation.mutateAsync({ target: pendingDelete, mode }).catch(() => undefined)
   }
 
   return (
     <section className="admin-catalog-page" aria-busy={isLoading}>
       <header className="admin-page-heading">
         <div>
-          <p>Quản lý Catalog</p>
           <h1>Danh mục & thương hiệu</h1>
+          <p>Quản lý Danh mục và Thương hiệu</p>
         </div>
         <button className="admin-secondary-button" type="button" onClick={() => void loadCatalog()}>
           Làm mới
@@ -397,255 +463,48 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
         </div>
       ) : (
         <>
-          <CatalogSection
-            title="Danh mục sản phẩm"
-            actionLabel="+ Thêm danh mục"
-            secondaryActionLabel="Quản lý size"
+          <CategoryManagementSection
+            categories={categories}
+            categoryById={categoryById}
+            categoryNameById={categoryNameById}
+            pagination={categoryPagination}
+            keyword={categoryKeyword}
+            genderFilter={genderFilter}
+            levelFilter={categoryLevelFilter}
+            statusFilter={categoryStatusFilter}
+            isLoading={isLoading}
             canWrite={canWrite}
+            onKeywordChange={setCategoryKeyword}
+            onGenderFilterChange={setGenderFilter}
+            onLevelFilterChange={setCategoryLevelFilter}
+            onStatusFilterChange={setCategoryStatusFilter}
+            onPageChange={setCategoryPage}
             onAdd={() => setEditor({ type: 'category' })}
-            onSecondaryAction={() => setIsManagingSizes(true)}
-          >
-            <div className="admin-catalog-filters">
-              <input
-                type="search"
-                value={categoryKeyword}
-                onChange={(event) => setCategoryKeyword(event.target.value)}
-                placeholder="Tìm kiếm danh mục..."
-                aria-label="Tìm kiếm danh mục"
-              />
-              <select
-                value={genderFilter}
-                onChange={(event) =>
-                  setGenderFilter(event.target.value as 'all' | CatalogGender)
-                }
-                aria-label="Lọc giới tính"
-              >
-                <option value="all">Tất cả giới tính</option>
-                <option value="male">Nam</option>
-                <option value="female">Nữ</option>
-                <option value="unisex">Unisex</option>
-              </select>
-              <select value={categoryLevelFilter} onChange={(event) => setCategoryLevelFilter(event.target.value)} aria-label="Lọc cấp danh mục">
-                <option value="all">Tất cả cấp</option>
-                {[...new Set(categories.map((category) => category.level))]
-                  .sort((left, right) => left - right)
-                  .map((level) => <option value={level} key={level}>Cấp {level}</option>)}
-              </select>
-              <select value={categoryStatusFilter} onChange={(event) => setCategoryStatusFilter(event.target.value as 'all' | 'active' | 'inactive')} aria-label="Lọc trạng thái danh mục">
-                <option value="all">Tất cả trạng thái</option>
-                <option value="active">Hoạt động</option>
-                <option value="inactive">Tạm ngừng</option>
-              </select>
-              <button
-                className="admin-secondary-button"
-                type="button"
-                onClick={() => {
-                  setCategoryKeyword('')
-                  setGenderFilter('all')
-                  setCategoryLevelFilter('all')
-                  setCategoryStatusFilter('all')
-                }}
-              >
-                Đặt lại
-              </button>
-            </div>
+            onManageSizes={() => setIsManagingSizes(true)}
+            onView={setViewingCategory}
+            onEdit={(category) => setEditor({ type: 'category', item: category })}
+            onDelete={(category) => {
+              setPendingDelete({ type: 'category', item: category })
+              setPendingDeleteMode(null)
+            }}
+          />
 
-            <div className="admin-table-shell">
-              <table className="admin-table admin-catalog-table">
-                <thead>
-                  <tr>
-                    <th>Tên danh mục</th>
-                    <th>Danh mục cha</th>
-                    <th>Giới tính</th>
-                    <th>Bộ size</th>
-                    <th>Số sản phẩm</th>
-                    <th>Trạng thái</th>
-                    <th>Hành động</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? <LoadingRow colSpan={7} /> : null}
-                  {!isLoading && categoryPagination.categories.length === 0 ? (
-                    <EmptyRow colSpan={7} label="Không có danh mục phù hợp." />
-                  ) : null}
-                  {!isLoading
-                    ? categoryPagination.categories.map((category) => (
-                        <tr
-                          key={category._id}
-                          className={`admin-category-level-${Math.min(category.level, 4)}`}
-                        >
-                          <td>
-                            <strong className="admin-category-level-name">
-                              {category.name}
-                            </strong>
-                          </td>
-                          <td>{category.parent_id ? categoryNameById.get(category.parent_id) ?? '-' : '-'}</td>
-                          <td>{genderLabels[category.gender]}</td>
-                          <td>
-                            {category.isSizeTemplateSource ? (
-                              <span className="admin-size-badge is-source">
-                                {getSizeTemplateLabel(category)}
-                              </span>
-                            ) : category.sizeTemplateSourceId ? (
-                              <span className="admin-size-badge">
-                                {getSizeTemplateLabel(categoryById.get(category.sizeTemplateSourceId)) || 'Đã tích hợp'}
-                              </span>
-                            ) : (
-                              <span className="admin-size-badge is-empty">-</span>
-                            )}
-                          </td>
-                          <td>{category.productCount}</td>
-                          <td><StatusPill isActive={category.isActive} /></td>
-                          <td>
-                            <RowActions
-                              disabled={!canWrite}
-                              onView={() => setViewingCategory(category)}
-                              onEdit={() => setEditor({ type: 'category', item: category })}
-                              onDelete={() => {
-                                setPendingDelete({ type: 'category', item: category })
-                                setPendingDeleteMode(null)
-                              }}
-                            />
-                          </td>
-                        </tr>
-                      ))
-                    : null}
-                </tbody>
-              </table>
-            </div>
-            <footer className="admin-table-footer admin-catalog-pagination">
-              <span>
-                Danh mục gốc {categoryPagination.startRoot} /{' '}
-                {categoryPagination.totalRoots} nhóm danh mục
-              </span>
-              <div>
-                <button
-                  className="admin-secondary-button"
-                  type="button"
-                  disabled={categoryPagination.safePage <= 1 || isLoading}
-                  onClick={() => setCategoryPage((page) => Math.max(1, page - 1))}
-                >
-                  Trước
-                </button>
-                <div className="admin-catalog-page-numbers" aria-label="Phân trang danh mục">
-                  {getPaginationItems(
-                    categoryPagination.totalPages,
-                    categoryPagination.safePage,
-                  ).map((item) =>
-                    typeof item === 'number' ? (
-                      <button
-                        className={`admin-catalog-page-button${
-                          item === categoryPagination.safePage ? ' is-active' : ''
-                        }`}
-                        type="button"
-                        key={item}
-                        aria-current={
-                          item === categoryPagination.safePage ? 'page' : undefined
-                        }
-                        disabled={isLoading}
-                        onClick={() => setCategoryPage(item)}
-                      >
-                        {item}
-                      </button>
-                    ) : (
-                      <span className="admin-page-ellipsis" key={item} aria-hidden="true">
-                        ...
-                      </span>
-                    ),
-                  )}
-                </div>
-                <button
-                  className="admin-secondary-button"
-                  type="button"
-                  disabled={categoryPagination.safePage >= categoryPagination.totalPages || isLoading}
-                  onClick={() =>
-                    setCategoryPage((page) =>
-                      Math.min(categoryPagination.totalPages, page + 1),
-                    )
-                  }
-                >
-                  Sau
-                </button>
-              </div>
-            </footer>
-          </CatalogSection>
-
-          <CatalogSection
-            title="Thương hiệu"
-            actionLabel="+ Thêm thương hiệu"
+          <BrandManagementSection
+            brands={visibleBrands}
+            keyword={brandKeyword}
+            statusFilter={brandStatusFilter}
+            isLoading={isLoading}
             canWrite={canWrite}
+            onKeywordChange={setBrandKeyword}
+            onStatusFilterChange={setBrandStatusFilter}
             onAdd={() => setEditor({ type: 'brand' })}
-          >
-            <div className="admin-catalog-filters is-brand">
-              <input
-                type="search"
-                value={brandKeyword}
-                onChange={(event) => setBrandKeyword(event.target.value)}
-                placeholder="Tìm kiếm thương hiệu..."
-                aria-label="Tìm kiếm thương hiệu"
-              />
-              <select value={brandStatusFilter} onChange={(event) => setBrandStatusFilter(event.target.value as 'all' | 'active' | 'inactive')} aria-label="Lọc trạng thái thương hiệu">
-                <option value="all">Tất cả trạng thái</option>
-                <option value="active">Hoạt động</option>
-                <option value="inactive">Tạm ngừng</option>
-              </select>
-              <button
-                className="admin-secondary-button"
-                type="button"
-                onClick={() => {
-                  setBrandKeyword('')
-                  setBrandStatusFilter('all')
-                }}
-              >
-                Đặt lại
-              </button>
-            </div>
-
-            <div className="admin-table-shell">
-              <table className="admin-table admin-catalog-table is-brand">
-                <thead>
-                  <tr>
-                    <th>Logo</th>
-                    <th>Tên thương hiệu</th>
-                    <th>Số sản phẩm</th>
-                    <th>Trạng thái</th>
-                    <th>Hành động</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? <LoadingRow colSpan={5} /> : null}
-                  {!isLoading && visibleBrands.length === 0 ? (
-                    <EmptyRow colSpan={5} label="Không có thương hiệu phù hợp." />
-                  ) : null}
-                  {!isLoading
-                    ? visibleBrands.map((brand) => (
-                        <tr key={brand._id}>
-                          <td>
-                            <span className="admin-brand-logo">
-                              <img src={brand.image} alt="" />
-                            </span>
-                          </td>
-                          <td><strong>{brand.name}</strong></td>
-                          <td>{brand.productCount}</td>
-                          <td><StatusPill isActive={brand.isActive} /></td>
-                          <td>
-                            <RowActions
-                              disabled={!canWrite}
-                              onView={() => setViewingBrand(brand)}
-                              onEdit={() => setEditor({ type: 'brand', item: brand })}
-                              onDelete={() => {
-                                setPendingDelete({ type: 'brand', item: brand })
-                                setPendingDeleteMode(null)
-                              }}
-                            />
-                          </td>
-                        </tr>
-                      ))
-                    : null}
-                </tbody>
-              </table>
-            </div>
-          </CatalogSection>
+            onView={setViewingBrand}
+            onEdit={(brand) => setEditor({ type: 'brand', item: brand })}
+            onDelete={(brand) => {
+              setPendingDelete({ type: 'brand', item: brand })
+              setPendingDeleteMode(null)
+            }}
+          />
         </>
       )}
 
@@ -671,40 +530,12 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
       ) : null}
 
       {viewingCategory ? (
-        <div className="admin-catalog-modal-layer" role="dialog" aria-modal="true" aria-labelledby="view-category-title">
-          <button className="admin-catalog-modal-backdrop" type="button" aria-label="Đóng" onClick={() => setViewingCategory(null)} />
-          <section className="admin-catalog-modal admin-category-view-modal">
-            <header>
-              <div>
-                <p>Chi tiết danh mục</p>
-                <h2 id="view-category-title">{viewingCategory.name}</h2>
-              </div>
-              <button className="admin-secondary-button" type="button" onClick={() => setViewingCategory(null)}>Đóng</button>
-            </header>
-            <div className="admin-category-view-content">
-              <div className="admin-catalog-image-preview">
-                <img src={viewingCategory.image} alt={viewingCategory.name} />
-              </div>
-              <dl>
-                <div><dt>Danh mục cha</dt><dd>{viewingCategory.parent_id ? categoryNameById.get(viewingCategory.parent_id) ?? '-' : '-'}</dd></div>
-                <div><dt>Giới tính</dt><dd>{genderLabels[viewingCategory.gender]}</dd></div>
-                <div>
-                  <dt>Bộ size</dt>
-                  <dd>
-                    {viewingCategory.isSizeTemplateSource
-                      ? `${getSizeTemplateLabel(viewingCategory)}: ${(viewingCategory.sizes ?? []).join(', ') || 'Chưa có size'}`
-                      : viewingCategory.sizeTemplateSourceId
-                        ? `Kế thừa từ ${getSizeTemplateLabel(categoryById.get(viewingCategory.sizeTemplateSourceId)) || 'bộ size khác'}`
-                        : '-'}
-                  </dd>
-                </div>
-                <div><dt>Số sản phẩm</dt><dd>{viewingCategory.productCount}</dd></div>
-                <div><dt>Trạng thái</dt><dd><StatusPill isActive={viewingCategory.isActive} /></dd></div>
-                <div className="is-wide"><dt>Mô tả</dt><dd>{viewingCategory.description || '-'}</dd></div>
-              </dl>
-            </div>
-          </section>
-        </div>
+        <CategoryDetailDialog
+          category={viewingCategory}
+          categoryById={categoryById}
+          categoryNameById={categoryNameById}
+          onClose={() => setViewingCategory(null)}
+        />
       ) : null}
 
       {editor?.type === 'brand' ? (
@@ -718,116 +549,21 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
       ) : null}
 
       {viewingBrand ? (
-        <div className="admin-catalog-modal-layer" role="dialog" aria-modal="true" aria-labelledby="view-brand-title">
-          <button className="admin-catalog-modal-backdrop" type="button" aria-label="Đóng" onClick={() => setViewingBrand(null)} />
-          <section className="admin-catalog-modal admin-brand-view-modal">
-            <header>
-              <div>
-                <p>Chi tiết thương hiệu</p>
-                <h2 id="view-brand-title">{viewingBrand.name}</h2>
-              </div>
-              <button className="admin-secondary-button" type="button" onClick={() => setViewingBrand(null)}>Đóng</button>
-            </header>
-            <div className="admin-brand-view-content">
-              <div className="admin-catalog-image-preview">
-                <img src={viewingBrand.image} alt={viewingBrand.name} />
-              </div>
-              <dl>
-                <div><dt>Tên thương hiệu</dt><dd>{viewingBrand.name}</dd></div>
-                <div><dt>Số sản phẩm</dt><dd>{viewingBrand.productCount}</dd></div>
-                <div><dt>Trạng thái</dt><dd><StatusPill isActive={viewingBrand.isActive} /></dd></div>
-              </dl>
-            </div>
-          </section>
-        </div>
+        <BrandDetailDialog brand={viewingBrand} onClose={() => setViewingBrand(null)} />
       ) : null}
 
       {pendingDelete ? (
-        <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="catalog-delete-title">
-          <div className="admin-confirm-box">
-            <h2 id="catalog-delete-title">Xóa hoặc tạm ngừng?</h2>
-            <p>
-              Nếu chỉ muốn ẩn “{pendingDelete.item.name}” khỏi quy trình bán hàng, hãy chọn tạm
-              ngừng. Dữ liệu cũ vẫn được giữ lại để tra cứu.
-            </p>
-            <p className="admin-delete-warning">
-              Chỉ xóa vĩnh viễn khi đây là dữ liệu tạo nhầm hoặc chưa từng được sử dụng. Với
-              danh mục, hệ thống sẽ chặn nếu còn danh mục con, sản phẩm, mẫu size/form hoặc
-              khuyến mãi liên quan.
-            </p>
-            {pendingDelete.type === 'category' && pendingDelete.item.activeProductCount > 0 ? (
-              <p className="admin-delete-blocked">
-                Danh mục này còn {pendingDelete.item.activeProductCount.toLocaleString('vi-VN')} sản
-                phẩm đang bán. Nếu tạm ngừng danh mục, các sản phẩm liên quan cũng sẽ được ngừng bán.
-              </p>
-            ) : null}
-            <div>
-              <button
-                className="admin-secondary-button"
-                type="button"
-                disabled={isSaving}
-                onClick={() => {
-                  setPendingDelete(null)
-                  setPendingDeleteMode(null)
-                }}
-              >
-                Hủy
-              </button>
-              <button className="admin-danger-button" type="button" disabled={isSaving} onClick={() => setPendingDeleteMode('soft')}>
-                {isSaving ? 'Đang xử lý...' : 'Tạm ngừng'}
-              </button>
-              <button
-                className="admin-danger-button is-permanent"
-                type="button"
-                disabled={isSaving || pendingDelete.item.productCount > 0}
-                onClick={() => setPendingDeleteMode('permanent')}
-              >
-                Xóa vĩnh viễn
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {pendingDelete && pendingDeleteMode ? (
-        <div className="admin-confirm-layer is-top" role="dialog" aria-modal="true" aria-labelledby="catalog-delete-final-title">
-          <div className="admin-confirm-box">
-            <h2 id="catalog-delete-final-title">
-              Bạn có thật sự muốn {pendingDeleteMode === 'permanent' ? 'xóa vĩnh viễn' : 'tạm ngừng'}?
-            </h2>
-            <p>
-              Xác nhận thao tác với “{pendingDelete.item.name}”.
-            </p>
-            {pendingDeleteMode === 'permanent' ? (
-              <p className="admin-delete-blocked">
-                Sau khi xóa vĩnh viễn, dữ liệu này sẽ không thể khôi phục.
-              </p>
-            ) : pendingDelete.type === 'category' && pendingDelete.item.activeProductCount > 0 ? (
-              <p className="admin-delete-warning">
-                Xác nhận tạm ngừng danh mục và ngừng bán{' '}
-                {pendingDelete.item.activeProductCount.toLocaleString('vi-VN')} sản phẩm liên quan.
-              </p>
-            ) : null}
-            <div>
-              <button
-                className="admin-secondary-button"
-                type="button"
-                disabled={isSaving}
-                onClick={() => setPendingDeleteMode(null)}
-              >
-                Không
-              </button>
-              <button
-                className="admin-danger-button"
-                type="button"
-                disabled={isSaving}
-                onClick={() => void handleDelete(pendingDeleteMode)}
-              >
-                {isSaving ? 'Đang xử lý...' : 'Có, xác nhận'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <CatalogDeleteConfirmDialog
+          target={pendingDelete}
+          mode={pendingDeleteMode}
+          isSaving={isSaving}
+          onCancel={() => {
+            setPendingDelete(null)
+            setPendingDeleteMode(null)
+          }}
+          onModeChange={setPendingDeleteMode}
+          onConfirm={(mode) => void handleDelete(mode)}
+        />
       ) : null}
     </section>
   )
