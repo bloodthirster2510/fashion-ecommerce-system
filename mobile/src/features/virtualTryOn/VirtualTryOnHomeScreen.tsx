@@ -68,6 +68,7 @@ const VirtualTryOnHomeScreen = () => {
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isUploading, setIsUploading] = React.useState(false);
+  const [deletingAssetId, setDeletingAssetId] = React.useState<string | null>(null);
   const heroLift = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -122,7 +123,7 @@ const VirtualTryOnHomeScreen = () => {
     setIsLoading(true);
     runWithAuth(async (token) => {
       const [assetsResponse, latest, jobsResponse] = await Promise.all([
-        virtualTryOnApi.getAssets(token, { limit: 1 }),
+        virtualTryOnApi.getAssets(token, { limit: 20 }),
         virtualTryOnApi.getLatestJob(token),
         virtualTryOnApi.getJobs(token, { limit: 4 }),
       ]);
@@ -212,6 +213,35 @@ const VirtualTryOnHomeScreen = () => {
           text: 'Bỏ ảnh',
           style: 'destructive',
           onPress: () => setLatestAsset(null),
+        },
+      ],
+    );
+  };
+
+  const deleteLibraryAsset = (asset: VirtualTryOnAsset) => {
+    Alert.alert(
+      'Xóa ảnh khỏi kho?',
+      'Ảnh này sẽ bị xóa khỏi kho ảnh phòng thử đồ. Các kết quả phối đồ đã tạo trước đó vẫn giữ lịch sử riêng.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa ảnh',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setDeletingAssetId(asset._id);
+              try {
+                await runWithAuth((token) => virtualTryOnApi.deleteAsset(token, asset._id));
+                setAssetLibrary((current) => current.filter((item) => item._id !== asset._id));
+                setLatestAsset((current) => (current?._id === asset._id ? null : current));
+              } catch (error) {
+                const message = error instanceof Error ? error.message : 'Không thể xóa ảnh lúc này.';
+                Alert.alert('Xóa ảnh', message);
+              } finally {
+                setDeletingAssetId(null);
+              }
+            })();
+          },
         },
       ],
     );
@@ -352,6 +382,22 @@ const VirtualTryOnHomeScreen = () => {
                         <MaterialCommunityIcons name="check" size={15} color={colors.white} />
                       </View>
                     ) : null}
+                    <TouchableOpacity
+                      style={styles.assetDeleteButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        deleteLibraryAsset(asset);
+                      }}
+                      activeOpacity={0.82}
+                      accessibilityLabel="Xóa ảnh khỏi kho"
+                      disabled={deletingAssetId === asset._id}
+                    >
+                      {deletingAssetId === asset._id ? (
+                        <ActivityIndicator size="small" color={colors.white} />
+                      ) : (
+                        <MaterialCommunityIcons name="trash-can-outline" size={15} color={colors.white} />
+                      )}
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 );
               })}
@@ -721,6 +767,19 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     backgroundColor: studioPalette.success,
+    borderWidth: 1.5,
+    borderColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assetDeleteButton: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(204, 0, 0, 0.9)',
     borderWidth: 1.5,
     borderColor: colors.white,
     alignItems: 'center',
