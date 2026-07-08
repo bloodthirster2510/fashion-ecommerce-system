@@ -3,8 +3,10 @@ import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   adjustInventory,
+  cancelReceipt,
   commitReservations,
   createImport,
+  createReceipt,
   deleteInventory,
   deleteImport,
   expireReservations,
@@ -12,9 +14,14 @@ import {
   getImportSuppliers,
   getImports,
   getInventory,
+  getInventoryProducts,
   getLowStockInventory,
+  getReceiptById,
+  getReceipts,
+  confirmReceipt,
   releaseReservations,
   reserveInventory,
+  updateReceipt,
 } from './inventory.controller';
 
 const router = Router();
@@ -23,7 +30,14 @@ const canReadInventory = [...canManageInventory, requirePermission('inventory.re
 const canWriteInventory = [...canManageInventory, requirePermission('inventory.write')];
 
 router.get('/', canReadInventory, getInventory);
+router.get('/products', canReadInventory, getInventoryProducts);
 router.get('/low-stock', canReadInventory, getLowStockInventory);
+router.get('/receipts', canReadInventory, getReceipts);
+router.post('/receipts', canWriteInventory, createReceipt);
+router.get('/receipts/:id', canReadInventory, getReceiptById);
+router.patch('/receipts/:id', canWriteInventory, updateReceipt);
+router.post('/receipts/:id/confirm', canWriteInventory, confirmReceipt);
+router.post('/receipts/:id/cancel', canWriteInventory, cancelReceipt);
 router.get('/imports', canReadInventory, getImports);
 router.post('/imports', canWriteInventory, createImport);
 router.get('/imports/suppliers', canReadInventory, getImportSuppliers);

@@ -225,10 +225,13 @@ const resolveCategoryTemplateSource = async (categoryId: string): Promise<ICateg
 
   if (category.sizeTemplateSourceId) {
     const sourceCategory = await Category.findById(category.sizeTemplateSourceId);
-    if (!sourceCategory) {
-      throw new ProductServiceError('Size template source category not found', 404);
+    if (sourceCategory) {
+      return sourceCategory;
     }
-    return sourceCategory;
+  }
+
+  if (category.fitTypes?.length || category.measurementFields?.length || category.sizes?.length) {
+    return category;
   }
 
   if (category.parent_id) {

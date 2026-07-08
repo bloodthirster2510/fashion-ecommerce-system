@@ -4,108 +4,155 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
 } from 'react'
+import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
 import type { AdminUser } from '../auth/adminSession'
-import { listManagedProducts } from '../catalog/products/product.service'
-import type {
-  ManagedProduct,
-  ProductColor,
-  ProductVariant,
-} from '../catalog/products/product.types'
+import type { ManagedProduct } from '../catalog/products/product.types'
 import {
   createInventoryImport,
   deleteInventoryImport,
   listInventoryImportsByColor,
   listInventory,
+  listInventoryProducts,
+  listInventoryReceipts,
   listInventorySuppliers,
 } from './inventory.service'
 import type {
   CreateInventoryImportInput,
   InventoryImport,
   InventoryItem,
+  InventoryReceipt,
 } from './inventory.types'
 import { getPaginationItems } from '../../utils/pagination'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
+import { ImportDialog, InventoryHistoryDialog } from './components/ImportLotDialogs'
+import { InventoryReceiptDialog } from './components/ReceiptFormDialog'
+import { InventoryReceiptListDialog } from './components/ReceiptListDialog'
+import { ChevronIcon, EmptyRow, FilterSelect, SearchIcon, ViewIcon, WarningIcon } from './components/InventoryUi'
+import type {
+  InventoryColorGroup,
+  InventoryProductGroup,
+  InventoryRow,
+  Notice,
+  StockStatus,
+} from './inventory.view-types'
+import {
+  formatInputDate,
+  formatNumber,
+  getErrorMessage,
+  getNextReceiptCode,
+  getReceiptListItem,
+  getStatus,
+  inventoryPageSize,
+  lowStockPercentage,
+} from './inventory.utils'
 import './inventory.css'
 
 type InventoryManagementPageProps = {
   currentUser: AdminUser
 }
 
-type StockStatus = 'all' | 'available' | 'low' | 'out'
+const inventoryMutationClient = new QueryClient()
 
-type InventoryRow = InventoryItem & {
-  product?: ManagedProduct
-  variant?: ProductVariant
-  color?: ProductColor
-}
+// Dựng lại phần chi tiết màu đang xem sau khi số tồn thay đổi.
+const buildViewingColorGroup = (
+  items: InventoryItem[],
+  productItems: ManagedProduct[],
+  group: InventoryColorGroup,
+): InventoryColorGroup => {
+  const productById = new Map(productItems.map((product) => [product._id, product]))
+  const rows = items
+    .filter(
+      (item) =>
+        item.productId === group.productId &&
+        item.variantId === group.variantId &&
+        item.colorVariantId === group.colorVariantId,
+    )
+    .map((item) => {
+      const product = productById.get(item.productId)
+      const variant = product?.variants.find((entry) => entry._id === item.variantId)
+      const color = variant?.colors.find((entry) => entry._id === item.colorVariantId)
+      return { ...item, product, variant, color }
+    })
 
-type InventoryProductGroup = {
-  productId: string
-  product?: ManagedProduct
-  rows: InventoryRow[]
-}
-
-type InventoryColorGroup = {
-  productId: string
-  variantId: string
-  colorVariantId: string
-  product?: ManagedProduct
-  variant?: ProductVariant
-  color?: ProductColor
-  rows: InventoryRow[]
-}
-
-type Notice = {
-  type: 'success' | 'error'
-  message: string
-} | null
-
-type ImportConfirmation = {
-  input: CreateInventoryImportInput
-  lines: string[]
-} | null
-
-const lowStockPercentage = 0.15
-const pageSize = 10
-const formatNumber = (value: number) => value.toLocaleString('vi-VN')
-const formatPrice = (value: number) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat('vi-VN', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(value))
-
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
-
-const getStatus = (quantity: number | Array<{ availableQuantity: number }>, total: number) => {
-  let items: Array<{ availableQuantity: number }>
-  if (typeof quantity === 'number') {
-    items = [{ availableQuantity: quantity }]
-  } else {
-    items = quantity
+  return {
+    ...group,
+    product: rows[0]?.product ?? group.product,
+    variant: rows[0]?.variant ?? group.variant,
+    color: rows[0]?.color ?? group.color,
+    rows,
   }
-
-  const allZero = items.every((item) => item.availableQuantity === 0)
-  if (allZero) return { id: 'out', label: 'Hết hàng', className: 'is-out' }
-  const threshold = total * lowStockPercentage
-  const allLow = items.length > 0 && items.every((item) => item.availableQuantity > 0 && item.availableQuantity <= threshold)
-  if (allLow) {
-    return { id: 'low', label: 'Sắp hết', className: 'is-low' }
-  }
-  return { id: 'available', label: 'Còn hàng', className: 'is-available' }
 }
 
-const getImportRemainingClass = (remainingQuantity: number, quantity: number) => {
-  if (remainingQuantity === 0) return 'is-out'
-  if (quantity > 0 && remainingQuantity / quantity <= 0.2) return 'is-low'
-  return 'is-available'
+// Khi xóa một lô nhập, trừ số tồn ngay trên màn hình mà không tải lại toàn bộ kho.
+const subtractDeletedImportFromInventory = (
+  items: InventoryItem[],
+  importRecord: InventoryImport,
+) => {
+  const deletedQuantityBySize = new Map(
+    importRecord.detail.map((detail) => [detail.size.toLowerCase(), detail.quantity]),
+  )
+
+  return items.map((item) => {
+    if (
+      item.productId !== importRecord.productId ||
+      item.variantId !== importRecord.variantId ||
+      item.colorVariantId !== importRecord.colorVariantId
+    ) {
+      return item
+    }
+
+    const deletedQuantity = deletedQuantityBySize.get(item.size.toLowerCase()) ?? 0
+    if (!deletedQuantity) return item
+
+    return {
+      ...item,
+      quantity: Math.max(0, item.quantity - deletedQuantity),
+      availableQuantity: Math.max(0, item.availableQuantity - deletedQuantity),
+    }
+  })
+}
+
+// Khi tạo lô nhập mới, cộng số tồn ngay trên màn hình.
+const addCreatedImportToInventory = (
+  items: InventoryItem[],
+  importRecord: InventoryImport,
+) => {
+  const importedQuantityBySize = new Map(
+    importRecord.detail.map((detail) => [detail.size.toLowerCase(), detail.quantity]),
+  )
+
+  return items.map((item) => {
+    if (
+      item.productId !== importRecord.productId ||
+      item.variantId !== importRecord.variantId ||
+      item.colorVariantId !== importRecord.colorVariantId
+    ) {
+      return item
+    }
+
+    const importedQuantity = importedQuantityBySize.get(item.size.toLowerCase()) ?? 0
+    if (!importedQuantity) return item
+
+    return {
+      ...item,
+      quantity: item.quantity + importedQuantity,
+      availableQuantity: item.availableQuantity + importedQuantity,
+    }
+  })
 }
 
 export function InventoryManagementPage({
+  currentUser,
+}: InventoryManagementPageProps) {
+  return (
+    <QueryClientProvider client={inventoryMutationClient}>
+      <InventoryManagementContent currentUser={currentUser} />
+    </QueryClientProvider>
+  )
+}
+
+function InventoryManagementContent({
   currentUser,
 }: InventoryManagementPageProps) {
   const tableShellRef = useRef<HTMLDivElement>(null)
@@ -123,33 +170,43 @@ export function InventoryManagementPage({
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set())
   const [viewing, setViewing] = useState<InventoryColorGroup | null>(null)
   const [importHistory, setImportHistory] = useState<InventoryImport[]>([])
+  const [receipts, setReceipts] = useState<InventoryReceipt[]>([])
   const [supplierOptions, setSupplierOptions] = useState<string[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [importing, setImporting] = useState<InventoryColorGroup | null>(null)
+  const [isReceiptFormOpen, setIsReceiptFormOpen] = useState(false)
+  const [isReceiptListOpen, setIsReceiptListOpen] = useState(false)
+  const [editingReceipt, setEditingReceipt] = useState<InventoryReceipt | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
   const [loadError, setLoadError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
   const canWrite =
     currentUser.role === 'admin' ||
     currentUser.permissions?.includes('inventory.write') === true
 
+  // Tải dữ liệu chính của trang: số tồn, thông tin sản phẩm, phiếu nhập và nhà cung cấp.
   const loadData = useCallback(async () => {
     setIsLoading(true)
     setLoadError('')
     try {
       const [inventoryResult, productResult] = await Promise.all([
         listInventory(),
-        listManagedProducts(),
+        listInventoryProducts(),
       ])
       setInventory(inventoryResult.items)
       setProducts(productResult)
+      const receiptResult = await listInventoryReceipts().catch(() => null)
+      if (receiptResult) {
+        setReceipts(receiptResult.items)
+      }
       void listInventorySuppliers()
         .then(setSupplierOptions)
         .catch(() => setSupplierOptions([]))
+      return { inventoryItems: inventoryResult.items, productItems: productResult }
     } catch (error) {
       setLoadError(getErrorMessage(error))
+      return null
     } finally {
       setIsLoading(false)
     }
@@ -169,6 +226,7 @@ export function InventoryManagementPage({
     return () => window.clearTimeout(timeoutId)
   }, [notice])
 
+  // Ghép số tồn với tên, ảnh, danh mục và màu của sản phẩm để hiển thị dễ đọc.
   const rows = useMemo<InventoryRow[]>(() => {
     const productById = new Map(products.map((product) => [product._id, product]))
     return inventory.map((item) => {
@@ -212,6 +270,7 @@ export function InventoryManagementPage({
     [inventory],
   )
 
+  // Tổng tồn theo sản phẩm được dùng để tính trạng thái còn hàng/sắp hết.
   const productTotals = useMemo(() => {
     const totals = new Map<string, { total: number; count: number }>()
     rows.forEach((row) => {
@@ -221,6 +280,7 @@ export function InventoryManagementPage({
     return totals
   }, [rows])
 
+  // Lọc trước rồi mới gom nhóm, để phân trang theo sản phẩm thay vì từng size.
   const pagination = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLocaleLowerCase('vi')
     const groupsByProduct = new Map<string, InventoryProductGroup>()
@@ -253,16 +313,16 @@ export function InventoryManagementPage({
     })
 
     const filtered = [...groupsByProduct.values()]
-    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+    const totalPages = Math.max(1, Math.ceil(filtered.length / inventoryPageSize))
     const safePage = Math.min(page, totalPages)
-    const startIndex = (safePage - 1) * pageSize
+    const startIndex = (safePage - 1) * inventoryPageSize
     return {
-      items: filtered.slice(startIndex, startIndex + pageSize),
+      items: filtered.slice(startIndex, startIndex + inventoryPageSize),
       totalItems: filtered.length,
       totalPages,
       safePage,
       start: filtered.length ? startIndex + 1 : 0,
-      end: Math.min(startIndex + pageSize, filtered.length),
+      end: Math.min(startIndex + inventoryPageSize, filtered.length),
     }
   }, [brand, category, fitType, keyword, page, rows, status, productTotals])
 
@@ -273,6 +333,7 @@ export function InventoryManagementPage({
     setExpandedVariants(new Set())
   }, [pagination.safePage, brand, category, fitType, keyword, status])
 
+  // Hiển thị thanh cuộn ngang cố định khi bảng dài và thanh cuộn thật nằm ngoài màn hình.
   useEffect(() => {
     const tableShell = tableShellRef.current
     const stickyScrollbar = stickyScrollbarRef.current
@@ -352,22 +413,99 @@ export function InventoryManagementPage({
     })
   }
 
-  const handleCreateImport = async (input: CreateInventoryImportInput) => {
-    setIsSaving(true)
-    setNotice(null)
-    try {
-      await createInventoryImport(input)
+  // Tạo lô nhập xong thì cập nhật số tồn ngay, không bắt trang tải lại toàn bộ.
+  const createImportMutation = useMutation({
+    mutationFn: createInventoryImport,
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: (createdImport) => {
+      const nextInventory = addCreatedImportToInventory(inventory, createdImport)
       setImporting(null)
+      setInventory(nextInventory)
+      setViewing((current) => {
+        if (
+          !current ||
+          current.productId !== createdImport.productId ||
+          current.variantId !== createdImport.variantId ||
+          current.colorVariantId !== createdImport.colorVariantId
+        ) {
+          return current
+        }
+
+        return buildViewingColorGroup(nextInventory, products, current)
+      })
+      const supplierName = createdImport.supplierName?.trim()
+      if (supplierName) {
+        setSupplierOptions((current) =>
+          current.includes(supplierName)
+            ? current
+            : [...current, supplierName].sort(),
+        )
+      }
       setNotice({ type: 'success', message: 'Kho đã được cập nhật với phiếu nhập mới.' })
-      await loadData()
       requestAdminNotificationRefresh()
-    } catch (error) {
+    },
+    onError: (error) => {
       setNotice({ type: 'error', message: getErrorMessage(error) })
-    } finally {
-      setIsSaving(false)
-    }
+    },
+  })
+
+  // Xóa lô nhập chỉ tải lại lịch sử của màu đang xem, còn số tồn được trừ ngay tại màn hình.
+  const deleteImportMutation = useMutation({
+    mutationFn: async (importId: string) => {
+      if (!viewing) {
+        throw new Error('Chưa chọn màu sản phẩm để xóa lô nhập.')
+      }
+
+      const currentViewing = viewing
+      const localDeletedImport = importHistory.find((item) => item._id === importId)
+      const deletedImportResult = await deleteInventoryImport(importId)
+      const deletedImport = localDeletedImport ?? deletedImportResult
+      const result = await listInventoryImportsByColor(
+        currentViewing.productId,
+        currentViewing.variantId,
+        currentViewing.colorVariantId,
+      )
+
+      return { deletedImport, result }
+    },
+    onMutate: () => {
+      setHistoryError('')
+    },
+    onSuccess: ({ deletedImport, result }) => {
+      if (deletedImport) {
+        const nextInventory = subtractDeletedImportFromInventory(inventory, deletedImport)
+        setInventory(nextInventory)
+        setViewing((current) => {
+          if (
+            !current ||
+            current.productId !== deletedImport.productId ||
+            current.variantId !== deletedImport.variantId ||
+            current.colorVariantId !== deletedImport.colorVariantId
+          ) {
+            return current
+          }
+
+          return buildViewingColorGroup(nextInventory, products, current)
+        })
+      }
+
+      setImportHistory(result.items)
+      setNotice({ type: 'success', message: 'Lô nhập đã được xóa và tồn kho đã được cập nhật.' })
+      requestAdminNotificationRefresh()
+    },
+    onError: (error) => {
+      setHistoryError(getErrorMessage(error))
+    },
+  })
+  const isImportMutating = createImportMutation.isPending || deleteImportMutation.isPending
+
+  const handleCreateImport = async (input: CreateInventoryImportInput) => {
+    await createImportMutation.mutateAsync(input).catch(() => undefined)
   }
 
+  // Chỉ tải lịch sử lô nhập khi admin mở phần xem chi tiết màu.
   const handleViewHistory = async (colorGroup: InventoryColorGroup) => {
     setViewing(colorGroup)
     setImportHistory([])
@@ -388,26 +526,7 @@ export function InventoryManagementPage({
   }
 
   const handleDeleteImport = async (importId: string) => {
-    if (!viewing) return
-    setIsSaving(true)
-    setHistoryError('')
-
-    try {
-      await deleteInventoryImport(importId)
-      const result = await listInventoryImportsByColor(
-        viewing.productId,
-        viewing.variantId,
-        viewing.colorVariantId,
-      )
-      setImportHistory(result.items)
-      setNotice({ type: 'success', message: 'Phiếu nhập đã được xóa và tồn kho đã được cập nhật.' })
-      await loadData()
-      requestAdminNotificationRefresh()
-    } catch (error) {
-      setHistoryError(getErrorMessage(error))
-    } finally {
-      setIsSaving(false)
-    }
+    await deleteImportMutation.mutateAsync(importId).catch(() => undefined)
   }
 
   return (
@@ -417,9 +536,25 @@ export function InventoryManagementPage({
           <h1>Quản lý kho hàng</h1>
           <span>Theo dõi số lượng tồn kho và cảnh báo thiếu hàng theo từng sản phẩm.</span>
         </div>
-        <button className="admin-secondary-button" type="button" onClick={() => void loadData()}>
-          Làm mới
-        </button>
+        <div className="admin-inventory-heading-actions">
+          <button
+            className="admin-primary-button"
+            type="button"
+            disabled={!canWrite}
+            onClick={() => {
+              setEditingReceipt(null)
+              setIsReceiptFormOpen(true)
+            }}
+          >
+            Nhập hàng
+          </button>
+          <button className="admin-secondary-button" type="button" onClick={() => setIsReceiptListOpen(true)}>
+            Danh sách phiếu nhập
+          </button>
+          <button className="admin-secondary-button" type="button" onClick={() => void loadData()}>
+            Làm mới
+          </button>
+        </div>
       </header>
 
       <div className="admin-inventory-stats">
@@ -654,7 +789,6 @@ export function InventoryManagementPage({
                                               <span>Hành động</span>
                                               <div className="admin-inventory-actions">
                                                 <button className="admin-secondary-link" type="button" onClick={() => void handleViewHistory(colorGroup)}><ViewIcon /> Xem</button>
-                                                <button className="admin-link-button" type="button" disabled={!canWrite} onClick={() => setImporting(colorGroup)}>+ Nhập kho</button>
                                               </div>
                                             </div>
                                           </article>
@@ -718,7 +852,7 @@ export function InventoryManagementPage({
           imports={importHistory}
           isLoading={isHistoryLoading}
           errorMessage={historyError}
-          isDeleting={isSaving}
+          isDeleting={isImportMutating}
           onDeleteImport={handleDeleteImport}
           onClose={() => setViewing(null)}
         />
@@ -727,348 +861,46 @@ export function InventoryManagementPage({
         <ImportDialog
           row={importing}
           supplierOptions={supplierOptions}
-          isSaving={isSaving}
+          isSaving={isImportMutating}
           errorMessage={notice?.type === 'error' ? notice.message : ''}
           onClose={() => setImporting(null)}
           onSave={handleCreateImport}
         />
       ) : null}
+      {isReceiptFormOpen ? (
+        <InventoryReceiptDialog
+          currentUser={currentUser}
+          defaultCode={getNextReceiptCode(receipts)}
+          defaultDate={formatInputDate(new Date())}
+          editingReceipt={editingReceipt}
+          canWrite={canWrite}
+          products={products}
+          onSaved={async () => {
+            await loadData()
+          }}
+          onClose={() => {
+            setIsReceiptFormOpen(false)
+            setEditingReceipt(null)
+          }}
+        />
+      ) : null}
+      {isReceiptListOpen ? (
+        <InventoryReceiptListDialog
+          receipts={receipts.map((item) => getReceiptListItem(item, products))}
+          onRefresh={async () => {
+            await loadData()
+          }}
+          onClose={() => setIsReceiptListOpen(false)}
+          onOpenForm={(receiptId) => {
+            const receipt = receipts.find((item) => item._id === receiptId)
+            if (!receipt) return
+
+            setEditingReceipt(receipt)
+            setIsReceiptListOpen(false)
+            setIsReceiptFormOpen(true)
+          }}
+        />
+      ) : null}
     </section>
-  )
-}
-
-function FilterSelect({
-  value,
-  onChange,
-  label,
-  options,
-}: {
-  value: string
-  onChange: (value: string) => void
-  label: string
-  options: string[]
-}) {
-  return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} aria-label={label}>
-      <option value="all">{label}</option>
-      {options.map((option) => <option value={option} key={option}>{option}</option>)}
-    </select>
-  )
-}
-
-function EmptyRow({ label }: { label: string }) {
-  return <tr><td colSpan={6}><div className="admin-table-loading">{label}</div></td></tr>
-}
-
-function ImportDialog({
-  row: group,
-  supplierOptions,
-  isSaving,
-  errorMessage,
-  onClose,
-  onSave,
-}: {
-  row: InventoryColorGroup
-  supplierOptions: string[]
-  isSaving: boolean
-  errorMessage: string
-  onClose: () => void
-  onSave: (input: CreateInventoryImportInput) => Promise<void>
-}) {
-  const [quantities, setQuantities] = useState<Record<string, number>>(
-    () => Object.fromEntries(group.rows.map((row) => [row.size, 0])),
-  )
-  const [importPrice, setImportPrice] = useState('')
-  const [supplierName, setSupplierName] = useState('')
-  const [pendingConfirmation, setPendingConfirmation] = useState<ImportConfirmation>(null)
-  const totalImport = Object.values(quantities).reduce(
-    (sum, quantity) => sum + Math.max(0, quantity),
-    0,
-  )
-  const hasImportPrice = importPrice.trim().length > 0
-  const parsedImportPrice = hasImportPrice ? Number(importPrice) : null
-  const isImportPriceValid =
-    parsedImportPrice === null || (Number.isFinite(parsedImportPrice) && parsedImportPrice >= 0)
-  const totalAmount = totalImport * (isImportPriceValid && parsedImportPrice ? parsedImportPrice : 0)
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault()
-    if (!isImportPriceValid) return
-
-    const detail = group.rows
-      .filter((row) => (quantities[row.size] ?? 0) > 0)
-      .map((row) => ({
-        size: row.size,
-        quantity: quantities[row.size] ?? 0,
-        ...(parsedImportPrice !== null ? { importPrice: parsedImportPrice } : {}),
-      }))
-
-    if (!detail.length) return
-
-    const lines = [
-      `Sản phẩm: ${group.product?.name || '-'}`,
-      `Màu: ${group.color?.color || '-'}`,
-      `Nhà cung cấp: ${supplierName.trim() || '-'}`,
-      `Số lượng: ${formatNumber(totalImport)} sản phẩm`,
-      `Thành tiền: ${formatPrice(totalAmount)}`,
-    ]
-
-    const input = {
-      productId: group.productId,
-      variantId: group.variantId,
-      colorVariantId: group.colorVariantId,
-      supplierName: supplierName.trim(),
-      detail,
-    }
-
-    setPendingConfirmation({ input, lines })
-  }
-
-  return (
-    <div className="admin-inventory-dialog-layer" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title">
-      <button className="admin-inventory-dialog-backdrop" type="button" aria-label="Đóng" disabled={isSaving} onClick={onClose} />
-      <form className="admin-inventory-dialog admin-inventory-import-dialog" onSubmit={handleSubmit}>
-        <header>
-          <div><span>Nhập kho theo màu</span><h2 id="import-dialog-title">{group.product?.name}</h2></div>
-          <button className="admin-icon-button" type="button" disabled={isSaving} onClick={onClose}>×</button>
-        </header>
-        <div className="admin-inventory-import-body">
-          <div className="admin-import-selection">
-            <div><span>Fit type</span><strong>{group.variant?.fitTypeLabel || '-'}</strong></div>
-            <div><span>Màu sắc</span><strong>{group.color?.color || '-'}</strong></div>
-            <div><span>Số size</span><strong>{group.rows.length}</strong></div>
-            <div><span>Tổng tồn hiện tại</span><strong>{formatNumber(group.rows.reduce((sum, row) => sum + row.availableQuantity, 0))}</strong></div>
-          </div>
-          {errorMessage ? <p className="admin-notice is-error">{errorMessage}</p> : null}
-          <label>
-            <span>Nhà cung cấp</span>
-            <input
-              list="inventory-supplier-options"
-              maxLength={120}
-              placeholder="Nhập hoặc chọn nhà cung cấp"
-              value={supplierName}
-              onChange={(event) => setSupplierName(event.target.value)}
-            />
-            <datalist id="inventory-supplier-options">
-              {supplierOptions.map((supplier) => (
-                <option value={supplier} key={supplier} />
-              ))}
-            </datalist>
-          </label>
-          <div className="admin-import-size-list">
-            <header>
-              <span>Size</span>
-              <span>Tồn hiện tại</span>
-              <span>Số lượng nhập</span>
-            </header>
-            {group.rows.map((row) => (
-              <label key={row.size}>
-                <strong>{row.size}</strong>
-                <span>{formatNumber(row.availableQuantity)}</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  placeholder="0"
-                  value={(quantities[row.size] ?? 0) === 0 ? '' : quantities[row.size]}
-                  onFocus={() =>
-                    setQuantities((current) => ({
-                      ...current,
-                      [row.size]: current[row.size] ?? 0,
-                    }))
-                  }
-                  onChange={(event) =>
-                    setQuantities((current) => ({
-                      ...current,
-                      [row.size]: event.target.value
-                        ? Math.max(0, Number.parseInt(event.target.value, 10) || 0)
-                        : 0,
-                    }))
-                  }
-                />
-              </label>
-            ))}
-          </div>
-          <label><span>Giá nhập (VND)</span><input type="number" min={0} step={1000} value={importPrice} placeholder="Không bắt buộc, áp dụng cho các size được nhập" onChange={(event) => setImportPrice(event.target.value)} /></label>
-          <label><span>Thành tiền</span><input type="text" disabled value={formatPrice(totalAmount)} /></label>
-        </div>
-        {pendingConfirmation ? (
-          <section className="admin-inventory-confirm-panel" role="alertdialog" aria-label="Xác nhận tạo phiếu nhập kho">
-            <div>
-              <strong>Xác nhận tạo phiếu nhập kho?</strong>
-              {pendingConfirmation.lines.map((line) => <span key={line}>{line}</span>)}
-            </div>
-            <div>
-              <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={() => setPendingConfirmation(null)}>
-                Kiểm tra lại
-              </button>
-              <button
-                className="admin-primary-button"
-                type="button"
-                disabled={isSaving}
-                onClick={() => {
-                  const input = pendingConfirmation.input
-                  setPendingConfirmation(null)
-                  void onSave(input)
-                }}
-              >
-                Xác nhận nhập kho
-              </button>
-            </div>
-          </section>
-        ) : null}
-        <footer>
-          <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={onClose}>Hủy</button>
-          <button className="admin-primary-button" type="submit" disabled={isSaving || Boolean(pendingConfirmation) || totalImport < 1 || !isImportPriceValid}>{isSaving ? 'Đang tạo...' : `Nhập ${formatNumber(totalImport)} sản phẩm`}</button>
-        </footer>
-      </form>
-    </div>
-  )
-}
-
-function InventoryHistoryDialog({
-  group,
-  imports,
-  isLoading,
-  errorMessage,
-  isDeleting,
-  onDeleteImport,
-  onClose,
-}: {
-  group: InventoryColorGroup
-  imports: InventoryImport[]
-  isLoading: boolean
-  errorMessage: string
-  isDeleting: boolean
-  onDeleteImport: (importId: string) => Promise<void>
-  onClose: () => void
-}) {
-  const total = group.rows.reduce((sum, row) => sum + row.availableQuantity, 0)
-  const [pendingDeleteImport, setPendingDeleteImport] = useState<InventoryImport | null>(null)
-
-  return (
-    <div className="admin-inventory-dialog-layer" role="dialog" aria-modal="true" aria-labelledby="inventory-history-title">
-      <button className="admin-inventory-dialog-backdrop" type="button" aria-label="Đóng" onClick={onClose} />
-      <section className="admin-inventory-dialog admin-inventory-history-dialog">
-        <header>
-          <div>
-            <span>Lịch sử nhập kho</span>
-            <h2 id="inventory-history-title">{group.product?.name}</h2>
-          </div>
-          <button className="admin-secondary-button" type="button" onClick={onClose}>Đóng</button>
-        </header>
-        <div className="admin-inventory-detail">
-          <img src={group.color?.image || group.product?.productImage} alt="" />
-          <dl>
-            <div><dt>Fit type</dt><dd>{group.variant?.fitTypeLabel || '-'}</dd></div>
-            <div><dt>Màu sắc</dt><dd>{group.color?.color || '-'}</dd></div>
-            <div><dt>Số size</dt><dd>{group.rows.length}</dd></div>
-            <div><dt>Tổng có thể bán</dt><dd>{formatNumber(total)}</dd></div>
-          </dl>
-        </div>
-        {pendingDeleteImport ? (
-          <section className="admin-inventory-confirm-panel is-danger" role="alertdialog" aria-label="Xác nhận xóa phiếu nhập kho">
-            <div>
-              <strong>Xóa phiếu nhập kho này?</strong>
-              <span>Mã phiếu: {pendingDeleteImport.importCode || pendingDeleteImport._id.slice(-8).toUpperCase()}</span>
-              <span>Hệ thống sẽ trừ lại tồn kho theo lượng còn lại của phiếu nhập.</span>
-            </div>
-            <div>
-              <button className="admin-secondary-button" type="button" disabled={isDeleting} onClick={() => setPendingDeleteImport(null)}>
-                Giữ lại
-              </button>
-              <button
-                className="admin-danger-button"
-                type="button"
-                disabled={isDeleting}
-                onClick={() => {
-                  const importId = pendingDeleteImport._id
-                  setPendingDeleteImport(null)
-                  void onDeleteImport(importId)
-                }}
-              >
-                Xóa phiếu nhập
-              </button>
-            </div>
-          </section>
-        ) : null}
-        <div className="admin-import-history">
-          <header>
-            <span>Mã phiếu</span>
-            <span>Thời gian nhập</span>
-            <span>Nhà cung cấp</span>
-            <span>Size</span>
-            <span>Tồn/Tổng</span>
-            <span>Tổng tiền</span>
-            <span>Hành động</span>
-          </header>
-          {isLoading ? <p>Đang tải lịch sử nhập kho...</p> : null}
-          {errorMessage ? <p className="admin-notice is-error">{errorMessage}</p> : null}
-          {!isLoading && !errorMessage && imports.length === 0 ? (
-            <p>Chưa có phiếu nhập kho cho màu này.</p>
-          ) : null}
-          {!isLoading && !errorMessage ? imports.map((item) => {
-            return (
-              <article key={item._id}>
-                <strong>{item.importCode || item._id.slice(-8).toUpperCase()}</strong>
-                <span>{formatDate(item.createdAt)}</span>
-                <span>{item.supplierName || '-'}</span>
-                <span className="admin-import-size-column">
-                  {item.detail.map((detail) => (
-                    <strong className="admin-import-size-pill" key={`${item._id}:${detail.size}`}>
-                      {detail.size}
-                    </strong>
-                  ))}
-                </span>
-                <span className="admin-import-quantity-column">
-                  {item.detail.map((detail) => (
-                    <span className="admin-import-quantity-row" key={`${item._id}:${detail.size}`}>
-                      <em className={getImportRemainingClass(detail.remainingQuantity, detail.quantity)}>
-                        Tồn {formatNumber(detail.remainingQuantity)}
-                      </em>
-                      <em>Tổng {formatNumber(detail.quantity)}</em>
-                      {detail.importPrice !== undefined ? <small>{formatPrice(detail.importPrice)}</small> : null}
-                    </span>
-                  ))}
-                </span>
-                <strong>{formatPrice(item.totalAmount ?? 0)}</strong>
-                <button
-                  className="admin-danger-link"
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => setPendingDeleteImport(item)}
-                >
-                  Xóa
-                </button>
-              </article>
-            )
-          }) : null}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function SearchIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.6-4.6a7 7 0 1 0-1.4 1.4l4.6 4.6L21 20ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z" /></svg>
-}
-
-function ViewIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" className="admin-action-icon"><path d="M12 5C6.5 5 2 9 1 12c1 3 5.5 7 11 7s10-4 11-7c-1-3-5.5-7-11-7Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" /></svg>
-}
-
-function ChevronIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg className={expanded ? 'is-expanded' : ''} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="m9 5 7 7-7 7" />
-    </svg>
-  )
-}
-
-function WarningIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3 1.8 21h20.4L12 3Zm-1 6h2v6h-2V9Zm0 8h2v2h-2v-2Z" />
-    </svg>
   )
 }

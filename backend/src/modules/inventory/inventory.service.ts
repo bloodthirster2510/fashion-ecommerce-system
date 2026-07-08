@@ -2,10 +2,13 @@ import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
   InventoryImport,
+  InventoryReceipt,
   InventoryReservation,
   Product,
   type IInventoryImport,
   type IInventoryImportDetail,
+  type IInventoryReceipt,
+  type IInventoryReceiptLineDetail,
   type IInventoryReservation,
   type IProductVariant,
   type InventoryReservationStatus,
@@ -13,12 +16,17 @@ import {
 import type {
   AdjustInventoryInput,
   CreateInventoryImportInput,
+  CreateInventoryReceiptInput,
   InventoryImportDetailInput,
   InventoryImportListQueryInput,
   InventoryListQueryInput,
+  InventoryReceiptLineInput,
+  InventoryReceiptListQueryInput,
+  InventoryReceiptStatus,
   InventoryReservationItemInput,
   ReservationSelectorInput,
   ReserveInventoryInput,
+  UpdateInventoryReceiptInput,
 } from './inventory.types';
 
 export class InventoryServiceError extends Error {
@@ -35,9 +43,18 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_RESERVATION_TTL_MINUTES = 15;
+const MAX_IMPORT_QUANTITY = 1_000_000;
+const MAX_IMPORT_PRICE = 1_000_000_000;
+const MAX_IMPORT_TOTAL = 1_000_000_000_000_000;
 
 type SessionOptions = {
   session?: ClientSession;
+};
+
+type CreateImportOptions = SessionOptions & {
+  importCode?: string;
+  receiptId?: Types.ObjectId;
+  receiptCode?: string;
 };
 
 const assertValidObjectId = (id: string, fieldName: string) => {
@@ -58,13 +75,35 @@ const toIdString = (value: Types.ObjectId | string | { toString(): string } | nu
 const normalizeSize = (value: string) => value.trim();
 const normalizeSupplierName = (value: string | undefined) => value?.trim().slice(0, 120) ?? '';
 
-const assertPositiveInteger = (value: number, fieldName: string, min = 1) => {
-  if (!Number.isInteger(value) || value < min) {
+const assertPositiveInteger = (
+  value: number,
+  fieldName: string,
+  min = 1,
+  max = Number.MAX_SAFE_INTEGER,
+) => {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new InventoryServiceError(`${fieldName} must be an integer greater than or equal to ${min}`, 400);
   }
 };
 
-const clampPagination = (query: InventoryListQueryInput | InventoryImportListQueryInput) => {
+const assertSafeMoney = (value: number, fieldName: string) => {
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_IMPORT_PRICE) {
+    throw new InventoryServiceError(`${fieldName} must be a safe integer between 0 and ${MAX_IMPORT_PRICE}`, 400);
+  }
+};
+
+const isDuplicateKeyError = (error: unknown) => {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 11000
+  );
+};
+
+const clampPagination = (
+  query: InventoryListQueryInput | InventoryImportListQueryInput | InventoryReceiptListQueryInput,
+) => {
   const page = Math.max(query.page ?? DEFAULT_PAGE, DEFAULT_PAGE);
   const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
 
@@ -104,17 +143,17 @@ const normalizeImportDetails = (details: InventoryImportDetailInput[]) => {
       throw new InventoryServiceError('Import detail size is required', 400);
     }
 
-    assertPositiveInteger(detail.quantity, 'Import detail quantity');
+    assertPositiveInteger(detail.quantity, 'Import detail quantity', 1, MAX_IMPORT_QUANTITY);
 
     const remainingQuantity = detail.remainingQuantity ?? detail.quantity;
-    assertPositiveInteger(remainingQuantity, 'Import detail remainingQuantity', 0);
+    assertPositiveInteger(remainingQuantity, 'Import detail remainingQuantity', 0, detail.quantity);
 
     if (remainingQuantity > detail.quantity) {
       throw new InventoryServiceError('Import detail remainingQuantity cannot be greater than quantity', 400);
     }
 
-    if (detail.importPrice !== undefined && detail.importPrice < 0) {
-      throw new InventoryServiceError('Import detail importPrice must be greater than or equal to 0', 400);
+    if (detail.importPrice !== undefined) {
+      assertSafeMoney(detail.importPrice, 'Import detail importPrice');
     }
 
     return {
@@ -227,6 +266,138 @@ const buildImportFilter = (query: InventoryImportListQueryInput) => {
   return filter;
 };
 
+const buildReceiptFilter = (query: InventoryReceiptListQueryInput) => {
+  const filter: Record<string, unknown> = {};
+
+  if (query.status) {
+    filter.status = query.status;
+  }
+
+  if (query.from || query.to) {
+    filter.importDate = {
+      ...(query.from ? { $gte: query.from } : {}),
+      ...(query.to ? { $lte: query.to } : {}),
+    };
+  }
+
+  return filter;
+};
+
+const normalizeReceiptCode = (value: string | undefined) => value?.trim().toUpperCase().slice(0, 40);
+
+const normalizeReceiptStatus = (value: InventoryReceiptStatus | undefined) => {
+  if (!value) return 'draft';
+  if (!['draft', 'confirmed', 'cancelled'].includes(value)) {
+    throw new InventoryServiceError('Invalid receipt status', 400);
+  }
+
+  return value;
+};
+
+const normalizeReceiptDate = (value: Date | undefined) => {
+  if (!value) return new Date();
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new InventoryServiceError('Invalid importDate', 400);
+  }
+
+  return date;
+};
+
+const normalizeReceiptNote = (value: string | undefined) => value?.trim().slice(0, 1000) ?? '';
+
+const getReceiptTotals = (lines: Array<{ detail: Array<{ quantity: number; importPrice?: number }> }>) => {
+  let totalQuantity = 0;
+  let totalAmount = 0;
+
+  for (const line of lines) {
+    for (const detail of line.detail) {
+      totalQuantity += detail.quantity;
+      const lineAmount = detail.quantity * (detail.importPrice ?? 0);
+      totalAmount += lineAmount;
+
+      if (!Number.isSafeInteger(totalQuantity) || totalQuantity > MAX_IMPORT_QUANTITY * 1000) {
+        throw new InventoryServiceError('Receipt total quantity is too large', 400);
+      }
+
+      if (!Number.isSafeInteger(lineAmount) || !Number.isSafeInteger(totalAmount) || totalAmount > MAX_IMPORT_TOTAL) {
+        throw new InventoryServiceError('Receipt total amount is too large', 400);
+      }
+    }
+  }
+
+  return { totalQuantity, totalAmount };
+};
+
+const buildReceiptCode = async () => {
+  const receiptCodes = await InventoryReceipt.find({ receiptCode: /^PN\d+$/ })
+    .select('receiptCode')
+    .lean();
+  const maxNumber = receiptCodes.reduce((max, item) => {
+    const match = item.receiptCode.match(/^PN(\d+)$/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+
+  return `PN${String(maxNumber + 1).padStart(5, '0')}`;
+};
+
+const buildReceiptImportCode = (receiptCode: string, lineIndex: number) => {
+  const suffix = String(lineIndex + 1).padStart(2, '0');
+  const prefix = receiptCode.slice(0, 37);
+
+  return `${prefix}-${suffix}`;
+};
+
+const normalizeReceiptLines = async (
+  lines: InventoryReceiptLineInput[] | undefined,
+  options: SessionOptions = {},
+) => {
+  if (!lines?.length) {
+    return [];
+  }
+
+  const seenSelectors = new Set<string>();
+  const normalizedLines = [];
+
+  for (const line of lines) {
+    const productId = toObjectId(line.productId, 'productId');
+    const variantId = toObjectId(line.variantId, 'variantId');
+    const colorVariantId = toObjectId(line.colorVariantId, 'colorVariantId');
+    const normalizedDetails = normalizeImportDetails(line.detail).map((detail) => ({
+      size: detail.size,
+      quantity: detail.quantity,
+      importPrice: detail.importPrice,
+    }));
+
+    for (const detail of normalizedDetails) {
+      await findProductSelection(line.productId, line.variantId, line.colorVariantId, detail.size, options);
+
+      const selector = [
+        line.productId,
+        line.variantId,
+        line.colorVariantId,
+        detail.size.toLowerCase(),
+      ].join(':');
+
+      if (seenSelectors.has(selector)) {
+        throw new InventoryServiceError('Duplicate product variant size in receipt', 400);
+      }
+
+      seenSelectors.add(selector);
+    }
+
+    normalizedLines.push({
+      productId,
+      variantId,
+      colorVariantId,
+      detail: normalizedDetails,
+    });
+  }
+
+  return normalizedLines;
+};
+
 const getInventoryByIdOrThrow = async (id: string) => {
   assertValidObjectId(id, 'inventory id');
 
@@ -247,7 +418,10 @@ const didMatchUpdate = (result: unknown) => {
   return typeof matchedCount === 'number' ? matchedCount > 0 : true;
 };
 
-const createImport = async (input: CreateInventoryImportInput) => {
+const createImportAndAdjustInventory = async (
+  input: CreateInventoryImportInput,
+  options: CreateImportOptions = {},
+) => {
   const productId = toObjectId(input.productId, 'productId');
   const variantId = toObjectId(input.variantId, 'variantId');
   const colorVariantId = toObjectId(input.colorVariantId, 'colorVariantId');
@@ -256,12 +430,16 @@ const createImport = async (input: CreateInventoryImportInput) => {
 
   await Promise.all(
     detail.map((item) =>
-      findProductSelection(input.productId, input.variantId, input.colorVariantId, item.size),
+      findProductSelection(input.productId, input.variantId, input.colorVariantId, item.size, {
+        session: options.session,
+      }),
     ),
   );
 
   const importPayload = {
-    importCode: buildImportCode(),
+    importCode: options.importCode ?? buildImportCode(),
+    receiptId: options.receiptId ?? null,
+    receiptCode: normalizeReceiptCode(options.receiptCode) ?? '',
     supplierName,
     productId,
     variantId,
@@ -269,46 +447,52 @@ const createImport = async (input: CreateInventoryImportInput) => {
     detail,
     totalAmount: getImportTotalAmount(detail),
   };
+  const [createdImportRecord] = await InventoryImport.create([importPayload], {
+    ...(options.session ? { session: options.session } : {}),
+  });
+
+  for (const item of detail) {
+    const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
+
+    await Inventory.findOneAndUpdate(
+      {
+        productId,
+        variantId,
+        colorVariantId,
+        size: item.size,
+      },
+      {
+        $setOnInsert: {
+          productId,
+          variantId,
+          colorVariantId,
+          size: item.size,
+          sku,
+          reservedQuantity: 0,
+        },
+        $inc: {
+          quantity: item.quantity,
+          availableQuantity: item.quantity,
+        },
+      },
+      {
+        returnDocument: 'after',
+        upsert: true,
+        ...(options.session ? { session: options.session } : {}),
+      },
+    );
+  }
+
+  return createdImportRecord;
+};
+
+const createImport = async (input: CreateInventoryImportInput) => {
   const session = await mongoose.startSession();
   let importRecord: IInventoryImport | null = null;
 
   try {
     await session.withTransaction(async () => {
-      const [createdImportRecord] = await InventoryImport.create([importPayload], { session });
-
-      importRecord = createdImportRecord;
-
-      for (const item of detail) {
-        const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
-
-        await Inventory.findOneAndUpdate(
-          {
-            productId,
-            variantId,
-            colorVariantId,
-            size: item.size,
-          },
-          {
-            $setOnInsert: {
-              productId,
-              variantId,
-              colorVariantId,
-              size: item.size,
-              sku,
-              reservedQuantity: 0,
-            },
-            $inc: {
-              quantity: item.quantity,
-              availableQuantity: item.quantity,
-            },
-          },
-          {
-            returnDocument: 'after',
-            upsert: true,
-            session,
-          },
-        );
-      }
+      importRecord = await createImportAndAdjustInventory(input, { session });
     });
   } finally {
     await session.endSession();
@@ -397,6 +581,244 @@ const getImports = async (query: InventoryImportListQueryInput) => {
   };
 };
 
+const getReceipts = async (query: InventoryReceiptListQueryInput) => {
+  const { page, limit } = clampPagination(query);
+  const filter = buildReceiptFilter(query);
+
+  const [items, totalItems] = await Promise.all([
+    InventoryReceipt.find(filter)
+      .sort({ importDate: -1, createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    InventoryReceipt.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const getReceiptById = async (id: string) => {
+  assertValidObjectId(id, 'receipt id');
+
+  const receipt = await InventoryReceipt.findById(id).lean();
+  if (!receipt) {
+    throw new InventoryServiceError('Receipt not found', 404);
+  }
+
+  return receipt;
+};
+
+const createReceipt = async (input: CreateInventoryReceiptInput, createdBy?: string) => {
+  const status = normalizeReceiptStatus(input.status);
+  if (status === 'cancelled') {
+    throw new InventoryServiceError('Cannot create a cancelled receipt', 400);
+  }
+
+  const lines = await normalizeReceiptLines(input.lines);
+  const totals = getReceiptTotals(lines);
+  const requestedReceiptCode = normalizeReceiptCode(input.receiptCode);
+  const createdById = createdBy ? toObjectId(createdBy, 'createdBy') : null;
+  const maxAttempts = requestedReceiptCode ? 1 : 3;
+  let receipt: IInventoryReceipt | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const receiptCode = requestedReceiptCode ?? (await buildReceiptCode());
+
+    try {
+      receipt = await InventoryReceipt.create({
+        receiptCode,
+        supplierName: normalizeSupplierName(input.supplierName),
+        importDate: normalizeReceiptDate(input.importDate),
+        createdBy: createdById,
+        status: 'draft',
+        note: normalizeReceiptNote(input.note),
+        lines,
+        ...totals,
+      });
+      break;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        if (requestedReceiptCode) {
+          throw new InventoryServiceError('Receipt code already exists', 409);
+        }
+
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  if (!receipt) {
+    throw new InventoryServiceError('Failed to create receipt code, please try again', 409);
+  }
+
+  if (status === 'confirmed') {
+    return confirmReceipt(receipt._id.toString());
+  }
+
+  return receipt;
+};
+
+const updateReceipt = async (id: string, input: UpdateInventoryReceiptInput) => {
+  assertValidObjectId(id, 'receipt id');
+
+  const receipt = await InventoryReceipt.findById(id);
+  if (!receipt) {
+    throw new InventoryServiceError('Receipt not found', 404);
+  }
+
+  if (receipt.status !== 'draft') {
+    throw new InventoryServiceError('Only draft receipts can be edited', 409);
+  }
+
+  if (input.receiptCode !== undefined) {
+    const receiptCode = normalizeReceiptCode(input.receiptCode);
+    if (!receiptCode) {
+      throw new InventoryServiceError('Receipt code is required', 400);
+    }
+    receipt.receiptCode = receiptCode;
+  }
+
+  if (input.supplierName !== undefined) {
+    receipt.supplierName = normalizeSupplierName(input.supplierName);
+  }
+
+  if (input.importDate !== undefined) {
+    receipt.importDate = normalizeReceiptDate(input.importDate);
+  }
+
+  if (input.note !== undefined) {
+    receipt.note = normalizeReceiptNote(input.note);
+  }
+
+  if (input.lines !== undefined) {
+    const lines = await normalizeReceiptLines(input.lines);
+    receipt.lines = lines as IInventoryReceipt['lines'];
+    const totals = getReceiptTotals(lines);
+    receipt.totalQuantity = totals.totalQuantity;
+    receipt.totalAmount = totals.totalAmount;
+  }
+
+  try {
+    return await receipt.save();
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new InventoryServiceError('Receipt code already exists', 409);
+    }
+
+    throw error;
+  }
+};
+
+const confirmReceipt = async (id: string) => {
+  assertValidObjectId(id, 'receipt id');
+
+  const session = await mongoose.startSession();
+  let confirmedReceipt: IInventoryReceipt | null = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const receipt = await InventoryReceipt.findOneAndUpdate(
+        { _id: new Types.ObjectId(id), status: 'draft' },
+        {
+          $set: {
+            status: 'confirmed',
+            confirmedAt: new Date(),
+            cancelledAt: null,
+          },
+        },
+        {
+          returnDocument: 'after',
+          runValidators: true,
+          session,
+        },
+      );
+      if (!receipt) {
+        const existingReceipt = await InventoryReceipt.findById(id).session(session);
+        if (!existingReceipt) {
+          throw new InventoryServiceError('Receipt not found', 404);
+        }
+
+        if (existingReceipt.status === 'confirmed') {
+          confirmedReceipt = existingReceipt;
+          return;
+        }
+
+        throw new InventoryServiceError('Only draft receipts can be confirmed', 409);
+      }
+
+      if (!receipt.lines.length) {
+        throw new InventoryServiceError('Receipt must include at least one product before confirmation', 400);
+      }
+
+      const existingImport = await InventoryImport.exists({ receiptId: receipt._id }).session(session);
+      if (existingImport) {
+        throw new InventoryServiceError('Receipt has already generated import lots', 409);
+      }
+
+      for (const [lineIndex, line] of receipt.lines.entries()) {
+        await createImportAndAdjustInventory(
+          {
+            productId: line.productId.toString(),
+            variantId: line.variantId.toString(),
+            colorVariantId: line.colorVariantId.toString(),
+            supplierName: receipt.supplierName,
+            detail: line.detail.map((detail: IInventoryReceiptLineDetail) => ({
+              size: detail.size,
+              quantity: detail.quantity,
+              remainingQuantity: detail.quantity,
+              importPrice: detail.importPrice,
+            })),
+          },
+          {
+            importCode: buildReceiptImportCode(receipt.receiptCode, lineIndex),
+            receiptId: receipt._id,
+            receiptCode: receipt.receiptCode,
+            session,
+          },
+        );
+      }
+
+      confirmedReceipt = receipt;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!confirmedReceipt) {
+    throw new InventoryServiceError('Failed to confirm receipt', 500);
+  }
+
+  return confirmedReceipt;
+};
+
+const cancelReceipt = async (id: string) => {
+  assertValidObjectId(id, 'receipt id');
+
+  const receipt = await InventoryReceipt.findById(id);
+  if (!receipt) {
+    throw new InventoryServiceError('Receipt not found', 404);
+  }
+
+  if (receipt.status !== 'draft') {
+    throw new InventoryServiceError('Only draft receipts can be cancelled', 409);
+  }
+
+  receipt.status = 'cancelled';
+  receipt.cancelledAt = new Date();
+
+  return receipt.save();
+};
+
 const getImportSuppliers = async () => {
   const suppliers = await InventoryImport.distinct('supplierName', {
     supplierName: { $nin: [null, ''] },
@@ -416,6 +838,41 @@ const getImportById = async (id: string) => {
   return importRecord;
 };
 
+const decrementInventoryForImport = async (
+  importRecord: IInventoryImport,
+  options: { session: ClientSession },
+) => {
+  const importDetails = importRecord.detail as InventoryImportDetailInput[];
+
+  if (importDetails.some((item) => (item.remainingQuantity ?? item.quantity) < item.quantity)) {
+    throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+  }
+
+  for (const item of importDetails) {
+    const updateResult = await Inventory.updateOne(
+      {
+        productId: importRecord.productId,
+        variantId: importRecord.variantId,
+        colorVariantId: importRecord.colorVariantId,
+        size: item.size,
+        quantity: { $gte: item.quantity },
+        availableQuantity: { $gte: item.quantity },
+      },
+      {
+        $inc: {
+          quantity: -item.quantity,
+          availableQuantity: -item.quantity,
+        },
+      },
+      { session: options.session },
+    );
+
+    if (!didMatchUpdate(updateResult)) {
+      throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+    }
+  }
+};
+
 const deleteImport = async (id: string) => {
   assertValidObjectId(id, 'import id');
   const session = await mongoose.startSession();
@@ -428,35 +885,11 @@ const deleteImport = async (id: string) => {
         throw new InventoryServiceError('Import not found', 404);
       }
 
-      const importDetails = importRecord.detail as InventoryImportDetailInput[];
-      if (importDetails.some((item) => (item.remainingQuantity ?? item.quantity) < item.quantity)) {
-        throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
+      if (importRecord.receiptId) {
+        throw new InventoryServiceError('Cannot delete an import lot generated from a receipt', 409);
       }
 
-      for (const item of importDetails) {
-        const updateResult = await Inventory.updateOne(
-          {
-            productId: importRecord.productId,
-            variantId: importRecord.variantId,
-            colorVariantId: importRecord.colorVariantId,
-            size: item.size,
-            quantity: { $gte: item.quantity },
-            availableQuantity: { $gte: item.quantity },
-          },
-          {
-            $inc: {
-              quantity: -item.quantity,
-              availableQuantity: -item.quantity,
-            },
-          },
-          { session },
-        );
-
-        if (!didMatchUpdate(updateResult)) {
-          throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
-        }
-      }
-
+      await decrementInventoryForImport(importRecord, { session });
       await importRecord.deleteOne({ session });
       deletedImport = importRecord;
     });
@@ -482,76 +915,128 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
     throw new InventoryServiceError('Use either quantity or deltaQuantity, not both', 400);
   }
 
-  const inventoryId = new Types.ObjectId(id);
-  const updateFilter: Record<string, unknown> = { _id: inventoryId };
-  let updatePipeline: Record<string, unknown>[];
-  let deltaQuantity = 0;
+  const session = await mongoose.startSession();
 
-  if (input.quantity !== undefined) {
-    assertPositiveInteger(input.quantity, 'quantity', 0);
-    updateFilter.reservedQuantity = { $lte: input.quantity };
-    updatePipeline = [
-      {
-        $set: {
-          quantity: input.quantity,
-          availableQuantity: { $subtract: [input.quantity, '$reservedQuantity'] },
+  try {
+    await session.withTransaction(async () => {
+      const inventoryId = new Types.ObjectId(id);
+      const updateFilter: Record<string, unknown> = { _id: inventoryId };
+      let updatePipeline: Record<string, unknown>[];
+      let deltaQuantity = 0;
+
+      if (input.quantity !== undefined) {
+        assertPositiveInteger(input.quantity, 'quantity', 0);
+        updateFilter.reservedQuantity = { $lte: input.quantity };
+        updatePipeline = [
+          {
+            $set: {
+              quantity: input.quantity,
+              availableQuantity: { $subtract: [input.quantity, '$reservedQuantity'] },
+            },
+          },
+        ];
+      } else {
+        deltaQuantity = Number(input.deltaQuantity);
+        if (!Number.isInteger(deltaQuantity)) {
+          throw new InventoryServiceError('deltaQuantity must be an integer', 400);
+        }
+        updateFilter.$expr = {
+          $gte: [{ $add: ['$quantity', deltaQuantity] }, '$reservedQuantity'],
+        };
+        updatePipeline = [
+          {
+            $set: {
+              quantity: { $add: ['$quantity', deltaQuantity] },
+              availableQuantity: { $add: ['$availableQuantity', deltaQuantity] },
+            },
+          },
+        ];
+      }
+
+      const previousInventory = await Inventory.findOneAndUpdate(
+        updateFilter,
+        updatePipeline,
+        {
+          returnDocument: 'before',
+          runValidators: true,
+          session,
         },
-      },
-    ];
-  } else {
-    deltaQuantity = Number(input.deltaQuantity);
-    if (!Number.isInteger(deltaQuantity)) {
-      throw new InventoryServiceError('deltaQuantity must be an integer', 400);
-    }
-    updateFilter.$expr = {
-      $gte: [{ $add: ['$quantity', deltaQuantity] }, '$reservedQuantity'],
-    };
-    updatePipeline = [
-      {
-        $set: {
-          quantity: { $add: ['$quantity', deltaQuantity] },
-          availableQuantity: { $add: ['$availableQuantity', deltaQuantity] },
-        },
-      },
-    ];
-  }
+      );
 
-  const previousInventory = await Inventory.findOneAndUpdate(
-    updateFilter,
-    updatePipeline,
-    {
-      returnDocument: 'before',
-      runValidators: true,
-    },
-  );
+      if (!previousInventory) {
+        const existingInventory = await Inventory.findById(id);
+        if (!existingInventory) {
+          throw new InventoryServiceError('Inventory item not found', 404);
+        }
 
-  if (!previousInventory) {
-    const existingInventory = await Inventory.findById(id);
-    if (!existingInventory) {
-      throw new InventoryServiceError('Inventory item not found', 404);
-    }
+        throw new InventoryServiceError('quantity cannot be lower than reservedQuantity', 400);
+      }
 
-    throw new InventoryServiceError('quantity cannot be lower than reservedQuantity', 400);
-  }
+      if (input.quantity !== undefined) {
+        deltaQuantity = input.quantity - previousInventory.quantity;
+      }
 
-  if (input.quantity !== undefined) {
-    deltaQuantity = input.quantity - previousInventory.quantity;
-  }
+      if (deltaQuantity === 0) return;
 
-  if (deltaQuantity !== 0) {
-    await adjustImportRemainingQuantity(
-      {
+      const selector = {
         productId: previousInventory.productId,
         variantId: previousInventory.variantId,
         colorVariantId: previousInventory.colorVariantId,
         size: previousInventory.size,
-      },
-      Math.abs(deltaQuantity),
-      deltaQuantity < 0 ? 'consume' : 'restore',
-    );
+      };
+      const unadjustedQuantity = await adjustImportRemainingQuantity(
+        selector,
+        Math.abs(deltaQuantity),
+        deltaQuantity < 0 ? 'consume' : 'restore',
+        { session },
+      );
+
+      if (deltaQuantity < 0 && unadjustedQuantity > 0) {
+        throw new InventoryServiceError('Cannot decrease inventory below remaining import lots', 409);
+      }
+
+      if (deltaQuantity > 0 && unadjustedQuantity > 0) {
+        await createAdjustmentImport(selector, unadjustedQuantity, { session });
+      }
+    });
+  } finally {
+    await session.endSession();
   }
 
   return getInventoryByIdOrThrow(id);
+};
+
+const createAdjustmentImport = async (
+  selector: {
+    productId: Types.ObjectId;
+    variantId: Types.ObjectId;
+    colorVariantId: Types.ObjectId;
+    size: string;
+  },
+  quantity: number,
+  options: SessionOptions = {},
+) => {
+  const payload = {
+    supplierName: 'Điều chỉnh tồn kho',
+    productId: selector.productId,
+    variantId: selector.variantId,
+    colorVariantId: selector.colorVariantId,
+    detail: [
+      {
+        size: selector.size,
+        quantity,
+        remainingQuantity: quantity,
+      },
+    ],
+    totalAmount: 0,
+  };
+
+  if (options.session) {
+    await InventoryImport.create([payload], { session: options.session });
+    return;
+  }
+
+  await InventoryImport.create(payload);
 };
 
 const buildImportCode = () => {
@@ -561,8 +1046,20 @@ const buildImportCode = () => {
   return `IMP-${timestamp}-${suffix}`;
 };
 
-const getImportTotalAmount = (details: Array<{ quantity: number; importPrice?: number }>) =>
-  details.reduce((sum, detail) => sum + detail.quantity * (detail.importPrice ?? 0), 0);
+const getImportTotalAmount = (details: Array<{ quantity: number; importPrice?: number }>) => {
+  let totalAmount = 0;
+
+  for (const detail of details) {
+    const lineAmount = detail.quantity * (detail.importPrice ?? 0);
+    totalAmount += lineAmount;
+
+    if (!Number.isSafeInteger(lineAmount) || !Number.isSafeInteger(totalAmount) || totalAmount > MAX_IMPORT_TOTAL) {
+      throw new InventoryServiceError('Import total amount is too large', 400);
+    }
+  }
+
+  return totalAmount;
+};
 
 const adjustImportRemainingQuantity = async (
   selector: {
@@ -574,15 +1071,18 @@ const adjustImportRemainingQuantity = async (
   quantity: number,
   mode: 'consume' | 'restore',
   options: SessionOptions = {},
-) => {
+): Promise<number> => {
   let remaining = quantity;
   const query = InventoryImport.find({
     productId: selector.productId,
     variantId: selector.variantId,
     colorVariantId: selector.colorVariantId,
     'detail.size': selector.size,
-  }).sort({ createdAt: mode === 'consume' ? 1 : -1 });
-  const imports = await (options.session ? query.session(options.session) : query);
+  });
+  if (options.session && typeof query.session === 'function') {
+    query.session(options.session);
+  }
+  const imports = await query.sort({ createdAt: mode === 'consume' ? 1 : -1 });
 
   for (const importRecord of imports) {
     if (remaining <= 0) break;
@@ -606,9 +1106,7 @@ const adjustImportRemainingQuantity = async (
     }
   }
 
-  // Manual stock adjustments can make inventory quantity diverge from import lots.
-  // Keep lot counters bounded, but never block checkout/restock for stock that
-  // legitimately exists outside import history.
+  return remaining;
 };
 
 const consumeImportRemainingQuantities = async (
@@ -917,11 +1415,17 @@ const expireReservations = async (now = new Date()) => {
 
 export const inventoryService = {
   createImport,
+  createReceipt,
   getInventory,
   getLowStockInventory,
   getImports,
+  getReceipts,
+  getReceiptById,
   getImportSuppliers,
   getImportById,
+  updateReceipt,
+  confirmReceipt,
+  cancelReceipt,
   deleteImport,
   adjustInventory,
   deleteInventory,
