@@ -102,6 +102,14 @@ const getOptionalEnvValue = (name: string) => {
   return value || null;
 };
 
+const buildComfyTryOnPrompt = (prompt: string) => [
+  'Create one single 2x2 grid image for virtual fashion try-on.',
+  'The full returned image must be a vertical 3:4 portrait canvas, so each cropped grid cell is also a vertical 3:4 portrait.',
+  'Each of the four cells must show a full-body photo of the same person wearing the selected outfit, with slight pose or styling variation.',
+  'Do not add visible borders, gutters, labels, captions, watermarks, or extra text between grid cells.',
+  prompt,
+].join('\n\n');
+
 const setByPath = (target: unknown, pathSpec: string, value: unknown) => {
   const keys = pathSpec.split('.').map((key) => key.trim()).filter(Boolean);
   if (!keys.length) {
@@ -397,14 +405,19 @@ const applyWorkflowInputs = async (
     );
   }
 
-  if (!setMappedInput(workflow, workflowMap, 'positivePrompt', input.prompt)) {
-    setMappedInput(workflow, workflowMap, 'prompt', input.prompt);
+  const comfyPrompt = buildComfyTryOnPrompt(input.prompt);
+  if (!setMappedInput(workflow, workflowMap, 'positivePrompt', comfyPrompt)) {
+    setMappedInput(workflow, workflowMap, 'prompt', comfyPrompt);
   }
   setMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
   if (input.seed !== undefined) setMappedInput(workflow, workflowMap, 'seed', input.seed);
 
   const configuredModel = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
   if (configuredModel) setMappedInput(workflow, workflowMap, 'model', configuredModel);
+  const configuredAspectRatio = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO');
+  if (configuredAspectRatio) setMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
+  const configuredResolution = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_RESOLUTION');
+  if (configuredResolution) setMappedInput(workflow, workflowMap, 'resolution', configuredResolution);
   const model = getByPath(workflow, workflowMap.inputs?.model);
 
   return {

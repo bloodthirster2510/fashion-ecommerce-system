@@ -207,8 +207,8 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   imageWrap: {
-    width: 86,
-    height: 110,
+    width: 84,
+    height: 112,
     borderRadius: radii.sm,
     overflow: 'hidden',
     backgroundColor: colors.brandSoft,

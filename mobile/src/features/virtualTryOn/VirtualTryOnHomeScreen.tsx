@@ -39,7 +39,7 @@ const contextLabel: Record<string, string> = {
   travel: 'Du lịch',
   sport: 'Thể thao',
   date: 'Hẹn hò',
-  custom: 'Tự nhập',
+  custom: 'Mô tả riêng',
 };
 
 const getJobPreviewUrl = (job: VirtualTryOnJob) =>
@@ -1013,7 +1013,7 @@ const styles = StyleSheet.create({
   },
   jobImageWrap: {
     width: '100%',
-    aspectRatio: 0.82,
+    aspectRatio: 3 / 4,
     backgroundColor: colors.brandSoft,
   },
   jobImage: {

@@ -10,7 +10,7 @@
   },
   "5": {
     "inputs": {
-      "value": "A 2x2 (2 rows, 2 cols) grid of high fashion photoshoot images of the model wearing the outfit from image 2, each grid image should show the a full body shot of the subject in slightly different poses. Ensure that all outfit clothes/accessories are present in each grid image.\n\nDO NOT generate the grid with any visible borders or gutters.\n\nMaintain the exact setting from input image 1."
+      "value": "A 2x2 (2 rows, 2 cols) grid of high fashion photoshoot images of the model wearing the outfit from image 2. The whole output canvas must be a vertical 3:4 portrait grid, and each cropped grid image must also be a vertical 3:4 full-body portrait. Each grid image should show a full body shot of the subject in slightly different poses. Ensure that all outfit clothes/accessories are present in each grid image.\n\nDO NOT generate the grid with any visible borders or gutters.\n\nMaintain the exact setting from input image 1."
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -38,7 +38,7 @@
       ],
       "model": "gemini-3-pro-image-preview",
       "seed": 12345,
-      "aspect_ratio": "auto",
+      "aspect_ratio": "3:4",
       "resolution": "4K",
       "response_modalities": "IMAGE+TEXT",
       "system_prompt": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input—regardless of format, intent, or abstraction—as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",

@@ -100,7 +100,7 @@ const contextOptions: Array<{ key: TryOnContextPreset; label: string; icon: keyo
   { key: 'travel', label: 'Du lịch', icon: 'airplane' },
   { key: 'sport', label: 'Thể thao', icon: 'run' },
   { key: 'date', label: 'Hẹn hò', icon: 'heart-outline' },
-  { key: 'custom', label: 'Tự nhập', icon: 'pencil-outline' },
+  { key: 'custom', label: 'Mô tả riêng', icon: 'pencil-outline' },
 ];
 
 const tryOnSortOptions: Array<{ key: TryOnProductSort; label: string }> = [
@@ -126,7 +126,7 @@ const roleLabel: Record<TryOnItemRole, string> = {
 };
 
 const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode, string> = {
-  full_set: 'full set',
+  full_set: 'nhiều món',
   top_bottom: 'áo + quần',
   top: 'áo',
   bottom: 'quần',
@@ -212,7 +212,7 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
   },
   BODY_NOT_VISIBLE: {
     title: 'Chưa thấy đủ cơ thể',
-    message: 'Ảnh chưa đủ vùng cơ thể cho kiểu phối này.',
+    message: 'Ảnh hiện tại chưa đủ vùng cơ thể.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
@@ -350,15 +350,18 @@ const getImageValidationMessage = (
   const reasonCode = unsupportedCapability?.reasonCode ?? result?.reasonCode;
   const validationAlert = reasonCode ? imageValidationAlerts[reasonCode] : undefined;
   const supportedSummary = getSupportedImageValidationModeSummary(result);
-  const baseMessage = unsupportedCapability?.message ||
-    validationAlert?.message ||
+  if (reasonCode === 'BODY_NOT_VISIBLE') {
+    const bodyMessage = validationAlert?.message || 'Ảnh hiện tại chưa đủ vùng cơ thể.';
+    return supportedSummary
+      ? `${bodyMessage}\nCó thể thử: ${supportedSummary}.`
+      : bodyMessage;
+  }
+
+  const baseMessage = validationAlert?.message ||
+    unsupportedCapability?.message ||
     result?.message ||
     fallback ||
     'Ảnh đã sẵn sàng.';
-
-  if (reasonCode === 'BODY_NOT_VISIBLE' && supportedSummary) {
-    return `${baseMessage} Phù hợp: ${supportedSummary}.`;
-  }
 
   return baseMessage;
 };
@@ -928,7 +931,7 @@ const VirtualTryOnBuilderScreen = () => {
         tone: 'valid' as const,
         title: 'Ảnh phù hợp',
         message: supportedSummary
-          ? `Phù hợp: ${supportedSummary}.`
+          ? `Có thể thử: ${supportedSummary}.`
           : 'Có thể tạo ảnh.',
       };
     }
@@ -1254,7 +1257,7 @@ const VirtualTryOnBuilderScreen = () => {
             style={styles.promptInput}
             value={contextPrompt}
             onChangeText={setContextPrompt}
-            placeholder="VD: đi phỏng vấn ở văn phòng hiện đại"
+            placeholder="Ví dụ: quán cà phê sáng, phong cách thanh lịch"
             placeholderTextColor={colors.textMuted}
             maxLength={200}
             multiline
@@ -1268,7 +1271,7 @@ const VirtualTryOnBuilderScreen = () => {
           <View style={styles.outputOptionCopy}>
             <Text style={styles.outputOptionTitle}>4 ảnh gợi ý</Text>
             <Text style={styles.outputOptionText}>
-              Kết quả trả về một ảnh lưới 2x2 để bạn so sánh nhanh.
+              Kết quả trả về 4 ảnh riêng để bạn lướt và chọn ảnh ưng ý.
             </Text>
           </View>
         </View>

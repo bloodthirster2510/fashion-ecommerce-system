@@ -1,9 +1,10 @@
 import React from 'react';
-import { ActivityIndicator, Alert, ScrollView, Share, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -29,7 +30,7 @@ const contextLabel: Record<string, string> = {
   travel: 'Du lịch',
   sport: 'Thể thao',
   date: 'Hẹn hò',
-  custom: 'Tự nhập',
+  custom: 'Mô tả riêng',
 };
 
 const getDownloadExtension = (url: string) => {
@@ -37,6 +38,12 @@ const getDownloadExtension = (url: string) => {
   if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) return 'jpg';
   if (cleanUrl.endsWith('.webp')) return 'webp';
   return 'png';
+};
+
+const getImageMimeType = (extension: string) => {
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'webp') return 'image/webp';
+  return 'image/png';
 };
 
 const studioPalette = {
@@ -58,13 +65,16 @@ const VirtualTryOnResultScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { runWithAuth } = useAuth();
-  const { width: windowWidth } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isAddingCart, setIsAddingCart] = React.useState(false);
   const [isSavingImage, setIsSavingImage] = React.useState(false);
+  const [isSharingImage, setIsSharingImage] = React.useState(false);
+  const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
   const resultScrollRef = React.useRef<ScrollView>(null);
+  const previewScrollRef = React.useRef<ScrollView>(null);
 
   const jobId = route.params.jobId;
   const resultCardWidth = Math.max(1, windowWidth - spacing.lg * 2);
@@ -99,13 +109,60 @@ const VirtualTryOnResultScreen = () => {
     setActiveImageIndex(0);
   }, [job?._id, resultImageUrls.length]);
 
-  const shareResult = async () => {
-    const url = activeImageUrl || job?.sourceImageUrl;
-    if (!url) return;
-    await Share.share({
-      title: 'Kết quả phối đồ',
-      message: `Kết quả phối đồ của tôi: ${url}`,
+  React.useEffect(() => {
+    if (!isPreviewVisible) return;
+    requestAnimationFrame(() => {
+      previewScrollRef.current?.scrollTo({ x: windowWidth * activeImageIndex, animated: false });
     });
+  }, [activeImageIndex, isPreviewVisible, windowWidth]);
+
+  const downloadActiveImageToCache = async () => {
+    if (!activeImageUrl || !job) {
+      throw new Error('Không tìm thấy ảnh kết quả.');
+    }
+
+    const baseDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (!baseDirectory) {
+      throw new Error('Không tìm thấy thư mục tạm để lưu ảnh.');
+    }
+
+    const extension = getDownloadExtension(activeImageUrl);
+    const fileUri = `${baseDirectory}fit-studio-${job._id}-${activeImageIndex + 1}-${Date.now()}.${extension}`;
+    const downloaded = await FileSystem.downloadAsync(activeImageUrl, fileUri);
+    if (downloaded.status < 200 || downloaded.status >= 300) {
+      throw new Error('Không tải được ảnh kết quả.');
+    }
+
+    return {
+      uri: downloaded.uri,
+      mimeType: getImageMimeType(extension),
+    };
+  };
+
+  const shareResult = async () => {
+    if (!activeImageUrl || !job || isSharingImage) return;
+
+    setIsSharingImage(true);
+    try {
+      const file = await downloadActiveImageToCache();
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          dialogTitle: 'Chia sẻ ảnh phối đồ',
+          mimeType: file.mimeType,
+        });
+        return;
+      }
+
+      await Share.share({
+        title: 'Kết quả phối đồ',
+        message: `Kết quả phối đồ của tôi: ${activeImageUrl}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể chia sẻ ảnh lúc này.';
+      Alert.alert('Chia sẻ ảnh', message);
+    } finally {
+      setIsSharingImage(false);
+    }
   };
 
   const saveActiveImage = async () => {
@@ -119,25 +176,8 @@ const VirtualTryOnResultScreen = () => {
         return;
       }
 
-      const baseDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-      if (!baseDirectory) {
-        throw new Error('Không tìm thấy thư mục tạm để lưu ảnh.');
-      }
-
-      const extension = getDownloadExtension(activeImageUrl);
-      const fileUri = `${baseDirectory}fit-studio-${job._id}-${activeImageIndex + 1}-${Date.now()}.${extension}`;
-      const downloaded = await FileSystem.downloadAsync(activeImageUrl, fileUri);
-      if (downloaded.status < 200 || downloaded.status >= 300) {
-        throw new Error('Không tải được ảnh kết quả.');
-      }
-
-      const asset = await MediaLibrary.createAssetAsync(downloaded.uri);
-      const album = await MediaLibrary.getAlbumAsync('Fit Studio');
-      if (album) {
-        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-      } else {
-        await MediaLibrary.createAlbumAsync('Fit Studio', asset, false);
-      }
+      const file = await downloadActiveImageToCache();
+      await MediaLibrary.saveToLibraryAsync(file.uri);
 
       Alert.alert('Đã lưu ảnh', 'Ảnh đã được lưu vào thư viện.');
     } catch (error) {
@@ -186,6 +226,13 @@ const VirtualTryOnResultScreen = () => {
     setActiveImageIndex(Math.min(Math.max(nextIndex, 0), Math.max(resultImageUrls.length - 1, 0)));
   };
 
+  const handlePreviewScroll = (x: number) => {
+    const nextIndex = Math.round(x / windowWidth);
+    const clampedIndex = Math.min(Math.max(nextIndex, 0), Math.max(resultImageUrls.length - 1, 0));
+    setActiveImageIndex(clampedIndex);
+    resultScrollRef.current?.scrollTo({ x: resultCardWidth * clampedIndex, animated: false });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
@@ -219,7 +266,15 @@ const VirtualTryOnResultScreen = () => {
                 onMomentumScrollEnd={(event) => handleResultScroll(event.nativeEvent.contentOffset.x)}
               >
                 {resultImageUrls.length ? resultImageUrls.map((url, index) => (
-                  <View key={`${url}-${index}`} style={[styles.resultImageWrap, { width: resultCardWidth }]}>
+                  <TouchableOpacity
+                    key={`${url}-${index}`}
+                    style={[styles.resultImageWrap, { width: resultCardWidth }]}
+                    onPress={() => {
+                      setActiveImageIndex(index);
+                      setIsPreviewVisible(true);
+                    }}
+                    activeOpacity={0.92}
+                  >
                     <RemoteImage
                       uri={url}
                       style={styles.resultImage}
@@ -241,7 +296,7 @@ const VirtualTryOnResultScreen = () => {
                         </View>
                       ) : null}
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 )) : (
                   <View style={[styles.resultImageWrap, { width: resultCardWidth }]}>
                     <View style={styles.imagePlaceholder}>
@@ -307,9 +362,20 @@ const VirtualTryOnResultScreen = () => {
             ) : null}
 
             <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.actionButton} onPress={shareResult} activeOpacity={0.86}>
-                <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
-                <Text style={styles.actionText}>Chia sẻ</Text>
+              <TouchableOpacity
+                style={[styles.actionButton, (!activeImageUrl || isSharingImage) && styles.actionButtonDisabled]}
+                onPress={shareResult}
+                disabled={!activeImageUrl || isSharingImage}
+                activeOpacity={0.86}
+              >
+                {isSharingImage ? (
+                  <ActivityIndicator color={studioPalette.ink} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
+                    <Text style={styles.actionText}>Chia sẻ</Text>
+                  </>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionButton, (!activeImageUrl || isSavingImage) && styles.actionButtonDisabled]}
@@ -402,6 +468,48 @@ const VirtualTryOnResultScreen = () => {
           <Text style={styles.emptyText}>Không tìm thấy kết quả phối đồ.</Text>
         </View>
       )}
+
+      <Modal
+        visible={isPreviewVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setIsPreviewVisible(false)}
+      >
+        <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
+          <View style={styles.previewHeader}>
+            <View style={styles.previewCounter}>
+              <Text style={styles.previewCounterText}>
+                {resultImageUrls.length ? `${activeImageIndex + 1}/${resultImageUrls.length}` : '0/0'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setIsPreviewVisible(false)}
+              activeOpacity={0.82}
+            >
+              <MaterialCommunityIcons name="close" size={24} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            ref={previewScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(event) => handlePreviewScroll(event.nativeEvent.contentOffset.x)}
+          >
+            {resultImageUrls.map((url, index) => (
+              <View key={`preview-${url}-${index}`} style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
+                <RemoteImage
+                  uri={url}
+                  style={styles.previewImage}
+                  recyclingKey={`${job?._id ?? 'result'}-preview-${index}`}
+                  resizeMode="contain"
+                />
+              </View>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -502,8 +610,8 @@ const styles = StyleSheet.create({
   },
   resultImageWrap: {
     width: '100%',
-    aspectRatio: 1,
-    borderRadius: 24,
+    aspectRatio: 3 / 4,
+    borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: colors.surface,
     ...shadows.card,
@@ -550,7 +658,7 @@ const styles = StyleSheet.create({
   },
   resultThumbButton: {
     flex: 1,
-    aspectRatio: 1,
+    aspectRatio: 3 / 4,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: studioPalette.line,
@@ -577,13 +685,13 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   compareTile: {
-    width: 86,
+    width: 82,
     alignItems: 'center',
     gap: spacing.xs,
   },
   compareImage: {
-    width: 70,
-    height: 70,
+    width: 62,
+    height: 82,
     borderRadius: radii.sm,
     backgroundColor: studioPalette.primarySoft,
   },
@@ -776,6 +884,52 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '700',
+  },
+  previewModal: {
+    flex: 1,
+    backgroundColor: '#05070A',
+  },
+  previewHeader: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 2,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewCounter: {
+    minHeight: 34,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewCounterText: {
+    color: colors.white,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  previewCloseButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewSlide: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 
