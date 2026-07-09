@@ -130,6 +130,13 @@ export const profileService = {
     return request<UserAddress[]>('/users/me/addresses')
   },
 
+  addAddress(payload: UserAddress) {
+    return request<UserAddress[]>('/users/me/addresses', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
   getMembership() {
     return request<UserMembership>('/users/me/membership')
   },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Divider, Form, Input, Select, Space, message } from 'antd'
+import { Alert, Button, Checkbox, Divider, Form, Input, Modal, Select, Space, message } from 'antd'
 import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { tokenService } from '../../../services/tokenService'
 import { setCurrentUser } from '../../auth/auth.slice'
@@ -18,19 +18,27 @@ export function ProfileInfoSection() {
   const dispatch = useAppDispatch()
   const currentUser = useAppSelector((state) => state.auth.currentUser)
   const [profileForm] = Form.useForm<ProfileFormValues>()
+  const [addAddressForm] = Form.useForm<ProfileFormValues & { customerName: string; phoneNumber: string; isDefault?: boolean }>()
   const [passwordForm] = Form.useForm<PasswordFormValues>()
   const [defaultAddress, setDefaultAddress] = useState<UserAddress | null>(null)
   const [addresses, setAddresses] = useState<UserAddress[]>([])
   const [provinces, setProvinces] = useState<GhnProvince[]>([])
   const [districts, setDistricts] = useState<GhnDistrict[]>([])
   const [wards, setWards] = useState<GhnWard[]>([])
+  const [newAddressDistricts, setNewAddressDistricts] = useState<GhnDistrict[]>([])
+  const [newAddressWards, setNewAddressWards] = useState<GhnWard[]>([])
   const [isLoadingProvinces, setIsLoadingProvinces] = useState(false)
   const [isLoadingDistricts, setIsLoadingDistricts] = useState(false)
   const [isLoadingWards, setIsLoadingWards] = useState(false)
+  const [isLoadingNewAddressDistricts, setIsLoadingNewAddressDistricts] = useState(false)
+  const [isLoadingNewAddressWards, setIsLoadingNewAddressWards] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [isSavingNewAddress, setIsSavingNewAddress] = useState(false)
   const [isChangingPassword, setIsChangingPassword] = useState(false)
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false)
+  const [isAddAddressModalOpen, setIsAddAddressModalOpen] = useState(false)
+  const [isEditingAddress, setIsEditingAddress] = useState(false)
   const [pendingAddressId, setPendingAddressId] = useState('')
   const [error, setError] = useState('')
 
@@ -131,6 +139,51 @@ export function ProfileInfoSection() {
     }
   }
 
+  const handleNewAddressProvinceChange = async (provinceId: number) => {
+    addAddressForm.setFieldsValue({ districtId: undefined, wardCode: undefined })
+    setNewAddressDistricts([])
+    setNewAddressWards([])
+    setIsLoadingNewAddressDistricts(true)
+
+    try {
+      setNewAddressDistricts(await profileService.getGhnDistricts(provinceId))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách quận/huyện GHN.')
+    } finally {
+      setIsLoadingNewAddressDistricts(false)
+    }
+  }
+
+  const handleNewAddressDistrictChange = async (districtId: number) => {
+    addAddressForm.setFieldValue('wardCode', undefined)
+    setNewAddressWards([])
+    setIsLoadingNewAddressWards(true)
+
+    try {
+      setNewAddressWards(await profileService.getGhnWards(districtId))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách phường/xã GHN.')
+    } finally {
+      setIsLoadingNewAddressWards(false)
+    }
+  }
+
+  const openAddAddressModal = () => {
+    addAddressForm.setFieldsValue({
+      customerName: currentUser?.name || '',
+      phoneNumber: currentUser?.phone || '',
+      isDefault: addresses.length === 0,
+    })
+    setIsAddAddressModalOpen(true)
+  }
+
+  const closeAddAddressModal = () => {
+    setIsAddAddressModalOpen(false)
+    addAddressForm.resetFields()
+    setNewAddressDistricts([])
+    setNewAddressWards([])
+  }
+
   const handleProfileSubmit = async (values: ProfileFormValues) => {
     setIsSavingProfile(true)
     setError('')
@@ -171,11 +224,52 @@ export function ProfileInfoSection() {
 
       tokenService.setCurrentUser(updatedUser)
       dispatch(setCurrentUser(updatedUser))
+      setIsEditingAddress(false)
       message.success('Cập nhật thông tin thành công.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Không thể cập nhật thông tin.')
     } finally {
       setIsSavingProfile(false)
+    }
+  }
+
+  const handleAddAddressSubmit = async (values: ProfileFormValues & { customerName: string; phoneNumber: string; isDefault?: boolean }) => {
+    if (!values.streetName || !values.provinceId || !values.districtId || !values.wardCode) return
+
+    setIsSavingNewAddress(true)
+    setError('')
+
+    try {
+      const selectedProvince = provinces.find((item) => item.ProvinceID === values.provinceId)
+      const selectedDistrict = newAddressDistricts.find((item) => item.DistrictID === values.districtId)
+      const selectedWard = newAddressWards.find((item) => item.WardCode === values.wardCode)
+      const updatedAddresses = await profileService.addAddress({
+        customerName: values.customerName.trim(),
+        phoneNumber: values.phoneNumber.trim(),
+        streetName: values.streetName.trim(),
+        province: selectedProvince?.ProvinceName || '',
+        provinceId: values.provinceId,
+        provinceCode: String(values.provinceId),
+        district: selectedDistrict?.DistrictName || '',
+        districtId: values.districtId,
+        ward: selectedWard?.WardName || '',
+        wardCode: values.wardCode,
+        ghnProvinceId: values.provinceId,
+        ghnDistrictId: values.districtId,
+        ghnWardCode: values.wardCode,
+        ghnMappingStatus: 'manual',
+        isDefault: Boolean(values.isDefault) || addresses.length === 0,
+      })
+      const nextDefaultAddress = updatedAddresses.find((item) => item.isDefault) || updatedAddresses[0] || null
+
+      setAddresses(updatedAddresses)
+      await applyDefaultAddress(nextDefaultAddress)
+      closeAddAddressModal()
+      message.success('Đã thêm địa chỉ giao hàng.')
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Không thể thêm địa chỉ giao hàng.')
+    } finally {
+      setIsSavingNewAddress(false)
     }
   }
 
@@ -283,7 +377,12 @@ export function ProfileInfoSection() {
             <section className="account-address-fields" aria-labelledby="address-info-title">
               <div className="account-address-heading">
                 <h2 id="address-info-title">Địa chỉ giao hàng mặc định</h2>
-                <Button onClick={() => setIsAddressModalOpen(true)}>Quản lý địa chỉ</Button>
+                <Space wrap>
+                  <Button type="primary" htmlType="button" onClick={openAddAddressModal}>
+                    Thêm địa chỉ giao hàng
+                  </Button>
+                  <Button onClick={() => setIsAddressModalOpen(true)}>Quản lý địa chỉ</Button>
+                </Space>
               </div>
               <Form.Item
                 label="Địa chỉ nhà"
@@ -293,7 +392,7 @@ export function ProfileInfoSection() {
                   { min: 5, max: 150, message: 'Địa chỉ chi tiết từ 5 đến 150 ký tự.' },
                 ]}
               >
-                <Input placeholder="Số nhà, tên đường, tên tòa nhà" />
+                <Input disabled={!isEditingAddress} placeholder="Số nhà, tên đường, tên tòa nhà" />
               </Form.Item>
 
               <div className="account-form-grid">
@@ -303,6 +402,7 @@ export function ProfileInfoSection() {
                     optionFilterProp="label"
                     placeholder="Chọn tỉnh/thành phố"
                     loading={isLoadingProvinces}
+                    disabled={!isEditingAddress}
                     options={provinces.map((province) => ({
                       label: province.ProvinceName,
                       value: province.ProvinceID,
@@ -317,7 +417,7 @@ export function ProfileInfoSection() {
                     optionFilterProp="label"
                     placeholder="Chọn quận/huyện"
                     loading={isLoadingDistricts}
-                    disabled={!districts.length}
+                    disabled={!isEditingAddress || !districts.length}
                     options={districts.map((district) => ({
                       label: district.DistrictName,
                       value: district.DistrictID,
@@ -332,7 +432,7 @@ export function ProfileInfoSection() {
                     optionFilterProp="label"
                     placeholder="Chọn phường/xã"
                     loading={isLoadingWards}
-                    disabled={!wards.length}
+                    disabled={!isEditingAddress || !wards.length}
                     options={wards.map((ward) => ({
                       label: ward.WardName,
                       value: ward.WardCode,
@@ -342,9 +442,24 @@ export function ProfileInfoSection() {
               </div>
             </section>
 
-            <Button type="primary" htmlType="submit" loading={isSavingProfile}>
-              Cập nhật thông tin
-            </Button>
+            <Space wrap>
+              <Button type="primary" htmlType="button" disabled={isEditingAddress} onClick={() => setIsEditingAddress(true)}>
+                Cập nhật thông tin
+              </Button>
+              {isEditingAddress ? (
+                <>
+                  <Button type="primary" htmlType="submit" loading={isSavingProfile}>
+                    Lưu
+                  </Button>
+                  <Button htmlType="button" onClick={() => {
+                    void applyDefaultAddress(defaultAddress)
+                    setIsEditingAddress(false)
+                  }}>
+                    Hủy
+                  </Button>
+                </>
+              ) : null}
+            </Space>
           </Form>
         </section>
 
@@ -426,6 +541,94 @@ export function ProfileInfoSection() {
         onSetDefault={(address) => void handleSetDefaultAddress(address)}
         onDelete={(address) => void handleDeleteAddress(address)}
       />
+
+      <Modal
+        title="Thêm địa chỉ giao hàng"
+        open={isAddAddressModalOpen}
+        okText="Lưu"
+        cancelText="Hủy"
+        confirmLoading={isSavingNewAddress}
+        onOk={() => addAddressForm.submit()}
+        onCancel={closeAddAddressModal}
+        width={680}
+      >
+        <Form
+          form={addAddressForm}
+          layout="vertical"
+          requiredMark={false}
+          onFinish={(values) => void handleAddAddressSubmit(values)}
+        >
+          <div className="account-form-grid">
+            <Form.Item label="Người nhận" name="customerName" rules={[{ required: true, message: 'Vui lòng nhập tên người nhận.' }]}>
+              <Input placeholder="Nguyễn Văn A" />
+            </Form.Item>
+
+            <Form.Item label="Số điện thoại" name="phoneNumber" rules={[{ required: true, message: 'Vui lòng nhập số điện thoại.' }]}>
+              <Input placeholder="0123456789" />
+            </Form.Item>
+          </div>
+
+          <Form.Item
+            label="Địa chỉ nhà"
+            name="streetName"
+            rules={[
+              { required: true, message: 'Vui lòng nhập số nhà, tên đường.' },
+              { min: 5, max: 150, message: 'Địa chỉ chi tiết từ 5 đến 150 ký tự.' },
+            ]}
+          >
+            <Input placeholder="Số nhà, tên đường, tên tòa nhà" />
+          </Form.Item>
+
+          <div className="account-form-grid">
+            <Form.Item label="Tỉnh/thành phố" name="provinceId" rules={[{ required: true, message: 'Vui lòng chọn tỉnh/thành phố.' }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Chọn tỉnh/thành phố"
+                loading={isLoadingProvinces}
+                options={provinces.map((province) => ({
+                  label: province.ProvinceName,
+                  value: province.ProvinceID,
+                }))}
+                onChange={(value) => void handleNewAddressProvinceChange(value)}
+              />
+            </Form.Item>
+
+            <Form.Item label="Quận/huyện" name="districtId" rules={[{ required: true, message: 'Vui lòng chọn quận/huyện.' }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Chọn quận/huyện"
+                loading={isLoadingNewAddressDistricts}
+                disabled={!newAddressDistricts.length}
+                options={newAddressDistricts.map((district) => ({
+                  label: district.DistrictName,
+                  value: district.DistrictID,
+                }))}
+                onChange={(value) => void handleNewAddressDistrictChange(value)}
+              />
+            </Form.Item>
+
+            <Form.Item label="Phường/xã" name="wardCode" rules={[{ required: true, message: 'Vui lòng chọn phường/xã.' }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Chọn phường/xã"
+                loading={isLoadingNewAddressWards}
+                disabled={!newAddressWards.length}
+                options={newAddressWards.map((ward) => ({
+                  label: ward.WardName,
+                  value: ward.WardCode,
+                }))}
+              />
+            </Form.Item>
+          </div>
+
+          <Form.Item name="isDefault" valuePropName="checked">
+            <Checkbox>Đặt làm địa chỉ mặc định</Checkbox>
+          </Form.Item>
+        </Form>
+      </Modal>
     </>
   )
 }
