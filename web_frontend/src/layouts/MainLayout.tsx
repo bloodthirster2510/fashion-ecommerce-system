@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Dropdown, Input, type MenuProps } from 'antd'
-import { DownOutlined, HeartOutlined, SearchOutlined, ShoppingCartOutlined } from '@ant-design/icons'
+import {
+  ClockCircleOutlined,
+  DownOutlined,
+  HeartOutlined,
+  MailOutlined,
+  PhoneOutlined,
+  SearchOutlined,
+  ShopOutlined,
+  ShoppingCartOutlined,
+} from '@ant-design/icons'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { fetchCart } from '../features/cart/cart.slice'
 import { catalogService } from '../features/catalog/catalog.service'
@@ -158,8 +167,7 @@ function Header() {
     () => categories.find((category) => category._id === searchCategoryId),
     [categories, searchCategoryId],
   )
-  const cartItemCount =
-    cart?.summary.itemCount ?? cart?.product_list.reduce((total, item) => total + item.quantity, 0) ?? 0
+  const cartItemCount = cart?.product_list.length ?? 0
 
   const searchCategoryItems = useMemo<MenuProps['items']>(() => {
     const items = [...categories]
@@ -287,12 +295,34 @@ function Footer() {
   return (
     <footer className="site-footer">
       <div className="footer-grid">
-        <section>
+        <section className="footer-about">
+          <a className="footer-logo" href="/" aria-label="Trang chủ CD Shop">
+            <img src={shopNameImage} alt="CD Shop" />
+          </a>
+          <h2>Về CDShop</h2>
+          <p>
+            CDShop mang đến các lựa chọn thời trang nam nữ dễ mặc, hiện đại và phù hợp cho nhiều dịp hằng ngày.
+          </p>
+        </section>
+
+        <section className="footer-contact">
           <h2>Giới thiệu</h2>
-          <p>Cửa hàng thời trang</p>
-          <p>SDT: {shopContact.phone}</p>
-          <p>Email: {shopContact.email}</p>
-          <p>Giờ mở cửa: {shopContact.hours}</p>
+          <p>
+            <ShopOutlined aria-hidden="true" />
+            <span>Cửa hàng thời trang</span>
+          </p>
+          <p>
+            <PhoneOutlined aria-hidden="true" />
+            <span>{shopContact.phone}</span>
+          </p>
+          <p>
+            <MailOutlined aria-hidden="true" />
+            <span>{shopContact.email}</span>
+          </p>
+          <p>
+            <ClockCircleOutlined aria-hidden="true" />
+            <span>{shopContact.hours}</span>
+          </p>
         </section>
 
         <section>

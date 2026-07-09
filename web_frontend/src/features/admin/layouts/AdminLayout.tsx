@@ -36,6 +36,7 @@ import { NotificationSummaryProvider } from '../notifications/NotificationSummar
 import { useNotificationSummary } from '../notifications/notification-summary-context'
 import type { NotificationSummary } from '../notifications/notification-summary.types'
 import { CommandMenu, type CommandMenuItem } from '../components/ui'
+import shopNameImage from '../../../assets/images/ShopName.png'
 
 const ManagerListPage = lazy(() =>
   import('../modules/managers/ManagerListPage').then((module) => ({ default: module.ManagerListPage })),
@@ -521,19 +522,24 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     <main className={`admin-layout${isSidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}>
       <aside className="admin-sidebar" aria-label="Admin navigation">
         <div className="admin-brand">
-          <span className="admin-brand-copy">
-            <strong>CD Shop</strong>
-            <small>Admin Workspace</small>
+          <span className="admin-brand-logo-frame">
+            <img src={shopNameImage} alt="CD Shop" />
           </span>
-          <button
-            className="admin-sidebar-toggle"
-            type="button"
-            aria-label={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
-            title={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
-            onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
-          >
-            {isSidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-          </button>
+          <div className="admin-brand-row">
+            <span className="admin-brand-copy">
+              <strong>CD Shop</strong>
+              <small>Admin Workspace</small>
+            </span>
+            <button
+              className="admin-sidebar-toggle"
+              type="button"
+              aria-label={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+              title={isSidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+              onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {isSidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+            </button>
+          </div>
         </div>
 
         <nav className="admin-nav">
