@@ -26,6 +26,138 @@
 .account-order-item span,.my-review-card span,.my-review-card small { color:#64748b; font-size:12px; }
 .my-review-card p { margin:0; }
 
+.account-reviews-content {
+  overflow: hidden;
+}
+
+.my-review-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #e5ebf0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.my-review-section + .my-review-section {
+  margin-top: 18px;
+}
+
+.my-review-section h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: flex-start;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.my-review-section h2 .anticon {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.my-review-card {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border-top: 0;
+  border: 1px solid #e7edf2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.my-review-card img {
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #eef2f5;
+}
+
+.my-review-card .my-review-main {
+  min-width: 0;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 5px;
+}
+
+.my-review-main strong {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.my-review-main p {
+  color: #1f2937;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.my-review-main .ant-rate {
+  color: #d9a23b;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.my-review-card .my-review-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.my-review-actions .ant-btn {
+  min-width: 72px;
+  height: 30px;
+  padding-inline: 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.my-review-actions .ant-btn:first-child {
+  border-color: #2f6f88;
+  background: #e7f4f8;
+  color: #1f5d73;
+}
+
+.my-review-actions .ant-btn:first-child:hover,
+.my-review-actions .ant-btn:first-child:focus-visible {
+  border-color: #1f5d73 !important;
+  background: #d6edf4 !important;
+  color: #164b5d !important;
+}
+
+.my-review-actions .ant-btn-dangerous {
+  border-color: #ff6b6b;
+  background: #fff1f1;
+  color: #c93232;
+}
+
+.my-review-actions .ant-btn-dangerous:hover,
+.my-review-actions .ant-btn-dangerous:focus-visible {
+  border-color: #e54848 !important;
+  background: #ffe3e3 !important;
+  color: #a92626 !important;
+}
+
+.my-review-actions .ant-btn .anticon {
+  font-size: 12px;
+}
+
+.my-review-write-button {
+  min-width: 118px;
+}
+
 .account-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -47,43 +179,80 @@
 }
 
 .user-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: 112px;
-  padding: 20px 22px;
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  min-height: 128px;
+  padding: 18px 20px;
+  overflow: hidden;
   color: #fff;
-  background: var(--accent);
+  background: linear-gradient(135deg, #4f7891 0%, #6f98ad 100%);
+}
+
+.user-card::before {
+  content: '';
+  position: absolute;
+  top: -32px;
+  right: -26px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.user-card::after {
+  content: '';
+  position: absolute;
+  right: -44px;
+  bottom: -52px;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .user-card .ant-avatar {
+  width: 58px;
+  height: 58px;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 18px rgba(18, 42, 58, 0.22);
   flex: 0 0 auto;
   color: var(--accent);
   background: var(--color-light);
 }
 
-.user-card-avatar {
+.user-card-top {
   display: grid;
-  justify-items: center;
-  gap: 7px;
-  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  justify-items: start;
+  gap: 8px;
 }
 
 .avatar-update-button {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  border-radius: 999px;
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.92;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .avatar-update-button:hover {
-  opacity: 1;
-  text-decoration: underline;
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.24);
+  transform: translateY(-1px);
 }
 
 .avatar-update-button.is-loading {
@@ -95,6 +264,13 @@
   display: none;
 }
 
+.user-card-name {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  margin-top: 2px;
+}
+
 .user-card strong,
 .user-card span {
   display: block;
@@ -104,7 +280,11 @@
 }
 
 .user-card strong {
+  color: #fff;
   font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-shadow: 0 1px 1px rgba(18, 42, 58, 0.16);
 }
 
 .account-menu.ant-menu {
@@ -651,6 +831,21 @@
 
   .account-address-actions {
     justify-content: flex-start;
+  }
+
+  .my-review-card {
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: flex-start;
+  }
+
+  .my-review-card img {
+    width: 64px;
+    height: 64px;
+  }
+
+  .my-review-card .my-review-actions {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
   }
 
   .membership-rank-hero {

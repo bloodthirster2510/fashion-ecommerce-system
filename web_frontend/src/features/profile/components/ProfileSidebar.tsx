@@ -10,7 +10,6 @@ import {
   ShoppingCartOutlined,
   SkinOutlined,
   StarOutlined,
-  UploadOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import { useAppDispatch } from '../../../app/hooks'
@@ -92,10 +91,9 @@ export function ProfileSidebar({
   return (
     <aside className="account-sidebar" aria-label="Tài khoản">
       <div className="user-card">
-        <div className="user-card-avatar">
+        <div className="user-card-top">
           <Avatar size={52} src={avatarImage || undefined} icon={<UserOutlined />} />
           <label className={`avatar-update-button${isUploadingAvatar ? ' is-loading' : ''}`}>
-            <UploadOutlined />
             <span>{isUploadingAvatar ? 'Đang lưu' : 'Cập nhật'}</span>
             <input
               type="file"
@@ -109,7 +107,7 @@ export function ProfileSidebar({
             />
           </label>
         </div>
-        <div>
+        <div className="user-card-name">
           <strong>{name || 'Chào mừng!'}</strong>
         </div>
       </div>
