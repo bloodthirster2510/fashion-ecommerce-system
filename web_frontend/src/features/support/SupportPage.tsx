@@ -83,7 +83,7 @@ function SupportHome(props: {
   onSearch: (value: string) => void; onTopic: (value: string) => void; onExpand: (id: string | null) => void; onReload: () => void;
   onVote: (id: string, value: 'helpful' | 'not_helpful') => Promise<void>;
 }) {
-  return <div className="customer-support-stack"><header className="customer-support-heading"><p>FASHIONISTA CARE</p><h1>Hỗ trợ khách hàng</h1><span>Tìm câu trả lời nhanh hoặc gửi yêu cầu để shop hỗ trợ đúng vấn đề.</span></header>
+  return <div className="customer-support-stack"><header className="customer-support-heading"><h1>Hỗ trợ khách hàng</h1><span>Tìm câu trả lời nhanh hoặc gửi yêu cầu để shop hỗ trợ đúng vấn đề.</span></header>
     <section className="customer-support-search"><input value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Bạn cần hỗ trợ vấn đề gì?" /><button type="button" onClick={props.onReload}>Tìm kiếm</button></section>
     {props.error && <div className="customer-support-error" role="alert">{props.error}</div>}
     <div className="customer-support-topics">{topics.map(([value, label]) => <button key={value} type="button" className={props.topic === value ? 'is-active' : ''} onClick={() => props.onTopic(props.topic === value ? '' : value)}>{label}</button>)}</div>
