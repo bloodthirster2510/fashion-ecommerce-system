@@ -495,6 +495,7 @@ const throwImageValidationError = (result: Pick<ImageValidationResult, 'reasonCo
 const validateSourceImageForJob = async (
   sourceAsset: IVirtualTryOnAsset,
   outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
 ) => {
   const providerName = getConfiguredImageValidationProviderName();
   if (providerName === 'disabled') return;
@@ -511,6 +512,7 @@ const validateSourceImageForJob = async (
       bytes: sourceAsset.bytes ?? buffer.byteLength,
       source: getImageValidationSource(sourceAsset),
       outfitMode,
+      itemRoles,
     }));
   } catch (error) {
     if (shouldFailOpenImageValidation()) {
@@ -535,6 +537,19 @@ const validateSourceImageForJob = async (
   if (!result.allowed) {
     throwImageValidationError(result);
   }
+};
+
+const getSelectedItemRolesForValidation = (items: CreateVirtualTryOnItemInput[]) => {
+  if (!Array.isArray(items) || items.length < 1 || items.length > MAX_SELECTED_ITEMS) {
+    throw new VirtualTryOnServiceError(`Vui lòng chọn từ 1 đến ${MAX_SELECTED_ITEMS} sản phẩm`, 400);
+  }
+
+  return items.map((item) => {
+    if (!allowedRoles.has(item.role)) {
+      throw new VirtualTryOnServiceError('Vai trò sản phẩm không hợp lệ', 400);
+    }
+    return item.role;
+  });
 };
 
 const resolveSelectedItem = (
@@ -820,7 +835,8 @@ const createJob = async (
   }
 
   const sourceAsset = await findAssetForUser(userId, input.sourceAssetId);
-  await validateSourceImageForJob(sourceAsset, input.outfitMode);
+  const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
+  await validateSourceImageForJob(sourceAsset, input.outfitMode, itemRoles);
 
   const selectedItems = await resolveSelectedItems(input.selectedItems);
 

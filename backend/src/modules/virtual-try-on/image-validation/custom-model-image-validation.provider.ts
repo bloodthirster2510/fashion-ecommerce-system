@@ -90,6 +90,7 @@ export const createCustomModelImageValidationProvider = (): ImageValidationProvi
         bytes: input.bytes,
         source: input.source,
         outfitMode: input.outfitMode,
+        itemRoles: input.itemRoles ?? [],
       },
       {
         timeout: readTimeoutMs(),

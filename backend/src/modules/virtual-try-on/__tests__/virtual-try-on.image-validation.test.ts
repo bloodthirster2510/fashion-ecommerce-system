@@ -221,6 +221,34 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
   });
 
+  it('sends selected item roles to the custom image validation provider', async () => {
+    process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
+    process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        allowed: true,
+        personCount: 1,
+        mainPersonScore: 0.94,
+        bodyVisibility: 'good',
+        quality: { blur: 'ok', brightness: 'ok', resolution: 'ok' },
+        safetyFlags: [],
+      },
+    });
+
+    const result = await virtualTryOnService.createJob(userId, createJobInput);
+
+    expect(result._id).toBe(jobId.toString());
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'http://127.0.0.1:7001/validate-image',
+      expect.objectContaining({
+        outfitMode: 'single',
+        itemRoles: ['top'],
+      }),
+      expect.any(Object),
+    );
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
+  });
+
   it('logs prompt policy violations before image validation or job creation', async () => {
     await expect(
       virtualTryOnService.createJob(userId, {

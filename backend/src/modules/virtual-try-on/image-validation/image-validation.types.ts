@@ -1,4 +1,4 @@
-import type { VirtualTryOnOutfitMode } from '../../../database/models';
+import type { VirtualTryOnItemRole, VirtualTryOnOutfitMode } from '../../../database/models';
 
 export type ImageValidationProviderName =
   | 'disabled'
@@ -46,6 +46,7 @@ export type ImageValidationInput = {
   bytes: number;
   source: 'upload' | 'camera';
   outfitMode?: VirtualTryOnOutfitMode;
+  itemRoles?: VirtualTryOnItemRole[];
 };
 
 export type ImageValidationResult = {
