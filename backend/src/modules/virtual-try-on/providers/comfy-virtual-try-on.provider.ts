@@ -44,6 +44,15 @@ type ComfyDownloadedFile = VirtualTryOnProviderBinaryOutput & {
   comfyFile: ComfyOutputFile;
 };
 
+type GarmentProcessingResponse = {
+  imageBase64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  layout?: string;
+  extractedItems?: unknown[];
+};
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_500;
 
@@ -119,6 +128,26 @@ const getArrayBuffer = async (url: string, timeoutMs: number) => {
   };
 };
 
+const uploadImageBinaryToComfy = async (
+  client: AxiosInstance,
+  input: { buffer: Buffer; mimeType: string; fileName: string },
+) => {
+  const formData = new FormData();
+  formData.append(
+    'image',
+    new Blob([input.buffer], { type: input.mimeType }),
+    `${sanitizeFileNamePart(input.fileName)}.${getFileExtension(input.mimeType, 'png')}`,
+  );
+  formData.append('overwrite', 'true');
+
+  const response = await client.post<ComfyUploadResponse>('/upload/image', formData);
+  if (!response.data?.name) {
+    throw new VirtualTryOnProviderError('ComfyUI image upload did not return a file name', 502, 'COMFY_UPLOAD_FAILED');
+  }
+
+  return response.data.name;
+};
+
 const createComfyClient = () => {
   const baseURL = process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL || process.env.VIRTUAL_TRY_ON_SERVICE_URL;
   if (!baseURL) {
@@ -149,20 +178,10 @@ const uploadImageToComfy = async (
   timeoutMs: number,
 ) => {
   const image = await getArrayBuffer(input.url, timeoutMs);
-  const formData = new FormData();
-  formData.append(
-    'image',
-    new Blob([image.buffer], { type: image.mimeType }),
-    `${sanitizeFileNamePart(input.fileName)}.${getFileExtension(image.mimeType, 'png')}`,
-  );
-  formData.append('overwrite', 'true');
-
-  const response = await client.post<ComfyUploadResponse>('/upload/image', formData);
-  if (!response.data?.name) {
-    throw new VirtualTryOnProviderError('ComfyUI image upload did not return a file name', 502, 'COMFY_UPLOAD_FAILED');
-  }
-
-  return response.data.name;
+  return uploadImageBinaryToComfy(client, {
+    ...image,
+    fileName: input.fileName,
+  });
 };
 
 const getGarmentInputKeys = (garment: VirtualTryOnProviderGarment) => {
@@ -176,6 +195,81 @@ const getGarmentInputKeys = (garment: VirtualTryOnProviderGarment) => {
   };
 
   return byRole[garment.role] || [];
+};
+
+const getGarmentProcessingTimeoutMs = () => {
+  const timeoutMs = Number(process.env.VIRTUAL_TRY_ON_GARMENT_PROCESSING_TIMEOUT_MS);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30_000;
+};
+
+const shouldFailOpenGarmentProcessing = () =>
+  process.env.VIRTUAL_TRY_ON_GARMENT_PROCESSING_FAIL_OPEN === 'true';
+
+const getCollageLayout = (input: VirtualTryOnProviderInput) => {
+  if (input.outfitMode === 'single') return 'single';
+  if (input.outfitMode === 'top_bottom') return 'top_bottom';
+  return 'full_set';
+};
+
+const createGarmentCollage = async (
+  input: VirtualTryOnProviderInput,
+  timeoutMs: number,
+): Promise<VirtualTryOnProviderBinaryOutput | null> => {
+  const endpoint = process.env.VIRTUAL_TRY_ON_GARMENT_PROCESSING_URL?.trim();
+  if (!endpoint) return null;
+
+  try {
+    const items = await Promise.all(input.garments.map(async (garment) => {
+      const image = await getArrayBuffer(garment.imageUrl, timeoutMs);
+      return {
+        imageBase64: image.buffer.toString('base64'),
+        mimeType: image.mimeType,
+        role: garment.role,
+        label: garment.name,
+      };
+    }));
+
+    const response = await axios.post<GarmentProcessingResponse>(
+      endpoint,
+      {
+        items,
+        layout: getCollageLayout(input),
+        width: 768,
+        height: 768,
+        backgroundColor: '#ffffff',
+      },
+      {
+        timeout: getGarmentProcessingTimeoutMs(),
+        maxBodyLength: Infinity,
+      },
+    );
+
+    if (!response.data?.imageBase64) {
+      throw new VirtualTryOnProviderError(
+        'Garment processing did not return a collage image',
+        502,
+        'GARMENT_PROCESSING_OUTPUT_MISSING',
+      );
+    }
+
+    return {
+      buffer: Buffer.from(response.data.imageBase64, 'base64'),
+      mimeType: response.data.mimeType || 'image/png',
+      fileName: `${input.jobId}-garment-collage`,
+    };
+  } catch (error) {
+    if (shouldFailOpenGarmentProcessing()) {
+      console.warn('Garment processing failed open:', error);
+      return null;
+    }
+
+    if (error instanceof VirtualTryOnProviderError) throw error;
+    throw new VirtualTryOnProviderError(
+      'Cannot prepare garment collage',
+      502,
+      'GARMENT_PROCESSING_FAILED',
+    );
+  }
 };
 
 const setMappedInput = (
@@ -216,8 +310,21 @@ const applyWorkflowInputs = async (
 
   const garmentFileNames: string[] = [];
   let mappedGarmentCount = 0;
+  let garmentImageMapped = false;
+  const garmentCollage = workflowMap.inputs?.garmentImage
+    ? await createGarmentCollage(input, timeoutMs)
+    : null;
 
-  for (const garment of input.garments) {
+  if (garmentCollage) {
+    const fileName = await uploadImageBinaryToComfy(client, garmentCollage);
+    garmentFileNames.push(fileName);
+    if (setMappedInput(workflow, workflowMap, 'garmentImage', fileName)) {
+      mappedGarmentCount += input.garments.length;
+      garmentImageMapped = true;
+    }
+  }
+
+  for (const garment of garmentCollage ? [] : input.garments) {
     const fileName = await uploadImageToComfy(
       client,
       { url: garment.imageUrl, fileName: `${input.jobId}-${garment.role}-${garment.colorVariantId}` },
@@ -233,7 +340,7 @@ const applyWorkflowInputs = async (
     }
   }
 
-  if (garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImage', garmentFileNames[0])) {
+  if (!garmentImageMapped && garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImage', garmentFileNames[0])) {
     mappedGarmentCount += 1;
   }
   if (garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImages', garmentFileNames)) {

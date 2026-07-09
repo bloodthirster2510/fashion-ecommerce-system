@@ -298,6 +298,7 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
   const prompt = buildVirtualTryOnPrompt({
     garments,
     preset: job.contextPreset,
+    outfitMode: job.outfitMode,
     customPrompt: job.contextPrompt,
   });
 

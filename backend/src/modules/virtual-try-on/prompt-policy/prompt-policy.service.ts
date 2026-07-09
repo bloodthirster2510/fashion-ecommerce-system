@@ -20,6 +20,29 @@ const promptPolicyRules = [
   ...(injectionRules as PromptPolicyRule[]),
 ];
 
+type PromptPolicyMatch = Pick<PromptPolicyRule, 'key' | 'category' | 'reasonCode'>;
+
+const patternPolicyRules: Array<PromptPolicyMatch & { pattern: RegExp }> = [
+  {
+    key: 'email_address_pattern',
+    category: 'personal_data',
+    reasonCode: 'PROMPT_PERSONAL_DATA',
+    pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+  },
+  {
+    key: 'phone_number_pattern',
+    category: 'personal_data',
+    reasonCode: 'PROMPT_PERSONAL_DATA',
+    pattern: /(?:^|[^\d])(?:\+?84|0)(?:[\s.-]?\d){9,10}(?!\d)/,
+  },
+  {
+    key: 'long_card_or_id_number_pattern',
+    category: 'personal_data',
+    reasonCode: 'PROMPT_PERSONAL_DATA',
+    pattern: /(?:^|[^\d])(?:\d[\s-]?){13,19}(?!\d)/,
+  },
+];
+
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizePrompt = (prompt?: string) =>
@@ -103,6 +126,9 @@ const findMatchedRule = (prompt: string) => {
   return null;
 };
 
+const findMatchedPatternRule = (prompt: string) =>
+  patternPolicyRules.find((rule) => rule.pattern.test(prompt)) ?? null;
+
 export const validateVirtualTryOnPrompt = (prompt?: string): VirtualTryOnPromptValidationResult => {
   const normalizedPrompt = normalizePrompt(prompt);
   if (!normalizedPrompt) {
@@ -125,7 +151,7 @@ export const validateVirtualTryOnPrompt = (prompt?: string): VirtualTryOnPromptV
     };
   }
 
-  const matchedRule = findMatchedRule(normalizedPrompt);
+  const matchedRule = findMatchedRule(normalizedPrompt) || findMatchedPatternRule(normalizedPrompt);
   if (matchedRule) {
     return {
       allowed: false,
