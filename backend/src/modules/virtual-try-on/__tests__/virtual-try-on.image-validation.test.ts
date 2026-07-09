@@ -202,6 +202,24 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedVirtualTryOnAsset.findOne).toHaveBeenCalledWith({
       _id: sourceAssetId,
       userId: new Types.ObjectId(userId),
+      type: { $in: ['source_upload', 'source_camera'] },
+      status: 'active',
+    });
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
+  });
+
+  it('rejects createJob when the selected source asset is not an uploaded or camera image', async () => {
+    mockedVirtualTryOnAsset.findOne.mockResolvedValue(null);
+
+    await expect(virtualTryOnService.createJob(userId, createJobInput)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    expect(mockedVirtualTryOnAsset.findOne).toHaveBeenCalledWith({
+      _id: sourceAssetId,
+      userId: new Types.ObjectId(userId),
+      type: { $in: ['source_upload', 'source_camera'] },
       status: 'active',
     });
     expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();

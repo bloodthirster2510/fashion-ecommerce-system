@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance } from 'axios';
-import { readFile } from 'fs/promises';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import type {
   VirtualTryOnProvider,
@@ -51,7 +51,13 @@ type GarmentProcessingResponse = {
   height?: number;
   layout?: string;
   extractedItems?: Array<{
+    imageBase64?: string;
+    mimeType?: string;
+    width?: number;
+    height?: number;
     role?: string;
+    method?: string;
+    confidence?: number;
     isUsable?: boolean;
     warnings?: string[];
     issues?: Array<{
@@ -101,6 +107,8 @@ const getOptionalEnvValue = (name: string) => {
   const value = process.env[name]?.trim();
   return value || null;
 };
+
+const getComfyApiKey = () => getOptionalEnvValue('VIRTUAL_TRY_ON_API_KEY');
 
 const buildComfyTryOnPrompt = (prompt: string) => [
   'Create one single 2x2 grid image for virtual fashion try-on.',
@@ -162,6 +170,12 @@ const getArrayBuffer = async (url: string, timeoutMs: number) => {
   };
 };
 
+const toBlobPart = (buffer: Buffer) => {
+  const bytes = new Uint8Array(buffer.byteLength);
+  bytes.set(buffer);
+  return bytes;
+};
+
 const uploadImageBinaryToComfy = async (
   client: AxiosInstance,
   input: { buffer: Buffer; mimeType: string; fileName: string },
@@ -169,7 +183,7 @@ const uploadImageBinaryToComfy = async (
   const formData = new FormData();
   formData.append(
     'image',
-    new Blob([input.buffer], { type: input.mimeType }),
+    new Blob([toBlobPart(input.buffer)], { type: input.mimeType }),
     `${sanitizeFileNamePart(input.fileName)}.${getFileExtension(input.mimeType, 'png')}`,
   );
   formData.append('overwrite', 'true');
@@ -192,7 +206,7 @@ const createComfyClient = () => {
     );
   }
 
-  const apiKey = process.env.VIRTUAL_TRY_ON_API_KEY?.trim();
+  const apiKey = getComfyApiKey();
   const headers: Record<string, string> = {};
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
@@ -236,6 +250,15 @@ const getGarmentProcessingTimeoutMs = () => {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30_000;
 };
 
+const getGarmentProcessingDebugDir = () =>
+  getOptionalEnvValue('VIRTUAL_TRY_ON_GARMENT_PROCESSING_DEBUG_DIR');
+
+const sanitizeFileSegment = (value: string) =>
+  value.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'item';
+
+const getImageExtension = (mimeType?: string) =>
+  imageMimeExtensions[mimeType || ''] || 'png';
+
 const shouldFailOpenGarmentProcessing = () =>
   process.env.VIRTUAL_TRY_ON_GARMENT_PROCESSING_FAIL_OPEN === 'true';
 
@@ -243,6 +266,69 @@ const getCollageLayout = (input: VirtualTryOnProviderInput) => {
   if (input.outfitMode === 'single') return 'single';
   if (input.outfitMode === 'top_bottom') return 'top_bottom';
   return 'full_set';
+};
+
+const saveGarmentProcessingDebugImages = async (
+  input: VirtualTryOnProviderInput,
+  response: GarmentProcessingResponse,
+  collageBuffer: Buffer,
+) => {
+  const debugDir = getGarmentProcessingDebugDir();
+  if (!debugDir) return;
+
+  try {
+    const jobDir = path.resolve(debugDir, sanitizeFileSegment(input.jobId));
+    await mkdir(jobDir, { recursive: true });
+
+    await writeFile(
+      path.join(jobDir, `garment-collage.${getImageExtension(response.mimeType)}`),
+      collageBuffer,
+    );
+
+    await Promise.all((response.extractedItems || []).map(async (item, index) => {
+      if (!item.imageBase64) return;
+      const role = sanitizeFileSegment(item.role || `item-${index + 1}`);
+      const fileName = `extracted-${String(index + 1).padStart(2, '0')}-${role}.${getImageExtension(item.mimeType)}`;
+      await writeFile(path.join(jobDir, fileName), Buffer.from(item.imageBase64, 'base64'));
+    }));
+
+    const metadata = {
+      jobId: input.jobId,
+      createdAt: new Date().toISOString(),
+      outfitMode: input.outfitMode,
+      outputMode: input.outputMode,
+      collage: {
+        file: `garment-collage.${getImageExtension(response.mimeType)}`,
+        width: response.width,
+        height: response.height,
+        layout: response.layout,
+        mimeType: response.mimeType || 'image/png',
+      },
+      garments: input.garments.map((garment) => ({
+        role: garment.role,
+        name: garment.name,
+        color: garment.color,
+        size: garment.size,
+      })),
+      extractedItems: (response.extractedItems || []).map((item, index) => ({
+        file: item.imageBase64
+          ? `extracted-${String(index + 1).padStart(2, '0')}-${sanitizeFileSegment(item.role || `item-${index + 1}`)}.${getImageExtension(item.mimeType)}`
+          : null,
+        role: item.role,
+        width: item.width,
+        height: item.height,
+        method: item.method,
+        confidence: item.confidence,
+        isUsable: item.isUsable,
+        warnings: item.warnings || [],
+        issues: item.issues || [],
+      })),
+    };
+    await writeFile(path.join(jobDir, 'metadata.json'), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+    console.info(`Saved garment processing debug images: ${jobDir}`);
+  } catch (error) {
+    console.warn('Could not save garment processing debug images:', error);
+  }
 };
 
 const createGarmentCollage = async (
@@ -286,6 +372,9 @@ const createGarmentCollage = async (
       );
     }
 
+    const collageBuffer = Buffer.from(response.data.imageBase64, 'base64');
+    await saveGarmentProcessingDebugImages(input, response.data, collageBuffer);
+
     const unusableItems = (response.data.extractedItems || [])
       .filter((item) => item?.isUsable === false);
     if (unusableItems.length) {
@@ -303,7 +392,7 @@ const createGarmentCollage = async (
     }
 
     return {
-      buffer: Buffer.from(response.data.imageBase64, 'base64'),
+      buffer: collageBuffer,
       mimeType: response.data.mimeType || 'image/png',
       fileName: `${input.jobId}-garment-collage`,
     };
@@ -428,9 +517,11 @@ const applyWorkflowInputs = async (
 };
 
 const submitPrompt = async (client: AxiosInstance, workflow: unknown) => {
+  const apiKey = getComfyApiKey();
   const response = await client.post<ComfyPromptResponse>('/prompt', {
     prompt: workflow,
     client_id: `fashion-shop-${Date.now()}`,
+    ...(apiKey ? { extra_data: { api_key_comfy_org: apiKey } } : {}),
   });
 
   if (!response.data.prompt_id) {
@@ -575,7 +666,7 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
       video,
       providerJobId: promptId,
       metadata: {
-        provider: 'comfy',
+        provider: '/fashionshop-tryon',
         promptId,
         mappedInputs,
         outputImages: images.map((outputImage) => outputImage.comfyFile),

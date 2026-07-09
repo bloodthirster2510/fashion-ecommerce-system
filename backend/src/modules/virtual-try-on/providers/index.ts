@@ -15,10 +15,14 @@ export type {
 } from './virtual-try-on-provider';
 export { VirtualTryOnProviderError } from './virtual-try-on-provider';
 
+const normalizeProviderName = (providerName: string) =>
+  providerName.trim().replace(/^\/+/, '');
+
 export const createVirtualTryOnProvider = (providerName: string): VirtualTryOnProvider => {
-  switch (providerName) {
+  switch (normalizeProviderName(providerName)) {
     case 'mock':
       return createMockVirtualTryOnProvider();
+    case 'fashionshop-tryon':
     case 'comfy':
     case 'comfyui':
       return createComfyVirtualTryOnProvider();

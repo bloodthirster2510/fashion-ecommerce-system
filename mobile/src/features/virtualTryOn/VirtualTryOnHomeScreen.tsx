@@ -48,6 +48,9 @@ const getJobPreviewUrl = (job: VirtualTryOnJob) =>
 const getJobImageCount = (job: VirtualTryOnJob) =>
   job.generatedImageUrls?.length || (job.generatedImageUrl ? 1 : 0);
 
+const isSourceAsset = (asset: VirtualTryOnAsset) =>
+  asset.type === 'source_upload' || asset.type === 'source_camera';
+
 const studioPalette = {
   ink: '#213448',
   primaryDark: '#213448',
@@ -134,9 +137,10 @@ const VirtualTryOnHomeScreen = () => {
         virtualTryOnApi.getJobs(token, { limit: 4 }),
       ]);
       if (!isCurrent) return;
-      setAssetLibrary(assetsResponse.items);
+      const sourceAssets = assetsResponse.items.filter(isSourceAsset);
+      setAssetLibrary(sourceAssets);
       setLatestAsset((current) => (
-        current && assetsResponse.items.some((asset) => asset._id === current._id)
+        current && sourceAssets.some((asset) => asset._id === current._id)
           ? current
           : null
       ));
@@ -162,7 +166,7 @@ const VirtualTryOnHomeScreen = () => {
     try {
       const asset = await runWithAuth((token) => virtualTryOnApi.uploadAsset(token, uri, source));
       setLatestAsset(asset);
-      setAssetLibrary((current) => [asset, ...current.filter((item) => item._id !== asset._id)]);
+      setAssetLibrary((current) => [asset, ...current.filter((item) => isSourceAsset(item) && item._id !== asset._id)]);
       navigation.navigate('VirtualTryOnBuilder', {
         assetId: asset._id,
         imageUrl: asset.url,

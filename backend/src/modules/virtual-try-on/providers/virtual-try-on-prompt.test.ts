@@ -26,11 +26,12 @@ describe('buildVirtualTryOnPrompt', () => {
     });
 
     expect(result.prompt).toContain('align neckline, shoulders, sleeves');
-    expect(result.prompt).toContain('align waistband, hips, rise');
+    expect(result.prompt).toContain('align waistband, belt loops, hips, rise');
     expect(result.prompt).toContain('correct left-right pairing');
     expect(result.prompt).toContain('faithfully transfer garment type, color, fabric texture');
     expect(result.prompt).toContain('clean professional styling');
-    expect(result.prompt).toContain('coordinate all selected garments into a complete outfit');
+    expect(result.prompt).toContain('complete outfit try-on');
+    expect(result.prompt).toContain('show the pair on the feet with correct scale');
     expect(result.negativePrompt).toContain('missing selected garment');
     expect(result.negativePrompt).toContain('floating shoes');
   });
@@ -47,6 +48,55 @@ describe('buildVirtualTryOnPrompt', () => {
     });
 
     expect(result.prompt).toContain('scene requested by user: warm coffee shop with window light');
-    expect(result.prompt).toContain('combine the selected top and bottom into a coherent outfit');
+    expect(result.prompt).toContain('two-piece outfit try-on');
+    expect(result.prompt).toContain('resolve the waist overlap naturally');
+  });
+
+  it('keeps unrelated garments unchanged for a single top try-on', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'none',
+      outfitMode: 'single',
+      garments: [
+        garment({ role: 'top', name: 'Striped long-sleeve shirt', color: 'white navy' }),
+      ],
+    });
+
+    expect(result.prompt).toContain('single top try-on');
+    expect(result.prompt).toContain('preserve the original pants or skirt, shoes, accessories');
+    expect(result.negativePrompt).toContain('changed pants or shoes when only top is selected');
+  });
+
+  it('uses footwear-specific instructions for shoes-only try-on', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'casual',
+      outfitMode: 'single',
+      garments: [
+        garment({ role: 'shoes', name: 'Black leather sandals', color: 'black' }),
+      ],
+    });
+
+    expect(result.prompt).toContain('single footwear try-on');
+    expect(result.prompt).toContain('both selected shoes must be worn on the correct feet');
+    expect(result.negativePrompt).toContain('bare feet');
+    expect(result.negativePrompt).toContain('shoes on wrong feet');
+  });
+
+  it('handles dress, outerwear, shoes, and accessory as a full outfit recipe', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'party',
+      outfitMode: 'full_set',
+      garments: [
+        garment({ role: 'dress', name: 'Midi dress', color: 'emerald' }),
+        garment({ role: 'outerwear', name: 'Cream blazer', color: 'cream' }),
+        garment({ role: 'shoes', name: 'Pointed heels', color: 'nude' }),
+        garment({ role: 'accessory', name: 'Small shoulder bag', color: 'gold' }),
+      ],
+    });
+
+    expect(result.prompt).toContain('treat it as the main body garment');
+    expect(result.prompt).toContain('make it sit above the top or dress');
+    expect(result.prompt).toContain('place them naturally without covering the face');
+    expect(result.negativePrompt).toContain('dress split into separate top and bottom');
+    expect(result.negativePrompt).toContain('accessory floating');
   });
 });

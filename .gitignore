@@ -144,6 +144,7 @@ vite.config.ts.timestamp-*
 
 # Project specific
 .codex-remote-attachments/
+backend/tmp/
 
 # Python AI services
 __pycache__/

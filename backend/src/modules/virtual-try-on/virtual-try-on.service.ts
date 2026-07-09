@@ -145,6 +145,16 @@ const getFinalPrice = (price: number, discount: number) =>
 const getAssetType = (source: UploadAssetSource): VirtualTryOnAssetType =>
   source === 'camera' ? 'source_camera' : 'source_upload';
 
+const sourceAssetTypes: VirtualTryOnAssetType[] = ['source_upload', 'source_camera'];
+const virtualTryOnAssetTypes: VirtualTryOnAssetType[] = [
+  ...sourceAssetTypes,
+  'generated_image',
+  'generated_video',
+];
+
+const isVirtualTryOnAssetType = (value: string): value is VirtualTryOnAssetType =>
+  virtualTryOnAssetTypes.includes(value as VirtualTryOnAssetType);
+
 const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   _id: asset._id.toString(),
   type: asset.type,
@@ -465,6 +475,21 @@ const findAssetForUser = async (userId: string, assetId: string) => {
 
   if (!asset) {
     throw new VirtualTryOnServiceError('Ảnh không tồn tại hoặc không thuộc tài khoản của bạn', 404);
+  }
+
+  return asset;
+};
+
+const findSourceAssetForUser = async (userId: string, assetId: string) => {
+  const asset = await VirtualTryOnAsset.findOne({
+    _id: toObjectId(assetId, 'asset id'),
+    userId: toObjectId(userId, 'user id'),
+    type: { $in: sourceAssetTypes },
+    status: 'active',
+  });
+
+  if (!asset) {
+    throw new VirtualTryOnServiceError('Không tìm thấy ảnh người mặc', 404);
   }
 
   return asset;
@@ -945,13 +970,20 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
 
 const listAssets = async (userId: string, query: VirtualTryOnListQuery) => {
   const { page, limit } = clampPagination(query);
-  const type = typeof query.type === 'string' ? query.type : undefined;
+  const requestedType = typeof query.type === 'string' ? query.type.trim() : '';
   const filter: Record<string, unknown> = {
     userId: toObjectId(userId, 'user id'),
     status: 'active',
   };
 
-  if (type) filter.type = type;
+  if (requestedType) {
+    if (!isVirtualTryOnAssetType(requestedType)) {
+      throw new VirtualTryOnServiceError('Loại ảnh không hợp lệ', 400);
+    }
+    filter.type = requestedType;
+  } else {
+    filter.type = { $in: sourceAssetTypes };
+  }
 
   const [items, totalItems] = await Promise.all([
     VirtualTryOnAsset.find(filter)
@@ -997,7 +1029,7 @@ const validateAsset = async (
     throw new VirtualTryOnServiceError('Chế độ phối đồ không hợp lệ', 400);
   }
 
-  const sourceAsset = await findAssetForUser(userId, assetId);
+  const sourceAsset = await findSourceAssetForUser(userId, assetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
   return getSourceImageValidationResult(sourceAsset, input.outfitMode, itemRoles);
 };
@@ -1037,7 +1069,7 @@ const createJob = async (
     throw new VirtualTryOnServiceError('Bạn đang có yêu cầu phối đồ khác đang xử lý', 409, 'ACTIVE_JOB_EXISTS');
   }
 
-  const sourceAsset = await findAssetForUser(userId, input.sourceAssetId);
+  const sourceAsset = await findSourceAssetForUser(userId, input.sourceAssetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
   await validateSourceImageForJob(sourceAsset, input.outfitMode, itemRoles);
 
