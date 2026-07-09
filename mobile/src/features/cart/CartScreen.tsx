@@ -1234,9 +1234,6 @@ const CartScreen = () => {
                 <Text style={styles.recommendationPrice}>
                   {formatCurrency(item.product.finalPrice)}
                 </Text>
-                <Text style={styles.recommendationReason} numberOfLines={1}>
-                  {item.reason}
-                </Text>
               </TouchableOpacity>
             );
           })}
@@ -1998,13 +1995,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '900',
     marginTop: 4,
-  },
-  recommendationReason: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-    marginTop: 2,
   },
   cartItem: {
     borderRadius: radii.sm,
