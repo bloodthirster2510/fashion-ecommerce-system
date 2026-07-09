@@ -69,7 +69,8 @@ type GarmentProcessingResponse = {
 };
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const DEFAULT_POLL_INTERVAL_MS = 1_500;
+const DEFAULT_POLL_INTERVAL_MS = 3_000;
+const DEFAULT_RATE_LIMIT_BACKOFF_MS = 8_000;
 
 const imageMimeExtensions: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -109,6 +110,55 @@ const getOptionalEnvValue = (name: string) => {
 };
 
 const getComfyApiKey = () => getOptionalEnvValue('VIRTUAL_TRY_ON_API_KEY');
+
+const getPositiveNumberEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
+const getHeaderValue = (headers: unknown, name: string) => {
+  if (!headers) return null;
+
+  const getter = (headers as { get?: (headerName: string) => unknown }).get;
+  const value = typeof getter === 'function'
+    ? getter.call(headers, name)
+    : (headers as Record<string, unknown>)[name] ?? (headers as Record<string, unknown>)[name.toLowerCase()];
+
+  if (Array.isArray(value)) return String(value[0] || '').trim() || null;
+  return typeof value === 'string' ? value.trim() || null : null;
+};
+
+const getRetryAfterMs = (headers: unknown, fallbackMs: number) => {
+  const retryAfter = getHeaderValue(headers, 'retry-after');
+  if (!retryAfter) return fallbackMs;
+
+  const retryAfterSeconds = Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.max(fallbackMs, retryAfterSeconds * 1000);
+  }
+
+  const retryAt = Date.parse(retryAfter);
+  return Number.isFinite(retryAt) ? Math.max(fallbackMs, retryAt - Date.now()) : fallbackMs;
+};
+
+const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAILED'): Error => {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error
+      ? error
+      : new VirtualTryOnProviderError('ComfyUI provider failed', 502, errorCode);
+  }
+
+  const status = error.response?.status;
+  const message = status === 429
+    ? 'ComfyUI rate limit reached; please wait a moment and try again'
+    : `ComfyUI request failed${status ? ` with status ${status}` : ''}`;
+
+  return new VirtualTryOnProviderError(
+    message,
+    status === 429 ? 429 : 502,
+    status === 429 ? 'COMFY_RATE_LIMITED' : errorCode,
+  );
+};
 
 const buildComfyTryOnPrompt = (prompt: string) => [
   'Create one single 2x2 grid image for virtual fashion try-on.',
@@ -218,6 +268,15 @@ const createComfyClient = () => {
     timeout: Number(process.env.VIRTUAL_TRY_ON_COMFY_REQUEST_TIMEOUT_MS || 30_000),
     headers,
   });
+};
+
+const isComfyCloudClient = (client: AxiosInstance) =>
+  String(client.defaults.baseURL || '').includes('cloud.comfy.org');
+
+const getComfyHistoryPath = (client: AxiosInstance, promptId: string) => {
+  const configuredPath = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_HISTORY_PATH');
+  const template = configuredPath || (isComfyCloudClient(client) ? '/history_v2/{promptId}' : '/history/{promptId}');
+  return template.replace('{promptId}', encodeURIComponent(promptId));
 };
 
 const uploadImageToComfy = async (
@@ -540,13 +599,35 @@ const waitForHistory = async (
   promptId: string,
   timeoutMs: number,
   pollIntervalMs: number,
+  rateLimitBackoffMs: number,
 ) => {
   const deadline = Date.now() + timeoutMs;
+  let rateLimitAttempts = 0;
 
   while (Date.now() < deadline) {
-    const response = await client.get<Record<string, ComfyHistoryEntry>>(`/history/${promptId}`);
-    const entry = response.data?.[promptId];
-    if (entry?.outputs) return entry;
+    try {
+      const response = await client.get<Record<string, ComfyHistoryEntry>>(getComfyHistoryPath(client, promptId));
+      const entry = response.data?.[promptId];
+      rateLimitAttempts = 0;
+      if (entry?.outputs) return entry;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 404) {
+          await sleep(pollIntervalMs);
+          continue;
+        }
+
+        if (error.response?.status === 429) {
+          rateLimitAttempts += 1;
+          const fallbackBackoffMs = Math.min(rateLimitBackoffMs * rateLimitAttempts, 30_000);
+          const retryAfterMs = getRetryAfterMs(error.response.headers, fallbackBackoffMs);
+          const remainingMs = Math.max(0, deadline - Date.now());
+          await sleep(Math.min(retryAfterMs, remainingMs));
+          continue;
+        }
+      }
+      throw createComfyRequestError(error, 'COMFY_HISTORY_REQUEST_FAILED');
+    }
     await sleep(pollIntervalMs);
   }
 
@@ -626,53 +707,62 @@ const downloadComfyOutput = async (
 
 export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
   async generate(input) {
-    const workflowPath = process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH;
-    const workflowMapPath = process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH;
-    if (!workflowPath || !workflowMapPath) {
-      throw new VirtualTryOnProviderError(
-        'Missing VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH or VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH',
-        500,
-        'COMFY_CONFIG_MISSING',
+    try {
+      const workflowPath = process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH;
+      const workflowMapPath = process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH;
+      if (!workflowPath || !workflowMapPath) {
+        throw new VirtualTryOnProviderError(
+          'Missing VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH or VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH',
+          500,
+          'COMFY_CONFIG_MISSING',
+        );
+      }
+
+      const timeoutMs = getPositiveNumberEnv('VIRTUAL_TRY_ON_COMFY_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
+      const pollIntervalMs = getPositiveNumberEnv('VIRTUAL_TRY_ON_COMFY_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS);
+      const rateLimitBackoffMs = getPositiveNumberEnv(
+        'VIRTUAL_TRY_ON_COMFY_RATE_LIMIT_BACKOFF_MS',
+        DEFAULT_RATE_LIMIT_BACKOFF_MS,
       );
+      const client = createComfyClient();
+      const [workflowTemplate, workflowMap] = await Promise.all([
+        readJsonFile<unknown>(workflowPath),
+        readJsonFile<ComfyWorkflowMap>(workflowMapPath),
+      ]);
+      const workflow = cloneJson(workflowTemplate);
+      const mappedInputs = await applyWorkflowInputs(client, workflow, workflowMap, input, timeoutMs);
+      const promptId = await submitPrompt(client, workflow);
+      const history = await waitForHistory(client, promptId, timeoutMs, pollIntervalMs, rateLimitBackoffMs);
+
+      const imageFiles = findOutputFiles(history, workflowMap.outputs?.imageNodeIds || [], ['images']);
+      if (!imageFiles.length) {
+        throw new VirtualTryOnProviderError('ComfyUI workflow finished without an image output', 502, 'COMFY_OUTPUT_MISSING');
+      }
+
+      const images = await Promise.all(imageFiles.map((imageFile) => downloadComfyOutput(client, imageFile, 'image/png')));
+      const image = images[0];
+      const videoFile = input.outputMode === 'image_and_video'
+        ? findFirstOutputFile(history, workflowMap.outputs?.videoNodeIds || [], ['videos', 'gifs', 'images'])
+        : null;
+      const video = videoFile ? await downloadComfyOutput(client, videoFile, 'video/mp4') : null;
+
+      return {
+        image,
+        images,
+        video,
+        providerJobId: promptId,
+        metadata: {
+          provider: '/fashionshop-tryon',
+          promptId,
+          mappedInputs,
+          outputImages: images.map((outputImage) => outputImage.comfyFile),
+          outputImage: image.comfyFile,
+          outputVideo: video?.comfyFile ?? null,
+        },
+      };
+    } catch (error) {
+      if (error instanceof VirtualTryOnProviderError) throw error;
+      throw createComfyRequestError(error);
     }
-
-    const timeoutMs = Number(process.env.VIRTUAL_TRY_ON_COMFY_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
-    const pollIntervalMs = Number(process.env.VIRTUAL_TRY_ON_COMFY_POLL_INTERVAL_MS || DEFAULT_POLL_INTERVAL_MS);
-    const client = createComfyClient();
-    const [workflowTemplate, workflowMap] = await Promise.all([
-      readJsonFile<unknown>(workflowPath),
-      readJsonFile<ComfyWorkflowMap>(workflowMapPath),
-    ]);
-    const workflow = cloneJson(workflowTemplate);
-    const mappedInputs = await applyWorkflowInputs(client, workflow, workflowMap, input, timeoutMs);
-    const promptId = await submitPrompt(client, workflow);
-    const history = await waitForHistory(client, promptId, timeoutMs, pollIntervalMs);
-
-    const imageFiles = findOutputFiles(history, workflowMap.outputs?.imageNodeIds || [], ['images']);
-    if (!imageFiles.length) {
-      throw new VirtualTryOnProviderError('ComfyUI workflow finished without an image output', 502, 'COMFY_OUTPUT_MISSING');
-    }
-
-    const images = await Promise.all(imageFiles.map((imageFile) => downloadComfyOutput(client, imageFile, 'image/png')));
-    const image = images[0];
-    const videoFile = input.outputMode === 'image_and_video'
-      ? findFirstOutputFile(history, workflowMap.outputs?.videoNodeIds || [], ['videos', 'gifs', 'images'])
-      : null;
-    const video = videoFile ? await downloadComfyOutput(client, videoFile, 'video/mp4') : null;
-
-    return {
-      image,
-      images,
-      video,
-      providerJobId: promptId,
-      metadata: {
-        provider: '/fashionshop-tryon',
-        promptId,
-        mappedInputs,
-        outputImages: images.map((outputImage) => outputImage.comfyFile),
-        outputImage: image.comfyFile,
-        outputVideo: video?.comfyFile ?? null,
-      },
-    };
   },
 });

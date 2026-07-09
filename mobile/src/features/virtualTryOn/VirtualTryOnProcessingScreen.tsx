@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -44,6 +44,7 @@ const VirtualTryOnProcessingScreen = () => {
   const { session, runWithAuth } = useAuth();
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const progressGlow = React.useRef(new Animated.Value(0)).current;
 
   const jobId = route.params.jobId;
 
@@ -103,6 +104,27 @@ const VirtualTryOnProcessingScreen = () => {
     return () => clearInterval(timer);
   }, [job, loadJob]);
 
+  const isJobRunning = !job || ['queued', 'processing'].includes(job.status);
+
+  React.useEffect(() => {
+    if (!isJobRunning) {
+      progressGlow.stopAnimation();
+      progressGlow.setValue(0);
+      return undefined;
+    }
+
+    const animation = Animated.loop(
+      Animated.timing(progressGlow, {
+        toValue: 1,
+        duration: 1350,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [isJobRunning, progressGlow]);
+
   const retry = async () => {
     try {
       const nextJob = await runWithAuth((token) => virtualTryOnApi.retryJob(token, jobId));
@@ -123,7 +145,32 @@ const VirtualTryOnProcessingScreen = () => {
     }
   };
 
-  const progress = job?.progress ?? 0;
+  const progress = Math.min(100, Math.max(0, Math.round(job?.progress ?? 0)));
+  const progressLabel = (() => {
+    switch (job?.status) {
+      case 'queued':
+        return 'Đang xếp hàng';
+      case 'failed':
+        return 'Tạo ảnh lỗi';
+      case 'canceled':
+        return 'Đã hủy';
+      case 'processing':
+        return progress >= 100 ? 'Đang hoàn tất' : 'Đang xử lý';
+      default:
+        return 'Đang xử lý';
+    }
+  })();
+  const progressGlowStyle = {
+    transform: [
+      {
+        translateX: progressGlow.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-72, 260],
+        }),
+      },
+      { skewX: '-18deg' },
+    ],
+  };
   const activeStep = progress >= 100 ? 3 : progress >= 62 ? 2 : progress >= 25 ? 1 : 0;
 
   return (
@@ -168,10 +215,12 @@ const VirtualTryOnProcessingScreen = () => {
               </View>
 
               <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${Math.max(8, progress)}%` }]} />
+                <View style={[styles.progressFill, { width: `${Math.max(8, progress)}%` }]}>
+                  {isJobRunning ? <Animated.View style={[styles.progressGlow, progressGlowStyle]} /> : null}
+                </View>
               </View>
               <View style={styles.progressFooter}>
-                <Text style={styles.progressLabel}>{job?.status === 'queued' ? 'Đang xếp hàng' : 'Đang xử lý'}</Text>
+                <Text style={styles.progressLabel}>{progressLabel}</Text>
                 <Text style={styles.progressText}>{progress}%</Text>
               </View>
             </View>
@@ -342,16 +391,26 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     width: '100%',
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: studioPalette.primarySoft,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: studioPalette.successSoft,
     overflow: 'hidden',
     marginTop: spacing.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(25,135,84,0.16)',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 5,
-    backgroundColor: studioPalette.primaryPale,
+    borderRadius: 6,
+    backgroundColor: studioPalette.success,
+    overflow: 'hidden',
+  },
+  progressGlow: {
+    position: 'absolute',
+    top: -3,
+    bottom: -3,
+    width: 72,
+    backgroundColor: 'rgba(255,255,255,0.34)',
   },
   progressFooter: {
     marginTop: spacing.md,
@@ -366,7 +425,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   progressText: {
-    color: studioPalette.primary,
+    color: studioPalette.success,
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '900',
