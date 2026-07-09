@@ -13,7 +13,7 @@ import {
 import { useAppDispatch } from '../../../app/hooks'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
-import { fetchCart } from '../../cart/cart.slice'
+import { setCart } from '../../cart/cart.slice'
 import { catalogService } from '../catalog.service'
 import { customerProductActionsService } from '../customerProductActions.service'
 import { ProductReviews } from '../reviews/ProductReviews'
@@ -180,7 +180,7 @@ export function ProductDetailPage() {
     }
 
     try {
-      await customerProductActionsService.addCartItem({
+      const updatedCart = await customerProductActionsService.addCartItem({
         productId: product._id,
         variantId: selectedVariant._id,
         colorVariantId: selectedColor._id,
@@ -188,7 +188,7 @@ export function ProductDetailPage() {
         quantity,
       })
       message.success(redirectToCart ? 'Đã thêm vào giỏ hàng.' : 'Đã thêm sản phẩm vào giỏ hàng.')
-      void dispatch(fetchCart())
+      dispatch(setCart(updatedCart))
 
       if (redirectToCart) {
         window.location.assign('/cart')

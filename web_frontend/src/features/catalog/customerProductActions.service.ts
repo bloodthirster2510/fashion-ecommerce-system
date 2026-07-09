@@ -1,4 +1,5 @@
 import { requestCustomer } from '../../services/customerHttp'
+import type { Cart } from '../cart/cart.types'
 
 export type AddCartItemPayload = {
   productId: string
@@ -15,7 +16,7 @@ export type FavoriteStatusResponse = {
 
 export const customerProductActionsService = {
   addCartItem(input: AddCartItemPayload) {
-    return requestCustomer<unknown>('/cart/items', {
+    return requestCustomer<Cart>('/cart/items', {
       method: 'POST',
       body: JSON.stringify(input),
     })
