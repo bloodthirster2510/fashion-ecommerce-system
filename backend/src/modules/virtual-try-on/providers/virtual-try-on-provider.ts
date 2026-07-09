@@ -42,6 +42,8 @@ export type VirtualTryOnProviderBinaryOutput = {
 export type VirtualTryOnProviderResult = {
   imageUrl?: string;
   image?: VirtualTryOnProviderBinaryOutput;
+  imageUrls?: string[];
+  images?: VirtualTryOnProviderBinaryOutput[];
   videoUrl?: string | null;
   video?: VirtualTryOnProviderBinaryOutput | null;
   providerJobId?: string | null;

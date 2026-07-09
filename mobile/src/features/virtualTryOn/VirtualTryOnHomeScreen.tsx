@@ -42,6 +42,12 @@ const contextLabel: Record<string, string> = {
   custom: 'Tự nhập',
 };
 
+const getJobPreviewUrl = (job: VirtualTryOnJob) =>
+  job.generatedImageUrls?.[0] || job.generatedImageUrl || job.sourceImageUrl;
+
+const getJobImageCount = (job: VirtualTryOnJob) =>
+  job.generatedImageUrls?.length || (job.generatedImageUrl ? 1 : 0);
+
 const studioPalette = {
   ink: '#213448',
   primaryDark: '#213448',
@@ -293,7 +299,7 @@ const VirtualTryOnHomeScreen = () => {
           {[
             { label: 'Chọn ảnh', icon: latestAsset ? 'check-circle' : 'image-plus', active: true, done: Boolean(latestAsset) },
             { label: 'Phối đồ', icon: 'hanger', active: Boolean(latestAsset), done: false },
-            { label: 'Xem kết quả', icon: 'sparkles', active: Boolean(pendingJob), done: false },
+            { label: 'Xem kết quả', icon: 'auto-fix', active: Boolean(pendingJob), done: false },
           ].map((step, index) => (
             <View key={step.label} style={styles.flowStepWrap}>
               <View
@@ -476,24 +482,33 @@ const VirtualTryOnHomeScreen = () => {
           <ActivityIndicator color={colors.brand} style={styles.listLoading} />
         ) : jobs.length ? (
           <View style={styles.jobGrid}>
-            {jobs.map((job) => (
-              <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
-                <View style={styles.jobImageWrap}>
-                  <RemoteImage
-                    uri={job.generatedImageUrl || job.sourceImageUrl}
-                    style={styles.jobImage}
-                    recyclingKey={`${job._id}-${job.status}`}
-                  />
-                  <View style={styles.jobBadge}>
-                    <Text style={styles.jobBadgeText}>{statusLabel[job.status]}</Text>
+            {jobs.map((job) => {
+              const imageCount = getJobImageCount(job);
+
+              return (
+                <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
+                  <View style={styles.jobImageWrap}>
+                    <RemoteImage
+                      uri={getJobPreviewUrl(job)}
+                      style={styles.jobImage}
+                      recyclingKey={`${job._id}-${job.status}`}
+                    />
+                    <View style={styles.jobBadge}>
+                      <Text style={styles.jobBadgeText}>{statusLabel[job.status]}</Text>
+                    </View>
+                    {imageCount > 1 ? (
+                      <View style={styles.jobImageCountBadge}>
+                        <Text style={styles.jobImageCountText}>{imageCount} ảnh</Text>
+                      </View>
+                    ) : null}
                   </View>
-                </View>
-                <Text style={styles.jobTitle} numberOfLines={2}>
-                  {contextLabel[job.contextPreset] ?? 'Phối đồ'}
-                </Text>
-                <Text style={styles.jobMeta}>{formatDate(job.createdAt)}</Text>
-              </TouchableOpacity>
-            ))}
+                  <Text style={styles.jobTitle} numberOfLines={2}>
+                    {contextLabel[job.contextPreset] ?? 'Phối đồ'}
+                  </Text>
+                  <Text style={styles.jobMeta}>{formatDate(job.createdAt)}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         ) : (
           <View style={styles.emptyState}>
@@ -1016,6 +1031,21 @@ const styles = StyleSheet.create({
   },
   jobBadgeText: {
     color: colors.white,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  jobImageCountBadge: {
+    position: 'absolute',
+    right: spacing.sm,
+    top: spacing.sm,
+    borderRadius: radii.xs,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  jobImageCountText: {
+    color: studioPalette.ink,
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '900',

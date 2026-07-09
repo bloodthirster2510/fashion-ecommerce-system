@@ -2,7 +2,7 @@ import base64
 import binascii
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 def decode_image_base64(image_base64: str, max_bytes: int) -> Image.Image:
@@ -17,6 +17,7 @@ def decode_image_base64(image_base64: str, max_bytes: int) -> Image.Image:
 
     try:
         image = Image.open(BytesIO(raw))
+        image = ImageOps.exif_transpose(image)
         image.load()
     except Exception as exc:
         raise ValueError("image cannot be decoded") from exc

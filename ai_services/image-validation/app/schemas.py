@@ -5,6 +5,17 @@ from pydantic import BaseModel, Field
 
 OutfitMode = Literal["single", "top_bottom", "full_set"]
 ItemRole = Literal["top", "bottom", "dress", "shoes", "accessory", "outerwear"]
+BodyRegion = Literal["upper", "hips", "legs", "feet"]
+CapabilityMode = Literal[
+    "full_set",
+    "top_bottom",
+    "top",
+    "bottom",
+    "dress",
+    "shoes",
+    "outerwear",
+    "accessory",
+]
 QualityLevel = Literal["ok", "warn", "fail"]
 BodyVisibility = Literal["good", "partial", "unknown"]
 ReasonCode = Literal[
@@ -46,6 +57,21 @@ class Quality(BaseModel):
     resolution: QualityLevel = "ok"
 
 
+class CapabilityBlock(BaseModel):
+    reasonCode: ReasonCode | None = None
+    message: str | None = None
+    missingRegions: list[BodyRegion] = Field(default_factory=list)
+
+
+class ImageCapability(BaseModel):
+    mode: CapabilityMode
+    allowed: bool
+    reasonCode: ReasonCode | None = None
+    message: str | None = None
+    requiredRegions: list[BodyRegion] = Field(default_factory=list)
+    missingRegions: list[BodyRegion] = Field(default_factory=list)
+
+
 class ValidationResponse(BaseModel):
     allowed: bool
     reasonCode: ReasonCode | None = None
@@ -58,3 +84,8 @@ class ValidationResponse(BaseModel):
     poseConfidence: float | None = None
     quality: Quality
     safetyFlags: list[str] = Field(default_factory=list)
+    visibleRegions: list[BodyRegion] = Field(default_factory=list)
+    supportedModes: list[CapabilityMode] = Field(default_factory=list)
+    blockedModes: dict[CapabilityMode, CapabilityBlock] = Field(default_factory=dict)
+    recommendedMode: CapabilityMode | None = None
+    capabilities: list[ImageCapability] = Field(default_factory=list)

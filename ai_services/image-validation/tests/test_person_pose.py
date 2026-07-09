@@ -1,4 +1,4 @@
-from app.validators.person_pose import _estimate_body_visibility
+from app.validators.person_pose import _estimate_body_visibility, _estimate_visible_regions
 
 
 def keypoints(*names: str) -> dict[str, float]:
@@ -7,13 +7,22 @@ def keypoints(*names: str) -> dict[str, float]:
 
 def test_single_top_accepts_upper_body_visibility():
     visibility = _estimate_body_visibility(
-        keypoints("left_shoulder", "right_shoulder", "left_hip"),
+        keypoints("left_shoulder", "right_shoulder"),
         "single",
         ["top"],
         0.25,
     )
 
     assert visibility == "good"
+
+
+def test_estimates_visible_regions_once_for_capabilities():
+    regions = _estimate_visible_regions(
+        keypoints("left_shoulder", "left_hip", "left_knee", "left_ankle"),
+        0.25,
+    )
+
+    assert regions == frozenset({"upper", "hips", "legs", "feet"})
 
 
 def test_single_shoes_requires_ankles():

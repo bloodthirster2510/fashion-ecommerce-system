@@ -1,0 +1,12 @@
+{
+  "inputs": {
+    "personImage": "1.inputs.image",
+    "garmentImage": "35.inputs.image",
+    "prompt": "5.inputs.value",
+    "seed": "9.inputs.seed",
+    "model": "9.inputs.model"
+  },
+  "outputs": {
+    "imageNodeIds": ["12", "13", "14", "15"]
+  }
+}

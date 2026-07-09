@@ -13,6 +13,7 @@ import {
   listJobs,
   retryJob,
   uploadAsset,
+  validateAsset,
 } from './virtual-try-on.controller';
 
 const router = Router();
@@ -24,6 +25,7 @@ router.use(authorize('user'));
 
 router.get('/assets', listAssets);
 router.post('/assets', assetUpload, uploadAsset);
+router.post('/assets/:assetId/validate', validateAsset);
 router.delete('/assets/:assetId', deleteAsset);
 
 router.get('/jobs/latest', getLatestJob);

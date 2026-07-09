@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 GarmentRole = Literal["top", "bottom", "dress", "shoes", "accessory", "outerwear"]
 CollageLayout = Literal["auto", "single", "top_bottom", "full_set", "horizontal"]
+IssueSeverity = Literal["warning", "error"]
 
 
 class BoundingBox(BaseModel):
@@ -12,6 +13,12 @@ class BoundingBox(BaseModel):
     y: int = Field(ge=0)
     width: int = Field(ge=0)
     height: int = Field(ge=0)
+
+
+class GarmentProcessingIssue(BaseModel):
+    code: str
+    severity: IssueSeverity
+    message: str
 
 
 class GarmentImageInput(BaseModel):
@@ -33,6 +40,9 @@ class ExtractGarmentResponse(BaseModel):
     role: GarmentRole
     method: str
     confidence: float = Field(ge=0.0, le=1.0)
+    isUsable: bool = True
+    warnings: list[str] = Field(default_factory=list)
+    issues: list[GarmentProcessingIssue] = Field(default_factory=list)
     bbox: BoundingBox | None = None
 
 

@@ -1,7 +1,9 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 
 from app.processors.composer import CollageItem, compose_collage
-from app.processors.extractor import extract_garment
+from app.processors.hybrid_extractor import HybridGarmentExtractor
 from app.processors.image_io import decode_image_base64, encode_png_base64
 from app.schemas import (
     BoundingBox,
@@ -9,6 +11,7 @@ from app.schemas import (
     ComposeCollageResponse,
     ExtractGarmentRequest,
     ExtractGarmentResponse,
+    GarmentProcessingIssue,
     PrepareCollageRequest,
     PrepareCollageResponse,
 )
@@ -16,10 +19,19 @@ from app.settings import load_settings
 
 
 settings = load_settings()
+garment_extractor = HybridGarmentExtractor(settings)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if settings.model_warmup_on_start:
+        garment_extractor.warmup()
+    yield
 
 app = FastAPI(
     title="Fashion Garment Processing",
-    version="1.0.0",
+    version="1.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -36,7 +48,7 @@ def _extract_response(request: ExtractGarmentRequest) -> tuple[ExtractGarmentRes
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    result = extract_garment(source, request.role, settings, request.maxLongEdge)
+    result = garment_extractor.extract(source, request.role, request.maxLongEdge)
     response = ExtractGarmentResponse(
         imageBase64=encode_png_base64(result.image),
         width=result.image.width,
@@ -44,6 +56,16 @@ def _extract_response(request: ExtractGarmentRequest) -> tuple[ExtractGarmentRes
         role=result.role,
         method=result.method,
         confidence=result.confidence,
+        isUsable=result.is_usable,
+        warnings=result.warnings,
+        issues=[
+            GarmentProcessingIssue(
+                code=issue.code,
+                severity=issue.severity,
+                message=issue.message,
+            )
+            for issue in result.issues
+        ],
         bbox=_bbox_from_tuple(result.bbox),
     )
     return response, CollageItem(image=result.image, role=request.role, label=request.label)
@@ -73,7 +95,7 @@ def _compose_response(request: ComposeCollageRequest, items: list[CollageItem]) 
 def health() -> dict[str, object]:
     return {
         "status": "ok",
-        "provider": "heuristic",
+        "provider": garment_extractor.status(),
         "canvas": {
             "width": settings.default_canvas_width,
             "height": settings.default_canvas_height,

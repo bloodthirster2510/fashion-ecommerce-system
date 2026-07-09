@@ -50,7 +50,16 @@ type GarmentProcessingResponse = {
   width?: number;
   height?: number;
   layout?: string;
-  extractedItems?: unknown[];
+  extractedItems?: Array<{
+    role?: string;
+    isUsable?: boolean;
+    warnings?: string[];
+    issues?: Array<{
+      code?: string;
+      severity?: string;
+      message?: string;
+    }>;
+  }>;
 };
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -88,6 +97,11 @@ const readJsonFile = async <T>(filePath: string): Promise<T> => {
 
 const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+const getOptionalEnvValue = (name: string) => {
+  const value = process.env[name]?.trim();
+  return value || null;
+};
+
 const setByPath = (target: unknown, pathSpec: string, value: unknown) => {
   const keys = pathSpec.split('.').map((key) => key.trim()).filter(Boolean);
   if (!keys.length) {
@@ -108,6 +122,18 @@ const setByPath = (target: unknown, pathSpec: string, value: unknown) => {
   }
 
   cursor[keys[keys.length - 1]] = value;
+};
+
+const getByPath = (target: unknown, pathSpec?: string) => {
+  if (!pathSpec) return undefined;
+
+  let cursor: unknown = target;
+  for (const key of pathSpec.split('.').map((part) => part.trim()).filter(Boolean)) {
+    if (!cursor || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<string, unknown>)[key];
+  }
+
+  return cursor;
 };
 
 const getFileExtension = (mimeType: string, fallback: string) => (
@@ -252,6 +278,22 @@ const createGarmentCollage = async (
       );
     }
 
+    const unusableItems = (response.data.extractedItems || [])
+      .filter((item) => item?.isUsable === false);
+    if (unusableItems.length) {
+      throw new VirtualTryOnProviderError(
+        'Garment processing could not extract one or more selected items',
+        422,
+        'GARMENT_PROCESSING_ITEM_UNUSABLE',
+      );
+    }
+
+    const warnings = (response.data.extractedItems || [])
+      .flatMap((item) => item?.warnings || []);
+    if (warnings.length) {
+      console.warn('Garment processing warnings:', [...new Set(warnings)].join(', '));
+    }
+
     return {
       buffer: Buffer.from(response.data.imageBase64, 'base64'),
       mimeType: response.data.mimeType || 'image/png',
@@ -361,7 +403,15 @@ const applyWorkflowInputs = async (
   setMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
   if (input.seed !== undefined) setMappedInput(workflow, workflowMap, 'seed', input.seed);
 
-  return { sourceFileName, garmentFileNames };
+  const configuredModel = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
+  if (configuredModel) setMappedInput(workflow, workflowMap, 'model', configuredModel);
+  const model = getByPath(workflow, workflowMap.inputs?.model);
+
+  return {
+    sourceFileName,
+    garmentFileNames,
+    model: typeof model === 'string' ? model : configuredModel,
+  };
 };
 
 const submitPrompt = async (client: AxiosInstance, workflow: unknown) => {
@@ -418,6 +468,35 @@ const findFirstOutputFile = (
   return null;
 };
 
+const findOutputFiles = (
+  history: ComfyHistoryEntry,
+  nodeIds: string[],
+  outputKeys: string[],
+) => {
+  const outputFiles: ComfyOutputFile[] = [];
+  const seen = new Set<string>();
+
+  for (const nodeId of nodeIds) {
+    const nodeOutput = history.outputs?.[nodeId];
+    if (!nodeOutput) continue;
+
+    for (const outputKey of outputKeys) {
+      const files = nodeOutput[outputKey];
+      if (!Array.isArray(files)) continue;
+
+      for (const file of files) {
+        if (!file?.filename) continue;
+        const key = `${file.type || ''}/${file.subfolder || ''}/${file.filename}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        outputFiles.push(file);
+      }
+    }
+  }
+
+  return outputFiles;
+};
+
 const downloadComfyOutput = async (
   client: AxiosInstance,
   file: ComfyOutputFile,
@@ -465,12 +544,13 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
     const promptId = await submitPrompt(client, workflow);
     const history = await waitForHistory(client, promptId, timeoutMs, pollIntervalMs);
 
-    const imageFile = findFirstOutputFile(history, workflowMap.outputs?.imageNodeIds || [], ['images']);
-    if (!imageFile) {
+    const imageFiles = findOutputFiles(history, workflowMap.outputs?.imageNodeIds || [], ['images']);
+    if (!imageFiles.length) {
       throw new VirtualTryOnProviderError('ComfyUI workflow finished without an image output', 502, 'COMFY_OUTPUT_MISSING');
     }
 
-    const image = await downloadComfyOutput(client, imageFile, 'image/png');
+    const images = await Promise.all(imageFiles.map((imageFile) => downloadComfyOutput(client, imageFile, 'image/png')));
+    const image = images[0];
     const videoFile = input.outputMode === 'image_and_video'
       ? findFirstOutputFile(history, workflowMap.outputs?.videoNodeIds || [], ['videos', 'gifs', 'images'])
       : null;
@@ -478,12 +558,14 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
 
     return {
       image,
+      images,
       video,
       providerJobId: promptId,
       metadata: {
         provider: 'comfy',
         promptId,
         mappedInputs,
+        outputImages: images.map((outputImage) => outputImage.comfyFile),
         outputImage: image.comfyFile,
         outputVideo: video?.comfyFile ?? null,
       },

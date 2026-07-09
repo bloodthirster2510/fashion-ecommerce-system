@@ -5,6 +5,7 @@ It validates that the source image is suitable for try-on:
 
 - basic quality with OpenCV: resolution, blur, brightness
 - person and role-aware body visibility with YOLO Pose
+- try-on capability mapping for `full_set`, `top_bottom`, `top`, `bottom`, `dress`, `shoes`, `outerwear`, and `accessory`
 - rule mapping to the existing backend reason codes
 
 ## Run locally
@@ -46,7 +47,10 @@ POST /validate-image
 `backend/src/modules/virtual-try-on/image-validation/custom-model-image-validation.provider.ts`
 and returns fields compatible with `ImageValidationResult`. The backend also sends
 `itemRoles` (`top`, `bottom`, `dress`, `shoes`, `accessory`, `outerwear`) so the
-service can require the right visible body regions for each mobile try-on mode.
+service can require the right visible body regions for the current mobile try-on
+mode. The response includes `visibleRegions`, `supportedModes`, `blockedModes`,
+`recommendedMode`, and per-mode `capabilities` so the app can explain which
+try-on choices the same source photo can support.
 
 ## Tests
 
@@ -60,7 +64,8 @@ pytest
 All thresholds are environment-driven:
 
 - `IMAGE_VALIDATION_MIN_WIDTH`, `IMAGE_VALIDATION_MIN_HEIGHT`
-- `IMAGE_VALIDATION_BLUR_THRESHOLD`
+- `IMAGE_VALIDATION_BLUR_FAIL_THRESHOLD`
+- `IMAGE_VALIDATION_BLUR_WARN_THRESHOLD` or legacy `IMAGE_VALIDATION_BLUR_THRESHOLD`
 - `IMAGE_VALIDATION_BRIGHTNESS_MIN`, `IMAGE_VALIDATION_BRIGHTNESS_MAX`
 - `IMAGE_VALIDATION_PERSON_CONFIDENCE_THRESHOLD`
 - `IMAGE_VALIDATION_PERSON_SCORE_THRESHOLD`

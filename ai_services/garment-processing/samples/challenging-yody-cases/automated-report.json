@@ -1,0 +1,234 @@
+[
+  {
+    "id": "top-small-person-busy-background",
+    "role": "top",
+    "sourceFile": "top-small-person-busy-background.webp",
+    "extractedFile": "extracted/top-small-person-busy-background.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.95,
+    "isUsable": true,
+    "warnings": [
+      "ambiguous_foreground"
+    ],
+    "issues": [
+      {
+        "code": "ambiguous_foreground",
+        "severity": "warning",
+        "message": "Foreground covers most of the image, background removal may be ambiguous."
+      }
+    ],
+    "bbox": [
+      0,
+      0,
+      1138,
+      1517
+    ],
+    "sourceSize": [
+      1138,
+      1517
+    ],
+    "extractedSize": [
+      480,
+      640
+    ]
+  },
+  {
+    "id": "top-full-outfit-busy-background",
+    "role": "top",
+    "sourceFile": "top-full-outfit-busy-background.webp",
+    "extractedFile": "extracted/top-full-outfit-busy-background.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.95,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      0,
+      0,
+      900,
+      1200
+    ],
+    "sourceSize": [
+      900,
+      1200
+    ],
+    "extractedSize": [
+      480,
+      640
+    ]
+  },
+  {
+    "id": "top-white-cropped-model",
+    "role": "top",
+    "sourceFile": "top-white-cropped-model.webp",
+    "extractedFile": "extracted/top-white-cropped-model.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.808,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      0,
+      0,
+      778,
+      1196
+    ],
+    "sourceSize": [
+      900,
+      1196
+    ],
+    "extractedSize": [
+      400,
+      640
+    ]
+  },
+  {
+    "id": "bottom-lower-body-with-bag",
+    "role": "bottom",
+    "sourceFile": "bottom-lower-body-with-bag.webp",
+    "extractedFile": "extracted/bottom-lower-body-with-bag.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.95,
+    "isUsable": true,
+    "warnings": [
+      "ambiguous_foreground"
+    ],
+    "issues": [
+      {
+        "code": "ambiguous_foreground",
+        "severity": "warning",
+        "message": "Foreground covers most of the image, background removal may be ambiguous."
+      }
+    ],
+    "bbox": [
+      0,
+      0,
+      1138,
+      1516
+    ],
+    "sourceSize": [
+      1138,
+      1516
+    ],
+    "extractedSize": [
+      480,
+      640
+    ]
+  },
+  {
+    "id": "bottom-full-body-busy-background",
+    "role": "bottom",
+    "sourceFile": "bottom-full-body-busy-background.webp",
+    "extractedFile": "extracted/bottom-full-body-busy-background.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.95,
+    "isUsable": true,
+    "warnings": [
+      "ambiguous_foreground"
+    ],
+    "issues": [
+      {
+        "code": "ambiguous_foreground",
+        "severity": "warning",
+        "message": "Foreground covers most of the image, background removal may be ambiguous."
+      }
+    ],
+    "bbox": [
+      0,
+      0,
+      1138,
+      1517
+    ],
+    "sourceSize": [
+      1138,
+      1517
+    ],
+    "extractedSize": [
+      480,
+      640
+    ]
+  },
+  {
+    "id": "shoes-worn-with-legs",
+    "role": "shoes",
+    "sourceFile": "shoes-worn-with-legs.webp",
+    "extractedFile": "extracted/shoes-worn-with-legs.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.791,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      0,
+      0,
+      900,
+      1200
+    ],
+    "sourceSize": [
+      900,
+      1200
+    ],
+    "extractedSize": [
+      483,
+      640
+    ]
+  },
+  {
+    "id": "shoes-with-many-props",
+    "role": "shoes",
+    "sourceFile": "shoes-with-many-props.webp",
+    "extractedFile": "extracted/shoes-with-many-props.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.95,
+    "isUsable": true,
+    "warnings": [
+      "ambiguous_foreground"
+    ],
+    "issues": [
+      {
+        "code": "ambiguous_foreground",
+        "severity": "warning",
+        "message": "Foreground covers most of the image, background removal may be ambiguous."
+      }
+    ],
+    "bbox": [
+      0,
+      0,
+      1500,
+      1998
+    ],
+    "sourceSize": [
+      1500,
+      1998
+    ],
+    "extractedSize": [
+      480,
+      640
+    ]
+  },
+  {
+    "id": "shoes-worn-flatlay-with-props",
+    "role": "shoes",
+    "sourceFile": "shoes-worn-flatlay-with-props.webp",
+    "extractedFile": "extracted/shoes-worn-flatlay-with-props.png",
+    "method": "heuristic_foreground",
+    "confidence": 0.572,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      0,
+      0,
+      900,
+      1200
+    ],
+    "sourceSize": [
+      900,
+      1200
+    ],
+    "extractedSize": [
+      489,
+      640
+    ]
+  }
+]

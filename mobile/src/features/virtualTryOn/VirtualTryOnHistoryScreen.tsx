@@ -35,6 +35,12 @@ const formatDate = (value: string) => {
   }
 };
 
+const getJobPreviewUrl = (job: VirtualTryOnJob) =>
+  job.generatedImageUrls?.[0] || job.generatedImageUrl || job.sourceImageUrl;
+
+const getJobImageCount = (job: VirtualTryOnJob) =>
+  job.generatedImageUrls?.length || (job.generatedImageUrl ? 1 : 0);
+
 const VirtualTryOnHistoryScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { runWithAuth } = useAuth();
@@ -102,32 +108,41 @@ const VirtualTryOnHistoryScreen = () => {
         {isLoading ? (
           <ActivityIndicator color={colors.brand} style={styles.loading} />
         ) : jobs.length ? (
-          jobs.map((job) => (
-            <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
-              <View style={styles.imageWrap}>
-                <RemoteImage
-                  uri={job.generatedImageUrl || job.sourceImageUrl}
-                  style={styles.image}
-                  recyclingKey={`${job._id}-${job.status}`}
-                />
-              </View>
-              <View style={styles.copy}>
-                <View style={styles.titleRow}>
-                  <Text style={styles.title} numberOfLines={2}>
-                    {job.selectedItems.map((item) => item.nameSnapshot).join(' + ')}
-                  </Text>
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => deleteJob(job)}>
-                    <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.textMuted} />
-                  </TouchableOpacity>
+          jobs.map((job) => {
+            const imageCount = getJobImageCount(job);
+
+            return (
+              <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
+                <View style={styles.imageWrap}>
+                  <RemoteImage
+                    uri={getJobPreviewUrl(job)}
+                    style={styles.image}
+                    recyclingKey={`${job._id}-${job.status}`}
+                  />
+                  {imageCount > 1 ? (
+                    <View style={styles.imageCountBadge}>
+                      <Text style={styles.imageCountText}>{imageCount} ảnh</Text>
+                    </View>
+                  ) : null}
                 </View>
-                <View style={styles.metaRow}>
-                  <Text style={styles.badge}>{statusLabel[job.status]}</Text>
-                  <Text style={styles.date}>{formatDate(job.createdAt)}</Text>
+                <View style={styles.copy}>
+                  <View style={styles.titleRow}>
+                    <Text style={styles.title} numberOfLines={2}>
+                      {job.selectedItems.map((item) => item.nameSnapshot).join(' + ')}
+                    </Text>
+                    <TouchableOpacity style={styles.deleteButton} onPress={() => deleteJob(job)}>
+                      <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.badge}>{statusLabel[job.status]}</Text>
+                    <Text style={styles.date}>{formatDate(job.createdAt)}</Text>
+                  </View>
+                  <Text style={styles.price}>{job.totalFinalPrice ? `${job.selectedItems.length} món - ${job.totalFinalPrice.toLocaleString('vi-VN')}đ` : `${job.selectedItems.length} món`}</Text>
                 </View>
-                <Text style={styles.price}>{job.totalFinalPrice ? `${job.selectedItems.length} món - ${job.totalFinalPrice.toLocaleString('vi-VN')}đ` : `${job.selectedItems.length} món`}</Text>
-              </View>
-            </TouchableOpacity>
-          ))
+              </TouchableOpacity>
+            );
+          })
         ) : (
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="hanger" size={36} color={colors.brand} />
@@ -201,6 +216,21 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+  },
+  imageCountBadge: {
+    position: 'absolute',
+    right: 6,
+    top: 6,
+    borderRadius: radii.xs,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  imageCountText: {
+    color: colors.text,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
   },
   copy: {
     flex: 1,

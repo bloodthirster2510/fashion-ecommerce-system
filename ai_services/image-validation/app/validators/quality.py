@@ -46,9 +46,10 @@ def _brightness_level(mean_brightness: float, settings: Settings) -> str:
 
 
 def _blur_level(laplacian_variance: float, settings: Settings) -> str:
-    if laplacian_variance < settings.blur_threshold:
+    warn_threshold = max(settings.blur_warn_threshold, settings.blur_fail_threshold)
+    if laplacian_variance < settings.blur_fail_threshold:
         return "fail"
-    if laplacian_variance < settings.blur_threshold * 1.5:
+    if laplacian_variance < warn_threshold:
         return "warn"
     return "ok"
 

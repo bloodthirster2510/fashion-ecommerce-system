@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from app.schemas import ItemRole, OutfitMode
+from app.schemas import BodyRegion, ItemRole, OutfitMode
 from app.settings import Settings
 
 
@@ -46,6 +46,7 @@ class PersonPoseSummary:
     main_person_box: NormalizedBox | None = None
     body_visibility: str = "unknown"
     pose_confidence: float | None = None
+    visible_regions: frozenset[BodyRegion] = frozenset()
 
 
 def _to_float(value: object, fallback: float = 0.0) -> float:
@@ -59,6 +60,47 @@ def _visible(keypoints: dict[str, float], names: list[str], threshold: float) ->
     return any(keypoints.get(name, 0.0) >= threshold for name in names)
 
 
+def _estimate_visible_regions(keypoints: dict[str, float], threshold: float) -> frozenset[BodyRegion]:
+    if not keypoints:
+        return frozenset()
+
+    regions: set[BodyRegion] = set()
+    if _visible(keypoints, ["left_shoulder", "right_shoulder"], threshold):
+        regions.add("upper")
+    if _visible(keypoints, ["left_hip", "right_hip"], threshold):
+        regions.add("hips")
+    if _visible(keypoints, ["left_knee", "right_knee", "left_ankle", "right_ankle"], threshold):
+        regions.add("legs")
+    if _visible(keypoints, ["left_ankle", "right_ankle"], threshold):
+        regions.add("feet")
+    return frozenset(regions)
+
+
+def _required_regions_for_request(
+    outfit_mode: OutfitMode | None,
+    item_roles: list[ItemRole] | None,
+) -> set[BodyRegion]:
+    roles = set(item_roles or [])
+    if outfit_mode in {"top_bottom", "full_set"}:
+        required_regions: set[BodyRegion] = {"upper", "hips", "legs"}
+        if "shoes" in roles:
+            required_regions.add("feet")
+        return required_regions
+
+    required_regions = set()
+    if roles.intersection({"top", "outerwear", "accessory"}):
+        required_regions.add("upper")
+    if "bottom" in roles:
+        required_regions.update({"hips", "legs"})
+    if "dress" in roles:
+        required_regions.update({"upper", "hips", "legs"})
+    if "shoes" in roles:
+        required_regions.update({"legs", "feet"})
+    if not required_regions:
+        required_regions.update({"upper", "hips"})
+    return required_regions
+
+
 def _estimate_body_visibility(
     keypoints: dict[str, float],
     outfit_mode: OutfitMode | None,
@@ -68,37 +110,9 @@ def _estimate_body_visibility(
     if not keypoints:
         return "unknown"
 
-    has_shoulders = _visible(keypoints, ["left_shoulder", "right_shoulder"], threshold)
-    has_hips = _visible(keypoints, ["left_hip", "right_hip"], threshold)
-    has_knees = _visible(keypoints, ["left_knee", "right_knee"], threshold)
-    has_ankles = _visible(keypoints, ["left_ankle", "right_ankle"], threshold)
-    has_leg_anchor = has_knees or has_ankles
-
-    roles = set(item_roles or [])
-    if outfit_mode in {"top_bottom", "full_set"}:
-        required_regions = {"upper", "hips", "legs"}
-        if "shoes" in roles:
-            required_regions.add("feet")
-    else:
-        required_regions: set[str] = set()
-        if roles.intersection({"top", "outerwear", "accessory"}):
-            required_regions.update({"upper", "hips"})
-        if "bottom" in roles:
-            required_regions.update({"hips", "legs"})
-        if "dress" in roles:
-            required_regions.update({"upper", "hips", "legs"})
-        if "shoes" in roles:
-            required_regions.update({"legs", "feet"})
-        if not required_regions:
-            required_regions.update({"upper", "hips"})
-
-    checks = {
-        "upper": has_shoulders,
-        "hips": has_hips,
-        "legs": has_leg_anchor,
-        "feet": has_ankles,
-    }
-    return "good" if all(checks[region] for region in required_regions) else "partial"
+    visible_regions = _estimate_visible_regions(keypoints, threshold)
+    required_regions = _required_regions_for_request(outfit_mode, item_roles)
+    return "good" if required_regions.issubset(visible_regions) else "partial"
 
 
 def _normalize_box(box_xyxy: np.ndarray, image_width: int, image_height: int) -> NormalizedBox:
@@ -183,6 +197,11 @@ class YoloPoseDetector:
         ]
         pose_confidence = float(np.mean(visible_scores)) if visible_scores else 0.0
 
+        visible_regions = _estimate_visible_regions(
+            keypoint_scores,
+            self.settings.keypoint_confidence_threshold,
+        )
+
         return PersonPoseSummary(
             person_count=len(valid_indices),
             main_person_score=_to_float(confidences[main_index]),
@@ -194,4 +213,5 @@ class YoloPoseDetector:
                 self.settings.keypoint_confidence_threshold,
             ),
             pose_confidence=pose_confidence,
+            visible_regions=visible_regions,
         )

@@ -31,6 +31,9 @@ import {
   getConfiguredImageValidationProviderName,
   getImageValidationReasonMessage,
   getImageValidationReasonStatus,
+  type ImageValidationBodyRegion,
+  type ImageValidationCapability,
+  type ImageValidationCapabilityMode,
   type ImageValidationInput,
   type ImageValidationReasonCode,
   type ImageValidationResult,
@@ -40,6 +43,7 @@ import type {
   CreateVirtualTryOnItemInput,
   CreateVirtualTryOnJobInput,
   UploadAssetSource,
+  ValidateVirtualTryOnAssetInput,
   VirtualTryOnListQuery,
 } from './virtual-try-on.types';
 
@@ -155,6 +159,11 @@ const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   updatedAt: asset.updatedAt.toISOString(),
 });
 
+const getGeneratedImageUrls = (job: Pick<IVirtualTryOnJob, 'generatedImageUrl' | 'generatedImageUrls'>) => {
+  if (job.generatedImageUrls?.length) return job.generatedImageUrls;
+  return job.generatedImageUrl ? [job.generatedImageUrl] : [];
+};
+
 const serializeJob = async (job: IVirtualTryOnJob) => {
   const sourceAsset = await VirtualTryOnAsset.findOne({
     _id: job.sourceAssetId,
@@ -183,6 +192,7 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
     generatedImageUrl: job.generatedImageUrl,
+    generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
     provider: job.provider,
     errorCode: job.errorCode,
@@ -202,6 +212,7 @@ const emitJob = (job: IVirtualTryOnJob, type: 'queued' | 'processing' | 'progres
     status: job.status,
     progress: job.progress,
     generatedImageUrl: job.generatedImageUrl,
+    generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
     errorMessage: job.errorMessage,
   });
@@ -211,7 +222,7 @@ const updateJobStatus = async (
   jobId: string,
   update: Partial<Pick<
     IVirtualTryOnJob,
-    'status' | 'progress' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
+    'status' | 'progress' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedImageAssetIds' | 'generatedImageUrls' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
   >>,
   eventType: 'queued' | 'processing' | 'progress' | 'succeeded' | 'failed' | 'canceled',
 ) => {
@@ -227,6 +238,8 @@ const updateJobStatus = async (
 type VirtualTryOnProviderResult = {
   generatedImageUrl: string;
   generatedImageAssetId?: Types.ObjectId | null;
+  generatedImageUrls: string[];
+  generatedImageAssetIds?: Types.ObjectId[];
   generatedVideoUrl?: string | null;
   generatedVideoAssetId?: Types.ObjectId | null;
   providerJobId?: string | null;
@@ -246,20 +259,23 @@ const getGeneratedFileName = (
   job: IVirtualTryOnJob,
   type: VirtualTryOnAssetType,
   output: VirtualTryOnProviderBinaryOutput,
+  index?: number,
 ) => {
   const fallbackExtension = output.fileName.split('.').pop() || 'bin';
   const extension = mimeExtensions[output.mimeType] || fallbackExtension;
-  return `${job._id.toString()}-${type}.${extension}`;
+  const suffix = typeof index === 'number' ? `-${index}` : '';
+  return `${job._id.toString()}-${type}${suffix}.${extension}`;
 };
 
 const persistGeneratedOutput = async (
   job: IVirtualTryOnJob,
   type: Extract<VirtualTryOnAssetType, 'generated_image' | 'generated_video'>,
   output: VirtualTryOnProviderBinaryOutput,
+  index?: number,
 ) => {
   const uploaded = await uploadToCloudinary(
     output.buffer,
-    getGeneratedFileName(job, type, output),
+    getGeneratedFileName(job, type, output, index),
     `fashion-ecommerce/virtual-try-on/users/${job.userId.toString()}/generated`,
     output.mimeType.startsWith('video/') ? 'video' : 'image',
   );
@@ -323,13 +339,26 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
   const provider = createVirtualTryOnProvider(PROVIDER);
   const providerResult = await provider.generate(buildProviderInput(job));
 
-  let generatedImageUrl = providerResult.imageUrl;
-  let generatedImageAssetId: Types.ObjectId | null = null;
-  if (providerResult.image) {
-    const persistedImage = await persistGeneratedOutput(job, 'generated_image', providerResult.image);
-    generatedImageUrl = persistedImage.url;
-    generatedImageAssetId = persistedImage.assetId;
+  const generatedImageUrls = providerResult.imageUrls?.length
+    ? [...providerResult.imageUrls]
+    : providerResult.imageUrl
+      ? [providerResult.imageUrl]
+      : [];
+  const generatedImageAssetIds: Types.ObjectId[] = [];
+  const imageOutputs = providerResult.images?.length
+    ? providerResult.images
+    : providerResult.image
+      ? [providerResult.image]
+      : [];
+
+  for (const [index, imageOutput] of imageOutputs.entries()) {
+    const persistedImage = await persistGeneratedOutput(job, 'generated_image', imageOutput, index + 1);
+    generatedImageUrls.push(persistedImage.url);
+    generatedImageAssetIds.push(persistedImage.assetId);
   }
+
+  const generatedImageUrl = generatedImageUrls[0];
+  const generatedImageAssetId = generatedImageAssetIds[0] ?? null;
   if (!generatedImageUrl) {
     throw new VirtualTryOnProviderError('Provider did not return a generated image', 502, 'PROVIDER_OUTPUT_MISSING');
   }
@@ -345,6 +374,8 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
   return {
     generatedImageUrl,
     generatedImageAssetId,
+    generatedImageUrls,
+    generatedImageAssetIds,
     generatedVideoUrl,
     generatedVideoAssetId,
     providerJobId: providerResult.providerJobId ?? null,
@@ -353,6 +384,7 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
       outputMode: job.outputMode,
       videoRequested: job.outputMode === 'image_and_video',
       videoReturned: Boolean(generatedVideoUrl),
+      imageCount: generatedImageUrls.length,
     },
   };
 };
@@ -388,6 +420,8 @@ const runProviderJob = async (jobId: string) => {
         progress: 100,
         generatedImageAssetId: providerResult.generatedImageAssetId ?? null,
         generatedImageUrl: providerResult.generatedImageUrl,
+        generatedImageAssetIds: providerResult.generatedImageAssetIds ?? [],
+        generatedImageUrls: providerResult.generatedImageUrls,
         generatedVideoAssetId: providerResult.generatedVideoAssetId ?? null,
         generatedVideoUrl: providerResult.generatedVideoUrl ?? null,
         providerJobId: providerResult.providerJobId ?? null,
@@ -459,6 +493,72 @@ const getPersonScoreThreshold = () => {
   return Number.isFinite(threshold) ? threshold : 0.5;
 };
 
+const imageValidationCapabilityModes: readonly ImageValidationCapabilityMode[] = [
+  'full_set',
+  'top_bottom',
+  'top',
+  'bottom',
+  'dress',
+  'shoes',
+  'outerwear',
+  'accessory',
+];
+
+const imageValidationCapabilityRequiredRegions: Record<ImageValidationCapabilityMode, ImageValidationBodyRegion[]> = {
+  full_set: ['upper', 'hips', 'legs'],
+  top_bottom: ['upper', 'hips', 'legs'],
+  top: ['upper'],
+  bottom: ['hips', 'legs'],
+  dress: ['upper', 'hips', 'legs'],
+  shoes: ['legs', 'feet'],
+  outerwear: ['upper'],
+  accessory: ['upper'],
+};
+
+const getSelectionCapabilityModes = (
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+): ImageValidationCapabilityMode[] => {
+  if (outfitMode === 'full_set') {
+    return itemRoles.includes('shoes') ? ['full_set', 'shoes'] : ['full_set'];
+  }
+  if (outfitMode === 'top_bottom') return ['top_bottom'];
+
+  return Array.from(new Set(itemRoles.map((role) => role as ImageValidationCapabilityMode)));
+};
+
+const buildAllowedImageValidationCapabilities = (): ImageValidationCapability[] =>
+  imageValidationCapabilityModes.map((mode) => ({
+    mode,
+    allowed: true,
+    reasonCode: null,
+    message: null,
+    requiredRegions: imageValidationCapabilityRequiredRegions[mode],
+    missingRegions: [],
+  }));
+
+const getUnsupportedSelectionCapability = (
+  result: ImageValidationResult,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  if (!result.capabilities.length && !result.supportedModes.length && !Object.keys(result.blockedModes).length) {
+    return null;
+  }
+
+  const capabilityByMode = new Map(result.capabilities.map((capability) => [capability.mode, capability]));
+  return getSelectionCapabilityModes(outfitMode, itemRoles)
+    .map((mode) => capabilityByMode.get(mode) ?? {
+      mode,
+      allowed: result.supportedModes.includes(mode),
+      reasonCode: result.blockedModes[mode]?.reasonCode ?? 'BODY_NOT_VISIBLE',
+      message: result.blockedModes[mode]?.message ?? getImageValidationReasonMessage('BODY_NOT_VISIBLE'),
+      requiredRegions: imageValidationCapabilityRequiredRegions[mode],
+      missingRegions: result.blockedModes[mode]?.missingRegions ?? [],
+    })
+    .find((capability) => !capability.allowed) ?? null;
+};
+
 const rejectImageValidationResult = (
   result: ImageValidationResult,
   reasonCode: ImageValidationReasonCode,
@@ -484,6 +584,23 @@ const applyImageValidationPolicy = (result: ImageValidationResult): ImageValidat
   return result;
 };
 
+const applySelectionCapabilityPolicy = (
+  result: ImageValidationResult,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+): ImageValidationResult => {
+  if (!result.allowed) return result;
+
+  const unsupportedCapability = getUnsupportedSelectionCapability(result, outfitMode, itemRoles);
+  if (!unsupportedCapability) return result;
+
+  const reasonCode = unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE';
+  return {
+    ...rejectImageValidationResult(result, reasonCode as ImageValidationReasonCode),
+    message: unsupportedCapability.message || getImageValidationReasonMessage(reasonCode),
+  };
+};
+
 const throwImageValidationError = (result: Pick<ImageValidationResult, 'reasonCode' | 'message'>): never => {
   const reasonCode = result.reasonCode || 'NO_PERSON_DETECTED';
   throw new VirtualTryOnServiceError(
@@ -493,19 +610,75 @@ const throwImageValidationError = (result: Pick<ImageValidationResult, 'reasonCo
   );
 };
 
-const validateSourceImageForJob = async (
+const createImageValidationFallbackResult = (
+  provider: ImageValidationResult['provider'],
+  overrides: Partial<ImageValidationResult> = {},
+): ImageValidationResult => {
+  const allowed = overrides.allowed ?? true;
+  const reasonCode = overrides.reasonCode ?? null;
+  const message = overrides.message ?? (reasonCode ? getImageValidationReasonMessage(reasonCode) : null);
+  const capabilities = allowed
+    ? buildAllowedImageValidationCapabilities()
+    : imageValidationCapabilityModes.map((mode) => ({
+        mode,
+        allowed: false,
+        reasonCode,
+        message,
+        requiredRegions: imageValidationCapabilityRequiredRegions[mode],
+        missingRegions: [],
+      }));
+  const supportedModes = capabilities.filter((capability) => capability.allowed).map((capability) => capability.mode);
+
+  return {
+    allowed,
+    reasonCode,
+    message,
+    provider,
+    personCount: 0,
+    mainPersonScore: 0,
+    mainPersonBox: null,
+    bodyVisibility: 'unknown',
+    quality: {
+      blur: 'warn',
+      brightness: 'warn',
+      resolution: 'warn',
+    },
+    safetyFlags: [],
+    visibleRegions: [],
+    supportedModes,
+    blockedModes: capabilities.reduce<ImageValidationResult['blockedModes']>((blockedModes, capability) => {
+      if (!capability.allowed) {
+        blockedModes[capability.mode] = {
+          reasonCode: capability.reasonCode,
+          message: capability.message,
+          missingRegions: capability.missingRegions,
+        };
+      }
+      return blockedModes;
+    }, {}),
+    recommendedMode: supportedModes[0] ?? null,
+    capabilities,
+    ...overrides,
+  };
+};
+
+const getSourceImageValidationResult = async (
   sourceAsset: IVirtualTryOnAsset,
   outfitMode: VirtualTryOnOutfitMode,
   itemRoles: VirtualTryOnItemRole[],
 ) => {
   const providerName = getConfiguredImageValidationProviderName();
-  if (providerName === 'disabled') return;
+  if (providerName === 'disabled') {
+    return createImageValidationFallbackResult('disabled', {
+      provider: 'disabled',
+      message: 'Image validation is disabled',
+    });
+  }
 
-  let result: ImageValidationResult | undefined;
   try {
     const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
     const provider = createImageValidationProvider(providerName);
-    result = applyImageValidationPolicy(await provider.validate({
+    const result = applyImageValidationPolicy(await provider.validate({
       imageBuffer: buffer,
       mimeType,
       width: sourceAsset.width ?? 0,
@@ -515,32 +688,44 @@ const validateSourceImageForJob = async (
       outfitMode,
       itemRoles,
     }));
+    return applySelectionCapabilityPolicy(result, outfitMode, itemRoles);
   } catch (error) {
     if (shouldFailOpenImageValidation()) {
       console.warn('Image validation failed open:', error);
-      return;
+      return createImageValidationFallbackResult(providerName, {
+        message: 'Image validation failed open',
+      });
     }
 
-    throwImageValidationError({
+    return createImageValidationFallbackResult(providerName, {
+      allowed: false,
       reasonCode: 'VALIDATION_PROVIDER_FAILED',
       message: getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
     });
   }
+};
 
-  if (!result) {
-    throw new VirtualTryOnServiceError(
-      getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
-      getImageValidationReasonStatus('VALIDATION_PROVIDER_FAILED'),
-      'VALIDATION_PROVIDER_FAILED',
-    );
-  }
+const validateSourceImageForJob = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
 
   if (!result.allowed) {
     throwImageValidationError(result);
   }
+
+  const unsupportedCapability = getUnsupportedSelectionCapability(result, outfitMode, itemRoles);
+  if (unsupportedCapability) {
+    throwImageValidationError({
+      reasonCode: unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE',
+      message: unsupportedCapability.message || getImageValidationReasonMessage(unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE'),
+    });
+  }
 };
 
-const getSelectedItemRolesForValidation = (items: CreateVirtualTryOnItemInput[]) => {
+const getSelectedItemRolesForValidation = (items: Array<Pick<CreateVirtualTryOnItemInput, 'role'>>) => {
   if (!Array.isArray(items) || items.length < 1 || items.length > MAX_SELECTED_ITEMS) {
     throw new VirtualTryOnServiceError(`Vui lòng chọn từ 1 đến ${MAX_SELECTED_ITEMS} sản phẩm`, 400);
   }
@@ -800,6 +985,23 @@ const deleteAsset = async (userId: string, assetId: string) => {
   return serializeAsset(asset);
 };
 
+const validateAsset = async (
+  userId: string,
+  assetId: string,
+  input: ValidateVirtualTryOnAssetInput,
+) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new VirtualTryOnServiceError('Request body must be an object', 400);
+  }
+  if (!allowedOutfitModes.has(input.outfitMode)) {
+    throw new VirtualTryOnServiceError('Chế độ phối đồ không hợp lệ', 400);
+  }
+
+  const sourceAsset = await findAssetForUser(userId, assetId);
+  const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
+  return getSourceImageValidationResult(sourceAsset, input.outfitMode, itemRoles);
+};
+
 const getActiveJobCount = (userId: string) =>
   VirtualTryOnJob.countDocuments({
     userId: toObjectId(userId, 'user id'),
@@ -934,6 +1136,8 @@ const retryJob = async (userId: string, jobId: string) => {
 
   job.status = 'queued';
   job.progress = 0;
+  job.generatedImageAssetIds = [];
+  job.generatedImageUrls = [];
   job.generatedImageUrl = null;
   job.generatedVideoUrl = null;
   job.errorCode = null;
@@ -1030,6 +1234,7 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
       finalPriceSnapshot: item.finalPriceSnapshot,
     })),
     generatedImageUrl: job.generatedImageUrl,
+    generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
@@ -1199,6 +1404,8 @@ const retryAdminJob = async (jobId: string) => {
 
   job.status = 'queued';
   job.progress = 0;
+  job.generatedImageAssetIds = [];
+  job.generatedImageUrls = [];
   job.generatedImageUrl = null;
   job.generatedVideoUrl = null;
   job.errorCode = null;
@@ -1257,6 +1464,7 @@ export const virtualTryOnService = {
   uploadAsset,
   listAssets,
   deleteAsset,
+  validateAsset,
   createJob,
   getJob,
   getLatestJob,

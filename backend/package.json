@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",
+    "dev:try-on": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-try-on.ps1",
     "dev:vnpay": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-vnpay-tunnel.ps1",
     "vnpay:public-url": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-vnpay-public-url.ps1",
     "migrate:coupon-index": "node scripts/migrate-coupon-code-index.js",

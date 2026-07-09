@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -17,13 +17,30 @@ import {
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
-import type { TryOnContextPreset, TryOnItemRole, TryOnOutfitMode, TryOnSelectedItem } from './virtualTryOn.types';
+import type {
+  TryOnContextPreset,
+  TryOnImageValidationCapability,
+  TryOnImageValidationCapabilityMode,
+  TryOnImageValidationResult,
+  TryOnItemRole,
+  TryOnOutfitMode,
+  TryOnSelectedItem,
+} from './virtualTryOn.types';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type FashionIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type TryOnProductSort = 'recommended' | 'price_asc' | 'price_desc';
 type TryOnGenderFilter = 'all' | 'male' | 'female' | 'unisex';
+type ImageValidationStatus = 'idle' | 'checking' | 'valid' | 'invalid' | 'error';
+
+type ImageValidationState = {
+  status: ImageValidationStatus;
+  key: string;
+  result?: TryOnImageValidationResult;
+  errorCode?: string | null;
+  message?: string;
+};
 
 type TryOnProductFilters = {
   categoryIds: string[];
@@ -72,7 +89,7 @@ const outfitModes: Array<{
 }> = [
   { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm', icon: 'tshirt-crew' },
   { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'tshirt-v' },
-  { key: 'full_set', label: 'Nhiều món', description: 'Ghép nhiều món thành bộ phối', icon: 'hanger' },
+  { key: 'full_set', label: 'Nhiều món', description: 'Tạo bộ phối', icon: 'hanger' },
 ];
 
 const contextOptions: Array<{ key: TryOnContextPreset; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
@@ -103,82 +120,154 @@ const roleLabel: Record<TryOnItemRole, string> = {
   top: 'Áo',
   bottom: 'Quần',
   dress: 'Váy/đầm',
-  shoes: 'Giày',
+  shoes: 'Giày/dép',
   accessory: 'Phụ kiện',
   outerwear: 'Áo khoác',
+};
+
+const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode, string> = {
+  full_set: 'full set',
+  top_bottom: 'áo + quần',
+  top: 'áo',
+  bottom: 'quần',
+  dress: 'váy/đầm',
+  shoes: 'giày/dép',
+  outerwear: 'áo khoác',
+  accessory: 'phụ kiện',
+};
+
+const imageValidationCapabilityPriority: TryOnImageValidationCapabilityMode[] = [
+  'full_set',
+  'top_bottom',
+  'top',
+  'bottom',
+  'dress',
+  'shoes',
+  'outerwear',
+];
+
+const getSelectionCapabilityModes = (
+  outfitMode: TryOnOutfitMode,
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>,
+): TryOnImageValidationCapabilityMode[] => {
+  if (outfitMode === 'full_set') {
+    return selectedItems.some((item) => item.role === 'shoes') ? ['full_set', 'shoes'] : ['full_set'];
+  }
+  if (outfitMode === 'top_bottom') return ['top_bottom'];
+
+  return Array.from(new Set(selectedItems.map((item) => item.role as TryOnImageValidationCapabilityMode)));
+};
+
+const getSupportedImageValidationModeSummary = (result?: TryOnImageValidationResult) => {
+  const supportedModes = new Set(result?.supportedModes ?? []);
+  const orderedModes = imageValidationCapabilityPriority.filter((mode) => supportedModes.has(mode));
+  if (!orderedModes.length) return '';
+
+  return orderedModes
+    .slice(0, 4)
+    .map((mode) => imageValidationCapabilityLabel[mode])
+    .join(', ');
+};
+
+const getUnsupportedImageValidationCapability = (
+  result: TryOnImageValidationResult,
+  outfitMode: TryOnOutfitMode,
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>,
+): TryOnImageValidationCapability | null => {
+  const capabilityByMode = new Map((result.capabilities ?? []).map((capability) => [capability.mode, capability]));
+  const supportedModes = result.supportedModes ?? [];
+
+  for (const mode of getSelectionCapabilityModes(outfitMode, selectedItems)) {
+    const capability = capabilityByMode.get(mode);
+    if (capability && !capability.allowed) return capability;
+
+    if (!capability && supportedModes.length && !supportedModes.includes(mode)) {
+      const blockedMode = result.blockedModes?.[mode];
+      return {
+        mode,
+        allowed: false,
+        reasonCode: blockedMode?.reasonCode ?? 'BODY_NOT_VISIBLE',
+        message: blockedMode?.message ?? null,
+        requiredRegions: [],
+        missingRegions: blockedMode?.missingRegions ?? [],
+      };
+    }
+  }
+
+  return null;
 };
 
 const imageValidationAlerts: Record<string, { title: string; message: string }> = {
   NO_PERSON_DETECTED: {
     title: 'Ảnh chưa phù hợp',
-    message: 'Bạn hãy chọn ảnh có một người rõ ràng để hệ thống thử đồ chính xác hơn.',
+    message: 'Chọn ảnh có một người rõ mặt và thân trên.',
   },
   MULTIPLE_PEOPLE_DETECTED: {
     title: 'Ảnh có nhiều người',
-    message: 'Bạn hãy dùng ảnh chỉ có một người chính trong khung hình.',
+    message: 'Dùng ảnh chỉ có một người.',
   },
   PERSON_TOO_SMALL: {
-    title: 'Người trong ảnh quá nhỏ',
-    message: 'Bạn hãy chọn ảnh chụp gần hơn, người chiếm phần lớn khung hình.',
+    title: 'Người quá nhỏ',
+    message: 'Chọn ảnh chụp gần hơn.',
   },
   BODY_NOT_VISIBLE: {
     title: 'Chưa thấy đủ cơ thể',
-    message: 'Kiểu phối này cần ảnh thấy rõ người hơn. Bạn hãy chọn ảnh nửa người hoặc toàn thân phù hợp.',
+    message: 'Ảnh chưa đủ vùng cơ thể cho kiểu phối này.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
-    message: 'Bạn hãy chọn ảnh đứng thẳng, mặt hướng camera và ít bị che khuất.',
+    message: 'Chọn ảnh đứng thẳng, ít bị che.',
   },
   IMAGE_TOO_BLURRY: {
     title: 'Ảnh bị mờ',
-    message: 'Bạn hãy chọn hoặc chụp lại ảnh rõ nét hơn.',
+    message: 'Chọn ảnh rõ nét hơn.',
   },
   IMAGE_TOO_DARK: {
     title: 'Ảnh quá tối',
-    message: 'Bạn hãy chọn ảnh đủ sáng hơn để hệ thống nhận diện cơ thể tốt hơn.',
+    message: 'Chọn ảnh sáng hơn.',
   },
   IMAGE_TOO_SMALL: {
     title: 'Ảnh quá nhỏ',
-    message: 'Bạn hãy chọn ảnh có độ phân giải cao hơn.',
+    message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
     title: 'Ảnh không phù hợp',
-    message: 'Ảnh này không thể dùng để tạo phối đồ ảo. Bạn hãy chọn ảnh khác.',
+    message: 'Chọn ảnh khác.',
   },
   VALIDATION_PROVIDER_FAILED: {
-    title: 'Chưa kiểm tra được ảnh',
-    message: 'Hệ thống đang chưa kiểm tra được ảnh này. Bạn hãy thử lại sau ít phút.',
+    title: 'Chưa kiểm tra được',
+    message: 'Thử lại sau ít phút.',
   },
 };
 
 const promptValidationAlerts: Record<string, { title: string; message: string }> = {
   PROMPT_SEXUAL_CONTENT: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả bối cảnh có nội dung nhạy cảm. Bạn hãy nhập bối cảnh thời trang an toàn hơn.',
+    message: 'Bỏ nội dung nhạy cảm khỏi mô tả.',
   },
   PROMPT_VIOLENCE: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả bối cảnh có nội dung bạo lực. Bạn hãy chọn một bối cảnh an toàn hơn.',
+    message: 'Bỏ nội dung bạo lực khỏi mô tả.',
   },
   PROMPT_PERSONAL_DATA: {
     title: 'Không dùng dữ liệu cá nhân',
-    message: 'Bạn hãy bỏ số điện thoại, địa chỉ, giấy tờ hoặc thông tin riêng tư khỏi mô tả.',
+    message: 'Bỏ số điện thoại, địa chỉ hoặc giấy tờ.',
   },
   PROMPT_PROFANITY: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả có ngôn ngữ thô tục. Bạn hãy nhập bối cảnh thời trang lịch sự hơn.',
+    message: 'Dùng mô tả lịch sự hơn.',
   },
   PROMPT_HATE_OR_HARASSMENT: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả có nội dung xúc phạm, quấy rối hoặc kỳ thị. Bạn hãy đổi sang bối cảnh an toàn hơn.',
+    message: 'Bỏ nội dung xúc phạm hoặc kỳ thị.',
   },
   PROMPT_INJECTION: {
     title: 'Mô tả chưa hợp lệ',
-    message: 'Mô tả chỉ nên nói về bối cảnh phối đồ, phong cách, màu sắc hoặc dịp sử dụng.',
+    message: 'Chỉ mô tả bối cảnh, phong cách hoặc dịp mặc.',
   },
   PROMPT_TOO_LONG: {
     title: 'Mô tả quá dài',
-    message: 'Bạn hãy rút gọn mô tả bối cảnh trước khi tạo kết quả.',
+    message: 'Rút gọn mô tả.',
   },
 };
 
@@ -249,6 +338,31 @@ const getCreateJobErrorAlert = (error: unknown) => {
   };
 };
 
+const getImageValidationMessage = (
+  result?: TryOnImageValidationResult,
+  fallback?: string,
+  outfitMode?: TryOnOutfitMode,
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>> = [],
+) => {
+  const unsupportedCapability = result && outfitMode
+    ? getUnsupportedImageValidationCapability(result, outfitMode, selectedItems)
+    : null;
+  const reasonCode = unsupportedCapability?.reasonCode ?? result?.reasonCode;
+  const validationAlert = reasonCode ? imageValidationAlerts[reasonCode] : undefined;
+  const supportedSummary = getSupportedImageValidationModeSummary(result);
+  const baseMessage = unsupportedCapability?.message ||
+    validationAlert?.message ||
+    result?.message ||
+    fallback ||
+    'Ảnh đã sẵn sàng.';
+
+  if (reasonCode === 'BODY_NOT_VISIBLE' && supportedSummary) {
+    return `${baseMessage} Phù hợp: ${supportedSummary}.`;
+  }
+
+  return baseMessage;
+};
+
 type OutfitSlot = {
   key: string;
   label: string;
@@ -284,7 +398,7 @@ const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
   return [
     { key: 'top', label: 'Áo', helper: 'Áo, áo khoác', roles: ['top', 'outerwear'], icon: 'tshirt-v' },
     { key: 'outfit', label: 'Quần/Váy', helper: 'Quần, jean, váy, đầm', roles: ['bottom', 'dress'], icon: 'hanger' },
-    { key: 'shoes', label: 'Giày', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-formal' },
+    { key: 'shoes', label: 'Giày/dép', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-formal' },
   ];
 };
 
@@ -367,7 +481,6 @@ const VirtualTryOnBuilderScreen = () => {
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
-  const [includeVideo, setIncludeVideo] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
   const [isProductListVisible, setIsProductListVisible] = React.useState(false);
@@ -375,6 +488,8 @@ const VirtualTryOnBuilderScreen = () => {
   const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [imageValidation, setImageValidation] = React.useState<ImageValidationState>({ status: 'idle', key: '' });
+  const [imageValidationRetryNonce, setImageValidationRetryNonce] = React.useState(0);
   const [selectingProductId, setSelectingProductId] = React.useState<string | null>(null);
   const [activeSlotKey, setActiveSlotKey] = React.useState('top');
   const [configuringProduct, setConfiguringProduct] = React.useState<CatalogProductDetail | null>(null);
@@ -440,7 +555,7 @@ const VirtualTryOnBuilderScreen = () => {
         if (isCurrent) setProducts(response.items);
       })
       .catch(() => {
-        if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách sản phẩm.');
+        if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách.');
       })
       .finally(() => {
         if (isCurrent) setIsLoading(false);
@@ -615,7 +730,7 @@ const VirtualTryOnBuilderScreen = () => {
       const color = variant?.colors[0];
 
       if (!variant || !color) {
-        Alert.alert('Sản phẩm', 'Sản phẩm này chưa có màu hoặc kích cỡ phù hợp để phối đồ.');
+        Alert.alert('Sản phẩm', 'Chưa có màu hoặc size phù hợp.');
         return;
       }
 
@@ -624,7 +739,7 @@ const VirtualTryOnBuilderScreen = () => {
       setSelectedColorId(color._id);
       setSelectedSize(getFirstAvailableSize(variant, color._id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không lấy được chi tiết sản phẩm.';
+      const message = error instanceof Error ? error.message : 'Không tải được chi tiết.';
       Alert.alert('Sản phẩm', message);
     } finally {
       setSelectingProductId(null);
@@ -663,7 +778,7 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     if (!isSizeAvailableForColor(selectedVariant, selectedColor._id, selectedSizeOption)) {
-      Alert.alert('Biến thể', 'Màu và size này hiện chưa khả dụng.');
+      Alert.alert('Biến thể', 'Màu và size này chưa khả dụng.');
       return;
     }
 
@@ -691,7 +806,152 @@ const VirtualTryOnBuilderScreen = () => {
     selectedItems.length > 0 &&
     hasRequiredTopBottom &&
     (outfitMode !== 'full_set' || selectedItems.length >= 2);
-  const submitDisabled = !canSubmit || isSubmitting;
+  const imageValidationRoleKey = selectedItems.map((item) => item.role).join(',');
+  const imageValidationScanKey = sourceAssetId && canSubmit
+    ? `asset:${sourceAssetId}:mode:${outfitMode}:roles:${imageValidationRoleKey}`
+    : '';
+  const currentSelectionUnsupportedCapability =
+    imageValidation.result && imageValidation.key === imageValidationScanKey
+      ? getUnsupportedImageValidationCapability(imageValidation.result, outfitMode, selectedItems)
+      : null;
+  const hasCurrentImageValidationResult = Boolean(imageValidation.result && imageValidation.key === imageValidationScanKey);
+  const imageValidationReady =
+    !imageValidationScanKey ||
+    (
+      hasCurrentImageValidationResult &&
+      imageValidation.result?.allowed === true &&
+      !currentSelectionUnsupportedCapability
+    );
+  const imageValidationBlocksSubmit = Boolean(imageValidationScanKey) && canSubmit && !imageValidationReady;
+  const submitDisabled = !canSubmit || isSubmitting || imageValidationBlocksSubmit;
+
+  React.useEffect(() => {
+    if (!imageValidationScanKey || !sourceAssetId) {
+      setImageValidation((current) =>
+        current.status === 'idle' && current.key === '' ? current : { status: 'idle', key: '' },
+      );
+      return undefined;
+    }
+
+    let isCurrent = true;
+    const timer = setTimeout(() => {
+      setImageValidation({ status: 'checking', key: imageValidationScanKey });
+      runWithAuth((token) =>
+        virtualTryOnApi.validateAsset(token, sourceAssetId, {
+          outfitMode,
+          selectedItems: selectedItems.map((item) => ({ role: item.role })),
+        }),
+      )
+        .then((result) => {
+          if (!isCurrent) return;
+          setImageValidation({
+            status: result.allowed ? 'valid' : 'invalid',
+            key: imageValidationScanKey,
+            result,
+            errorCode: result.reasonCode,
+            message: getImageValidationMessage(result, undefined, outfitMode, selectedItems),
+          });
+        })
+        .catch((error) => {
+          if (!isCurrent) return;
+          const alert = getCreateJobErrorAlert(error);
+          setImageValidation({
+            status: 'error',
+            key: imageValidationScanKey,
+            errorCode: error instanceof VirtualTryOnApiError ? error.errorCode : null,
+            message: alert.message,
+          });
+        });
+    }, 450);
+
+    return () => {
+      isCurrent = false;
+      clearTimeout(timer);
+    };
+  }, [imageValidationRetryNonce, imageValidationScanKey, outfitMode, runWithAuth, selectedItems, sourceAssetId]);
+
+  const retryImageValidation = React.useCallback(() => {
+    if (!imageValidationScanKey || imageValidation.status === 'checking') return;
+    setImageValidationRetryNonce((value) => value + 1);
+  }, [imageValidation.status, imageValidationScanKey]);
+
+  const imageValidationDisplay = (() => {
+    if (!sourceAssetId) {
+      return {
+        icon: 'image-outline' as FashionIconName,
+        tone: 'idle' as const,
+        title: 'Chưa có ảnh người mặc',
+        message: 'Tải ảnh hoặc chụp ảnh trước.',
+      };
+    }
+
+    if (!canSubmit) {
+      return {
+        icon: 'image-search-outline' as FashionIconName,
+        tone: 'idle' as const,
+        title: 'Chờ chọn đồ',
+        message: 'Chọn sản phẩm để kiểm tra ảnh.',
+      };
+    }
+
+    if (imageValidation.status === 'checking' && imageValidation.key === imageValidationScanKey) {
+      return {
+        icon: 'loading' as FashionIconName,
+        tone: 'checking' as const,
+        title: 'Đang kiểm tra ảnh',
+        message: 'Đang kiểm tra người và vùng cơ thể.',
+      };
+    }
+
+    if (hasCurrentImageValidationResult) {
+      if (!imageValidation.result?.allowed) {
+        return {
+          icon: 'alert-circle-outline' as FashionIconName,
+          tone: 'invalid' as const,
+          title: 'Ảnh chưa phù hợp',
+          message: getImageValidationMessage(imageValidation.result, undefined, outfitMode, selectedItems),
+        };
+      }
+
+      if (currentSelectionUnsupportedCapability) {
+        return {
+          icon: 'alert-circle-outline' as FashionIconName,
+          tone: 'invalid' as const,
+          title: 'Ảnh chưa phù hợp',
+          message: getImageValidationMessage(imageValidation.result, undefined, outfitMode, selectedItems),
+        };
+      }
+
+      const supportedSummary = getSupportedImageValidationModeSummary(imageValidation.result);
+      return {
+        icon: 'check-circle-outline' as FashionIconName,
+        tone: 'valid' as const,
+        title: 'Ảnh phù hợp',
+        message: supportedSummary
+          ? `Phù hợp: ${supportedSummary}.`
+          : 'Có thể tạo ảnh.',
+      };
+    }
+
+    if (
+      (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
+      imageValidation.key === imageValidationScanKey
+    ) {
+      return {
+        icon: 'alert-circle-outline' as FashionIconName,
+        tone: 'invalid' as const,
+        title: 'Ảnh chưa phù hợp',
+        message: imageValidation.message || 'Chọn ảnh rõ hơn.',
+      };
+    }
+
+    return {
+      icon: 'image-search-outline' as FashionIconName,
+      tone: 'checking' as const,
+      title: 'Chờ kiểm tra',
+      message: 'Ảnh sẽ được kiểm tra trước khi tạo.',
+    };
+  })();
 
   const footerLabel = (() => {
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
@@ -723,7 +983,7 @@ const VirtualTryOnBuilderScreen = () => {
           })),
           contextPreset,
           contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
-          outputMode: includeVideo ? 'image_and_video' : 'image',
+          outputMode: 'image',
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       );
       navigation.replace('VirtualTryOnProcessing', { jobId: job._id });
@@ -737,23 +997,28 @@ const VirtualTryOnBuilderScreen = () => {
 
   const createJob = () => {
     if (!sourceAssetId) {
-      Alert.alert('Ảnh của bạn', 'Bạn cần tải ảnh hoặc chụp ảnh trước.');
+      Alert.alert('Ảnh của bạn', 'Tải ảnh hoặc chụp ảnh trước.');
       navigation.navigate('VirtualTryOnHome');
       return;
     }
 
     if (!selectedItems.length) {
-      Alert.alert('Chọn sản phẩm', 'Bạn hãy chọn ít nhất một sản phẩm để phối đồ.');
+      Alert.alert('Chọn sản phẩm', 'Chọn ít nhất một sản phẩm.');
       return;
     }
 
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
-      Alert.alert('Chọn áo và quần', 'Bạn cần chọn đủ áo và quần để tạo phối đồ.');
+      Alert.alert('Chọn áo và quần', 'Cần đủ áo và quần.');
       return;
     }
 
     if (outfitMode === 'full_set' && selectedItems.length < 2) {
-      Alert.alert('Chọn thêm sản phẩm', 'Bạn hãy chọn ít nhất 2 món để hệ thống tạo bộ phối rõ hơn.');
+      Alert.alert('Chọn thêm sản phẩm', 'Cần ít nhất 2 món.');
+      return;
+    }
+
+    if (imageValidationBlocksSubmit) {
+      Alert.alert(imageValidationDisplay.title, imageValidationDisplay.message);
       return;
     }
 
@@ -800,17 +1065,43 @@ const VirtualTryOnBuilderScreen = () => {
             <Text style={styles.studioText}>
               Chọn ảnh người mặc, thêm sản phẩm và chọn bối cảnh để tạo ảnh phối đồ.
             </Text>
-            <View style={styles.studioStepRow}>
-              <View style={[styles.studioStep, styles.studioStepDone]}><Text style={[styles.studioStepText, styles.studioStepTextDone]}>1 Ảnh</Text></View>
-              <View style={styles.studioStepActive}><Text style={[styles.studioStepText, styles.studioStepTextActive]}>2 Bộ đồ</Text></View>
-              <View style={styles.studioStep}><Text style={styles.studioStepText}>3 Kết quả</Text></View>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!imageValidationScanKey || imageValidationDisplay.tone === 'checking'}
+              onPress={retryImageValidation}
+              style={({ pressed }) => [
+                styles.imageValidationPill,
+                imageValidationDisplay.tone === 'valid' && styles.imageValidationPillValid,
+                imageValidationDisplay.tone === 'invalid' && styles.imageValidationPillInvalid,
+                imageValidationDisplay.tone === 'checking' && styles.imageValidationPillChecking,
+                pressed && styles.imageValidationPillPressed,
+              ]}
+            >
+              {imageValidationDisplay.tone === 'checking' ? (
+                <ActivityIndicator size="small" color={tryOnPalette.primary} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={imageValidationDisplay.icon}
+                  size={19}
+                  color={
+                    imageValidationDisplay.tone === 'valid'
+                      ? tryOnPalette.success
+                      : imageValidationDisplay.tone === 'invalid'
+                        ? colors.danger
+                        : tryOnPalette.primary
+                  }
+                />
+              )}
+              <View style={styles.imageValidationCopy}>
+                <Text style={styles.imageValidationTitle}>{imageValidationDisplay.title}</Text>
+                <Text style={styles.imageValidationText}>{imageValidationDisplay.message}</Text>
+              </View>
+            </Pressable>
           </View>
         </View>
 
         <View style={styles.sectionHeaderBlock}>
           <Text style={styles.sectionTitle}>Chế độ phối</Text>
-          <Text style={styles.sectionHint}>Chọn cách bạn muốn thử đồ trên ảnh.</Text>
         </View>
         <View style={styles.modeSegment}>
           {outfitModes.map((mode) => {
@@ -846,7 +1137,7 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
         </View>
         <View style={styles.slotGrid}>
-          {outfitSlots.map((slot, index) => {
+          {outfitSlots.map((slot) => {
             const active = activeSlot.key === slot.key;
             const selectedItem = getSelectedItemForSlot(slot);
 
@@ -864,9 +1155,6 @@ const VirtualTryOnBuilderScreen = () => {
                 }}
                 activeOpacity={0.86}
               >
-                <View style={styles.slotNumber}>
-                  <Text style={styles.slotNumberText}>{index + 1}</Text>
-                </View>
                 <Animated.View style={[
                   styles.slotIconWrap,
                   active && !selectedItem && styles.slotIconWrapActive,
@@ -975,20 +1263,14 @@ const VirtualTryOnBuilderScreen = () => {
 
         <View style={styles.outputOptionCard}>
           <View style={styles.outputOptionIcon}>
-            <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
+            <MaterialCommunityIcons name="view-grid-outline" size={26} color={tryOnPalette.primary} />
           </View>
           <View style={styles.outputOptionCopy}>
-            <Text style={styles.outputOptionTitle}>Thêm chuyển động</Text>
+            <Text style={styles.outputOptionTitle}>4 ảnh gợi ý</Text>
             <Text style={styles.outputOptionText}>
-              Tạo thêm video ngắn cho bộ đồ, thời gian xử lý sẽ lâu hơn ảnh tĩnh.
+              Kết quả trả về một ảnh lưới 2x2 để bạn so sánh nhanh.
             </Text>
           </View>
-          <Switch
-            value={includeVideo}
-            onValueChange={setIncludeVideo}
-            trackColor={{ false: colors.border, true: tryOnPalette.primarySoft }}
-            thumbColor={includeVideo ? tryOnPalette.primary : colors.white}
-          />
         </View>
       </ScrollView>
 
@@ -1032,7 +1314,7 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
             <Text style={styles.confirmTitle}>Tạo ảnh thử đồ?</Text>
             <Text style={styles.confirmText}>
-              Ảnh của bạn sẽ được kiểm tra trước khi xử lý. Bạn có chắc muốn tạo ngay bây giờ?
+              Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.
             </Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity
@@ -1075,11 +1357,6 @@ const VirtualTryOnBuilderScreen = () => {
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons name="tune-variant" size={22} color={colors.white} />
-              {productFilterCount > 0 ? (
-                <View style={styles.headerFilterBadge}>
-                  <Text style={styles.headerFilterBadgeText}>{productFilterCount}</Text>
-                </View>
-              ) : null}
             </TouchableOpacity>
           </View>
 
@@ -1094,7 +1371,7 @@ const VirtualTryOnBuilderScreen = () => {
                 style={styles.searchInput}
                 value={searchTerm}
                 onChangeText={setSearchTerm}
-                placeholder="Tìm áo, quần, giày..."
+                placeholder="Tìm áo, quần, giày/dép..."
                 placeholderTextColor={colors.textMuted}
               />
               <TouchableOpacity
@@ -1107,11 +1384,6 @@ const VirtualTryOnBuilderScreen = () => {
                   size={21}
                   color={productFilterCount > 0 ? tryOnPalette.ink : tryOnPalette.primary}
                 />
-                {productFilterCount > 0 ? (
-                  <View style={styles.searchFilterBadge}>
-                    <Text style={styles.searchFilterBadgeText}>{productFilterCount}</Text>
-                  </View>
-                ) : null}
               </TouchableOpacity>
             </View>
 
@@ -1518,26 +1790,6 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 40,
   },
-  headerFilterBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-    borderWidth: 1,
-    borderColor: tryOnPalette.surface,
-  },
-  headerFilterBadgeText: {
-    color: colors.white,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '900',
-  },
   content: {
     flex: 1,
     backgroundColor: tryOnPalette.canvas,
@@ -1629,45 +1881,49 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: spacing.sm,
   },
-  studioStepRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.md,
-  },
-  studioStep: {
-    minHeight: 28,
-    borderRadius: radii.pill,
+  imageValidationPill: {
+    minHeight: 62,
+    borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
-    backgroundColor: tryOnPalette.surface,
-    paddingHorizontal: spacing.sm,
+    backgroundColor: tryOnPalette.primarySoft,
+    padding: spacing.sm,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
-  studioStepActive: {
-    minHeight: 28,
-    borderRadius: radii.pill,
-    backgroundColor: tryOnPalette.primaryPale,
-    paddingHorizontal: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
+  imageValidationPillChecking: {
+    backgroundColor: tryOnPalette.primarySoft,
+    borderColor: tryOnPalette.primaryPale,
   },
-  studioStepDone: {
+  imageValidationPillValid: {
     backgroundColor: tryOnPalette.successSoft,
     borderColor: tryOnPalette.success,
   },
-  studioStepText: {
+  imageValidationPillInvalid: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+  },
+  imageValidationPillPressed: {
+    opacity: 0.82,
+  },
+  imageValidationCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  imageValidationTitle: {
     color: tryOnPalette.ink,
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
-  studioStepTextActive: {
-    color: tryOnPalette.ink,
-  },
-  studioStepTextDone: {
-    color: tryOnPalette.success,
+  imageValidationText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
   },
   sectionHeaderBlock: {
     gap: 3,
@@ -1782,20 +2038,6 @@ const styles = StyleSheet.create({
   slotCardFilled: {
     backgroundColor: colors.surface,
     borderColor: tryOnPalette.success,
-  },
-  slotNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: tryOnPalette.primaryPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  slotNumberText: {
-    color: tryOnPalette.ink,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '900',
   },
   slotIconWrap: {
     width: 72,
@@ -1942,24 +2184,6 @@ const styles = StyleSheet.create({
   },
   searchFilterButtonActive: {
     backgroundColor: tryOnPalette.primaryPale,
-  },
-  searchFilterBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 17,
-    height: 17,
-    borderRadius: 9,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  searchFilterBadgeText: {
-    color: colors.white,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '900',
   },
   genderSegment: {
     minHeight: 54,

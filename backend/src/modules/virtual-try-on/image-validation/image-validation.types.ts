@@ -15,6 +15,30 @@ export type ImageValidationQuality = {
   resolution: ImageValidationQualityLevel;
 };
 
+export type ImageValidationBodyRegion = 'upper' | 'hips' | 'legs' | 'feet';
+
+export type ImageValidationCapabilityMode =
+  | 'full_set'
+  | 'top_bottom'
+  | 'top'
+  | 'bottom'
+  | 'dress'
+  | 'shoes'
+  | 'outerwear'
+  | 'accessory';
+
+export type ImageValidationCapabilityBlock = {
+  reasonCode: string | null;
+  message: string | null;
+  missingRegions: ImageValidationBodyRegion[];
+};
+
+export type ImageValidationCapability = ImageValidationCapabilityBlock & {
+  mode: ImageValidationCapabilityMode;
+  allowed: boolean;
+  requiredRegions: ImageValidationBodyRegion[];
+};
+
 export type ImageValidationBodyVisibility = 'good' | 'partial' | 'unknown';
 
 export type ImageValidationBoundingBox = {
@@ -61,6 +85,11 @@ export type ImageValidationResult = {
   poseConfidence?: number;
   quality: ImageValidationQuality;
   safetyFlags: ImageValidationSafetyFlag[];
+  visibleRegions: ImageValidationBodyRegion[];
+  supportedModes: ImageValidationCapabilityMode[];
+  blockedModes: Partial<Record<ImageValidationCapabilityMode, ImageValidationCapabilityBlock>>;
+  recommendedMode: ImageValidationCapabilityMode | null;
+  capabilities: ImageValidationCapability[];
 };
 
 export interface ImageValidationProvider {

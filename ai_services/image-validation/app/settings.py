@@ -33,7 +33,11 @@ class Settings:
     pose_confidence_threshold: float = _read_float("IMAGE_VALIDATION_POSE_CONFIDENCE_THRESHOLD", 0.3)
     min_width: int = _read_int("IMAGE_VALIDATION_MIN_WIDTH", 400)
     min_height: int = _read_int("IMAGE_VALIDATION_MIN_HEIGHT", 400)
-    blur_threshold: float = _read_float("IMAGE_VALIDATION_BLUR_THRESHOLD", 100.0)
+    blur_fail_threshold: float = _read_float("IMAGE_VALIDATION_BLUR_FAIL_THRESHOLD", 5.0)
+    blur_warn_threshold: float = _read_float(
+        "IMAGE_VALIDATION_BLUR_WARN_THRESHOLD",
+        _read_float("IMAGE_VALIDATION_BLUR_THRESHOLD", 100.0),
+    )
     brightness_min: float = _read_float("IMAGE_VALIDATION_BRIGHTNESS_MIN", 40.0)
     brightness_max: float = _read_float("IMAGE_VALIDATION_BRIGHTNESS_MAX", 220.0)
     single_min_box_area_ratio: float = _read_float("IMAGE_VALIDATION_SINGLE_MIN_BOX_AREA_RATIO", 0.08)

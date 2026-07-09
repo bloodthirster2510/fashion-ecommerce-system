@@ -150,6 +150,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 ai_services/**/.venv/
+ai_services/**/*.pt
 ai_services/**/models/*
 !ai_services/**/models/.gitkeep
 

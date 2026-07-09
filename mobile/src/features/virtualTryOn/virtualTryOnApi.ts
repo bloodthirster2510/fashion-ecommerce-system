@@ -4,6 +4,7 @@ import type {
   PaginatedResponse,
   TryOnContextPreset,
   TryOnOutfitMode,
+  TryOnImageValidationResult,
   TryOnSelectedItem,
   VirtualTryOnAsset,
   VirtualTryOnJob,
@@ -32,6 +33,11 @@ type CreateJobPayload = {
   contextPreset: TryOnContextPreset;
   contextPrompt?: string;
   outputMode: 'image' | 'image_and_video';
+};
+
+type ValidateAssetPayload = {
+  outfitMode: TryOnOutfitMode;
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>;
 };
 
 const parseApiResponse = <T>(text: string): ApiResponse<T> => {
@@ -133,6 +139,11 @@ export const virtualTryOnApi = {
   deleteAsset: (token: string, assetId: string) =>
     request<VirtualTryOnAsset>(`/virtual-try-on/assets/${encodeURIComponent(assetId)}`, token, {
       method: 'DELETE',
+    }),
+  validateAsset: (token: string, assetId: string, payload: ValidateAssetPayload) =>
+    request<TryOnImageValidationResult>(`/virtual-try-on/assets/${encodeURIComponent(assetId)}/validate`, token, {
+      method: 'POST',
+      body: payload,
     }),
   createJob: (token: string, payload: CreateJobPayload, idempotencyKey: string) =>
     request<VirtualTryOnJob>('/virtual-try-on/jobs', token, {

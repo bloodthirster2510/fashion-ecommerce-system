@@ -189,6 +189,25 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedProduct.find).not.toHaveBeenCalled();
   });
 
+  it('returns a pre-check image validation result without creating a job', async () => {
+    process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'NO_PERSON_DETECTED';
+
+    const result = await virtualTryOnService.validateAsset(userId, sourceAssetId.toString(), {
+      outfitMode: 'single',
+      selectedItems: [{ role: 'top' }],
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.reasonCode).toBe('NO_PERSON_DETECTED');
+    expect(mockedVirtualTryOnAsset.findOne).toHaveBeenCalledWith({
+      _id: sourceAssetId,
+      userId: new Types.ObjectId(userId),
+      status: 'active',
+    });
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the image validation provider throws', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'VALIDATION_PROVIDER_FAILED';
 
@@ -247,6 +266,62 @@ describe('virtualTryOnService image validation', () => {
       expect.any(Object),
     );
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects createJob when the selected role is outside the image capabilities', async () => {
+    process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
+    process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        allowed: true,
+        personCount: 1,
+        mainPersonScore: 0.94,
+        bodyVisibility: 'good',
+        quality: { blur: 'ok', brightness: 'ok', resolution: 'ok' },
+        safetyFlags: [],
+        visibleRegions: ['upper', 'hips'],
+        supportedModes: ['top', 'outerwear', 'accessory'],
+        blockedModes: {
+          shoes: {
+            reasonCode: 'BODY_NOT_VISIBLE',
+            message: 'Ảnh chưa thấy rõ vùng chân/bàn chân',
+            missingRegions: ['feet', 'legs'],
+          },
+        },
+        recommendedMode: 'top',
+        capabilities: [
+          {
+            mode: 'top',
+            allowed: true,
+            reasonCode: null,
+            message: null,
+            requiredRegions: ['upper'],
+            missingRegions: [],
+          },
+          {
+            mode: 'shoes',
+            allowed: false,
+            reasonCode: 'BODY_NOT_VISIBLE',
+            message: 'Ảnh chưa thấy rõ vùng chân/bàn chân',
+            requiredRegions: ['legs', 'feet'],
+            missingRegions: ['feet', 'legs'],
+          },
+        ],
+      },
+    });
+
+    await expect(
+      virtualTryOnService.createJob(userId, {
+        ...createJobInput,
+        selectedItems: [{ ...createJobInput.selectedItems[0], role: 'shoes' }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: 'BODY_NOT_VISIBLE',
+      statusCode: 422,
+    });
+
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
   });
 
   it('logs prompt policy violations before image validation or job creation', async () => {

@@ -57,27 +57,75 @@ def _slot_boxes(count: int, layout: CollageLayout, width: int, height: int) -> l
             (margin + slot_width + gap, margin, width - margin, height - margin),
         ][:count]
     if layout == "full_set":
-        top_height = int((height - margin * 2 - gap) * 0.66)
-        slot_width = (width - margin * 2 - gap) // 2
-        boxes = [
-            (margin, margin, margin + slot_width, margin + top_height),
-            (margin + slot_width + gap, margin, width - margin, margin + top_height),
-            (margin, margin + top_height + gap, width - margin, height - margin),
-        ]
-        if count > 3:
-            boxes.extend(_slot_boxes(count - 3, "horizontal", width, height)[0 : count - 3])
-        return boxes[:count]
+        return _grid_boxes(count, margin, margin, width - margin, height - margin, gap)
 
-    slot_width = (width - margin * 2 - gap * (count - 1)) // count
+    return _horizontal_boxes(count, margin, margin, width - margin, height - margin, gap)
+
+
+def _horizontal_boxes(
+    count: int,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+    gap: int,
+) -> list[tuple[int, int, int, int]]:
+    if count <= 0:
+        return []
+    slot_width = (right - left - gap * (count - 1)) // count
     return [
         (
-            margin + index * (slot_width + gap),
-            margin,
-            margin + index * (slot_width + gap) + slot_width,
-            height - margin,
+            left + index * (slot_width + gap),
+            top,
+            left + index * (slot_width + gap) + slot_width,
+            bottom,
         )
         for index in range(count)
     ]
+
+
+def _grid_boxes(
+    count: int,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+    gap: int,
+) -> list[tuple[int, int, int, int]]:
+    if count <= 2:
+        return _horizontal_boxes(count, left, top, right, bottom, gap)
+
+    first_row_count = min(2, count)
+    first_row_height = int((bottom - top - gap) * 0.62)
+    first_row_bottom = top + first_row_height
+    boxes = _horizontal_boxes(first_row_count, left, top, right, first_row_bottom, gap)
+
+    remaining = count - first_row_count
+    boxes.extend(_horizontal_boxes(remaining, left, first_row_bottom + gap, right, bottom, gap))
+    return boxes
+
+
+def _full_set_slot_boxes(
+    items: list[CollageItem],
+    width: int,
+    height: int,
+) -> list[tuple[int, int, int, int]]:
+    margin = int(min(width, height) * 0.08)
+    gap = int(min(width, height) * 0.04)
+    left = margin
+    top = margin
+    right = width - margin
+    bottom = height - margin
+
+    shoe_count = sum(1 for item in items if item.role == "shoes")
+    if shoe_count and shoe_count < len(items):
+        shoe_row_height = int((bottom - top - gap) * 0.25)
+        primary_bottom = bottom - shoe_row_height - gap
+        primary_boxes = _grid_boxes(len(items) - shoe_count, left, top, right, primary_bottom, gap)
+        shoe_boxes = _horizontal_boxes(shoe_count, left, primary_bottom + gap, right, bottom, gap)
+        return primary_boxes + shoe_boxes
+
+    return _grid_boxes(len(items), left, top, right, bottom, gap)
 
 
 def _fit_image(image: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
@@ -104,7 +152,11 @@ def compose_collage(
     resolved_layout = _resolve_layout(items, layout)
     ordered_items = _sort_items(items)
     canvas = Image.new("RGBA", (width, height), parse_hex_color(background_color))
-    boxes = _slot_boxes(len(ordered_items), resolved_layout, width, height)
+    boxes = (
+        _full_set_slot_boxes(ordered_items, width, height)
+        if resolved_layout == "full_set"
+        else _slot_boxes(len(ordered_items), resolved_layout, width, height)
+    )
     placements: list[Placement] = []
 
     for item, box in zip(ordered_items, boxes):

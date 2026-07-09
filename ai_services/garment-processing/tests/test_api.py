@@ -1,13 +1,27 @@
 from io import BytesIO
 import base64
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
+import pytest
 
-from app.main import app
+import app.main as main_module
+from app.processors.hybrid_extractor import HybridGarmentExtractor
+
+
+app = main_module.app
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def use_heuristic_provider(monkeypatch):
+    extractor = HybridGarmentExtractor(
+        replace(main_module.settings, provider_name="heuristic"),
+    )
+    monkeypatch.setattr(main_module, "garment_extractor", extractor)
 
 
 def image_base64() -> str:
@@ -49,3 +63,25 @@ def test_prepare_collage_extracts_and_composes_items():
     assert payload["width"] == 768
     assert len(payload["extractedItems"]) == 2
     assert len(payload["placements"]) == 2
+    assert payload["extractedItems"][0]["isUsable"] is True
+    assert payload["extractedItems"][0]["issues"] == []
+
+
+def test_extract_garment_reports_unusable_empty_image():
+    image = Image.new("RGBA", (320, 320), (255, 255, 255, 255))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    response = client.post(
+        "/extract-garment",
+        json={
+            "imageBase64": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "role": "top",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["isUsable"] is False
+    assert payload["issues"][0]["code"] == "empty_mask"
+    assert payload["issues"][0]["severity"] == "error"

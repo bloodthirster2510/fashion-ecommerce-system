@@ -38,3 +38,28 @@ def test_compose_full_set_uses_three_slots():
     assert result.layout == "full_set"
     assert len(result.placements) == 3
     assert result.placements[2].y > result.placements[0].y
+
+
+def test_compose_full_set_with_four_items_keeps_shoes_in_bottom_row():
+    item = Image.new("RGBA", (200, 200), (0, 0, 0, 255))
+    shoes = Image.new("RGBA", (360, 120), (0, 0, 0, 255))
+
+    result = compose_collage(
+        [
+            CollageItem(item, "top"),
+            CollageItem(item, "outerwear"),
+            CollageItem(item, "bottom"),
+            CollageItem(shoes, "shoes"),
+        ],
+        768,
+        768,
+        "#ffffff",
+        "auto",
+    )
+
+    assert result.layout == "full_set"
+    assert len(result.placements) == 4
+    shoe = result.placements[3]
+    primary_items = result.placements[:3]
+    assert all(shoe.y > placement.y for placement in primary_items)
+    assert all(shoe.y >= placement.y + placement.height for placement in primary_items)

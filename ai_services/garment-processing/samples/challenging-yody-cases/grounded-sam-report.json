@@ -1,0 +1,136 @@
+[
+  {
+    "id": "top-small-person-busy-background",
+    "role": "top",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.54,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      430,
+      493,
+      758,
+      997
+    ],
+    "extractedFile": "extracted-grounded-sam/top-small-person-busy-background.png"
+  },
+  {
+    "id": "top-full-outfit-busy-background",
+    "role": "top",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.559,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      322,
+      365,
+      604,
+      710
+    ],
+    "extractedFile": "extracted-grounded-sam/top-full-outfit-busy-background.png"
+  },
+  {
+    "id": "top-white-cropped-model",
+    "role": "top",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.53,
+    "isUsable": false,
+    "warnings": [],
+    "issues": [
+      {
+        "code": "truncated_garment",
+        "severity": "error",
+        "message": "The garment touches the image boundary and may be cropped."
+      }
+    ],
+    "bbox": [
+      0,
+      0,
+      777,
+      855
+    ],
+    "extractedFile": "extracted-grounded-sam/top-white-cropped-model.png"
+  },
+  {
+    "id": "bottom-lower-body-with-bag",
+    "role": "bottom",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.644,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      299,
+      97,
+      779,
+      1276
+    ],
+    "extractedFile": "extracted-grounded-sam/bottom-lower-body-with-bag.png"
+  },
+  {
+    "id": "bottom-full-body-busy-background",
+    "role": "bottom",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.65,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      456,
+      560,
+      739,
+      1371
+    ],
+    "extractedFile": "extracted-grounded-sam/bottom-full-body-busy-background.png"
+  },
+  {
+    "id": "shoes-worn-with-legs",
+    "role": "shoes",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.604,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      64,
+      355,
+      686,
+      1003
+    ],
+    "extractedFile": "extracted-grounded-sam/shoes-worn-with-legs.png"
+  },
+  {
+    "id": "shoes-with-many-props",
+    "role": "shoes",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.619,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      251,
+      384,
+      1391,
+      1634
+    ],
+    "extractedFile": "extracted-grounded-sam/shoes-with-many-props.png"
+  },
+  {
+    "id": "shoes-worn-flatlay-with-props",
+    "role": "shoes",
+    "method": "grounded_sam_box_crop",
+    "confidence": 0.618,
+    "isUsable": true,
+    "warnings": [],
+    "issues": [],
+    "bbox": [
+      64,
+      267,
+      775,
+      840
+    ],
+    "extractedFile": "extracted-grounded-sam/shoes-worn-flatlay-with-props.png"
+  }
+]

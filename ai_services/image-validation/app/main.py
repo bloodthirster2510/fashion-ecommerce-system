@@ -25,6 +25,10 @@ def health() -> dict[str, object]:
         "status": "ok",
         "provider": settings.provider_name,
         "poseModel": settings.yolo_pose_model,
+        "qualityThresholds": {
+            "blurFail": settings.blur_fail_threshold,
+            "blurWarn": settings.blur_warn_threshold,
+        },
     }
 
 
@@ -49,7 +53,6 @@ def validate_image(payload: ValidationRequest) -> ValidationResponse:
     quality = assess_quality(image, payload.width, payload.height, settings)
     if (
         quality.quality.resolution == "fail"
-        or quality.quality.blur == "fail"
         or quality.quality.brightness == "fail"
     ):
         return evaluate_validation_rules(quality, None, payload.outfitMode, settings)

@@ -1,0 +1,88 @@
+{
+  "layout": "full_set",
+  "placements": [
+    {
+      "x": 61,
+      "y": 118,
+      "width": 308,
+      "height": 348
+    },
+    {
+      "x": 429,
+      "y": 61,
+      "width": 248,
+      "height": 462
+    },
+    {
+      "x": 223,
+      "y": 553,
+      "width": 321,
+      "height": 154
+    }
+  ],
+  "items": [
+    {
+      "role": "top",
+      "name": "Áo Polo Nam Airycool Dáng Ôm Siêu Mát",
+      "sourceFile": "top-navy-polo-product.webp",
+      "extractedFile": "extracted-top.png",
+      "method": "heuristic_foreground",
+      "confidence": 0.95,
+      "isUsable": true,
+      "warnings": [],
+      "issues": [],
+      "bbox": [
+        38,
+        164,
+        1177,
+        1448
+      ],
+      "extractedSize": [
+        567,
+        640
+      ]
+    },
+    {
+      "role": "bottom",
+      "name": "Quần Jeans Nam Slim Fit Thêu Túi",
+      "sourceFile": "bottom-slim-jeans-clean.webp",
+      "extractedFile": "extracted-bottom.png",
+      "method": "heuristic_foreground",
+      "confidence": 0.867,
+      "isUsable": true,
+      "warnings": [],
+      "issues": [],
+      "bbox": [
+        161,
+        0,
+        1042,
+        1516
+      ],
+      "extractedSize": [
+        344,
+        640
+      ]
+    },
+    {
+      "role": "shoes",
+      "name": "Giày Thể Thao Nam Phối Màu Năng Động",
+      "sourceFile": "shoes-black-sneaker-product.webp",
+      "extractedFile": "extracted-shoes.png",
+      "method": "heuristic_foreground",
+      "confidence": 0.95,
+      "isUsable": true,
+      "warnings": [],
+      "issues": [],
+      "bbox": [
+        0,
+        578,
+        1180,
+        1149
+      ],
+      "extractedSize": [
+        640,
+        307
+      ]
+    }
+  ]
+}

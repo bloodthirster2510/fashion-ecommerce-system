@@ -2,6 +2,9 @@ import {
   getImageValidationReasonMessage,
   isImageValidationReasonCode,
   type ImageValidationInput,
+  type ImageValidationBodyRegion,
+  type ImageValidationCapability,
+  type ImageValidationCapabilityMode,
   type ImageValidationProvider,
   type ImageValidationProviderName,
   type ImageValidationQuality,
@@ -33,6 +36,40 @@ const getSafetyFlags = (reasonCode: ImageValidationReasonCode): ImageValidationS
   return ['explicit'];
 };
 
+const capabilityModes: readonly ImageValidationCapabilityMode[] = [
+  'full_set',
+  'top_bottom',
+  'top',
+  'bottom',
+  'dress',
+  'shoes',
+  'outerwear',
+  'accessory',
+];
+
+const capabilityRequiredRegions: Record<ImageValidationCapabilityMode, ImageValidationBodyRegion[]> = {
+  full_set: ['upper', 'hips', 'legs'],
+  top_bottom: ['upper', 'hips', 'legs'],
+  top: ['upper'],
+  bottom: ['hips', 'legs'],
+  dress: ['upper', 'hips', 'legs'],
+  shoes: ['legs', 'feet'],
+  outerwear: ['upper'],
+  accessory: ['upper'],
+};
+
+const buildMockCapabilities = (
+  reasonCode: ImageValidationReasonCode | null,
+): ImageValidationCapability[] =>
+  capabilityModes.map((mode) => ({
+    mode,
+    allowed: reasonCode === null,
+    reasonCode,
+    message: reasonCode ? getImageValidationReasonMessage(reasonCode) : null,
+    requiredRegions: capabilityRequiredRegions[mode],
+    missingRegions: reasonCode === 'BODY_NOT_VISIBLE' ? capabilityRequiredRegions[mode] : [],
+  }));
+
 export const buildImageValidationResult = (
   input: ImageValidationInput,
   provider: ImageValidationProviderName,
@@ -44,6 +81,8 @@ export const buildImageValidationResult = (
   if (reasonCode === 'IMAGE_TOO_BLURRY') quality.blur = 'fail';
   if (reasonCode === 'IMAGE_TOO_DARK') quality.brightness = 'fail';
   if (reasonCode === 'IMAGE_TOO_SMALL') quality.resolution = 'fail';
+  const capabilities = buildMockCapabilities(reasonCode);
+  const supportedModes = capabilities.filter((capability) => capability.allowed).map((capability) => capability.mode);
 
   return {
     allowed,
@@ -64,6 +103,20 @@ export const buildImageValidationResult = (
     poseConfidence: reasonCode === 'POSE_NOT_SUPPORTED' ? 0.22 : 0.88,
     quality,
     safetyFlags: reasonCode ? getSafetyFlags(reasonCode) : [],
+    visibleRegions: allowed ? ['upper', 'hips', 'legs', 'feet'] : [],
+    supportedModes,
+    blockedModes: capabilities.reduce<ImageValidationResult['blockedModes']>((blockedModes, capability) => {
+      if (!capability.allowed) {
+        blockedModes[capability.mode] = {
+          reasonCode: capability.reasonCode,
+          message: capability.message,
+          missingRegions: capability.missingRegions,
+        };
+      }
+      return blockedModes;
+    }, {}),
+    recommendedMode: supportedModes[0] ?? null,
+    capabilities,
   };
 };
 

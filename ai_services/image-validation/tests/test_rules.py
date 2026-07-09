@@ -24,6 +24,7 @@ def good_pose() -> PersonPoseSummary:
         main_person_box=NormalizedBox(x=0.2, y=0.05, width=0.55, height=0.85),
         body_visibility="good",
         pose_confidence=0.78,
+        visible_regions=frozenset({"upper", "hips", "legs", "feet"}),
     )
 
 
@@ -125,3 +126,26 @@ def test_allows_valid_single_person_image():
     assert response.allowed is True
     assert response.reasonCode is None
     assert response.personCount == 1
+    assert response.recommendedMode == "full_set"
+    assert response.supportedModes[:3] == ["full_set", "top_bottom", "top"]
+
+
+def test_capabilities_describe_supported_modes_for_upper_body_photo():
+    response = evaluate_validation_rules(
+        quality_assessment(),
+        PersonPoseSummary(
+            person_count=1,
+            main_person_score=0.91,
+            main_person_box=NormalizedBox(x=0.2, y=0.05, width=0.55, height=0.5),
+            body_visibility="good",
+            pose_confidence=0.78,
+            visible_regions=frozenset({"upper"}),
+        ),
+        "single",
+        Settings(),
+    )
+
+    assert response.supportedModes == ["top", "outerwear", "accessory"]
+    assert response.blockedModes["full_set"].reasonCode == "BODY_NOT_VISIBLE"
+    assert response.capabilities[2].requiredRegions == ["upper"]
+    assert response.blockedModes["shoes"].missingRegions == ["feet", "legs"]

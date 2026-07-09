@@ -53,6 +53,8 @@ export interface IVirtualTryOnJob extends Document {
   progress: number;
   generatedImageAssetId?: Types.ObjectId | null;
   generatedImageUrl?: string | null;
+  generatedImageAssetIds?: Types.ObjectId[];
+  generatedImageUrls?: string[];
   generatedVideoAssetId?: Types.ObjectId | null;
   generatedVideoUrl?: string | null;
   provider: string;
@@ -126,6 +128,8 @@ const virtualTryOnJobSchema = new Schema<IVirtualTryOnJob>(
     progress: { type: Number, default: 0, min: 0, max: 100 },
     generatedImageAssetId: { type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset', default: null },
     generatedImageUrl: { type: String, trim: true, maxlength: 800, default: null },
+    generatedImageAssetIds: [{ type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset' }],
+    generatedImageUrls: [{ type: String, trim: true, maxlength: 800 }],
     generatedVideoAssetId: { type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset', default: null },
     generatedVideoUrl: { type: String, trim: true, maxlength: 800, default: null },
     provider: { type: String, required: true, trim: true, maxlength: 80 },

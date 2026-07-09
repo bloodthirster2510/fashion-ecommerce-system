@@ -17,9 +17,9 @@ type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProce
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 
 const steps = [
-  'Nhận ảnh người mặc',
-  'Ghép các món đã chọn',
-  'Tạo ảnh thử đồ',
+  'Chuẩn bị ảnh người',
+  'Ghép outfit',
+  'Tạo 4 gợi ý',
   'Lưu kết quả',
 ];
 
@@ -77,6 +77,7 @@ const VirtualTryOnProcessingScreen = () => {
           status: event.status,
           progress: event.progress,
           generatedImageUrl: event.generatedImageUrl ?? current.generatedImageUrl,
+          generatedImageUrls: event.generatedImageUrls ?? current.generatedImageUrls,
           generatedVideoUrl: event.generatedVideoUrl ?? current.generatedVideoUrl,
           errorMessage: event.errorMessage ?? current.errorMessage,
         }
@@ -158,10 +159,10 @@ const VirtualTryOnProcessingScreen = () => {
                 <View style={styles.previewCopy}>
                   <Text style={styles.kickerText}>Đang thử đồ</Text>
                   <Text style={styles.title}>
-                    {job?.status === 'failed' ? 'Chưa tạo được ảnh thử đồ' : 'Hệ thống đang tạo ảnh thử đồ cho bạn'}
+                    {job?.status === 'failed' ? 'Chưa tạo được ảnh thử đồ' : 'Đang tạo 4 ảnh gợi ý'}
                   </Text>
                   <Text style={styles.subtitle}>
-                    Kết quả sẽ nằm trong lịch sử phối đồ khi hoàn tất.
+                    Các món đã chọn sẽ được ghép thành một ảnh outfit trước khi gửi sang Comfy.
                   </Text>
                 </View>
               </View>

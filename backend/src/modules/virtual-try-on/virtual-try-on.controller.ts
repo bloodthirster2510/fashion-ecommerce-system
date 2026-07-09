@@ -1,7 +1,12 @@
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
 import { VirtualTryOnServiceError, virtualTryOnService } from './virtual-try-on.service';
-import type { CreateVirtualTryOnJobInput, UploadAssetSource, VirtualTryOnListQuery } from './virtual-try-on.types';
+import type {
+  CreateVirtualTryOnJobInput,
+  UploadAssetSource,
+  ValidateVirtualTryOnAssetInput,
+  VirtualTryOnListQuery,
+} from './virtual-try-on.types';
 
 const handleError = (res: Response, error: unknown) => {
   if (error instanceof VirtualTryOnServiceError) {
@@ -67,6 +72,18 @@ export const listAssets = async (req: Request, res: Response) => {
 export const deleteAsset = async (req: Request, res: Response) => {
   try {
     return ok(res, await virtualTryOnService.deleteAsset(getUserId(req), req.params.assetId as string));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const validateAsset = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.validateAsset(
+      getUserId(req),
+      req.params.assetId as string,
+      req.body as ValidateVirtualTryOnAssetInput,
+    ));
   } catch (error) {
     return handleError(res, error);
   }

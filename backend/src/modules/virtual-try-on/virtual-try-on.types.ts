@@ -24,6 +24,11 @@ export type CreateVirtualTryOnJobInput = {
   outputMode?: VirtualTryOnOutputMode;
 };
 
+export type ValidateVirtualTryOnAssetInput = {
+  outfitMode: VirtualTryOnOutfitMode;
+  selectedItems: Array<Pick<CreateVirtualTryOnItemInput, 'role'>>;
+};
+
 export type VirtualTryOnListQuery = {
   page?: number;
   limit?: number;

@@ -29,6 +29,52 @@ export type TryOnSelectedItem = {
   finalPriceSnapshot: number;
 };
 
+export type TryOnImageValidationQualityLevel = 'ok' | 'warn' | 'fail';
+export type TryOnImageValidationBodyRegion = 'upper' | 'hips' | 'legs' | 'feet';
+export type TryOnImageValidationCapabilityMode =
+  | 'full_set'
+  | 'top_bottom'
+  | 'top'
+  | 'bottom'
+  | 'dress'
+  | 'shoes'
+  | 'outerwear'
+  | 'accessory';
+
+export type TryOnImageValidationCapabilityBlock = {
+  reasonCode: string | null;
+  message: string | null;
+  missingRegions: TryOnImageValidationBodyRegion[];
+};
+
+export type TryOnImageValidationCapability = TryOnImageValidationCapabilityBlock & {
+  mode: TryOnImageValidationCapabilityMode;
+  allowed: boolean;
+  requiredRegions: TryOnImageValidationBodyRegion[];
+};
+
+export type TryOnImageValidationResult = {
+  allowed: boolean;
+  reasonCode: string | null;
+  message: string | null;
+  provider: string;
+  personCount: number;
+  mainPersonScore: number;
+  bodyVisibility: 'good' | 'partial' | 'unknown';
+  poseConfidence?: number;
+  quality: {
+    blur: TryOnImageValidationQualityLevel;
+    brightness: TryOnImageValidationQualityLevel;
+    resolution: TryOnImageValidationQualityLevel;
+  };
+  safetyFlags: string[];
+  visibleRegions: TryOnImageValidationBodyRegion[];
+  supportedModes: TryOnImageValidationCapabilityMode[];
+  blockedModes: Partial<Record<TryOnImageValidationCapabilityMode, TryOnImageValidationCapabilityBlock>>;
+  recommendedMode: TryOnImageValidationCapabilityMode | null;
+  capabilities: TryOnImageValidationCapability[];
+};
+
 export type VirtualTryOnJob = {
   _id: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled';
@@ -41,6 +87,7 @@ export type VirtualTryOnJob = {
   contextPrompt?: string;
   outputMode: 'image' | 'image_and_video';
   generatedImageUrl?: string | null;
+  generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
   provider: string;
   errorCode?: string | null;

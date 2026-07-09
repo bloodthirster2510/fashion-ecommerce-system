@@ -1,7 +1,9 @@
 import React from 'react';
-import { ActivityIndicator, Alert, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Share, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -30,6 +32,13 @@ const contextLabel: Record<string, string> = {
   custom: 'Tự nhập',
 };
 
+const getDownloadExtension = (url: string) => {
+  const cleanUrl = url.split('?')[0]?.toLowerCase() ?? '';
+  if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) return 'jpg';
+  if (cleanUrl.endsWith('.webp')) return 'webp';
+  return 'png';
+};
+
 const studioPalette = {
   ink: '#213448',
   primaryDark: '#213448',
@@ -49,11 +58,16 @@ const VirtualTryOnResultScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { runWithAuth } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isAddingCart, setIsAddingCart] = React.useState(false);
+  const [isSavingImage, setIsSavingImage] = React.useState(false);
+  const [activeImageIndex, setActiveImageIndex] = React.useState(0);
+  const resultScrollRef = React.useRef<ScrollView>(null);
 
   const jobId = route.params.jobId;
+  const resultCardWidth = Math.max(1, windowWidth - spacing.lg * 2);
 
   React.useEffect(() => {
     let isCurrent = true;
@@ -73,13 +87,65 @@ const VirtualTryOnResultScreen = () => {
     return () => { isCurrent = false; };
   }, [jobId, runWithAuth]);
 
+  const fallbackImageUrl = job?.generatedImageUrl || job?.sourceImageUrl || '';
+  const resultImageUrls = React.useMemo(() => {
+    if (!job) return [];
+    if (job.generatedImageUrls?.length) return job.generatedImageUrls;
+    return fallbackImageUrl ? [fallbackImageUrl] : [];
+  }, [fallbackImageUrl, job]);
+  const activeImageUrl = resultImageUrls[activeImageIndex] || resultImageUrls[0] || fallbackImageUrl;
+
+  React.useEffect(() => {
+    setActiveImageIndex(0);
+  }, [job?._id, resultImageUrls.length]);
+
   const shareResult = async () => {
-    const url = job?.generatedImageUrl || job?.sourceImageUrl;
+    const url = activeImageUrl || job?.sourceImageUrl;
     if (!url) return;
     await Share.share({
       title: 'Kết quả phối đồ',
       message: `Kết quả phối đồ của tôi: ${url}`,
     });
+  };
+
+  const saveActiveImage = async () => {
+    if (!activeImageUrl || !job || isSavingImage) return;
+
+    setIsSavingImage(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) {
+        Alert.alert('Cần quyền lưu ảnh', 'Cho phép ứng dụng lưu ảnh để tải kết quả về máy.');
+        return;
+      }
+
+      const baseDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+      if (!baseDirectory) {
+        throw new Error('Không tìm thấy thư mục tạm để lưu ảnh.');
+      }
+
+      const extension = getDownloadExtension(activeImageUrl);
+      const fileUri = `${baseDirectory}fit-studio-${job._id}-${activeImageIndex + 1}-${Date.now()}.${extension}`;
+      const downloaded = await FileSystem.downloadAsync(activeImageUrl, fileUri);
+      if (downloaded.status < 200 || downloaded.status >= 300) {
+        throw new Error('Không tải được ảnh kết quả.');
+      }
+
+      const asset = await MediaLibrary.createAssetAsync(downloaded.uri);
+      const album = await MediaLibrary.getAlbumAsync('Fit Studio');
+      if (album) {
+        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+      } else {
+        await MediaLibrary.createAlbumAsync('Fit Studio', asset, false);
+      }
+
+      Alert.alert('Đã lưu ảnh', 'Ảnh đã được lưu vào thư viện.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể lưu ảnh lúc này.';
+      Alert.alert('Tải ảnh', message);
+    } finally {
+      setIsSavingImage(false);
+    }
   };
 
   const addSetToCart = async () => {
@@ -115,7 +181,10 @@ const VirtualTryOnResultScreen = () => {
     }
   };
 
-  const imageUrl = job?.generatedImageUrl || job?.sourceImageUrl || '';
+  const handleResultScroll = (x: number) => {
+    const nextIndex = Math.round(x / resultCardWidth);
+    setActiveImageIndex(Math.min(Math.max(nextIndex, 0), Math.max(resultImageUrls.length - 1, 0)));
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -139,25 +208,81 @@ const VirtualTryOnResultScreen = () => {
       ) : job ? (
         <>
           <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.resultImageWrap}>
-              {imageUrl ? (
-                <RemoteImage uri={imageUrl} style={styles.resultImage} recyclingKey={`${job._id}-result`} />
-              ) : (
-                <View style={styles.imagePlaceholder}>
-                  <MaterialCommunityIcons name="image-outline" size={48} color={colors.brand} />
-                </View>
-              )}
-              <View style={styles.resultOverlay}>
-                <View style={styles.contextBadge}>
-                  <MaterialCommunityIcons name="map-marker-radius-outline" size={17} color={studioPalette.ink} />
-                  <Text style={styles.contextText}>{contextLabel[job.contextPreset] ?? 'Phối đồ'}</Text>
-                </View>
-                {job.provider === 'mock' ? (
-                  <View style={styles.mockBadge}>
-                    <Text style={styles.mockText}>Bản thử nghiệm</Text>
+            <View style={styles.resultCarousel}>
+              <ScrollView
+                ref={resultScrollRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                snapToInterval={resultCardWidth}
+                decelerationRate="fast"
+                onMomentumScrollEnd={(event) => handleResultScroll(event.nativeEvent.contentOffset.x)}
+              >
+                {resultImageUrls.length ? resultImageUrls.map((url, index) => (
+                  <View key={`${url}-${index}`} style={[styles.resultImageWrap, { width: resultCardWidth }]}>
+                    <RemoteImage
+                      uri={url}
+                      style={styles.resultImage}
+                      recyclingKey={`${job._id}-result-${index}`}
+                      resizeMode={job.generatedImageUrl ? 'contain' : 'cover'}
+                    />
+                    <View style={styles.resultOverlay}>
+                      <View style={styles.contextBadge}>
+                        <MaterialCommunityIcons name="map-marker-radius-outline" size={17} color={studioPalette.ink} />
+                        <Text style={styles.contextText}>{contextLabel[job.contextPreset] ?? 'Phối đồ'}</Text>
+                      </View>
+                      {job.generatedImageUrl ? (
+                        <View style={styles.mockBadge}>
+                          <Text style={styles.mockText}>{index + 1}/{resultImageUrls.length}</Text>
+                        </View>
+                      ) : job.provider === 'mock' ? (
+                        <View style={styles.mockBadge}>
+                          <Text style={styles.mockText}>Bản thử nghiệm</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
-                ) : null}
-              </View>
+                )) : (
+                  <View style={[styles.resultImageWrap, { width: resultCardWidth }]}>
+                    <View style={styles.imagePlaceholder}>
+                      <MaterialCommunityIcons name="image-outline" size={48} color={colors.brand} />
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+
+              {resultImageUrls.length > 1 ? (
+                <>
+                  <View style={styles.resultDots}>
+                    {resultImageUrls.map((url, index) => (
+                      <View
+                        key={`dot-${url}-${index}`}
+                        style={[styles.resultDot, activeImageIndex === index && styles.resultDotActive]}
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.resultThumbRow}>
+                    {resultImageUrls.map((url, index) => (
+                      <TouchableOpacity
+                        key={`thumb-${url}-${index}`}
+                        style={[styles.resultThumbButton, activeImageIndex === index && styles.resultThumbButtonActive]}
+                        onPress={() => {
+                          setActiveImageIndex(index);
+                          resultScrollRef.current?.scrollTo({ x: resultCardWidth * index, animated: true });
+                        }}
+                        activeOpacity={0.82}
+                      >
+                        <RemoteImage
+                          uri={url}
+                          style={styles.resultThumbImage}
+                          recyclingKey={`${job._id}-thumb-${index}`}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              ) : null}
             </View>
 
             {job.generatedImageUrl && job.sourceImageUrl ? (
@@ -170,8 +295,13 @@ const VirtualTryOnResultScreen = () => {
                   <MaterialCommunityIcons name="arrow-right" size={20} color={studioPalette.ink} />
                 </View>
                 <View style={styles.compareTile}>
-                  <RemoteImage uri={job.generatedImageUrl} style={styles.compareImage} recyclingKey={`${job._id}-generated`} />
-                  <Text style={styles.compareLabel}>Sau</Text>
+                  <RemoteImage
+                    uri={activeImageUrl}
+                    style={styles.compareImage}
+                    recyclingKey={`${job._id}-generated`}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.compareLabel}>Kết quả</Text>
                 </View>
               </View>
             ) : null}
@@ -182,12 +312,19 @@ const VirtualTryOnResultScreen = () => {
                 <Text style={styles.actionText}>Chia sẻ</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => Alert.alert('Tải ảnh', 'Tính năng lưu ảnh vào máy sẽ được bổ sung sau.')}
+                style={[styles.actionButton, (!activeImageUrl || isSavingImage) && styles.actionButtonDisabled]}
+                onPress={saveActiveImage}
+                disabled={!activeImageUrl || isSavingImage}
                 activeOpacity={0.86}
               >
-                <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
-                <Text style={styles.actionText}>Tải về</Text>
+                {isSavingImage ? (
+                  <ActivityIndicator color={studioPalette.ink} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
+                    <Text style={styles.actionText}>Tải về</Text>
+                  </>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionButton}
@@ -360,12 +497,15 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '900',
   },
+  resultCarousel: {
+    gap: spacing.md,
+  },
   resultImageWrap: {
     width: '100%',
-    aspectRatio: 0.78,
+    aspectRatio: 1,
     borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: studioPalette.primarySoft,
+    backgroundColor: colors.surface,
     ...shadows.card,
   },
   resultImage: {
@@ -386,6 +526,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  resultDots: {
+    minHeight: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  resultDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: studioPalette.primaryPale,
+  },
+  resultDotActive: {
+    width: 22,
+    backgroundColor: studioPalette.primary,
+  },
+  resultThumbRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  resultThumbButton: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+  },
+  resultThumbButtonActive: {
+    borderWidth: 2,
+    borderColor: studioPalette.primary,
+  },
+  resultThumbImage: {
+    width: '100%',
+    height: '100%',
   },
   compareStrip: {
     minHeight: 104,
@@ -438,6 +616,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: studioPalette.line,
     ...shadows.card,
+  },
+  actionButtonDisabled: {
+    opacity: 0.58,
   },
   actionText: {
     color: studioPalette.ink,

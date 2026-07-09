@@ -337,7 +337,7 @@ if ($UseAndroid) {
 if ($DEV_API_HOST) {
   $env:EXPO_PUBLIC_API_HOST = $DEV_API_HOST
   $env:EXPO_PUBLIC_API_PORT = $API_PORT
-  $env:EXPO_PUBLIC_API_URL = if ($UseAndroid -and $androidReady) { "http://127.0.0.1:$API_PORT/api" } else { "http://$DEV_API_HOST`:$API_PORT/api" }
+  $env:EXPO_PUBLIC_API_URL = "http://$DEV_API_HOST`:$API_PORT/api"
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_HOST" -Value $DEV_API_HOST
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_PORT" -Value $API_PORT
   Set-MobileEnvValue -Key "EXPO_PUBLIC_API_URL" -Value $env:EXPO_PUBLIC_API_URL

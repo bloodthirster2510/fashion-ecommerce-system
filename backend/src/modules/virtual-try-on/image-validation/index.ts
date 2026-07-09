@@ -6,8 +6,12 @@ import {
 import type { ImageValidationProvider, ImageValidationProviderName } from './image-validation.types';
 
 export type {
+  ImageValidationBodyRegion,
   ImageValidationBodyVisibility,
   ImageValidationBoundingBox,
+  ImageValidationCapability,
+  ImageValidationCapabilityBlock,
+  ImageValidationCapabilityMode,
   ImageValidationInput,
   ImageValidationProvider,
   ImageValidationProviderName,
