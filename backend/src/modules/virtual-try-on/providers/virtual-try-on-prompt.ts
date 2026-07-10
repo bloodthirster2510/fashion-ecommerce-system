@@ -57,7 +57,8 @@ const rolePromptDetails: Record<VirtualTryOnItemRole, string> = {
 
 const basePromptParts = [
   'virtual fashion try-on for the person in the source image',
-  'keep the same person identity, face, hair, expression, pose, body shape, body proportions, and skin tone',
+  'the source person image is the only reference for face, identity, hair, expression, pose, body shape, body proportions, height, shoulder width, waist, legs, and skin tone',
+  'do not copy or infer any face, body shape, pose, age, gender presentation, or skin tone from catalog garment images or garment models',
   'preserve hands, fingers, neck, legs, and visible body boundaries unless covered by selected garments',
   'replace or overlay only the selected fashion items realistically',
 ];

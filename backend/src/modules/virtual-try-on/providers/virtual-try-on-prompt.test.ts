@@ -29,6 +29,8 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('align waistband, belt loops, hips, rise');
     expect(result.prompt).toContain('correct left-right pairing');
     expect(result.prompt).toContain('faithfully transfer garment type, color, fabric texture');
+    expect(result.prompt).toContain('source person image is the only reference for face, identity');
+    expect(result.prompt).toContain('do not copy or infer any face, body shape, pose');
     expect(result.prompt).toContain('clean professional styling');
     expect(result.prompt).toContain('complete outfit try-on');
     expect(result.prompt).toContain('show the pair on the feet with correct scale');

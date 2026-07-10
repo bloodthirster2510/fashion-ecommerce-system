@@ -16,7 +16,24 @@ export type TryOnItemRole = 'top' | 'bottom' | 'dress' | 'shoes' | 'accessory' |
 export type TryOnOutfitMode = 'single' | 'top_bottom' | 'full_set';
 export type TryOnContextPreset = 'none' | 'work' | 'casual' | 'party' | 'travel' | 'sport' | 'date' | 'custom';
 
+export const TRY_ON_ACTIVE_ITEM_LIMIT = 4;
+export const TRY_ON_QUEUE_LIMIT = 8;
+
+export type TryOnSeedItem = {
+  cartItemId?: string;
+  productId: string;
+  variantId: string;
+  colorVariantId: string;
+  size?: string;
+  role?: TryOnItemRole;
+  nameSnapshot?: string;
+  colorSnapshot?: string;
+  imageSnapshot?: string;
+};
+
 export type TryOnSelectedItem = {
+  queueKey?: string;
+  cartItemId?: string;
   productId: string;
   variantId: string;
   colorVariantId: string;

@@ -11,6 +11,13 @@ import { VirtualTryOnProviderError } from './virtual-try-on-provider';
 
 type ComfyWorkflowMap = {
   inputs?: Record<string, string>;
+  multiGarment?: {
+    loadImageNodeId: string;
+    resizeNodeId?: string;
+    batchNodeId: string;
+    batchInputPrefix?: string;
+    personBatchInputKey?: string;
+  };
   outputs?: {
     imageNodeIds?: string[];
     videoNodeIds?: string[];
@@ -66,6 +73,11 @@ type GarmentProcessingResponse = {
       message?: string;
     }>;
   }>;
+};
+
+type PreparedGarmentAssets = {
+  collage: VirtualTryOnProviderBinaryOutput;
+  items: VirtualTryOnProviderBinaryOutput[];
 };
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -160,11 +172,26 @@ const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAIL
   );
 };
 
-const buildComfyTryOnPrompt = (prompt: string) => [
+export const buildComfyTryOnPrompt = (
+  prompt: string,
+  garments: VirtualTryOnProviderGarment[],
+  usesIndividualGarmentImages: boolean,
+) => [
   'Create one single 2x2 grid image for virtual fashion try-on.',
   'The full returned image must be a vertical 3:4 portrait canvas, so each cropped grid cell is also a vertical 3:4 portrait.',
   'Each of the four cells must show a full-body photo of the same person wearing the selected outfit, with slight pose or styling variation.',
+  'Use reference image 1 as the only source for the person identity, face, hair, expression, pose, body shape, body proportions, height, shoulder width, waist, legs, hands, and skin tone.',
+  'Never copy or blend in the face, body, pose, age, gender presentation, skin tone, background, or other garments from catalog garment reference images.',
   'Do not add visible borders, gutters, labels, captions, watermarks, or extra text between grid cells.',
+  usesIndividualGarmentImages
+    ? [
+        'Reference image 1 is the person photo and controls the person appearance.',
+        'Every following reference image contains exactly one selected fashion item; use each reference independently and do not interpret them as a collage.',
+        ...garments.map((garment, index) => (
+          `Reference image ${index + 2}: ${garment.role} — ${garment.name}${garment.color ? `, ${garment.color}` : ''}.`
+        )),
+      ].join('\n')
+    : 'Reference image 1 is the person photo and controls the person appearance; reference image 2 is the prepared outfit reference.',
   prompt,
 ].join('\n\n');
 
@@ -390,10 +417,10 @@ const saveGarmentProcessingDebugImages = async (
   }
 };
 
-const createGarmentCollage = async (
+const prepareGarmentAssets = async (
   input: VirtualTryOnProviderInput,
   timeoutMs: number,
-): Promise<VirtualTryOnProviderBinaryOutput | null> => {
+): Promise<PreparedGarmentAssets | null> => {
   const endpoint = process.env.VIRTUAL_TRY_ON_GARMENT_PROCESSING_URL?.trim();
   if (!endpoint) return null;
 
@@ -450,10 +477,18 @@ const createGarmentCollage = async (
       console.warn('Garment processing warnings:', [...new Set(warnings)].join(', '));
     }
 
+    const extractedItems = response.data.extractedItems || [];
     return {
-      buffer: collageBuffer,
-      mimeType: response.data.mimeType || 'image/png',
-      fileName: `${input.jobId}-garment-collage`,
+      collage: {
+        buffer: collageBuffer,
+        mimeType: response.data.mimeType || 'image/png',
+        fileName: `${input.jobId}-garment-collage`,
+      },
+      items: extractedItems.map((item, index) => ({
+        buffer: Buffer.from(item.imageBase64 || '', 'base64'),
+        mimeType: item.mimeType || 'image/png',
+        fileName: `${input.jobId}-${input.garments[index]?.role || item.role || `item-${index + 1}`}-isolated`,
+      })),
     };
   } catch (error) {
     if (shouldFailOpenGarmentProcessing()) {
@@ -463,7 +498,7 @@ const createGarmentCollage = async (
 
     if (error instanceof VirtualTryOnProviderError) throw error;
     throw new VirtualTryOnProviderError(
-      'Cannot prepare garment collage',
+      'Cannot prepare selected garment images',
       502,
       'GARMENT_PROCESSING_FAILED',
     );
@@ -479,6 +514,76 @@ const setMappedInput = (
   const pathSpec = workflowMap.inputs?.[key];
   if (!pathSpec) return false;
   setByPath(workflow, pathSpec, value);
+  return true;
+};
+
+export const configureMultiGarmentInputs = (
+  workflow: unknown,
+  workflowMap: ComfyWorkflowMap,
+  garmentFileNames: string[],
+) => {
+  const config = workflowMap.multiGarment;
+  if (!config || !garmentFileNames.length) return false;
+
+  const nodes = workflow as Record<string, Record<string, unknown>>;
+  const loadTemplate = nodes[config.loadImageNodeId];
+  const resizeTemplate = config.resizeNodeId ? nodes[config.resizeNodeId] : null;
+  const batchNode = nodes[config.batchNodeId];
+  const loadInputs = loadTemplate?.inputs as Record<string, unknown> | undefined;
+  const resizeInputs = resizeTemplate?.inputs as Record<string, unknown> | undefined;
+  const batchInputs = batchNode?.inputs as Record<string, unknown> | undefined;
+
+  if (!loadInputs || !batchInputs || (config.resizeNodeId && !resizeInputs)) {
+    throw new VirtualTryOnProviderError(
+      'ComfyUI multi-garment workflow templates are invalid',
+      500,
+      'COMFY_MAP_INVALID',
+    );
+  }
+
+  const batchInputPrefix = config.batchInputPrefix || 'images.image';
+  const personBatchInputKey = config.personBatchInputKey || `${batchInputPrefix}0`;
+  const personConnection = batchInputs[personBatchInputKey];
+  if (!personConnection) {
+    throw new VirtualTryOnProviderError(
+      'ComfyUI multi-garment workflow is missing the person batch input',
+      500,
+      'COMFY_MAP_INVALID',
+    );
+  }
+
+  Object.keys(batchInputs)
+    .filter((key) => key.startsWith(batchInputPrefix))
+    .forEach((key) => delete batchInputs[key]);
+  batchInputs[personBatchInputKey] = personConnection;
+
+  let nextNodeId = Math.max(
+    0,
+    ...Object.keys(nodes)
+      .map((key) => Number(key))
+      .filter((value) => Number.isInteger(value)),
+  ) + 1;
+
+  garmentFileNames.forEach((fileName, index) => {
+    const loadNodeId = index === 0 ? config.loadImageNodeId : String(nextNodeId++);
+    const loadNode = index === 0 ? loadTemplate : cloneJson(loadTemplate);
+    const nextLoadInputs = loadNode.inputs as Record<string, unknown>;
+    nextLoadInputs.image = fileName;
+    nodes[loadNodeId] = loadNode;
+
+    let outputNodeId = loadNodeId;
+    if (resizeTemplate && config.resizeNodeId) {
+      const resizeNodeId = index === 0 ? config.resizeNodeId : String(nextNodeId++);
+      const resizeNode = index === 0 ? resizeTemplate : cloneJson(resizeTemplate);
+      const nextResizeInputs = resizeNode.inputs as Record<string, unknown>;
+      nextResizeInputs.image = [loadNodeId, 0];
+      nodes[resizeNodeId] = resizeNode;
+      outputNodeId = resizeNodeId;
+    }
+
+    batchInputs[`${batchInputPrefix}${index + 1}`] = [outputNodeId, 0];
+  });
+
   return true;
 };
 
@@ -509,12 +614,32 @@ const applyWorkflowInputs = async (
   const garmentFileNames: string[] = [];
   let mappedGarmentCount = 0;
   let garmentImageMapped = false;
-  const garmentCollage = workflowMap.inputs?.garmentImage
-    ? await createGarmentCollage(input, timeoutMs)
+  const preparedGarments = workflowMap.multiGarment || workflowMap.inputs?.garmentImage
+    ? await prepareGarmentAssets(input, timeoutMs)
     : null;
+  const usePreparedItems = Boolean(
+    preparedGarments?.items.length === input.garments.length &&
+    preparedGarments.items.every((item) => item.buffer.length > 0),
+  );
+  let multiGarmentMapped = false;
 
-  if (garmentCollage) {
-    const fileName = await uploadImageBinaryToComfy(client, garmentCollage);
+  if (workflowMap.multiGarment) {
+    for (const [index, garment] of input.garments.entries()) {
+      const preparedItem = usePreparedItems ? preparedGarments?.items[index] : null;
+      const fileName = preparedItem
+        ? await uploadImageBinaryToComfy(client, preparedItem)
+        : await uploadImageToComfy(
+            client,
+            { url: garment.imageUrl, fileName: `${input.jobId}-${garment.role}-${garment.colorVariantId}` },
+            timeoutMs,
+          );
+      garmentFileNames.push(fileName);
+    }
+
+    multiGarmentMapped = configureMultiGarmentInputs(workflow, workflowMap, garmentFileNames);
+    if (multiGarmentMapped) mappedGarmentCount += garmentFileNames.length;
+  } else if (preparedGarments) {
+    const fileName = await uploadImageBinaryToComfy(client, preparedGarments.collage);
     garmentFileNames.push(fileName);
     if (setMappedInput(workflow, workflowMap, 'garmentImage', fileName)) {
       mappedGarmentCount += input.garments.length;
@@ -522,7 +647,7 @@ const applyWorkflowInputs = async (
     }
   }
 
-  for (const garment of garmentCollage ? [] : input.garments) {
+  for (const garment of (preparedGarments || workflowMap.multiGarment) ? [] : input.garments) {
     const fileName = await uploadImageToComfy(
       client,
       { url: garment.imageUrl, fileName: `${input.jobId}-${garment.role}-${garment.colorVariantId}` },
@@ -538,10 +663,10 @@ const applyWorkflowInputs = async (
     }
   }
 
-  if (!garmentImageMapped && garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImage', garmentFileNames[0])) {
+  if (!multiGarmentMapped && !garmentImageMapped && garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImage', garmentFileNames[0])) {
     mappedGarmentCount += 1;
   }
-  if (garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImages', garmentFileNames)) {
+  if (!multiGarmentMapped && garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImages', garmentFileNames)) {
     mappedGarmentCount += garmentFileNames.length;
   }
 
@@ -553,7 +678,7 @@ const applyWorkflowInputs = async (
     );
   }
 
-  const comfyPrompt = buildComfyTryOnPrompt(input.prompt);
+  const comfyPrompt = buildComfyTryOnPrompt(input.prompt, input.garments, multiGarmentMapped);
   if (!setMappedInput(workflow, workflowMap, 'positivePrompt', comfyPrompt)) {
     setMappedInput(workflow, workflowMap, 'prompt', comfyPrompt);
   }

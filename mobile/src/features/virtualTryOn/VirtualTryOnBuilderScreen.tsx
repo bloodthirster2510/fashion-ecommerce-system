@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -17,19 +17,38 @@ import {
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
-import type {
-  TryOnContextPreset,
-  TryOnImageValidationCapability,
-  TryOnImageValidationCapabilityMode,
-  TryOnImageValidationResult,
-  TryOnItemRole,
-  TryOnOutfitMode,
-  TryOnSelectedItem,
+import {
+  TRY_ON_ACTIVE_ITEM_LIMIT,
+  TRY_ON_QUEUE_LIMIT,
+  type TryOnContextPreset,
+  type TryOnImageValidationCapability,
+  type TryOnImageValidationCapabilityMode,
+  type TryOnImageValidationResult,
+  type TryOnItemRole,
+  type TryOnOutfitMode,
+  type TryOnSeedItem,
+  type TryOnSelectedItem,
 } from './virtualTryOn.types';
+import {
+  allTryOnRoles,
+  getOutfitSlots,
+  getPrefillOutfitMode,
+  getQueueSlotGroups,
+  getSelectedItemKey,
+  getSeedItemKey,
+  inferRole,
+  isSameTryOnItem,
+  normalizeItemsForMode,
+  normalizeSelectionForMode,
+  selectItemForSlot,
+  selectedItemToSeed,
+  type FashionIconName,
+  type OutfitSlot,
+  type SlotAlternativeGroup,
+} from './virtualTryOnSelection';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
-type FashionIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type TryOnProductSort = 'recommended' | 'price_asc' | 'price_desc';
 type TryOnGenderFilter = 'all' | 'male' | 'female' | 'unisex';
 type ImageValidationStatus = 'idle' | 'checking' | 'valid' | 'invalid' | 'error';
@@ -40,6 +59,13 @@ type ImageValidationState = {
   result?: TryOnImageValidationResult;
   errorCode?: string | null;
   message?: string;
+};
+
+type BuilderPreviewImage = {
+  uri: string;
+  label: string;
+  recyclingKey: string;
+  resizeMode?: 'cover' | 'contain';
 };
 
 type TryOnProductFilters = {
@@ -75,6 +101,10 @@ const tryOnPalette = {
   success: '#198754',
   successSoft: '#EAF7EF',
 } as const;
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -121,7 +151,7 @@ const roleLabel: Record<TryOnItemRole, string> = {
   bottom: 'Quần',
   dress: 'Váy/đầm',
   shoes: 'Giày/dép',
-  accessory: 'Phụ kiện',
+  accessory: 'Món khác',
   outerwear: 'Áo khoác',
 };
 
@@ -133,7 +163,7 @@ const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode,
   dress: 'váy/đầm',
   shoes: 'giày/dép',
   outerwear: 'áo khoác',
-  accessory: 'phụ kiện',
+  accessory: 'món khác',
 };
 
 const imageValidationCapabilityPriority: TryOnImageValidationCapabilityMode[] = [
@@ -366,55 +396,6 @@ const getImageValidationMessage = (
   return baseMessage;
 };
 
-type OutfitSlot = {
-  key: string;
-  label: string;
-  helper: string;
-  roles: TryOnItemRole[];
-  icon: FashionIconName;
-  required?: boolean;
-};
-
-const allTryOnRoles: TryOnItemRole[] = ['top', 'bottom', 'dress', 'shoes', 'outerwear'];
-
-const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
-  if (mode === 'single') {
-    return [
-      {
-        key: 'single',
-        label: 'Sản phẩm',
-        helper: 'Chọn 1 món bất kỳ',
-        roles: allTryOnRoles,
-        icon: 'plus-circle-outline',
-        required: true,
-      },
-    ];
-  }
-
-  if (mode === 'top_bottom') {
-    return [
-      { key: 'top', label: 'Áo', helper: 'Chọn áo', roles: ['top', 'outerwear'], icon: 'tshirt-v', required: true },
-      { key: 'bottom', label: 'Quần', helper: 'Chọn quần', roles: ['bottom'], icon: 'hanger', required: true },
-    ];
-  }
-
-  return [
-    { key: 'top', label: 'Áo', helper: 'Áo, áo khoác', roles: ['top', 'outerwear'], icon: 'tshirt-v' },
-    { key: 'outfit', label: 'Quần/Váy', helper: 'Quần, jean, váy, đầm', roles: ['bottom', 'dress'], icon: 'hanger' },
-    { key: 'shoes', label: 'Giày/dép', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-formal' },
-  ];
-};
-
-const inferRole = (product: CatalogProduct | CatalogProductDetail): TryOnItemRole => {
-  const haystack = `${product.name} ${product.category?.name ?? ''}`.toLowerCase();
-  if (haystack.includes('giày') || haystack.includes('dép') || haystack.includes('sandal')) return 'shoes';
-  if (haystack.includes('quần') || haystack.includes('jean') || haystack.includes('short')) return 'bottom';
-  if (haystack.includes('váy') || haystack.includes('đầm') || haystack.includes('dress')) return 'dress';
-  if (haystack.includes('khoác') || haystack.includes('blazer') || haystack.includes('jacket')) return 'outerwear';
-  if (haystack.includes('túi') || haystack.includes('mũ') || haystack.includes('nón') || haystack.includes('phụ kiện')) return 'accessory';
-  return 'top';
-};
-
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
   detail.variants.find((item) => item.isActive && item.colors.length) ??
@@ -463,22 +444,55 @@ const createSelectedItem = (
   color: ProductDetailColor,
   size?: string,
 ): TryOnSelectedItem => ({
-    productId: detail._id,
-    variantId: variant._id,
-    colorVariantId: color._id,
-    size,
-    role: inferRole(detail),
-    nameSnapshot: detail.name,
-    colorSnapshot: color.color,
-    imageSnapshot: color.image || detail.productImage,
-    priceSnapshot: variant.originalPrice,
-    finalPriceSnapshot: variant.finalPrice,
+  queueKey: `${detail._id}:${variant._id}:${color._id}:${size ?? ''}`,
+  productId: detail._id,
+  variantId: variant._id,
+  colorVariantId: color._id,
+  size,
+  role: inferRole(detail),
+  nameSnapshot: detail.name,
+  colorSnapshot: color.color,
+  imageSnapshot: color.image || detail.productImage,
+  priceSnapshot: variant.originalPrice,
+  finalPriceSnapshot: variant.finalPrice,
 });
+
+const createSelectedItemFromSeed = (
+  detail: CatalogProductDetail,
+  seed: TryOnSeedItem,
+): TryOnSelectedItem | null => {
+  const variant = detail.variants.find((item) => item._id === seed.variantId && item.isActive);
+  const color = variant?.colors.find((item) => item._id === seed.colorVariantId);
+  if (!variant || !color) return null;
+
+  const sizeOption = seed.size
+    ? variant.sizes.find((item) => item.size.trim().toLowerCase() === seed.size?.trim().toLowerCase())
+    : undefined;
+  if (seed.size && (!sizeOption || !isSizeAvailableForColor(variant, color._id, sizeOption))) return null;
+
+  const selected = createSelectedItem(
+    detail,
+    variant,
+    color,
+    sizeOption?.size ?? getFirstAvailableSize(variant, color._id),
+  );
+
+  return {
+    ...selected,
+    queueKey: getSeedItemKey(seed),
+    cartItemId: seed.cartItemId,
+    role: seed.role && allTryOnRoles.includes(seed.role) ? seed.role : selected.role,
+    nameSnapshot: seed.nameSnapshot || selected.nameSnapshot,
+    colorSnapshot: seed.colorSnapshot || selected.colorSnapshot,
+    imageSnapshot: seed.imageSnapshot || selected.imageSnapshot,
+  };
+};
 
 const VirtualTryOnBuilderScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { runWithAuth } = useAuth();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
   const [selectedItems, setSelectedItems] = React.useState<TryOnSelectedItem[]>([]);
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
@@ -490,6 +504,9 @@ const VirtualTryOnBuilderScreen = () => {
   const [isProductFilterVisible, setIsProductFilterVisible] = React.useState(false);
   const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isPrefilling, setIsPrefilling] = React.useState(false);
+  const [prefillNotice, setPrefillNotice] = React.useState('');
+  const [queueItems, setQueueItems] = React.useState<TryOnSelectedItem[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [imageValidation, setImageValidation] = React.useState<ImageValidationState>({ status: 'idle', key: '' });
   const [imageValidationRetryNonce, setImageValidationRetryNonce] = React.useState(0);
@@ -499,12 +516,41 @@ const VirtualTryOnBuilderScreen = () => {
   const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
   const [selectedSize, setSelectedSize] = React.useState<string>();
+  const [previewImage, setPreviewImage] = React.useState<BuilderPreviewImage | null>(null);
   const iconPulse = React.useRef(new Animated.Value(0)).current;
+  const lastPrefillKeyRef = React.useRef('');
 
   const sourceAssetId = route.params?.assetId;
   const sourceImageUrl = route.params?.imageUrl;
+  const incomingSeedItems = React.useMemo(() => route.params?.seedItems ?? [], [route.params?.seedItems]);
+  const incomingSeedKey = React.useMemo(
+    () => incomingSeedItems
+      .map((item) => `${item.cartItemId ?? ''}:${item.productId}:${item.variantId}:${item.colorVariantId}:${item.size ?? ''}:${item.role ?? ''}`)
+      .join('|'),
+    [incomingSeedItems],
+  );
   const outfitSlots = React.useMemo(() => getOutfitSlots(outfitMode), [outfitMode]);
   const activeSlot = outfitSlots.find((slot) => slot.key === activeSlotKey) ?? outfitSlots[0];
+  const optionalLayerSlot = outfitMode === 'full_set'
+    ? outfitSlots.find((slot) => slot.key === 'layer')
+    : undefined;
+  const hasOptionalLayerItem = selectedItems.some((item) => item.role === 'outerwear');
+  const visibleOutfitSlots = React.useMemo(() => {
+    if (outfitMode !== 'full_set') return outfitSlots;
+    return outfitSlots.filter((slot) =>
+      slot.key !== 'layer' ||
+      hasOptionalLayerItem ||
+      activeSlotKey === 'layer',
+    );
+  }, [activeSlotKey, hasOptionalLayerItem, outfitMode, outfitSlots]);
+  const queueGroups = React.useMemo(
+    () => getQueueSlotGroups(queueItems, outfitMode),
+    [outfitMode, queueItems],
+  );
+  const queueActiveCount = React.useMemo(
+    () => queueItems.filter((item) => selectedItems.some((selected) => isSameTryOnItem(selected, item))).length,
+    [queueItems, selectedItems],
+  );
   const selectedVariant = configuringProduct?.variants.find((variant) => variant._id === selectedVariantId);
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);
   const selectedSizeOption = selectedVariant?.sizes.find((item) => item.size === selectedSize);
@@ -549,6 +595,24 @@ const VirtualTryOnBuilderScreen = () => {
     ],
   };
 
+  const animateSelectionLayout = React.useCallback(() => {
+    LayoutAnimation.configureNext({
+      duration: 220,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.spring,
+        springDamping: 0.82,
+      },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+  }, []);
+
   React.useEffect(() => {
     let isCurrent = true;
     setIsLoading(true);
@@ -568,6 +632,56 @@ const VirtualTryOnBuilderScreen = () => {
   }, []);
 
   React.useEffect(() => {
+    if (!incomingSeedKey || lastPrefillKeyRef.current === incomingSeedKey) return;
+
+    lastPrefillKeyRef.current = incomingSeedKey;
+    let isCurrent = true;
+    setIsPrefilling(true);
+    setPrefillNotice('Đang đưa đúng màu và size đã chọn vào phòng phối...');
+
+    const limitedSeedItems = incomingSeedItems.slice(0, TRY_ON_QUEUE_LIMIT);
+
+    Promise.all(limitedSeedItems.map(async (seed) => {
+      try {
+        const detail = await catalogApi.getProductById(seed.productId);
+        return createSelectedItemFromSeed(detail, seed);
+      } catch {
+        return null;
+      }
+    }))
+      .then((items) => {
+        if (!isCurrent) return;
+        const resolvedItems = items.filter((item): item is TryOnSelectedItem => Boolean(item));
+        const mode = getPrefillOutfitMode(resolvedItems);
+        const normalized = normalizeSelectionForMode(resolvedItems, mode);
+
+        setOutfitMode(mode);
+        setSelectedItems(normalized.items);
+        setQueueItems(resolvedItems);
+        setActiveSlotKey(getOutfitSlots(mode)[0].key);
+
+        const unavailableCount = limitedSeedItems.length - resolvedItems.length;
+        const truncatedCount = Math.max(0, incomingSeedItems.length - limitedSeedItems.length);
+        const queuedButInactiveCount = Math.max(0, resolvedItems.length - normalized.items.length);
+        setPrefillNotice(
+          unavailableCount || queuedButInactiveCount || truncatedCount
+            ? `Đã đưa ${resolvedItems.length} món vào hàng chờ, ${normalized.items.length} món đang active. ${queuedButInactiveCount ? `${queuedButInactiveCount} món sẽ thử lần lượt. ` : ''}${unavailableCount ? `${unavailableCount} món không còn đúng biến thể. ` : ''}${truncatedCount ? `${truncatedCount} món vượt giới hạn hàng chờ.` : ''}`.trim()
+            : `Đã điền sẵn ${normalized.items.length} món cùng màu và size đã chọn.`,
+        );
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent) return;
+        const message = error instanceof Error ? error.message : 'Không thể tải bộ đồ đã chọn.';
+        setPrefillNotice(message);
+      })
+      .finally(() => {
+        if (isCurrent) setIsPrefilling(false);
+      });
+
+    return () => { isCurrent = false; };
+  }, [incomingSeedItems, incomingSeedKey]);
+
+  React.useEffect(() => {
     if (!outfitSlots.some((slot) => slot.key === activeSlotKey)) {
       setActiveSlotKey(outfitSlots[0].key);
     }
@@ -575,22 +689,9 @@ const VirtualTryOnBuilderScreen = () => {
 
   React.useEffect(() => {
     setSelectedItems((current) => {
-      if (outfitMode === 'single') return current.slice(0, 1);
-
-      const allowedRoles = new Set(outfitSlots.flatMap((slot) => slot.roles));
-      const nextItems = current.filter((item) => allowedRoles.has(item.role));
-
-      if (outfitMode === 'top_bottom') {
-        const nextByRole = new Map<TryOnItemRole, TryOnSelectedItem>();
-        nextItems.forEach((item) => {
-          if (item.role === 'top' || item.role === 'bottom') nextByRole.set(item.role, item);
-        });
-        return Array.from(nextByRole.values());
-      }
-
-      return nextItems.slice(0, 4);
+      return normalizeItemsForMode(current, outfitMode);
     });
-  }, [outfitMode, outfitSlots]);
+  }, [outfitMode]);
 
   const slotProducts = React.useMemo(
     () => products.filter((product) => activeSlot.roles.includes(inferRole(product))),
@@ -712,17 +813,49 @@ const VirtualTryOnBuilderScreen = () => {
     });
   };
 
+  const upsertQueueItem = (item: TryOnSelectedItem) => {
+    const itemKey = getSelectedItemKey(item);
+
+    setQueueItems((current) => {
+      if (current.some((entry) => getSelectedItemKey(entry) === itemKey)) {
+        return current.map((entry) => (getSelectedItemKey(entry) === itemKey ? item : entry));
+      }
+
+      if (current.length >= TRY_ON_QUEUE_LIMIT) return current;
+
+      return [...current, item];
+    });
+  };
+
   const addSelectedItem = (item: TryOnSelectedItem) => {
     const roleForSlot = activeSlot.roles.includes(item.role) ? item.role : activeSlot.roles[0];
     const normalizedItem = { ...item, role: roleForSlot };
+    const replacedItem = outfitMode === 'single'
+      ? selectedItems.find((entry) => entry.productId !== normalizedItem.productId)
+      : selectedItems.find((entry) =>
+          entry.productId !== normalizedItem.productId &&
+          activeSlot.roles.includes(entry.role),
+        );
 
+    const itemAlreadyQueued = queueItems.some((entry) => isSameTryOnItem(entry, normalizedItem));
+    if (!itemAlreadyQueued && queueItems.length >= TRY_ON_QUEUE_LIMIT) {
+      Alert.alert('Hàng chờ đã đầy', `Hàng chờ đang có tối đa ${TRY_ON_QUEUE_LIMIT} món. Bạn có thể tạo ảnh trước hoặc quay lại giỏ để đổi danh sách chờ.`);
+      return;
+    } else {
+      upsertQueueItem(normalizedItem);
+    }
+
+    animateSelectionLayout();
     setSelectedItems((current) => {
-      if (outfitMode === 'single') return [normalizedItem];
-
-      const withoutSameProduct = current.filter((entry) => entry.productId !== normalizedItem.productId);
-      const withoutSameSlot = withoutSameProduct.filter((entry) => !activeSlot.roles.includes(entry.role));
-      return [...withoutSameSlot, normalizedItem].slice(0, 4);
+      return selectItemForSlot(current, normalizedItem, activeSlot, outfitMode);
     });
+
+    if (replacedItem) {
+      Alert.alert(
+        `Đã thay ${activeSlot.label.toLowerCase()}`,
+        `Mỗi bản phối chỉ dùng 1 ${activeSlot.label.toLowerCase()} ở vị trí này. Muốn thử cả hai thì tạo lần lượt từng bản phối.`,
+      );
+    }
   };
 
   const selectProduct = async (product: CatalogProduct) => {
@@ -790,14 +923,39 @@ const VirtualTryOnBuilderScreen = () => {
     setIsProductListVisible(false);
   };
 
-  const removeSelectedItem = (productId: string) => {
-    setSelectedItems((current) => current.filter((item) => item.productId !== productId));
+  const removeSelectedItem = (itemKey: string) => {
+    animateSelectionLayout();
+    setSelectedItems((current) => current.filter((item) => getSelectedItemKey(item) !== itemKey));
+  };
+
+  const removeQueueItem = (itemKey: string) => {
+    animateSelectionLayout();
+    setQueueItems((current) => current.filter((item) => getSelectedItemKey(item) !== itemKey));
+    setSelectedItems((current) => current.filter((item) => getSelectedItemKey(item) !== itemKey));
+  };
+
+  const chooseQueueItem = (group: SlotAlternativeGroup, item: TryOnSelectedItem) => {
+    const nextMode = outfitSlots.some((entry) => entry.roles.includes(item.role)) ? outfitMode : 'full_set';
+    const nextSlots = getOutfitSlots(nextMode);
+    const slot =
+      nextSlots.find((entry) => entry.key === group.slotKey && entry.roles.includes(item.role)) ??
+      nextSlots.find((entry) => entry.roles.includes(item.role)) ??
+      nextSlots[0];
+    if (!slot) return;
+
+    animateSelectionLayout();
+    setOutfitMode(nextMode);
+    setSelectedItems((current) => {
+      const normalizedCurrent = nextMode === outfitMode ? current : normalizeItemsForMode(current, nextMode);
+      return selectItemForSlot(normalizedCurrent, item, slot, nextMode);
+    });
+    setActiveSlotKey(slot.key);
   };
 
   const getSelectedItemForSlot = (slot: OutfitSlot) =>
     selectedItems.find((item) => slot.roles.includes(item.role));
 
-  const selectedSlotCount = outfitSlots.filter((slot) => getSelectedItemForSlot(slot)).length;
+  const selectedSlotCount = visibleOutfitSlots.filter((slot) => getSelectedItemForSlot(slot)).length;
 
   const hasTopSlot = selectedItems.some((item) => item.role === 'top' || item.role === 'outerwear');
   const hasBottomSlot = selectedItems.some((item) => item.role === 'bottom');
@@ -826,7 +984,7 @@ const VirtualTryOnBuilderScreen = () => {
       !currentSelectionUnsupportedCapability
     );
   const imageValidationBlocksSubmit = Boolean(imageValidationScanKey) && canSubmit && !imageValidationReady;
-  const submitDisabled = !canSubmit || isSubmitting || imageValidationBlocksSubmit;
+  const submitDisabled = !canSubmit || isPrefilling || isSubmitting || imageValidationBlocksSubmit;
 
   React.useEffect(() => {
     if (!imageValidationScanKey || !sourceAssetId) {
@@ -966,12 +1124,19 @@ const VirtualTryOnBuilderScreen = () => {
       return 'Cần 2 món';
     }
 
+    if (outfitMode === 'full_set') {
+      return hasOptionalLayerItem
+        ? `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món`
+        : `${selectedSlotCount}/3 món chính`;
+    }
+
     return `${selectedSlotCount}/${outfitSlots.length} món`;
   })();
 
   const submitCreateJob = async (confirmedSourceAssetId: string) => {
     setIsCreateConfirmVisible(false);
     setIsSubmitting(true);
+    const retainedSeedItems = (queueItems.length ? queueItems : selectedItems).map(selectedItemToSeed);
     try {
       const job = await runWithAuth((token) =>
         virtualTryOnApi.createJob(token, {
@@ -989,7 +1154,10 @@ const VirtualTryOnBuilderScreen = () => {
           outputMode: 'image',
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       );
-      navigation.replace('VirtualTryOnProcessing', { jobId: job._id });
+      navigation.replace('VirtualTryOnProcessing', {
+        jobId: job._id,
+        seedItems: retainedSeedItems.length ? retainedSeedItems : undefined,
+      });
     } catch (error) {
       const alert = getCreateJobErrorAlert(error);
       Alert.alert(alert.title, alert.message);
@@ -998,10 +1166,19 @@ const VirtualTryOnBuilderScreen = () => {
     }
   };
 
+  const openPhotoStep = () => {
+    const seedSourceItems = queueItems.length ? queueItems : selectedItems;
+
+    navigation.navigate('VirtualTryOnHome', {
+      entryPoint: 'builder',
+      seedItems: seedSourceItems.map(selectedItemToSeed),
+    });
+  };
+
   const createJob = () => {
     if (!sourceAssetId) {
       Alert.alert('Ảnh của bạn', 'Tải ảnh hoặc chụp ảnh trước.');
-      navigation.navigate('VirtualTryOnHome');
+      openPhotoStep();
       return;
     }
 
@@ -1039,6 +1216,10 @@ const VirtualTryOnBuilderScreen = () => {
 
   const outfitTotal = selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0);
   const activeModeOption = outfitModes.find((mode) => mode.key === outfitMode) ?? outfitModes[0];
+  const openPreviewImage = (image: BuilderPreviewImage) => {
+    if (!image.uri) return;
+    setPreviewImage(image);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1055,13 +1236,27 @@ const VirtualTryOnBuilderScreen = () => {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.studioHero}>
-          <View style={styles.sourceImageWrap}>
-            {sourceImageUrl ? (
+          {sourceImageUrl ? (
+            <TouchableOpacity
+              style={styles.sourceImageWrap}
+              onPress={() => openPreviewImage({
+                uri: sourceImageUrl,
+                label: 'Ảnh người mặc',
+                recyclingKey: `source-preview-${sourceAssetId}`,
+                resizeMode: 'contain',
+              })}
+              activeOpacity={0.9}
+            >
               <RemoteImage uri={sourceImageUrl} style={styles.sourceImage} recyclingKey={sourceAssetId} />
-            ) : (
+              <View style={styles.imageExpandBadge}>
+                <MaterialCommunityIcons name="fullscreen" size={15} color={colors.white} />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.sourceImageWrap}>
               <MaterialCommunityIcons name="image-outline" size={44} color={tryOnPalette.ink} />
-            )}
-          </View>
+            </View>
+          )}
           <View style={styles.studioCopy}>
             <Text style={styles.studioEyebrow}>Ảnh người mặc</Text>
             <Text style={styles.studioTitle}>Thử đồ trên ảnh thật của bạn</Text>
@@ -1100,8 +1295,23 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.imageValidationText}>{imageValidationDisplay.message}</Text>
               </View>
             </Pressable>
+            <TouchableOpacity style={styles.changePhotoButton} onPress={openPhotoStep} activeOpacity={0.82}>
+              <MaterialCommunityIcons name="image-edit-outline" size={17} color={tryOnPalette.primary} />
+              <Text style={styles.changePhotoText}>{sourceImageUrl ? 'Đổi ảnh, giữ nguyên bộ đồ' : 'Chọn ảnh người mặc'}</Text>
+            </TouchableOpacity>
           </View>
         </View>
+
+        {prefillNotice ? (
+          <View style={styles.prefillBanner}>
+            {isPrefilling ? (
+              <ActivityIndicator size="small" color={tryOnPalette.primary} />
+            ) : (
+              <MaterialCommunityIcons name="cart-check" size={20} color={tryOnPalette.success} />
+            )}
+            <Text style={styles.prefillBannerText}>{prefillNotice}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.sectionHeaderBlock}>
           <Text style={styles.sectionTitle}>Chế độ phối</Text>
@@ -1140,7 +1350,7 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
         </View>
         <View style={styles.slotGrid}>
-          {outfitSlots.map((slot) => {
+          {visibleOutfitSlots.map((slot) => {
             const active = activeSlot.key === slot.key;
             const selectedItem = getSelectedItemForSlot(slot);
 
@@ -1201,7 +1411,7 @@ const VirtualTryOnBuilderScreen = () => {
                     style={styles.slotRemoveButton}
                     onPress={(event) => {
                       event.stopPropagation();
-                      removeSelectedItem(selectedItem.productId);
+                      removeSelectedItem(getSelectedItemKey(selectedItem));
                     }}
                     activeOpacity={0.75}
                   >
@@ -1214,6 +1424,105 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
+
+        {optionalLayerSlot && !visibleOutfitSlots.some((slot) => slot.key === optionalLayerSlot.key) ? (
+          <TouchableOpacity
+            style={styles.optionalLayerButton}
+            onPress={() => {
+              setActiveSlotKey(optionalLayerSlot.key);
+              setIsProductListVisible(true);
+            }}
+            activeOpacity={0.84}
+          >
+            <View style={styles.optionalLayerIcon}>
+              <MaterialCommunityIcons name="wardrobe-outline" size={21} color={tryOnPalette.primary} />
+            </View>
+            <View style={styles.optionalLayerCopy}>
+              <Text style={styles.optionalLayerText}>Thêm áo khoác</Text>
+              <Text style={styles.optionalLayerMeta}>Không bắt buộc, dùng khi muốn khoác ngoài.</Text>
+            </View>
+            <MaterialCommunityIcons name="plus-circle-outline" size={22} color={tryOnPalette.primary} />
+          </TouchableOpacity>
+        ) : null}
+
+        {queueGroups.length ? (
+          <View style={styles.alternativePanel}>
+            <View style={styles.alternativeHeader}>
+              <View style={styles.alternativeHeaderIcon}>
+                <MaterialCommunityIcons name="playlist-check" size={20} color={tryOnPalette.primary} />
+              </View>
+              <View style={styles.alternativeHeaderCopy}>
+                <Text style={styles.alternativeTitle}>Hàng chờ thử đồ</Text>
+                <Text style={styles.alternativeText}>
+                  Chạm một món để thử ngay; món cùng vị trí sẽ được thay mềm vào bản phối.
+                </Text>
+              </View>
+              <View style={styles.alternativeHeaderBadge}>
+                <Text style={styles.alternativeHeaderBadgeText}>{queueActiveCount}/{queueItems.length} đang thử</Text>
+              </View>
+            </View>
+            {queueGroups.map((group) => (
+              <View key={group.slotKey} style={styles.alternativeGroup}>
+                <Text style={styles.alternativeGroupTitle}>{group.slotLabel}</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.alternativeList}
+                >
+                  {group.items.map((item) => {
+                    const active = selectedItems.some((selected) => isSameTryOnItem(selected, item));
+                    const itemKey = getSelectedItemKey(item);
+
+                    return (
+                      <TouchableOpacity
+                        key={`${group.slotKey}-${itemKey}`}
+                        style={[styles.alternativeItem, active && styles.alternativeItemActive]}
+                        onPress={() => chooseQueueItem(group, item)}
+                        activeOpacity={0.86}
+                      >
+                        <RemoteImage
+                          uri={item.imageSnapshot}
+                          style={styles.alternativeImage}
+                          recyclingKey={`alternative-${itemKey}`}
+                        />
+                        <View style={styles.alternativeItemCopy}>
+                          <Text style={styles.alternativeItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                          <Text style={styles.alternativeItemMeta} numberOfLines={1}>
+                            {[item.colorSnapshot, item.size].filter(Boolean).join(' / ') || roleLabel[item.role]}
+                          </Text>
+                          <View style={[styles.alternativeStatusPill, active ? styles.alternativeStatusPillActive : styles.alternativeStatusPillIdle]}>
+                            <Text style={[styles.alternativeStatusText, active ? styles.alternativeStatusTextActive : styles.alternativeStatusTextIdle]}>
+                              {active ? 'Đang thử' : 'Chờ thử'}
+                            </Text>
+                          </View>
+                        </View>
+                        {active ? (
+                          <View style={styles.alternativeActiveMark}>
+                            <MaterialCommunityIcons name="check" size={14} color={colors.white} />
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.alternativeRemoveMark}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              removeQueueItem(itemKey);
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.82}
+                            accessibilityRole="button"
+                            accessibilityLabel="Bỏ món khỏi hàng chờ"
+                          >
+                            <MaterialCommunityIcons name="close" size={14} color={colors.white} />
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <TouchableOpacity
           style={styles.openProductListButton}
@@ -1231,6 +1540,138 @@ const VirtualTryOnBuilderScreen = () => {
             <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
           </View>
         </TouchableOpacity>
+
+        <View style={styles.mixPreviewCard}>
+          <View style={styles.mixPreviewHeader}>
+            <View style={styles.mixPreviewHeaderCopy}>
+              <Text style={styles.mixPreviewEyebrow}>Bản phối trực quan</Text>
+              <Text style={styles.mixPreviewTitle}>Ảnh của bạn + bộ đồ đã chọn</Text>
+            </View>
+            <View style={styles.mixPreviewCount}>
+              <Text style={styles.mixPreviewCountText}>{selectedItems.length}/{TRY_ON_ACTIVE_ITEM_LIMIT} món</Text>
+            </View>
+          </View>
+
+          <View style={styles.mixBeforeAfterRow}>
+            <View style={styles.mixPortraitStage}>
+              {sourceImageUrl ? (
+                <TouchableOpacity
+                  style={styles.mixStageVisual}
+                  onPress={() => openPreviewImage({
+                    uri: sourceImageUrl,
+                    label: 'Ảnh gốc',
+                    recyclingKey: `mix-source-preview-${sourceAssetId}`,
+                    resizeMode: 'contain',
+                  })}
+                  activeOpacity={0.9}
+                >
+                  <RemoteImage uri={sourceImageUrl} style={styles.mixSourceImage} recyclingKey={`mix-source-${sourceAssetId}`} />
+                  <View style={styles.imageExpandBadge}>
+                    <MaterialCommunityIcons name="fullscreen" size={15} color={colors.white} />
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.mixStageVisual}>
+                  <MaterialCommunityIcons name="account-outline" size={30} color={tryOnPalette.primary} />
+                </View>
+              )}
+              <Text style={styles.mixStageLabel}>Ảnh gốc</Text>
+            </View>
+
+            <View style={styles.mixProcessStep}>
+              <View style={styles.mixProcessIcon}>
+                <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
+              </View>
+              <Text style={styles.mixProcessText}>Phối từng món</Text>
+              <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
+            </View>
+
+            <View style={styles.mixPortraitStage}>
+              <View style={[styles.mixStageVisual, styles.mixResultVisual]}>
+                <View style={styles.mixResultGlow} />
+                <MaterialCommunityIcons name="auto-fix" size={28} color={colors.white} />
+                <View style={styles.mixResultMiniStack}>
+                  {selectedItems.slice(0, 3).map((item, index) => (
+                    <View
+                      key={`result-mini-${getSelectedItemKey(item)}`}
+                      style={[styles.mixResultMiniWrap, index > 0 && styles.mixResultMiniOverlap]}
+                    >
+                      <RemoteImage
+                        uri={item.imageSnapshot}
+                        style={styles.mixResultMiniImage}
+                        recyclingKey={`result-mini-${getSelectedItemKey(item)}`}
+                      />
+                    </View>
+                  ))}
+                  {selectedItems.length > 3 ? (
+                    <View style={[styles.mixResultMiniWrap, styles.mixResultMiniOverlap, styles.mixResultMiniMore]}>
+                      <Text style={styles.mixResultMiniMoreText}>+{selectedItems.length - 3}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.mixResultHint}>Sắp lên ảnh</Text>
+                <View style={styles.mixSparkleDot} />
+              </View>
+              <Text style={styles.mixStageLabel}>Kết quả AI</Text>
+            </View>
+          </View>
+
+          <View style={styles.mixItemsHeader}>
+            <Text style={styles.mixItemsTitle}>Từng món AI sẽ sử dụng</Text>
+            <Text style={styles.mixItemsMeta}>Không ghép chung ảnh</Text>
+          </View>
+          {selectedItems.length ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.mixItemList}
+            >
+              {selectedItems.map((item, index) => (
+                <TouchableOpacity
+                  key={`mix-${getSelectedItemKey(item)}`}
+                  style={styles.mixItemCard}
+                  onPress={() => openPreviewImage({
+                    uri: item.imageSnapshot,
+                    label: roleLabel[item.role],
+                    recyclingKey: `mix-garment-preview-${item.colorVariantId}`,
+                    resizeMode: 'contain',
+                  })}
+                  activeOpacity={0.88}
+                >
+                  <View style={styles.mixItemImageWrap}>
+                    <RemoteImage
+                      uri={item.imageSnapshot}
+                      style={styles.mixItemImage}
+                      recyclingKey={`mix-garment-${item.colorVariantId}`}
+                    />
+                    <View style={styles.imageExpandBadgeSmall}>
+                      <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
+                    </View>
+                  </View>
+                  <View style={styles.mixItemCopy}>
+                    <Text style={styles.mixItemRole}>Món {index + 1} · {roleLabel[item.role]}</Text>
+                    <Text style={styles.mixItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                    <Text style={styles.mixItemVariant} numberOfLines={1}>
+                      {[item.colorSnapshot, item.size].filter(Boolean).join(' · ') || 'Biến thể mặc định'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.mixItemsEmpty}>
+              <MaterialCommunityIcons name="hanger" size={22} color="#BFD8E6" />
+              <Text style={styles.mixItemsEmptyText}>Chọn từng món ở trên để xem tại đây.</Text>
+            </View>
+          )}
+
+          <View style={styles.mixPreviewFooter}>
+            <MaterialCommunityIcons name="shield-check-outline" size={18} color={tryOnPalette.success} />
+            <Text style={styles.mixPreviewText}>
+              AI giữ dáng người từ ảnh gốc và thay đúng từng món, màu, size bạn đã chọn.
+            </Text>
+          </View>
+        </View>
 
         <View style={styles.sectionHeaderBlock}>
           <Text style={styles.sectionTitle}>Bối cảnh kết quả</Text>
@@ -1295,13 +1736,53 @@ const VirtualTryOnBuilderScreen = () => {
               <ActivityIndicator color={colors.textMuted} />
             ) : (
               <>
-                <MaterialCommunityIcons name="auto-fix" size={22} color={submitDisabled ? colors.textMuted : colors.white} />
-                <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo ảnh</Text>
+                <MaterialCommunityIcons
+                  name={sourceAssetId ? 'auto-fix' : 'image-plus'}
+                  size={22}
+                  color={submitDisabled ? colors.textMuted : colors.white}
+                />
+                <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>
+                  {sourceAssetId ? 'Tạo ảnh' : 'Chọn ảnh'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={Boolean(previewImage)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImage(null)}
+      >
+        <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
+          <View style={styles.previewHeader}>
+            <View style={styles.previewCounter}>
+              <Text style={styles.previewCounterLabel} numberOfLines={1}>
+                {previewImage?.label ?? 'Ảnh'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setPreviewImage(null)}
+              activeOpacity={0.82}
+            >
+              <MaterialCommunityIcons name="close" size={24} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
+            {previewImage ? (
+              <RemoteImage
+                uri={previewImage.uri}
+                style={styles.previewImage}
+                recyclingKey={previewImage.recyclingKey}
+                resizeMode={previewImage.resizeMode ?? 'contain'}
+              />
+            ) : null}
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       <Modal
         visible={isCreateConfirmVisible}
@@ -1356,10 +1837,10 @@ const VirtualTryOnBuilderScreen = () => {
             <Text style={styles.productHeaderTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
             <TouchableOpacity
               style={styles.headerButton}
-              onPress={() => setIsProductFilterVisible(true)}
+              onPress={() => setIsProductListVisible(false)}
               activeOpacity={0.8}
             >
-              <MaterialCommunityIcons name="tune-variant" size={22} color={colors.white} />
+              <MaterialCommunityIcons name="close" size={23} color={colors.white} />
             </TouchableOpacity>
           </View>
 
@@ -1828,6 +2309,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(84,119,146,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   sourceImage: {
     width: '100%',
@@ -1927,6 +2409,43 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: '700',
     marginTop: 2,
+  },
+  changePhotoButton: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    borderRadius: radii.pill,
+    backgroundColor: tryOnPalette.primarySoft,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: spacing.sm,
+  },
+  changePhotoText: {
+    flexShrink: 1,
+    color: tryOnPalette.primary,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  prefillBanner: {
+    minHeight: 48,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  prefillBannerText: {
+    flex: 1,
+    minWidth: 0,
+    color: tryOnPalette.ink,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   sectionHeaderBlock: {
     gap: 3,
@@ -2112,6 +2631,198 @@ const styles = StyleSheet.create({
   slotSingleText: {
     textAlign: 'left',
   },
+  optionalLayerButton: {
+    minHeight: 58,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  optionalLayerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: tryOnPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionalLayerCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  optionalLayerText: {
+    color: tryOnPalette.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  optionalLayerMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  alternativePanel: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.primarySoft,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  alternativeHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  alternativeHeaderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativeHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  alternativeHeaderBadge: {
+    minHeight: 30,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativeHeaderBadgeText: {
+    color: tryOnPalette.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  alternativeTitle: {
+    color: tryOnPalette.primaryDark,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  alternativeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  alternativeGroup: {
+    gap: spacing.sm,
+  },
+  alternativeGroupTitle: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  alternativeList: {
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  alternativeItem: {
+    width: 238,
+    minHeight: 104,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: colors.surface,
+    padding: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    position: 'relative',
+  },
+  alternativeItemActive: {
+    borderColor: tryOnPalette.success,
+    borderWidth: 2,
+    backgroundColor: tryOnPalette.successSoft,
+  },
+  alternativeImage: {
+    width: 64,
+    height: 78,
+    borderRadius: radii.xs,
+    backgroundColor: tryOnPalette.primarySoft,
+  },
+  alternativeItemCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  alternativeItemName: {
+    color: colors.text,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  alternativeItemMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  alternativeStatusPill: {
+    alignSelf: 'flex-start',
+    minHeight: 22,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
+  alternativeStatusPillActive: {
+    backgroundColor: tryOnPalette.success,
+  },
+  alternativeStatusPillIdle: {
+    backgroundColor: tryOnPalette.primaryPale,
+  },
+  alternativeStatusText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  alternativeStatusTextActive: {
+    color: colors.white,
+  },
+  alternativeStatusTextIdle: {
+    color: tryOnPalette.primaryDark,
+  },
+  alternativeActiveMark: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: tryOnPalette.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativeRemoveMark: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(33,52,72,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   openProductListButton: {
     minHeight: 78,
     borderRadius: radii.md,
@@ -2158,6 +2869,301 @@ const styles = StyleSheet.create({
     backgroundColor: tryOnPalette.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  mixPreviewCard: {
+    borderRadius: radii.md,
+    backgroundColor: '#172431',
+    padding: spacing.lg,
+    gap: spacing.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    ...shadows.card,
+  },
+  mixPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  mixPreviewHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mixPreviewEyebrow: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  mixPreviewTitle: {
+    color: colors.white,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  mixPreviewCount: {
+    minHeight: 28,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixPreviewCountText: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  mixBeforeAfterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  mixPortraitStage: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  mixStageVisual: {
+    width: '100%',
+    aspectRatio: 0.82,
+    maxHeight: 132,
+    borderRadius: radii.sm,
+    backgroundColor: '#F3F8FB',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  mixSourceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mixResultVisual: {
+    backgroundColor: tryOnPalette.primary,
+    position: 'relative',
+    gap: spacing.xs,
+  },
+  mixResultGlow: {
+    position: 'absolute',
+    left: -24,
+    right: -24,
+    top: 18,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(215,244,255,0.2)',
+    transform: [{ rotate: '-12deg' }],
+  },
+  mixResultMiniStack: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  mixResultMiniWrap: {
+    width: 30,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.72)',
+    overflow: 'hidden',
+  },
+  mixResultMiniOverlap: {
+    marginLeft: -9,
+  },
+  mixResultMiniImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mixResultMiniMore: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#D7F4FF',
+  },
+  mixResultMiniMoreText: {
+    color: tryOnPalette.primaryDark,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  mixResultHint: {
+    color: '#D7F4FF',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+  },
+  mixSparkleDot: {
+    position: 'absolute',
+    top: 16,
+    right: 15,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D7F4FF',
+  },
+  mixStageLabel: {
+    color: '#DCEAF1',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mixProcessStep: {
+    width: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  mixProcessIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: tryOnPalette.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixProcessText: {
+    color: '#DCEAF1',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mixItemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  mixItemsTitle: {
+    color: colors.white,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  mixItemsMeta: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  mixItemList: {
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  mixItemCard: {
+    width: 218,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    padding: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    overflow: 'hidden',
+  },
+  mixItemImageWrap: {
+    width: 70,
+    height: 88,
+    borderRadius: radii.xs,
+    overflow: 'hidden',
+    backgroundColor: tryOnPalette.primarySoft,
+  },
+  mixItemImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mixItemCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: spacing.xs,
+  },
+  mixItemRole: {
+    color: tryOnPalette.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mixItemName: {
+    color: tryOnPalette.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  mixItemVariant: {
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  imageExpandBadge: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(23,36,49,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageExpandBadgeSmall: {
+    position: 'absolute',
+    right: 5,
+    top: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(23,36,49,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixItemsEmpty: {
+    minHeight: 64,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  mixItemsEmptyText: {
+    color: '#DCEAF1',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  mixPreviewFooter: {
+    minHeight: 44,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  mixPreviewText: {
+    flex: 1,
+    minWidth: 0,
+    color: '#DCEAF1',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   searchRow: {
     minHeight: 54,
@@ -2508,6 +3514,53 @@ const styles = StyleSheet.create({
   },
   submitTextDisabled: {
     color: colors.textMuted,
+  },
+  previewModal: {
+    flex: 1,
+    backgroundColor: '#05070A',
+  },
+  previewHeader: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 2,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewCounter: {
+    minHeight: 34,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '72%',
+  },
+  previewCounterLabel: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  previewCloseButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewSlide: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
   },
   confirmModalRoot: {
     flex: 1,

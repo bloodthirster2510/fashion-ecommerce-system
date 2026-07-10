@@ -3,16 +3,18 @@ import { ActivityIndicator, Alert, Animated, Easing, Image, ScrollView, StyleShe
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { virtualTryOnApi } from './virtualTryOnApi';
-import type { VirtualTryOnAsset, VirtualTryOnJob } from './virtualTryOn.types';
+import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
+type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
 
 const formatDate = (value: string) => {
   try {
@@ -70,6 +72,7 @@ const virtualTryOnHeroImage = require('../../../assets/virtual-try-on/hero-studi
 
 const VirtualTryOnHomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<RouteProps>();
   const { isAuthenticated, runWithAuth } = useAuth();
   const [latestAsset, setLatestAsset] = React.useState<VirtualTryOnAsset | null>(null);
   const [assetLibrary, setAssetLibrary] = React.useState<VirtualTryOnAsset[]>([]);
@@ -78,7 +81,18 @@ const VirtualTryOnHomeScreen = () => {
   const [isLoading, setIsLoading] = React.useState(false);
   const [isUploading, setIsUploading] = React.useState(false);
   const [deletingAssetId, setDeletingAssetId] = React.useState<string | null>(null);
+  const [pendingSeedItems, setPendingSeedItems] = React.useState<TryOnSeedItem[]>([]);
+  const [pendingEntryPoint, setPendingEntryPoint] = React.useState<'cart' | 'builder' | undefined>();
   const heroLift = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    const nextSeedItems = route.params?.seedItems;
+    if (!nextSeedItems?.length) return;
+
+    setPendingSeedItems(nextSeedItems.slice(0, TRY_ON_QUEUE_LIMIT));
+    setPendingEntryPoint(route.params?.entryPoint);
+    navigation.setParams({ seedItems: undefined, entryPoint: undefined });
+  }, [navigation, route.params?.entryPoint, route.params?.seedItems]);
 
   React.useEffect(() => {
     const animation = Animated.loop(
@@ -134,7 +148,7 @@ const VirtualTryOnHomeScreen = () => {
       const [assetsResponse, latest, jobsResponse] = await Promise.all([
         virtualTryOnApi.getAssets(token, { limit: 20 }),
         virtualTryOnApi.getLatestJob(token),
-        virtualTryOnApi.getJobs(token, { limit: 4 }),
+        virtualTryOnApi.getJobs(token, { limit: 8 }),
       ]);
       if (!isCurrent) return;
       const sourceAssets = assetsResponse.items.filter(isSourceAsset);
@@ -161,16 +175,32 @@ const VirtualTryOnHomeScreen = () => {
 
   useFocusEffect(React.useCallback(() => loadDashboard(), [loadDashboard]));
 
+  React.useEffect(() => {
+    if (pendingSeedItems.length && !latestAsset && assetLibrary.length) {
+      setLatestAsset(assetLibrary[0]);
+    }
+  }, [assetLibrary, latestAsset, pendingSeedItems.length]);
+
+  const openBuilderWithAsset = React.useCallback((asset: VirtualTryOnAsset) => {
+    const seedItems = pendingSeedItems;
+    const entryPoint = pendingEntryPoint;
+    setPendingSeedItems([]);
+    setPendingEntryPoint(undefined);
+    navigation.navigate('VirtualTryOnBuilder', {
+      assetId: asset._id,
+      imageUrl: asset.url,
+      seedItems: seedItems.length ? seedItems : undefined,
+      entryPoint,
+    });
+  }, [navigation, pendingEntryPoint, pendingSeedItems]);
+
   const uploadPickedAsset = async (uri: string, source: 'upload' | 'camera') => {
     setIsUploading(true);
     try {
       const asset = await runWithAuth((token) => virtualTryOnApi.uploadAsset(token, uri, source));
       setLatestAsset(asset);
       setAssetLibrary((current) => [asset, ...current.filter((item) => isSourceAsset(item) && item._id !== asset._id)]);
-      navigation.navigate('VirtualTryOnBuilder', {
-        assetId: asset._id,
-        imageUrl: asset.url,
-      });
+      openBuilderWithAsset(asset);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể tải ảnh lên';
       Alert.alert('Ảnh của bạn', message);
@@ -271,13 +301,21 @@ const VirtualTryOnHomeScreen = () => {
       Alert.alert('Ảnh của bạn', 'Bạn hãy tải ảnh hoặc chụp ảnh trước khi phối đồ.');
       return;
     }
-    navigation.navigate('VirtualTryOnBuilder', {
-      assetId: latestAsset._id,
-      imageUrl: latestAsset.url,
-    });
+    openBuilderWithAsset(latestAsset);
   };
 
   const pendingJob = latestJob && ['queued', 'processing'].includes(latestJob.status) ? latestJob : null;
+  const flowSteps = pendingSeedItems.length
+    ? [
+        { label: 'Đã chọn đồ', icon: 'check-circle', active: true, done: true },
+        { label: 'Chọn ảnh', icon: latestAsset ? 'check-circle' : 'image-plus', active: true, done: Boolean(latestAsset) },
+        { label: 'Tạo kết quả', icon: 'auto-fix', active: Boolean(latestAsset), done: false },
+      ]
+    : [
+        { label: 'Chọn ảnh', icon: latestAsset ? 'check-circle' : 'image-plus', active: true, done: Boolean(latestAsset) },
+        { label: 'Phối đồ', icon: 'hanger', active: Boolean(latestAsset), done: false },
+        { label: 'Xem kết quả', icon: 'auto-fix', active: Boolean(pendingJob), done: false },
+      ];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -300,11 +338,7 @@ const VirtualTryOnHomeScreen = () => {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.studioFlowCard}>
-          {[
-            { label: 'Chọn ảnh', icon: latestAsset ? 'check-circle' : 'image-plus', active: true, done: Boolean(latestAsset) },
-            { label: 'Phối đồ', icon: 'hanger', active: Boolean(latestAsset), done: false },
-            { label: 'Xem kết quả', icon: 'auto-fix', active: Boolean(pendingJob), done: false },
-          ].map((step, index) => (
+          {flowSteps.map((step, index) => (
             <View key={step.label} style={styles.flowStepWrap}>
               <View
                 style={[
@@ -327,12 +361,51 @@ const VirtualTryOnHomeScreen = () => {
           ))}
         </View>
 
+        {pendingSeedItems.length ? (
+          <View style={styles.pendingOutfitCard}>
+            <View style={styles.pendingOutfitTopRow}>
+              <View style={styles.pendingOutfitIcon}>
+                <MaterialCommunityIcons name="cart-check" size={22} color={colors.white} />
+              </View>
+              <View style={styles.pendingOutfitCopy}>
+                <Text style={styles.pendingOutfitEyebrow}>
+                  {pendingEntryPoint === 'cart' ? 'Mang từ giỏ hàng' : 'Bộ đồ được giữ lại'}
+                </Text>
+                <Text style={styles.pendingOutfitTitle}>{pendingSeedItems.length} món trong hàng chờ</Text>
+                <Text style={styles.pendingOutfitText}>Chọn ảnh bên dưới, Builder sẽ tự lấy tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món active hợp lệ cho mỗi lượt tạo.</Text>
+              </View>
+            </View>
+            <View style={styles.pendingOutfitThumbRow}>
+              {pendingSeedItems.map((item, index) => (
+                <View key={item.cartItemId ?? `${item.productId}-${item.variantId}-${item.colorVariantId}-${item.size ?? index}`} style={styles.pendingOutfitThumbWrap}>
+                  {item.imageSnapshot ? (
+                    <RemoteImage
+                      uri={item.imageSnapshot}
+                      style={styles.pendingOutfitThumb}
+                      recyclingKey={`pending-outfit-${item.colorVariantId}`}
+                    />
+                  ) : (
+                    <View style={styles.pendingOutfitThumbPlaceholder}>
+                      <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
+                    </View>
+                  )}
+                  <View style={styles.pendingOutfitIndex}>
+                    <Text style={styles.pendingOutfitIndexText}>{index + 1}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
             <Text style={styles.heroEyebrow}>Phòng thử đồ cá nhân</Text>
             <Text style={styles.heroTitle}>Thử đồ trên ảnh của bạn</Text>
             <Text style={styles.heroText}>
-              Chọn ảnh rõ người, thêm vài món đồ phù hợp rồi xem bộ phối hoàn chỉnh.
+              {pendingSeedItems.length
+                ? `${pendingSeedItems.length} món đang chờ. Chọn ảnh rõ người để bắt đầu thử từng bản phối.`
+                : 'Chọn ảnh rõ người, thêm vài món đồ phù hợp rồi xem bộ phối hoàn chỉnh.'}
             </Text>
           </View>
 
@@ -362,7 +435,9 @@ const VirtualTryOnHomeScreen = () => {
 
           {latestAsset ? (
             <TouchableOpacity style={styles.heroPrimaryButton} onPress={continueWithLatestAsset} activeOpacity={0.86}>
-              <Text style={styles.heroPrimaryText}>Tiếp tục phối đồ</Text>
+              <Text style={styles.heroPrimaryText}>
+                {pendingSeedItems.length ? `Mở hàng chờ ${pendingSeedItems.length} món` : 'Tiếp tục phối đồ'}
+              </Text>
               <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
             </TouchableOpacity>
           ) : null}
@@ -638,6 +713,93 @@ const styles = StyleSheet.create({
   },
   flowLineDone: {
     backgroundColor: studioPalette.success,
+  },
+  pendingOutfitCard: {
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.ink,
+    padding: spacing.lg,
+    gap: spacing.md,
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  pendingOutfitTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  pendingOutfitIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: studioPalette.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingOutfitCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pendingOutfitEyebrow: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  pendingOutfitTitle: {
+    color: colors.white,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  pendingOutfitText: {
+    color: '#DCEAF1',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  pendingOutfitThumbRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  pendingOutfitThumbWrap: {
+    width: 62,
+    height: 72,
+    borderRadius: radii.sm,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    overflow: 'hidden',
+  },
+  pendingOutfitThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  pendingOutfitThumbPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: studioPalette.primarySoft,
+  },
+  pendingOutfitIndex: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(33,52,72,0.84)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingOutfitIndexText: {
+    color: colors.white,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
   },
   hero: {
     borderRadius: radii.md,

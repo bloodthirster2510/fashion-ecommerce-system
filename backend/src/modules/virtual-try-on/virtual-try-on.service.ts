@@ -76,6 +76,14 @@ const allowedRoles = new Set<VirtualTryOnItemRole>([
   'accessory',
   'outerwear',
 ]);
+const roleDisplayLabels: Record<VirtualTryOnItemRole, string> = {
+  top: 'áo chính',
+  bottom: 'quần',
+  dress: 'váy/đầm',
+  shoes: 'giày/dép',
+  accessory: 'phụ kiện',
+  outerwear: 'áo khoác',
+};
 const allowedOutfitModes = new Set<VirtualTryOnOutfitMode>(['single', 'top_bottom', 'full_set']);
 const allowedContextPresets = new Set<VirtualTryOnContextPreset>([
   'none',
@@ -755,12 +763,23 @@ const getSelectedItemRolesForValidation = (items: Array<Pick<CreateVirtualTryOnI
     throw new VirtualTryOnServiceError(`Vui lòng chọn từ 1 đến ${MAX_SELECTED_ITEMS} sản phẩm`, 400);
   }
 
-  return items.map((item) => {
+  const roles = items.map((item) => {
     if (!allowedRoles.has(item.role)) {
       throw new VirtualTryOnServiceError('Vai trò sản phẩm không hợp lệ', 400);
     }
     return item.role;
   });
+  const duplicateRole = roles.find((role, index) => roles.indexOf(role) !== index);
+  if (duplicateRole) {
+    const label = roleDisplayLabels[duplicateRole];
+    throw new VirtualTryOnServiceError(
+      `Mỗi bản phối chỉ nhận 1 ${label}. Hãy tạo lần lượt nếu muốn thử nhiều ${label}.`,
+      400,
+      'DUPLICATE_ITEM_ROLE',
+    );
+  }
+
+  return roles;
 };
 
 const resolveSelectedItem = (

@@ -14,14 +14,34 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi } from '../cart/cartApi';
 import { virtualTryOnApi } from './virtualTryOnApi';
-import type { VirtualTryOnJob } from './virtualTryOn.types';
+import type { TryOnSeedItem, TryOnSelectedItem, VirtualTryOnJob } from './virtualTryOn.types';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnResult'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnResult'>;
 type ImageActionScope = 'active' | 'all';
+type PreviewImage = {
+  uri: string;
+  label: string;
+  recyclingKey: string;
+  resizeMode?: 'cover' | 'contain';
+};
 
 const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
+
+const getSeedComparableKey = (item: Pick<TryOnSeedItem, 'productId' | 'variantId' | 'colorVariantId' | 'size'>) =>
+  `${item.productId}:${item.variantId}:${item.colorVariantId}:${item.size ?? ''}`;
+
+const selectedItemToSeed = (item: TryOnSelectedItem): TryOnSeedItem => ({
+  productId: item.productId,
+  variantId: item.variantId,
+  colorVariantId: item.colorVariantId,
+  size: item.size,
+  role: item.role,
+  nameSnapshot: item.nameSnapshot,
+  colorSnapshot: item.colorSnapshot,
+  imageSnapshot: item.imageSnapshot,
+});
 
 const contextLabel: Record<string, string> = {
   none: 'Giữ nền cũ',
@@ -74,10 +94,14 @@ const VirtualTryOnResultScreen = () => {
   const [sharingScope, setSharingScope] = React.useState<ImageActionScope | null>(null);
   const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
+  const [previewImages, setPreviewImages] = React.useState<PreviewImage[]>([]);
+  const [previewImageIndex, setPreviewImageIndex] = React.useState(0);
+  const [previewSyncsResult, setPreviewSyncsResult] = React.useState(false);
   const resultScrollRef = React.useRef<ScrollView>(null);
   const previewScrollRef = React.useRef<ScrollView>(null);
 
   const jobId = route.params.jobId;
+  const retainedSeedItems = route.params.seedItems;
   const resultCardWidth = Math.max(1, windowWidth - spacing.lg * 2);
 
   React.useEffect(() => {
@@ -105,6 +129,12 @@ const VirtualTryOnResultScreen = () => {
     return fallbackImageUrl ? [fallbackImageUrl] : [];
   }, [fallbackImageUrl, job]);
   const activeImageUrl = resultImageUrls[activeImageIndex] || resultImageUrls[0] || fallbackImageUrl;
+  const resultPreviewImages = React.useMemo<PreviewImage[]>(() => resultImageUrls.map((url, index) => ({
+    uri: url,
+    label: `Kết quả ${index + 1}`,
+    recyclingKey: `${job?._id ?? 'result'}-preview-${index}`,
+    resizeMode: job?.generatedImageUrl ? 'contain' : 'cover',
+  })), [job?._id, job?.generatedImageUrl, resultImageUrls]);
 
   React.useEffect(() => {
     setActiveImageIndex(0);
@@ -113,9 +143,35 @@ const VirtualTryOnResultScreen = () => {
   React.useEffect(() => {
     if (!isPreviewVisible) return;
     requestAnimationFrame(() => {
-      previewScrollRef.current?.scrollTo({ x: windowWidth * activeImageIndex, animated: false });
+      previewScrollRef.current?.scrollTo({ x: windowWidth * previewImageIndex, animated: false });
     });
-  }, [activeImageIndex, isPreviewVisible, windowWidth]);
+  }, [isPreviewVisible, previewImageIndex, windowWidth]);
+
+  const openImagePreview = React.useCallback((
+    images: PreviewImage[],
+    index = 0,
+    syncResult = false,
+  ) => {
+    const validImages = images.filter((image) => Boolean(image.uri));
+    if (!validImages.length) return;
+
+    const clampedIndex = Math.min(Math.max(index, 0), validImages.length - 1);
+    setPreviewImages(validImages);
+    setPreviewImageIndex(clampedIndex);
+    setPreviewSyncsResult(syncResult);
+    setIsPreviewVisible(true);
+  }, []);
+
+  const openResultPreview = React.useCallback((index: number) => {
+    if (!resultPreviewImages.length) return;
+
+    setActiveImageIndex(index);
+    openImagePreview(resultPreviewImages, index, true);
+  }, [openImagePreview, resultPreviewImages]);
+
+  const openSingleImagePreview = React.useCallback((image: PreviewImage) => {
+    openImagePreview([image], 0, false);
+  }, [openImagePreview]);
 
   const downloadImageToCache = async (url: string, imageIndex: number) => {
     if (!url || !job) {
@@ -268,9 +324,49 @@ const VirtualTryOnResultScreen = () => {
 
   const handlePreviewScroll = (x: number) => {
     const nextIndex = Math.round(x / windowWidth);
-    const clampedIndex = Math.min(Math.max(nextIndex, 0), Math.max(resultImageUrls.length - 1, 0));
-    setActiveImageIndex(clampedIndex);
-    resultScrollRef.current?.scrollTo({ x: resultCardWidth * clampedIndex, animated: false });
+    const clampedIndex = Math.min(Math.max(nextIndex, 0), Math.max(previewImages.length - 1, 0));
+    setPreviewImageIndex(clampedIndex);
+
+    if (previewSyncsResult) {
+      setActiveImageIndex(clampedIndex);
+      resultScrollRef.current?.scrollTo({ x: resultCardWidth * clampedIndex, animated: false });
+    }
+  };
+
+  const resumeSeedItems = React.useMemo<TryOnSeedItem[]>(() => {
+    if (retainedSeedItems?.length) return retainedSeedItems;
+    return job?.selectedItems.map(selectedItemToSeed) ?? [];
+  }, [job?.selectedItems, retainedSeedItems]);
+  const activeSelectedKeys = React.useMemo(
+    () => new Set((job?.selectedItems ?? []).map(getSeedComparableKey)),
+    [job?.selectedItems],
+  );
+  const waitingSeedItems = React.useMemo(
+    () => resumeSeedItems.filter((item) => !activeSelectedKeys.has(getSeedComparableKey(item))),
+    [activeSelectedKeys, resumeSeedItems],
+  );
+  const waitingSeedCount = waitingSeedItems.length;
+  const nextWaitingSeedItem = waitingSeedItems[0];
+  const preferredResumeSeedItems = React.useMemo(() => {
+    if (!nextWaitingSeedItem) return resumeSeedItems;
+    const nextKey = getSeedComparableKey(nextWaitingSeedItem);
+    return [
+      nextWaitingSeedItem,
+      ...resumeSeedItems.filter((item) => getSeedComparableKey(item) !== nextKey),
+    ];
+  }, [nextWaitingSeedItem, resumeSeedItems]);
+  const nextWaitingLabel = nextWaitingSeedItem?.nameSnapshot || 'món tiếp theo';
+  const hasResumeQueue = resumeSeedItems.length > 0;
+
+  const resumeBuilder = () => {
+    if (!job) return;
+
+    navigation.navigate('VirtualTryOnBuilder', {
+      assetId: job.sourceAsset?._id,
+      imageUrl: job.sourceImageUrl,
+      seedItems: hasResumeQueue ? preferredResumeSeedItems : undefined,
+      entryPoint: 'builder',
+    });
   };
 
   return (
@@ -283,7 +379,14 @@ const VirtualTryOnResultScreen = () => {
           <Text style={styles.headerKicker}>Fit Studio</Text>
           <Text style={styles.headerTitle}>Kết quả thử đồ</Text>
         </View>
-        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('VirtualTryOnHome')} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => navigation.navigate('VirtualTryOnHome', hasResumeQueue ? {
+            entryPoint: 'builder',
+            seedItems: preferredResumeSeedItems,
+          } : undefined)}
+          activeOpacity={0.8}
+        >
           <MaterialCommunityIcons name="home-outline" size={23} color={colors.white} />
         </TouchableOpacity>
       </View>
@@ -309,10 +412,7 @@ const VirtualTryOnResultScreen = () => {
                   <TouchableOpacity
                     key={`${url}-${index}`}
                     style={[styles.resultImageWrap, { width: resultCardWidth }]}
-                    onPress={() => {
-                      setActiveImageIndex(index);
-                      setIsPreviewVisible(true);
-                    }}
+                    onPress={() => openResultPreview(index)}
                     activeOpacity={0.92}
                   >
                     <RemoteImage
@@ -380,23 +480,118 @@ const VirtualTryOnResultScreen = () => {
               ) : null}
             </View>
 
-            {job.generatedImageUrl && job.sourceImageUrl ? (
-              <View style={styles.compareStrip}>
-                <View style={styles.compareTile}>
-                  <RemoteImage uri={job.sourceImageUrl} style={styles.compareImage} recyclingKey={`${job._id}-source`} />
-                  <Text style={styles.compareLabel}>Trước</Text>
+            {job.sourceImageUrl && activeImageUrl ? (
+              <View style={styles.transformationCard}>
+                <View style={styles.transformationHeader}>
+                  <View style={styles.transformationHeaderCopy}>
+                    <Text style={styles.transformationEyebrow}>Luồng tạo ảnh</Text>
+                    <Text style={styles.transformationTitle}>Ảnh gốc + từng món riêng biệt</Text>
+                  </View>
+                  <View style={styles.transformationBadge}>
+                    <MaterialCommunityIcons name="auto-fix" size={15} color={colors.white} />
+                    <Text style={styles.transformationBadgeText}>AI đã phối</Text>
+                  </View>
                 </View>
-                <View style={styles.compareArrow}>
-                  <MaterialCommunityIcons name="arrow-right" size={20} color={studioPalette.ink} />
+
+                <View style={styles.transformationFlow}>
+                  <View style={styles.transformationStage}>
+                    <TouchableOpacity
+                      style={styles.transformationImageWrap}
+                      onPress={() => openSingleImagePreview({
+                        uri: job.sourceImageUrl,
+                        label: 'Ảnh gốc',
+                        recyclingKey: `${job._id}-source-preview`,
+                        resizeMode: 'contain',
+                      })}
+                      activeOpacity={0.9}
+                    >
+                      <RemoteImage
+                        uri={job.sourceImageUrl}
+                        style={styles.transformationImage}
+                        recyclingKey={`${job._id}-source-story`}
+                      />
+                      <View style={styles.imageExpandBadge}>
+                        <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
+                      </View>
+                    </TouchableOpacity>
+                    <Text style={styles.transformationStageLabel}>Ảnh gốc</Text>
+                  </View>
+
+                  <View style={styles.transformationProcess}>
+                    <View style={styles.transformationProcessIcon}>
+                      <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
+                    </View>
+                    <Text style={styles.transformationProcessText}>Phối từng món</Text>
+                    <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
+                  </View>
+
+                  <View style={styles.transformationStage}>
+                    <TouchableOpacity
+                      style={[styles.transformationImageWrap, styles.transformationResultWrap]}
+                      onPress={() => openResultPreview(activeImageIndex)}
+                      activeOpacity={0.9}
+                    >
+                      <RemoteImage
+                        uri={activeImageUrl}
+                        style={styles.transformationImage}
+                        recyclingKey={`${job._id}-generated-story-${activeImageIndex}`}
+                        resizeMode="contain"
+                      />
+                      <View style={styles.imageExpandBadge}>
+                        <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
+                      </View>
+                    </TouchableOpacity>
+                    <Text style={styles.transformationStageLabel}>Kết quả {activeImageIndex + 1}</Text>
+                  </View>
                 </View>
-                <View style={styles.compareTile}>
-                  <RemoteImage
-                    uri={activeImageUrl}
-                    style={styles.compareImage}
-                    recyclingKey={`${job._id}-generated`}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.compareLabel}>Kết quả</Text>
+
+                <View style={styles.transformationItemsHeader}>
+                  <Text style={styles.transformationItemsTitle}>Các món đã dùng riêng biệt</Text>
+                  <Text style={styles.transformationItemsMeta}>{job.selectedItems.length} món</Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.transformationItemList}
+                >
+                  {job.selectedItems.map((item, index) => (
+                    <TouchableOpacity
+                      key={`story-${item.productId}-${item.colorVariantId}`}
+                      style={styles.transformationItemCard}
+                      onPress={() => openSingleImagePreview({
+                        uri: item.imageSnapshot,
+                        label: `Món ${index + 1}`,
+                        recyclingKey: `story-garment-preview-${item.colorVariantId}`,
+                        resizeMode: 'contain',
+                      })}
+                      activeOpacity={0.88}
+                    >
+                      <View style={styles.transformationItemImageWrap}>
+                        <RemoteImage
+                          uri={item.imageSnapshot}
+                          style={styles.transformationItemImage}
+                          recyclingKey={`story-garment-${item.colorVariantId}`}
+                        />
+                        <View style={styles.imageExpandBadgeSmall}>
+                          <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
+                        </View>
+                      </View>
+                      <View style={styles.transformationItemCopy}>
+                        <Text style={styles.transformationItemIndex}>Món {index + 1}</Text>
+                        <Text style={styles.transformationItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                        <Text style={styles.transformationItemVariant} numberOfLines={1}>
+                          {[item.colorSnapshot, item.size].filter(Boolean).join(' · ') || 'Biến thể mặc định'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <View style={styles.transformationSummary}>
+                  <MaterialCommunityIcons name="check-decagram" size={19} color={studioPalette.success} />
+                  <Text style={styles.transformationSummaryText}>
+                    Dáng người từ ảnh gốc được giữ lại; {job.selectedItems.length} món đã chọn được phối đúng màu và biến thể.
+                  </Text>
                 </View>
               </View>
             ) : null}
@@ -491,7 +686,17 @@ const VirtualTryOnResultScreen = () => {
             </View>
             <View style={styles.itemList}>
               {job.selectedItems.map((item, index) => (
-                <View key={`${item.productId}-${item.colorVariantId}`} style={styles.itemCard}>
+                <TouchableOpacity
+                  key={`${item.productId}-${item.colorVariantId}`}
+                  style={styles.itemCard}
+                  onPress={() => openSingleImagePreview({
+                    uri: item.imageSnapshot,
+                    label: `Món ${index + 1}`,
+                    recyclingKey: `item-preview-${item.colorVariantId}`,
+                    resizeMode: 'contain',
+                  })}
+                  activeOpacity={0.86}
+                >
                   <RemoteImage uri={item.imageSnapshot} style={styles.itemImage} recyclingKey={item.colorVariantId} />
                   <View style={styles.itemCopy}>
                     <Text style={styles.itemIndex}>Món {index + 1}</Text>
@@ -501,7 +706,7 @@ const VirtualTryOnResultScreen = () => {
                     </Text>
                   </View>
                   <Text style={styles.itemPrice}>{formatPrice(item.finalPriceSnapshot)}</Text>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
 
@@ -512,19 +717,31 @@ const VirtualTryOnResultScreen = () => {
               </View>
               <Text style={styles.totalValue}>{formatPrice(job.totalFinalPrice)}</Text>
             </View>
+
+            {waitingSeedCount > 0 ? (
+              <TouchableOpacity style={styles.queueResumeCard} onPress={resumeBuilder} activeOpacity={0.86}>
+                <View style={styles.queueResumeIcon}>
+                  <MaterialCommunityIcons name="playlist-check" size={22} color={studioPalette.primary} />
+                </View>
+                <View style={styles.queueResumeCopy}>
+                  <Text style={styles.queueResumeTitle}>Thử {nextWaitingLabel} tiếp theo</Text>
+                  <Text style={styles.queueResumeText}>
+                    Còn {waitingSeedCount} món trong hàng chờ. Quay lại Builder để thử ngay trên cùng ảnh người.
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="arrow-right" size={22} color={studioPalette.primary} />
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
 
           <View style={styles.footer}>
             <TouchableOpacity
               style={styles.tryAgainButton}
-              onPress={() => navigation.navigate('VirtualTryOnBuilder', {
-                assetId: job.sourceAsset?._id,
-                imageUrl: job.sourceImageUrl,
-              })}
+              onPress={resumeBuilder}
               activeOpacity={0.86}
             >
-              <MaterialCommunityIcons name="reload" size={22} color={studioPalette.ink} />
-              <Text style={styles.tryAgainText}>Phối lại</Text>
+              <MaterialCommunityIcons name={waitingSeedCount > 0 ? 'playlist-check' : 'reload'} size={22} color={studioPalette.ink} />
+              <Text style={styles.tryAgainText}>{waitingSeedCount > 0 ? 'Thử tiếp' : 'Phối lại'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.cartButton, isAddingCart && styles.cartButtonDisabled]}
@@ -558,8 +775,11 @@ const VirtualTryOnResultScreen = () => {
         <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
           <View style={styles.previewHeader}>
             <View style={styles.previewCounter}>
+              <Text style={styles.previewCounterLabel} numberOfLines={1}>
+                {previewImages[previewImageIndex]?.label ?? 'Ảnh'}
+              </Text>
               <Text style={styles.previewCounterText}>
-                {resultImageUrls.length ? `${activeImageIndex + 1}/${resultImageUrls.length}` : '0/0'}
+                {previewImages.length > 1 ? `${previewImageIndex + 1}/${previewImages.length}` : '1/1'}
               </Text>
             </View>
             <TouchableOpacity
@@ -577,13 +797,13 @@ const VirtualTryOnResultScreen = () => {
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(event) => handlePreviewScroll(event.nativeEvent.contentOffset.x)}
           >
-            {resultImageUrls.map((url, index) => (
-              <View key={`preview-${url}-${index}`} style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
+            {previewImages.map((image, index) => (
+              <View key={`${image.recyclingKey}-${index}`} style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
                 <RemoteImage
-                  uri={url}
+                  uri={image.uri}
                   style={styles.previewImage}
-                  recyclingKey={`${job?._id ?? 'result'}-preview-${index}`}
-                  resizeMode="contain"
+                  recyclingKey={image.recyclingKey}
+                  resizeMode={image.resizeMode ?? 'contain'}
                 />
               </View>
             ))}
@@ -753,41 +973,221 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  compareStrip: {
-    minHeight: 104,
+  transformationCard: {
     borderRadius: radii.md,
-    backgroundColor: studioPalette.primarySoft,
-    padding: spacing.md,
+    backgroundColor: '#172431',
+    padding: spacing.lg,
+    gap: spacing.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    ...shadows.card,
+  },
+  transformationHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  transformationHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  transformationEyebrow: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  transformationTitle: {
+    color: colors.white,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  transformationBadge: {
+    minHeight: 30,
+    borderRadius: radii.pill,
+    backgroundColor: studioPalette.primary,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  transformationBadgeText: {
+    color: colors.white,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  transformationFlow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
-    ...shadows.card,
+    gap: spacing.sm,
   },
-  compareTile: {
-    width: 82,
+  transformationStage: {
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     gap: spacing.xs,
   },
-  compareImage: {
-    width: 62,
-    height: 82,
+  transformationImageWrap: {
+    width: '100%',
+    aspectRatio: 0.82,
+    maxHeight: 138,
     borderRadius: radii.sm,
-    backgroundColor: studioPalette.primarySoft,
+    backgroundColor: '#F8FBFD',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
   },
-  compareArrow: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: studioPalette.primaryPale,
+  transformationImage: {
+    width: '100%',
+    height: '100%',
+  },
+  transformationResultWrap: {
+    borderColor: '#86B8D3',
+    borderWidth: 2,
+  },
+  transformationStageLabel: {
+    color: '#DCEAF1',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  transformationProcess: {
+    width: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  transformationProcessIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: studioPalette.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  compareLabel: {
+  transformationProcessText: {
+    color: '#DCEAF1',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  transformationItemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  transformationItemsTitle: {
+    color: colors.white,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  transformationItemsMeta: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  transformationItemList: {
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  transformationItemCard: {
+    width: 218,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    padding: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    overflow: 'hidden',
+  },
+  transformationItemImageWrap: {
+    width: 70,
+    height: 88,
+    borderRadius: radii.xs,
+    overflow: 'hidden',
+    backgroundColor: studioPalette.primarySoft,
+  },
+  transformationItemImage: {
+    width: '100%',
+    height: '100%',
+  },
+  transformationItemCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: spacing.xs,
+  },
+  transformationItemIndex: {
+    color: studioPalette.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  transformationItemName: {
     color: studioPalette.ink,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '900',
+    marginTop: 2,
+  },
+  transformationItemVariant: {
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  imageExpandBadge: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(23,36,49,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageExpandBadgeSmall: {
+    position: 'absolute',
+    right: 5,
+    top: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(23,36,49,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transformationSummary: {
+    minHeight: 46,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  transformationSummaryText: {
+    flex: 1,
+    minWidth: 0,
+    color: '#DCEAF1',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   resultActions: {
     gap: spacing.lg,
@@ -931,6 +1331,42 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '900',
   },
+  queueResumeCard: {
+    minHeight: 78,
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  queueResumeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  queueResumeCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  queueResumeTitle: {
+    color: studioPalette.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  queueResumeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
   footer: {
     position: 'absolute',
     left: 0,
@@ -1013,11 +1449,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
+    maxWidth: '72%',
+  },
+  previewCounterLabel: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
   },
   previewCounterText: {
-    color: colors.white,
-    fontSize: 13,
-    lineHeight: 18,
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: '900',
   },
   previewCloseButton: {

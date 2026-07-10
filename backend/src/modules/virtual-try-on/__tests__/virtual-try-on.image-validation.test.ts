@@ -209,6 +209,27 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedProduct.find).not.toHaveBeenCalled();
   });
 
+  it('rejects createJob when multiple selected items use the same try-on role', async () => {
+    await expect(virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      outfitMode: 'full_set',
+      selectedItems: [
+        createJobInput.selectedItems[0],
+        {
+          ...createJobInput.selectedItems[0],
+          productId: new Types.ObjectId().toString(),
+          role: 'top',
+        },
+      ],
+    })).rejects.toMatchObject({
+      errorCode: 'DUPLICATE_ITEM_ROLE',
+      statusCode: 400,
+    });
+
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
+  });
+
   it('rejects createJob when the selected source asset is not an uploaded or camera image', async () => {
     mockedVirtualTryOnAsset.findOne.mockResolvedValue(null);
 

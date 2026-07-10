@@ -18,7 +18,7 @@ type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 
 const steps = [
   'Chuẩn bị ảnh người',
-  'Ghép outfit',
+  'Tách từng món đồ',
   'Tạo 4 gợi ý',
   'Lưu kết quả',
 ];
@@ -47,6 +47,7 @@ const VirtualTryOnProcessingScreen = () => {
   const progressGlow = React.useRef(new Animated.Value(0)).current;
 
   const jobId = route.params.jobId;
+  const retainedSeedItems = route.params.seedItems;
 
   const loadJob = React.useCallback(() => {
     let isCurrent = true;
@@ -55,7 +56,7 @@ const VirtualTryOnProcessingScreen = () => {
         if (!isCurrent) return;
         setJob(nextJob);
         if (nextJob.status === 'succeeded') {
-          navigation.replace('VirtualTryOnResult', { jobId: nextJob._id });
+          navigation.replace('VirtualTryOnResult', { jobId: nextJob._id, seedItems: retainedSeedItems });
         }
       })
       .catch((error: unknown) => {
@@ -68,7 +69,7 @@ const VirtualTryOnProcessingScreen = () => {
       });
 
     return () => { isCurrent = false; };
-  }, [jobId, navigation, runWithAuth]);
+  }, [jobId, navigation, retainedSeedItems, runWithAuth]);
 
   const realtime = useVirtualTryOnRealtime(session?.accessToken, (event) => {
     if (event.jobId !== jobId) return;
@@ -84,7 +85,7 @@ const VirtualTryOnProcessingScreen = () => {
         }
       : current);
     if (event.status === 'succeeded') {
-      navigation.replace('VirtualTryOnResult', { jobId });
+      navigation.replace('VirtualTryOnResult', { jobId, seedItems: retainedSeedItems });
     }
   });
 
@@ -176,7 +177,14 @@ const VirtualTryOnProcessingScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('VirtualTryOnHome')} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
+            entryPoint: 'builder',
+            seedItems: retainedSeedItems,
+          } : undefined)}
+          activeOpacity={0.8}
+        >
           <MaterialCommunityIcons name="close" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
@@ -209,7 +217,7 @@ const VirtualTryOnProcessingScreen = () => {
                     {job?.status === 'failed' ? 'Chưa tạo được ảnh thử đồ' : 'Đang tạo 4 ảnh gợi ý'}
                   </Text>
                   <Text style={styles.subtitle}>
-                    Các món đã chọn sẽ được ghép thành một ảnh outfit trước khi gửi sang Comfy.
+                    Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.
                   </Text>
                 </View>
               </View>
@@ -224,6 +232,47 @@ const VirtualTryOnProcessingScreen = () => {
                 <Text style={styles.progressText}>{progress}%</Text>
               </View>
             </View>
+
+            {job?.selectedItems.length ? (
+              <View style={styles.processingItemsCard}>
+                <View style={styles.processingItemsHeader}>
+                  <Text style={styles.processingItemsTitle}>Từng món đang được xử lý riêng</Text>
+                  <Text style={styles.processingItemsMeta}>{job.selectedItems.length} món</Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.processingItemList}
+                >
+                  {job.selectedItems.map((item, index) => {
+                    const itemDone = activeStep >= 1 && job.status !== 'failed';
+                    return (
+                      <View key={`${item.productId}-${item.colorVariantId}-${index}`} style={styles.processingItemCard}>
+                        <RemoteImage
+                          uri={item.imageSnapshot}
+                          style={styles.processingItemImage}
+                          recyclingKey={`processing-${item.colorVariantId}`}
+                        />
+                        <View style={styles.processingItemCopy}>
+                          <Text style={styles.processingItemIndex}>Món {index + 1}</Text>
+                          <Text style={styles.processingItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                          <View style={[styles.processingItemStatus, itemDone && styles.processingItemStatusDone]}>
+                            <MaterialCommunityIcons
+                              name={itemDone ? 'check' : 'timer-sand'}
+                              size={12}
+                              color={itemDone ? colors.white : studioPalette.primary}
+                            />
+                            <Text style={[styles.processingItemStatusText, itemDone && styles.processingItemStatusTextDone]}>
+                              {itemDone ? 'Đã tách riêng' : 'Đang chờ'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
 
             <View style={styles.stepsCard}>
               {steps.map((step, index) => {
@@ -429,6 +478,97 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '900',
+  },
+  processingItemsCard: {
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    ...shadows.card,
+  },
+  processingItemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  processingItemsTitle: {
+    flex: 1,
+    color: studioPalette.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  processingItemsMeta: {
+    color: studioPalette.primary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  processingItemList: {
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  processingItemCard: {
+    width: 218,
+    minHeight: 96,
+    borderRadius: radii.sm,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    padding: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  processingItemImage: {
+    width: 62,
+    height: 78,
+    borderRadius: radii.xs,
+    backgroundColor: colors.surface,
+  },
+  processingItemCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  processingItemIndex: {
+    color: studioPalette.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  processingItemName: {
+    color: studioPalette.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  processingItemStatus: {
+    alignSelf: 'flex-start',
+    minHeight: 22,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  processingItemStatusDone: {
+    backgroundColor: studioPalette.success,
+  },
+  processingItemStatusText: {
+    color: studioPalette.primary,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  processingItemStatusTextDone: {
+    color: colors.white,
   },
   stepsCard: {
     borderRadius: radii.md,

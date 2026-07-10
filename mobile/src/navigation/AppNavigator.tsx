@@ -29,6 +29,7 @@ import VirtualTryOnBuilderScreen from '../features/virtualTryOn/VirtualTryOnBuil
 import VirtualTryOnProcessingScreen from '../features/virtualTryOn/VirtualTryOnProcessingScreen';
 import VirtualTryOnResultScreen from '../features/virtualTryOn/VirtualTryOnResultScreen';
 import VirtualTryOnHistoryScreen from '../features/virtualTryOn/VirtualTryOnHistoryScreen';
+import type { TryOnSeedItem } from '../features/virtualTryOn/virtualTryOn.types';
 import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
 
 export type RootStackParamList = {
@@ -89,16 +90,23 @@ export type RootStackParamList = {
     editImages?: Array<{ _id: string | null; url: string; thumbnailUrl: string }>;
   };
   MyReviews: undefined;
-  VirtualTryOnHome: undefined;
+  VirtualTryOnHome: {
+    seedItems?: TryOnSeedItem[];
+    entryPoint?: 'cart' | 'builder';
+  } | undefined;
   VirtualTryOnBuilder: {
     assetId?: string;
     imageUrl?: string;
+    seedItems?: TryOnSeedItem[];
+    entryPoint?: 'cart' | 'builder';
   } | undefined;
   VirtualTryOnProcessing: {
     jobId: string;
+    seedItems?: TryOnSeedItem[];
   };
   VirtualTryOnResult: {
     jobId: string;
+    seedItems?: TryOnSeedItem[];
   };
   VirtualTryOnHistory: undefined;
   SupportHome: undefined;

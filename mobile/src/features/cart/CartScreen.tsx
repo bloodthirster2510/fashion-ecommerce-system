@@ -31,6 +31,7 @@ import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutP
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
+import { TRY_ON_QUEUE_LIMIT } from '../virtualTryOn/virtualTryOn.types';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 
@@ -493,6 +494,48 @@ const CartScreen = () => {
   const allItemsSelected = Boolean(
     cart?.product_list.length && cart.product_list.every((item) => item.isSelected),
   );
+
+  const handleStartVirtualTryOn = () => {
+    if (!selectedCheckoutItems.length) {
+      showNotice({
+        tone: 'info',
+        title: 'Chọn đồ muốn phối',
+        message: `Tick từ 1 đến ${TRY_ON_QUEUE_LIMIT} sản phẩm còn hàng trong giỏ rồi mở phòng phối đồ ảo.`,
+      });
+      return;
+    }
+
+    if (selectedCheckoutItems.length > TRY_ON_QUEUE_LIMIT) {
+      showNotice({
+        tone: 'warning',
+        title: `Chọn tối đa ${TRY_ON_QUEUE_LIMIT} món`,
+        message: `Bạn đang chọn ${selectedCheckoutItems.length} món còn hàng. Bỏ chọn bớt để đưa vào hàng chờ phối đồ ảo.`,
+      });
+      return;
+    }
+
+    if (unavailableSelectedItems.length) {
+      showNotice({
+        tone: 'info',
+        title: 'Bỏ qua món chưa khả dụng',
+        message: `${unavailableSelectedItems.length} món hết hàng hoặc chưa khả dụng sẽ không được đưa vào phòng phối.`,
+      });
+    }
+
+    navigation.navigate('VirtualTryOnHome', {
+      entryPoint: 'cart',
+      seedItems: selectedCheckoutItems.map((item) => ({
+        cartItemId: item._id,
+        productId: item.productId,
+        variantId: item.variantId,
+        colorVariantId: item.colorVariantId,
+        size: item.size,
+        nameSnapshot: getItemTitle(item),
+        colorSnapshot: item.color,
+        imageSnapshot: item.image,
+      })),
+    });
+  };
   const localSubTotal = selectedCheckoutItems.reduce(
     (sum, item) => sum + item.quantity * item.priceAtAddedTime,
     0,
@@ -1184,6 +1227,86 @@ const CartScreen = () => {
     );
   };
 
+  const renderVirtualTryOnCard = () => {
+    const selectedCount = selectedCheckoutItems.length;
+    const hasTooManyItems = selectedCount > TRY_ON_QUEUE_LIMIT;
+    const previewItems = selectedCheckoutItems.slice(0, 4);
+    const hiddenPreviewCount = Math.max(0, selectedCount - previewItems.length);
+
+    return (
+      <View style={styles.virtualTryOnCard}>
+        <View style={styles.virtualTryOnGlow} />
+        <View style={styles.virtualTryOnHeader}>
+          <View style={styles.virtualTryOnIcon}>
+            <MaterialCommunityIcons name="auto-fix" size={24} color={colors.white} />
+          </View>
+          <View style={styles.virtualTryOnCopy}>
+            <Text style={styles.virtualTryOnEyebrow}>Fit Studio</Text>
+            <Text style={styles.virtualTryOnTitle}>Phối thử trước khi chốt</Text>
+            <Text style={styles.virtualTryOnText}>
+              Đưa các món đang tick vào hàng chờ, mỗi lần AI sẽ dùng bộ active hợp lệ để tạo ảnh.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.virtualTryOnSelectionRow}>
+          <View style={styles.virtualTryOnThumbs}>
+            {previewItems.map((item, index) => {
+              const imageUri = item.image?.trim();
+
+              return (
+                <View
+                  key={`try-on-${item._id}`}
+                  style={[styles.virtualTryOnThumb, index > 0 && styles.virtualTryOnThumbOverlap]}
+                >
+                  {isRemoteImage(imageUri) ? (
+                    <Image source={{ uri: imageUri }} style={styles.virtualTryOnThumbImage} />
+                  ) : (
+                    <MaterialCommunityIcons name="hanger" size={18} color={colors.brand} />
+                  )}
+                </View>
+              );
+            })}
+            {hiddenPreviewCount ? (
+              <View style={[styles.virtualTryOnEmptyThumb, previewItems.length > 0 && styles.virtualTryOnThumbOverlap]}>
+                <Text style={styles.virtualTryOnMoreText}>+{hiddenPreviewCount}</Text>
+              </View>
+            ) : null}
+            {!selectedCount ? (
+              <View style={styles.virtualTryOnEmptyThumb}>
+                <MaterialCommunityIcons name="checkbox-marked-circle-outline" size={19} color={colors.brand} />
+              </View>
+            ) : null}
+          </View>
+          <Text style={[styles.virtualTryOnSelectionText, hasTooManyItems && styles.virtualTryOnSelectionTextWarning]}>
+            {hasTooManyItems
+              ? `${selectedCount} món · tối đa ${TRY_ON_QUEUE_LIMIT} trong hàng chờ`
+              : selectedCount
+                ? `${selectedCount} món trong hàng chờ`
+                : 'Tick sản phẩm để bắt đầu'}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.virtualTryOnButton, !selectedCount && styles.virtualTryOnButtonIdle]}
+          onPress={handleStartVirtualTryOn}
+          activeOpacity={0.86}
+          accessibilityRole="button"
+          accessibilityLabel="Mở phòng phối đồ ảo với các sản phẩm đã chọn"
+        >
+          <Text style={styles.virtualTryOnButtonText}>
+            {hasTooManyItems
+              ? `Bỏ chọn ${selectedCount - TRY_ON_QUEUE_LIMIT} món để tiếp tục`
+              : selectedCount
+                ? `Mang ${selectedCount} món sang AI`
+                : 'Chọn đồ để phối thử'}
+          </Text>
+          <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const handleCartRecommendationPress = (item: RecommendationItem) => {
     recordCartRecommendationEvent(item, 'click');
     navigation.navigate('ProductDetail', {
@@ -1571,6 +1694,8 @@ const CartScreen = () => {
           {cart.product_list.map(renderCartItem)}
         </View>
 
+        {renderVirtualTryOnCard()}
+
         {renderCartRecommendations()}
 
         <View style={styles.sectionBlock}>
@@ -1949,6 +2074,143 @@ const styles = StyleSheet.create({
   itemList: {
     paddingHorizontal: spacing.md,
     gap: spacing.md,
+  },
+  virtualTryOnCard: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.lg,
+    borderRadius: radii.md,
+    backgroundColor: '#213448',
+    padding: spacing.lg,
+    overflow: 'hidden',
+    gap: spacing.md,
+  },
+  virtualTryOnGlow: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    right: -72,
+    top: -96,
+    backgroundColor: 'rgba(123, 190, 225, 0.22)',
+  },
+  virtualTryOnHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  virtualTryOnIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#547792',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  virtualTryOnCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  virtualTryOnEyebrow: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+  },
+  virtualTryOnTitle: {
+    color: colors.white,
+    fontSize: 19,
+    lineHeight: 25,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  virtualTryOnText: {
+    color: '#DCEAF1',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  virtualTryOnSelectionRow: {
+    minHeight: 44,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  virtualTryOnThumbs: {
+    minWidth: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 2,
+  },
+  virtualTryOnThumb: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.white,
+    borderWidth: 2,
+    borderColor: '#213448',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  virtualTryOnThumbOverlap: {
+    marginLeft: -8,
+  },
+  virtualTryOnThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  virtualTryOnEmptyThumb: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  virtualTryOnMoreText: {
+    color: colors.brand,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  virtualTryOnSelectionText: {
+    flex: 1,
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  virtualTryOnSelectionTextWarning: {
+    color: '#FFD9A8',
+  },
+  virtualTryOnButton: {
+    minHeight: 50,
+    borderRadius: radii.pill,
+    backgroundColor: '#547792',
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  virtualTryOnButtonIdle: {
+    backgroundColor: 'rgba(84,119,146,0.72)',
+  },
+  virtualTryOnButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
   },
   recommendationSection: {
     marginTop: spacing.xl,
