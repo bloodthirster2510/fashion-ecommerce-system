@@ -18,6 +18,7 @@ import type { VirtualTryOnJob } from './virtualTryOn.types';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnResult'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnResult'>;
+type ImageActionScope = 'active' | 'all';
 
 const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -69,8 +70,8 @@ const VirtualTryOnResultScreen = () => {
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isAddingCart, setIsAddingCart] = React.useState(false);
-  const [isSavingImage, setIsSavingImage] = React.useState(false);
-  const [isSharingImage, setIsSharingImage] = React.useState(false);
+  const [savingScope, setSavingScope] = React.useState<ImageActionScope | null>(null);
+  const [sharingScope, setSharingScope] = React.useState<ImageActionScope | null>(null);
   const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
   const resultScrollRef = React.useRef<ScrollView>(null);
@@ -116,8 +117,8 @@ const VirtualTryOnResultScreen = () => {
     });
   }, [activeImageIndex, isPreviewVisible, windowWidth]);
 
-  const downloadActiveImageToCache = async () => {
-    if (!activeImageUrl || !job) {
+  const downloadImageToCache = async (url: string, imageIndex: number) => {
+    if (!url || !job) {
       throw new Error('Không tìm thấy ảnh kết quả.');
     }
 
@@ -126,9 +127,9 @@ const VirtualTryOnResultScreen = () => {
       throw new Error('Không tìm thấy thư mục tạm để lưu ảnh.');
     }
 
-    const extension = getDownloadExtension(activeImageUrl);
-    const fileUri = `${baseDirectory}fit-studio-${job._id}-${activeImageIndex + 1}-${Date.now()}.${extension}`;
-    const downloaded = await FileSystem.downloadAsync(activeImageUrl, fileUri);
+    const extension = getDownloadExtension(url);
+    const fileUri = `${baseDirectory}fit-studio-${job._id}-${imageIndex + 1}-${Date.now()}.${extension}`;
+    const downloaded = await FileSystem.downloadAsync(url, fileUri);
     if (downloaded.status < 200 || downloaded.status >= 300) {
       throw new Error('Không tải được ảnh kết quả.');
     }
@@ -139,15 +140,15 @@ const VirtualTryOnResultScreen = () => {
     };
   };
 
-  const shareResult = async () => {
-    if (!activeImageUrl || !job || isSharingImage) return;
+  const shareActiveImage = async () => {
+    if (!activeImageUrl || !job || savingScope || sharingScope) return;
 
-    setIsSharingImage(true);
+    setSharingScope('active');
     try {
-      const file = await downloadActiveImageToCache();
+      const file = await downloadImageToCache(activeImageUrl, activeImageIndex);
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(file.uri, {
-          dialogTitle: 'Chia sẻ ảnh phối đồ',
+          dialogTitle: `Chia sẻ ảnh phối đồ ${activeImageIndex + 1}`,
           mimeType: file.mimeType,
         });
         return;
@@ -161,14 +162,42 @@ const VirtualTryOnResultScreen = () => {
       const message = error instanceof Error ? error.message : 'Không thể chia sẻ ảnh lúc này.';
       Alert.alert('Chia sẻ ảnh', message);
     } finally {
-      setIsSharingImage(false);
+      setSharingScope(null);
     }
   };
 
-  const saveActiveImage = async () => {
-    if (!activeImageUrl || !job || isSavingImage) return;
+  const shareAllImages = async () => {
+    if (!job || resultImageUrls.length < 2 || savingScope || sharingScope) return;
 
-    setIsSavingImage(true);
+    setSharingScope('all');
+    try {
+      const links = resultImageUrls
+        .map((url, index) => `Ảnh ${index + 1}: ${url}`)
+        .join('\n');
+      await Share.share({
+        title: 'Bộ ảnh phối đồ',
+        message: `Bộ ${resultImageUrls.length} ảnh phối đồ của tôi:\n\n${links}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể chia sẻ cả bộ ảnh lúc này.';
+      Alert.alert('Chia sẻ cả bộ', message);
+    } finally {
+      setSharingScope(null);
+    }
+  };
+
+  const saveImages = async (scope: ImageActionScope) => {
+    if (!job || savingScope || sharingScope) return;
+
+    const images = scope === 'all'
+      ? resultImageUrls.map((url, index) => ({ url, index }))
+      : activeImageUrl
+        ? [{ url: activeImageUrl, index: activeImageIndex }]
+        : [];
+    if (!images.length) return;
+
+    setSavingScope(scope);
+    let savedCount = 0;
     try {
       const permission = await MediaLibrary.requestPermissionsAsync(true);
       if (!permission.granted) {
@@ -176,15 +205,26 @@ const VirtualTryOnResultScreen = () => {
         return;
       }
 
-      const file = await downloadActiveImageToCache();
-      await MediaLibrary.saveToLibraryAsync(file.uri);
+      for (const image of images) {
+        const file = await downloadImageToCache(image.url, image.index);
+        await MediaLibrary.saveToLibraryAsync(file.uri);
+        savedCount += 1;
+      }
 
-      Alert.alert('Đã lưu ảnh', 'Ảnh đã được lưu vào thư viện.');
+      Alert.alert(
+        scope === 'all' ? 'Đã lưu cả bộ' : 'Đã lưu ảnh',
+        scope === 'all'
+          ? `${savedCount} ảnh đã được lưu vào thư viện.`
+          : `Ảnh ${activeImageIndex + 1} đã được lưu vào thư viện.`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể lưu ảnh lúc này.';
-      Alert.alert('Tải ảnh', message);
+      const partialMessage = savedCount > 0
+        ? `Đã lưu ${savedCount}/${images.length} ảnh. ${message}`
+        : message;
+      Alert.alert(scope === 'all' ? 'Lưu cả bộ' : 'Lưu ảnh', partialMessage);
     } finally {
-      setIsSavingImage(false);
+      setSavingScope(null);
     }
   };
 
@@ -361,48 +401,88 @@ const VirtualTryOnResultScreen = () => {
               </View>
             ) : null}
 
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={[styles.actionButton, (!activeImageUrl || isSharingImage) && styles.actionButtonDisabled]}
-                onPress={shareResult}
-                disabled={!activeImageUrl || isSharingImage}
-                activeOpacity={0.86}
-              >
-                {isSharingImage ? (
-                  <ActivityIndicator color={studioPalette.ink} />
-                ) : (
-                  <>
-                    <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
-                    <Text style={styles.actionText}>Chia sẻ</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionButton, (!activeImageUrl || isSavingImage) && styles.actionButtonDisabled]}
-                onPress={saveActiveImage}
-                disabled={!activeImageUrl || isSavingImage}
-                activeOpacity={0.86}
-              >
-                {isSavingImage ? (
-                  <ActivityIndicator color={studioPalette.ink} />
-                ) : (
-                  <>
-                    <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
-                    <Text style={styles.actionText}>Tải về</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => navigation.navigate('VirtualTryOnBuilder', {
-                  assetId: job.sourceAsset?._id,
-                  imageUrl: job.sourceImageUrl,
-                })}
-                activeOpacity={0.86}
-              >
-                <MaterialCommunityIcons name="reload" size={24} color={studioPalette.ink} />
-                <Text style={styles.actionText}>Phối lại</Text>
-              </TouchableOpacity>
+            <View style={styles.resultActions}>
+              <View style={styles.actionGroup}>
+                <View style={styles.actionGroupHeader}>
+                  <Text style={styles.actionGroupTitle}>Ảnh đang chọn</Text>
+                  <Text style={styles.actionGroupMeta}>
+                    {resultImageUrls.length ? `Ảnh ${activeImageIndex + 1}/${resultImageUrls.length}` : 'Chưa có ảnh'}
+                  </Text>
+                </View>
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, (!activeImageUrl || savingScope || sharingScope) && styles.actionButtonDisabled]}
+                    onPress={shareActiveImage}
+                    disabled={!activeImageUrl || Boolean(savingScope || sharingScope)}
+                    activeOpacity={0.86}
+                  >
+                    {sharingScope === 'active' ? (
+                      <ActivityIndicator color={studioPalette.ink} />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
+                        <Text style={styles.actionText}>Chia sẻ ảnh này</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButton, (!activeImageUrl || savingScope || sharingScope) && styles.actionButtonDisabled]}
+                    onPress={() => void saveImages('active')}
+                    disabled={!activeImageUrl || Boolean(savingScope || sharingScope)}
+                    activeOpacity={0.86}
+                  >
+                    {savingScope === 'active' ? (
+                      <ActivityIndicator color={studioPalette.ink} />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
+                        <Text style={styles.actionText}>Lưu ảnh này</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {resultImageUrls.length > 1 ? (
+                <View style={styles.actionGroup}>
+                  <View style={styles.actionGroupHeader}>
+                    <Text style={styles.actionGroupTitle}>Cả bộ kết quả</Text>
+                    <Text style={styles.actionGroupMeta}>{resultImageUrls.length} ảnh</Text>
+                  </View>
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, (savingScope || sharingScope) && styles.actionButtonDisabled]}
+                      onPress={() => void saveImages('all')}
+                      disabled={Boolean(savingScope || sharingScope)}
+                      activeOpacity={0.86}
+                    >
+                      {savingScope === 'all' ? (
+                        <ActivityIndicator color={studioPalette.ink} />
+                      ) : (
+                        <>
+                          <MaterialCommunityIcons name="download-multiple" size={24} color={studioPalette.ink} />
+                          <Text style={styles.actionText}>Lưu toàn bộ ảnh</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, (savingScope || sharingScope) && styles.actionButtonDisabled]}
+                      onPress={shareAllImages}
+                      disabled={Boolean(savingScope || sharingScope)}
+                      activeOpacity={0.86}
+                    >
+                      {sharingScope === 'all' ? (
+                        <ActivityIndicator color={studioPalette.ink} />
+                      ) : (
+                        <>
+                          <MaterialCommunityIcons name="share-all-outline" size={24} color={studioPalette.ink} />
+                          <Text style={styles.actionText}>Chia sẻ {resultImageUrls.length} liên kết</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.sectionHeader}>
@@ -709,6 +789,31 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '900',
   },
+  resultActions: {
+    gap: spacing.lg,
+  },
+  actionGroup: {
+    gap: spacing.sm,
+  },
+  actionGroupHeader: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  actionGroupTitle: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  actionGroupMeta: {
+    color: studioPalette.primary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
   actionRow: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -733,6 +838,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '900',
+    textAlign: 'center',
   },
   sectionHeader: {
     flexDirection: 'row',

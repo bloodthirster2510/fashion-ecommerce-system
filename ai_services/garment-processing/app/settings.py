@@ -70,7 +70,6 @@ class Settings:
     )
     model_local_files_only: bool = _read_bool("GARMENT_MODEL_LOCAL_FILES_ONLY", True)
     model_device: str = os.getenv("GARMENT_MODEL_DEVICE", "auto").strip().lower()
-    model_output_mode: str = os.getenv("GARMENT_MODEL_OUTPUT_MODE", "box_crop").strip().lower()
     detector_box_threshold: float = _read_float("GARMENT_DETECTOR_BOX_THRESHOLD", 0.2)
     detector_text_threshold: float = _read_float("GARMENT_DETECTOR_TEXT_THRESHOLD", 0.2)
     segmenter_mask_threshold: float = _read_float("GARMENT_SEGMENTER_MASK_THRESHOLD", 0.0)

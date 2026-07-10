@@ -12,7 +12,6 @@ from app.processors.extractor import (
     GarmentRole,
     empty_extraction_result,
     extraction_from_box,
-    extraction_from_mask,
 )
 from app.settings import Settings
 
@@ -159,7 +158,7 @@ class GroundedSamProvider:
             "device": str(self._device) if self._device is not None else None,
             "detectorModel": self.settings.detector_model_id,
             "segmenterModel": self.settings.segmenter_model_id,
-            "outputMode": self.settings.model_output_mode,
+            "outputMode": "box_crop",
             "localFilesOnly": self.settings.model_local_files_only,
             "error": self._load_error,
         }
@@ -364,24 +363,23 @@ class GroundedSamProvider:
                     message="The garment touches the image boundary and may be cropped.",
                 ))
 
-        if self.settings.model_output_mode == "box_crop" and bbox is not None:
-            return extraction_from_box(
-                image=image,
-                box=bbox,
-                role=role,
-                settings=self.settings,
-                method="grounded_sam_box_crop",
-                confidence=confidence,
-                max_long_edge=max_long_edge,
-                extra_issues=quality_issues,
+        if bbox is None:
+            return empty_extraction_result(
+                role,
+                "grounded_sam_empty_mask",
+                ExtractionIssue(
+                    code="empty_mask",
+                    severity="error",
+                    message="No garment region could be derived from the segmentation mask.",
+                ),
             )
 
-        return extraction_from_mask(
+        return extraction_from_box(
             image=image,
-            mask=mask,
+            box=bbox,
             role=role,
             settings=self.settings,
-            method="grounded_sam",
+            method="grounded_sam_box_crop",
             confidence=confidence,
             max_long_edge=max_long_edge,
             extra_issues=quality_issues,

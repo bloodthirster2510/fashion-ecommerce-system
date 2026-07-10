@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from PIL import Image, ImageChops, ImageFilter
+from PIL import Image, ImageFilter
 
 from app.settings import Settings
 
@@ -203,12 +203,6 @@ def _should_role_crop(
     return color_delta >= settings.role_crop_color_delta
 
 
-def _trim_transparent(image: Image.Image) -> Image.Image:
-    alpha = image.getchannel("A")
-    bbox = alpha.getbbox()
-    return image.crop(bbox) if bbox else image
-
-
 def _limit_long_edge(image: Image.Image, max_long_edge: int) -> Image.Image:
     width, height = image.size
     long_edge = max(width, height)
@@ -217,12 +211,6 @@ def _limit_long_edge(image: Image.Image, max_long_edge: int) -> Image.Image:
     scale = max_long_edge / long_edge
     size = (max(1, int(width * scale)), max(1, int(height * scale)))
     return image.resize(size, Image.Resampling.LANCZOS)
-
-
-def _apply_mask(image: Image.Image, mask: Image.Image) -> Image.Image:
-    result = image.copy()
-    result.putalpha(ImageChops.multiply(result.getchannel("A"), mask))
-    return result
 
 
 def _confidence(mask: Image.Image, role_box: tuple[int, int, int, int]) -> float:
@@ -307,59 +295,6 @@ def empty_extraction_result(
     )
 
 
-def extraction_from_mask(
-    image: Image.Image,
-    mask: Image.Image,
-    role: GarmentRole,
-    settings: Settings,
-    method: str,
-    confidence: float,
-    max_long_edge: int | None = None,
-    extra_issues: list[ExtractionIssue] | None = None,
-) -> ExtractionResult:
-    source = image.convert("RGBA")
-    normalized_mask = mask.convert("L")
-    if normalized_mask.size != source.size:
-        normalized_mask = normalized_mask.resize(source.size, Image.Resampling.NEAREST)
-
-    foreground_ratio = _mask_ratio(normalized_mask)
-    foreground_box = _mask_bbox(normalized_mask)
-    if foreground_box is None:
-        return empty_extraction_result(
-            role,
-            method,
-            ExtractionIssue(
-                code="empty_mask",
-                severity="error",
-                message="No garment foreground could be detected.",
-            ),
-        )
-
-    crop_box = _pad_box(foreground_box, source.size, settings.crop_padding_ratio)
-    cropped_image = source.crop(crop_box)
-    cropped_mask = normalized_mask.crop(crop_box)
-    extracted = _trim_transparent(_apply_mask(cropped_image, cropped_mask))
-    extracted = _limit_long_edge(extracted, max_long_edge or settings.max_extracted_long_edge)
-    issues = _issues_for_result(
-        source.size,
-        foreground_ratio,
-        crop_box,
-        confidence,
-        settings,
-    )
-    if extra_issues:
-        issues.extend(extra_issues)
-
-    return ExtractionResult(
-        image=extracted,
-        role=role,
-        method=method,
-        confidence=max(0.0, min(1.0, confidence)),
-        bbox=crop_box,
-        issues=issues,
-    )
-
-
 def extraction_from_box(
     image: Image.Image,
     box: tuple[int, int, int, int],
@@ -437,17 +372,17 @@ def extract_garment(
 
     should_role_crop = _should_role_crop(source, mask, foreground_box, role, settings)
     role_box = _role_box(foreground_box, role, source.size, settings, should_role_crop)
-    cropped_image = source.crop(role_box)
-    cropped_mask = mask.crop(role_box)
-    extracted = _trim_transparent(_apply_mask(cropped_image, cropped_mask))
-    extracted = _limit_long_edge(extracted, max_long_edge or settings.max_extracted_long_edge)
+    extracted = _limit_long_edge(
+        source.crop(role_box),
+        max_long_edge or settings.max_extracted_long_edge,
+    )
     confidence = _confidence(mask, role_box)
     issues = _issues_for_result(source.size, foreground_ratio, role_box, confidence, settings)
 
     return ExtractionResult(
         image=extracted,
         role=role,
-        method="heuristic_foreground_role_crop" if should_role_crop else "heuristic_foreground",
+        method="heuristic_role_crop" if should_role_crop else "heuristic_box_crop",
         confidence=confidence,
         bbox=role_box,
         issues=issues,

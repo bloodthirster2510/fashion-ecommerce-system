@@ -32,7 +32,8 @@ def test_extract_top_product_only_keeps_whole_garment():
 
     result = extract_garment(image, "top", Settings())
 
-    assert result.method == "heuristic_foreground"
+    assert result.method == "heuristic_box_crop"
+    assert result.image.getpixel((0, 0)) == (255, 255, 255, 255)
     assert result.image.height > 280
     assert result.bbox is not None
     assert result.bbox[3] > 350
@@ -57,7 +58,8 @@ def test_extract_bottom_product_only_keeps_whole_garment():
 
     result = extract_garment(image, "bottom", Settings())
 
-    assert result.method == "heuristic_foreground"
+    assert result.method == "heuristic_box_crop"
+    assert result.image.getpixel((0, 0)) == (255, 255, 255, 255)
     assert result.image.height > 500
     assert result.bbox is not None
     assert result.bbox[1] < 80
@@ -76,7 +78,7 @@ def test_extract_shoes_keeps_whole_product_foreground():
     assert result.confidence > 0
 
 
-def test_extract_alpha_png_uses_alpha_mask():
+def test_extract_alpha_png_uses_alpha_only_to_locate_crop():
     image = Image.new("RGBA", (300, 300), (255, 255, 255, 0))
     draw = ImageDraw.Draw(image)
     draw.ellipse((80, 80, 220, 220), fill=(255, 0, 0, 255))
@@ -86,6 +88,8 @@ def test_extract_alpha_png_uses_alpha_mask():
     assert result.image.width <= 160
     assert result.image.height <= 160
     assert result.confidence > 0.2
+    assert result.method == "heuristic_box_crop"
+    assert result.image.getpixel((0, 0))[3] == 0
 
 
 def test_extract_empty_image_marks_result_unusable():

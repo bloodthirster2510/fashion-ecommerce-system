@@ -31,7 +31,7 @@ def model_success() -> ExtractionResult:
     return ExtractionResult(
         image=Image.new("RGBA", (120, 140), (0, 90, 200, 255)),
         role="top",
-        method="grounded_sam",
+        method="grounded_sam_box_crop",
         confidence=0.8,
         bbox=(20, 20, 140, 160),
         issues=[],
@@ -89,7 +89,7 @@ def test_hybrid_uses_model_for_opaque_image():
 
     result = extractor.extract(complex_image(), "top")
 
-    assert result.method == "grounded_sam"
+    assert result.method == "grounded_sam_box_crop"
     assert provider.calls == 1
 
 

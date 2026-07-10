@@ -9,11 +9,11 @@ It does two jobs before ComfyUI:
 
 The service uses a hybrid extraction pipeline:
 
-- Transparent PNGs use the lightweight Pillow/NumPy heuristic.
+- Transparent PNGs use the lightweight Pillow/NumPy heuristic to locate a crop.
 - Opaque images use Grounding DINO to locate the requested garment role.
 - SAM 2.1 tightens and validates the garment region from the selected detection
   box.
-- The default output is a rectangular crop from the original image, preserving
+- Every output is a rectangular crop from the original image, preserving
   garment texture instead of cutting pixels around hands, hair, or occlusion.
 - A simple-background image may fall back to the heuristic if the model cannot
   find a garment.
@@ -191,7 +191,6 @@ GARMENT_SEGMENTER_MODEL_ID=facebook/sam2.1-hiera-tiny
 GARMENT_MODEL_CACHE_DIR=./models/huggingface
 GARMENT_MODEL_LOCAL_FILES_ONLY=true
 GARMENT_MODEL_DEVICE=auto
-GARMENT_MODEL_OUTPUT_MODE=box_crop
 GARMENT_MODEL_WARMUP_ON_START=false
 GARMENT_DETECTOR_BOX_THRESHOLD=0.2
 GARMENT_DETECTOR_TEXT_THRESHOLD=0.2
@@ -202,10 +201,8 @@ GARMENT_MIN_MODEL_CONFIDENCE=0.3
   khi nền thật sự đơn giản.
 - `grounded_sam`: bắt buộc dùng model và không fallback.
 - `heuristic`: chế độ nhẹ để test hoặc xử lý catalog đã chuẩn hóa sẵn.
-- `GARMENT_MODEL_OUTPUT_MODE=box_crop`: crop vùng áo/quần/giày từ ảnh gốc. Đây
-  là mặc định vì giữ nguyên texture và không tạo lỗ tại vùng bị tay/tóc che.
-- `GARMENT_MODEL_OUTPUT_MODE=mask`: xuất PNG tách nền theo pixel mask. Chỉ nên
-  dùng khi ảnh sản phẩm ít occlusion.
+- Service luôn crop vùng áo/quần/giày từ ảnh gốc. Mask chỉ dùng để xác định
+  bounding box và đánh giá chất lượng; service không xóa nền.
 - Docker bật `GARMENT_MODEL_WARMUP_ON_START=true`. Local để `false` nhằm khởi
   động nhanh; request model đầu tiên sẽ load checkpoint đã có trên máy, nhưng
   không tải mạng.
@@ -262,8 +259,7 @@ Kết quả ngày 2026-07-09:
 ## Current limitations
 
 - CPU inference is suitable for development but not ideal for production latency.
-- `box_crop` có thể giữ lại tay, chân hoặc nền nằm sát sản phẩm; đổi lại không
+- Rectangular crop có thể giữ lại tay, chân hoặc nền nằm sát sản phẩm; đổi lại không
   làm thủng texture của món đồ.
-- `mask` chỉ giữ pixel nhìn thấy; SAM không dựng lại phần bị che.
 - Role prompts and thresholds still need validation on a larger catalog benchmark.
 - This service does not run the final try-on; ComfyUI still handles `person + garment collage`.
