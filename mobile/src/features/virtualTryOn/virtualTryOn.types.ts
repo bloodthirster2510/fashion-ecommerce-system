@@ -14,6 +14,7 @@ export type VirtualTryOnAsset = {
     reasonCode: string;
     message: string;
   };
+  validationCheckedAt?: string | null;
 };
 
 export type TryOnItemRole = 'top' | 'bottom' | 'dress' | 'shoes' | 'accessory' | 'outerwear';

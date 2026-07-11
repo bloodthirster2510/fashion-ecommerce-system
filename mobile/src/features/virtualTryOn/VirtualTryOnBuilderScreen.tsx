@@ -241,8 +241,8 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh chụp gần hơn.',
   },
   BODY_NOT_VISIBLE: {
-    title: 'Chưa thấy đủ cơ thể',
-    message: 'Ảnh hiện tại chưa đủ vùng cơ thể.',
+    title: 'Chưa đủ vùng cho món này',
+    message: 'Ảnh này chưa thấy đủ vùng cơ thể cho món đang chọn.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
@@ -401,12 +401,19 @@ const withSentencePeriod = (value: string) => /[.!?…]$/.test(value.trim()) ? v
 const getImageValidationReasonTitle = (reasonCode?: string | null) => {
   if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
   if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
+  if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này.';
   if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh ít trang phục.';
   if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
   return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
 };
 
 const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' as const;
+
+const imageValidationBlockingReasonCodes = new Set([
+  'NO_PERSON_DETECTED',
+  'BODY_NOT_VISIBLE',
+  'PERSON_TOO_SMALL',
+]);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
@@ -1004,19 +1011,27 @@ const VirtualTryOnBuilderScreen = () => {
     imageValidation.key === imageValidationScanKey;
   const imageValidationHardBlockReason = (() => {
     if (!imageValidationScanKey || !canSubmit) return null;
-    if (hasCurrentImageValidationResult && imageValidation.result?.reasonCode === 'NO_PERSON_DETECTED') {
-      return 'NO_PERSON_DETECTED';
+    const currentReasonCode =
+      currentSelectionUnsupportedCapability?.reasonCode ??
+      imageValidation.result?.reasonCode;
+    if (
+      hasCurrentImageValidationResult &&
+      currentReasonCode &&
+      imageValidationBlockingReasonCodes.has(currentReasonCode)
+    ) {
+      return currentReasonCode;
     }
     if (
       (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
       imageValidation.key === imageValidationScanKey &&
-      imageValidation.errorCode === 'NO_PERSON_DETECTED'
+      imageValidation.errorCode &&
+      imageValidationBlockingReasonCodes.has(imageValidation.errorCode)
     ) {
-      return 'NO_PERSON_DETECTED';
+      return imageValidation.errorCode;
     }
     return null;
   })();
-  const imageValidationBlocksSubmit = imageValidationHardBlockReason === 'NO_PERSON_DETECTED';
+  const imageValidationBlocksSubmit = Boolean(imageValidationHardBlockReason);
   const imageValidationSoftWarnsSubmit =
     imageValidationWarnsSubmit &&
     !imageValidationIsCheckingSubmit &&
@@ -1160,12 +1175,14 @@ const VirtualTryOnBuilderScreen = () => {
 
   const submitWarningActive = imageValidationSoftWarnsSubmit && imageValidationDisplay.tone === 'warning';
   const submitButtonLabel = sourceAssetId
-    ? submitWarningActive
+    ? imageValidationBlocksSubmit
+      ? 'Không phù hợp'
+      : submitWarningActive
       ? 'Vẫn tạo ảnh'
       : 'Tạo ảnh'
     : 'Chọn ảnh';
   const submitButtonIcon = sourceAssetId
-    ? submitWarningActive
+    ? imageValidationBlocksSubmit || submitWarningActive
       ? 'alert-circle-outline'
       : 'auto-fix'
     : 'image-plus';
@@ -1176,7 +1193,9 @@ const VirtualTryOnBuilderScreen = () => {
 
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
-      return 'Cần ảnh người';
+      return imageValidationHardBlockReason === 'NO_PERSON_DETECTED'
+        ? 'Cần ảnh người'
+        : 'Không phù hợp';
     }
 
     if (submitWarningActive) {
@@ -1266,7 +1285,7 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     if (imageValidationBlocksSubmit) {
-      Alert.alert('Cần ảnh người mặc', 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.');
+      Alert.alert(imageValidationDisplay.title, imageValidationDisplay.message);
       return;
     }
 

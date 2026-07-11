@@ -238,6 +238,13 @@ describe('virtualTryOnService image validation', () => {
       },
     }));
     expect(mockedVirtualTryOnAsset.create).toHaveBeenCalledTimes(1);
+    expect(mockedVirtualTryOnAsset.create).toHaveBeenCalledWith(expect.objectContaining({
+      validationWarning: {
+        reasonCode: 'IMAGE_POLICY_BLOCKED',
+        message: expect.any(String),
+      },
+      validationCheckedAt: expect.any(Date),
+    }));
     expect(mockedDeleteFromCloudinary).not.toHaveBeenCalled();
   });
 
@@ -370,6 +377,9 @@ describe('virtualTryOnService image validation', () => {
         bodyVisibility: 'good',
         quality: { blur: 'ok', brightness: 'ok', resolution: 'ok' },
         safetyFlags: [],
+        visibleRegions: ['upper', 'hips', 'legs'],
+        supportedModes: ['top', 'bottom', 'outerwear', 'accessory'],
+        recommendedMode: 'top',
       },
     });
 
@@ -385,9 +395,46 @@ describe('virtualTryOnService image validation', () => {
       expect.any(Object),
     );
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledWith(expect.objectContaining({
+      providerMetadata: {
+        sourceImageProfile: expect.objectContaining({
+          visibleRegions: ['upper', 'hips', 'legs'],
+          supportedModes: expect.arrayContaining(['top', 'bottom']),
+          recommendedMode: 'full_set',
+        }),
+      },
+    }));
   });
 
-  it('creates createJob with a warning when the selected role is outside the image capabilities', async () => {
+  it('returns body suitability in Builder validation without repeating upload safety warning', async () => {
+    process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
+    process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        allowed: true,
+        personCount: 1,
+        mainPersonScore: 0.94,
+        bodyVisibility: 'partial',
+        quality: { blur: 'ok', brightness: 'ok', resolution: 'ok' },
+        safetyFlags: ['explicit'],
+        visibleRegions: ['upper'],
+        supportedModes: ['top', 'outerwear', 'accessory'],
+        recommendedMode: 'top',
+      },
+    });
+
+    const result = await virtualTryOnService.validateAsset(userId, sourceAssetId.toString(), {
+      outfitMode: 'single',
+      selectedItems: [{ role: 'bottom' }],
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.reasonCode).toBe('BODY_NOT_VISIBLE');
+    expect(result.safetyFlags).toEqual([]);
+    expect(result.supportedModes).toEqual(expect.arrayContaining(['top', 'outerwear', 'accessory']));
+  });
+
+  it('rejects createJob when the selected role is outside the image body suitability', async () => {
     process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
     process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
     mockedAxios.post.mockResolvedValue({
@@ -429,28 +476,16 @@ describe('virtualTryOnService image validation', () => {
       },
     });
 
-    const result = await virtualTryOnService.createJob(userId, {
+    await expect(virtualTryOnService.createJob(userId, {
       ...createJobInput,
       selectedItems: [{ ...createJobInput.selectedItems[0], role: 'shoes' }],
+    })).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: 'BODY_NOT_VISIBLE',
     });
 
-    expect(result._id).toBe(jobId.toString());
-    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
-    expect(mockedProduct.find).toHaveBeenCalled();
-    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledWith(expect.objectContaining({
-      providerMetadata: {
-        sourceImageProfile: expect.objectContaining({
-          visibleRegions: ['upper', 'hips'],
-          supportedModes: ['top', 'outerwear', 'accessory'],
-          recommendedMode: 'top',
-          reasonCode: 'BODY_NOT_VISIBLE',
-        }),
-      },
-    }));
-    expect(console.warn).toHaveBeenCalledWith(
-      'Virtual try-on source image validation warning:',
-      expect.objectContaining({ reasonCode: 'BODY_NOT_VISIBLE' }),
-    );
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
   });
 
   it('logs prompt policy violations before image validation or job creation', async () => {

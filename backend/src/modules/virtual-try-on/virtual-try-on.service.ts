@@ -68,7 +68,11 @@ const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 const DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY = 5;
-const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>(['NO_PERSON_DETECTED']);
+const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
+  'NO_PERSON_DETECTED',
+  'BODY_NOT_VISIBLE',
+  'PERSON_TOO_SMALL',
+]);
 
 const allowedRoles = new Set<VirtualTryOnItemRole>([
   'top',
@@ -175,6 +179,13 @@ const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   bytes: asset.bytes,
   source: asset.source,
   status: asset.status,
+  validationWarning: asset.validationWarning
+    ? {
+        reasonCode: asset.validationWarning.reasonCode,
+        message: asset.validationWarning.message,
+      }
+    : undefined,
+  validationCheckedAt: asset.validationCheckedAt?.toISOString() ?? null,
   createdAt: asset.createdAt.toISOString(),
   updatedAt: asset.updatedAt.toISOString(),
 });
@@ -576,6 +587,109 @@ const buildAllowedImageValidationCapabilities = (): ImageValidationCapability[] 
     missingRegions: [],
   }));
 
+const getBaseBodySuitabilityReason = (result: ImageValidationResult): ImageValidationReasonCode | null => {
+  if (result.provider === 'disabled') return null;
+  if (result.quality.resolution === 'fail') return 'IMAGE_TOO_SMALL';
+  if (result.quality.blur === 'fail') return 'IMAGE_TOO_BLURRY';
+  if (result.quality.brightness === 'fail') return 'IMAGE_TOO_DARK';
+  if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
+    return 'NO_PERSON_DETECTED';
+  }
+  if (result.personCount > 1) return 'MULTIPLE_PEOPLE_DETECTED';
+  return null;
+};
+
+const buildBodySuitabilityCapabilities = (
+  result: ImageValidationResult,
+  baseReason: ImageValidationReasonCode | null,
+): ImageValidationCapability[] => {
+  const visibleRegions = new Set(result.visibleRegions);
+  return imageValidationCapabilityModes.map((mode) => {
+    const requiredRegions = imageValidationCapabilityRequiredRegions[mode];
+    const missingRegions = baseReason
+      ? []
+      : requiredRegions.filter((region) => !visibleRegions.has(region));
+    const reasonCode = baseReason || (missingRegions.length ? 'BODY_NOT_VISIBLE' : null);
+    return {
+      mode,
+      allowed: !reasonCode,
+      reasonCode,
+      message: reasonCode ? getImageValidationReasonMessage(reasonCode) : null,
+      requiredRegions,
+      missingRegions,
+    };
+  });
+};
+
+const buildBodySuitabilityResult = (
+  result: ImageValidationResult,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+): ImageValidationResult => {
+  if (
+    result.provider === 'disabled' ||
+    result.message === 'Image validation is disabled' ||
+    result.message === 'Image validation failed open'
+  ) {
+    return result;
+  }
+
+  const hasBodyRegionData =
+    result.visibleRegions.length > 0 ||
+    result.capabilities.some((capability) => (
+      capability.allowed ||
+      capability.reasonCode === 'BODY_NOT_VISIBLE' ||
+      capability.missingRegions.length > 0
+    )) ||
+    result.supportedModes.length > 0 ||
+    Object.values(result.blockedModes).some((block) => (
+      block?.reasonCode === 'BODY_NOT_VISIBLE' ||
+      Boolean(block?.missingRegions?.length)
+    ));
+
+  if (!hasBodyRegionData) {
+    return applySelectionCapabilityPolicy({
+      ...result,
+      allowed: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? true : result.allowed,
+      reasonCode: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? null : result.reasonCode,
+      message: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? null : result.message,
+      safetyFlags: [],
+    }, outfitMode, itemRoles);
+  }
+
+  const baseReason = getBaseBodySuitabilityReason(result);
+  const capabilities = buildBodySuitabilityCapabilities(result, baseReason);
+  const supportedModes = capabilities.filter((capability) => capability.allowed).map((capability) => capability.mode);
+  const blockedModes = capabilities.reduce<ImageValidationResult['blockedModes']>((acc, capability) => {
+    if (!capability.allowed) {
+      acc[capability.mode] = {
+        reasonCode: capability.reasonCode,
+        message: capability.message,
+        missingRegions: capability.missingRegions,
+      };
+    }
+    return acc;
+  }, {});
+  const selectedUnsupported = getSelectionCapabilityModes(outfitMode, itemRoles)
+    .map((mode) => capabilities.find((capability) => capability.mode === mode))
+    .find((capability): capability is ImageValidationCapability => Boolean(capability && !capability.allowed));
+  const reasonCode = selectedUnsupported?.reasonCode ?? baseReason;
+
+  return {
+    ...result,
+    allowed: !reasonCode,
+    reasonCode,
+    message: reasonCode
+      ? selectedUnsupported?.message || getImageValidationReasonMessage(reasonCode)
+      : null,
+    safetyFlags: [],
+    supportedModes,
+    blockedModes,
+    recommendedMode: supportedModes[0] ?? null,
+    capabilities,
+  };
+};
+
 const getUnsupportedSelectionCapability = (
   result: ImageValidationResult,
   outfitMode: VirtualTryOnOutfitMode,
@@ -783,12 +897,32 @@ const getSourceImageValidationResult = async (
   return applySelectionCapabilityPolicy(result, outfitMode, itemRoles);
 };
 
+const getSourceImageSuitabilityResult = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
+  return buildBodySuitabilityResult(result, outfitMode, itemRoles);
+};
+
 const warnSourceImageForJob = async (
   sourceAsset: IVirtualTryOnAsset,
   outfitMode: VirtualTryOnOutfitMode,
   itemRoles: VirtualTryOnItemRole[],
 ) => {
   const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
+  const suitabilityResult = buildBodySuitabilityResult(result, outfitMode, itemRoles);
+  const suitabilityWarning = getImageValidationWarning(suitabilityResult);
+  if (suitabilityWarning && jobBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
+    throw new VirtualTryOnServiceError(
+      suitabilityWarning.message,
+      422,
+      suitabilityWarning.reasonCode,
+      { reasonCode: suitabilityWarning.reasonCode, message: suitabilityWarning.message },
+    );
+  }
+
   const warning = getImageValidationWarning(result);
 
   if (warning) {
@@ -806,7 +940,7 @@ const warnSourceImageForJob = async (
       reasonCode: warning.reasonCode,
       message: warning.message,
     });
-    return result;
+    return suitabilityResult;
   }
 
   const unsupportedCapability = getUnsupportedSelectionCapability(result, outfitMode, itemRoles);
@@ -819,7 +953,7 @@ const warnSourceImageForJob = async (
     });
   }
 
-  return result;
+  return suitabilityResult;
 };
 
 const getSelectedItemRolesForValidation = (items: Array<Pick<CreateVirtualTryOnItemInput, 'role'>>) => {
@@ -1057,6 +1191,8 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
       bytes: uploaded.bytes,
       source,
       status: 'active',
+      validationWarning,
+      validationCheckedAt: new Date(),
     });
 
     return {
@@ -1134,7 +1270,7 @@ const validateAsset = async (
 
   const sourceAsset = await findSourceAssetForUser(userId, assetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
-  return getSourceImageValidationResult(sourceAsset, input.outfitMode, itemRoles);
+  return getSourceImageSuitabilityResult(sourceAsset, input.outfitMode, itemRoles);
 };
 
 const getActiveJobCount = (userId: string) =>
