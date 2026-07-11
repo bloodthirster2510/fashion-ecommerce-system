@@ -12,6 +12,7 @@ import { RemoteImage } from '../../components/media/RemoteImage';
 import { virtualTryOnApi } from './virtualTryOnApi';
 import { useVirtualTryOnRealtime } from './virtualTryOnRealtime';
 import type { VirtualTryOnJob } from './virtualTryOn.types';
+import { tryOnRoleLabel } from './virtualTryOnSelection';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
@@ -48,14 +49,16 @@ const VirtualTryOnProcessingScreen = () => {
 
   const jobId = route.params.jobId;
   const retainedSeedItems = route.params.seedItems;
+  const retainedAlternativeSeedItems = route.params.alternativeSeedItems;
   const isProviderSafetyBlocked = job?.status === 'failed' && job.errorCode === 'PROVIDER_SAFETY_BLOCKED';
 
   const returnToBuilder = React.useCallback(() => {
     navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
       entryPoint: 'builder',
       seedItems: retainedSeedItems,
+      alternativeSeedItems: retainedAlternativeSeedItems,
     } : undefined);
-  }, [navigation, retainedSeedItems]);
+  }, [navigation, retainedSeedItems, retainedAlternativeSeedItems]);
 
   const loadJob = React.useCallback(() => {
     let isCurrent = true;
@@ -64,7 +67,11 @@ const VirtualTryOnProcessingScreen = () => {
         if (!isCurrent) return;
         setJob(nextJob);
         if (nextJob.status === 'succeeded') {
-          navigation.replace('VirtualTryOnResult', { jobId: nextJob._id, seedItems: retainedSeedItems });
+          navigation.replace('VirtualTryOnResult', {
+            jobId: nextJob._id,
+            seedItems: retainedSeedItems,
+            alternativeSeedItems: retainedAlternativeSeedItems,
+          });
         }
       })
       .catch((error: unknown) => {
@@ -77,7 +84,7 @@ const VirtualTryOnProcessingScreen = () => {
       });
 
     return () => { isCurrent = false; };
-  }, [jobId, navigation, retainedSeedItems, runWithAuth]);
+  }, [jobId, navigation, retainedSeedItems, retainedAlternativeSeedItems, runWithAuth]);
 
   const realtime = useVirtualTryOnRealtime(session?.accessToken, (event) => {
     if (event.jobId !== jobId) return;
@@ -94,7 +101,11 @@ const VirtualTryOnProcessingScreen = () => {
         }
       : current);
     if (event.status === 'succeeded') {
-      navigation.replace('VirtualTryOnResult', { jobId, seedItems: retainedSeedItems });
+      navigation.replace('VirtualTryOnResult', {
+        jobId,
+        seedItems: retainedSeedItems,
+        alternativeSeedItems: retainedAlternativeSeedItems,
+      });
     }
   });
 
@@ -155,13 +166,15 @@ const VirtualTryOnProcessingScreen = () => {
     }
   };
 
-  const progress = Math.min(100, Math.max(0, Math.round(job?.progress ?? 0)));
+  const rawProgress = Math.min(100, Math.max(0, Math.round(job?.progress ?? 0)));
+  const isTerminalFailure = job?.status === 'failed' || job?.status === 'canceled';
+  const progress = isTerminalFailure ? 0 : rawProgress;
   const progressLabel = (() => {
     switch (job?.status) {
       case 'queued':
-        return 'Đang xếp hàng';
+        return 'Đang chờ tạo ảnh';
       case 'failed':
-        return 'Tạo ảnh lỗi';
+        return 'Tạo ảnh thất bại';
       case 'canceled':
         return 'Đã hủy';
       case 'processing':
@@ -198,7 +211,7 @@ const VirtualTryOnProcessingScreen = () => {
         </TouchableOpacity>
         <View style={styles.headerCopy}>
           <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Đang tạo ảnh thử đồ</Text>
+          <Text style={styles.headerTitle}>Đang tạo ảnh phối đồ</Text>
         </View>
         <View style={styles.headerSpacer} />
       </View>
@@ -207,7 +220,7 @@ const VirtualTryOnProcessingScreen = () => {
         {isLoading && !job ? (
           <View style={styles.loadingCard}>
             <ActivityIndicator color={studioPalette.primary} />
-            <Text style={styles.loadingText}>Đang chuẩn bị ảnh thử đồ...</Text>
+            <Text style={styles.loadingText}>Đang chuẩn bị ảnh phối đồ...</Text>
           </View>
         ) : (
           <>
@@ -221,31 +234,41 @@ const VirtualTryOnProcessingScreen = () => {
                   )}
                 </View>
                 <View style={styles.previewCopy}>
-                  <Text style={styles.kickerText}>Đang thử đồ</Text>
+                  <Text style={styles.kickerText}>
+                    {job?.status === 'failed' ? 'Thất bại' : job?.status === 'canceled' ? 'Đã hủy' : 'Đang phối đồ'}
+                  </Text>
                   <Text style={styles.title}>
-                    {job?.status === 'failed' ? 'Chưa tạo được ảnh thử đồ' : 'Đang tạo 4 ảnh gợi ý'}
+                    {job?.status === 'failed'
+                      ? 'Chưa tạo được ảnh phối đồ'
+                      : job?.status === 'canceled'
+                        ? 'Đã hủy tạo ảnh'
+                        : 'Đang tạo 4 ảnh gợi ý'}
                   </Text>
                   <Text style={styles.subtitle}>
-                    Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.
+                    {isTerminalFailure
+                      ? 'Bạn có thể thử lại hoặc đổi ảnh bất cứ lúc nào.'
+                      : 'Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.'}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${Math.max(8, progress)}%` }]}>
-                  {isJobRunning ? <Animated.View style={[styles.progressGlow, progressGlowStyle]} /> : null}
-                </View>
+              <View style={[styles.progressTrack, isTerminalFailure && styles.progressTrackFailed]}>
+                {!isTerminalFailure ? (
+                  <View style={[styles.progressFill, { width: `${Math.max(8, progress)}%` }]}>
+                    {isJobRunning ? <Animated.View style={[styles.progressGlow, progressGlowStyle]} /> : null}
+                  </View>
+                ) : null}
               </View>
               <View style={styles.progressFooter}>
                 <Text style={styles.progressLabel}>{progressLabel}</Text>
-                <Text style={styles.progressText}>{progress}%</Text>
+                {!isTerminalFailure ? <Text style={styles.progressText}>{progress}%</Text> : null}
               </View>
             </View>
 
             {job?.selectedItems.length ? (
               <View style={styles.processingItemsCard}>
                 <View style={styles.processingItemsHeader}>
-                  <Text style={styles.processingItemsTitle}>Từng món đang được xử lý riêng</Text>
+                    <Text style={styles.processingItemsTitle}>Đang xử lý từng món</Text>
                   <Text style={styles.processingItemsMeta}>{job.selectedItems.length} món</Text>
                 </View>
                 <ScrollView
@@ -254,7 +277,7 @@ const VirtualTryOnProcessingScreen = () => {
                   contentContainerStyle={styles.processingItemList}
                 >
                   {job.selectedItems.map((item, index) => {
-                    const itemDone = activeStep >= 1 && job.status !== 'failed';
+                    const itemDone = activeStep >= 1 && !isTerminalFailure;
                     return (
                       <View key={`${item.productId}-${item.colorVariantId}-${index}`} style={styles.processingItemCard}>
                         <RemoteImage
@@ -263,7 +286,7 @@ const VirtualTryOnProcessingScreen = () => {
                           recyclingKey={`processing-${item.colorVariantId}`}
                         />
                         <View style={styles.processingItemCopy}>
-                          <Text style={styles.processingItemIndex}>Món {index + 1}</Text>
+                          <Text style={styles.processingItemIndex}>{tryOnRoleLabel[item.role]}</Text>
                           <Text style={styles.processingItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
                           <View style={[styles.processingItemStatus, itemDone && styles.processingItemStatusDone]}>
                             <MaterialCommunityIcons
@@ -285,7 +308,7 @@ const VirtualTryOnProcessingScreen = () => {
 
             <View style={styles.stepsCard}>
               {steps.map((step, index) => {
-                const done = index <= activeStep && job?.status !== 'failed';
+                const done = index <= activeStep && !isTerminalFailure;
                 return (
                   <View key={step} style={styles.stepRow}>
                     <View style={[styles.stepDot, done && styles.stepDotDone]}>
@@ -322,6 +345,37 @@ const VirtualTryOnProcessingScreen = () => {
                   />
                   <Text style={styles.retryText}>{isProviderSafetyBlocked ? 'Đổi ảnh' : 'Thử lại'}</Text>
                 </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {job?.status === 'canceled' ? (
+              <View style={styles.errorCard}>
+                <Text style={styles.errorTitle}>Đã hủy tạo ảnh</Text>
+                <Text style={styles.errorText}>
+                  Yêu cầu phối đồ đã được hủy. Bạn có thể thử lại với cùng bộ đồ hoặc đổi ảnh.
+                </Text>
+                <View style={styles.canceledActions}>
+                  <TouchableOpacity
+                    style={styles.canceledSecondaryButton}
+                    onPress={() => navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
+                      entryPoint: 'builder',
+                      seedItems: retainedSeedItems,
+                      alternativeSeedItems: retainedAlternativeSeedItems,
+                    } : undefined)}
+                    activeOpacity={0.86}
+                  >
+                    <MaterialCommunityIcons name="home-outline" size={20} color={studioPalette.ink} />
+                    <Text style={styles.canceledSecondaryText}>Về trang chủ</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.retryButton}
+                    onPress={retry}
+                    activeOpacity={0.86}
+                  >
+                    <MaterialCommunityIcons name="reload" size={20} color={colors.white} />
+                    <Text style={styles.retryText}>Phối lại</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : null}
 
@@ -470,6 +524,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     borderWidth: 1,
     borderColor: 'rgba(25,135,84,0.16)',
+  },
+  progressTrackFailed: {
+    backgroundColor: 'rgba(220,38,38,0.08)',
+    borderColor: 'rgba(220,38,38,0.16)',
   },
   progressFill: {
     height: '100%',
@@ -670,6 +728,29 @@ const styles = StyleSheet.create({
   },
   retryText: {
     color: colors.white,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  canceledActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  canceledSecondaryButton: {
+    minHeight: 46,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  canceledSecondaryText: {
+    color: studioPalette.ink,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '900',

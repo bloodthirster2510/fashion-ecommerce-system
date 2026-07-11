@@ -92,21 +92,25 @@ export type RootStackParamList = {
   MyReviews: undefined;
   VirtualTryOnHome: {
     seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
     entryPoint?: 'cart' | 'builder';
   } | undefined;
   VirtualTryOnBuilder: {
     assetId?: string;
     imageUrl?: string;
     seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
     entryPoint?: 'cart' | 'builder';
   } | undefined;
   VirtualTryOnProcessing: {
     jobId: string;
     seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
   };
   VirtualTryOnResult: {
     jobId: string;
     seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
   };
   VirtualTryOnHistory: undefined;
   SupportHome: undefined;

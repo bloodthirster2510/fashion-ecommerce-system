@@ -9,6 +9,15 @@ import {
 
 export type FashionIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
+export const tryOnRoleLabel: Record<TryOnItemRole, string> = {
+  top: 'Áo',
+  bottom: 'Quần',
+  dress: 'Váy/đầm',
+  shoes: 'Giày/dép',
+  accessory: 'Món khác',
+  outerwear: 'Áo khoác',
+};
+
 export type OutfitSlot = {
   key: string;
   label: string;
@@ -30,7 +39,7 @@ export type SlotAlternativeGroup = {
   items: TryOnSelectedItem[];
 };
 
-export const allTryOnRoles: TryOnItemRole[] = ['top', 'bottom', 'dress', 'shoes', 'outerwear'];
+export const allTryOnRoles: TryOnItemRole[] = ['top', 'bottom', 'dress', 'shoes', 'outerwear', 'accessory'];
 
 export const normalizeRoleText = (value: string) =>
   value

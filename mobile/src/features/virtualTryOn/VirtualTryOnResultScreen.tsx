@@ -15,6 +15,8 @@ import { useAuth } from '../auth/AuthContext';
 import { cartApi } from '../cart/cartApi';
 import { virtualTryOnApi } from './virtualTryOnApi';
 import type { TryOnSeedItem, TryOnSelectedItem, VirtualTryOnJob } from './virtualTryOn.types';
+import { contextPresetLabel } from './contextPresets';
+import { tryOnRoleLabel } from './virtualTryOnSelection';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnResult'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnResult'>;
@@ -42,17 +44,6 @@ const selectedItemToSeed = (item: TryOnSelectedItem): TryOnSeedItem => ({
   colorSnapshot: item.colorSnapshot,
   imageSnapshot: item.imageSnapshot,
 });
-
-const contextLabel: Record<string, string> = {
-  none: 'Giữ nền cũ',
-  work: 'Đi làm',
-  casual: 'Đi chơi',
-  party: 'Dự tiệc',
-  travel: 'Du lịch',
-  sport: 'Thể thao',
-  date: 'Hẹn hò',
-  custom: 'Mô tả riêng',
-};
 
 const getDownloadExtension = (url: string) => {
   const cleanUrl = url.split('?')[0]?.toLowerCase() ?? '';
@@ -102,6 +93,7 @@ const VirtualTryOnResultScreen = () => {
 
   const jobId = route.params.jobId;
   const retainedSeedItems = route.params.seedItems;
+  const retainedAlternativeSeedItems = route.params.alternativeSeedItems;
   const resultCardWidth = Math.max(1, windowWidth - spacing.lg * 2);
 
   React.useEffect(() => {
@@ -345,18 +337,35 @@ const VirtualTryOnResultScreen = () => {
     () => resumeSeedItems.filter((item) => !activeSelectedKeys.has(getSeedComparableKey(item))),
     [activeSelectedKeys, resumeSeedItems],
   );
+  const activeSeedItems = React.useMemo(
+    () => resumeSeedItems.filter((item) => activeSelectedKeys.has(getSeedComparableKey(item))),
+    [activeSelectedKeys, resumeSeedItems],
+  );
   const waitingSeedCount = waitingSeedItems.length;
   const nextWaitingSeedItem = waitingSeedItems[0];
   const preferredResumeSeedItems = React.useMemo(() => {
-    if (!nextWaitingSeedItem) return resumeSeedItems;
+    if (!nextWaitingSeedItem) return waitingSeedItems;
     const nextKey = getSeedComparableKey(nextWaitingSeedItem);
     return [
       nextWaitingSeedItem,
-      ...resumeSeedItems.filter((item) => getSeedComparableKey(item) !== nextKey),
+      ...waitingSeedItems.filter((item) => getSeedComparableKey(item) !== nextKey),
     ];
-  }, [nextWaitingSeedItem, resumeSeedItems]);
-  const nextWaitingLabel = nextWaitingSeedItem?.nameSnapshot || 'món tiếp theo';
-  const hasResumeQueue = resumeSeedItems.length > 0;
+  }, [nextWaitingSeedItem, waitingSeedItems]);
+  const resumeAlternativeSeedItems = React.useMemo<TryOnSeedItem[]>(() => {
+    const merged = [...activeSeedItems];
+    if (retainedAlternativeSeedItems?.length) {
+      const seen = new Set(merged.map(getSeedComparableKey));
+      for (const item of retainedAlternativeSeedItems) {
+        const key = getSeedComparableKey(item);
+        if (!seen.has(key)) {
+          merged.push(item);
+          seen.add(key);
+        }
+      }
+    }
+    return merged;
+  }, [activeSeedItems, retainedAlternativeSeedItems]);
+  const hasResumeQueue = waitingSeedItems.length > 0;
 
   const resumeBuilder = () => {
     if (!job) return;
@@ -365,6 +374,9 @@ const VirtualTryOnResultScreen = () => {
       assetId: job.sourceAsset?._id,
       imageUrl: job.sourceImageUrl,
       seedItems: hasResumeQueue ? preferredResumeSeedItems : undefined,
+      alternativeSeedItems: hasResumeQueue && resumeAlternativeSeedItems.length
+        ? resumeAlternativeSeedItems
+        : undefined,
       entryPoint: 'builder',
     });
   };
@@ -377,13 +389,14 @@ const VirtualTryOnResultScreen = () => {
         </TouchableOpacity>
         <View style={styles.headerCopy}>
           <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Kết quả thử đồ</Text>
+          <Text style={styles.headerTitle}>Kết quả phối đồ</Text>
         </View>
         <TouchableOpacity
           style={styles.headerButton}
           onPress={() => navigation.navigate('VirtualTryOnHome', hasResumeQueue ? {
             entryPoint: 'builder',
             seedItems: preferredResumeSeedItems,
+            alternativeSeedItems: resumeAlternativeSeedItems.length ? resumeAlternativeSeedItems : undefined,
           } : undefined)}
           activeOpacity={0.8}
         >
@@ -398,6 +411,122 @@ const VirtualTryOnResultScreen = () => {
       ) : job ? (
         <>
           <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {job.sourceImageUrl && activeImageUrl ? (
+              <View style={styles.transformationCard}>
+                <View style={styles.transformationHeader}>
+                  <View style={styles.transformationHeaderCopy}>
+                    <Text style={styles.transformationEyebrow}>Trước · Sau</Text>
+                    <Text style={styles.transformationTitle}>Từ ảnh gốc đến bộ phối</Text>
+                  </View>
+                  <View style={styles.transformationBadge}>
+                    <MaterialCommunityIcons name="auto-fix" size={15} color={colors.white} />
+                    <Text style={styles.transformationBadgeText}>AI đã phối</Text>
+                  </View>
+                </View>
+
+                <View style={styles.transformationFlow}>
+                  <View style={styles.transformationStage}>
+                    <TouchableOpacity
+                      style={styles.transformationImageWrap}
+                      onPress={() => openSingleImagePreview({
+                        uri: job.sourceImageUrl,
+                        label: 'Ảnh gốc',
+                        recyclingKey: `${job._id}-source-preview`,
+                        resizeMode: 'contain',
+                      })}
+                      activeOpacity={0.9}
+                    >
+                      <RemoteImage
+                        uri={job.sourceImageUrl}
+                        style={styles.transformationImage}
+                        recyclingKey={`${job._id}-source-story`}
+                      />
+                      <View style={styles.imageExpandBadge}>
+                        <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
+                      </View>
+                    </TouchableOpacity>
+                    <Text style={styles.transformationStageLabel}>Ảnh gốc</Text>
+                  </View>
+
+                  <View style={styles.transformationProcess}>
+                    <View style={styles.transformationProcessIcon}>
+                      <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
+                    </View>
+                    <Text style={styles.transformationProcessText}>AI phối đồ</Text>
+                    <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
+                  </View>
+
+                  <View style={styles.transformationStage}>
+                    <TouchableOpacity
+                      style={[styles.transformationImageWrap, styles.transformationResultWrap]}
+                      onPress={() => openResultPreview(activeImageIndex)}
+                      activeOpacity={0.9}
+                    >
+                      <RemoteImage
+                        uri={activeImageUrl}
+                        style={styles.transformationImage}
+                        recyclingKey={`${job._id}-generated-story-${activeImageIndex}`}
+                        resizeMode="contain"
+                      />
+                      <View style={styles.imageExpandBadge}>
+                        <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
+                      </View>
+                    </TouchableOpacity>
+                    <Text style={styles.transformationStageLabel}>Kết quả {activeImageIndex + 1}/{resultImageUrls.length}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.transformationItemsHeader}>
+                  <Text style={styles.transformationItemsTitle}>Các món trong bộ này</Text>
+                  <Text style={styles.transformationItemsMeta}>{job.selectedItems.length} món</Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.transformationItemList}
+                >
+                  {job.selectedItems.map((item) => (
+                    <TouchableOpacity
+                      key={`story-${item.productId}-${item.colorVariantId}`}
+                      style={styles.transformationItemCard}
+                      onPress={() => openSingleImagePreview({
+                        uri: item.imageSnapshot,
+                        label: tryOnRoleLabel[item.role],
+                        recyclingKey: `story-garment-preview-${item.colorVariantId}`,
+                        resizeMode: 'contain',
+                      })}
+                      activeOpacity={0.88}
+                    >
+                      <View style={styles.transformationItemImageWrap}>
+                        <RemoteImage
+                          uri={item.imageSnapshot}
+                          style={styles.transformationItemImage}
+                          recyclingKey={`story-garment-${item.colorVariantId}`}
+                        />
+                        <View style={styles.imageExpandBadgeSmall}>
+                          <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
+                        </View>
+                      </View>
+                      <View style={styles.transformationItemCopy}>
+                        <Text style={styles.transformationItemIndex}>{tryOnRoleLabel[item.role]}</Text>
+                        <Text style={styles.transformationItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                        <Text style={styles.transformationItemVariant} numberOfLines={1}>
+                          {[item.colorSnapshot, item.size].filter(Boolean).join(' · ')}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <View style={styles.transformationSummary}>
+                  <MaterialCommunityIcons name="check-decagram" size={19} color={studioPalette.success} />
+                  <Text style={styles.transformationSummaryText}>
+                    AI giữ nguyên dáng người trong ảnh gốc, thay đúng {job.selectedItems.length} món bạn chọn theo màu và size.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.resultCarousel}>
               <ScrollView
                 ref={resultScrollRef}
@@ -424,7 +553,7 @@ const VirtualTryOnResultScreen = () => {
                     <View style={styles.resultOverlay}>
                       <View style={styles.contextBadge}>
                         <MaterialCommunityIcons name="map-marker-radius-outline" size={17} color={studioPalette.ink} />
-                        <Text style={styles.contextText}>{contextLabel[job.contextPreset] ?? 'Phối đồ'}</Text>
+                        <Text style={styles.contextText}>{contextPresetLabel(job.contextPreset) || 'Phối đồ'}</Text>
                       </View>
                       {job.generatedImageUrl ? (
                         <View style={styles.mockBadge}>
@@ -432,7 +561,7 @@ const VirtualTryOnResultScreen = () => {
                         </View>
                       ) : job.provider === 'mock' ? (
                         <View style={styles.mockBadge}>
-                          <Text style={styles.mockText}>Bản thử nghiệm</Text>
+                          <Text style={styles.mockText}>Ảnh mẫu</Text>
                         </View>
                       ) : null}
                     </View>
@@ -480,126 +609,10 @@ const VirtualTryOnResultScreen = () => {
               ) : null}
             </View>
 
-            {job.sourceImageUrl && activeImageUrl ? (
-              <View style={styles.transformationCard}>
-                <View style={styles.transformationHeader}>
-                  <View style={styles.transformationHeaderCopy}>
-                    <Text style={styles.transformationEyebrow}>Luồng tạo ảnh</Text>
-                    <Text style={styles.transformationTitle}>Ảnh gốc + từng món riêng biệt</Text>
-                  </View>
-                  <View style={styles.transformationBadge}>
-                    <MaterialCommunityIcons name="auto-fix" size={15} color={colors.white} />
-                    <Text style={styles.transformationBadgeText}>AI đã phối</Text>
-                  </View>
-                </View>
-
-                <View style={styles.transformationFlow}>
-                  <View style={styles.transformationStage}>
-                    <TouchableOpacity
-                      style={styles.transformationImageWrap}
-                      onPress={() => openSingleImagePreview({
-                        uri: job.sourceImageUrl,
-                        label: 'Ảnh gốc',
-                        recyclingKey: `${job._id}-source-preview`,
-                        resizeMode: 'contain',
-                      })}
-                      activeOpacity={0.9}
-                    >
-                      <RemoteImage
-                        uri={job.sourceImageUrl}
-                        style={styles.transformationImage}
-                        recyclingKey={`${job._id}-source-story`}
-                      />
-                      <View style={styles.imageExpandBadge}>
-                        <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
-                      </View>
-                    </TouchableOpacity>
-                    <Text style={styles.transformationStageLabel}>Ảnh gốc</Text>
-                  </View>
-
-                  <View style={styles.transformationProcess}>
-                    <View style={styles.transformationProcessIcon}>
-                      <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
-                    </View>
-                    <Text style={styles.transformationProcessText}>Phối từng món</Text>
-                    <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
-                  </View>
-
-                  <View style={styles.transformationStage}>
-                    <TouchableOpacity
-                      style={[styles.transformationImageWrap, styles.transformationResultWrap]}
-                      onPress={() => openResultPreview(activeImageIndex)}
-                      activeOpacity={0.9}
-                    >
-                      <RemoteImage
-                        uri={activeImageUrl}
-                        style={styles.transformationImage}
-                        recyclingKey={`${job._id}-generated-story-${activeImageIndex}`}
-                        resizeMode="contain"
-                      />
-                      <View style={styles.imageExpandBadge}>
-                        <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
-                      </View>
-                    </TouchableOpacity>
-                    <Text style={styles.transformationStageLabel}>Kết quả {activeImageIndex + 1}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.transformationItemsHeader}>
-                  <Text style={styles.transformationItemsTitle}>Các món đã dùng riêng biệt</Text>
-                  <Text style={styles.transformationItemsMeta}>{job.selectedItems.length} món</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.transformationItemList}
-                >
-                  {job.selectedItems.map((item, index) => (
-                    <TouchableOpacity
-                      key={`story-${item.productId}-${item.colorVariantId}`}
-                      style={styles.transformationItemCard}
-                      onPress={() => openSingleImagePreview({
-                        uri: item.imageSnapshot,
-                        label: `Món ${index + 1}`,
-                        recyclingKey: `story-garment-preview-${item.colorVariantId}`,
-                        resizeMode: 'contain',
-                      })}
-                      activeOpacity={0.88}
-                    >
-                      <View style={styles.transformationItemImageWrap}>
-                        <RemoteImage
-                          uri={item.imageSnapshot}
-                          style={styles.transformationItemImage}
-                          recyclingKey={`story-garment-${item.colorVariantId}`}
-                        />
-                        <View style={styles.imageExpandBadgeSmall}>
-                          <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
-                        </View>
-                      </View>
-                      <View style={styles.transformationItemCopy}>
-                        <Text style={styles.transformationItemIndex}>Món {index + 1}</Text>
-                        <Text style={styles.transformationItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
-                        <Text style={styles.transformationItemVariant} numberOfLines={1}>
-                          {[item.colorSnapshot, item.size].filter(Boolean).join(' · ') || 'Biến thể mặc định'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <View style={styles.transformationSummary}>
-                  <MaterialCommunityIcons name="check-decagram" size={19} color={studioPalette.success} />
-                  <Text style={styles.transformationSummaryText}>
-                    Dáng người từ ảnh gốc được giữ lại; {job.selectedItems.length} món đã chọn được phối đúng màu và biến thể.
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
             <View style={styles.resultActions}>
               <View style={styles.actionGroup}>
                 <View style={styles.actionGroupHeader}>
-                  <Text style={styles.actionGroupTitle}>Ảnh đang chọn</Text>
+                  <Text style={styles.actionGroupTitle}>Ảnh này</Text>
                   <Text style={styles.actionGroupMeta}>
                     {resultImageUrls.length ? `Ảnh ${activeImageIndex + 1}/${resultImageUrls.length}` : 'Chưa có ảnh'}
                   </Text>
@@ -616,7 +629,7 @@ const VirtualTryOnResultScreen = () => {
                     ) : (
                       <>
                         <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
-                        <Text style={styles.actionText}>Chia sẻ ảnh này</Text>
+                        <Text style={styles.actionText}>Chia sẻ</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -631,7 +644,7 @@ const VirtualTryOnResultScreen = () => {
                     ) : (
                       <>
                         <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
-                        <Text style={styles.actionText}>Lưu ảnh này</Text>
+                        <Text style={styles.actionText}>Lưu</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -640,10 +653,10 @@ const VirtualTryOnResultScreen = () => {
 
               {resultImageUrls.length > 1 ? (
                 <View style={styles.actionGroup}>
-                  <View style={styles.actionGroupHeader}>
-                    <Text style={styles.actionGroupTitle}>Cả bộ kết quả</Text>
-                    <Text style={styles.actionGroupMeta}>{resultImageUrls.length} ảnh</Text>
-                  </View>
+                <View style={styles.actionGroupHeader}>
+                  <Text style={styles.actionGroupTitle}>Cả {resultImageUrls.length} ảnh</Text>
+                  <Text style={styles.actionGroupMeta}>{resultImageUrls.length} ảnh</Text>
+                </View>
                   <View style={styles.actionRow}>
                     <TouchableOpacity
                       style={[styles.actionButton, (savingScope || sharingScope) && styles.actionButtonDisabled]}
@@ -656,7 +669,7 @@ const VirtualTryOnResultScreen = () => {
                       ) : (
                         <>
                           <MaterialCommunityIcons name="download-multiple" size={24} color={studioPalette.ink} />
-                          <Text style={styles.actionText}>Lưu toàn bộ ảnh</Text>
+                          <Text style={styles.actionText}>Lưu tất cả</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -671,7 +684,7 @@ const VirtualTryOnResultScreen = () => {
                       ) : (
                         <>
                           <MaterialCommunityIcons name="share-all-outline" size={24} color={studioPalette.ink} />
-                          <Text style={styles.actionText}>Chia sẻ {resultImageUrls.length} liên kết</Text>
+                          <Text style={styles.actionText}>Chia sẻ tất cả</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -681,17 +694,17 @@ const VirtualTryOnResultScreen = () => {
             </View>
 
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Bộ đồ trên ảnh</Text>
+              <Text style={styles.sectionTitle}>Chi tiết bộ phối</Text>
               <Text style={styles.sectionMeta}>{job.selectedItems.length} món</Text>
             </View>
             <View style={styles.itemList}>
-              {job.selectedItems.map((item, index) => (
+              {job.selectedItems.map((item) => (
                 <TouchableOpacity
                   key={`${item.productId}-${item.colorVariantId}`}
                   style={styles.itemCard}
                   onPress={() => openSingleImagePreview({
                     uri: item.imageSnapshot,
-                    label: `Món ${index + 1}`,
+                    label: tryOnRoleLabel[item.role],
                     recyclingKey: `item-preview-${item.colorVariantId}`,
                     resizeMode: 'contain',
                   })}
@@ -699,10 +712,10 @@ const VirtualTryOnResultScreen = () => {
                 >
                   <RemoteImage uri={item.imageSnapshot} style={styles.itemImage} recyclingKey={item.colorVariantId} />
                   <View style={styles.itemCopy}>
-                    <Text style={styles.itemIndex}>Món {index + 1}</Text>
+                    <Text style={styles.itemIndex}>{tryOnRoleLabel[item.role]}</Text>
                     <Text style={styles.itemName} numberOfLines={2}>{item.nameSnapshot}</Text>
                     <Text style={styles.itemMeta}>
-                      {[item.colorSnapshot, item.size].filter(Boolean).join(' / ') || 'Biến thể mặc định'}
+                      {[item.colorSnapshot, item.size].filter(Boolean).join(' / ')}
                     </Text>
                   </View>
                   <Text style={styles.itemPrice}>{formatPrice(item.finalPriceSnapshot)}</Text>
@@ -711,26 +724,31 @@ const VirtualTryOnResultScreen = () => {
             </View>
 
             <View style={styles.totalCard}>
-              <View>
-                <Text style={styles.totalLabel}>Tổng giá trị bộ phối</Text>
-                <Text style={styles.totalSubtext}>Sẵn sàng thêm tất cả vào giỏ</Text>
+                <View>
+                <Text style={styles.totalLabel}>Tổng giá trị</Text>
+                <Text style={styles.totalSubtext}>Thêm cả bộ vào giỏ</Text>
               </View>
               <Text style={styles.totalValue}>{formatPrice(job.totalFinalPrice)}</Text>
             </View>
 
             {waitingSeedCount > 0 ? (
-              <TouchableOpacity style={styles.queueResumeCard} onPress={resumeBuilder} activeOpacity={0.86}>
-                <View style={styles.queueResumeIcon}>
-                  <MaterialCommunityIcons name="playlist-check" size={22} color={studioPalette.primary} />
+              <View style={styles.queueResumeCard}>
+                <View style={styles.queueResumeLead}>
+                  <View style={styles.queueResumeIcon}>
+                    <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
+                  </View>
+                  <View style={styles.queueResumeCopy}>
+                    <Text style={styles.queueResumeTitle}>Phối đồ tiếp theo</Text>
+                    <Text style={styles.queueResumeText}>
+                      Bạn còn {waitingSeedCount} món chờ thử cùng ảnh này.
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.queueResumeCopy}>
-                  <Text style={styles.queueResumeTitle}>Thử {nextWaitingLabel} tiếp theo</Text>
-                  <Text style={styles.queueResumeText}>
-                    Còn {waitingSeedCount} món trong hàng chờ. Quay lại Builder để thử ngay trên cùng ảnh người.
-                  </Text>
-                </View>
-                <MaterialCommunityIcons name="arrow-right" size={22} color={studioPalette.primary} />
-              </TouchableOpacity>
+                <TouchableOpacity style={styles.queueResumeButton} onPress={resumeBuilder} activeOpacity={0.86}>
+                  <Text style={styles.queueResumeButtonText}>Tiếp tục phối</Text>
+                  <MaterialCommunityIcons name="arrow-right" size={18} color={colors.surface} />
+                </TouchableOpacity>
+              </View>
             ) : null}
           </ScrollView>
 
@@ -740,8 +758,8 @@ const VirtualTryOnResultScreen = () => {
               onPress={resumeBuilder}
               activeOpacity={0.86}
             >
-              <MaterialCommunityIcons name={waitingSeedCount > 0 ? 'playlist-check' : 'reload'} size={22} color={studioPalette.ink} />
-              <Text style={styles.tryAgainText}>{waitingSeedCount > 0 ? 'Thử tiếp' : 'Phối lại'}</Text>
+              <MaterialCommunityIcons name={waitingSeedCount > 0 ? 'hanger' : 'reload'} size={22} color={studioPalette.ink} />
+              <Text style={styles.tryAgainText}>{waitingSeedCount > 0 ? 'Phối đồ khác' : 'Phối lại'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.cartButton, isAddingCart && styles.cartButtonDisabled]}
@@ -1332,12 +1350,14 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   queueResumeCard: {
-    minHeight: 78,
     borderRadius: radii.md,
     backgroundColor: studioPalette.primarySoft,
     borderWidth: 1,
     borderColor: studioPalette.primaryPale,
     padding: spacing.md,
+    gap: spacing.md,
+  },
+  queueResumeLead: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
@@ -1356,16 +1376,31 @@ const styles = StyleSheet.create({
   },
   queueResumeTitle: {
     color: studioPalette.ink,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '900',
   },
   queueResumeText: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '700',
     marginTop: 2,
+  },
+  queueResumeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    borderRadius: radii.pill,
+    backgroundColor: studioPalette.primary,
+    paddingVertical: spacing.sm,
+  },
+  queueResumeButtonText: {
+    color: colors.surface,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
   },
   footer: {
     position: 'absolute',

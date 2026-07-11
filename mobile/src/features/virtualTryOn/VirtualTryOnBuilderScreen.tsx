@@ -42,10 +42,12 @@ import {
   normalizeSelectionForMode,
   selectItemForSlot,
   selectedItemToSeed,
+  tryOnRoleLabel as roleLabel,
   type FashionIconName,
   type OutfitSlot,
   type SlotAlternativeGroup,
-} from './virtualTryOnSelection';
+  } from './virtualTryOnSelection';
+import { contextPresets, contextPresetMeta } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
@@ -122,16 +124,7 @@ const outfitModes: Array<{
   { key: 'full_set', label: 'Nhiều món', description: 'Tạo bộ phối', icon: 'hanger' },
 ];
 
-const contextOptions: Array<{ key: TryOnContextPreset; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
-  { key: 'none', label: 'Giữ nền cũ', icon: 'image-outline' },
-  { key: 'work', label: 'Đi làm', icon: 'briefcase-outline' },
-  { key: 'casual', label: 'Đi chơi', icon: 'party-popper' },
-  { key: 'party', label: 'Dự tiệc', icon: 'glass-cocktail' },
-  { key: 'travel', label: 'Du lịch', icon: 'airplane' },
-  { key: 'sport', label: 'Thể thao', icon: 'run' },
-  { key: 'date', label: 'Hẹn hò', icon: 'heart-outline' },
-  { key: 'custom', label: 'Mô tả riêng', icon: 'pencil-outline' },
-];
+const contextOptions = contextPresets;
 
 const tryOnSortOptions: Array<{ key: TryOnProductSort; label: string }> = [
   { key: 'recommended', label: 'Gợi ý' },
@@ -145,15 +138,6 @@ const genderFilterOptions: Array<{ key: TryOnGenderFilter; label: string; icon: 
   { key: 'female', label: 'Nữ', icon: 'gender-female' },
   { key: 'unisex', label: 'Unisex', icon: 'gender-male-female' },
 ];
-
-const roleLabel: Record<TryOnItemRole, string> = {
-  top: 'Áo',
-  bottom: 'Quần',
-  dress: 'Váy/đầm',
-  shoes: 'Giày/dép',
-  accessory: 'Món khác',
-  outerwear: 'Áo khoác',
-};
 
 const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode, string> = {
   full_set: 'nhiều món',
@@ -517,6 +501,7 @@ const VirtualTryOnBuilderScreen = () => {
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
+  const [contextPreviewLang, setContextPreviewLang] = React.useState<'vi' | 'en'>('vi');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
   const [isProductListVisible, setIsProductListVisible] = React.useState(false);
@@ -542,6 +527,10 @@ const VirtualTryOnBuilderScreen = () => {
   const sourceAssetId = route.params?.assetId;
   const sourceImageUrl = route.params?.imageUrl;
   const incomingSeedItems = React.useMemo(() => route.params?.seedItems ?? [], [route.params?.seedItems]);
+  const incomingAlternativeSeedItems = React.useMemo(
+    () => route.params?.alternativeSeedItems ?? [],
+    [route.params?.alternativeSeedItems],
+  );
   const incomingSeedKey = React.useMemo(
     () => incomingSeedItems
       .map((item) => `${item.cartItemId ?? ''}:${item.productId}:${item.variantId}:${item.colorVariantId}:${item.size ?? ''}:${item.role ?? ''}`)
@@ -659,32 +648,51 @@ const VirtualTryOnBuilderScreen = () => {
     setPrefillNotice('Đang đưa đúng màu và size đã chọn vào phòng phối...');
 
     const limitedSeedItems = incomingSeedItems.slice(0, TRY_ON_QUEUE_LIMIT);
+    const limitedAlternativeSeedItems = incomingAlternativeSeedItems.slice(0, TRY_ON_QUEUE_LIMIT);
 
-    Promise.all(limitedSeedItems.map(async (seed) => {
-      try {
-        const detail = await catalogApi.getProductById(seed.productId);
-        return createSelectedItemFromSeed(detail, seed);
-      } catch {
-        return null;
-      }
-    }))
-      .then((items) => {
+    const resolveSeeds = async (seeds: TryOnSeedItem[]) => Promise.all(
+      seeds.map(async (seed) => {
+        try {
+          const detail = await catalogApi.getProductById(seed.productId);
+          return createSelectedItemFromSeed(detail, seed);
+        } catch {
+          return null;
+        }
+      }),
+    ).then((items) => items.filter((item): item is TryOnSelectedItem => Boolean(item)));
+
+    Promise.all([resolveSeeds(limitedSeedItems), resolveSeeds(limitedAlternativeSeedItems)])
+      .then(([activeResolved, alternativeResolved]) => {
         if (!isCurrent) return;
-        const resolvedItems = items.filter((item): item is TryOnSelectedItem => Boolean(item));
-        const mode = getPrefillOutfitMode(resolvedItems);
-        const normalized = normalizeSelectionForMode(resolvedItems, mode);
+        const mode = getPrefillOutfitMode(activeResolved);
+        const normalized = normalizeSelectionForMode(activeResolved, mode);
+
+        const seenKeys = new Set(normalized.items.map(getSelectedItemKey));
+        const remainingActive = activeResolved.filter((item) => {
+          const key = getSelectedItemKey(item);
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+          return true;
+        });
+        const uniqueAlternatives = alternativeResolved.filter((item) => {
+          const key = getSelectedItemKey(item);
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+          return true;
+        });
+        const mergedQueue = [...normalized.items, ...remainingActive, ...uniqueAlternatives];
 
         setOutfitMode(mode);
         setSelectedItems(normalized.items);
-        setQueueItems(resolvedItems);
+        setQueueItems(mergedQueue);
         setActiveSlotKey(getOutfitSlots(mode)[0].key);
 
-        const unavailableCount = limitedSeedItems.length - resolvedItems.length;
+        const unavailableCount = limitedSeedItems.length - activeResolved.length;
         const truncatedCount = Math.max(0, incomingSeedItems.length - limitedSeedItems.length);
-        const queuedButInactiveCount = Math.max(0, resolvedItems.length - normalized.items.length);
+        const queuedButInactiveCount = remainingActive.length + uniqueAlternatives.length;
         setPrefillNotice(
           unavailableCount || queuedButInactiveCount || truncatedCount
-            ? `Đã đưa ${resolvedItems.length} món vào hàng chờ, ${normalized.items.length} món đang active. ${queuedButInactiveCount ? `${queuedButInactiveCount} món sẽ thử lần lượt. ` : ''}${unavailableCount ? `${unavailableCount} món không còn đúng biến thể. ` : ''}${truncatedCount ? `${truncatedCount} món vượt giới hạn hàng chờ.` : ''}`.trim()
+            ? `Đã đưa ${normalized.items.length} món vào phối, ${queuedButInactiveCount} món chờ thử. ${queuedButInactiveCount ? `${queuedButInactiveCount} món sẽ thử lần lượt. ` : ''}${unavailableCount ? `${unavailableCount} món không còn đúng màu/size. ` : ''}${truncatedCount ? `${truncatedCount} món vượt giới hạn. ` : ''}`.trim()
             : `Đã điền sẵn ${normalized.items.length} món cùng màu và size đã chọn.`,
         );
       })
@@ -698,7 +706,7 @@ const VirtualTryOnBuilderScreen = () => {
       });
 
     return () => { isCurrent = false; };
-  }, [incomingSeedItems, incomingSeedKey]);
+  }, [incomingAlternativeSeedItems, incomingSeedItems, incomingSeedKey]);
 
   React.useEffect(() => {
     if (!outfitSlots.some((slot) => slot.key === activeSlotKey)) {
@@ -858,7 +866,7 @@ const VirtualTryOnBuilderScreen = () => {
 
     const itemAlreadyQueued = queueItems.some((entry) => isSameTryOnItem(entry, normalizedItem));
     if (!itemAlreadyQueued && queueItems.length >= TRY_ON_QUEUE_LIMIT) {
-      Alert.alert('Hàng chờ đã đầy', `Hàng chờ đang có tối đa ${TRY_ON_QUEUE_LIMIT} món. Bạn có thể tạo ảnh trước hoặc quay lại giỏ để đổi danh sách chờ.`);
+      Alert.alert('Danh sách chờ đã đầy', `Đang có tối đa ${TRY_ON_QUEUE_LIMIT} món. Bạn có thể tạo ảnh trước hoặc quay lại giỏ để đổi danh sách chờ.`);
       return;
     } else {
       upsertQueueItem(normalizedItem);
@@ -1186,7 +1194,7 @@ const VirtualTryOnBuilderScreen = () => {
       ? 'alert-circle-outline'
       : 'auto-fix'
     : 'image-plus';
-  const createConfirmTitle = submitWarningActive ? imageValidationDisplay.title : 'Tạo ảnh thử đồ?';
+  const createConfirmTitle = submitWarningActive ? imageValidationDisplay.title : 'Tạo ảnh phối đồ?';
   const createConfirmText = submitWarningActive
     ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
     : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
@@ -1351,7 +1359,7 @@ const VirtualTryOnBuilderScreen = () => {
           )}
           <View style={styles.studioCopy}>
             <Text style={styles.studioEyebrow}>Ảnh người mặc</Text>
-            <Text style={styles.studioTitle}>Thử đồ trên ảnh thật của bạn</Text>
+            <Text style={styles.studioTitle}>Phối đồ trên ảnh thật của bạn</Text>
             <Text style={styles.studioText}>
               Chọn ảnh người mặc, thêm sản phẩm và chọn bối cảnh để tạo ảnh phối đồ.
             </Text>
@@ -1544,9 +1552,9 @@ const VirtualTryOnBuilderScreen = () => {
                 <MaterialCommunityIcons name="playlist-check" size={20} color={tryOnPalette.primary} />
               </View>
               <View style={styles.alternativeHeaderCopy}>
-                <Text style={styles.alternativeTitle}>Hàng chờ thử đồ</Text>
+                <Text style={styles.alternativeTitle}>Món chờ thử</Text>
                 <Text style={styles.alternativeText}>
-                  Chạm một món để thử ngay; món cùng vị trí sẽ được thay mềm vào bản phối.
+                  Chạm một món để thử ngay; món cùng vị trí sẽ được thay vào bản phối.
                 </Text>
               </View>
               <View style={styles.alternativeHeaderBadge}>
@@ -1602,7 +1610,7 @@ const VirtualTryOnBuilderScreen = () => {
                             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             activeOpacity={0.82}
                             accessibilityRole="button"
-                            accessibilityLabel="Bỏ món khỏi hàng chờ"
+                            accessibilityLabel="Bỏ món khỏi danh sách chờ"
                           >
                             <MaterialCommunityIcons name="close" size={14} color={colors.white} />
                           </TouchableOpacity>
@@ -1729,10 +1737,10 @@ const VirtualTryOnBuilderScreen = () => {
                     </View>
                   </View>
                   <View style={styles.mixItemCopy}>
-                    <Text style={styles.mixItemRole}>Món {index + 1} · {roleLabel[item.role]}</Text>
+                    <Text style={styles.mixItemRole}>{roleLabel[item.role]}</Text>
                     <Text style={styles.mixItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
                     <Text style={styles.mixItemVariant} numberOfLines={1}>
-                      {[item.colorSnapshot, item.size].filter(Boolean).join(' · ') || 'Biến thể mặc định'}
+                      {[item.colorSnapshot, item.size].filter(Boolean).join(' · ')}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1773,6 +1781,70 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
+        {(() => {
+          const meta = contextPresetMeta(contextPreset);
+          if (!meta) return null;
+          const isCustom = contextPreset === 'custom';
+          const showEn = contextPreviewLang === 'en' && !isCustom;
+          const previewText = isCustom
+            ? contextPrompt.trim()
+              ? `AI sẽ hiểu: ${contextPrompt.trim()}`
+              : meta.viPreview
+            : showEn
+              ? meta.enPromptPreview
+              : meta.viPreview;
+          return (
+            <View style={styles.contextPreviewCard}>
+              <View style={styles.contextPreviewHeader}>
+                <MaterialCommunityIcons
+                  name="auto-fix"
+                  size={15}
+                  color={tryOnPalette.primary}
+                />
+                <Text style={styles.contextPreviewLabel}>AI sẽ hiểu bối cảnh này như sau</Text>
+                {!isCustom ? (
+                  <View style={styles.contextPreviewLangToggle}>
+                    <TouchableOpacity
+                      style={[
+                        styles.contextPreviewLangBtn,
+                        contextPreviewLang === 'vi' && styles.contextPreviewLangBtnActive,
+                      ]}
+                      onPress={() => setContextPreviewLang('vi')}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.contextPreviewLangText,
+                          contextPreviewLang === 'vi' && styles.contextPreviewLangTextActive,
+                        ]}
+                      >
+                        VI
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.contextPreviewLangBtn,
+                        contextPreviewLang === 'en' && styles.contextPreviewLangBtnActive,
+                      ]}
+                      onPress={() => setContextPreviewLang('en')}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.contextPreviewLangText,
+                          contextPreviewLang === 'en' && styles.contextPreviewLangTextActive,
+                        ]}
+                      >
+                        EN
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.contextPreviewText}>{previewText}</Text>
+            </View>
+          );
+        })()}
         {contextPreset === 'custom' ? (
           <TextInput
             style={styles.promptInput}
@@ -3513,6 +3585,58 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlignVertical: 'top',
+  },
+  contextPreviewCard: {
+    marginTop: spacing.sm,
+    borderRadius: radii.sm,
+    backgroundColor: tryOnPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: tryOnPalette.primaryPale,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  contextPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  contextPreviewLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: tryOnPalette.primary,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  contextPreviewLangToggle: {
+    flexDirection: 'row',
+    borderRadius: radii.pill,
+    backgroundColor: tryOnPalette.surface,
+    borderWidth: 1,
+    borderColor: tryOnPalette.primaryPale,
+    overflow: 'hidden',
+  },
+  contextPreviewLangBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  contextPreviewLangBtnActive: {
+    backgroundColor: tryOnPalette.primary,
+  },
+  contextPreviewLangText: {
+    color: tryOnPalette.primary,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  contextPreviewLangTextActive: {
+    color: tryOnPalette.surface,
+  },
+  contextPreviewText: {
+    color: tryOnPalette.ink,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
   },
   outputOptionCard: {
     minHeight: 96,

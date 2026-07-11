@@ -26,6 +26,13 @@ export class VirtualTryOnApiError extends Error {
   }
 }
 
+export type ContextPresetPreview = {
+  key: TryOnContextPreset;
+  label: string;
+  viPreview: string;
+  enPromptPreview: string;
+};
+
 type CreateJobPayload = {
   sourceAssetId: string;
   outfitMode: TryOnOutfitMode;
@@ -169,4 +176,6 @@ export const virtualTryOnApi = {
     request<VirtualTryOnJob>(`/virtual-try-on/jobs/${encodeURIComponent(jobId)}`, token, {
       method: 'DELETE',
     }),
+  getContextPresets: (token: string) =>
+    request<ContextPresetPreview[]>('/virtual-try-on/context-presets', token),
 };

@@ -12,6 +12,7 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
+import { contextPresetLabel } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
@@ -31,17 +32,6 @@ const statusLabel: Record<VirtualTryOnJob['status'], string> = {
   succeeded: 'Đã xong',
   failed: 'Bị lỗi',
   canceled: 'Đã hủy',
-};
-
-const contextLabel: Record<string, string> = {
-  none: 'Giữ nền cũ',
-  work: 'Đi làm',
-  casual: 'Đi chơi',
-  party: 'Dự tiệc',
-  travel: 'Du lịch',
-  sport: 'Thể thao',
-  date: 'Hẹn hò',
-  custom: 'Mô tả riêng',
 };
 
 const getJobPreviewUrl = (job: VirtualTryOnJob) =>
@@ -210,6 +200,7 @@ const VirtualTryOnHomeScreen = () => {
   const [isUploading, setIsUploading] = React.useState(false);
   const [deletingAssetId, setDeletingAssetId] = React.useState<string | null>(null);
   const [pendingSeedItems, setPendingSeedItems] = React.useState<TryOnSeedItem[]>([]);
+  const [pendingAlternativeSeedItems, setPendingAlternativeSeedItems] = React.useState<TryOnSeedItem[]>([]);
   const [pendingEntryPoint, setPendingEntryPoint] = React.useState<'cart' | 'builder' | undefined>();
   const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -220,9 +211,10 @@ const VirtualTryOnHomeScreen = () => {
     if (!nextSeedItems?.length) return;
 
     setPendingSeedItems(nextSeedItems.slice(0, TRY_ON_QUEUE_LIMIT));
+    setPendingAlternativeSeedItems(route.params?.alternativeSeedItems ?? []);
     setPendingEntryPoint(route.params?.entryPoint);
-    navigation.setParams({ seedItems: undefined, entryPoint: undefined });
-  }, [navigation, route.params?.entryPoint, route.params?.seedItems]);
+    navigation.setParams({ seedItems: undefined, alternativeSeedItems: undefined, entryPoint: undefined });
+  }, [navigation, route.params?.entryPoint, route.params?.seedItems, route.params?.alternativeSeedItems]);
 
   React.useEffect(() => {
     const animation = Animated.loop(
@@ -313,16 +305,19 @@ const VirtualTryOnHomeScreen = () => {
 
   const openBuilderWithAsset = React.useCallback((asset: VirtualTryOnAsset) => {
     const seedItems = pendingSeedItems;
+    const alternativeSeedItems = pendingAlternativeSeedItems;
     const entryPoint = pendingEntryPoint;
     setPendingSeedItems([]);
+    setPendingAlternativeSeedItems([]);
     setPendingEntryPoint(undefined);
     navigation.navigate('VirtualTryOnBuilder', {
       assetId: asset._id,
       imageUrl: asset.url,
       seedItems: seedItems.length ? seedItems : undefined,
+      alternativeSeedItems: alternativeSeedItems.length ? alternativeSeedItems : undefined,
       entryPoint,
     });
-  }, [navigation, pendingEntryPoint, pendingSeedItems]);
+  }, [navigation, pendingAlternativeSeedItems, pendingEntryPoint, pendingSeedItems]);
 
   const uploadPickedAsset = async (uri: string, source: 'upload' | 'camera') => {
     setIsUploading(true);
@@ -390,7 +385,7 @@ const VirtualTryOnHomeScreen = () => {
   const deleteLibraryAsset = (asset: VirtualTryOnAsset) => {
     Alert.alert(
       'Xóa ảnh khỏi kho?',
-      'Ảnh này sẽ bị xóa khỏi kho ảnh phòng thử đồ. Các kết quả phối đồ đã tạo trước đó vẫn giữ lịch sử riêng.',
+      'Ảnh này sẽ bị xóa khỏi kho ảnh phòng phối đồ. Các kết quả phối đồ đã tạo trước đó vẫn giữ lịch sử riêng.',
       [
         { text: 'Hủy', style: 'cancel' },
         {
@@ -506,8 +501,8 @@ const VirtualTryOnHomeScreen = () => {
                 <Text style={styles.pendingOutfitEyebrow}>
                   {pendingEntryPoint === 'cart' ? 'Mang từ giỏ hàng' : 'Bộ đồ được giữ lại'}
                 </Text>
-                <Text style={styles.pendingOutfitTitle}>{pendingSeedItems.length} món trong hàng chờ</Text>
-                <Text style={styles.pendingOutfitText}>Chọn ảnh bên dưới, Builder sẽ tự lấy tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món active hợp lệ cho mỗi lượt tạo.</Text>
+                <Text style={styles.pendingOutfitTitle}>{pendingSeedItems.length} món chờ thử</Text>
+                <Text style={styles.pendingOutfitText}>Chọn ảnh bên dưới, mỗi lượt phối tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món, phần còn lại sẽ thử lần lượt.</Text>
               </View>
             </View>
             <View style={styles.pendingOutfitThumbRow}>
@@ -535,8 +530,8 @@ const VirtualTryOnHomeScreen = () => {
 
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroEyebrow}>Phòng thử đồ cá nhân</Text>
-            <Text style={styles.heroTitle}>Thử đồ trên ảnh của bạn</Text>
+            <Text style={styles.heroEyebrow}>Phòng phối đồ cá nhân</Text>
+            <Text style={styles.heroTitle}>Phối đồ trên ảnh của bạn</Text>
             <Text style={styles.heroText}>
               {pendingSeedItems.length
                 ? `${pendingSeedItems.length} món đang chờ. Chọn ảnh rõ người để bắt đầu thử từng bản phối.`
@@ -617,7 +612,7 @@ const VirtualTryOnHomeScreen = () => {
                 {latestAssetNeedsPerson
                   ? 'Đổi ảnh để tiếp tục'
                   : pendingSeedItems.length
-                    ? `Mở hàng chờ ${pendingSeedItems.length} món`
+                    ? `Mở ${pendingSeedItems.length} món chờ thử`
                     : 'Tiếp tục phối đồ'}
               </Text>
               <MaterialCommunityIcons
@@ -645,7 +640,7 @@ const VirtualTryOnHomeScreen = () => {
             </View>
             <View style={styles.actionCopy}>
               <Text style={styles.secondaryActionText}>Chụp mới</Text>
-              <Text style={styles.secondaryActionMeta}>Chụp ảnh mới để thử đồ</Text>
+              <Text style={styles.secondaryActionMeta}>Chụp ảnh mới để phối đồ</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -718,14 +713,14 @@ const VirtualTryOnHomeScreen = () => {
             </View>
             <View style={styles.continueCopy}>
               <Text style={styles.continueTitle}>Một bộ phối đang được tạo</Text>
-              <Text style={styles.continueText}>Quá trình thử đồ vẫn đang chạy trong nền.</Text>
+                <Text style={styles.continueText}>Quá trình phối đồ vẫn đang chạy trong nền.</Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={26} color={studioPalette.ink} />
           </TouchableOpacity>
         ) : null}
 
         <View style={styles.guideCard}>
-          <Text style={styles.sectionTitle}>Ảnh phù hợp để thử đồ</Text>
+          <Text style={styles.sectionTitle}>Ảnh phù hợp để phối đồ</Text>
           {['Chỉ có một người trong ảnh', 'Thấy rõ dáng người', 'Ảnh đủ sáng và rõ nét'].map((item) => (
             <View key={item} style={styles.guideRow}>
               <View style={styles.guideIcon}>
@@ -768,7 +763,7 @@ const VirtualTryOnHomeScreen = () => {
                     ) : null}
                   </View>
                   <Text style={styles.jobTitle} numberOfLines={2}>
-                    {contextLabel[job.contextPreset] ?? 'Phối đồ'}
+                    {contextPresetLabel(job.contextPreset) || 'Phối đồ'}
                   </Text>
                   <Text style={styles.jobMeta}>{formatDate(job.createdAt)}</Text>
                 </TouchableOpacity>
