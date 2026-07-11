@@ -57,8 +57,12 @@ const virtualTryOnAssetSchema = new Schema<IVirtualTryOnAsset>(
       index: true,
     },
     validationWarning: {
-      reasonCode: { type: String, trim: true, maxlength: 80 },
-      message: { type: String, trim: true, maxlength: 300 },
+      type: {
+        reasonCode: { type: String, trim: true, maxlength: 80 },
+        message: { type: String, trim: true, maxlength: 300 },
+      },
+      default: undefined,
+      _id: false,
     },
     validationCheckedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },

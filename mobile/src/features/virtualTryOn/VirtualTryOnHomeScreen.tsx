@@ -111,9 +111,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (!warning && !asset.validationCheckedAt) {
     return {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Nên kiểm tra',
-      title: 'Ảnh từ kho chưa có kết quả kiểm tra.',
-      message: 'Bạn vẫn có thể tiếp tục.\nBước phối đồ sẽ kiểm tra lại ảnh.',
+      label: 'Sẽ kiểm tra',
+      title: 'Ảnh từ kho của bạn.',
+      message: 'Bước phối đồ sẽ kiểm tra ảnh theo món bạn chọn.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',

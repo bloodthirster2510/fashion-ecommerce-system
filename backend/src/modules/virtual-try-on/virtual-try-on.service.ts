@@ -169,6 +169,16 @@ const virtualTryOnAssetTypes: VirtualTryOnAssetType[] = [
 const isVirtualTryOnAssetType = (value: string): value is VirtualTryOnAssetType =>
   virtualTryOnAssetTypes.includes(value as VirtualTryOnAssetType);
 
+const serializeAssetValidationWarning = (asset: IVirtualTryOnAsset) => {
+  const reasonCode = asset.validationWarning?.reasonCode?.trim();
+  if (!reasonCode) return undefined;
+
+  return {
+    reasonCode,
+    message: asset.validationWarning?.message?.trim() || getImageValidationReasonMessage(reasonCode),
+  };
+};
+
 const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   _id: asset._id.toString(),
   type: asset.type,
@@ -179,12 +189,7 @@ const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   bytes: asset.bytes,
   source: asset.source,
   status: asset.status,
-  validationWarning: asset.validationWarning
-    ? {
-        reasonCode: asset.validationWarning.reasonCode,
-        message: asset.validationWarning.message,
-      }
-    : undefined,
+  validationWarning: serializeAssetValidationWarning(asset),
   validationCheckedAt: asset.validationCheckedAt?.toISOString() ?? null,
   createdAt: asset.createdAt.toISOString(),
   updatedAt: asset.updatedAt.toISOString(),
