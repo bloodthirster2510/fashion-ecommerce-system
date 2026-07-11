@@ -11,6 +11,7 @@ export interface ICartItem {
   priceAtAddedTime: number;
   isSelected: boolean;
   recommendationRequestId?: string | null;
+  addedAt?: Date;
 }
 
 export interface ICart extends Document {
@@ -40,8 +41,9 @@ const cartItemSchema = new Schema<ICartItem>(
       validate: integerMinValidator(1),
     },
     priceAtAddedTime: { type: Number, required: true, min: 0 },
-    isSelected: { type: Boolean, default: true },
+    isSelected: { type: Boolean, default: false },
     recommendationRequestId: { type: String, trim: true, maxlength: 120, default: null },
+    addedAt: { type: Date, default: Date.now },
   },
   { _id: true },
 );

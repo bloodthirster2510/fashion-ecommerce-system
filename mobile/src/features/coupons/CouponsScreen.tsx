@@ -164,7 +164,15 @@ const CouponsScreen = () => {
       }
     }
 
-    navigation.navigate('Cart', { couponCode: item.coupon.code });
+    if (hasCartContext) {
+      navigation.navigate('Checkout', {
+        couponCode: item.coupon.code,
+        cartItemIds,
+      });
+      return;
+    }
+
+    navigation.navigate('Cart', { couponCode: item.coupon.code, selectionSource: 'normal' });
   };
 
   const renderCoupon = (item: AvailableCouponItem) => {

@@ -11,6 +11,8 @@ export type AddCartItemPayload = {
   colorVariantId: string;
   size: string;
   quantity: number;
+  isSelected?: boolean;
+  replaceQuantity?: boolean;
   recommendationRequestId?: string;
 };
 

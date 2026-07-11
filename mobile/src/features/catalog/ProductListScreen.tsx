@@ -10,11 +10,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -32,15 +33,12 @@ import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
 
-type MultiFilterKey = 'categoryId' | 'brandId' | 'color' | 'fitTypeId' | 'size';
+type MultiFilterKey = 'categoryId' | 'brandId';
 
 type ProductListFilters = {
   gender?: CatalogGender;
   categoryId: string[];
   brandId: string[];
-  color: string[];
-  fitTypeId: string[];
-  size: string[];
   minPrice?: number;
   maxPrice?: number;
   isSale?: boolean;
@@ -75,7 +73,10 @@ type CategorySelectionGroup = {
   categoryIds: string[];
 };
 
-const PRODUCT_PAGE_LIMIT = 10;
+const PRODUCT_PAGE_LIMIT = 16;
+const LOAD_MORE_SCROLL_THRESHOLD = 420;
+const SCROLL_TOP_VISIBILITY_OFFSET = 360;
+const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
 
 const emptyAvailableFilters: ProductListResponse['filters'] = {
   brands: [],
@@ -104,32 +105,6 @@ const genderLabels: Record<CatalogGender, string> = {
   unisex: 'Unisex',
 };
 
-const colorSwatchFallbacks: Record<string, string> = {
-  black: '#111827',
-  'trắng': '#ffffff',
-  white: '#ffffff',
-  'đen': '#111827',
-  'đỏ': '#dc2626',
-  red: '#dc2626',
-  'xanh': '#2563eb',
-  blue: '#2563eb',
-  'xanh lá': '#16a34a',
-  green: '#16a34a',
-  'vàng': '#facc15',
-  yellow: '#facc15',
-  'hồng': '#ec4899',
-  pink: '#ec4899',
-  'tím': '#7c3aed',
-  purple: '#7c3aed',
-  'xám': '#6b7280',
-  gray: '#6b7280',
-  'ghi': '#6b7280',
-  'nâu': '#92400e',
-  brown: '#92400e',
-  be: '#d6b98c',
-  beige: '#d6b98c',
-};
-
 const pricePresets = [
   { label: 'Tất cả', minPrice: undefined, maxPrice: undefined },
   { label: 'Dưới 200k', minPrice: undefined, maxPrice: 200000 },
@@ -139,12 +114,6 @@ const pricePresets = [
 
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-
-const getColorSwatch = (value: string) => {
-  const normalized = value.trim().toLocaleLowerCase('vi-VN');
-  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) return normalized;
-  return colorSwatchFallbacks[normalized] ?? colors.brandSoft;
-};
 
 const toArray = (value?: string | string[]) => {
   if (Array.isArray(value)) {
@@ -160,9 +129,6 @@ const normalizeFilters = (filters: ProductListFilters): ProductListFilters => ({
   ...filters,
   categoryId: uniqueStrings(filters.categoryId),
   brandId: uniqueStrings(filters.brandId),
-  color: uniqueStrings(filters.color),
-  fitTypeId: uniqueStrings(filters.fitTypeId),
-  size: uniqueStrings(filters.size),
 });
 
 const createFiltersFromParams = (params?: RootStackParamList['ProductList']): ProductListFilters =>
@@ -170,9 +136,6 @@ const createFiltersFromParams = (params?: RootStackParamList['ProductList']): Pr
     gender: params?.gender,
     categoryId: toArray(params?.categoryId),
     brandId: toArray(params?.brandId),
-    color: toArray(params?.color),
-    fitTypeId: toArray(params?.fitTypeId),
-    size: toArray(params?.size),
     minPrice: params?.minPrice,
     maxPrice: params?.maxPrice,
     isSale: params?.isSale,
@@ -187,17 +150,6 @@ const getTitle = (params?: RootStackParamList['ProductList']) => {
   if (params?.gender === 'female') return 'Thời trang nữ';
   if (params?.gender === 'unisex') return 'Thời trang unisex';
   return 'Tất cả sản phẩm';
-};
-
-const getVisiblePages = (currentPage: number, totalPages: number) => {
-  if (totalPages <= 5) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
-  }
-
-  const pages = [1, currentPage - 1, currentPage, currentPage + 1, totalPages]
-    .filter((page) => page >= 1 && page <= totalPages);
-
-  return Array.from(new Set(pages)).sort((a, b) => a - b);
 };
 
 const getPriceLabel = (minPrice?: number, maxPrice?: number) => {
@@ -341,6 +293,9 @@ const ProductListScreen = () => {
   const { isAuthenticated } = useAuth();
   const params = route.params;
   const insets = useSafeAreaInsets();
+  const scrollViewRef = React.useRef<ScrollView>(null);
+  const requestIdRef = React.useRef(0);
+  const isRequestInFlightRef = React.useRef(false);
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
   const [appliedFilters, setAppliedFilters] = React.useState<ProductListFilters>(() =>
     createFiltersFromParams(params),
@@ -353,34 +308,40 @@ const ProductListScreen = () => {
   const [totalPages, setTotalPages] = React.useState(0);
   const [totalItems, setTotalItems] = React.useState(0);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
+  const [showScrollTop, setShowScrollTop] = React.useState(false);
 
   const routeFilterKey = React.useMemo(
     () =>
       JSON.stringify({
         brandId: params?.brandId,
         categoryId: params?.categoryId,
-        color: params?.color,
-        fitTypeId: params?.fitTypeId,
         gender: params?.gender,
         isNew: params?.isNew,
         isSale: params?.isSale,
         keyword: params?.keyword,
         maxPrice: params?.maxPrice,
         minPrice: params?.minPrice,
-        size: params?.size,
         sort: params?.sort,
       }),
     [params],
   );
 
+  const scrollToTop = React.useCallback((animated = true) => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated });
+  }, []);
+
   React.useEffect(() => {
     const nextFilters = createFiltersFromParams(params);
 
     setPage(1);
+    setLoadMoreError(null);
     setAppliedFilters(nextFilters);
     setDraftFilters(nextFilters);
-  }, [params, routeFilterKey]);
+    scrollToTop(false);
+  }, [params, routeFilterKey, scrollToTop]);
 
   const categorySelectionGroups = React.useMemo(
     () => getCategorySelectionGroups(appliedFilters.categoryId, availableFilters.categories, params?.title),
@@ -392,9 +353,6 @@ const ProductListScreen = () => {
       (appliedFilters.gender ? 1 : 0) +
       categorySelectionGroups.length +
       appliedFilters.brandId.length +
-      appliedFilters.color.length +
-      appliedFilters.fitTypeId.length +
-      appliedFilters.size.length +
       (appliedFilters.minPrice !== undefined || appliedFilters.maxPrice !== undefined ? 1 : 0) +
       (appliedFilters.isSale ? 1 : 0) +
       (appliedFilters.isNew ? 1 : 0)
@@ -432,16 +390,21 @@ const ProductListScreen = () => {
   }, [appliedFilters.gender, availableFilters.categories, draftFilters.gender]);
 
   const updateAppliedFilters = React.useCallback((updater: (current: ProductListFilters) => ProductListFilters) => {
+    setLoadMoreError(null);
     setAppliedFilters((current) => normalizeFilters(updater(current)));
     setPage(1);
-  }, []);
+    scrollToTop();
+  }, [scrollToTop]);
 
   const clearAppliedFilters = React.useCallback(() => {
     const nextFilters = createFiltersFromParams({ keyword: params?.keyword, title: params?.title });
+
+    setLoadMoreError(null);
     setAppliedFilters(nextFilters);
     setDraftFilters(nextFilters);
     setPage(1);
-  }, [params?.keyword, params?.title]);
+    scrollToTop();
+  }, [params?.keyword, params?.title, scrollToTop]);
 
   const getBrandLabel = React.useCallback(
     (brandId: string) =>
@@ -488,30 +451,6 @@ const ProductListScreen = () => {
       });
     });
 
-    appliedFilters.size.forEach((size) => {
-      chips.push({
-        id: `size-${size}`,
-        label: `Size ${size}`,
-        onRemove: () => removeMultiValue('size', size),
-      });
-    });
-
-    appliedFilters.color.forEach((color) => {
-      chips.push({
-        id: `color-${color}`,
-        label: color,
-        onRemove: () => removeMultiValue('color', color),
-      });
-    });
-
-    appliedFilters.fitTypeId.forEach((fitType) => {
-      chips.push({
-        id: `fit-${fitType}`,
-        label: fitType,
-        onRemove: () => removeMultiValue('fitTypeId', fitType),
-      });
-    });
-
     if (appliedFilters.minPrice !== undefined || appliedFilters.maxPrice !== undefined) {
       chips.push({
         id: 'price',
@@ -544,11 +483,22 @@ const ProductListScreen = () => {
     return chips;
   }, [appliedFilters, categorySelectionGroups, getBrandLabel, updateAppliedFilters]);
 
-  const loadProducts = React.useCallback(() => {
+  const loadProducts = React.useCallback((targetPage = 1) => {
     const controller = new AbortController();
+    const isFirstPage = targetPage === 1;
+    const requestId = requestIdRef.current + 1;
 
-    setIsLoading(true);
-    setError(null);
+    requestIdRef.current = requestId;
+    isRequestInFlightRef.current = true;
+
+    if (isFirstPage) {
+      setIsLoading(true);
+      setError(null);
+    } else {
+      setIsLoadingMore(true);
+    }
+
+    setLoadMoreError(null);
 
     catalogApi
       .getProducts(
@@ -557,23 +507,29 @@ const ProductListScreen = () => {
           gender: appliedFilters.gender,
           categoryId: toQueryArray(appliedFilters.categoryId),
           brandId: toQueryArray(appliedFilters.brandId),
-          color: toQueryArray(appliedFilters.color),
-          fitTypeId: toQueryArray(appliedFilters.fitTypeId),
-          size: toQueryArray(appliedFilters.size),
           minPrice: appliedFilters.minPrice,
           maxPrice: appliedFilters.maxPrice,
           isNew: appliedFilters.isNew,
           isSale: appliedFilters.isSale,
           sort: appliedFilters.sort,
-          page,
+          page: targetPage,
           limit: PRODUCT_PAGE_LIMIT,
         },
         controller.signal,
       )
       .then((response) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestIdRef.current !== requestId) return;
 
-        setProducts(response.items);
+        setProducts((currentProducts) => {
+          if (isFirstPage) {
+            return response.items;
+          }
+
+          const existingProductIds = new Set(currentProducts.map((product) => product._id));
+          const nextProducts = response.items.filter((product) => !existingProductIds.has(product._id));
+
+          return [...currentProducts, ...nextProducts];
+        });
         setAvailableFilters(
           response.filters
             ? { ...emptyAvailableFilters, ...response.filters, sizes: response.filters.sizes ?? [] }
@@ -581,28 +537,43 @@ const ProductListScreen = () => {
         );
         setTotalPages(response.pagination.totalPages);
         setTotalItems(response.pagination.totalItems);
+        setPage(response.pagination.page);
       })
       .catch((requestError: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || requestIdRef.current !== requestId) return;
 
-        setProducts([]);
-        setAvailableFilters(emptyAvailableFilters);
-        setTotalPages(0);
-        setTotalItems(0);
-        setError(requestError instanceof Error ? requestError.message : 'Không thể tải sản phẩm');
+        const message = requestError instanceof Error ? requestError.message : 'Không thể tải sản phẩm';
+
+        if (isFirstPage) {
+          setProducts([]);
+          setAvailableFilters(emptyAvailableFilters);
+          setTotalPages(0);
+          setTotalItems(0);
+          setError(message);
+        } else {
+          setLoadMoreError(message);
+        }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
+        if (controller.signal.aborted || requestIdRef.current !== requestId) {
+          return;
         }
+
+        if (isFirstPage) {
+          setIsLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
+
+        isRequestInFlightRef.current = false;
       });
 
     return () => {
       controller.abort();
     };
-  }, [appliedFilters, page, params?.keyword]);
+  }, [appliedFilters, params?.keyword]);
 
-  React.useEffect(() => loadProducts(), [loadProducts]);
+  React.useEffect(() => loadProducts(1), [loadProducts]);
 
   const openFilterSheet = () => {
     setDraftFilters(appliedFilters);
@@ -610,9 +581,11 @@ const ProductListScreen = () => {
   };
 
   const applyDraftFilters = () => {
+    setLoadMoreError(null);
     setAppliedFilters(normalizeFilters(draftFilters));
     setPage(1);
     setIsFilterSheetVisible(false);
+    scrollToTop();
   };
 
   const resetDraftFilters = () => {
@@ -702,7 +675,36 @@ const ProductListScreen = () => {
     );
   };
 
-  const visiblePages = getVisiblePages(page, totalPages);
+  const hasMoreProducts = page < totalPages;
+  const loadMoreProducts = React.useCallback(() => {
+    if (isRequestInFlightRef.current || isLoading || isLoadingMore || !hasMoreProducts) {
+      return;
+    }
+
+    setLoadMoreError(null);
+    loadProducts(page + 1);
+  }, [hasMoreProducts, isLoading, isLoadingMore, loadProducts, page]);
+
+  const handleCatalogScroll = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const shouldShowScrollTop = contentOffset.y > SCROLL_TOP_VISIBILITY_OFFSET;
+
+      setShowScrollTop((current) => (current === shouldShowScrollTop ? current : shouldShowScrollTop));
+
+      if (contentSize.height <= layoutMeasurement.height) {
+        return;
+      }
+
+      const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+
+      if (distanceFromBottom <= LOAD_MORE_SCROLL_THRESHOLD) {
+        loadMoreProducts();
+      }
+    },
+    [loadMoreProducts],
+  );
+
   const screenTitle = getTitle(params);
 
   return (
@@ -735,9 +737,12 @@ const ProductListScreen = () => {
       </View>
 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={handleCatalogScroll}
+        scrollEventThrottle={16}
       >
         <View style={styles.summaryRow}>
           <Text style={styles.summaryText}>
@@ -825,7 +830,7 @@ const ProductListScreen = () => {
             <MaterialCommunityIcons name="alert-circle-outline" size={30} color={colors.danger} />
             <Text style={styles.stateTitle}>Không tải được sản phẩm</Text>
             <Text style={styles.stateText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={loadProducts} activeOpacity={0.82}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => loadProducts(1)} activeOpacity={0.82}>
               <Text style={styles.retryText}>Thử lại</Text>
             </TouchableOpacity>
           </View>
@@ -856,54 +861,42 @@ const ProductListScreen = () => {
               ))}
             </View>
 
-            {totalPages > 1 ? (
-              <View style={styles.pagination}>
-                <TouchableOpacity
-                  style={[styles.pageNav, page === 1 && styles.pageDisabled]}
-                  onPress={() => setPage((currentPage) => Math.max(currentPage - 1, 1))}
-                  disabled={page === 1}
-                  activeOpacity={0.82}
-                >
-                  <MaterialCommunityIcons name="chevron-left" size={19} color={page === 1 ? colors.textSubtle : colors.brand} />
-                  <Text style={[styles.pageNavText, page === 1 && styles.pageDisabledText]}>Trước</Text>
-                </TouchableOpacity>
-
-                <View style={styles.pageNumbers}>
-                  {visiblePages.map((pageNumber, index) => {
-                    const previousPage = visiblePages[index - 1];
-                    const shouldShowEllipsis = previousPage !== undefined && pageNumber - previousPage > 1;
-
-                    return (
-                      <React.Fragment key={pageNumber}>
-                        {shouldShowEllipsis ? <Text style={styles.ellipsis}>...</Text> : null}
-                        <TouchableOpacity
-                          style={[styles.pageButton, page === pageNumber && styles.pageButtonActive]}
-                          onPress={() => setPage(pageNumber)}
-                          activeOpacity={0.82}
-                        >
-                          <Text style={[styles.pageText, page === pageNumber && styles.pageTextActive]}>
-                            {pageNumber}
-                          </Text>
-                        </TouchableOpacity>
-                      </React.Fragment>
-                    );
-                  })}
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.pageNav, page === totalPages && styles.pageDisabled]}
-                  onPress={() => setPage((currentPage) => Math.min(currentPage + 1, totalPages))}
-                  disabled={page === totalPages}
-                  activeOpacity={0.82}
-                >
-                  <Text style={[styles.pageNavText, page === totalPages && styles.pageDisabledText]}>Sau</Text>
-                  <MaterialCommunityIcons name="chevron-right" size={19} color={page === totalPages ? colors.textSubtle : colors.brand} />
-                </TouchableOpacity>
-              </View>
-            ) : null}
+            <View style={styles.loadMoreArea}>
+              {isLoadingMore ? (
+                <>
+                  <ActivityIndicator color={colors.brand} />
+                  <Text style={styles.loadMoreText}>Đang tải thêm sản phẩm...</Text>
+                </>
+              ) : loadMoreError ? (
+                <>
+                  <Text style={styles.loadMoreErrorText}>{loadMoreError}</Text>
+                  <TouchableOpacity style={styles.loadMoreRetryButton} onPress={loadMoreProducts} activeOpacity={0.82}>
+                    <Text style={styles.loadMoreRetryText}>Thử lại</Text>
+                  </TouchableOpacity>
+                </>
+              ) : hasMoreProducts ? (
+                <Text style={styles.loadMoreText}>Kéo xuống để xem thêm</Text>
+              ) : (
+                <Text style={styles.endOfListText}>Bạn đã xem hết {totalItems} sản phẩm</Text>
+              )}
+            </View>
           </>
         )}
       </ScrollView>
+
+      {showScrollTop ? (
+        <TouchableOpacity
+          style={[
+            styles.scrollTopButton,
+            { bottom: STOREFRONT_BOTTOM_NAV_HEIGHT + Math.max(insets.bottom, spacing.sm) + spacing.md },
+          ]}
+          onPress={() => scrollToTop()}
+          accessibilityLabel="Quay lại đầu danh sách"
+          activeOpacity={0.86}
+        >
+          <MaterialCommunityIcons name="arrow-up" size={24} color={colors.white} />
+        </TouchableOpacity>
+      ) : null}
 
       <Modal
         visible={isFilterSheetVisible}
@@ -990,63 +983,6 @@ const ProductListScreen = () => {
                         </View>
                       </View>
                     ))}
-                  </View>
-                ) : null,
-              )}
-
-              {renderGroup(
-                'Size',
-                availableFilters.sizes.length ? (
-                  <View style={styles.choiceWrap}>
-                    {availableFilters.sizes.map((size) =>
-                      renderChoice(
-                        size,
-                        draftFilters.size.includes(size),
-                        () => toggleDraftValue('size', size),
-                        undefined,
-                        `size-${size}`,
-                      ),
-                    )}
-                  </View>
-                ) : null,
-              )}
-
-              {renderGroup(
-                'Màu sắc',
-                availableFilters.colors.length ? (
-                  <View style={styles.choiceWrap}>
-                    {availableFilters.colors.map((color) =>
-                      renderChoice(
-                        color,
-                        draftFilters.color.includes(color),
-                        () => toggleDraftValue('color', color),
-                        <View
-                          style={[
-                            styles.colorSwatch,
-                            { backgroundColor: getColorSwatch(color) },
-                            draftFilters.color.includes(color) && styles.colorSwatchActive,
-                          ]}
-                        />,
-                        `color-${color}`,
-                      ),
-                    )}
-                  </View>
-                ) : null,
-              )}
-
-              {renderGroup(
-                'Form dáng',
-                availableFilters.fitTypes.length ? (
-                  <View style={styles.choiceWrap}>
-                    {availableFilters.fitTypes.map((fitType) =>
-                      renderChoice(
-                        fitType,
-                        draftFilters.fitTypeId.includes(fitType),
-                        () => toggleDraftValue('fitTypeId', fitType),
-                        undefined,
-                        `fit-${fitType}`,
-                      ),
-                    )}
                   </View>
                 ) : null,
               )}
@@ -1300,74 +1236,62 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
-  pagination: {
-    marginTop: spacing.xl,
-    minHeight: 44,
-    flexDirection: 'row',
+  loadMoreArea: {
+    minHeight: 58,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     gap: spacing.sm,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
   },
-  pageNav: {
-    minWidth: 76,
-    height: 38,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  pageDisabled: {
-    backgroundColor: colors.field,
-  },
-  pageNavText: {
-    color: colors.brand,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-  },
-  pageDisabledText: {
-    color: colors.textSubtle,
-  },
-  pageNumbers: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-  },
-  pageButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pageButtonActive: {
-    backgroundColor: colors.brand,
-    borderColor: colors.brand,
-  },
-  pageText: {
-    color: colors.text,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-  },
-  pageTextActive: {
-    color: colors.white,
-  },
-  ellipsis: {
+  loadMoreText: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  loadMoreErrorText: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  loadMoreRetryButton: {
+    minHeight: 34,
+    borderRadius: radii.xs,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreRetryText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  endOfListText: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  scrollTopButton: {
+    position: 'absolute',
+    right: spacing.lg,
+    zIndex: 25,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.brand,
+    borderWidth: 1,
+    borderColor: colors.brandLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.card,
   },
   modalRoot: {
     flex: 1,
@@ -1472,17 +1396,6 @@ const styles = StyleSheet.create({
   choiceTextActive: {
     color: colors.black,
     fontWeight: '800',
-  },
-  colorSwatch: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  colorSwatchActive: {
-    borderColor: colors.black,
-    borderWidth: 2,
   },
   resetButton: {
     minHeight: 42,

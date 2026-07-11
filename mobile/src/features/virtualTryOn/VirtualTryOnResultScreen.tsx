@@ -12,7 +12,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
-import { cartApi } from '../cart/cartApi';
+import { cartApi, type CartResponse } from '../cart/cartApi';
 import { virtualTryOnApi } from './virtualTryOnApi';
 import type { TryOnSeedItem, TryOnSelectedItem, VirtualTryOnJob } from './virtualTryOn.types';
 import { contextPresetLabel } from './contextPresets';
@@ -44,6 +44,17 @@ const selectedItemToSeed = (item: TryOnSelectedItem): TryOnSeedItem => ({
   colorSnapshot: item.colorSnapshot,
   imageSnapshot: item.imageSnapshot,
 });
+
+const findCartItemIdForTryOnItem = (cart: CartResponse, selection: TryOnSelectedItem) => {
+  const normalizedSize = selection.size?.trim().toLowerCase() ?? '';
+
+  return cart.product_list.find((item) => (
+    item.productId === selection.productId &&
+    item.variantId === selection.variantId &&
+    item.colorVariantId === selection.colorVariantId &&
+    item.size.trim().toLowerCase() === normalizedSize
+  ))?._id;
+};
 
 const getDownloadExtension = (url: string) => {
   const cleanUrl = url.split('?')[0]?.toLowerCase() ?? '';
@@ -276,7 +287,7 @@ const VirtualTryOnResultScreen = () => {
     }
   };
 
-  const addSetToCart = async () => {
+  const addSetToCart = async (navigateTo?: 'cart' | 'checkout') => {
     if (!job) return;
     const itemWithoutSize = job.selectedItems.find((item) => !item.size);
     if (itemWithoutSize) {
@@ -286,21 +297,42 @@ const VirtualTryOnResultScreen = () => {
 
     setIsAddingCart(true);
     try {
-      await runWithAuth(async (token) => {
+      const addedCartItemIds = await runWithAuth(async (token) => {
+        await cartApi.selectAll(token, false);
+        const cartItemIds: string[] = [];
+
         for (const item of job.selectedItems) {
-          await cartApi.addItem(token, {
+          const nextCart = await cartApi.addItem(token, {
             productId: item.productId,
             variantId: item.variantId,
             colorVariantId: item.colorVariantId,
             size: item.size!,
             quantity: 1,
+            isSelected: true,
+            replaceQuantity: true,
           });
+          const cartItemId = findCartItemIdForTryOnItem(nextCart, item);
+
+          if (!cartItemId) {
+            throw new Error('Chưa xác định được sản phẩm vừa thêm vào giỏ. Bạn thử lại nha.');
+          }
+
+          if (!cartItemIds.includes(cartItemId)) {
+            cartItemIds.push(cartItemId);
+          }
         }
+
+        return cartItemIds;
       });
-      Alert.alert('Đã thêm vào giỏ', 'Toàn bộ sản phẩm trong bộ phối đã được thêm vào giỏ hàng.', [
-        { text: 'Ở lại' },
-        { text: 'Xem giỏ', onPress: () => navigation.navigate('Cart') },
-      ]);
+
+      if (navigateTo === 'checkout') {
+        navigation.navigate('Checkout', { cartItemIds: addedCartItemIds });
+      } else {
+        Alert.alert('Đã thêm vào giỏ', 'Toàn bộ sản phẩm trong bộ phối đã được thêm vào giỏ hàng.', [
+          { text: 'Ở lại' },
+          { text: 'Xem giỏ', onPress: () => navigation.navigate('Cart', { selectionSource: 'virtualTryOn' }) },
+        ]);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể thêm bộ phối vào giỏ.';
       Alert.alert('Giỏ hàng', message);
@@ -527,6 +559,18 @@ const VirtualTryOnResultScreen = () => {
               </View>
             ) : null}
 
+            <View style={styles.resultSectionHeader}>
+              <View style={styles.resultSectionCopy}>
+                <Text style={styles.resultSectionTitle}>Kết quả</Text>
+                <Text style={styles.resultSectionHint}>Ảnh phối đồ AI đã sinh</Text>
+              </View>
+              <View style={styles.resultSectionCounter}>
+                <Text style={styles.resultSectionCounterText}>
+                  {resultImageUrls.length ? `${activeImageIndex + 1}/${resultImageUrls.length}` : '0/0'}
+                </Text>
+              </View>
+            </View>
+
             <View style={styles.resultCarousel}>
               <ScrollView
                 ref={resultScrollRef}
@@ -749,30 +793,56 @@ const VirtualTryOnResultScreen = () => {
                   <MaterialCommunityIcons name="arrow-right" size={18} color={colors.surface} />
                 </TouchableOpacity>
               </View>
-            ) : null}
+            ) : (
+              <TouchableOpacity style={styles.queueResumeCard} onPress={resumeBuilder} activeOpacity={0.86}>
+                <View style={styles.queueResumeLead}>
+                  <View style={styles.queueResumeIcon}>
+                    <MaterialCommunityIcons name="reload" size={22} color={studioPalette.primary} />
+                  </View>
+                  <View style={styles.queueResumeCopy}>
+                    <Text style={styles.queueResumeTitle}>Phối lại</Text>
+                    <Text style={styles.queueResumeText}>
+                      Thử lại bộ đồ này hoặc đổi sản phẩm khác trên cùng ảnh người.
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.queueResumeButton}>
+                  <Text style={styles.queueResumeButtonText}>Phối lại</Text>
+                  <MaterialCommunityIcons name="arrow-right" size={18} color={colors.surface} />
+                </View>
+              </TouchableOpacity>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>
             <TouchableOpacity
-              style={styles.tryAgainButton}
-              onPress={resumeBuilder}
-              activeOpacity={0.86}
-            >
-              <MaterialCommunityIcons name={waitingSeedCount > 0 ? 'hanger' : 'reload'} size={22} color={studioPalette.ink} />
-              <Text style={styles.tryAgainText}>{waitingSeedCount > 0 ? 'Phối đồ khác' : 'Phối lại'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[styles.cartButton, isAddingCart && styles.cartButtonDisabled]}
-              onPress={addSetToCart}
+              onPress={() => addSetToCart('cart')}
               disabled={isAddingCart}
               activeOpacity={0.86}
             >
               {isAddingCart ? (
-                <ActivityIndicator color={colors.white} />
+                <ActivityIndicator color={studioPalette.primary} />
               ) : (
                 <>
-                  <MaterialCommunityIcons name="cart-plus" size={23} color={colors.white} />
-                  <Text style={styles.cartText}>Thêm cả bộ - {formatPrice(job.totalFinalPrice)}</Text>
+                  <MaterialCommunityIcons name="cart-plus" size={21} color={studioPalette.primary} />
+                  <Text style={styles.cartButtonText}>Vào giỏ</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.buyNowButton, isAddingCart && styles.cartButtonDisabled]}
+              onPress={() => addSetToCart('checkout')}
+              disabled={isAddingCart}
+              activeOpacity={0.86}
+            >
+              {isAddingCart ? null : (
+                <>
+                  <MaterialCommunityIcons name="credit-card-outline" size={21} color={colors.white} />
+                  <View style={styles.buyButtonCopy}>
+                    <Text style={styles.buyButtonText}>Thanh toán</Text>
+                    <Text style={styles.buyButtonPrice}>{formatPrice(job.totalFinalPrice)}</Text>
+                  </View>
                 </>
               )}
             </TouchableOpacity>
@@ -885,7 +955,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
-    paddingBottom: 118,
+    paddingBottom: 96,
     gap: spacing.lg,
   },
   badgeRow: {
@@ -921,6 +991,47 @@ const styles = StyleSheet.create({
     color: studioPalette.ink,
     fontSize: 11,
     lineHeight: 15,
+    fontWeight: '900',
+  },
+  resultSectionHeader: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  resultSectionCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  resultSectionTitle: {
+    color: studioPalette.ink,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '900',
+  },
+  resultSectionHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  resultSectionCounter: {
+    minWidth: 54,
+    minHeight: 34,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  resultSectionCounterText: {
+    color: studioPalette.primary,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   resultCarousel: {
@@ -1409,12 +1520,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
     flexDirection: 'row',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   tryAgainButton: {
     minHeight: 58,
@@ -1435,26 +1547,54 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   cartButton: {
+    flex: 0,
+    minWidth: 106,
+    paddingHorizontal: spacing.md,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    backgroundColor: studioPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  buyNowButton: {
     flex: 1,
-    minHeight: 58,
-    borderRadius: radii.md,
-    backgroundColor: studioPalette.primary,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
-    ...shadows.card,
   },
   cartButtonDisabled: {
     backgroundColor: colors.disabled,
   },
-  cartText: {
-    color: colors.white,
-    fontSize: 16,
-    lineHeight: 21,
+  cartButtonText: {
+    color: studioPalette.primary,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
-    flexShrink: 1,
-    textAlign: 'center',
+  },
+  buyButtonCopy: {
+    minWidth: 0,
+    alignItems: 'flex-start',
+  },
+  buyButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  buyButtonPrice: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    marginTop: 1,
   },
   emptyText: {
     color: colors.textMuted,

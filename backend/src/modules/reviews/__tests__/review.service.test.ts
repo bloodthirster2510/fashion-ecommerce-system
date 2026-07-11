@@ -398,7 +398,8 @@ describe('reviewService', () => {
   it('excludes hidden reviews from the public response and pagination', async () => {
     mockedReview.find.mockReturnValue(query([]) as never);
     mockedReview.countDocuments.mockResolvedValue(0);
-    mockedProduct.findById.mockReturnValue(query({ averageRating: 0, reviewCount: 0 }) as never);
+    mockedProduct.findById.mockReturnValue(query({ _id: productId, averageRating: 4.9, reviewCount: 999 }) as never);
+    mockedReview.aggregate.mockReturnValue(aggregateQuery([]) as never);
 
     const result = await reviewService.listProductReviews(productId.toString());
 
@@ -409,7 +410,40 @@ describe('reviewService', () => {
     expect(mockedReview.find).toHaveBeenCalledWith(expectedFilter);
     expect(mockedReview.countDocuments).toHaveBeenCalledWith(expectedFilter);
     expect(result.items).toEqual([]);
+    expect(result.summary).toEqual({
+      averageRating: 0,
+      reviewCount: 0,
+      distribution: [
+        { rating: 5, count: 0, percent: 0 },
+        { rating: 4, count: 0, percent: 0 },
+        { rating: 3, count: 0, percent: 0 },
+        { rating: 2, count: 0, percent: 0 },
+        { rating: 1, count: 0, percent: 0 },
+      ],
+    });
     expect(result.pagination.totalItems).toBe(0);
+  });
+
+  it('builds the public review summary from visible review rows', async () => {
+    mockedReview.find.mockReturnValue(query([]) as never);
+    mockedReview.countDocuments.mockResolvedValue(3);
+    mockedProduct.findById.mockReturnValue(query({ _id: productId, averageRating: 1.2, reviewCount: 500 }) as never);
+    mockedReview.aggregate.mockReturnValue(aggregateQuery([
+      { _id: 5, count: 2 },
+      { _id: 3, count: 1 },
+    ]) as never);
+
+    const result = await reviewService.listProductReviews(productId.toString());
+
+    expect(result.summary.averageRating).toBe(4.3);
+    expect(result.summary.reviewCount).toBe(3);
+    expect(result.summary.distribution).toEqual([
+      { rating: 5, count: 2, percent: 67 },
+      { rating: 4, count: 0, percent: 0 },
+      { rating: 3, count: 1, percent: 33 },
+      { rating: 2, count: 0, percent: 0 },
+      { rating: 1, count: 0, percent: 0 },
+    ]);
   });
 
   it('applies rating and sort filters when listing the current customer reviews', async () => {

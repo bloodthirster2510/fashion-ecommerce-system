@@ -11,6 +11,7 @@ import MembershipScreen from '../features/account/MembershipScreen';
 import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
 import CartScreen from '../features/cart/CartScreen';
+import CheckoutScreen from '../features/checkout/CheckoutScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
 import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
@@ -55,6 +56,11 @@ export type RootStackParamList = {
   };
   Cart: {
     couponCode?: string;
+    selectionSource?: 'normal' | 'virtualTryOn';
+  } | undefined;
+  Checkout: {
+    couponCode?: string;
+    cartItemIds?: string[];
   } | undefined;
   Coupons: {
     cartItemIds?: string[];
@@ -149,6 +155,7 @@ const AppNavigator = () => {
       <Stack.Screen name="ProductList" component={ProductListScreen} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
       <Stack.Screen name="Cart" component={CartScreen} />
+      <Stack.Screen name="Checkout" component={CheckoutScreen} />
       <Stack.Screen name="Coupons" component={CouponsScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />

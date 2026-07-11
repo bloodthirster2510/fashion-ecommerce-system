@@ -1644,11 +1644,13 @@ const VirtualTryOnBuilderScreen = () => {
         <View style={styles.mixPreviewCard}>
           <View style={styles.mixPreviewHeader}>
             <View style={styles.mixPreviewHeaderCopy}>
-              <Text style={styles.mixPreviewEyebrow}>Bản phối trực quan</Text>
-              <Text style={styles.mixPreviewTitle}>Ảnh của bạn + bộ đồ đã chọn</Text>
+              <Text style={styles.mixPreviewEyebrow}>Xem trước phối đồ</Text>
+              <Text style={styles.mixPreviewTitle}>Ảnh của bạn và món đã chọn</Text>
             </View>
             <View style={styles.mixPreviewCount}>
-              <Text style={styles.mixPreviewCountText}>{selectedItems.length}/{TRY_ON_ACTIVE_ITEM_LIMIT} món</Text>
+              <Text style={styles.mixPreviewCountText}>
+                {selectedItems.length ? `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món` : 'Chưa chọn'}
+              </Text>
             </View>
           </View>
 
@@ -1682,7 +1684,7 @@ const VirtualTryOnBuilderScreen = () => {
               <View style={styles.mixProcessIcon}>
                 <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
               </View>
-              <Text style={styles.mixProcessText}>Phối từng món</Text>
+              <Text style={styles.mixProcessText}>AI thử đồ</Text>
               <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
             </View>
 
@@ -1697,7 +1699,7 @@ const VirtualTryOnBuilderScreen = () => {
                   <View style={styles.mixAiSparkleOne} />
                   <View style={styles.mixAiSparkleTwo} />
                 </View>
-                <Text style={styles.mixResultHint}>AI sẽ tạo ảnh mới</Text>
+                <Text style={styles.mixResultHint}>Ảnh sau khi phối</Text>
                 <View style={styles.mixSparkleDot} />
               </View>
               <Text style={styles.mixStageLabel}>Kết quả AI</Text>
@@ -1705,8 +1707,10 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
 
           <View style={styles.mixItemsHeader}>
-            <Text style={styles.mixItemsTitle}>Từng món AI sẽ sử dụng</Text>
-            <Text style={styles.mixItemsMeta}>Không ghép chung ảnh</Text>
+            <Text style={styles.mixItemsTitle}>Sản phẩm dùng để phối</Text>
+            <Text style={styles.mixItemsMeta}>
+              {selectedItems.length ? `${selectedItems.length} món đang chọn` : 'Chọn từ các ô bên trên'}
+            </Text>
           </View>
           {selectedItems.length ? (
             <ScrollView
@@ -1749,14 +1753,14 @@ const VirtualTryOnBuilderScreen = () => {
           ) : (
             <View style={styles.mixItemsEmpty}>
               <MaterialCommunityIcons name="hanger" size={22} color="#BFD8E6" />
-              <Text style={styles.mixItemsEmptyText}>Chọn từng món ở trên để xem tại đây.</Text>
+              <Text style={styles.mixItemsEmptyText}>Chọn áo, quần hoặc phụ kiện để xem trước tại đây.</Text>
             </View>
           )}
 
           <View style={styles.mixPreviewFooter}>
             <MaterialCommunityIcons name="shield-check-outline" size={18} color={tryOnPalette.success} />
             <Text style={styles.mixPreviewText}>
-              AI giữ dáng người từ ảnh gốc và thay đúng từng món, màu, size bạn đã chọn.
+              AI giữ dáng người và bối cảnh ảnh gốc, chỉ thay sản phẩm đúng màu và size bạn chọn.
             </Text>
           </View>
         </View>
@@ -3035,8 +3039,8 @@ const styles = StyleSheet.create({
   mixPreviewCard: {
     borderRadius: radii.md,
     backgroundColor: '#172431',
-    padding: spacing.lg,
-    gap: spacing.lg,
+    padding: spacing.md,
+    gap: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -3044,9 +3048,9 @@ const styles = StyleSheet.create({
   },
   mixPreviewHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   mixPreviewHeaderCopy: {
     flex: 1,
@@ -3062,16 +3066,16 @@ const styles = StyleSheet.create({
   },
   mixPreviewTitle: {
     color: colors.white,
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
     marginTop: 3,
   },
   mixPreviewCount: {
-    minHeight: 28,
+    minHeight: 30,
     borderRadius: radii.pill,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3083,9 +3087,9 @@ const styles = StyleSheet.create({
   },
   mixBeforeAfterRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
   mixPortraitStage: {
     flex: 1,
@@ -3096,7 +3100,7 @@ const styles = StyleSheet.create({
   mixStageVisual: {
     width: '100%',
     aspectRatio: 0.82,
-    maxHeight: 132,
+    maxHeight: 124,
     borderRadius: radii.sm,
     backgroundColor: '#F3F8FB',
     borderWidth: 1,
@@ -3186,10 +3190,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   mixProcessStep: {
-    width: 54,
+    width: 48,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
+    paddingTop: spacing.xl,
   },
   mixProcessIcon: {
     width: 38,
@@ -3208,21 +3213,25 @@ const styles = StyleSheet.create({
   },
   mixItemsHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
   mixItemsTitle: {
     color: colors.white,
-    fontSize: 13,
-    lineHeight: 18,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
   },
   mixItemsMeta: {
     color: '#BFD8E6',
-    fontSize: 10,
-    lineHeight: 14,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '800',
+    textAlign: 'right',
+    maxWidth: '44%',
   },
   mixItemList: {
     gap: spacing.sm,
@@ -3298,17 +3307,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   mixItemsEmpty: {
-    minHeight: 64,
+    minHeight: 58,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
     borderStyle: 'dashed',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   mixItemsEmptyText: {
+    flex: 1,
+    minWidth: 0,
     color: '#DCEAF1',
     fontSize: 11,
     lineHeight: 16,

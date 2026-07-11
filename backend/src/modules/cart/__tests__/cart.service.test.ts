@@ -32,6 +32,12 @@ jest.mock('../../recommendations/recommendation.service', () => ({
   },
 }));
 
+jest.mock('../../interactions/interaction.service', () => ({
+  interactionService: {
+    recordAddToCartBestEffort: jest.fn(),
+  },
+}));
+
 const mockedCart = Cart as jest.Mocked<typeof Cart>;
 const mockedInventory = Inventory as unknown as { find: jest.Mock };
 const mockedProduct = Product as unknown as { find: jest.Mock };
@@ -52,7 +58,7 @@ describe('cartService', () => {
     });
   });
 
-  it('adds a cart item using server-resolved sku and price', async () => {
+  it('adds an unselected cart item using server-resolved sku and price by default', async () => {
     const cart = {
       _id: new Types.ObjectId(),
       user_id: new Types.ObjectId(userId),
@@ -96,9 +102,49 @@ describe('cartService', () => {
       sku: 'INV-TEE-BLK-M',
       quantity: 2,
       priceAtAddedTime: 180000,
-      isSelected: true,
+      isSelected: false,
     });
     expect(cart.save).toHaveBeenCalled();
+    expect(result.summary.subTotal).toBe(0);
+  });
+
+  it('adds a selected cart item when explicitly requested', async () => {
+    const cart = {
+      _id: new Types.ObjectId(),
+      user_id: new Types.ObjectId(userId),
+      product_list: [],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedCart.findOne.mockResolvedValue(null);
+    mockedCart.create.mockResolvedValue(cart as never);
+    mockedResolveSaleItem.mockResolvedValue({
+      product: { name: 'Basic Tee' },
+      variant: {},
+      color: { color: 'Black' },
+      inventory: { availableQuantity: 10 },
+      productId,
+      variantId,
+      colorVariantId,
+      size: 'M',
+      sku: 'INV-TEE-BLK-M',
+      finalPrice: 180000,
+      fitType: 'Regular',
+      image: 'https://example.com/black.png',
+    } as never);
+
+    const result = await cartService.addCartItem(userId, {
+      productId: productId.toString(),
+      variantId: variantId.toString(),
+      colorVariantId: colorVariantId.toString(),
+      size: 'M',
+      quantity: 2,
+      isSelected: true,
+    });
+
+    expect(cart.product_list[0]).toMatchObject({
+      quantity: 2,
+      isSelected: true,
+    });
     expect(result.summary.subTotal).toBe(360000);
   });
 
@@ -193,5 +239,59 @@ describe('cartService', () => {
 
     expect(cart.product_list[0].quantity).toBe(9);
     expect(cart.save).not.toHaveBeenCalled();
+  });
+
+  it('can replace an existing item quantity instead of incrementing it', async () => {
+    const cart = {
+      _id: new Types.ObjectId(),
+      user_id: new Types.ObjectId(userId),
+      product_list: [
+        {
+          _id: new Types.ObjectId(),
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          sku: 'INV-TEE-BLK-M',
+          quantity: 3,
+          priceAtAddedTime: 180000,
+          isSelected: false,
+        },
+      ],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedCart.findOne.mockResolvedValue(cart as never);
+    mockedResolveSaleItem.mockResolvedValue({
+      product: { name: 'Basic Tee' },
+      variant: {},
+      color: { color: 'Black' },
+      inventory: { availableQuantity: 10 },
+      productId,
+      variantId,
+      colorVariantId,
+      size: 'M',
+      sku: 'INV-TEE-BLK-M',
+      finalPrice: 180000,
+      fitType: 'Regular',
+      image: 'https://example.com/black.png',
+    } as never);
+
+    const result = await cartService.addCartItem(userId, {
+      productId: productId.toString(),
+      variantId: variantId.toString(),
+      colorVariantId: colorVariantId.toString(),
+      size: 'M',
+      quantity: 1,
+      isSelected: true,
+      replaceQuantity: true,
+    });
+
+    expect(cart.product_list[0]).toMatchObject({
+      quantity: 1,
+      isSelected: true,
+    });
+    expect(cart.save).toHaveBeenCalled();
+    expect(result.summary.selectedItemCount).toBe(1);
+    expect(result.summary.subTotal).toBe(180000);
   });
 });

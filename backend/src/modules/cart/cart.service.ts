@@ -142,7 +142,11 @@ const buildCartItemLookups = async (items: ICartItem[]) => {
 };
 
 const summarizeCart = async (cart: ICart | null) => {
-  const items = cart?.product_list ?? [];
+  const items = (cart?.product_list ?? []).slice().sort((a, b) => {
+    const aTime = a.addedAt ? a.addedAt.getTime() : 0;
+    const bTime = b.addedAt ? b.addedAt.getTime() : 0;
+    return bTime - aTime;
+  });
   const selectedItems = items.filter((item) => item.isSelected);
   const { productById, inventoryByKey } = await buildCartItemLookups(items);
 
@@ -201,6 +205,8 @@ const getCart = async (userId: string) => {
 const addCartItem = async (userId: string, input: AddCartItemInput) => {
   const quantity = Number(input.quantity);
   assertPositiveQuantity(quantity);
+  const shouldSelectItem = input.isSelected === true;
+  const shouldReplaceQuantity = input.replaceQuantity === true;
   const recommendationRequestId = input.recommendationRequestId?.trim() || null;
 
   if (recommendationRequestId && recommendationRequestId.length > 120) {
@@ -220,7 +226,7 @@ const addCartItem = async (userId: string, input: AddCartItemInput) => {
   );
 
   if (existingItem) {
-    const nextQuantity = existingItem.quantity + quantity;
+    const nextQuantity = shouldReplaceQuantity ? quantity : existingItem.quantity + quantity;
     assertPositiveQuantity(nextQuantity);
 
     if (resolved.inventory.availableQuantity < nextQuantity) {
@@ -230,7 +236,8 @@ const addCartItem = async (userId: string, input: AddCartItemInput) => {
     existingItem.quantity = nextQuantity;
     existingItem.priceAtAddedTime = resolved.finalPrice;
     existingItem.sku = resolved.sku;
-    existingItem.isSelected = true;
+    existingItem.isSelected = shouldSelectItem;
+    existingItem.addedAt = new Date();
     if (recommendationRequestId) {
       existingItem.recommendationRequestId = recommendationRequestId;
     }
@@ -244,8 +251,9 @@ const addCartItem = async (userId: string, input: AddCartItemInput) => {
       sku: resolved.sku,
       quantity,
       priceAtAddedTime: resolved.finalPrice,
-      isSelected: true,
+      isSelected: shouldSelectItem,
       recommendationRequestId,
+      addedAt: new Date(),
     });
   }
 

@@ -161,7 +161,7 @@ const ProfileScreen = () => {
       return;
     }
     if (item.id === 'cart') {
-      navigation.navigate('Cart');
+      navigation.navigate('Cart', { selectionSource: 'normal' });
       return;
     }
     if (item.id === 'orders') {

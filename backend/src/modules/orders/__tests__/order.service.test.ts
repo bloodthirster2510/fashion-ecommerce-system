@@ -405,6 +405,70 @@ describe('orderService', () => {
     expect(result).toBe(order);
   });
 
+  it('falls back to non-transactional checkout writes when Mongo transactions are unavailable', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const order = {
+      _id: new Types.ObjectId(),
+      orderCode: 'FSORDER',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      status: 'confirmed',
+    };
+
+    mockSession.withTransaction.mockRejectedValueOnce(
+      new Error('Only servers in a sharded cluster can start a new transaction at the active transaction number'),
+    );
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    mockedInventoryService.reserveInventory.mockResolvedValue([
+      { _id: reservationId },
+    ] as never);
+    mockedInventoryService.commitReservations.mockResolvedValue([] as never);
+    mockedOrder.create.mockResolvedValue([order] as never);
+    mockedProduct.updateOne.mockResolvedValue({} as never);
+    mockedCartService.deleteCartItems.mockResolvedValue({} as never);
+
+    const result = await orderService.createOrder(userId, {
+      cartItemIds: [cartItemId.toString()],
+      paymentMethod: 'COD',
+      quoteVersion: 'shipq_test_1234',
+      shippingAddress,
+    });
+
+    expect(result).toBe(order);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('MongoDB transactions are unavailable'));
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+    expect(mockedInventoryService.reserveInventory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        items: [
+          {
+            productId: productId.toString(),
+            variantId: variantId.toString(),
+            colorVariantId: colorVariantId.toString(),
+            size: 'M',
+            quantity: 2,
+          },
+        ],
+      }),
+      {},
+    );
+    expect(mockedOrder.create).toHaveBeenCalledWith([
+      expect.objectContaining({
+        paymentMethod: 'COD',
+        paymentStatus: 'pending',
+      }),
+    ]);
+    expect(mockedInventoryService.commitReservations).toHaveBeenCalledWith(
+      { reservationIds: [reservationId.toString()] },
+      {},
+    );
+    expect(mockedProduct.updateOne).toHaveBeenCalledWith(
+      { _id: productId },
+      { $inc: { sold_quantity: 2 } },
+    );
+    expect(mockedCartService.deleteCartItems).toHaveBeenCalledWith(userId, [cartItemId.toString()]);
+  });
+
   it('creates a COD order from a saved user address id', async () => {
     const order = {
       _id: new Types.ObjectId(),

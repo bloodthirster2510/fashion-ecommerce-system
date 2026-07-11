@@ -1,43 +1,33 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
-import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
-import { accountApi, type UserAddress } from '../account/accountApi';
-import {
-  paymentMethodsApi,
-  type PaymentMethodRecord as SavedPaymentMethodRecord,
-} from '../account/paymentMethodsApi';
-import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutPreviewResponse } from './cartApi';
-import { paymentApi, PaymentApiError } from '../payments/paymentApi';
+import { cartApi, CartApiError, type CartItem, type CartResponse } from './cartApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import { TRY_ON_QUEUE_LIMIT } from '../virtualTryOn/virtualTryOn.types';
-import * as WebBrowser from 'expo-web-browser';
-import * as Crypto from 'expo-crypto';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
-type PaymentMethod = 'COD' | 'VNPAY' | 'MOMO';
 type NoticeTone = 'success' | 'error' | 'warning' | 'info';
 
 type CartNotice = {
@@ -51,8 +41,6 @@ type CartNotice = {
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
-
-const CHECKOUT_PREVIEW_DEBOUNCE_MS = 450;
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
@@ -92,40 +80,6 @@ const getStockText = (item: CartItem) => {
   return undefined;
 };
 
-const compactAddressParts = (address: UserAddress) =>
-  [
-    address.streetName,
-    address.ward,
-    address.province,
-  ]
-    .map((item) => item?.trim())
-    .filter(Boolean);
-
-const formatAddress = (address: UserAddress) => compactAddressParts(address).join(', ');
-
-const getAddressKey = (address: UserAddress, index: number) =>
-  address._id ?? `${address.phoneNumber}-${address.streetName}-${index}`;
-
-const toShippingAddress = (address: UserAddress) => ({
-  customerName: (address.customerName || '').trim(),
-  province: (address.province || '').trim(),
-  provinceCode: address.provinceCode ?? null,
-  provinceId: address.provinceId ?? null,
-  district: address.district?.trim() || null,
-  districtId: address.districtId ?? null,
-  ward: (address.ward || '').trim(),
-  wardCode: address.wardCode ?? '',
-  streetName: (address.streetName || '').trim(),
-  phoneNumber: (address.phoneNumber || '').trim(),
-  ghnProvinceId: address.ghnProvinceId ?? null,
-  ghnDistrictId: address.ghnDistrictId ?? null,
-  ghnWardCode: address.ghnWardCode ?? null,
-  ghnMappingStatus: address.ghnMappingStatus ?? 'missing',
-});
-
-const hasShippingAreaCode = (address: UserAddress | null) =>
-  Boolean((address?.ghnDistrictId && address?.ghnWardCode) || (address?.districtId && address?.wardCode));
-
 const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
@@ -134,83 +88,12 @@ const CartScreen = () => {
   const [cartRecommendationItems, setCartRecommendationItems] = React.useState<RecommendationItem[]>([]);
   const [cartRecommendationRequestId, setCartRecommendationRequestId] = React.useState<string | null>(null);
   const [cartRecommendationAlgorithmVersion, setCartRecommendationAlgorithmVersion] = React.useState<string | null>(null);
-  const [addresses, setAddresses] = React.useState<UserAddress[]>([]);
-  const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
-  const [isAddressLoading, setIsAddressLoading] = React.useState(false);
-  const [paymentMethods, setPaymentMethods] = React.useState<SavedPaymentMethodRecord[]>([]);
-  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = React.useState<string | null>(null);
-  const [isPaymentMethodsLoading, setIsPaymentMethodsLoading] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [pendingItemId, setPendingItemId] = React.useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>('COD');
-  const [couponCode, setCouponCode] = React.useState('');
-  const [appliedCouponCodes, setAppliedCouponCodes] = React.useState<string[]>([]);
-  const [checkoutPreview, setCheckoutPreview] = React.useState<CheckoutPreviewResponse | null>(null);
-  const [checkoutPreviewKey, setCheckoutPreviewKey] = React.useState('');
-  const [isApplyingCoupon, setIsApplyingCoupon] = React.useState(false);
-  const [isPreviewLoading, setIsPreviewLoading] = React.useState(false);
   const [notice, setNotice] = React.useState<CartNotice | null>(null);
-  const [confirmingRemoveItemId, setConfirmingRemoveItemId] = React.useState<string | null>(null);
-  const [form, setForm] = React.useState({
-    fullName: session?.user.name ?? '',
-    phone: session?.user.phone ?? '',
-    email: session?.user.email ?? '',
-    address: '',
-    note: '',
-  });
-  const selectedAddressIdRef = React.useRef<string | null>(null);
   const noticeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const paymentMethodSelectionTouchedRef = React.useRef(false);
-
-  const selectedAddress = React.useMemo(
-    () =>
-      addresses.find((address) => address._id && address._id === selectedAddressId) ??
-      addresses.find((address) => address.isDefault) ??
-      addresses[0] ??
-      null,
-    [addresses, selectedAddressId],
-  );
-  const selectedShippingAddress = React.useMemo(
-    () => (selectedAddress ? toShippingAddress(selectedAddress) : undefined),
-    [selectedAddress],
-  );
-  const selectedAddressKey = selectedAddress
-    ? [
-        selectedAddress._id,
-        selectedAddress.provinceCode ?? selectedAddress.provinceId,
-        selectedAddress.ghnDistrictId ?? selectedAddress.districtId,
-        selectedAddress.ghnWardCode,
-        selectedAddress.wardCode,
-        selectedAddress.streetName,
-      ].join(':')
-    : '';
-  const activeSavedPaymentMethods = React.useMemo(
-    () => paymentMethods.filter((method) => method.status === 'verified'),
-    [paymentMethods],
-  );
-  const defaultSavedPaymentMethod = React.useMemo(
-    () => activeSavedPaymentMethods.find((method) => method.isDefault) ?? null,
-    [activeSavedPaymentMethods],
-  );
-  const defaultVNPayPaymentMethod = React.useMemo(
-    () =>
-      activeSavedPaymentMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
-      activeSavedPaymentMethods.find((method) => method.type === 'VNPAY') ??
-      null,
-    [activeSavedPaymentMethods],
-  );
-  const pendingVNPayPaymentMethod = React.useMemo(
-    () => paymentMethods.find((method) => method.type === 'VNPAY' && method.status === 'pending') ?? null,
-    [paymentMethods],
-  );
-  const selectedSavedPaymentMethod = React.useMemo(
-    () =>
-      activeSavedPaymentMethods.find((method) => method._id === selectedPaymentMethodId && method.type === 'VNPAY') ??
-      null,
-    [activeSavedPaymentMethods, selectedPaymentMethodId],
-  );
+  const shouldKeepSelectionOnFocus = route.params?.selectionSource === 'virtualTryOn';
 
   const clearNoticeTimer = React.useCallback(() => {
     if (noticeTimeoutRef.current) {
@@ -241,40 +124,8 @@ const CartScreen = () => {
 
   React.useEffect(() => clearNoticeTimer, [clearNoticeTimer]);
 
-  const getCheckoutAddressPayload = React.useCallback(
-    () => ({
-      addressId: selectedAddress?._id,
-      shippingAddress: selectedAddress?._id ? undefined : selectedShippingAddress,
-    }),
-    [selectedAddress?._id, selectedShippingAddress],
-  );
-
-  const applyAddressToForm = React.useCallback((address: UserAddress | null) => {
-    if (!address) return;
-
-    setForm((current) => ({
-      ...current,
-      fullName: address.customerName || current.fullName,
-      phone: address.phoneNumber || current.phone,
-      address: formatAddress(address),
-    }));
-  }, []);
-
-  React.useEffect(() => {
-    selectedAddressIdRef.current = selectedAddressId;
-  }, [selectedAddressId]);
-
-  React.useEffect(() => {
-    setForm((current) => ({
-      ...current,
-      fullName: current.fullName || session?.user.name || '',
-      phone: current.phone || session?.user.phone || '',
-      email: current.email || session?.user.email || '',
-    }));
-  }, [session?.user.email, session?.user.name, session?.user.phone]);
-
   const loadCart = React.useCallback(
-    async (silent = false) => {
+    async (silent = false, options: { resetSelection?: boolean } = {}) => {
       if (!session?.accessToken) {
         setCart(null);
         setCartRecommendationItems([]);
@@ -291,7 +142,9 @@ const CartScreen = () => {
       }
 
       try {
-        const nextCart = await runWithAuth((accessToken) => cartApi.getCart(accessToken));
+        const nextCart = await runWithAuth((accessToken) => (
+          options.resetSelection ? cartApi.selectAll(accessToken, false) : cartApi.getCart(accessToken)
+        ));
         setCart(nextCart);
         void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(6, accessToken))
           .then((response) => {
@@ -345,125 +198,46 @@ const CartScreen = () => {
     onImpression: (item) => recordCartRecommendationEvent(item, 'impression'),
   });
 
-  const loadAddresses = React.useCallback(
-    async (silent = false) => {
-      if (!session?.accessToken) {
-        setAddresses([]);
-        setSelectedAddressId(null);
-        return;
-      }
-
-      if (!silent) {
-        setIsAddressLoading(true);
-      }
-
-      try {
-        const nextAddresses = await runWithAuth((accessToken) => accountApi.getAddresses(accessToken));
-        const currentSelectedAddressId = selectedAddressIdRef.current;
-        const nextSelected =
-          nextAddresses.find((address) => address._id && address._id === currentSelectedAddressId) ??
-          nextAddresses.find((address) => address.isDefault) ??
-          nextAddresses[0] ??
-          null;
-
-        setAddresses(nextAddresses);
-        setSelectedAddressId(nextSelected?._id ?? null);
-        applyAddressToForm(nextSelected);
-      } catch (error) {
-        setAddresses([]);
-        setSelectedAddressId(null);
-        if (!silent) {
-          showNotice({
-            tone: 'error',
-            title: 'Chưa tải được địa chỉ',
-            message: getErrorMessage(error),
-          });
-        }
-      } finally {
-        setIsAddressLoading(false);
-      }
-    },
-    [applyAddressToForm, runWithAuth, session?.accessToken, showNotice],
-  );
-
-  const loadPaymentMethods = React.useCallback(
-    async (silent = false) => {
-      if (!session?.accessToken) {
-        setPaymentMethods([]);
-        setSelectedPaymentMethodId(null);
-        setIsPaymentMethodsLoading(false);
-        return;
-      }
-
-      if (!silent) {
-        setIsPaymentMethodsLoading(true);
-      }
-
-      try {
-        const nextPaymentMethods = await runWithAuth((accessToken) => paymentMethodsApi.list(accessToken));
-        const activeMethods = nextPaymentMethods.filter((method) => method.status === 'verified');
-        const nextDefaultMethod = activeMethods.find((method) => method.isDefault) ?? null;
-        const nextDefaultVNPayMethod =
-          activeMethods.find((method) => method.type === 'VNPAY' && method.isDefault) ??
-          activeMethods.find((method) => method.type === 'VNPAY') ??
-          null;
-
-        setPaymentMethods(nextPaymentMethods);
-        setSelectedPaymentMethodId((current) => {
-          if (current && activeMethods.some((method) => method._id === current && method.type === 'VNPAY')) {
-            return current;
-          }
-
-          return nextDefaultVNPayMethod?._id ?? null;
-        });
-
-        if (!paymentMethodSelectionTouchedRef.current && nextDefaultMethod?.type === 'VNPAY') {
-          setPaymentMethod('VNPAY');
-        }
-      } catch (error) {
-        setPaymentMethods([]);
-        setSelectedPaymentMethodId(null);
-        if (!silent) {
-          showNotice({
-            tone: 'warning',
-            title: 'Chưa tải được phương thức thanh toán',
-            message: getErrorMessage(error),
-          });
-        }
-      } finally {
-        setIsPaymentMethodsLoading(false);
-      }
-    },
-    [runWithAuth, session?.accessToken, showNotice],
-  );
-
   useStaleFocusEffect(
     () => {
-      void loadCart();
-      void loadAddresses();
-      void loadPaymentMethods();
+      void loadCart(false, { resetSelection: !shouldKeepSelectionOnFocus });
     },
-    [loadAddresses, loadCart, loadPaymentMethods],
-    { staleMs: 20 * 1000 },
+    [loadCart, shouldKeepSelectionOnFocus],
+    { runOnDepsChange: true, staleMs: 20 * 1000 },
   );
 
-  React.useEffect(() => {
-    if (paymentMethod !== 'VNPAY') {
-      if (selectedPaymentMethodId) {
-        setSelectedPaymentMethodId(null);
+  const clearSelectedCartItemsLocally = React.useCallback(() => {
+    setCart((currentCart) => {
+      if (!currentCart) {
+        return currentCart;
       }
-      return;
-    }
 
-    if (
-      selectedPaymentMethodId &&
-      !activeSavedPaymentMethods.some(
-        (method) => method._id === selectedPaymentMethodId && method.type === 'VNPAY',
-      )
-    ) {
-      setSelectedPaymentMethodId(defaultVNPayPaymentMethod?._id ?? null);
-    }
-  }, [activeSavedPaymentMethods, defaultVNPayPaymentMethod, paymentMethod, selectedPaymentMethodId]);
+      return {
+        ...currentCart,
+        product_list: currentCart.product_list.map((item) => (
+          item.isSelected ? { ...item, isSelected: false } : item
+        )),
+        summary: {
+          ...currentCart.summary,
+          selectedItemCount: 0,
+          subTotal: 0,
+        },
+      };
+    });
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        if (!session?.accessToken) {
+          return;
+        }
+
+        clearSelectedCartItemsLocally();
+        void runWithAuth((accessToken) => cartApi.selectAll(accessToken, false)).catch(() => undefined);
+      };
+    }, [clearSelectedCartItemsLocally, runWithAuth, session?.accessToken]),
+  );
 
   const selectedItems = React.useMemo(
     () => cart?.product_list.filter((item) => item.isSelected) ?? [],
@@ -473,23 +247,6 @@ const CartScreen = () => {
     () => selectedItems.filter((item) => item.isAvailable !== false),
     [selectedItems],
   );
-  const selectedCheckoutItemKey = React.useMemo(
-    () =>
-      selectedCheckoutItems
-        .map((item) => `${item._id}:${item.quantity}:${item.priceAtAddedTime}:${item.isAvailable}`)
-        .join('|'),
-    [selectedCheckoutItems],
-  );
-  const checkoutPreviewRequestKey = React.useMemo(
-    () => [
-      selectedCheckoutItemKey,
-      selectedAddressKey,
-      appliedCouponCodes.join(','),
-      paymentMethod,
-    ].join('::'),
-    [appliedCouponCodes, paymentMethod, selectedAddressKey, selectedCheckoutItemKey],
-  );
-  const checkoutPreviewIsCurrent = Boolean(checkoutPreview && checkoutPreviewKey === checkoutPreviewRequestKey);
   const unavailableSelectedItems = selectedItems.filter((item) => item.isAvailable === false);
   const allItemsSelected = Boolean(
     cart?.product_list.length && cart.product_list.every((item) => item.isSelected),
@@ -540,165 +297,9 @@ const CartScreen = () => {
     (sum, item) => sum + item.quantity * item.priceAtAddedTime,
     0,
   );
-  const localShippingDiscountAmount = 0;
-  const checkoutSummary = checkoutPreview?.summary ?? {
-    subTotal: localSubTotal,
-    shippingFee: 0,
-    couponDiscountAmount: 0,
-    shippingDiscountAmount: localShippingDiscountAmount,
-    membershipDiscountAmount: 0,
-    taxAmount: 0,
-    totalAmount: localSubTotal,
-  };
-  const {
-    subTotal,
-    shippingFee,
-    couponDiscountAmount,
-    shippingDiscountAmount,
-    membershipDiscountAmount,
-    totalAmount,
-  } = checkoutSummary;
-  const appliedMembership = checkoutPreview?.appliedMembership ?? null;
-  const appliedCoupon = checkoutPreview?.coupon ?? null;
-  const appliedCoupons = checkoutPreview?.coupons?.length
-    ? checkoutPreview.coupons
-    : appliedCoupon ? [appliedCoupon] : [];
-  const appliedCouponCode = appliedCouponCodes[0] ?? null;
-  const shippingQuote = checkoutPreview?.shippingQuote ?? null;
-  const shippingComparison = checkoutPreview?.shippingComparison ?? null;
-  const shippingPayable = selectedCheckoutItems.length ? Math.max(0, shippingFee - shippingDiscountAmount) : 0;
-  const isShippingFreeForUser = selectedCheckoutItems.length > 0 && shippingPayable === 0;
-  const addressHasShippingCodes = hasShippingAreaCode(selectedAddress);
-  const shippingQuoteIsLive =
-    shippingQuote?.provider === 'GHN' &&
-    shippingQuote.status === 'quoted' &&
-    shippingComparison?.comparisonStatus !== 'fallback';
-  const shippingNeedsAddressMapping = Boolean(
-    selectedAddress &&
-    !shippingQuoteIsLive &&
-    !addressHasShippingCodes,
-  );
-  const shippingProviderLabel = shippingQuote?.provider === 'GHN'
-    ? 'GHN tối ưu'
-    : shippingComparison?.comparisonStatus === 'fallback'
-      ? 'Phí tạm tính'
-      : 'Giá tối ưu';
-  const shippingStatusText = isPreviewLoading
-    ? 'Đang tính phí giao hàng...'
-    : !selectedCheckoutItems.length
-    ? 'Chọn sản phẩm để tính phí giao hàng.'
-    : !selectedAddress
-    ? 'Chọn địa chỉ nhận hàng để tính phí giao hàng.'
-    : shippingComparison?.note
-    ? shippingComparison.note
-    : shippingNeedsAddressMapping
-    ? 'Địa chỉ này chưa có dữ liệu tính phí tự động, hệ thống đang dùng phí tạm tính.'
-    : shippingComparison?.comparisonStatus === 'live' || shippingComparison?.comparisonStatus === 'partial'
-    ? 'Hệ thống đã chọn giải pháp giao hàng tối ưu cho địa chỉ này.'
-    : shippingQuote?.status === 'quoted'
-    ? 'Đã tính phí theo địa chỉ nhận hàng.'
-    : 'Đang dùng phí tạm tính, shop sẽ đối soát lại khi xử lý đơn.';
-  const canSubmit =
-    selectedCheckoutItems.length > 0 &&
-    unavailableSelectedItems.length === 0 &&
-    Boolean(selectedAddress) &&
-    Boolean(checkoutPreview?.quoteVersion) &&
-    checkoutPreviewIsCurrent &&
-    !isPreviewLoading &&
-    !isSubmitting &&
-    (paymentMethod === 'COD' || paymentMethod === 'VNPAY');
-
-  React.useEffect(() => {
-    const nextCouponCode = route.params?.couponCode?.trim().toUpperCase();
-    if (!nextCouponCode || appliedCouponCodes.includes(nextCouponCode)) {
-      return;
-    }
-
-    setCouponCode(nextCouponCode);
-    setAppliedCouponCodes((current) => [...current, nextCouponCode].slice(0, 3));
-  }, [appliedCouponCodes, route.params?.couponCode]);
-
-  React.useEffect(() => {
-    if (!session?.accessToken || !selectedCheckoutItems.length) {
-      setCheckoutPreview(null);
-      setCheckoutPreviewKey('');
-      setIsPreviewLoading(false);
-      return;
-    }
-
-    let isActive = true;
-    setIsPreviewLoading(true);
-    const previewKey = checkoutPreviewRequestKey;
-
-    const handle = setTimeout(() => {
-      runWithAuth((accessToken) =>
-        cartApi.previewCheckout(accessToken, {
-          cartItemIds: selectedCheckoutItems.map((item) => item._id),
-          ...getCheckoutAddressPayload(),
-          couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
-          paymentMethod,
-        }),
-      )
-      .then((preview) => {
-        if (!isActive) return;
-
-        setCheckoutPreview(preview);
-        setCheckoutPreviewKey(previewKey);
-        const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? (preview.coupon ? [preview.coupon.code] : []);
-        if (previewCodes.length) {
-          setCouponCode('');
-          setAppliedCouponCodes((current) => (
-            current.length === previewCodes.length && current.every((code, index) => code === previewCodes[index])
-              ? current
-              : previewCodes
-          ));
-        }
-      })
-      .catch((error) => {
-        if (!isActive) return;
-
-        setCheckoutPreview(null);
-        setCheckoutPreviewKey('');
-        if (appliedCouponCodes.length) {
-          setAppliedCouponCodes([]);
-          showNotice({
-            tone: 'warning',
-            title: 'Voucher không còn phù hợp',
-            message: getErrorMessage(error),
-          });
-        }
-      })
-      .finally(() => {
-        if (isActive) {
-          setIsPreviewLoading(false);
-        }
-      });
-    }, CHECKOUT_PREVIEW_DEBOUNCE_MS);
-
-    return () => {
-      isActive = false;
-      clearTimeout(handle);
-    };
-  }, [
-    appliedCouponCodes,
-    checkoutPreviewRequestKey,
-    paymentMethod,
-    getCheckoutAddressPayload,
-    runWithAuth,
-    selectedAddressKey,
-    selectedCheckoutItemKey,
-    selectedCheckoutItems,
-    session?.accessToken,
-    showNotice,
-  ]);
 
   const updateCartState = (nextCart: CartResponse) => {
     setCart(nextCart);
-  };
-
-  const handleSelectAddress = (address: UserAddress) => {
-    setSelectedAddressId(address._id ?? null);
-    applyAddressToForm(address);
   };
 
   const handleSelectItem = async (item: CartItem) => {
@@ -776,7 +377,16 @@ const CartScreen = () => {
       return;
     }
 
-    setConfirmingRemoveItemId((current) => (current === item._id ? null : item._id));
+    Alert.alert('Bỏ sản phẩm khỏi giỏ?', 'Bạn chắc chắn muốn bỏ sản phẩm này?', [
+      { text: 'Không', style: 'cancel' },
+      {
+        text: 'Đồng ý',
+        style: 'destructive',
+        onPress: () => {
+          void confirmRemoveItem(item);
+        },
+      },
+    ]);
   };
 
   const confirmRemoveItem = async (item: CartItem) => {
@@ -786,7 +396,6 @@ const CartScreen = () => {
 
     try {
       setPendingItemId(item._id);
-      setConfirmingRemoveItemId(null);
       const nextCart = await runWithAuth((accessToken) => cartApi.deleteItem(accessToken, item._id));
       updateCartState(nextCart);
       showNotice({
@@ -802,307 +411,6 @@ const CartScreen = () => {
       });
     } finally {
       setPendingItemId(null);
-    }
-  };
-
-  const handleApplyCoupon = async () => {
-    const code = couponCode.trim();
-
-    if (!session?.accessToken) {
-      navigation.navigate('Login');
-      return;
-    }
-
-    if (!code) {
-      showNotice({
-        tone: 'warning',
-        title: 'Thiếu mã giảm giá',
-        message: 'Bạn nhập mã voucher trước nha.',
-      });
-      return;
-    }
-
-    if (!selectedCheckoutItems.length) {
-      showNotice({
-        tone: 'warning',
-        title: 'Giỏ hàng trống',
-        message: 'Bạn chọn ít nhất một sản phẩm để áp dụng voucher.',
-      });
-      return;
-    }
-
-    if (!appliedCouponCodes.includes(code.toUpperCase()) && appliedCouponCodes.length >= 3) {
-      showNotice({
-        tone: 'warning',
-        title: 'Đã đạt giới hạn voucher',
-        message: 'Mỗi đơn chỉ có thể áp dụng tối đa 3 voucher.',
-      });
-      return;
-    }
-
-    try {
-      setIsApplyingCoupon(true);
-      const preview = await runWithAuth((accessToken) =>
-        cartApi.previewCheckout(accessToken, {
-          couponCodes: Array.from(new Set([...appliedCouponCodes, code.toUpperCase()])).slice(0, 3),
-          cartItemIds: selectedCheckoutItems.map((item) => item._id),
-          ...getCheckoutAddressPayload(),
-          paymentMethod,
-        }),
-      );
-
-      if (!preview.coupon) {
-        throw new CartApiError('Voucher chưa được áp dụng cho đơn hàng này.');
-      }
-
-      const previewCodes = preview.coupons?.map((coupon) => coupon.code) ?? [preview.coupon.code];
-      setCheckoutPreview(preview);
-      setCheckoutPreviewKey([
-        selectedCheckoutItemKey,
-        selectedAddressKey,
-        previewCodes.join(','),
-        paymentMethod,
-      ].join('::'));
-      setAppliedCouponCodes(previewCodes);
-      setCouponCode('');
-      showNotice({
-        tone: 'success',
-        title: 'Đã áp dụng voucher',
-        message: `${preview.coupon.code} đã được tính vào đơn hàng.`,
-      }, 3200);
-    } catch (error) {
-      showNotice({
-        tone: 'error',
-        title: 'Chưa áp dụng được voucher',
-        message: getErrorMessage(error),
-      });
-    } finally {
-      setIsApplyingCoupon(false);
-    }
-  };
-
-  const handleClearCoupon = (code?: string) => {
-    setAppliedCouponCodes((current) => code ? current.filter((item) => item !== code) : []);
-    setCouponCode('');
-  };
-
-  const handleOpenCoupons = () => {
-    if (!session?.accessToken) {
-      navigation.navigate('Login');
-      return;
-    }
-
-    navigation.navigate('Coupons', {
-      cartItemIds: selectedCheckoutItems.map((item) => item._id),
-      selectedCouponCode: appliedCouponCode,
-      paymentMethod,
-    });
-  };
-
-  const handleSelectPaymentMethod = React.useCallback(
-    (method: PaymentMethod) => {
-      paymentMethodSelectionTouchedRef.current = true;
-      setPaymentMethod(method);
-
-      if (method !== 'VNPAY') {
-        setSelectedPaymentMethodId(null);
-        return;
-      }
-
-      setSelectedPaymentMethodId((current) => {
-        if (
-          current &&
-          activeSavedPaymentMethods.some(
-            (savedMethod) => savedMethod._id === current && savedMethod.type === 'VNPAY',
-          )
-        ) {
-          return current;
-        }
-
-        return defaultVNPayPaymentMethod?._id ?? null;
-      });
-    },
-    [activeSavedPaymentMethods, defaultVNPayPaymentMethod],
-  );
-
-  const validateCheckout = () => {
-    if (!selectedAddress) {
-      showNotice({
-        tone: 'warning',
-        title: 'Thiếu địa chỉ nhận hàng',
-        message: 'Bạn chọn hoặc thêm địa chỉ trong hồ sơ trước khi đặt hàng.',
-        actionLabel: 'Mở hồ sơ',
-        onAction: () => navigation.navigate('EditProfile'),
-      });
-      return false;
-    }
-
-    const overStockItem = selectedItems.find((item) => {
-      return item.availableQuantity !== undefined && item.quantity > item.availableQuantity;
-    });
-
-    if (overStockItem) {
-      showNotice({
-        tone: 'warning',
-        title: 'Không đủ tồn kho',
-        message: `${getItemTitle(overStockItem)} chỉ còn ${overStockItem.availableQuantity}.`,
-      });
-      return false;
-    }
-
-    return true;
-  };
-
-  const handleCheckout = async () => {
-    if (!session?.accessToken) {
-      navigation.navigate('Login');
-      return;
-    }
-
-    if (paymentMethod === 'MOMO') {
-      showNotice({
-        tone: 'warning',
-        title: 'MoMo chưa sẵn sàng',
-        message: 'Cổng MoMo chưa được tích hợp. Bạn chọn COD hoặc VNPay để đặt hàng nha.',
-      });
-      return;
-    }
-
-    if (!canSubmit || !validateCheckout()) {
-      return;
-    }
-
-    if (!selectedAddress) {
-      return;
-    }
-
-    if (!checkoutPreview?.quoteVersion) {
-      showNotice({
-        tone: 'warning',
-        title: 'Đang cập nhật tổng tiền',
-        message: 'Hệ thống cần tính lại phí giao hàng trước khi đặt hàng.',
-      });
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      // Keep the key stable if runWithAuth repeats the action after refreshing the token.
-      const idempotencyKey = Crypto.randomUUID();
-      const order = await runWithAuth((accessToken) => cartApi.createOrder(accessToken, {
-        cartItemIds: selectedCheckoutItems.map((item) => item._id),
-        paymentMethod,
-        paymentMethodId: paymentMethod === 'VNPAY' ? selectedSavedPaymentMethod?._id : undefined,
-        quoteVersion: checkoutPreview.quoteVersion,
-        ...getCheckoutAddressPayload(),
-        couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
-        orderNote: form.note.trim() || undefined,
-      }, idempotencyKey));
-
-      // Dọn dẹp form ngay sau khi tạo đơn thành công
-      setForm((current) => ({ ...current, note: '' }));
-      handleClearCoupon();
-
-      if (paymentMethod === 'VNPAY') {
-        // Luồng VNPay: lấy link thanh toán rồi mở WebBrowser
-        try {
-          const paymentData = await runWithAuth((accessToken) =>
-            paymentApi.createVNPayUrlFromOrder(accessToken, order._id),
-          );
-
-          try {
-            await WebBrowser.openBrowserAsync(paymentData.paymentUrl, {
-              presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-            });
-          } catch (openError) {
-            console.warn('Cannot open VNPay browser', openError);
-            navigation.replace('OrderSuccess', {
-              orderId: order._id,
-              orderCode: order.orderCode,
-              totalAmount: order.totalAmount,
-              paymentMethod: 'VNPAY',
-              paymentStatus: 'pending',
-              paymentMessage: 'Không thể mở trang thanh toán VNPay. Bạn thử lại sau nha.',
-            });
-            return;
-          }
-
-          navigation.replace('OrderSuccess', {
-            orderId: order._id,
-            orderCode: order.orderCode,
-            totalAmount: order.totalAmount,
-            paymentMethod: 'VNPAY',
-            paymentStatus: 'pending',
-            isProcessingPayment: true,
-          });
-        } catch (paymentError) {
-          const paymentMsg =
-            paymentError instanceof PaymentApiError || paymentError instanceof Error
-              ? paymentError.message
-              : 'Không lấy được link thanh toán.';
-
-          navigation.replace('OrderSuccess', {
-            orderId: order._id,
-            orderCode: order.orderCode,
-            totalAmount: order.totalAmount,
-            paymentMethod: 'VNPAY',
-            paymentStatus: 'pending',
-            paymentMessage: paymentMsg,
-          });
-        }
-      } else {
-        // Luồng COD: điều hướng thẳng đến màn hình thành công
-        navigation.replace('OrderSuccess', {
-          orderId: order._id,
-          orderCode: order.orderCode,
-          totalAmount: order.totalAmount,
-          paymentMethod: 'COD',
-          paymentStatus: 'pending',
-        });
-      }
-
-      await loadCart(true);
-    } catch (error) {
-      if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
-        try {
-          const refreshedPreview = await runWithAuth((accessToken) =>
-            cartApi.previewCheckout(accessToken, {
-              cartItemIds: selectedCheckoutItems.map((item) => item._id),
-              ...getCheckoutAddressPayload(),
-              couponCodes: appliedCouponCodes.length ? appliedCouponCodes : undefined,
-              paymentMethod,
-            }),
-          );
-
-          setCheckoutPreview(refreshedPreview);
-          setCheckoutPreviewKey(checkoutPreviewRequestKey);
-          showNotice({
-            tone: 'warning',
-            title: 'Phí giao hàng vừa thay đổi',
-            message: 'Tổng tiền đã được cập nhật. Bạn vui lòng kiểm tra lại trước khi đặt hàng.',
-          });
-          return;
-        } catch (refreshError) {
-          setCheckoutPreview(null);
-          setCheckoutPreviewKey('');
-          showNotice({
-            tone: 'warning',
-            title: 'Cần cập nhật lại phí giao hàng',
-            message: getErrorMessage(refreshError),
-          });
-          void loadCart(true);
-          return;
-        }
-      }
-
-      showNotice({
-        tone: 'error',
-        title: 'Chưa đặt được đơn',
-        message: getErrorMessage(error),
-      });
-      void loadCart(true);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -1201,27 +509,6 @@ const CartScreen = () => {
               {stockText}
             </Text>
           ) : null}
-          {confirmingRemoveItemId === item._id ? (
-            <View style={styles.removeConfirmRow}>
-              <Text style={styles.removeConfirmText} numberOfLines={1}>
-                Xóa sản phẩm này?
-              </Text>
-              <TouchableOpacity
-                style={styles.removeConfirmCancel}
-                onPress={() => setConfirmingRemoveItemId(null)}
-                activeOpacity={0.82}
-              >
-                <Text style={styles.removeConfirmCancelText}>Hủy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.removeConfirmDelete}
-                onPress={() => confirmRemoveItem(item)}
-                activeOpacity={0.82}
-              >
-                <Text style={styles.removeConfirmDeleteText}>Xóa</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
         </View>
       </View>
     );
@@ -1242,9 +529,9 @@ const CartScreen = () => {
           </View>
           <View style={styles.virtualTryOnCopy}>
             <Text style={styles.virtualTryOnEyebrow}>Fit Studio</Text>
-            <Text style={styles.virtualTryOnTitle}>Phối thử trước khi chốt</Text>
+            <Text style={styles.virtualTryOnTitle}>Thử đồ ảo trước khi mua</Text>
             <Text style={styles.virtualTryOnText}>
-              Đưa các món đang tick vào hàng chờ, mỗi lần AI sẽ dùng bộ active hợp lệ để tạo ảnh.
+              Chọn sản phẩm trong giỏ để xem chúng lên ảnh người thật trước khi thanh toán.
             </Text>
           </View>
         </View>
@@ -1280,10 +567,10 @@ const CartScreen = () => {
           </View>
           <Text style={[styles.virtualTryOnSelectionText, hasTooManyItems && styles.virtualTryOnSelectionTextWarning]}>
             {hasTooManyItems
-              ? `${selectedCount} món · tối đa ${TRY_ON_QUEUE_LIMIT} trong hàng chờ`
+              ? `${selectedCount} món · tối đa ${TRY_ON_QUEUE_LIMIT} món`
               : selectedCount
-                ? `${selectedCount} món trong hàng chờ`
-                : 'Tick sản phẩm để bắt đầu'}
+                ? `${selectedCount} món đã chọn`
+                : 'Chưa chọn món nào'}
           </Text>
         </View>
 
@@ -1298,8 +585,8 @@ const CartScreen = () => {
             {hasTooManyItems
               ? `Bỏ chọn ${selectedCount - TRY_ON_QUEUE_LIMIT} món để tiếp tục`
               : selectedCount
-                ? `Mang ${selectedCount} món sang AI`
-                : 'Chọn đồ để phối thử'}
+                ? `Phối thử ${selectedCount} món`
+                : 'Chọn sản phẩm để thử'}
           </Text>
           <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
         </TouchableOpacity>
@@ -1362,54 +649,6 @@ const CartScreen = () => {
           })}
         </ScrollView>
       </View>
-    );
-  };
-
-  const renderInput = (
-    placeholder: string,
-    value: string,
-    onChangeText: (value: string) => void,
-    keyboardType?: 'default' | 'email-address' | 'phone-pad',
-    multiline = false,
-  ) => (
-    <TextInput
-      style={[styles.input, multiline && styles.inputMultiline]}
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor={colors.textSubtle}
-      keyboardType={keyboardType}
-      multiline={multiline}
-      scrollEnabled={multiline}
-      textAlignVertical={multiline ? 'top' : 'center'}
-    />
-  );
-
-  const renderPaymentOption = (
-    method: PaymentMethod,
-    title: string,
-    icon: keyof typeof MaterialCommunityIcons.glyphMap,
-    disabled = false,
-    subtitle?: string,
-  ) => {
-    const selected = paymentMethod === method;
-
-    return (
-      <TouchableOpacity
-        style={[styles.paymentOption, selected && styles.paymentOptionSelected, disabled && styles.paymentOptionDisabled]}
-        onPress={() => (disabled ? undefined : handleSelectPaymentMethod(method))}
-        disabled={disabled}
-        activeOpacity={0.82}
-      >
-        <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
-          {selected ? <View style={styles.radioInner} /> : null}
-        </View>
-        <MaterialCommunityIcons name={icon} size={24} color={disabled ? colors.textSubtle : colors.brand} />
-        <View style={styles.paymentTextBlock}>
-          <Text style={[styles.paymentTitle, disabled && styles.paymentTitleDisabled]}>{title}</Text>
-          {subtitle ? <Text style={styles.paymentSubtitle}>{subtitle}</Text> : null}
-        </View>
-      </TouchableOpacity>
     );
   };
 
@@ -1482,148 +721,6 @@ const CartScreen = () => {
       </View>
     );
   };
-
-  const renderAddressSection = () => {
-    if (isAddressLoading) {
-      return (
-        <View style={styles.addressState}>
-          <ActivityIndicator color={colors.brand} />
-          <Text style={styles.addressStateText}>Đang tải địa chỉ nhận hàng</Text>
-        </View>
-      );
-    }
-
-    if (!addresses.length) {
-      return (
-        <View style={styles.addressEmpty}>
-          <MaterialCommunityIcons name="map-marker-plus-outline" size={24} color={colors.brand} />
-          <View style={styles.addressEmptyCopy}>
-            <Text style={styles.addressEmptyTitle}>Chưa có địa chỉ nhận hàng</Text>
-            <Text style={styles.addressEmptyText}>
-              Địa chỉ tạo ở đăng ký hoặc trong hồ sơ sẽ được dùng để đặt hàng.
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={styles.addressEditButton}
-            onPress={() => navigation.navigate('EditProfile')}
-            activeOpacity={0.82}
-          >
-            <Text style={styles.addressEditText}>Thêm</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.addressStack}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.addressChipRow}
-        >
-          {addresses.map((address, index) => {
-            const isSelected = selectedAddress?._id === address._id;
-
-            return (
-              <TouchableOpacity
-                key={getAddressKey(address, index)}
-                style={[styles.addressChip, isSelected && styles.addressChipActive]}
-                onPress={() => handleSelectAddress(address)}
-                activeOpacity={0.82}
-              >
-                <MaterialCommunityIcons
-                  name={address.isDefault ? 'star' : 'map-marker-outline'}
-                  size={17}
-                  color={isSelected ? colors.white : address.isDefault ? colors.goldDark : colors.brand}
-                />
-                <Text style={[styles.addressChipText, isSelected && styles.addressChipTextActive]} numberOfLines={1}>
-                  {address.isDefault ? 'Mặc định' : `Địa chỉ ${index + 1}`}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {selectedAddress ? (
-          <View style={styles.selectedAddressCard}>
-            <View style={styles.selectedAddressHeader}>
-              <View style={styles.selectedAddressIcon}>
-                <MaterialCommunityIcons name="map-marker-check-outline" size={20} color={colors.white} />
-              </View>
-              <View style={styles.selectedAddressCopy}>
-                <Text style={styles.selectedAddressName} numberOfLines={1}>
-                  {selectedAddress.customerName} - {selectedAddress.phoneNumber}
-                </Text>
-                <Text style={styles.selectedAddressText} numberOfLines={2}>
-                  {formatAddress(selectedAddress)}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.addressSmallButton}
-                onPress={() => navigation.navigate('EditProfile')}
-                activeOpacity={0.82}
-              >
-                <MaterialCommunityIcons name="pencil-outline" size={17} color={colors.brand} />
-              </TouchableOpacity>
-            </View>
-            <View style={[styles.addressQuoteRow, shippingNeedsAddressMapping && styles.addressQuoteRowWarning]}>
-              <MaterialCommunityIcons
-                name={shippingNeedsAddressMapping ? 'alert-circle-outline' : 'check-circle-outline'}
-                size={15}
-                color={shippingNeedsAddressMapping ? colors.goldText : colors.success}
-              />
-              <Text style={[styles.addressQuoteText, shippingNeedsAddressMapping && styles.addressQuoteTextWarning]}>
-                {!shippingNeedsAddressMapping
-                  ? 'Địa chỉ đã sẵn sàng để tính phí giao hàng.'
-                  : 'Đang dùng địa chỉ đã chọn; phí giao hàng tạm tính vì chưa có dữ liệu tính phí tự động.'}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-      </View>
-    );
-  };
-
-  const renderShippingQuoteCard = () => (
-    <View style={styles.shippingQuoteCard}>
-      <View style={styles.shippingQuoteIcon}>
-        {isPreviewLoading ? (
-          <ActivityIndicator color={colors.brand} size="small" />
-        ) : (
-          <MaterialCommunityIcons name="truck-fast-outline" size={21} color={colors.brand} />
-        )}
-      </View>
-      <View style={styles.shippingQuoteCopy}>
-        <View style={styles.shippingQuoteTopRow}>
-          <Text style={styles.shippingQuoteTitle}>Giao hàng tiêu chuẩn</Text>
-          <Text style={styles.shippingQuoteFee}>
-            {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
-          </Text>
-        </View>
-        <Text style={styles.shippingQuoteMeta}>{shippingProviderLabel} · {shippingStatusText}</Text>
-        {shippingNeedsAddressMapping ? (
-          <TouchableOpacity
-            style={styles.shippingQuoteAction}
-            onPress={() => navigation.navigate('EditProfile')}
-            activeOpacity={0.82}
-          >
-            <Text style={styles.shippingQuoteActionText}>Quản lý địa chỉ</Text>
-            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brand} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-    </View>
-  );
-
-  const vnpayPaymentSubtitle = isPaymentMethodsLoading
-    ? 'Đang tải phương thức thanh toán đã lưu...'
-    : selectedSavedPaymentMethod
-      ? `Dùng ${selectedSavedPaymentMethod.displayName}${
-          selectedSavedPaymentMethod.maskedInfo ? ` - ${selectedSavedPaymentMethod.maskedInfo}` : ''
-        }.`
-      : pendingVNPayPaymentMethod
-      ? 'VNPay đã lưu đang chờ xác minh, bạn vẫn có thể thanh toán qua cổng VNPay.'
-      : 'Ví điện tử, thẻ ATM, thẻ quốc tế qua VNPAY Sandbox.';
 
   const renderContent = () => {
     if (!isAuthenticated || !session?.accessToken) {
@@ -1698,192 +795,48 @@ const CartScreen = () => {
 
         {renderCartRecommendations()}
 
-        <View style={styles.sectionBlock}>
-          <Text style={styles.sectionTitle}>Thông tin đơn hàng</Text>
-          <View style={styles.formStack}>
-            {renderAddressSection()}
-            {renderShippingQuoteCard()}
-            {renderInput('Email', form.email, (value) => setForm((current) => ({ ...current, email: value })), 'email-address')}
-            {renderInput(
-              'Ghi chú thêm (Ví dụ: giao hàng giờ hành chính)',
-              form.note,
-              (value) => setForm((current) => ({ ...current, note: value })),
-              'default',
-              true,
-            )}
-          </View>
-        </View>
-
-        <View style={styles.sectionBlock}>
-          <Text style={styles.sectionTitle}>Hình thức thanh toán</Text>
-          <View style={styles.paymentStack}>
-            {renderPaymentOption(
-              'COD',
-              'Thanh toán khi giao hàng (COD)',
-              'truck-delivery-outline',
-              false,
-              'Khách hàng được kiểm tra hàng trước khi nhận.',
-            )}
-            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, vnpayPaymentSubtitle)}
-            {renderPaymentOption('MOMO', 'Thanh toán MoMo', 'wallet-outline', true, 'Sắp kết nối — MoMo chưa được tích hợp.')}
-          </View>
-        </View>
-
-        <View style={styles.sectionBlock}>
-          <Text style={styles.sectionTitle}>Ưu đãi dành cho bạn</Text>
-          <View style={styles.promoStack}>
-            <View style={styles.couponCard}>
-              <View style={styles.couponInputRow}>
-                <TextInput
-                  style={styles.couponInput}
-                  value={couponCode}
-                  onChangeText={(value) => {
-                    setCouponCode(value.toUpperCase());
-                  }}
-                  placeholder="Nhập mã voucher"
-                  placeholderTextColor={colors.textSubtle}
-                  autoCapitalize="characters"
-                  editable={!isApplyingCoupon}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.couponApplyButton,
-                    (!couponCode.trim() || isApplyingCoupon || !selectedCheckoutItems.length) &&
-                      styles.couponApplyButtonDisabled,
-                  ]}
-                  onPress={handleApplyCoupon}
-                  disabled={!couponCode.trim() || isApplyingCoupon || !selectedCheckoutItems.length}
-                  activeOpacity={0.82}
-                >
-                  {isApplyingCoupon ? (
-                    <ActivityIndicator color={colors.white} size="small" />
-                  ) : (
-                    <Text style={styles.couponApplyText}>Áp dụng</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity
-                style={styles.couponListButton}
-                onPress={handleOpenCoupons}
-                activeOpacity={0.82}
-                disabled={!selectedCheckoutItems.length}
-              >
-                <MaterialCommunityIcons name="ticket-percent-outline" size={18} color={colors.brand} />
-                <Text style={styles.couponListText}>Chọn voucher khả dụng</Text>
-                <MaterialCommunityIcons name="chevron-right" size={20} color={colors.brand} />
-              </TouchableOpacity>
-              {appliedCoupons.length ? (
-                appliedCoupons.map((coupon) => (
-                  <View style={styles.couponAppliedRow} key={coupon.code}>
-                    <View style={styles.couponAppliedCopy}>
-                      <Text style={styles.couponAppliedTitle}>{coupon.name}</Text>
-                      <Text style={styles.couponAppliedMeta}>
-                        Mã {coupon.code} đang được tính vào đơn hàng
-                      </Text>
-                    </View>
-                    <TouchableOpacity onPress={() => handleClearCoupon(coupon.code)} activeOpacity={0.82}>
-                      <Text style={styles.couponClearText}>Bỏ</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.couponHint}>
-                  {isPreviewLoading
-                    ? 'Đang tính lại voucher, phí ship và tổng tiền...'
-                    : 'Voucher sẽ được kiểm tra theo sản phẩm, địa chỉ giao hàng và hạng thành viên.'}
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.memberCard}>
-              <View style={styles.memberBadge}>
-                <Text style={styles.memberBadgeText}>
-                  {appliedMembership?.name?.charAt(0).toUpperCase() ?? 'M'}
-                </Text>
-              </View>
-              <View style={styles.memberInfo}>
-                <Text style={styles.memberTitle}>
-                  {appliedMembership
-                    ? `Hạng thẻ: ${appliedMembership.name}`
-                    : 'Ưu đãi thành viên'}
-                </Text>
-                <Text style={styles.memberMeta}>
-                  {isPreviewLoading
-                    ? 'Đang tính ưu đãi theo hạng...'
-                    : membershipDiscountAmount
-                    ? `Đã giảm ${formatCurrency(membershipDiscountAmount)} theo hạng hiện tại.`
-                    : appliedMembership
-                    ? 'Hạng hiện tại chưa có giảm giá trực tiếp.'
-                    : 'Đăng nhập và tích điểm để nhận ưu đãi theo hạng.'}
-                </Text>
-              </View>
-              <Text style={styles.memberDiscount}>
-                {appliedMembership
-                  ? appliedMembership.discountPercent > 0
-                    ? `-${appliedMembership.discountPercent}%`
-                    : '0%'
-                  : '-'}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.summaryPanel}>
-          {unavailableSelectedItems.length ? (
-            <View style={styles.checkoutWarning}>
-              <MaterialCommunityIcons name="alert-circle-outline" size={18} color={colors.danger} />
-              <Text style={styles.checkoutWarningText}>
-                Có sản phẩm đã chọn không còn đủ tồn kho. Bạn giảm số lượng, bỏ chọn hoặc xóa sản phẩm đó trước khi đặt hàng.
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Tạm tính:</Text>
-            <Text style={styles.summaryValue}>{formatCurrency(subTotal)}</Text>
-          </View>
-          <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Phí giao hàng:</Text>
-            <Text style={styles.summaryValue}>
-              {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
+        {unavailableSelectedItems.length ? (
+          <View style={styles.checkoutWarning}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={18} color={colors.danger} />
+            <Text style={styles.checkoutWarningText}>
+              Có sản phẩm đã chọn không còn đủ tồn kho. Bạn giảm số lượng, bỏ chọn hoặc xóa sản phẩm đó trước khi mua hàng.
             </Text>
           </View>
-          <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Giảm phí vận chuyển:</Text>
-            <Text style={shippingDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
-              {shippingDiscountAmount > 0 ? `-${formatCurrency(shippingDiscountAmount)}` : '0đ'}
-            </Text>
-          </View>
-          <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Voucher{appliedCouponCodes.length ? ` (${appliedCouponCodes.join(' + ')})` : ''}:</Text>
-            <Text style={couponDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
-              {couponDiscountAmount > 0 ? `-${formatCurrency(couponDiscountAmount)}` : '0đ'}
-            </Text>
-          </View>
-          <View style={styles.summaryLine}>
-            <Text style={styles.summaryLabel}>Khách hàng thân thiết:</Text>
-            <Text style={membershipDiscountAmount > 0 ? styles.summaryDiscount : styles.summaryValue}>
-              {membershipDiscountAmount > 0 ? `-${formatCurrency(membershipDiscountAmount)}` : '0đ'}
-            </Text>
-          </View>
-          <View style={styles.totalLine}>
-            <Text style={styles.totalLabel}>Tổng:</Text>
-            <Text style={styles.totalValue}>{formatCurrency(totalAmount)}</Text>
-          </View>
-        </View>
+        ) : null}
 
-        <Pressable
-          style={[styles.checkoutButton, !canSubmit && styles.checkoutButtonDisabled]}
-          onPress={handleCheckout}
-          disabled={!canSubmit}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color={colors.white} />
-          ) : (
-            <Text style={styles.checkoutText}>Đặt hàng</Text>
-          )}
-        </Pressable>
+        <View style={styles.footerGap} />
       </>
     );
+  };
+
+  const handleGoToCheckout = () => {
+    if (!isAuthenticated || !session?.accessToken) {
+      navigation.navigate('Login');
+      return;
+    }
+
+    if (!selectedCheckoutItems.length) {
+      showNotice({
+        tone: 'warning',
+        title: 'Chưa chọn sản phẩm',
+        message: 'Bạn tick ít nhất một sản phẩm trong giỏ để mua hàng.',
+      });
+      return;
+    }
+
+    if (unavailableSelectedItems.length) {
+      showNotice({
+        tone: 'warning',
+        title: 'Có sản phẩm hết hàng',
+        message: 'Bạn bỏ chọn hoặc xóa sản phẩm không còn hàng trước khi mua hàng.',
+      });
+      return;
+    }
+
+    navigation.navigate('Checkout', {
+      cartItemIds: selectedCheckoutItems.map((item) => item._id),
+      ...(route.params?.couponCode ? { couponCode: route.params.couponCode } : {}),
+    });
   };
 
   return (
@@ -1922,11 +875,24 @@ const CartScreen = () => {
       >
         {renderNotice()}
         {renderContent()}
-        <View style={styles.footerGap}>
+        <View style={styles.footerGapStorefront}>
           <StorefrontFooter />
         </View>
       </ScrollView>
-      <StorefrontBottomNav activeTab="cart" />
+
+      <View style={styles.stickyFooter}>
+        <View style={styles.stickyFooterLeft}>
+          <Text style={styles.stickyFooterTotal}>{formatCurrency(localSubTotal)}</Text>
+          <Text style={styles.stickyFooterHint}>Tạm tính · Chọn mua hàng để xem phí ship</Text>
+        </View>
+        <Pressable
+          style={[styles.checkoutButton, !selectedCheckoutItems.length && styles.checkoutButtonDisabled]}
+          onPress={handleGoToCheckout}
+          disabled={!selectedCheckoutItems.length}
+        >
+          <Text style={styles.checkoutText}>Mua hàng</Text>
+        </Pressable>
+      </View>
     </SafeAreaView>
   );
 };
@@ -2080,7 +1046,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     borderRadius: radii.md,
     backgroundColor: '#213448',
-    padding: spacing.lg,
+    padding: spacing.md,
     overflow: 'hidden',
     gap: spacing.md,
   },
@@ -2095,13 +1061,13 @@ const styles = StyleSheet.create({
   },
   virtualTryOnHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   virtualTryOnIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#547792',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.28)',
@@ -2122,8 +1088,8 @@ const styles = StyleSheet.create({
   },
   virtualTryOnTitle: {
     color: colors.white,
-    fontSize: 19,
-    lineHeight: 25,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: '900',
     marginTop: 2,
   },
@@ -2138,10 +1104,10 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderRadius: radii.sm,
     backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     gap: spacing.sm,
   },
   virtualTryOnThumbs: {
@@ -2185,19 +1151,19 @@ const styles = StyleSheet.create({
   virtualTryOnSelectionText: {
     flex: 1,
     color: colors.white,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '800',
-    textAlign: 'right',
+    textAlign: 'left',
   },
   virtualTryOnSelectionTextWarning: {
     color: '#FFD9A8',
   },
   virtualTryOnButton: {
-    minHeight: 50,
-    borderRadius: radii.pill,
+    minHeight: 46,
+    borderRadius: radii.sm,
     backgroundColor: '#547792',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2392,574 +1358,12 @@ const styles = StyleSheet.create({
   stockTextDanger: {
     color: colors.danger,
   },
-  removeConfirmRow: {
-    minHeight: 36,
-    borderRadius: radii.xs,
-    backgroundColor: colors.dangerSoft,
-    paddingHorizontal: spacing.sm,
-    marginTop: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  removeConfirmText: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.danger,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '900',
-  },
-  removeConfirmCancel: {
-    minWidth: 44,
-    height: 26,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  removeConfirmCancelText: {
-    color: colors.text,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '900',
-  },
-  removeConfirmDelete: {
-    minWidth: 44,
-    height: 26,
-    borderRadius: radii.xs,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  removeConfirmDeleteText: {
-    color: colors.white,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '900',
-  },
-  sectionBlock: {
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.xxl,
-  },
   sectionTitle: {
     color: colors.black,
     fontSize: 19,
     lineHeight: 25,
     fontWeight: '800',
     marginBottom: spacing.md,
-  },
-  formStack: {
-    gap: spacing.md,
-  },
-  addressState: {
-    minHeight: 86,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  addressStateText: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
-  addressEmpty: {
-    minHeight: 92,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  addressEmptyCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  addressEmptyTitle: {
-    color: colors.black,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '800',
-  },
-  addressEmptyText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 2,
-  },
-  addressEditButton: {
-    minHeight: 34,
-    borderRadius: radii.xs,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addressEditText: {
-    color: colors.white,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-  },
-  addressStack: {
-    gap: spacing.sm,
-  },
-  addressChipRow: {
-    gap: spacing.sm,
-    paddingRight: spacing.sm,
-  },
-  addressChip: {
-    maxWidth: 142,
-    height: 34,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  addressChipActive: {
-    borderColor: colors.brand,
-    backgroundColor: colors.brand,
-  },
-  addressChipText: {
-    flexShrink: 1,
-    color: colors.brand,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-  },
-  addressChipTextActive: {
-    color: colors.white,
-  },
-  selectedAddressCard: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-  },
-  selectedAddressHeader: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  selectedAddressIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectedAddressCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  selectedAddressName: {
-    color: colors.black,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '900',
-  },
-  selectedAddressText: {
-    color: colors.textBody,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-  },
-  addressQuoteRow: {
-    minHeight: 32,
-    borderRadius: radii.xs,
-    backgroundColor: colors.successSoft,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: spacing.sm,
-  },
-  addressQuoteRowWarning: {
-    backgroundColor: colors.goldSoft,
-  },
-  addressQuoteText: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.success,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '800',
-  },
-  addressQuoteTextWarning: {
-    color: colors.goldText,
-  },
-  addressSmallButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.brandSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shippingQuoteCard: {
-    minHeight: 86,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    backgroundColor: colors.brandSoft,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  shippingQuoteIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shippingQuoteCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  shippingQuoteTopRow: {
-    minHeight: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  shippingQuoteTitle: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.black,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '900',
-  },
-  shippingQuoteFee: {
-    color: colors.black,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '900',
-  },
-  shippingQuoteMeta: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 4,
-  },
-  shippingQuoteAction: {
-    alignSelf: 'flex-start',
-    minHeight: 30,
-    marginTop: spacing.sm,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  shippingQuoteActionText: {
-    color: colors.brand,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '900',
-  },
-  input: {
-    minHeight: 46,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    color: colors.text,
-    fontSize: 14,
-  },
-  inputMultiline: {
-    minHeight: 104,
-    maxHeight: 150,
-    paddingTop: 13,
-    paddingBottom: 13,
-  },
-  paymentStack: {
-    gap: spacing.md,
-  },
-  paymentOption: {
-    minHeight: 58,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  paymentOptionSelected: {
-    borderColor: colors.black,
-  },
-  paymentOptionDisabled: {
-    opacity: 0.72,
-  },
-  radioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOuterSelected: {
-    borderColor: colors.black,
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.black,
-  },
-  paymentTextBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  paymentTitle: {
-    color: colors.black,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  paymentTitleDisabled: {
-    color: colors.textMuted,
-  },
-  paymentSubtitle: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  promoStack: {
-    gap: spacing.md,
-  },
-  couponCard: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  couponInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  couponInput: {
-    flex: 1,
-    minWidth: 0,
-    height: 42,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    paddingHorizontal: spacing.md,
-    color: colors.black,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  couponApplyButton: {
-    minWidth: 88,
-    height: 42,
-    borderRadius: radii.sm,
-    backgroundColor: colors.black,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  couponApplyButtonDisabled: {
-    opacity: 0.45,
-  },
-  couponApplyText: {
-    color: colors.white,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-  },
-  couponHint: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  couponListButton: {
-    minHeight: 38,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brandSoft,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  couponListText: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.brand,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '900',
-  },
-  couponAppliedRow: {
-    borderRadius: radii.sm,
-    backgroundColor: colors.successSoft,
-    padding: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  couponAppliedCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  couponAppliedTitle: {
-    color: colors.black,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-  },
-  couponAppliedMeta: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 2,
-  },
-  couponClearText: {
-    color: colors.danger,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-  },
-  promoCard: {
-    minHeight: 62,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-  },
-  promoOrange: {
-    borderColor: '#FF7A1A',
-    borderStyle: 'dashed',
-  },
-  promoBlue: {
-    borderColor: colors.action,
-    borderStyle: 'dashed',
-  },
-  promoBadge: {
-    minWidth: 62,
-    minHeight: 28,
-    borderRadius: radii.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
-  promoBadgeOrange: {
-    backgroundColor: '#FF6B00',
-  },
-  promoBadgeBlue: {
-    backgroundColor: colors.action,
-  },
-  promoBadgeText: {
-    color: colors.white,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '900',
-  },
-  promoBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  promoTitle: {
-    color: colors.black,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  promoMeta: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  memberCard: {
-    minHeight: 78,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  memberBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFD400',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  memberBadgeText: {
-    color: colors.black,
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: '900',
-  },
-  memberInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  memberTitle: {
-    color: colors.black,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '800',
-  },
-  memberMeta: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  memberDiscount: {
-    color: colors.action,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
-  },
-  summaryPanel: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.xl,
-    gap: spacing.sm,
   },
   checkoutWarning: {
     borderRadius: radii.sm,
@@ -2971,6 +1375,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.sm,
     marginBottom: spacing.sm,
+    marginHorizontal: spacing.md,
   },
   checkoutWarningText: {
     flex: 1,
@@ -2979,58 +1384,11 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: '700',
   },
-  summaryLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  summaryLabel: {
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 19,
-  },
-  summaryValue: {
-    color: colors.black,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '800',
-  },
-  summaryDiscount: {
-    color: colors.success,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '800',
-  },
-  freeText: {
-    color: colors.success,
-  },
-  totalLine: {
-    marginTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  totalLabel: {
-    color: colors.black,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '900',
-  },
-  totalValue: {
-    color: colors.text,
-    fontSize: 21,
-    lineHeight: 28,
-    fontWeight: '900',
-  },
   checkoutButton: {
     minHeight: 56,
     borderRadius: radii.sm,
     backgroundColor: colors.black,
-    marginHorizontal: spacing.md,
-    marginTop: spacing.lg,
+    paddingHorizontal: spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3087,6 +1445,41 @@ const styles = StyleSheet.create({
   footerGap: {
     paddingTop: spacing.xxl,
     backgroundColor: colors.background,
+  },
+  footerGapStorefront: {
+    paddingTop: spacing.xxl,
+    paddingBottom: 120,
+    backgroundColor: colors.background,
+  },
+  stickyFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  stickyFooterLeft: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  stickyFooterTotal: {
+    color: colors.text,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '900',
+  },
+  stickyFooterHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
   },
 });
 

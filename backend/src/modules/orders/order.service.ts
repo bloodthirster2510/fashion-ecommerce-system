@@ -1023,6 +1023,52 @@ type SessionOptions = {
   session?: ClientSession;
 };
 
+const isMongoTransactionSupportError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return /Transaction numbers are only allowed|transactions? (are|is) not supported|Only servers in a sharded cluster can start a new transaction|active transaction number/i
+    .test(message);
+};
+
+const runWithMongoTransactionFallback = async <T>(
+  operation: (options: SessionOptions) => Promise<T>,
+) => {
+  let session: ClientSession | null = null;
+
+  try {
+    session = await mongoose.startSession();
+    let result: T | undefined;
+
+    await session.withTransaction(async () => {
+      result = await operation({ session: session! });
+    });
+
+    if (result === undefined) {
+      throw new SalesServiceError('Transaction did not produce a result', 500);
+    }
+
+    return result;
+  } catch (error) {
+    if (!isMongoTransactionSupportError(error)) {
+      throw error;
+    }
+
+    if (session) {
+      await session.endSession();
+      session = null;
+    }
+
+    console.warn(
+      'MongoDB transactions are unavailable; continuing checkout without a transaction. Configure MongoDB as a replica set for atomic checkout writes.',
+    );
+    return operation({});
+  } finally {
+    if (session) {
+      await session.endSession();
+    }
+  }
+};
+
 export const calculateLoyaltyPointsForOrder = (order: IOrder) => {
   const totalAmount = Math.max(0, Number(order.totalAmount) || 0);
   const rule = order.loyaltyRuleSnapshot;
@@ -1332,12 +1378,13 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   const appliedCoupons = pricing.appliedCoupons ?? (pricing.appliedCoupon ? [pricing.appliedCoupon] : []);
   const loyaltyRuleSnapshot = await loyaltyRuleService.getActiveRuleSnapshot();
   let createdOrder: IOrder | null = null;
-  const session = await mongoose.startSession();
 
   try {
-    await session.withTransaction(async () => {
+    createdOrder = await runWithMongoTransactionFallback(async ({ session }) => {
+      const sessionOptions = session ? { session } : {};
+
       for (const appliedCoupon of appliedCoupons) {
-        await couponService.reserveCouponUsage(userId, appliedCoupon, { session });
+        await couponService.reserveCouponUsage(userId, appliedCoupon, sessionOptions);
       }
       const reservations = await inventoryService.reserveInventory(
         {
@@ -1351,18 +1398,18 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
             quantity: item.quantity,
           })),
         },
-        { session },
+        sessionOptions,
       );
       const reservationIds = reservations.map((reservation) => toIdString(reservation._id));
 
       for (const appliedCoupon of appliedCoupons) {
         await couponService.recordCouponUsage(
           { userId, orderId: orderId.toString(), appliedCoupon },
-          { session },
+          sessionOptions,
         );
       }
 
-      const [order] = await Order.create([{
+      const orderPayload = {
         _id: orderId,
         idempotencyKey: input.idempotencyKey ?? null,
         orderCode: generateOrderCode(),
@@ -1406,8 +1453,10 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         },
         shippingAddress,
         orderNote: input.orderNote?.trim() || null,
-      }], { session });
-      createdOrder = order;
+      };
+      const [order] = session
+        ? await Order.create([orderPayload], { session })
+        : await Order.create([orderPayload]);
 
       // Create a pending transaction for online payment methods inside the order transaction.
       if (isOnlinePaymentMethod(input.paymentMethod)) {
@@ -1422,17 +1471,24 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         });
       }
 
-      await inventoryService.commitReservations({ reservationIds }, { session });
+      await inventoryService.commitReservations({ reservationIds }, sessionOptions);
 
       await Promise.all(
         orderItems.map((item) =>
-          Product.updateOne(
-            { _id: item.productId },
-            { $inc: { sold_quantity: item.quantity } },
-            { session },
-          ),
+          session
+            ? Product.updateOne(
+                { _id: item.productId },
+                { $inc: { sold_quantity: item.quantity } },
+                { session },
+              )
+            : Product.updateOne(
+                { _id: item.productId },
+                { $inc: { sold_quantity: item.quantity } },
+              ),
         ),
       );
+
+      return order;
     });
   } catch (error) {
     const duplicateKeyError = typeof error === 'object' && error !== null && 'code' in error
@@ -1445,8 +1501,6 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     });
     if (!existingOrder) throw error;
     createdOrder = existingOrder;
-  } finally {
-    await session.endSession();
   }
 
   if (!createdOrder) {
