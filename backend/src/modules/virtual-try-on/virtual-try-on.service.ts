@@ -22,8 +22,10 @@ import { deleteFromCloudinary, uploadToCloudinary } from '../../utils/cloudinary
 import { emitVirtualTryOnJobEvent } from '../realtime/virtual-try-on.gateway';
 import {
   buildVirtualTryOnPrompt,
+  contextPresetPreviews,
   createVirtualTryOnProvider,
   VirtualTryOnProviderError,
+  type VirtualTryOnContextPresetPreview,
   type VirtualTryOnProviderBinaryOutput,
   type VirtualTryOnSourceImageProfile,
 } from './providers';
@@ -1738,6 +1740,8 @@ const hideAdminJob = async (jobId: string) => {
   return serializeAdminJob(job);
 };
 
+const getContextPresetPreviews = (): VirtualTryOnContextPresetPreview[] => contextPresetPreviews;
+
 export const virtualTryOnService = {
   uploadAsset,
   listAssets,
@@ -1757,4 +1761,5 @@ export const virtualTryOnService = {
   retryAdminJob,
   cancelAdminJob,
   hideAdminJob,
+  getContextPresetPreviews,
 };

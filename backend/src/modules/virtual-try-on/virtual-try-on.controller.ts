@@ -185,6 +185,14 @@ export const testAdminPrompt = async (req: Request, res: Response) => {
   }
 };
 
+export const getContextPresets = async (_req: Request, res: Response) => {
+  try {
+    return ok(res, virtualTryOnService.getContextPresetPreviews());
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 export const retryAdminJob = async (req: Request, res: Response) => {
   try {
     return ok(res, await virtualTryOnService.retryAdminJob(req.params.jobId as string));

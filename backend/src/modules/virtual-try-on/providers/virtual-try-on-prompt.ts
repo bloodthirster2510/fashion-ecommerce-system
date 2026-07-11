@@ -40,6 +40,64 @@ const contextPresetPrompts: Record<VirtualTryOnContextPreset, string[]> = {
   custom: [],
 };
 
+export type VirtualTryOnContextPresetPreview = {
+  key: VirtualTryOnContextPreset;
+  label: string;
+  viPreview: string;
+  enPromptPreview: string;
+};
+
+export const contextPresetPreviews: VirtualTryOnContextPresetPreview[] = [
+  {
+    key: 'none',
+    label: 'Giữ nền cũ',
+    viPreview: 'Giữ nguyên nền, ánh sáng và góc máy của ảnh gốc, chỉ thay đồ mặc.',
+    enPromptPreview: 'Keep original background, lighting, camera angle and room details, swap only the clothing.',
+  },
+  {
+    key: 'work',
+    label: 'Đi làm',
+    viPreview: 'Phong cách công sở hiện đại, ánh sáng gọn gàng, cảm giác chỉn chu và lịch sự.',
+    enPromptPreview: 'Modern office setting, polished everyday workwear mood, clean professional styling, soft indoor lighting.',
+  },
+  {
+    key: 'casual',
+    label: 'Đi chơi',
+    viPreview: 'Phố thị thoải mái, ánh sáng ban ngày tự nhiên, dáng đi năng động và dễ gần.',
+    enPromptPreview: 'Clean casual street setting, natural daylight, relaxed everyday styling, effortless outfit balance.',
+  },
+  {
+    key: 'party',
+    label: 'Dự tiệc',
+    viPreview: 'Không gian tiệc tối thanh lịch, ánh sáng lung linh, phong cách chỉn chu và sang trọng.',
+    enPromptPreview: 'Tasteful evening event setting, elegant lighting, refined social occasion styling, polished fashion finish.',
+  },
+  {
+    key: 'travel',
+    label: 'Du lịch',
+    viPreview: 'Cảm giác du lịch ngoài trời, ánh sáng tự nhiên thoáng đãng, dáng thoải mái và năng động.',
+    enPromptPreview: 'Bright travel lifestyle setting, natural outdoor feel, vacation-ready styling, airy daylight, realistic movement.',
+  },
+  {
+    key: 'sport',
+    label: 'Thể thao',
+    viPreview: 'Không gian vận động sạch sẽ, năng lượng thể thao, cảm giác vải thoáng và dáng chủ động.',
+    enPromptPreview: 'Active lifestyle setting, clean sporty energy, athletic styling, breathable fabric feel, dynamic but realistic body alignment.',
+  },
+  {
+    key: 'date',
+    label: 'Hẹn hò',
+    viPreview: 'Quán cà phê hoặc nhà hàng ấm cúng, ánh sáng dịu và tôn vinh, phong cách thanh lịch, gần gũi.',
+    enPromptPreview: 'Warm cafe or dinner setting, natural flattering light, soft lifestyle portrait mood, tasteful styling, approachable elegant atmosphere.',
+  },
+  {
+    key: 'custom',
+    label: 'Mô tả riêng',
+    viPreview: 'Bạn đang yêu cầu AI tạo bối cảnh theo mô tả của bạn — chỉ nên mô tả không gian, ánh sáng hoặc dịp mặc thời trang.',
+    enPromptPreview: '',
+  },
+];
+
 const roleLabels: Record<VirtualTryOnItemRole, string> = {
   top: 'upper-body garment such as shirt, blouse, polo, sweater, or t-shirt',
   bottom: 'lower-body garment such as pants, jeans, skirt, or shorts',

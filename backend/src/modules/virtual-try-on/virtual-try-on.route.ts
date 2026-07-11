@@ -7,6 +7,7 @@ import {
   createJob,
   deleteAsset,
   deleteJob,
+  getContextPresets,
   getJob,
   getLatestJob,
   listAssets,
@@ -24,6 +25,7 @@ router.use(requireActiveAccount);
 router.use(authorize('user'));
 
 router.get('/assets', listAssets);
+router.get('/context-presets', getContextPresets);
 router.post('/assets', assetUpload, uploadAsset);
 router.post('/assets/:assetId/validate', validateAsset);
 router.delete('/assets/:assetId', deleteAsset);

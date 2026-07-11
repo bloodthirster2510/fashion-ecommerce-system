@@ -5,6 +5,8 @@ import { VirtualTryOnProviderError } from './virtual-try-on-provider';
 
 export {
   buildVirtualTryOnPrompt,
+  contextPresetPreviews,
+  type VirtualTryOnContextPresetPreview,
 } from './virtual-try-on-prompt';
 export type {
   VirtualTryOnProvider,
