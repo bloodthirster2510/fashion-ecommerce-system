@@ -999,6 +999,9 @@ const VirtualTryOnBuilderScreen = () => {
       imageValidation.key === imageValidationScanKey
     )
   );
+  const imageValidationIsCheckingSubmit = Boolean(imageValidationScanKey) && canSubmit &&
+    imageValidation.status === 'checking' &&
+    imageValidation.key === imageValidationScanKey;
   const imageValidationHardBlockReason = (() => {
     if (!imageValidationScanKey || !canSubmit) return null;
     if (hasCurrentImageValidationResult && imageValidation.result?.reasonCode === 'NO_PERSON_DETECTED') {
@@ -1014,7 +1017,11 @@ const VirtualTryOnBuilderScreen = () => {
     return null;
   })();
   const imageValidationBlocksSubmit = imageValidationHardBlockReason === 'NO_PERSON_DETECTED';
-  const submitDisabled = !canSubmit || isPrefilling || isSubmitting;
+  const imageValidationSoftWarnsSubmit =
+    imageValidationWarnsSubmit &&
+    !imageValidationIsCheckingSubmit &&
+    !imageValidationBlocksSubmit;
+  const submitDisabled = !canSubmit || isPrefilling || isSubmitting || imageValidationBlocksSubmit || imageValidationIsCheckingSubmit;
 
   React.useEffect(() => {
     if (!imageValidationScanKey || !sourceAssetId) {
@@ -1151,9 +1158,29 @@ const VirtualTryOnBuilderScreen = () => {
     };
   })();
 
+  const submitWarningActive = imageValidationSoftWarnsSubmit && imageValidationDisplay.tone === 'warning';
+  const submitButtonLabel = sourceAssetId
+    ? submitWarningActive
+      ? 'Vẫn tạo ảnh'
+      : 'Tạo ảnh'
+    : 'Chọn ảnh';
+  const submitButtonIcon = sourceAssetId
+    ? submitWarningActive
+      ? 'alert-circle-outline'
+      : 'auto-fix'
+    : 'image-plus';
+  const createConfirmTitle = submitWarningActive ? imageValidationDisplay.title : 'Tạo ảnh thử đồ?';
+  const createConfirmText = submitWarningActive
+    ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
+    : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
+
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
       return 'Cần ảnh người';
+    }
+
+    if (submitWarningActive) {
+      return 'Có cảnh báo';
     }
 
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
@@ -1243,11 +1270,9 @@ const VirtualTryOnBuilderScreen = () => {
       return;
     }
 
-    if (imageValidationWarnsSubmit) {
-      Alert.alert(
-        imageValidationDisplay.title,
-        imageValidationDisplay.message,
-      );
+    if (imageValidationIsCheckingSubmit) {
+      Alert.alert('Đang kiểm tra ảnh', 'Đợi vài giây để hệ thống kiểm tra ảnh trước khi tạo.');
+      return;
     }
 
     setIsCreateConfirmVisible(true);
@@ -1763,7 +1788,11 @@ const VirtualTryOnBuilderScreen = () => {
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.submitButton, submitDisabled && styles.submitButtonDisabled]}
+            style={[
+              styles.submitButton,
+              submitWarningActive && styles.submitButtonWarning,
+              submitDisabled && styles.submitButtonDisabled,
+            ]}
             onPress={createJob}
             disabled={submitDisabled}
             activeOpacity={0.86}
@@ -1773,12 +1802,12 @@ const VirtualTryOnBuilderScreen = () => {
             ) : (
               <>
                 <MaterialCommunityIcons
-                  name={sourceAssetId ? 'auto-fix' : 'image-plus'}
+                  name={submitButtonIcon}
                   size={22}
                   color={submitDisabled ? colors.textMuted : colors.white}
                 />
                 <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>
-                  {sourceAssetId ? 'Tạo ảnh' : 'Chọn ảnh'}
+                  {submitButtonLabel}
                 </Text>
               </>
             )}
@@ -1829,12 +1858,16 @@ const VirtualTryOnBuilderScreen = () => {
         <View style={styles.confirmModalRoot}>
           <Pressable style={styles.confirmBackdrop} onPress={() => setIsCreateConfirmVisible(false)} />
           <View style={styles.confirmCard}>
-            <View style={styles.confirmIconWrap}>
-              <MaterialCommunityIcons name="auto-fix" size={26} color={tryOnPalette.ink} />
+            <View style={[styles.confirmIconWrap, submitWarningActive && styles.confirmIconWrapWarning]}>
+              <MaterialCommunityIcons
+                name={submitWarningActive ? 'alert-circle-outline' : 'auto-fix'}
+                size={26}
+                color={submitWarningActive ? colors.goldDark : tryOnPalette.ink}
+              />
             </View>
-            <Text style={styles.confirmTitle}>Tạo ảnh thử đồ?</Text>
+            <Text style={styles.confirmTitle}>{createConfirmTitle}</Text>
             <Text style={styles.confirmText}>
-              Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.
+              {createConfirmText}
             </Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity
@@ -1845,11 +1878,13 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.confirmCancelText}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.confirmPrimaryButton}
+                style={[styles.confirmPrimaryButton, submitWarningActive && styles.confirmPrimaryButtonWarning]}
                 onPress={confirmCreateJob}
                 activeOpacity={0.86}
               >
-                <Text style={styles.confirmPrimaryText}>Tạo ảnh</Text>
+                <Text style={[styles.confirmPrimaryText, submitWarningActive && styles.confirmPrimaryTextWarning]}>
+                  {submitWarningActive ? 'Vẫn tạo ảnh' : 'Tạo ảnh'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3541,6 +3576,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  submitButtonWarning: {
+    backgroundColor: colors.goldDark,
+  },
   submitButtonDisabled: {
     backgroundColor: colors.border,
     borderWidth: 1,
@@ -3631,6 +3669,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
+  confirmIconWrapWarning: {
+    backgroundColor: colors.goldSoft,
+  },
   confirmTitle: {
     color: colors.text,
     fontSize: 18,
@@ -3668,6 +3709,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  confirmPrimaryButtonWarning: {
+    backgroundColor: colors.goldDark,
+  },
   confirmCancelText: {
     color: colors.textMuted,
     fontSize: 14,
@@ -3679,6 +3723,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
+  },
+  confirmPrimaryTextWarning: {
+    color: colors.white,
   },
   variantModalRoot: {
     flex: 1,
