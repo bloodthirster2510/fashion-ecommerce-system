@@ -10,6 +10,10 @@ export type VirtualTryOnAsset = {
   status: 'active' | 'deleted';
   createdAt: string;
   updatedAt: string;
+  validationWarning?: {
+    reasonCode: string;
+    message: string;
+  };
 };
 
 export type TryOnItemRole = 'top' | 'bottom' | 'dress' | 'shoes' | 'accessory' | 'outerwear';

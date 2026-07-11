@@ -12,6 +12,7 @@ export type {
   VirtualTryOnProviderGarment,
   VirtualTryOnProviderInput,
   VirtualTryOnProviderResult,
+  VirtualTryOnSourceImageProfile,
 } from './virtual-try-on-provider';
 export { VirtualTryOnProviderError } from './virtual-try-on-provider';
 

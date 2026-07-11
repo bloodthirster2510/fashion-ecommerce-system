@@ -25,12 +25,13 @@ import {
   createVirtualTryOnProvider,
   VirtualTryOnProviderError,
   type VirtualTryOnProviderBinaryOutput,
+  type VirtualTryOnSourceImageProfile,
 } from './providers';
 import {
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
   getImageValidationReasonMessage,
-  getImageValidationReasonStatus,
+  isImageValidationReasonCode,
   type ImageValidationBodyRegion,
   type ImageValidationCapability,
   type ImageValidationCapabilityMode,
@@ -67,6 +68,7 @@ const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 const DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY = 5;
+const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>(['NO_PERSON_DETECTED']);
 
 const allowedRoles = new Set<VirtualTryOnItemRole>([
   'top',
@@ -232,6 +234,7 @@ const emitJob = (job: IVirtualTryOnJob, type: 'queued' | 'processing' | 'progres
     generatedImageUrl: job.generatedImageUrl,
     generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
+    errorCode: job.errorCode,
     errorMessage: job.errorMessage,
   });
 };
@@ -319,6 +322,7 @@ const persistGeneratedOutput = async (
 };
 
 const buildProviderInput = (job: IVirtualTryOnJob) => {
+  const sourceImageProfile = getJobSourceImageProfile(job);
   const garments = job.selectedItems.map((item) => ({
     role: item.role,
     productId: item.productId.toString(),
@@ -334,12 +338,14 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
     preset: job.contextPreset,
     outfitMode: job.outfitMode,
     customPrompt: job.contextPrompt,
+    sourceImageProfile,
   });
 
   return {
     jobId: job._id.toString(),
     userId: job.userId.toString(),
     sourceImageUrl: job.sourceImageUrlSnapshot,
+    sourceImageProfile,
     outfitMode: job.outfitMode,
     outputMode: job.outputMode,
     garments,
@@ -634,13 +640,40 @@ const applySelectionCapabilityPolicy = (
   };
 };
 
-const throwImageValidationError = (result: Pick<ImageValidationResult, 'reasonCode' | 'message'>): never => {
-  const reasonCode = result.reasonCode || 'NO_PERSON_DETECTED';
-  throw new VirtualTryOnServiceError(
-    result.message || getImageValidationReasonMessage(reasonCode),
-    getImageValidationReasonStatus(reasonCode),
+const getImageValidationWarning = (
+  result: Pick<ImageValidationResult, 'allowed' | 'reasonCode' | 'message'>,
+): { reasonCode: ImageValidationReasonCode; message: string } | null => {
+  if (result.allowed) return null;
+
+  const reasonCode: ImageValidationReasonCode = isImageValidationReasonCode(result.reasonCode)
+    ? result.reasonCode
+    : 'NO_PERSON_DETECTED';
+  return {
     reasonCode,
+    message: result.message || getImageValidationReasonMessage(reasonCode),
+  };
+};
+
+const buildSourceImageProfile = (result: ImageValidationResult): VirtualTryOnSourceImageProfile => ({
+  bodyVisibility: result.bodyVisibility,
+  visibleRegions: result.visibleRegions,
+  supportedModes: result.supportedModes,
+  recommendedMode: result.recommendedMode,
+  reasonCode: result.reasonCode,
+});
+
+const isSourceImageProfile = (value: unknown): value is VirtualTryOnSourceImageProfile => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.visibleRegions === undefined ||
+    Array.isArray(candidate.visibleRegions)
   );
+};
+
+const getJobSourceImageProfile = (job: IVirtualTryOnJob): VirtualTryOnSourceImageProfile | undefined => {
+  const profile = job.providerMetadata?.sourceImageProfile;
+  return isSourceImageProfile(profile) ? profile : undefined;
 };
 
 const createImageValidationFallbackResult = (
@@ -695,11 +728,7 @@ const createImageValidationFallbackResult = (
   };
 };
 
-const getSourceImageValidationResult = async (
-  sourceAsset: IVirtualTryOnAsset,
-  outfitMode: VirtualTryOnOutfitMode,
-  itemRoles: VirtualTryOnItemRole[],
-) => {
+const getImageValidationResultForInput = async (input: ImageValidationInput) => {
   const providerName = getConfiguredImageValidationProviderName();
   if (providerName === 'disabled') {
     return createImageValidationFallbackResult('disabled', {
@@ -709,19 +738,8 @@ const getSourceImageValidationResult = async (
   }
 
   try {
-    const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
     const provider = createImageValidationProvider(providerName);
-    const result = applyImageValidationPolicy(await provider.validate({
-      imageBuffer: buffer,
-      mimeType,
-      width: sourceAsset.width ?? 0,
-      height: sourceAsset.height ?? 0,
-      bytes: sourceAsset.bytes ?? buffer.byteLength,
-      source: getImageValidationSource(sourceAsset),
-      outfitMode,
-      itemRoles,
-    }));
-    return applySelectionCapabilityPolicy(result, outfitMode, itemRoles);
+    return applyImageValidationPolicy(await provider.validate(input));
   } catch (error) {
     if (shouldFailOpenImageValidation()) {
       console.warn('Image validation failed open:', error);
@@ -738,24 +756,70 @@ const getSourceImageValidationResult = async (
   }
 };
 
-const validateSourceImageForJob = async (
+const getSourceImageValidationResult = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  if (getConfiguredImageValidationProviderName() === 'disabled') {
+    return createImageValidationFallbackResult('disabled', {
+      provider: 'disabled',
+      message: 'Image validation is disabled',
+    });
+  }
+
+  const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
+  const result = await getImageValidationResultForInput({
+    imageBuffer: buffer,
+    mimeType,
+    width: sourceAsset.width ?? 0,
+    height: sourceAsset.height ?? 0,
+    bytes: sourceAsset.bytes ?? buffer.byteLength,
+    source: getImageValidationSource(sourceAsset),
+    outfitMode,
+    itemRoles,
+  });
+
+  return applySelectionCapabilityPolicy(result, outfitMode, itemRoles);
+};
+
+const warnSourceImageForJob = async (
   sourceAsset: IVirtualTryOnAsset,
   outfitMode: VirtualTryOnOutfitMode,
   itemRoles: VirtualTryOnItemRole[],
 ) => {
   const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
+  const warning = getImageValidationWarning(result);
 
-  if (!result.allowed) {
-    throwImageValidationError(result);
+  if (warning) {
+    if (jobBlockingImageValidationReasonCodes.has(warning.reasonCode)) {
+      throw new VirtualTryOnServiceError(
+        warning.message,
+        422,
+        warning.reasonCode,
+        { reasonCode: warning.reasonCode, message: warning.message },
+      );
+    }
+
+    console.warn('Virtual try-on source image validation warning:', {
+      assetId: sourceAsset._id.toString(),
+      reasonCode: warning.reasonCode,
+      message: warning.message,
+    });
+    return result;
   }
 
   const unsupportedCapability = getUnsupportedSelectionCapability(result, outfitMode, itemRoles);
   if (unsupportedCapability) {
-    throwImageValidationError({
-      reasonCode: unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE',
-      message: unsupportedCapability.message || getImageValidationReasonMessage(unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE'),
+    const reasonCode = unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE';
+    console.warn('Virtual try-on source image capability warning:', {
+      assetId: sourceAsset._id.toString(),
+      reasonCode,
+      message: unsupportedCapability.message || getImageValidationReasonMessage(reasonCode),
     });
   }
+
+  return result;
 };
 
 const getSelectedItemRolesForValidation = (items: Array<Pick<CreateVirtualTryOnItemInput, 'role'>>) => {
@@ -970,21 +1034,41 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
     `fashion-ecommerce/virtual-try-on/users/${userId}/source`,
   );
 
-  const asset = await VirtualTryOnAsset.create({
-    userId: userObjectId,
-    type: getAssetType(source),
-    url: uploaded.secure_url,
-    thumbnailUrl: uploaded.secure_url,
-    publicId: uploaded.public_id,
-    mimeType: file.mimetype,
-    width: uploaded.width,
-    height: uploaded.height,
-    bytes: uploaded.bytes,
-    source,
-    status: 'active',
-  });
+  try {
+    const validationResult = await getImageValidationResultForInput({
+      imageBuffer: file.buffer,
+      mimeType: file.mimetype || 'image/jpeg',
+      width: uploaded.width ?? 0,
+      height: uploaded.height ?? 0,
+      bytes: uploaded.bytes ?? file.size ?? file.buffer.byteLength,
+      source,
+    });
+    const validationWarning = getImageValidationWarning(validationResult);
 
-  return serializeAsset(asset);
+    const asset = await VirtualTryOnAsset.create({
+      userId: userObjectId,
+      type: getAssetType(source),
+      url: uploaded.secure_url,
+      thumbnailUrl: uploaded.secure_url,
+      publicId: uploaded.public_id,
+      mimeType: file.mimetype,
+      width: uploaded.width,
+      height: uploaded.height,
+      bytes: uploaded.bytes,
+      source,
+      status: 'active',
+    });
+
+    return {
+      ...serializeAsset(asset),
+      ...(validationWarning ? { validationWarning } : {}),
+    };
+  } catch (error) {
+    deleteFromCloudinary(uploaded.public_id).catch((cleanupError) => {
+      console.warn('Virtual try-on rejected source image cleanup failed:', cleanupError);
+    });
+    throw error;
+  }
 };
 
 const listAssets = async (userId: string, query: VirtualTryOnListQuery) => {
@@ -1090,7 +1174,7 @@ const createJob = async (
 
   const sourceAsset = await findSourceAssetForUser(userId, input.sourceAssetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
-  await validateSourceImageForJob(sourceAsset, input.outfitMode, itemRoles);
+  const sourceImageValidationResult = await warnSourceImageForJob(sourceAsset, input.outfitMode, itemRoles);
 
   const selectedItems = await resolveSelectedItems(input.selectedItems);
 
@@ -1107,7 +1191,9 @@ const createJob = async (
     progress: 0,
     provider: PROVIDER,
     idempotencyKey: idempotencyKey || null,
-    providerMetadata: {},
+    providerMetadata: {
+      sourceImageProfile: buildSourceImageProfile(sourceImageValidationResult),
+    },
   });
 
   emitJob(job, 'queued');

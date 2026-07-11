@@ -68,6 +68,27 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.negativePrompt).toContain('changed pants or shoes when only top is selected');
   });
 
+  it('adapts prompt framing for an upper-body source crop', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'none',
+      outfitMode: 'single',
+      sourceImageProfile: {
+        bodyVisibility: 'good',
+        visibleRegions: ['upper'],
+        supportedModes: ['top', 'outerwear', 'accessory'],
+        recommendedMode: 'top',
+      },
+      garments: [
+        garment({ role: 'top', name: 'Striped long-sleeve shirt', color: 'white navy' }),
+      ],
+    });
+
+    expect(result.prompt).toContain('preserve the original camera framing, crop');
+    expect(result.prompt).toContain('source image is an upper-body crop');
+    expect(result.prompt).toContain('without inventing legs or feet');
+    expect(result.prompt).not.toContain('height, shoulder width, waist, legs, and skin tone');
+  });
+
   it('uses footwear-specific instructions for shoes-only try-on', () => {
     const result = buildVirtualTryOnPrompt({
       preset: 'casual',
@@ -81,6 +102,25 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('both selected shoes must be worn on the correct feet');
     expect(result.negativePrompt).toContain('bare feet');
     expect(result.negativePrompt).toContain('shoes on wrong feet');
+  });
+
+  it('adapts prompt framing for a feet source crop', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'casual',
+      outfitMode: 'single',
+      sourceImageProfile: {
+        bodyVisibility: 'good',
+        visibleRegions: ['feet'],
+        supportedModes: ['shoes'],
+        recommendedMode: 'shoes',
+      },
+      garments: [
+        garment({ role: 'shoes', name: 'Black leather sandals', color: 'black' }),
+      ],
+    });
+
+    expect(result.prompt).toContain('source image is a feet or footwear crop');
+    expect(result.prompt).toContain('without inventing upper body or face');
   });
 
   it('handles dress, outerwear, shoes, and accessory as a full outfit recipe', () => {

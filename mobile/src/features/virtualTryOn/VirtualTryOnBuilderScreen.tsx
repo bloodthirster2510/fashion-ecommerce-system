@@ -229,8 +229,8 @@ const getUnsupportedImageValidationCapability = (
 
 const imageValidationAlerts: Record<string, { title: string; message: string }> = {
   NO_PERSON_DETECTED: {
-    title: 'Ảnh chưa phù hợp',
-    message: 'Chọn ảnh có một người rõ mặt và thân trên.',
+    title: 'Cần ảnh người mặc',
+    message: 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.',
   },
   MULTIPLE_PEOPLE_DETECTED: {
     title: 'Ảnh có nhiều người',
@@ -261,12 +261,12 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh không phù hợp',
-    message: 'Chọn ảnh khác.',
+    title: 'Ảnh ít trang phục.',
+    message: 'Ảnh có thể bị từ chối.\nBạn vẫn có thể tiếp tục.',
   },
   VALIDATION_PROVIDER_FAILED: {
-    title: 'Chưa kiểm tra được',
-    message: 'Thử lại sau ít phút.',
+    title: 'Chưa kiểm tra được ảnh.',
+    message: 'Bạn vẫn có thể tiếp tục.',
   },
 };
 
@@ -395,6 +395,18 @@ const getImageValidationMessage = (
 
   return baseMessage;
 };
+
+const withSentencePeriod = (value: string) => /[.!?…]$/.test(value.trim()) ? value : `${value}.`;
+
+const getImageValidationReasonTitle = (reasonCode?: string | null) => {
+  if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
+  if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh ít trang phục.';
+  if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
+  return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
+};
+
+const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' as const;
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
@@ -976,15 +988,33 @@ const VirtualTryOnBuilderScreen = () => {
       ? getUnsupportedImageValidationCapability(imageValidation.result, outfitMode, selectedItems)
       : null;
   const hasCurrentImageValidationResult = Boolean(imageValidation.result && imageValidation.key === imageValidationScanKey);
-  const imageValidationReady =
-    !imageValidationScanKey ||
+  const imageValidationWarnsSubmit = Boolean(imageValidationScanKey) && canSubmit && (
+    imageValidation.status === 'checking' ||
     (
       hasCurrentImageValidationResult &&
-      imageValidation.result?.allowed === true &&
-      !currentSelectionUnsupportedCapability
-    );
-  const imageValidationBlocksSubmit = Boolean(imageValidationScanKey) && canSubmit && !imageValidationReady;
-  const submitDisabled = !canSubmit || isPrefilling || isSubmitting || imageValidationBlocksSubmit;
+      (imageValidation.result?.allowed !== true || Boolean(currentSelectionUnsupportedCapability))
+    ) ||
+    (
+      (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
+      imageValidation.key === imageValidationScanKey
+    )
+  );
+  const imageValidationHardBlockReason = (() => {
+    if (!imageValidationScanKey || !canSubmit) return null;
+    if (hasCurrentImageValidationResult && imageValidation.result?.reasonCode === 'NO_PERSON_DETECTED') {
+      return 'NO_PERSON_DETECTED';
+    }
+    if (
+      (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
+      imageValidation.key === imageValidationScanKey &&
+      imageValidation.errorCode === 'NO_PERSON_DETECTED'
+    ) {
+      return 'NO_PERSON_DETECTED';
+    }
+    return null;
+  })();
+  const imageValidationBlocksSubmit = imageValidationHardBlockReason === 'NO_PERSON_DETECTED';
+  const submitDisabled = !canSubmit || isPrefilling || isSubmitting;
 
   React.useEffect(() => {
     if (!imageValidationScanKey || !sourceAssetId) {
@@ -1066,19 +1096,23 @@ const VirtualTryOnBuilderScreen = () => {
 
     if (hasCurrentImageValidationResult) {
       if (!imageValidation.result?.allowed) {
+        const reasonCode = imageValidation.result?.reasonCode;
         return {
-          icon: 'alert-circle-outline' as FashionIconName,
-          tone: 'invalid' as const,
-          title: 'Ảnh chưa phù hợp',
+          icon: reasonCode === 'VALIDATION_PROVIDER_FAILED'
+            ? 'alert-outline' as FashionIconName
+            : 'alert-circle-outline' as FashionIconName,
+          tone: getImageValidationReasonTone(reasonCode),
+          title: getImageValidationReasonTitle(reasonCode),
           message: getImageValidationMessage(imageValidation.result, undefined, outfitMode, selectedItems),
         };
       }
 
       if (currentSelectionUnsupportedCapability) {
+        const reasonCode = currentSelectionUnsupportedCapability.reasonCode;
         return {
           icon: 'alert-circle-outline' as FashionIconName,
-          tone: 'invalid' as const,
-          title: 'Ảnh chưa phù hợp',
+          tone: getImageValidationReasonTone(reasonCode),
+          title: getImageValidationReasonTitle(reasonCode),
           message: getImageValidationMessage(imageValidation.result, undefined, outfitMode, selectedItems),
         };
       }
@@ -1098,10 +1132,13 @@ const VirtualTryOnBuilderScreen = () => {
       (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
       imageValidation.key === imageValidationScanKey
     ) {
+      const reasonCode = imageValidation.errorCode;
       return {
-        icon: 'alert-circle-outline' as FashionIconName,
-        tone: 'invalid' as const,
-        title: 'Ảnh chưa phù hợp',
+        icon: reasonCode === 'VALIDATION_PROVIDER_FAILED'
+          ? 'alert-outline' as FashionIconName
+          : 'alert-circle-outline' as FashionIconName,
+        tone: getImageValidationReasonTone(reasonCode),
+        title: getImageValidationReasonTitle(reasonCode),
         message: imageValidation.message || 'Chọn ảnh rõ hơn.',
       };
     }
@@ -1115,6 +1152,10 @@ const VirtualTryOnBuilderScreen = () => {
   })();
 
   const footerLabel = (() => {
+    if (imageValidationBlocksSubmit) {
+      return 'Cần ảnh người';
+    }
+
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
       const missing = !hasTopSlot ? 'áo' : 'quần';
       return `Còn thiếu ${missing}`;
@@ -1198,8 +1239,15 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     if (imageValidationBlocksSubmit) {
-      Alert.alert(imageValidationDisplay.title, imageValidationDisplay.message);
+      Alert.alert('Cần ảnh người mặc', 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.');
       return;
+    }
+
+    if (imageValidationWarnsSubmit) {
+      Alert.alert(
+        imageValidationDisplay.title,
+        imageValidationDisplay.message,
+      );
     }
 
     setIsCreateConfirmVisible(true);
@@ -1270,7 +1318,7 @@ const VirtualTryOnBuilderScreen = () => {
               style={({ pressed }) => [
                 styles.imageValidationPill,
                 imageValidationDisplay.tone === 'valid' && styles.imageValidationPillValid,
-                imageValidationDisplay.tone === 'invalid' && styles.imageValidationPillInvalid,
+                imageValidationDisplay.tone === 'warning' && styles.imageValidationPillWarning,
                 imageValidationDisplay.tone === 'checking' && styles.imageValidationPillChecking,
                 pressed && styles.imageValidationPillPressed,
               ]}
@@ -1284,8 +1332,8 @@ const VirtualTryOnBuilderScreen = () => {
                   color={
                     imageValidationDisplay.tone === 'valid'
                       ? tryOnPalette.success
-                      : imageValidationDisplay.tone === 'invalid'
-                        ? colors.danger
+                      : imageValidationDisplay.tone === 'warning'
+                        ? colors.goldDark
                         : tryOnPalette.primary
                   }
                 />
@@ -1590,26 +1638,14 @@ const VirtualTryOnBuilderScreen = () => {
               <View style={[styles.mixStageVisual, styles.mixResultVisual]}>
                 <View style={styles.mixResultGlow} />
                 <MaterialCommunityIcons name="auto-fix" size={28} color={colors.white} />
-                <View style={styles.mixResultMiniStack}>
-                  {selectedItems.slice(0, 3).map((item, index) => (
-                    <View
-                      key={`result-mini-${getSelectedItemKey(item)}`}
-                      style={[styles.mixResultMiniWrap, index > 0 && styles.mixResultMiniOverlap]}
-                    >
-                      <RemoteImage
-                        uri={item.imageSnapshot}
-                        style={styles.mixResultMiniImage}
-                        recyclingKey={`result-mini-${getSelectedItemKey(item)}`}
-                      />
-                    </View>
-                  ))}
-                  {selectedItems.length > 3 ? (
-                    <View style={[styles.mixResultMiniWrap, styles.mixResultMiniOverlap, styles.mixResultMiniMore]}>
-                      <Text style={styles.mixResultMiniMoreText}>+{selectedItems.length - 3}</Text>
-                    </View>
-                  ) : null}
+                <View style={styles.mixAiPreviewFrame}>
+                  <View style={styles.mixAiPersonMark}>
+                    <MaterialCommunityIcons name="account" size={24} color="#D7F4FF" />
+                  </View>
+                  <View style={styles.mixAiSparkleOne} />
+                  <View style={styles.mixAiSparkleTwo} />
                 </View>
-                <Text style={styles.mixResultHint}>Sắp lên ảnh</Text>
+                <Text style={styles.mixResultHint}>AI sẽ tạo ảnh mới</Text>
                 <View style={styles.mixSparkleDot} />
               </View>
               <Text style={styles.mixStageLabel}>Kết quả AI</Text>
@@ -2386,9 +2422,9 @@ const styles = StyleSheet.create({
     backgroundColor: tryOnPalette.successSoft,
     borderColor: tryOnPalette.success,
   },
-  imageValidationPillInvalid: {
-    backgroundColor: colors.dangerSoft,
-    borderColor: colors.danger,
+  imageValidationPillWarning: {
+    backgroundColor: colors.goldSoft,
+    borderColor: colors.goldDark,
   },
   imageValidationPillPressed: {
     opacity: 0.82,
@@ -2963,39 +2999,43 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(215,244,255,0.2)',
     transform: [{ rotate: '-12deg' }],
   },
-  mixResultMiniStack: {
-    minHeight: 34,
-    flexDirection: 'row',
+  mixAiPreviewFrame: {
+    width: 48,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(215,244,255,0.42)',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
     marginTop: 2,
   },
-  mixResultMiniWrap: {
-    width: 30,
-    height: 34,
-    borderRadius: 8,
-    backgroundColor: colors.white,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.72)',
-    overflow: 'hidden',
-  },
-  mixResultMiniOverlap: {
-    marginLeft: -9,
-  },
-  mixResultMiniImage: {
-    width: '100%',
-    height: '100%',
-  },
-  mixResultMiniMore: {
+  mixAiPersonMark: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(33,52,72,0.26)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  mixAiSparkleOne: {
+    position: 'absolute',
+    top: 7,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#D7F4FF',
   },
-  mixResultMiniMoreText: {
-    color: tryOnPalette.primaryDark,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '900',
+  mixAiSparkleTwo: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(215,244,255,0.72)',
   },
   mixResultHint: {
     color: '#D7F4FF',

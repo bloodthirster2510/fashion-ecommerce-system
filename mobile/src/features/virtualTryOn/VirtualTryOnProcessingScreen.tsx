@@ -48,6 +48,14 @@ const VirtualTryOnProcessingScreen = () => {
 
   const jobId = route.params.jobId;
   const retainedSeedItems = route.params.seedItems;
+  const isProviderSafetyBlocked = job?.status === 'failed' && job.errorCode === 'PROVIDER_SAFETY_BLOCKED';
+
+  const returnToBuilder = React.useCallback(() => {
+    navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
+      entryPoint: 'builder',
+      seedItems: retainedSeedItems,
+    } : undefined);
+  }, [navigation, retainedSeedItems]);
 
   const loadJob = React.useCallback(() => {
     let isCurrent = true;
@@ -81,6 +89,7 @@ const VirtualTryOnProcessingScreen = () => {
           generatedImageUrl: event.generatedImageUrl ?? current.generatedImageUrl,
           generatedImageUrls: event.generatedImageUrls ?? current.generatedImageUrls,
           generatedVideoUrl: event.generatedVideoUrl ?? current.generatedVideoUrl,
+          errorCode: event.errorCode ?? current.errorCode,
           errorMessage: event.errorMessage ?? current.errorMessage,
         }
       : current);
@@ -293,11 +302,25 @@ const VirtualTryOnProcessingScreen = () => {
 
             {job?.status === 'failed' ? (
               <View style={styles.errorCard}>
-                <Text style={styles.errorTitle}>Có lỗi xảy ra</Text>
-                <Text style={styles.errorText}>{job.errorMessage || 'Bạn thử lại sau ít phút nhé.'}</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={retry} activeOpacity={0.86}>
-                  <MaterialCommunityIcons name="reload" size={20} color={colors.white} />
-                  <Text style={styles.retryText}>Thử lại</Text>
+                <Text style={styles.errorTitle}>
+                  {isProviderSafetyBlocked ? 'AI đã từ chối ảnh này' : 'Có lỗi xảy ra'}
+                </Text>
+                <Text style={styles.errorText}>
+                  {job.errorMessage || (isProviderSafetyBlocked
+                    ? 'Bạn đổi ảnh người hoặc ảnh sản phẩm phù hợp hơn rồi tạo lại nhé.'
+                    : 'Bạn thử lại sau ít phút nhé.')}
+                </Text>
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={isProviderSafetyBlocked ? returnToBuilder : retry}
+                  activeOpacity={0.86}
+                >
+                  <MaterialCommunityIcons
+                    name={isProviderSafetyBlocked ? 'image-refresh-outline' : 'reload'}
+                    size={20}
+                    color={colors.white}
+                  />
+                  <Text style={styles.retryText}>{isProviderSafetyBlocked ? 'Đổi ảnh' : 'Thử lại'}</Text>
                 </TouchableOpacity>
               </View>
             ) : null}

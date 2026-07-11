@@ -7,6 +7,7 @@ from app.settings import load_settings
 from app.validators.person_pose import YoloPoseDetector
 from app.validators.quality import assess_quality, decode_image_base64
 from app.validators.rules import evaluate_validation_rules
+from app.validators.safety import assess_safety
 
 
 logger = logging.getLogger("image-validation")
@@ -63,4 +64,5 @@ def validate_image(payload: ValidationRequest) -> ValidationResponse:
         logger.exception("Pose validation failed")
         raise HTTPException(status_code=503, detail="Validation model failed") from exc
 
-    return evaluate_validation_rules(quality, pose, payload.outfitMode, settings)
+    safety_flags = assess_safety(image, pose, settings)
+    return evaluate_validation_rules(quality, pose, payload.outfitMode, settings, safety_flags)

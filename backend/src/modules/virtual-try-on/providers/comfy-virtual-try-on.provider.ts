@@ -6,6 +6,7 @@ import type {
   VirtualTryOnProviderBinaryOutput,
   VirtualTryOnProviderGarment,
   VirtualTryOnProviderInput,
+  VirtualTryOnSourceImageProfile,
 } from './virtual-try-on-provider';
 import { VirtualTryOnProviderError } from './virtual-try-on-provider';
 
@@ -45,6 +46,10 @@ type ComfyOutputFile = {
 
 type ComfyHistoryEntry = {
   outputs?: Record<string, Record<string, ComfyOutputFile[] | undefined>>;
+  status?: unknown;
+  error?: unknown;
+  node_errors?: unknown;
+  messages?: unknown;
 };
 
 type ComfyDownloadedFile = VirtualTryOnProviderBinaryOutput & {
@@ -153,12 +158,67 @@ const getRetryAfterMs = (headers: unknown, fallbackMs: number) => {
   return Number.isFinite(retryAt) ? Math.max(fallbackMs, retryAt - Date.now()) : fallbackMs;
 };
 
+const comfySafetyBlockPatterns = [
+  /\b(?:content|safety)\s*(?:policy|filter|filters)\b/i,
+  /\b(?:policy|safety|content)\b.{0,80}\b(?:blocked|rejected|refused|violation|violated|disallowed)\b/i,
+  /\b(?:blocked|rejected|refused|filtered|disallowed)\b.{0,80}\b(?:policy|safety|content|unsafe|harm|sexual|explicit|nudity)\b/i,
+  /\b(?:unsafe|nsfw|nudity|sexual(?:ly)? explicit|adult content|sensitive content)\b/i,
+  /\b(?:finish[_ -]?reason|block[_ -]?reason|blocked[_ -]?reason)\s*[:=]?\s*["']?SAFETY\b/i,
+  /^SAFETY$/i,
+  /\bIMAGE[_ -]?SAFETY\b/i,
+  /\bPROHIBITED[_ -]?CONTENT\b/i,
+  /\bcontent[_ -]?policy[_ -]?violation\b/i,
+];
+
+const collectComfyDiagnosticStrings = (
+  value: unknown,
+  depth = 0,
+  seen: WeakSet<object> = new WeakSet(),
+): string[] => {
+  if (typeof value === 'string') return [value];
+  if (!value || typeof value !== 'object' || depth > 6) return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+
+  const entries = Array.isArray(value)
+    ? value.slice(0, 100).map((item, index) => [String(index), item] as const)
+    : Object.entries(value as Record<string, unknown>).slice(0, 120);
+
+  return entries.flatMap(([key, child]) => {
+    const childStrings = collectComfyDiagnosticStrings(child, depth + 1, seen);
+    if (typeof child !== 'string' && typeof child !== 'number' && typeof child !== 'boolean') {
+      return childStrings;
+    }
+
+    const diagnosticKey = /(?:error|exception|message|reason|block|finish|policy|safety|unsafe|explicit)/i.test(key);
+    return diagnosticKey ? [`${key}: ${String(child)}`, ...childStrings] : childStrings;
+  });
+};
+
+export const getComfySafetyBlockReason = (value: unknown) => {
+  const diagnostic = collectComfyDiagnosticStrings(value)
+    .map((text) => text.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .find((text) => comfySafetyBlockPatterns.some((pattern) => pattern.test(text)));
+
+  return diagnostic ? diagnostic.slice(0, 240) : null;
+};
+
+const createComfySafetyBlockError = () => new VirtualTryOnProviderError(
+  'AI đã từ chối tạo ảnh vì ảnh hoặc kết quả có thể vi phạm chính sách an toàn. Vui lòng đổi ảnh người hoặc ảnh sản phẩm phù hợp hơn.',
+  422,
+  'PROVIDER_SAFETY_BLOCKED',
+);
+
 const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAILED'): Error => {
   if (!axios.isAxiosError(error)) {
     return error instanceof Error
       ? error
       : new VirtualTryOnProviderError('ComfyUI provider failed', 502, errorCode);
   }
+
+  const safetyBlockReason = getComfySafetyBlockReason(error.response?.data ?? error.message);
+  if (safetyBlockReason) return createComfySafetyBlockError();
 
   const status = error.response?.status;
   const message = status === 429
@@ -172,15 +232,47 @@ const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAIL
   );
 };
 
+const getComfySourceFramingInstruction = (sourceImageProfile?: VirtualTryOnSourceImageProfile) => {
+  const visibleRegions = new Set(sourceImageProfile?.visibleRegions ?? []);
+  const hasUpper = visibleRegions.has('upper');
+  const hasHips = visibleRegions.has('hips');
+  const hasLegs = visibleRegions.has('legs');
+  const hasFeet = visibleRegions.has('feet');
+  const isFullBody = hasUpper && hasHips && hasLegs && hasFeet;
+
+  if (isFullBody) {
+    return 'Each of the four cells should show the same full-body framing as the source person wearing the selected outfit, with slight styling variation and grounded feet.';
+  }
+
+  if (hasFeet && !hasUpper && !hasHips) {
+    return 'Each of the four cells should preserve the source feet/footwear crop, showing only the visible feet or ankles region with selected footwear applied; do not invent torso, face, or full-body framing.';
+  }
+
+  if (!hasUpper && (hasHips || hasLegs || hasFeet)) {
+    return 'Each of the four cells should preserve the source lower-body crop, showing only the visible waist, hips, legs, or feet region wearing the selected items; do not invent face or upper-body framing.';
+  }
+
+  if (hasUpper && !hasLegs && !hasFeet) {
+    return 'Each of the four cells should preserve the source upper-body crop, showing only the visible head, shoulders, torso, or arms region wearing the selected items; do not invent legs, feet, or full-body framing.';
+  }
+
+  if (visibleRegions.size > 0) {
+    return 'Each of the four cells should preserve the same partial-body crop and visible body regions as the source image; do not invent missing body parts or expand to full-body framing.';
+  }
+
+  return 'Each of the four cells should preserve the same camera framing and visible body coverage as the source image; if the source is cropped, do not expand it to full-body framing.';
+};
+
 export const buildComfyTryOnPrompt = (
   prompt: string,
   garments: VirtualTryOnProviderGarment[],
   usesIndividualGarmentImages: boolean,
+  sourceImageProfile?: VirtualTryOnSourceImageProfile,
 ) => [
   'Create one single 2x2 grid image for virtual fashion try-on.',
   'The full returned image must be a vertical 3:4 portrait canvas, so each cropped grid cell is also a vertical 3:4 portrait.',
-  'Each of the four cells must show a full-body photo of the same person wearing the selected outfit, with slight pose or styling variation.',
-  'Use reference image 1 as the only source for the person identity, face, hair, expression, pose, body shape, body proportions, height, shoulder width, waist, legs, hands, and skin tone.',
+  getComfySourceFramingInstruction(sourceImageProfile),
+  'Use reference image 1 as the only source for the visible person identity cues, face if visible, hair if visible, expression if visible, pose, body shape, body proportions, height cues, shoulder width, waist if visible, legs if visible, hands if visible, feet if visible, and skin tone.',
   'Never copy or blend in the face, body, pose, age, gender presentation, skin tone, background, or other garments from catalog garment reference images.',
   'Do not add visible borders, gutters, labels, captions, watermarks, or extra text between grid cells.',
   usesIndividualGarmentImages
@@ -678,7 +770,12 @@ const applyWorkflowInputs = async (
     );
   }
 
-  const comfyPrompt = buildComfyTryOnPrompt(input.prompt, input.garments, multiGarmentMapped);
+  const comfyPrompt = buildComfyTryOnPrompt(
+    input.prompt,
+    input.garments,
+    multiGarmentMapped,
+    input.sourceImageProfile,
+  );
   if (!setMappedInput(workflow, workflowMap, 'positivePrompt', comfyPrompt)) {
     setMappedInput(workflow, workflowMap, 'prompt', comfyPrompt);
   }
@@ -709,6 +806,8 @@ const submitPrompt = async (client: AxiosInstance, workflow: unknown) => {
   });
 
   if (!response.data.prompt_id) {
+    if (getComfySafetyBlockReason(response.data)) throw createComfySafetyBlockError();
+
     throw new VirtualTryOnProviderError(
       `ComfyUI rejected workflow: ${JSON.stringify(response.data.error || response.data.node_errors || {})}`,
       502,
@@ -734,6 +833,7 @@ const waitForHistory = async (
       const response = await client.get<Record<string, ComfyHistoryEntry>>(getComfyHistoryPath(client, promptId));
       const entry = response.data?.[promptId];
       rateLimitAttempts = 0;
+      if (entry && !entry.outputs && getComfySafetyBlockReason(entry)) throw createComfySafetyBlockError();
       if (entry?.outputs) return entry;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -861,6 +961,8 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
 
       const imageFiles = findOutputFiles(history, workflowMap.outputs?.imageNodeIds || [], ['images']);
       if (!imageFiles.length) {
+        if (getComfySafetyBlockReason(history)) throw createComfySafetyBlockError();
+
         throw new VirtualTryOnProviderError('ComfyUI workflow finished without an image output', 502, 'COMFY_OUTPUT_MISSING');
       }
 

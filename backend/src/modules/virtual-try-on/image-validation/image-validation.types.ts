@@ -111,7 +111,7 @@ export const IMAGE_VALIDATION_REASON_CODES: readonly ImageValidationReasonCode[]
 ];
 
 export const IMAGE_VALIDATION_REASON_MESSAGES: Record<ImageValidationReasonCode, string> = {
-  NO_PERSON_DETECTED: 'Ảnh cần có một người rõ ràng để thử đồ',
+  NO_PERSON_DETECTED: 'Ảnh cần có người hoặc một phần cơ thể rõ ràng để thử đồ',
   MULTIPLE_PEOPLE_DETECTED: 'Ảnh chỉ nên có một người chính để thử đồ',
   PERSON_TOO_SMALL: 'Người trong ảnh quá nhỏ, vui lòng chọn ảnh chụp gần hơn',
   BODY_NOT_VISIBLE: 'Ảnh chưa thấy đủ vùng cơ thể cho outfit đã chọn',

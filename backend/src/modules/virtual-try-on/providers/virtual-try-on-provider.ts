@@ -16,10 +16,19 @@ export type VirtualTryOnProviderGarment = {
   size?: string;
 };
 
+export type VirtualTryOnSourceImageProfile = {
+  bodyVisibility?: 'good' | 'partial' | 'unknown';
+  visibleRegions?: Array<'upper' | 'hips' | 'legs' | 'feet'>;
+  supportedModes?: string[];
+  recommendedMode?: string | null;
+  reasonCode?: string | null;
+};
+
 export type VirtualTryOnProviderInput = {
   jobId: string;
   userId: string;
   sourceImageUrl: string;
+  sourceImageProfile?: VirtualTryOnSourceImageProfile;
   outfitMode: VirtualTryOnOutfitMode;
   outputMode: VirtualTryOnOutputMode;
   garments: VirtualTryOnProviderGarment[];

@@ -38,6 +38,10 @@ const readTimeoutMs = () => {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15_000;
 };
 
+const getEndpoint = () =>
+  process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL?.trim() ||
+  'http://127.0.0.1:7001/validate-image';
+
 const normalizeQualityLevel = (value: unknown): ImageValidationQualityLevel =>
   typeof value === 'string' && qualityLevels.includes(value as ImageValidationQualityLevel)
     ? value as ImageValidationQualityLevel
@@ -185,10 +189,7 @@ const normalizeCustomModelResult = (payload: CustomModelResponse): ImageValidati
 export const createCustomModelImageValidationProvider = (): ImageValidationProvider => ({
   name: 'custom_model',
   async validate(input: ImageValidationInput) {
-    const endpoint = process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL?.trim();
-    if (!endpoint) {
-      throw new Error('Missing IMAGE_VALIDATION_CUSTOM_MODEL_URL');
-    }
+    const endpoint = getEndpoint();
 
     const response = await axios.post<CustomModelResponse>(
       endpoint,

@@ -3,7 +3,10 @@ import type {
   VirtualTryOnItemRole,
   VirtualTryOnOutfitMode,
 } from '../../../database/models';
-import type { VirtualTryOnProviderGarment } from './virtual-try-on-provider';
+import type {
+  VirtualTryOnProviderGarment,
+  VirtualTryOnSourceImageProfile,
+} from './virtual-try-on-provider';
 
 const contextPresetPrompts: Record<VirtualTryOnContextPreset, string[]> = {
   none: [
@@ -53,6 +56,57 @@ const rolePromptDetails: Record<VirtualTryOnItemRole, string> = {
   shoes: 'place the complete matching pair on both feet with correct left-right pairing, sole contact, shadows, scale, and perspective',
   outerwear: 'layer over the inner outfit with correct lapels, collar, shoulder line, sleeve length, cuffs, closure, opening, and drape',
   accessory: 'place the accessory with correct scale, orientation, hand or body contact, strap path, occlusion, and natural shadow',
+};
+
+const getSourceFramingPromptParts = (sourceImageProfile?: VirtualTryOnSourceImageProfile) => {
+  const visibleRegions = new Set(sourceImageProfile?.visibleRegions ?? []);
+  const hasUpper = visibleRegions.has('upper');
+  const hasHips = visibleRegions.has('hips');
+  const hasLegs = visibleRegions.has('legs');
+  const hasFeet = visibleRegions.has('feet');
+  const hasAnyRegion = visibleRegions.size > 0;
+  const isFullBody = hasUpper && hasHips && hasLegs && hasFeet;
+  const isUpperCrop = hasUpper && !hasLegs && !hasFeet;
+  const isLowerCrop = !hasUpper && (hasHips || hasLegs || hasFeet);
+  const isFootCrop = hasFeet && !hasUpper && !hasHips;
+
+  const prompts = [
+    'virtual fashion try-on for the person or visible body part in the source image',
+    'use the source person image as the only reference for visible identity cues, hair, expression, pose, body shape, body proportions, and skin tone',
+    'preserve the original camera framing, crop, perspective, and visible body coverage from the source image',
+    'do not expand a cropped source image into a full-body image, and do not invent unseen face, torso, legs, feet, or hands',
+    'do not copy or infer any face, body shape, pose, age, gender presentation, or skin tone from catalog garment images or garment models',
+    'preserve visible hands, fingers, neck, legs, feet, and body boundaries unless covered by selected garments',
+    'replace or overlay only the selected fashion items realistically within the visible crop',
+  ];
+
+  if (!hasAnyRegion) {
+    prompts.push('if the person crop is ambiguous, keep the original crop and only edit clearly visible clothing areas');
+    return prompts;
+  }
+
+  if (isFullBody) {
+    prompts.push('source image supports full-body try-on; keep the full body visible with the same framing and ground contact');
+    return prompts;
+  }
+
+  if (isFootCrop) {
+    prompts.push('source image is a feet or footwear crop; focus on feet, ankles, footwear, floor contact, and shadows without inventing upper body or face');
+    return prompts;
+  }
+
+  if (isLowerCrop) {
+    prompts.push('source image is a lower-body crop; focus on visible waist, hips, legs, feet, and garment fit without inventing face or upper torso');
+    return prompts;
+  }
+
+  if (isUpperCrop) {
+    prompts.push('source image is an upper-body crop; focus on visible head, neck, shoulders, torso, arms, and upper garments without inventing legs or feet');
+    return prompts;
+  }
+
+  prompts.push('source image shows only part of the body; edit only the visible body regions and avoid hallucinating missing regions');
+  return prompts;
 };
 
 const basePromptParts = [
@@ -238,6 +292,7 @@ export const buildVirtualTryOnPrompt = (input: {
   preset: VirtualTryOnContextPreset;
   outfitMode?: VirtualTryOnOutfitMode;
   customPrompt?: string;
+  sourceImageProfile?: VirtualTryOnSourceImageProfile;
 }) => {
   const garmentText = input.garments.map(describeGarment).join('; ');
   const roles = uniqueRoles(input.garments);
@@ -248,7 +303,7 @@ export const buildVirtualTryOnPrompt = (input: {
   const outfitPrompts = getOutfitModePrompts(outfitMode, roles);
 
   const prompt = [
-    ...basePromptParts,
+    ...(input.sourceImageProfile ? getSourceFramingPromptParts(input.sourceImageProfile) : basePromptParts),
     garmentText ? `selected garments: ${garmentText}` : '',
     ...outfitPrompts,
     ...getRoleSpecificPrompts(roles),

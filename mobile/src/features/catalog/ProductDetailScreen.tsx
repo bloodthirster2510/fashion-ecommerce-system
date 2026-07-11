@@ -17,7 +17,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import ShopNameLogo from '../../components/branding/ShopNameLogo';
-import { colors, radii, shadows, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi } from '../cart/cartApi';
@@ -663,7 +663,7 @@ const ProductDetailScreen = () => {
         </TouchableOpacity>
 
         <View style={styles.headerBrand}>
-          <ShopNameLogo />
+          <ShopNameLogo compact />
         </View>
 
         <View style={styles.headerActions}>
@@ -1095,43 +1095,39 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
   },
   headerTop: {
-    minHeight: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
+    ...brandedHeaderStyles.container,
+    minHeight: 76,
+    paddingVertical: spacing.sm,
   },
   headerIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...brandedHeaderStyles.action,
   },
   headerBrand: {
-    flex: 1,
+    ...brandedHeaderStyles.titleGroup,
     alignItems: 'center',
   },
   headerActions: {
-    minWidth: 96,
+    minWidth: 132,
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: spacing.xs,
   },
   searchRow: {
-    minHeight: 36,
-    marginTop: 8,
-    borderRadius: radii.xs,
+    minHeight: 42,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: radii.sm,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
+    ...shadows.card,
   },
   searchInput: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 42,
     paddingHorizontal: spacing.sm,
     paddingVertical: 0,
     color: colors.text,

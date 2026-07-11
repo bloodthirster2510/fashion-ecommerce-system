@@ -43,7 +43,7 @@ export const getConfiguredImageValidationProviderName = (): ImageValidationProvi
   const configured = process.env.IMAGE_VALIDATION_PROVIDER?.trim();
   return providerNames.includes(configured as ImageValidationProviderName)
     ? configured as ImageValidationProviderName
-    : 'mock';
+    : 'custom_model';
 };
 
 const createUnimplementedProvider = (name: ImageValidationProviderName): ImageValidationProvider => ({
@@ -67,6 +67,6 @@ export const createImageValidationProvider = (
     case 'local_pretrained':
       return createUnimplementedProvider(providerName);
     default:
-      return createMockImageValidationProvider();
+      return createCustomModelImageValidationProvider();
   }
 };

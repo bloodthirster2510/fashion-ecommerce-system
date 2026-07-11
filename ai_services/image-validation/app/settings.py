@@ -22,6 +22,13 @@ def _read_float(name: str, fallback: float) -> float:
         return fallback
 
 
+def _read_bool(name: str, fallback: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return fallback
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     provider_name: str = "custom_model"
@@ -45,6 +52,10 @@ class Settings:
     outfit_min_box_area_ratio: float = _read_float("IMAGE_VALIDATION_OUTFIT_MIN_BOX_AREA_RATIO", 0.12)
     outfit_min_box_height_ratio: float = _read_float("IMAGE_VALIDATION_OUTFIT_MIN_BOX_HEIGHT_RATIO", 0.45)
     max_image_bytes: int = _read_int("IMAGE_VALIDATION_MAX_BYTES", 10 * 1024 * 1024)
+    safety_heuristic_enabled: bool = _read_bool("IMAGE_VALIDATION_SAFETY_HEURISTIC_ENABLED", True)
+    safety_skin_ratio_threshold: float = _read_float("IMAGE_VALIDATION_SAFETY_SKIN_RATIO_THRESHOLD", 0.52)
+    safety_torso_skin_ratio_threshold: float = _read_float("IMAGE_VALIDATION_SAFETY_TORSO_SKIN_RATIO_THRESHOLD", 0.62)
+    safety_min_person_crop_area_ratio: float = _read_float("IMAGE_VALIDATION_SAFETY_MIN_PERSON_CROP_AREA_RATIO", 0.10)
 
 
 def load_settings() -> Settings:
