@@ -130,20 +130,6 @@ const adminRouteRecords: AdminRoute[] = [
     group: 'sales',
   },
   {
-    id: 'ordersOnline',
-    path: '/admin/orders/online',
-    label: 'Đơn thanh toán online',
-    helper: 'Đối soát trước khi xử lý giao',
-    group: 'sales',
-  },
-  {
-    id: 'ordersCod',
-    path: '/admin/orders/cod',
-    label: 'Đơn COD',
-    helper: 'Thu tiền khi nhận hàng',
-    group: 'sales',
-  },
-  {
     id: 'inventory',
     path: '/admin/inventory',
     label: 'Kho hàng',
@@ -212,6 +198,10 @@ export const getAdminRouteByPath = (pathname: string) => {
 
   if (normalizedPath === '/admin/users') {
     return adminRoutes.find((route) => route.id === 'customers')
+  }
+
+  if (normalizedPath === '/admin/orders/online' || normalizedPath === '/admin/orders/cod') {
+    return adminRoutes.find((route) => route.id === 'orders')
   }
 
   return adminRoutes.find((route) => route.path === normalizedPath)
