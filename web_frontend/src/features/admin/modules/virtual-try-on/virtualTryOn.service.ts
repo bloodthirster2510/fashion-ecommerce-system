@@ -1,11 +1,18 @@
 import { requestAdmin } from '../../services/adminHttp'
 import type {
+  AdminVirtualTryOnAccountLock,
+  AdminVirtualTryOnAccountLockFilters,
+  AdminVirtualTryOnAccountLockList,
   AdminVirtualTryOnFilters,
   AdminVirtualTryOnJob,
   AdminVirtualTryOnJobList,
+  AdminVirtualTryOnPromptRule,
+  AdminVirtualTryOnPromptRuleFilters,
+  AdminVirtualTryOnPromptRuleList,
   AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
   AdminVirtualTryOnSummary,
+  PromptPolicyCategory,
 } from './virtualTryOn.types'
 
 const appendIfPresent = (params: URLSearchParams, key: string, value?: string | number) => {
@@ -47,5 +54,56 @@ export const cancelVirtualTryOnJob = (jobId: string) =>
 
 export const hideVirtualTryOnJob = (jobId: string) =>
   requestAdmin<AdminVirtualTryOnJob>(`/admin/virtual-try-on/jobs/${jobId}`, {
+    method: 'DELETE',
+  })
+
+export const listVirtualTryOnPromptRules = (filters: AdminVirtualTryOnPromptRuleFilters) => {
+  const params = new URLSearchParams({ page: String(filters.page), limit: '20' })
+  appendIfPresent(params, 'keyword', filters.keyword.trim())
+  appendIfPresent(params, 'category', filters.category)
+  appendIfPresent(params, 'enabled', filters.enabled)
+  return requestAdmin<AdminVirtualTryOnPromptRuleList>(`/admin/virtual-try-on/prompt-rules?${params.toString()}`)
+}
+
+export const createVirtualTryOnPromptRule = (input: {
+  term: string
+  category: PromptPolicyCategory
+  reasonCode?: string
+  enabled?: boolean
+}) =>
+  requestAdmin<AdminVirtualTryOnPromptRule>('/admin/virtual-try-on/prompt-rules', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+
+export const updateVirtualTryOnPromptRule = (
+  ruleId: string,
+  input: { term?: string; category?: PromptPolicyCategory; reasonCode?: string; enabled?: boolean },
+) =>
+  requestAdmin<AdminVirtualTryOnPromptRule>(`/admin/virtual-try-on/prompt-rules/${ruleId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+
+export const deleteVirtualTryOnPromptRule = (ruleId: string) =>
+  requestAdmin<{ _id: string; deleted: boolean }>(`/admin/virtual-try-on/prompt-rules/${ruleId}`, {
+    method: 'DELETE',
+  })
+
+export const listVirtualTryOnAccountLocks = (filters: AdminVirtualTryOnAccountLockFilters) => {
+  const params = new URLSearchParams({ page: String(filters.page), limit: '20' })
+  appendIfPresent(params, 'keyword', filters.keyword.trim())
+  appendIfPresent(params, 'locked', filters.locked)
+  return requestAdmin<AdminVirtualTryOnAccountLockList>(`/admin/virtual-try-on/account-locks?${params.toString()}`)
+}
+
+export const lockVirtualTryOnAccount = (input: { userId: string; reason?: string }) =>
+  requestAdmin<AdminVirtualTryOnAccountLock>('/admin/virtual-try-on/account-locks', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+
+export const unlockVirtualTryOnAccount = (userId: string) =>
+  requestAdmin<AdminVirtualTryOnAccountLock>(`/admin/virtual-try-on/account-locks/${userId}`, {
     method: 'DELETE',
   })

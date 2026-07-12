@@ -2,8 +2,10 @@ import axios from 'axios';
 import { Types } from 'mongoose';
 import {
   Product,
+  VirtualTryOnAccountLock,
   VirtualTryOnAsset,
   VirtualTryOnJob,
+  VirtualTryOnPromptRule,
   VirtualTryOnPromptViolation,
 } from '../../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
@@ -39,6 +41,12 @@ jest.mock('../../../database/models', () => ({
     create: jest.fn(),
     findOne: jest.fn(),
   },
+  VirtualTryOnAccountLock: {
+    findOne: jest.fn(),
+  },
+  VirtualTryOnPromptRule: {
+    find: jest.fn(),
+  },
 }));
 
 jest.mock('../../realtime/virtual-try-on.gateway', () => ({
@@ -68,6 +76,12 @@ const mockedVirtualTryOnPromptViolation = VirtualTryOnPromptViolation as unknown
   countDocuments: jest.Mock;
   create: jest.Mock;
   findOne: jest.Mock;
+};
+const mockedVirtualTryOnAccountLock = VirtualTryOnAccountLock as unknown as {
+  findOne: jest.Mock;
+};
+const mockedVirtualTryOnPromptRule = VirtualTryOnPromptRule as unknown as {
+  find: jest.Mock;
 };
 
 const userId = '665000000000000000000020';
@@ -158,6 +172,10 @@ const setupCreateJobMocks = () => {
   mockedVirtualTryOnPromptViolation.findOne.mockResolvedValue(null);
   mockedVirtualTryOnPromptViolation.countDocuments.mockResolvedValue(0);
   mockedVirtualTryOnPromptViolation.create.mockResolvedValue({});
+  mockedVirtualTryOnAccountLock.findOne.mockResolvedValue(null);
+  mockedVirtualTryOnPromptRule.find.mockReturnValue({
+    sort: () => Promise.resolve([]),
+  });
   mockedVirtualTryOnAsset.findOne.mockResolvedValue(sourceAsset);
   mockedVirtualTryOnJob.countDocuments.mockResolvedValue(0);
   mockedProduct.find.mockResolvedValue([product]);

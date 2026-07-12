@@ -4,12 +4,15 @@ import {
   Product,
   User,
   VirtualTryOnAsset,
+  VirtualTryOnAccountLock,
   VirtualTryOnJob,
+  VirtualTryOnPromptRule,
   VirtualTryOnPromptViolation,
   type IColorVariant,
   type IProduct,
   type IProductVariant,
   type IVirtualTryOnAsset,
+  type IVirtualTryOnPromptRule,
   type IVirtualTryOnJob,
   type VirtualTryOnAssetType,
   type VirtualTryOnContextPreset,
@@ -41,13 +44,19 @@ import {
   type ImageValidationReasonCode,
   type ImageValidationResult,
 } from './image-validation';
-import { PROMPT_MAX_LENGTH, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
+import { PROMPT_MAX_LENGTH, escapeRegExp, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
+import type { PromptPolicyCategory, PromptPolicyRule } from './prompt-policy/prompt-policy.types';
 import type {
   CreateVirtualTryOnItemInput,
   CreateVirtualTryOnJobInput,
   UploadAssetSource,
   ValidateVirtualTryOnAssetInput,
   VirtualTryOnListQuery,
+  VirtualTryOnPromptRuleListQuery,
+  CreatePromptRuleInput,
+  UpdatePromptRuleInput,
+  VirtualTryOnAccountLockListQuery,
+  LockAccountInput,
 } from './virtual-try-on.types';
 
 export class VirtualTryOnServiceError extends Error {
@@ -111,12 +120,44 @@ const allowedStatuses = new Set<VirtualTryOnJobStatus>([
   'failed',
   'canceled',
 ]);
+const promptPolicyCategoryReasonCodes: Record<PromptPolicyCategory, string> = {
+  sexual_content: 'PROMPT_SEXUAL_CONTENT',
+  violence: 'PROMPT_VIOLENCE',
+  prompt_injection: 'PROMPT_INJECTION',
+  personal_data: 'PROMPT_PERSONAL_DATA',
+  hate_or_harassment: 'PROMPT_HATE_OR_HARASSMENT',
+  unsafe_request: 'PROMPT_UNSAFE_REQUEST',
+};
+const allowedPromptPolicyCategories = new Set<PromptPolicyCategory>(
+  Object.keys(promptPolicyCategoryReasonCodes) as PromptPolicyCategory[],
+);
 
 const getPromptViolationLimitPerDay = () => {
   const configuredLimit = Number(process.env.VIRTUAL_TRY_ON_PROMPT_VIOLATION_LIMIT_PER_DAY);
   return Number.isFinite(configuredLimit) && configuredLimit > 0
     ? Math.floor(configuredLimit)
     : DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY;
+};
+
+const ensureVirtualTryOnAccountEnabled = async (userObjectId: Types.ObjectId) => {
+  const lock = await VirtualTryOnAccountLock.findOne({
+    userId: userObjectId,
+    isLocked: true,
+  });
+
+  if (!lock) return;
+
+  throw new VirtualTryOnServiceError(
+    lock.reason
+      ? `Tính năng phối đồ ảo của tài khoản đang bị khóa: ${lock.reason}`
+      : 'Tính năng phối đồ ảo của tài khoản đang bị khóa',
+    403,
+    'VIRTUAL_TRY_ON_ACCOUNT_LOCKED',
+    {
+      lockedAt: lock.lockedAt?.toISOString() ?? null,
+      reason: lock.reason ?? null,
+    },
+  );
 };
 
 const getLocalDayRange = (value = new Date()) => {
@@ -141,6 +182,101 @@ const toObjectId = (id: string, field: string) => {
     throw new VirtualTryOnServiceError(`Invalid ${field}`, 400);
   }
   return new Types.ObjectId(id);
+};
+
+const getActorObjectId = (actorUserId?: string) =>
+  actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
+
+const normalizePromptRuleTerm = (value: unknown) => {
+  if (typeof value !== 'string') {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm không hợp lệ', 400);
+  }
+
+  const term = value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (term.length < 2 || term.length > 120) {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm phải từ 2 đến 120 ký tự', 400);
+  }
+
+  return term;
+};
+
+const normalizePromptRuleCategory = (value: unknown): PromptPolicyCategory => {
+  if (typeof value !== 'string' || !allowedPromptPolicyCategories.has(value as PromptPolicyCategory)) {
+    throw new VirtualTryOnServiceError('Nhóm prompt policy không hợp lệ', 400);
+  }
+
+  return value as PromptPolicyCategory;
+};
+
+const getPromptRuleReasonCode = (category: PromptPolicyCategory, reasonCode?: unknown) => {
+  if (typeof reasonCode === 'string' && reasonCode.trim()) {
+    return reasonCode.trim().slice(0, 80);
+  }
+
+  return promptPolicyCategoryReasonCodes[category];
+};
+
+const serializePromptRule = (rule: IVirtualTryOnPromptRule) => ({
+  _id: rule._id.toString(),
+  term: rule.term,
+  category: rule.category,
+  reasonCode: rule.reasonCode,
+  enabled: rule.enabled,
+  createdAt: rule.createdAt.toISOString(),
+  updatedAt: rule.updatedAt.toISOString(),
+});
+
+const serializeAccountLock = async (lock: {
+  userId: Types.ObjectId;
+  isLocked: boolean;
+  reason?: string | null;
+  lockedBy?: Types.ObjectId | null;
+  unlockedBy?: Types.ObjectId | null;
+  lockedAt?: Date | null;
+  unlockedAt?: Date | null;
+  updatedAt: Date;
+}) => {
+  const [user, lockedBy, unlockedBy] = await Promise.all([
+    User.findById(lock.userId).select('_id name email isActive').lean<{
+      _id: Types.ObjectId;
+      name?: string;
+      email?: string;
+      isActive?: boolean;
+    } | null>(),
+    lock.lockedBy
+      ? User.findById(lock.lockedBy).select('_id name email').lean<{ _id: Types.ObjectId; name?: string; email?: string } | null>()
+      : Promise.resolve(null),
+    lock.unlockedBy
+      ? User.findById(lock.unlockedBy).select('_id name email').lean<{ _id: Types.ObjectId; name?: string; email?: string } | null>()
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    user: user
+      ? {
+          _id: user._id.toString(),
+          name: user.name ?? '',
+          email: user.email ?? '',
+          isActive: user.isActive !== false,
+        }
+      : {
+          _id: lock.userId.toString(),
+          name: '',
+          email: '',
+          isActive: false,
+        },
+    isLocked: lock.isLocked,
+    reason: lock.reason ?? null,
+    lockedBy: lockedBy
+      ? { _id: lockedBy._id.toString(), name: lockedBy.name ?? '', email: lockedBy.email ?? '' }
+      : null,
+    unlockedBy: unlockedBy
+      ? { _id: unlockedBy._id.toString(), name: unlockedBy.name ?? '', email: unlockedBy.email ?? '' }
+      : null,
+    lockedAt: lock.lockedAt?.toISOString() ?? null,
+    unlockedAt: lock.unlockedAt?.toISOString() ?? null,
+    updatedAt: lock.updatedAt.toISOString(),
+  };
 };
 
 const toIdString = (value: unknown) => {
@@ -1092,11 +1228,26 @@ const normalizePromptForLog = (prompt?: string) => {
   return (normalized || '(empty)').slice(0, 500);
 };
 
+const getEnabledPromptPolicyRules = async (): Promise<PromptPolicyRule[]> => {
+  const rules = await VirtualTryOnPromptRule.find({
+    enabled: true,
+    deletedAt: null,
+  }).sort({ updatedAt: -1 });
+
+  return rules.map((rule) => ({
+    key: `admin_rule_${rule._id.toString()}`,
+    category: rule.category,
+    reasonCode: rule.reasonCode,
+    terms: [rule.term],
+    foldVietnamese: true,
+  }));
+};
+
 const validatePromptForCreateJob = async (userObjectId: Types.ObjectId, prompt?: string) => {
   const now = new Date();
   await ensurePromptPolicyNotBlocked(userObjectId, now);
 
-  const promptValidation = validateVirtualTryOnPrompt(prompt);
+  const promptValidation = validateVirtualTryOnPrompt(prompt, await getEnabledPromptPolicyRules());
   if (promptValidation.allowed) return promptValidation;
 
   const limit = getPromptViolationLimitPerDay();
@@ -1169,6 +1320,7 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
   }
 
   const userObjectId = toObjectId(userId, 'user id');
+  await ensureVirtualTryOnAccountEnabled(userObjectId);
   const uploaded = await uploadToCloudinary(
     file.buffer,
     file.originalname || 'try-on-source',
@@ -1275,6 +1427,7 @@ const validateAsset = async (
     throw new VirtualTryOnServiceError('Chế độ phối đồ không hợp lệ', 400);
   }
 
+  await ensureVirtualTryOnAccountEnabled(toObjectId(userId, 'user id'));
   const sourceAsset = await findSourceAssetForUser(userId, assetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
   return getSourceImageSuitabilityResult(sourceAsset, input.outfitMode, itemRoles);
@@ -1294,6 +1447,7 @@ const createJob = async (
 ) => {
   const normalized = validateCreateJobInput(input);
   const userObjectId = toObjectId(userId, 'user id');
+  await ensureVirtualTryOnAccountEnabled(userObjectId);
 
   if (PROVIDER === 'disabled') {
     throw new VirtualTryOnServiceError('Tính năng phối đồ ảo đang tắt', 503, 'VIRTUAL_TRY_ON_DISABLED');
@@ -1742,6 +1896,214 @@ const hideAdminJob = async (jobId: string) => {
   return serializeAdminJob(job);
 };
 
+const listPromptRules = async (query: VirtualTryOnPromptRuleListQuery) => {
+  const { page, limit } = clampPagination(query);
+  const filter: Record<string, unknown> = { deletedAt: null };
+  if (query.category) filter.category = query.category;
+  if (query.enabled !== undefined) filter.enabled = query.enabled;
+  if (query.keyword) filter.term = new RegExp(escapeRegExp(query.keyword), 'i');
+
+  const [totalItems, rules] = await Promise.all([
+    VirtualTryOnPromptRule.countDocuments(filter),
+    VirtualTryOnPromptRule.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+  ]);
+
+  return {
+    items: rules.map(serializePromptRule),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const createPromptRule = async (actorUserId: string | undefined, input: CreatePromptRuleInput) => {
+  const term = normalizePromptRuleTerm(input?.term);
+  const category = normalizePromptRuleCategory(input?.category);
+  const reasonCode = getPromptRuleReasonCode(category, input?.reasonCode);
+  const enabled = input?.enabled !== false;
+  const actorObjectId = getActorObjectId(actorUserId);
+
+  const existing = await VirtualTryOnPromptRule.findOne({
+    term,
+    deletedAt: { $ne: null },
+  });
+  if (existing) {
+    existing.term = term;
+    existing.category = category;
+    existing.reasonCode = reasonCode;
+    existing.enabled = enabled;
+    existing.deletedAt = null;
+    existing.updatedBy = actorObjectId;
+    await existing.save();
+    return serializePromptRule(existing);
+  }
+
+  try {
+    const rule = await VirtualTryOnPromptRule.create({
+      term,
+      category,
+      reasonCode,
+      enabled,
+      createdBy: actorObjectId,
+      updatedBy: actorObjectId,
+    });
+    return serializePromptRule(rule);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
+      throw new VirtualTryOnServiceError('Từ khóa bị cấm đã tồn tại', 409);
+    }
+    throw error;
+  }
+};
+
+const updatePromptRule = async (
+  actorUserId: string | undefined,
+  ruleId: string,
+  input: UpdatePromptRuleInput,
+) => {
+  const rule = await VirtualTryOnPromptRule.findOne({
+    _id: toObjectId(ruleId, 'rule id'),
+    deletedAt: null,
+  });
+
+  if (!rule) {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm không tồn tại', 404);
+  }
+
+  const updates: Partial<IVirtualTryOnPromptRule> = {
+    updatedBy: getActorObjectId(actorUserId),
+  };
+
+  if (input?.term !== undefined) updates.term = normalizePromptRuleTerm(input.term);
+  if (input?.category !== undefined) updates.category = normalizePromptRuleCategory(input.category);
+  if (input?.reasonCode !== undefined) {
+    updates.reasonCode = getPromptRuleReasonCode(updates.category ?? rule.category, input.reasonCode);
+  }
+  if (input?.enabled !== undefined) updates.enabled = Boolean(input.enabled);
+
+  try {
+    Object.assign(rule, updates);
+    await rule.save();
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
+      throw new VirtualTryOnServiceError('Từ khóa bị cấm đã tồn tại', 409);
+    }
+    throw error;
+  }
+
+  return serializePromptRule(rule);
+};
+
+const deletePromptRule = async (actorUserId: string | undefined, ruleId: string) => {
+  const rule = await VirtualTryOnPromptRule.findOneAndUpdate(
+    { _id: toObjectId(ruleId, 'rule id'), deletedAt: null },
+    { deletedAt: new Date(), updatedBy: getActorObjectId(actorUserId) },
+    { new: true },
+  );
+
+  if (!rule) {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm không tồn tại', 404);
+  }
+
+  return { _id: rule._id.toString(), deleted: true };
+};
+
+const listAccountLocks = async (query: VirtualTryOnAccountLockListQuery) => {
+  const { page, limit } = clampPagination(query);
+  const filter: Record<string, unknown> = {};
+  if (query.locked !== undefined) filter.isLocked = query.locked;
+  if (query.keyword) {
+    const users = await User.find({
+      $or: [
+        { name: new RegExp(escapeRegExp(query.keyword), 'i') },
+        { email: new RegExp(escapeRegExp(query.keyword), 'i') },
+      ],
+    })
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }[]>();
+    if (users.length === 0) {
+      return {
+        items: [],
+        pagination: { page, limit, totalItems: 0, totalPages: 0 },
+      };
+    }
+    filter.userId = { $in: users.map((u) => u._id) };
+  }
+
+  const [totalItems, locks] = await Promise.all([
+    VirtualTryOnAccountLock.countDocuments(filter),
+    VirtualTryOnAccountLock.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+  ]);
+
+  return {
+    items: await Promise.all(locks.map((lock) => serializeAccountLock(lock))),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const lockAccount = async (actorUserId: string | undefined, input: LockAccountInput) => {
+  const userId = toObjectId(input?.userId, 'user id');
+  if (input?.reason && typeof input.reason !== 'string') {
+    throw new VirtualTryOnServiceError('Lý do khóa không hợp lệ', 400);
+  }
+  const reason = input?.reason?.trim().slice(0, 240) || null;
+  const actorObjectId = getActorObjectId(actorUserId);
+
+  const user = await User.findById(userId).select('_id isActive').lean<{ _id: Types.ObjectId } | null>();
+  if (!user) {
+    throw new VirtualTryOnServiceError('Người dùng không tồn tại', 404);
+  }
+
+  const lock = await VirtualTryOnAccountLock.findOneAndUpdate(
+    { userId },
+    {
+      isLocked: true,
+      reason,
+      lockedBy: actorObjectId,
+      unlockedBy: null,
+      unlockedAt: null,
+      lockedAt: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+
+  return serializeAccountLock(lock);
+};
+
+const unlockAccount = async (actorUserId: string | undefined, userId: string) => {
+  const userObjectId = toObjectId(userId, 'user id');
+  const lock = await VirtualTryOnAccountLock.findOneAndUpdate(
+    { userId: userObjectId, isLocked: true },
+    {
+      isLocked: false,
+      reason: null,
+      unlockedBy: getActorObjectId(actorUserId),
+      unlockedAt: new Date(),
+    },
+    { new: true },
+  );
+
+  if (!lock) {
+    throw new VirtualTryOnServiceError('Tài khoản không bị khóa phối đồ ảo', 404);
+  }
+
+  return serializeAccountLock(lock);
+};
+
 const getContextPresetPreviews = (): VirtualTryOnContextPresetPreview[] => contextPresetPreviews;
 
 export const virtualTryOnService = {
@@ -1763,5 +2125,12 @@ export const virtualTryOnService = {
   retryAdminJob,
   cancelAdminJob,
   hideAdminJob,
+  listPromptRules,
+  createPromptRule,
+  updatePromptRule,
+  deletePromptRule,
+  listAccountLocks,
+  lockAccount,
+  unlockAccount,
   getContextPresetPreviews,
 };

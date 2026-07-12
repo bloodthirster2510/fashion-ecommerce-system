@@ -6,6 +6,11 @@ import type {
   UploadAssetSource,
   ValidateVirtualTryOnAssetInput,
   VirtualTryOnListQuery,
+  VirtualTryOnPromptRuleListQuery,
+  CreatePromptRuleInput,
+  UpdatePromptRuleInput,
+  VirtualTryOnAccountLockListQuery,
+  LockAccountInput,
 } from './virtual-try-on.types';
 
 const handleError = (res: Response, error: unknown) => {
@@ -46,6 +51,21 @@ const getAdminQuery = (req: Request): VirtualTryOnListQuery & {
   keyword: typeof req.query.keyword === 'string' ? req.query.keyword : undefined,
   dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
   dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
+});
+
+const getPromptRuleListQuery = (req: Request): VirtualTryOnPromptRuleListQuery => ({
+  page: req.query.page ? Number(req.query.page) : undefined,
+  limit: req.query.limit ? Number(req.query.limit) : undefined,
+  keyword: typeof req.query.keyword === 'string' ? req.query.keyword : undefined,
+  category: typeof req.query.category === 'string' ? (req.query.category as VirtualTryOnPromptRuleListQuery['category']) : undefined,
+  enabled: req.query.enabled === 'true' ? true : req.query.enabled === 'false' ? false : undefined,
+});
+
+const getAccountLockListQuery = (req: Request): VirtualTryOnAccountLockListQuery => ({
+  page: req.query.page ? Number(req.query.page) : undefined,
+  limit: req.query.limit ? Number(req.query.limit) : undefined,
+  keyword: typeof req.query.keyword === 'string' ? req.query.keyword : undefined,
+  locked: req.query.locked === 'true' ? true : req.query.locked === 'false' ? false : undefined,
 });
 
 export const uploadAsset = async (req: Request, res: Response) => {
@@ -212,6 +232,73 @@ export const cancelAdminJob = async (req: Request, res: Response) => {
 export const hideAdminJob = async (req: Request, res: Response) => {
   try {
     return ok(res, await virtualTryOnService.hideAdminJob(req.params.jobId as string));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const listPromptRules = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.listPromptRules(getPromptRuleListQuery(req)));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const createPromptRule = async (req: Request, res: Response) => {
+  try {
+    const rule = await virtualTryOnService.createPromptRule(
+      getUserId(req),
+      req.body as CreatePromptRuleInput,
+    );
+    return created(res, rule);
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const updatePromptRule = async (req: Request, res: Response) => {
+  try {
+    return ok(
+      res,
+      await virtualTryOnService.updatePromptRule(
+        getUserId(req),
+        req.params.ruleId as string,
+        req.body as UpdatePromptRuleInput,
+      ),
+    );
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const deletePromptRule = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.deletePromptRule(getUserId(req), req.params.ruleId as string));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const listAccountLocks = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.listAccountLocks(getAccountLockListQuery(req)));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const lockAccount = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.lockAccount(getUserId(req), req.body as LockAccountInput));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const unlockAccount = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.unlockAccount(getUserId(req), req.params.userId as string));
   } catch (error) {
     return handleError(res, error);
   }

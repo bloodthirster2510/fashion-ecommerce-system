@@ -2,20 +2,34 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
 import {
   cancelVirtualTryOnJob,
+  createVirtualTryOnPromptRule,
+  deleteVirtualTryOnPromptRule,
   getVirtualTryOnSettings,
   getVirtualTryOnSummary,
   hideVirtualTryOnJob,
+  listVirtualTryOnAccountLocks,
   listVirtualTryOnJobs,
+  listVirtualTryOnPromptRules,
+  lockVirtualTryOnAccount,
   retryVirtualTryOnJob,
   testVirtualTryOnPrompt,
+  unlockVirtualTryOnAccount,
+  updateVirtualTryOnPromptRule,
 } from './virtualTryOn.service'
 import type {
+  AdminVirtualTryOnAccountLock,
+  AdminVirtualTryOnAccountLockFilters,
+  AdminVirtualTryOnAccountLockList,
   AdminVirtualTryOnFilters,
   AdminVirtualTryOnJob,
   AdminVirtualTryOnJobList,
+  AdminVirtualTryOnPromptRule,
+  AdminVirtualTryOnPromptRuleFilters,
+  AdminVirtualTryOnPromptRuleList,
   AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
   AdminVirtualTryOnSummary,
+  PromptPolicyCategory,
   VirtualTryOnJobStatus,
 } from './virtualTryOn.types'
 import './virtualTryOn.css'
@@ -57,6 +71,39 @@ const outfitModeLabels: Record<AdminVirtualTryOnJob['outfitMode'], string> = {
 const outputModeLabels: Record<AdminVirtualTryOnJob['outputMode'], string> = {
   image: 'Ảnh',
   image_and_video: 'Ảnh + video',
+}
+
+const promptPolicyCategoryLabels: Record<PromptPolicyCategory, string> = {
+  sexual_content: 'Nội dung nhạy cảm',
+  violence: 'Bạo lực',
+  prompt_injection: 'Prompt injection',
+  personal_data: 'Dữ liệu cá nhân',
+  hate_or_harassment: 'Thù ghét/quấy rối',
+  unsafe_request: 'Yêu cầu không an toàn',
+}
+
+const promptPolicyCategoryOptions: PromptPolicyCategory[] = [
+  'sexual_content',
+  'violence',
+  'prompt_injection',
+  'personal_data',
+  'hate_or_harassment',
+  'unsafe_request',
+]
+
+type AdminTab = 'jobs' | 'promptRules' | 'accountLocks'
+
+const initialPromptRuleFilters: AdminVirtualTryOnPromptRuleFilters = {
+  page: 1,
+  keyword: '',
+  category: '',
+  enabled: '',
+}
+
+const initialAccountLockFilters: AdminVirtualTryOnAccountLockFilters = {
+  page: 1,
+  keyword: '',
+  locked: 'true',
 }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
@@ -107,6 +154,23 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const [promptInput, setPromptInput] = useState('')
   const [promptResult, setPromptResult] = useState<AdminVirtualTryOnPromptTestResult | null>(null)
   const [promptTesting, setPromptTesting] = useState(false)
+  const [activeTab, setActiveTab] = useState<AdminTab>('jobs')
+  const [promptRuleFilters, setPromptRuleFilters] = useState(initialPromptRuleFilters)
+  const [promptRuleData, setPromptRuleData] = useState<AdminVirtualTryOnPromptRuleList | null>(null)
+  const [promptRuleLoading, setPromptRuleLoading] = useState(false)
+  const [promptRuleForm, setPromptRuleForm] = useState<{ term: string; category: PromptPolicyCategory; reasonCode: string; enabled: boolean }>({
+    term: '',
+    category: 'sexual_content',
+    reasonCode: '',
+    enabled: true,
+  })
+  const [promptRuleSaving, setPromptRuleSaving] = useState(false)
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+  const [accountLockFilters, setAccountLockFilters] = useState(initialAccountLockFilters)
+  const [accountLockData, setAccountLockData] = useState<AdminVirtualTryOnAccountLockList | null>(null)
+  const [accountLockLoading, setAccountLockLoading] = useState(false)
+  const [lockForm, setLockForm] = useState<{ userId: string; reason: string }>({ userId: '', reason: '' })
+  const [lockSaving, setLockSaving] = useState(false)
   const canManage = hasPermission(currentUser, 'virtual_try_on.manage')
   const canSettings = hasPermission(currentUser, 'virtual_try_on.settings')
 
@@ -189,6 +253,147 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     }
   }
 
+  const loadPromptRules = useCallback(async () => {
+    setPromptRuleLoading(true)
+    setNotice(null)
+    try {
+      setPromptRuleData(await listVirtualTryOnPromptRules(promptRuleFilters))
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải danh sách từ khóa bị cấm' })
+    } finally {
+      setPromptRuleLoading(false)
+    }
+  }, [promptRuleFilters])
+
+  useEffect(() => {
+    if (activeTab === 'promptRules') void loadPromptRules()
+  }, [activeTab, loadPromptRules])
+
+  const updatePromptRuleFilter = (key: keyof AdminVirtualTryOnPromptRuleFilters, value: string) => {
+    setPromptRuleFilters((current) => ({ ...current, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }))
+  }
+
+  const resetPromptRuleForm = () => {
+    setEditingRuleId(null)
+    setPromptRuleForm({ term: '', category: 'sexual_content', reasonCode: '', enabled: true })
+  }
+
+  const startEditPromptRule = (rule: AdminVirtualTryOnPromptRule) => {
+    setEditingRuleId(rule._id)
+    setPromptRuleForm({ term: rule.term, category: rule.category, reasonCode: rule.reasonCode, enabled: rule.enabled })
+  }
+
+  const handleSavePromptRule = async () => {
+    if (!promptRuleForm.term.trim()) {
+      setNotice({ type: 'error', message: 'Vui lòng nhập từ khóa bị cấm' })
+      return
+    }
+    setPromptRuleSaving(true)
+    setNotice(null)
+    try {
+      if (editingRuleId) {
+        await updateVirtualTryOnPromptRule(editingRuleId, promptRuleForm)
+        setNotice({ type: 'success', message: 'Đã cập nhật từ khóa bị cấm.' })
+      } else {
+        await createVirtualTryOnPromptRule(promptRuleForm)
+        setNotice({ type: 'success', message: 'Đã thêm từ khóa bị cấm.' })
+      }
+      resetPromptRuleForm()
+      await loadPromptRules()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể lưu từ khóa bị cấm' })
+    } finally {
+      setPromptRuleSaving(false)
+    }
+  }
+
+  const handleTogglePromptRule = async (rule: AdminVirtualTryOnPromptRule) => {
+    setNotice(null)
+    try {
+      await updateVirtualTryOnPromptRule(rule._id, { enabled: !rule.enabled })
+      await loadPromptRules()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể đổi trạng thái từ khóa' })
+    }
+  }
+
+  const handleDeletePromptRule = async (rule: AdminVirtualTryOnPromptRule) => {
+    if (!window.confirm(`Xóa từ khóa "${rule.term}" khỏi danh sách cấm?`)) return
+    setNotice(null)
+    try {
+      await deleteVirtualTryOnPromptRule(rule._id)
+      if (editingRuleId === rule._id) resetPromptRuleForm()
+      await loadPromptRules()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xóa từ khóa bị cấm' })
+    }
+  }
+
+  const loadAccountLocks = useCallback(async () => {
+    setAccountLockLoading(true)
+    setNotice(null)
+    try {
+      setAccountLockData(await listVirtualTryOnAccountLocks(accountLockFilters))
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải danh sách khóa tài khoản' })
+    } finally {
+      setAccountLockLoading(false)
+    }
+  }, [accountLockFilters])
+
+  useEffect(() => {
+    if (activeTab === 'accountLocks') void loadAccountLocks()
+  }, [activeTab, loadAccountLocks])
+
+  const updateAccountLockFilter = (key: keyof AdminVirtualTryOnAccountLockFilters, value: string) => {
+    setAccountLockFilters((current) => ({ ...current, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }))
+  }
+
+  const handleLockAccount = async () => {
+    if (!lockForm.userId.trim()) {
+      setNotice({ type: 'error', message: 'Vui lòng nhập user ID cần khóa' })
+      return
+    }
+    setLockSaving(true)
+    setNotice(null)
+    try {
+      await lockVirtualTryOnAccount({ userId: lockForm.userId.trim(), reason: lockForm.reason.trim() || undefined })
+      setNotice({ type: 'success', message: 'Đã khóa tính năng phối đồ ảo của tài khoản.' })
+      setLockForm({ userId: '', reason: '' })
+      await loadAccountLocks()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khóa tài khoản' })
+    } finally {
+      setLockSaving(false)
+    }
+  }
+
+  const handleUnlockAccount = async (lock: AdminVirtualTryOnAccountLock) => {
+    if (!window.confirm(`Mở khóa phối đồ ảo cho ${lock.user.name || lock.user.email}?`)) return
+    setNotice(null)
+    try {
+      await unlockVirtualTryOnAccount(lock.user._id)
+      setNotice({ type: 'success', message: 'Đã mở khóa tài khoản.' })
+      await loadAccountLocks()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể mở khóa tài khoản' })
+    }
+  }
+
+  const handleLockAccountById = async (userId: string) => {
+    setLockSaving(true)
+    setNotice(null)
+    try {
+      await lockVirtualTryOnAccount({ userId })
+      setNotice({ type: 'success', message: 'Đã khóa tính năng phối đồ ảo của tài khoản.' })
+      await loadAccountLocks()
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khóa tài khoản' })
+    } finally {
+      setLockSaving(false)
+    }
+  }
+
   const pagination = data?.pagination
   const jobs = data?.items ?? []
   const activeJobCount = (summary?.queued ?? 0) + (summary?.processing ?? 0)
@@ -226,11 +431,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   return (
     <section className="admin-vto-page">
-      <header className="admin-page-heading admin-vto-heading">
+      <header className="admin-vto-ops-bar">
         <div>
           <span>AI fitting room</span>
-          <h1>Phối đồ ảo</h1>
-          <p>Giám sát job tạo ảnh, lỗi provider và cấu hình vận hành.</p>
+          <strong>Luồng vận hành hôm nay</strong>
+          <p>Ưu tiên job lỗi, ảnh mới cần kiểm duyệt và quota provider.</p>
         </div>
         <button type="button" onClick={() => void loadPage()} disabled={loading}>
           {loading ? 'Đang tải...' : 'Làm mới'}
@@ -243,7 +448,19 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         </div>
       ) : null}
 
-      <div className="admin-vto-stats">
+      <nav className="admin-vto-tabs" aria-label="Tab quản trị phối đồ ảo">
+        <button type="button" className={activeTab === 'jobs' ? 'is-active' : ''} onClick={() => setActiveTab('jobs')}>
+          Lượt phối đồ
+        </button>
+        <button type="button" className={activeTab === 'promptRules' ? 'is-active' : ''} onClick={() => setActiveTab('promptRules')}>
+          Từ khóa bị cấm
+        </button>
+        <button type="button" className={activeTab === 'accountLocks' ? 'is-active' : ''} onClick={() => setActiveTab('accountLocks')}>
+          Khóa tài khoản
+        </button>
+      </nav>
+
+      <div className="admin-vto-stats" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
         <div className="is-primary">
           <span>Job hôm nay</span>
           <strong>{summary?.today ?? 0}</strong>
@@ -266,7 +483,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         </div>
       </div>
 
-      <div className="admin-vto-command-grid" aria-label="Bảng điều hành phòng phối đồ ảo">
+      {activeTab === 'jobs' ? (
+        <>
+        <div className="admin-vto-command-grid" aria-label="Bảng điều hành phòng phối đồ ảo">
         <section className="admin-vto-command-card is-attention">
           <div>
             <span>Việc cần xử lý</span>
@@ -290,7 +509,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           </div>
         </section>
 
-        <section className="admin-vto-command-card">
+        <section className="admin-vto-command-card is-review">
           <div>
             <span>Kiểm duyệt kết quả</span>
             <strong>{reviewJobs.length}</strong>
@@ -311,7 +530,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           </div>
         </section>
 
-        <section className="admin-vto-command-card">
+        <section className="admin-vto-command-card is-products">
           <div>
             <span>Sản phẩm được thử nhiều</span>
             <strong>{productInsights.length}</strong>
@@ -330,7 +549,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           )}
         </section>
 
-        <section className="admin-vto-command-card">
+        <section className="admin-vto-command-card is-policy">
           <div>
             <span>Quota & policy</span>
             <strong>{settings?.enabled ? 'Bật' : 'Tắt'}</strong>
@@ -339,15 +558,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             <div><dt>Provider</dt><dd>{settings?.provider ?? '-'}</dd></div>
             <div><dt>Món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
             <div><dt>Đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
-            <div><dt>Prompt block</dt><dd>{summary?.promptBlocksToday ?? 0}/{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
+            <div><dt>Ngưỡng khóa/user</dt><dd>{summary?.promptBlocksToday ?? 0}/{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
           </dl>
-          <span className="admin-vto-policy-meter" aria-label={`Prompt block ${promptBlockRatio}%`}>
+          <span className="admin-vto-policy-meter" aria-label={`Ngưỡng khóa prompt ${promptBlockRatio}%`}>
             <i style={{ width: `${promptBlockRatio}%` }} />
           </span>
         </section>
       </div>
 
-      <div className="admin-vto-layout">
+      <div className="admin-vto-layout" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
         <section className="admin-vto-main">
           <div className="admin-vto-status-board" aria-label="Tổng quan trạng thái job">
             <button
@@ -533,7 +752,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
               <div><dt>Job đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
               <div><dt>Prompt vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? 0}</dd></div>
-              <div><dt>Giới hạn prompt/ngày</dt><dd>{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
+              <div><dt>Khóa sau số lần vi phạm/user/ngày</dt><dd>{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
             </dl>
             {!canSettings ? <p>Chỉ admin có quyền cấu hình mới chỉnh được provider/quota.</p> : null}
           </section>
@@ -657,6 +876,260 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             </section>
           </aside>
         </div>
+      ) : null}
+      </>
+      ) : null}
+
+      {activeTab === 'promptRules' ? (
+        <section className="admin-vto-tab-panel">
+          <div className="admin-vto-tab-head">
+            <h2>{editingRuleId ? 'Sửa từ khóa bị cấm' : 'Thêm từ khóa bị cấm'}</h2>
+            {editingRuleId ? (
+              <button type="button" onClick={resetPromptRuleForm}>Hủy sửa</button>
+            ) : null}
+          </div>
+          <div className="admin-vto-form-row">
+            <input
+              value={promptRuleForm.term}
+              onChange={(event) => setPromptRuleForm((current) => ({ ...current, term: event.target.value }))}
+              placeholder="Từ khóa bị cấm (vd: tên người nổi tiếng, từ nhạy cảm)"
+              maxLength={120}
+            />
+            <select
+              value={promptRuleForm.category}
+              onChange={(event) => setPromptRuleForm((current) => ({
+                ...current,
+                category: event.target.value as PromptPolicyCategory,
+                reasonCode: '',
+              }))}
+            >
+              {promptPolicyCategoryOptions.map((category) => (
+                <option key={category} value={category}>{promptPolicyCategoryLabels[category]}</option>
+              ))}
+            </select>
+            <input
+              value={promptRuleForm.reasonCode}
+              onChange={(event) => setPromptRuleForm((current) => ({ ...current, reasonCode: event.target.value }))}
+              placeholder="Mã lý do (để trống dùng mặc định)"
+              maxLength={80}
+            />
+            <label className="admin-vto-checkbox">
+              <input
+                type="checkbox"
+                checked={promptRuleForm.enabled}
+                onChange={(event) => setPromptRuleForm((current) => ({ ...current, enabled: event.target.checked }))}
+              />
+              <span>Đang bật</span>
+            </label>
+            {canManage ? (
+              <button type="button" disabled={promptRuleSaving} onClick={() => void handleSavePromptRule()}>
+                {promptRuleSaving ? 'Đang lưu...' : editingRuleId ? 'Cập nhật' : 'Thêm'}
+              </button>
+            ) : null}
+          </div>
+
+          <div className="admin-vto-toolbar">
+            <input
+              value={promptRuleFilters.keyword}
+              onChange={(event) => updatePromptRuleFilter('keyword', event.target.value)}
+              placeholder="Tìm từ khóa..."
+            />
+            <select
+              value={promptRuleFilters.category}
+              onChange={(event) => updatePromptRuleFilter('category', event.target.value)}
+            >
+              <option value="">Tất cả nhóm</option>
+              {promptPolicyCategoryOptions.map((category) => (
+                <option key={category} value={category}>{promptPolicyCategoryLabels[category]}</option>
+              ))}
+            </select>
+            <select
+              value={promptRuleFilters.enabled}
+              onChange={(event) => updatePromptRuleFilter('enabled', event.target.value)}
+            >
+              <option value="">Tất cả trạng thái</option>
+              <option value="true">Đang bật</option>
+              <option value="false">Đang tắt</option>
+            </select>
+          </div>
+
+          <div className="admin-vto-table-shell">
+            {promptRuleLoading ? (
+              <div className="admin-table-skeleton"><span /><span /><span /></div>
+            ) : promptRuleData?.items.length ? (
+              <table className="admin-vto-table admin-vto-rule-table">
+                <thead>
+                  <tr>
+                    <th>Từ khóa</th>
+                    <th>Nhóm</th>
+                    <th>Mã lý do</th>
+                    <th>Trạng thái</th>
+                    <th>Cập nhật</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {promptRuleData.items.map((rule) => (
+                    <tr key={rule._id} className={rule.enabled ? undefined : 'is-muted-row'}>
+                      <td><strong>{rule.term}</strong></td>
+                      <td>{promptPolicyCategoryLabels[rule.category]}</td>
+                      <td><code>{rule.reasonCode}</code></td>
+                      <td>
+                        <span className={`admin-vto-status ${rule.enabled ? 'is-success' : 'is-muted'}`}>
+                          {rule.enabled ? 'Bật' : 'Tắt'}
+                        </span>
+                      </td>
+                      <td>{formatDate(rule.updatedAt)}</td>
+                      <td>
+                        <div className="admin-vto-actions">
+                          {canManage ? (
+                            <button type="button" onClick={() => startEditPromptRule(rule)}>Sửa</button>
+                          ) : null}
+                          {canManage ? (
+                            <button type="button" onClick={() => void handleTogglePromptRule(rule)}>
+                              {rule.enabled ? 'Tắt' : 'Bật'}
+                            </button>
+                          ) : null}
+                          {canManage ? (
+                            <button type="button" className="is-danger" onClick={() => void handleDeletePromptRule(rule)}>Xóa</button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="admin-vto-empty">
+                <strong>Chưa có từ khóa bị cấm</strong>
+                <span>Thêm từ khóa ở trên để chặn prompt vi phạm khi khách tạo ảnh phối đồ.</span>
+              </div>
+            )}
+          </div>
+
+          {promptRuleData?.pagination && promptRuleData.pagination.totalPages > 1 ? (
+            <footer className="admin-table-footer">
+              <span>Trang {promptRuleData.pagination.page}/{promptRuleData.pagination.totalPages} · {promptRuleData.pagination.totalItems} từ khóa</span>
+              <div>
+                <button type="button" disabled={promptRuleData.pagination.page <= 1} onClick={() => updatePromptRuleFilter('page', String(promptRuleData.pagination.page - 1))}>Trước</button>
+                <button type="button" disabled={promptRuleData.pagination.page >= promptRuleData.pagination.totalPages} onClick={() => updatePromptRuleFilter('page', String(promptRuleData.pagination.page + 1))}>Sau</button>
+              </div>
+            </footer>
+          ) : null}
+        </section>
+      ) : null}
+
+      {activeTab === 'accountLocks' ? (
+        <section className="admin-vto-tab-panel">
+          <div className="admin-vto-tab-head">
+            <h2>Khóa tính năng phối đồ ảo</h2>
+          </div>
+          <p className="admin-vto-tab-desc">
+            Tài khoản bị khóa sẽ không thể tải ảnh, kiểm tra ảnh hoặc tạo job phối đồ ảo cho đến khi được mở khóa.
+          </p>
+          {canManage ? (
+            <div className="admin-vto-form-row">
+              <input
+                value={lockForm.userId}
+                onChange={(event) => setLockForm((current) => ({ ...current, userId: event.target.value }))}
+                placeholder="User ID cần khóa"
+              />
+              <input
+                value={lockForm.reason}
+                onChange={(event) => setLockForm((current) => ({ ...current, reason: event.target.value }))}
+                placeholder="Lý do khóa (tùy chọn)"
+                maxLength={240}
+              />
+              <button type="button" disabled={lockSaving} onClick={() => void handleLockAccount()}>
+                {lockSaving ? 'Đang khóa...' : 'Khóa tài khoản'}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="admin-vto-toolbar">
+            <input
+              value={accountLockFilters.keyword}
+              onChange={(event) => updateAccountLockFilter('keyword', event.target.value)}
+              placeholder="Tìm theo tên hoặc email..."
+            />
+            <select
+              value={accountLockFilters.locked}
+              onChange={(event) => updateAccountLockFilter('locked', event.target.value)}
+            >
+              <option value="true">Đang khóa</option>
+              <option value="false">Đã mở khóa</option>
+              <option value="">Tất cả</option>
+            </select>
+          </div>
+
+          <div className="admin-vto-table-shell">
+            {accountLockLoading ? (
+              <div className="admin-table-skeleton"><span /><span /><span /></div>
+            ) : accountLockData?.items.length ? (
+              <table className="admin-vto-table admin-vto-lock-table">
+                <thead>
+                  <tr>
+                    <th>Khách hàng</th>
+                    <th>Trạng thái</th>
+                    <th>Lý do</th>
+                    <th>Người khóa</th>
+                    <th>Thời gian</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accountLockData.items.map((lock) => (
+                    <tr key={lock.user._id} className={lock.isLocked ? 'needs-attention' : undefined}>
+                      <td>
+                        <div className="admin-vto-user">
+                          <strong>{lock.user.name || lock.user.email || 'Không rõ'}</strong>
+                          <span>{lock.user.email || lock.user._id}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`admin-vto-status ${lock.isLocked ? 'is-danger' : 'is-success'}`}>
+                          {lock.isLocked ? 'Đang khóa' : 'Đã mở'}
+                        </span>
+                      </td>
+                      <td>{lock.reason || '-'}</td>
+                      <td>{lock.lockedBy?.name || lock.lockedBy?.email || '-'}</td>
+                      <td>
+                        <div className="admin-vto-date">
+                          {lock.lockedAt ? <span>Khóa: {formatDate(lock.lockedAt)}</span> : null}
+                          {lock.unlockedAt ? <small>Mở: {formatDate(lock.unlockedAt)}</small> : null}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="admin-vto-actions">
+                          {canManage && lock.isLocked ? (
+                            <button type="button" onClick={() => void handleUnlockAccount(lock)}>Mở khóa</button>
+                          ) : canManage && !lock.isLocked ? (
+                            <button type="button" onClick={() => void handleLockAccountById(lock.user._id)}>Khóa lại</button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="admin-vto-empty">
+                <strong>Chưa có tài khoản bị khóa</strong>
+                <span>Nhập user ID ở trên để khóa tài khoản vi phạm chính sách phối đồ ảo.</span>
+              </div>
+            )}
+          </div>
+
+          {accountLockData?.pagination && accountLockData.pagination.totalPages > 1 ? (
+            <footer className="admin-table-footer">
+              <span>Trang {accountLockData.pagination.page}/{accountLockData.pagination.totalPages} · {accountLockData.pagination.totalItems} tài khoản</span>
+              <div>
+                <button type="button" disabled={accountLockData.pagination.page <= 1} onClick={() => updateAccountLockFilter('page', String(accountLockData.pagination.page - 1))}>Trước</button>
+                <button type="button" disabled={accountLockData.pagination.page >= accountLockData.pagination.totalPages} onClick={() => updateAccountLockFilter('page', String(accountLockData.pagination.page + 1))}>Sau</button>
+              </div>
+            </footer>
+          ) : null}
+        </section>
       ) : null}
     </section>
   )

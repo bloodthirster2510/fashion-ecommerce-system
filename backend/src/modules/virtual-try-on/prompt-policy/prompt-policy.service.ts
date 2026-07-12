@@ -43,7 +43,7 @@ const patternPolicyRules: Array<PromptPolicyMatch & { pattern: RegExp }> = [
   },
 ];
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const normalizePrompt = (prompt?: string) =>
   prompt?.replace(controlCharactersPattern, ' ').replace(/\s+/g, ' ').trim() || undefined;
@@ -101,8 +101,8 @@ const hasTerm = (candidate: string, term: string) => {
   return new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalizedTerm)}(?=$|[^a-z0-9])`, 'i').test(candidate);
 };
 
-const findMatchedRule = (prompt: string) => {
-  for (const rule of promptPolicyRules) {
+const findMatchedRule = (prompt: string, extraRules: PromptPolicyRule[] = []) => {
+  for (const rule of [...extraRules, ...promptPolicyRules]) {
     const searchOptions = { foldVietnamese: rule.foldVietnamese };
     const searchTexts = buildSearchVariants(prompt, searchOptions);
 
@@ -129,7 +129,10 @@ const findMatchedRule = (prompt: string) => {
 const findMatchedPatternRule = (prompt: string) =>
   patternPolicyRules.find((rule) => rule.pattern.test(prompt)) ?? null;
 
-export const validateVirtualTryOnPrompt = (prompt?: string): VirtualTryOnPromptValidationResult => {
+export const validateVirtualTryOnPrompt = (
+  prompt?: string,
+  extraRules: PromptPolicyRule[] = [],
+): VirtualTryOnPromptValidationResult => {
   const normalizedPrompt = normalizePrompt(prompt);
   if (!normalizedPrompt) {
     return {
@@ -151,7 +154,7 @@ export const validateVirtualTryOnPrompt = (prompt?: string): VirtualTryOnPromptV
     };
   }
 
-  const matchedRule = findMatchedRule(normalizedPrompt) || findMatchedPatternRule(normalizedPrompt);
+  const matchedRule = findMatchedRule(normalizedPrompt, extraRules) || findMatchedPatternRule(normalizedPrompt);
   if (matchedRule) {
     return {
       allowed: false,
