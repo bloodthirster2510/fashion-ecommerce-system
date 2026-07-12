@@ -17,6 +17,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import ShopNameLogo from '../../components/branding/ShopNameLogo';
+import ColorSwatch from '../../components/ui/ColorSwatch';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
@@ -161,96 +162,6 @@ const getPolicyIcon = (value: string): IconName => {
     : 'shield-check-outline';
 };
 
-const sourceColorHexMap: Record<string, string> = {
-  BEE: '#F5F5DC',
-  BSA: '#F5F5DC',
-  CAM: '#F36B26',
-  CBA: '#1790C8',
-  CHI: '#A0A0A0',
-  CVT: '#7BBA3C',
-  DDL: '#000000',
-  DDO: '#E7352B',
-  DEN: '#111111',
-  DET: '#111111',
-  DGH: '#111111',
-  DKT: '#E7352B',
-  DN1: '#1C1C1C',
-  DOD: '#E7352B',
-  GAH: '#E7352B',
-  GHD: '#CCCCCC',
-  GHI: '#CCCCCC',
-  HG1: '#F0728F',
-  HOG: '#F0728F',
-  IDC: '#000000',
-  IDG: '#000000',
-  IDX: '#000000',
-  ITC: '#FFFFFF',
-  ITG: '#FFFFFF',
-  ITX: '#FFFFFF',
-  KEM: '#F5F5DC',
-  NAD: '#825D41',
-  NAN: '#825D41',
-  NAU: '#825D41',
-  NAV: '#000080',
-  NKT: '#000080',
-  NSU: '#825D41',
-  REU: '#636B2F',
-  TAN: '#CCCCCC',
-  TGD: '#FFFFFF',
-  THX: '#000080',
-  TIK: '#000080',
-  TIT: '#000080',
-  TKA: '#FFFFFF',
-  TKC: '#FFFFFF',
-  TKD: '#FFFFFF',
-  TKE: '#FFFFFF',
-  TKG: '#CCCCCC',
-  TKH: '#FFFFFF',
-  TKN: '#FFFFFF',
-  TKX: '#FFFFFF',
-  TMT: '#FFFFFF',
-  TNY: '#FFFFFF',
-  TRA: '#FFFFFF',
-  TRD: '#FFFFFF',
-  TRG: '#FFFFFF',
-  TTM: '#FFFFFF',
-  VAG: '#FED533',
-  XAH: '#1790C8',
-  XAM: '#CCCCCC',
-  XAR: '#7BBA3C',
-  XBD: '#1790C8',
-  XBI: '#1790C8',
-  XCV: '#7BBA3C',
-  XDE: '#111111',
-  XH1: '#1790C8',
-  XLA: '#7BBA3C',
-  XLO: '#1790C8',
-  XMN: '#67F0E5',
-  XN1: '#1790C8',
-  XNA: '#CCCCCC',
-  XNG: '#67F0E5',
-  XTI: '#1790C8',
-};
-
-const colorNameHexMap: Array<{ pattern: RegExp; value: string }> = [
-  { pattern: /đen|black/i, value: '#111111' },
-  { pattern: /trắng|trang|white/i, value: '#FFFFFF' },
-  { pattern: /be|beige|kem|cream/i, value: '#E8D8BE' },
-  { pattern: /nâu|nau|brown/i, value: '#7A5137' },
-  { pattern: /xám|xam|ghi|gray|grey/i, value: '#9EA4AA' },
-  { pattern: /navy/i, value: '#1F2A44' },
-  { pattern: /xanh jean|xanh dương|xanh biển|blue/i, value: '#4F7EA8' },
-  { pattern: /rêu|reu|olive/i, value: '#66724A' },
-  { pattern: /xanh/i, value: '#5E8FB4' },
-  { pattern: /đỏ|do|red/i, value: '#C62828' },
-  { pattern: /hồng|hong|pink/i, value: '#E89AB5' },
-  { pattern: /vàng|vang|yellow/i, value: '#F2CF62' },
-  { pattern: /cam|orange/i, value: '#F2994A' },
-  { pattern: /tím|tim|purple/i, value: '#7B5FA7' },
-];
-
-const isHexColor = (value?: string) => Boolean(value && /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value.trim()));
-
 const getRatingDistribution = (product: CatalogProductDetail) => {
   const existing = product.ratingSummary.distribution;
   const totalFromDistribution = existing.reduce((sum, item) => sum + item.count, 0);
@@ -266,24 +177,6 @@ const getRatingDistribution = (product: CatalogProductDetail) => {
     count: product.reviewCount && rating === roundedRating ? product.reviewCount : 0,
     percent: product.reviewCount && rating === roundedRating ? 100 : 0,
   }));
-};
-
-const getSwatchColor = (color?: ProductDetailColor) => {
-  const colorCode = color?.colorCode?.trim();
-
-  if (isHexColor(colorCode)) {
-    return colorCode;
-  }
-
-  if (colorCode) {
-    const sourceColor = sourceColorHexMap[colorCode.toUpperCase()];
-    if (sourceColor) {
-      return sourceColor;
-    }
-  }
-
-  const nameColor = colorNameHexMap.find((item) => item.pattern.test(color?.color ?? ''));
-  return nameColor?.value ?? colors.brandPale;
 };
 
 const ProductDetailScreen = () => {
@@ -1112,15 +1005,15 @@ const ProductDetailScreen = () => {
                 const isActive = color._id === selectedColorId;
 
                 return (
-                  <TouchableOpacity
+                  <ColorSwatch
                     key={color._id}
-                    style={[styles.swatchButton, isActive && styles.swatchButtonActive]}
+                    label={color.color}
+                    colorCode={color.colorCode}
+                    imageUri={color.image}
+                    selected={isActive}
                     onPress={() => handleColorPress(color)}
-                    activeOpacity={0.82}
                     accessibilityLabel={`Chọn màu ${color.color}`}
-                  >
-                    <View style={[styles.swatchColor, { backgroundColor: getSwatchColor(color) }]} />
-                  </TouchableOpacity>
+                  />
                 );
               })}
             </View>
@@ -1612,27 +1505,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
-  },
-  swatchButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  swatchButtonActive: {
-    borderWidth: 2,
-    borderColor: colors.action,
-  },
-  swatchColor: {
-    width: 27,
-    height: 27,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   sizeGuide: {
     color: colors.action,

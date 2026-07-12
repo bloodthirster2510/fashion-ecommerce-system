@@ -1,7 +1,7 @@
 import { Brand, Category, Product } from '../../../database/models';
 import { normalizeCatalogImageUrl } from '../catalog-image';
-import { tokenize, toTokenRegexes, escapeRegex } from './search.util';
-import { inferGenderFromTokens, expandMaterialTokens, buildSearchKeywordSuggestions } from './search-keywords';
+import { tokenize, toAccentInsensitiveRegex, toTokenRegexes } from './search.util';
+import { inferGenderFromTokens, expandMaterialTokens, expandMaterialTokenGroups, buildSearchKeywordSuggestions } from './search-keywords';
 
 export type SuggestProduct = {
   _id: string;
@@ -52,6 +52,7 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
   }
 
   const expandedTokens = expandMaterialTokens(tokens);
+  const tokenGroups = expandMaterialTokenGroups(tokens);
   const tokenRegexes = toTokenRegexes(expandedTokens);
   const gender = inferGenderFromTokens(tokens);
 
@@ -67,13 +68,15 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
   const brandIds = brands.map((b) => b._id);
   const categoryIds = categories.map((c) => c._id);
 
-  const andConditions = expandedTokens.map((token) => {
-    const regex = new RegExp(escapeRegex(token), 'i');
-    const orConditions: Record<string, unknown>[] = [
-      { name: regex },
-      { description: regex },
-      { materialNormalized: regex },
-    ];
+  const andConditions = tokenGroups.map((group) => {
+    const orConditions: Record<string, unknown>[] = group.flatMap((token) => {
+      const regex = toAccentInsensitiveRegex(token);
+      return [
+        { name: regex },
+        { description: regex },
+        { materialNormalized: regex },
+      ];
+    });
     if (brandIds.length) orConditions.push({ brand_id: { $in: brandIds } });
     if (categoryIds.length) orConditions.push({ category_id: { $in: categoryIds } });
     return { $or: orConditions };

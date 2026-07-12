@@ -20,11 +20,11 @@ export const useSuggest = (query: string): UseSuggestResult => {
       return;
     }
 
+    setIsLoading(true);
     const handle = setTimeout(() => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      setIsLoading(true);
 
       searchApi
         .suggest(trimmed, controller.signal)

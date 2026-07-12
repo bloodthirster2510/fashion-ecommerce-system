@@ -30,6 +30,32 @@ const formatCurrency = (value: number) =>
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
+const normalizeSearchText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLocaleLowerCase('vi-VN')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+const mergeSuggestions = (primary: string[], secondary: string[], limit = 10) => {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  [...primary, ...secondary].forEach((item) => {
+    const trimmed = item.trim();
+    const key = normalizeSearchText(trimmed);
+    if (!trimmed || seen.has(key)) return;
+
+    seen.add(key);
+    merged.push(trimmed);
+  });
+
+  return merged.slice(0, limit);
+};
+
 const SearchScreen = () => {
   const navigation = useNavigation<SearchNavigationProp>();
   const [query, setQuery] = React.useState('');
@@ -63,6 +89,16 @@ const SearchScreen = () => {
   const hasQuery = query.trim().length >= 2;
   const showSuggestions = hasQuery && (result || isLoading);
   const showHistory = !hasQuery && history.length > 0;
+  const historySuggestions = React.useMemo(() => {
+    const normalizedQuery = normalizeSearchText(query);
+    if (normalizedQuery.length < 2) return [];
+
+    return history.filter((keyword) => normalizeSearchText(keyword).startsWith(normalizedQuery));
+  }, [history, query]);
+  const keywordSuggestions = React.useMemo(
+    () => mergeSuggestions(historySuggestions, result?.keywords ?? []),
+    [historySuggestions, result?.keywords],
+  );
 
   const renderProductItem = (product: { _id: string; name: string; image: string; finalPrice: number; brandName?: string }) => (
     <TouchableOpacity
@@ -105,7 +141,12 @@ const SearchScreen = () => {
     );
   };
 
-  const renderKeywordItem = (keyword: string) => (
+  const renderKeywordItem = (keyword: string) => {
+    const isHistoryKeyword = historySuggestions.some(
+      (historyKeyword) => normalizeSearchText(historyKeyword) === normalizeSearchText(keyword),
+    );
+
+    return (
     <TouchableOpacity
       key={keyword}
       style={styles.keywordRow}
@@ -116,12 +157,13 @@ const SearchScreen = () => {
       activeOpacity={0.82}
     >
       <View style={styles.keywordIcon}>
-        <MaterialCommunityIcons name="magnify" size={17} color={colors.brand} />
+        <MaterialCommunityIcons name={isHistoryKeyword ? 'history' : 'magnify'} size={17} color={colors.brand} />
       </View>
       <Text style={styles.keywordText} numberOfLines={1}>{keyword}</Text>
       <MaterialCommunityIcons name="arrow-top-left" size={18} color={colors.textMuted} />
     </TouchableOpacity>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -202,11 +244,11 @@ const SearchScreen = () => {
 
         {showSuggestions && result ? (
           <>
-            {result.keywords.length > 0 ? (
+            {keywordSuggestions.length > 0 ? (
               <View style={styles.suggestionPanel}>
                 <Text style={styles.suggestionTitle}>Gợi ý tìm kiếm</Text>
                 <View style={styles.keywordList}>
-                  {result.keywords.map(renderKeywordItem)}
+                  {keywordSuggestions.map(renderKeywordItem)}
                 </View>
               </View>
             ) : null}
@@ -229,7 +271,7 @@ const SearchScreen = () => {
               </View>
             ) : null}
 
-            {result.products.length === 0 && result.categories.length === 0 && result.keywords.length === 0 ? (
+            {result.products.length === 0 && result.categories.length === 0 && keywordSuggestions.length === 0 ? (
               <View style={styles.emptyState}>
                 <MaterialCommunityIcons name="magnify-close" size={32} color={colors.brand} />
                 <Text style={styles.emptyTitle}>Chưa có gợi ý phù hợp</Text>

@@ -7,6 +7,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
+import ColorSwatch from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
 import {
   catalogApi,
@@ -2190,7 +2191,14 @@ const VirtualTryOnBuilderScreen = () => {
                           onPress={() => selectColor(color)}
                           activeOpacity={0.82}
                         >
-                          <RemoteImage uri={color.image} style={styles.colorChoiceImage} recyclingKey={color._id} />
+                          <ColorSwatch
+                            label={color.color}
+                            colorCode={color.colorCode}
+                            imageUri={color.image}
+                            selected={active}
+                            selectedTint={tryOnPalette.success}
+                            size="sm"
+                          />
                           <Text style={[styles.colorChoiceText, active && styles.colorChoiceTextActive]} numberOfLines={1}>
                             {color.color}
                           </Text>
@@ -4007,30 +4015,29 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   colorChoice: {
-    width: 92,
+    width: 86,
+    minHeight: 72,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.field,
-    overflow: 'hidden',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
   },
   colorChoiceActive: {
     borderColor: tryOnPalette.success,
-    borderWidth: 2,
-    backgroundColor: colors.surface,
-  },
-  colorChoiceImage: {
-    width: '100%',
-    height: 72,
+    backgroundColor: tryOnPalette.successSoft,
   },
   colorChoiceText: {
     color: colors.text,
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '800',
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 6,
     textAlign: 'center',
+    maxWidth: '100%',
   },
   colorChoiceTextActive: {
     color: tryOnPalette.success,

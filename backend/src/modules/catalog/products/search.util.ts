@@ -24,5 +24,27 @@ export const tokenize = (keyword: string): string[] => {
 export const escapeRegex = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const VIETNAMESE_CHAR_GROUPS: Record<string, string> = {
+  a: 'aàáạảãâầấậẩẫăằắặẳẵAÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴ',
+  d: 'dđDĐ',
+  e: 'eèéẹẻẽêềếệểễEÈÉẸẺẼÊỀẾỆỂỄ',
+  i: 'iìíịỉĩIÌÍỊỈĨ',
+  o: 'oòóọỏõôồốộổỗơờớợởỡOÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ',
+  u: 'uùúụủũưừứựửữUÙÚỤỦŨƯỪỨỰỬỮ',
+  y: 'yỳýỵỷỹYỲÝỴỶỸ',
+};
+
+const toAccentInsensitivePattern = (value: string) =>
+  Array.from(value)
+    .map((char) => {
+      const normalizedChar = normalizeVietnamese(char);
+      const group = VIETNAMESE_CHAR_GROUPS[normalizedChar];
+      return group ? `[${group}]` : escapeRegex(char);
+    })
+    .join('');
+
+export const toAccentInsensitiveRegex = (value: string): RegExp =>
+  new RegExp(toAccentInsensitivePattern(value), 'i');
+
 export const toTokenRegexes = (tokens: string[]): RegExp[] =>
-  tokens.map((token) => new RegExp(escapeRegex(token), 'i'));
+  tokens.map(toAccentInsensitiveRegex);

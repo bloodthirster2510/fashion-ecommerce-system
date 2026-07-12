@@ -16,4 +16,15 @@ describe('buildSearchKeywordSuggestions', () => {
 
     expect(suggestions[0]).toBe('áo nam polo');
   });
+
+  it('builds marketplace-style pants suggestions', () => {
+    const suggestions = buildSearchKeywordSuggestions({ query: 'quần' });
+
+    expect(suggestions.slice(0, 4)).toEqual([
+      'quần jean nam',
+      'quần short nam',
+      'quần jean nữ',
+      'quần ống rộng nữ',
+    ]);
+  });
 });

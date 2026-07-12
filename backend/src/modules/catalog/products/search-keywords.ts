@@ -55,6 +55,8 @@ type SearchSuggestionGroup = {
   keys: string[];
   label: string;
   modifiers: string[];
+  broadSuggestions?: string[];
+  genderSuggestions?: Partial<Record<InferredGender, string[]>>;
 };
 
 const SEARCH_SUGGESTION_GROUPS: SearchSuggestionGroup[] = [
@@ -62,11 +64,42 @@ const SEARCH_SUGGESTION_GROUPS: SearchSuggestionGroup[] = [
     keys: ['ao'],
     label: 'áo',
     modifiers: ['polo', 'kaki', 'thể thao', 'sơ mi', 'thun', 'hoodie', 'khoác', 'len', 'oversize'],
+    broadSuggestions: [
+      'áo polo nam',
+      'áo sơ mi nam',
+      'áo thun nam',
+      'áo khoác nam',
+      'áo thể thao nam',
+      'áo polo nữ',
+      'áo sơ mi nữ',
+      'áo kiểu nữ',
+    ],
+    genderSuggestions: {
+      male: ['áo nam polo', 'áo nam sơ mi', 'áo nam thun', 'áo nam thể thao', 'áo nam hoodie', 'áo nam khoác'],
+      female: ['áo nữ kiểu', 'áo nữ sơ mi', 'áo nữ thun', 'áo nữ croptop', 'áo nữ khoác', 'áo nữ len'],
+      unisex: ['áo unisex thun', 'áo unisex hoodie', 'áo unisex oversize', 'áo unisex khoác'],
+    },
   },
   {
     keys: ['quan'],
     label: 'quần',
     modifiers: ['kaki', 'jeans', 'short', 'thể thao', 'jogger', 'âu', 'ống rộng', 'cargo'],
+    broadSuggestions: [
+      'quần jean nam',
+      'quần short nam',
+      'quần jean nữ',
+      'quần ống rộng nữ',
+      'quần kaki nam',
+      'quần thể thao nam',
+      'quần đùi',
+      'quần ống suông nữ',
+      'quần jogger nam',
+    ],
+    genderSuggestions: {
+      male: ['quần jean nam', 'quần short nam', 'quần kaki nam', 'quần thể thao nam', 'quần jogger nam', 'quần cargo nam'],
+      female: ['quần jean nữ', 'quần ống rộng nữ', 'quần short nữ', 'quần ống suông nữ', 'quần kaki nữ', 'quần culottes nữ'],
+      unisex: ['quần unisex jean', 'quần unisex jogger', 'quần unisex cargo', 'quần unisex thể thao'],
+    },
   },
   {
     keys: ['vay', 'dam'],
@@ -137,6 +170,16 @@ const addSuggestion = (
   suggestions.set(key, display);
 };
 
+const addSuggestions = (
+  suggestions: Map<string, string>,
+  values: string[] | undefined,
+  normalizedQuery: string,
+  tokens: string[],
+  requiresPrefix: boolean,
+) => {
+  values?.forEach((value) => addSuggestion(suggestions, value, normalizedQuery, tokens, requiresPrefix));
+};
+
 const addGroupSuggestions = (
   suggestions: Map<string, string>,
   group: SearchSuggestionGroup,
@@ -145,6 +188,12 @@ const addGroupSuggestions = (
   tokens: string[],
   requiresPrefix: boolean,
 ) => {
+  if (gender) {
+    addSuggestions(suggestions, group.genderSuggestions?.[gender], normalizedQuery, tokens, requiresPrefix);
+  } else {
+    addSuggestions(suggestions, group.broadSuggestions, normalizedQuery, tokens, requiresPrefix);
+  }
+
   const genders = gender ? [gender] : (['male', 'female', 'unisex'] as InferredGender[]);
 
   for (const itemGender of genders) {
@@ -238,14 +287,15 @@ const buildMaterialSynonymIndex = (): Map<string, string[]> => {
 
 const materialSynonymIndex = buildMaterialSynonymIndex();
 
-export const expandMaterialTokens = (tokens: string[]): string[] => {
-  const expanded = new Set<string>(tokens);
-  for (const token of tokens) {
+export const expandMaterialTokenGroups = (tokens: string[]): string[][] =>
+  tokens.map((token) => {
     const synonyms = materialSynonymIndex.get(token);
-    if (synonyms) {
-      synonyms.forEach((s) => expanded.add(s));
-    }
-  }
+    return Array.from(new Set([token, ...(synonyms ?? [])]));
+  });
+
+export const expandMaterialTokens = (tokens: string[]): string[] => {
+  const expanded = new Set<string>();
+  expandMaterialTokenGroups(tokens).flat().forEach((token) => expanded.add(token));
   return Array.from(expanded);
 };
 

@@ -32,8 +32,8 @@ import type {
   ProductVariantInput,
   UpdateProductInput,
 } from './product.types';
-import { tokenize, escapeRegex as escapeRegexToken, toTokenRegexes } from './search.util';
-import { inferGenderFromTokens, expandMaterialTokens } from './search-keywords';
+import { tokenize, toAccentInsensitiveRegex, toTokenRegexes } from './search.util';
+import { inferGenderFromTokens, expandMaterialTokens, expandMaterialTokenGroups } from './search-keywords';
 
 export class ProductServiceError extends Error {
   constructor(
@@ -649,6 +649,7 @@ const buildKeywordConditions = async (keyword?: string): Promise<Record<string, 
   }
 
   const expandedTokens = expandMaterialTokens(tokens);
+  const tokenGroups = expandMaterialTokenGroups(tokens);
   const tokenRegexes = toTokenRegexes(expandedTokens);
 
   const [brands, categories] = await Promise.all([
@@ -659,13 +660,15 @@ const buildKeywordConditions = async (keyword?: string): Promise<Record<string, 
   const brandIds = brands.map((brand) => brand._id);
   const categoryIds = categories.map((category) => category._id);
 
-  return expandedTokens.map((token) => {
-    const regex = new RegExp(escapeRegexToken(token), 'i');
-    const orConditions: Record<string, unknown>[] = [
-      { name: regex },
-      { description: regex },
-      { materialNormalized: regex },
-    ];
+  return tokenGroups.map((group) => {
+    const orConditions: Record<string, unknown>[] = group.flatMap((token) => {
+      const regex = toAccentInsensitiveRegex(token);
+      return [
+        { name: regex },
+        { description: regex },
+        { materialNormalized: regex },
+      ];
+    });
     if (brandIds.length) orConditions.push({ brand_id: { $in: brandIds } });
     if (categoryIds.length) orConditions.push({ category_id: { $in: categoryIds } });
     return { $or: orConditions };
