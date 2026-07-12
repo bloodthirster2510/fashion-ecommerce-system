@@ -149,10 +149,10 @@ const ensureVirtualTryOnAccountEnabled = async (userObjectId: Types.ObjectId) =>
 
   throw new VirtualTryOnServiceError(
     lock.reason
-      ? `Tính năng phối đồ ảo của tài khoản đang bị khóa: ${lock.reason}`
-      : 'Tính năng phối đồ ảo của tài khoản đang bị khóa',
+      ? `Tính năng phối đồ ảo đang bị khóa: ${lock.reason}`
+      : 'Tính năng phối đồ ảo đang bị khóa',
     403,
-    'VIRTUAL_TRY_ON_ACCOUNT_LOCKED',
+    'VIRTUAL_TRY_ON_FEATURE_LOCKED',
     {
       lockedAt: lock.lockedAt?.toISOString() ?? null,
       reason: lock.reason ?? null,
@@ -186,6 +186,23 @@ const toObjectId = (id: string, field: string) => {
 
 const getActorObjectId = (actorUserId?: string) =>
   actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
+
+const resolveUserForFeatureLock = async (value: unknown) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new VirtualTryOnServiceError('Email hoặc User ID không hợp lệ', 400);
+  }
+
+  const identifier = value.trim().toLowerCase();
+  const user = Types.ObjectId.isValid(identifier)
+    ? await User.findById(identifier).select('_id').lean<{ _id: Types.ObjectId } | null>()
+    : await User.findOne({ email: identifier }).select('_id').lean<{ _id: Types.ObjectId } | null>();
+
+  if (!user) {
+    throw new VirtualTryOnServiceError('Không tìm thấy user theo email/User ID', 404);
+  }
+
+  return user;
+};
 
 const normalizePromptRuleTerm = (value: unknown) => {
   if (typeof value !== 'string') {
@@ -2019,11 +2036,16 @@ const listAccountLocks = async (query: VirtualTryOnAccountLockListQuery) => {
   const filter: Record<string, unknown> = {};
   if (query.locked !== undefined) filter.isLocked = query.locked;
   if (query.keyword) {
+    const keywordRegex = new RegExp(escapeRegExp(query.keyword), 'i');
+    const userConditions: Record<string, unknown>[] = [
+      { name: keywordRegex },
+      { email: keywordRegex },
+    ];
+    if (Types.ObjectId.isValid(query.keyword)) {
+      userConditions.push({ _id: new Types.ObjectId(query.keyword) });
+    }
     const users = await User.find({
-      $or: [
-        { name: new RegExp(escapeRegExp(query.keyword), 'i') },
-        { email: new RegExp(escapeRegExp(query.keyword), 'i') },
-      ],
+      $or: userConditions,
     })
       .select('_id')
       .lean<{ _id: Types.ObjectId }[]>();
@@ -2056,17 +2078,13 @@ const listAccountLocks = async (query: VirtualTryOnAccountLockListQuery) => {
 };
 
 const lockAccount = async (actorUserId: string | undefined, input: LockAccountInput) => {
-  const userId = toObjectId(input?.userId, 'user id');
+  const user = await resolveUserForFeatureLock(input?.userId);
+  const userId = user._id;
   if (input?.reason && typeof input.reason !== 'string') {
     throw new VirtualTryOnServiceError('Lý do khóa không hợp lệ', 400);
   }
   const reason = input?.reason?.trim().slice(0, 240) || null;
   const actorObjectId = getActorObjectId(actorUserId);
-
-  const user = await User.findById(userId).select('_id isActive').lean<{ _id: Types.ObjectId } | null>();
-  if (!user) {
-    throw new VirtualTryOnServiceError('Người dùng không tồn tại', 404);
-  }
 
   const lock = await VirtualTryOnAccountLock.findOneAndUpdate(
     { userId },
@@ -2098,7 +2116,7 @@ const unlockAccount = async (actorUserId: string | undefined, userId: string) =>
   );
 
   if (!lock) {
-    throw new VirtualTryOnServiceError('Tài khoản không bị khóa phối đồ ảo', 404);
+    throw new VirtualTryOnServiceError('User chưa bị khóa tính năng phối đồ ảo', 404);
   }
 
   return serializeAccountLock(lock);

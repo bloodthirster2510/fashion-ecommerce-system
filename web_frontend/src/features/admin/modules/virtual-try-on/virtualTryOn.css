@@ -179,6 +179,18 @@
 .admin-vto-user { min-width: 0; display: grid; gap: 2px; }
 .admin-vto-user strong,
 .admin-vto-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-vto-copy-token {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #dfe6eb;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--admin-accent-dark);
+  background: #fbfcfd;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 900;
+}
 .admin-vto-status { display: inline-grid; min-height: 22px; align-items: center; padding: 0 8px; border-radius: 999px; font-size: 10px; font-weight: 900; }
 .admin-vto-status.is-waiting { color: #74500c; background: #fff4d8; }
 .admin-vto-status.is-processing { color: #315f83; background: #e8f1f8; }
@@ -251,6 +263,40 @@
 .admin-vto-drawer-actions button:disabled { cursor: not-allowed; opacity: .55; }
 .admin-vto-drawer h3 { margin: 0 0 10px; color: var(--admin-text); font-size: 15px; }
 .admin-vto-drawer p { margin: 0; color: #728091; font-size: 13px; line-height: 1.5; }
+.admin-vto-identity-block { display: grid; gap: 9px; }
+.admin-vto-copy-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.admin-vto-copy-grid button {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  border: 1px solid #dfe6eb;
+  border-radius: 7px;
+  padding: 8px 9px;
+  color: var(--admin-text);
+  background: #fbfcfd;
+  cursor: pointer;
+  text-align: left;
+}
+.admin-vto-copy-grid button:hover,
+.admin-vto-copy-inline:hover,
+.admin-vto-copy-token:hover { border-color: #9ab4c7; background: #f1f7fb; }
+.admin-vto-copy-grid span { color: #728091; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.admin-vto-copy-grid strong { overflow: hidden; color: var(--admin-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-vto-copy-inline {
+  max-width: 240px;
+  overflow: hidden;
+  border: 1px solid #dfe6eb;
+  border-radius: 6px;
+  padding: 4px 7px;
+  color: var(--admin-accent-dark);
+  background: #fbfcfd;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .admin-vto-drawer dl { display: grid; gap: 8px; margin: 0; }
 .admin-vto-drawer dl > div { display: flex; justify-content: space-between; gap: 12px; }
 .admin-vto-drawer dt { color: #728091; font-size: 12px; font-weight: 800; }
@@ -296,6 +342,7 @@
   .admin-vto-stats,
   .admin-vto-command-grid,
   .admin-vto-toolbar,
+  .admin-vto-copy-grid,
   .admin-vto-moderation-grid { grid-template-columns: 1fr; }
   .admin-vto-ops-bar { align-items: flex-start; flex-direction: column; }
 }
@@ -325,6 +372,15 @@
 .admin-vto-tabs button.is-active { border-color: var(--admin-accent); background: #fff; color: var(--admin-accent); }
 
 .admin-vto-tab-panel { display: grid; gap: 10px; }
+.admin-vto-editor-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dfe6eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(31,45,61,.06);
+}
 .admin-vto-tab-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .admin-vto-tab-head h2 { margin: 0; font-size: 16px; font-weight: 900; color: var(--admin-text); }
 .admin-vto-tab-head button { padding: 0 12px; min-height: 30px; border: 1px solid #dfe6eb; border-radius: 6px; background: #fff; color: #5b6b7b; font-size: 12px; font-weight: 850; cursor: pointer; }
@@ -332,18 +388,62 @@
 .admin-vto-form-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px;
   border: 1px solid #dfe6eb;
   border-radius: 8px;
-  background: #fff;
+  background: #fbfcfd;
 }
+.admin-vto-form-row--stacked { padding: 0; border: 0; background: transparent; }
+.admin-vto-field {
+  min-width: 180px;
+  flex: 1 1 190px;
+  display: grid;
+  gap: 5px;
+}
+.admin-vto-field--wide { flex: 1.35 1 260px; }
+.admin-vto-field > span { color: #5f6f80; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
 .admin-vto-form-row input,
-.admin-vto-form-row select { min-width: 0; flex: 1 1 180px; }
-.admin-vto-form-row button { min-height: 34px; padding: 0 16px; flex: 0 0 auto; }
+.admin-vto-form-row select {
+  min-width: 0;
+  width: 100%;
+  height: 38px;
+  border: 1px solid #d8e0e7;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: var(--admin-text);
+  background: #fff;
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+}
+.admin-vto-form-row input:focus,
+.admin-vto-form-row select:focus { border-color: var(--admin-accent); box-shadow: 0 0 0 3px rgba(95,134,162,.12); }
+.admin-vto-form-row button {
+  min-height: 38px;
+  border: 1px solid #d9e1e7;
+  border-radius: 7px;
+  padding: 0 16px;
+  flex: 0 0 auto;
+  color: var(--admin-text);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 850;
+}
+.admin-vto-form-row button:disabled { cursor: not-allowed; opacity: .55; }
 .admin-vto-checkbox { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; font-size: 12px; font-weight: 850; color: #5b6b7b; }
 .admin-vto-checkbox input { width: auto; }
+.admin-vto-switch {
+  min-height: 38px;
+  border: 1px solid #dfe6eb;
+  border-radius: 7px;
+  padding: 0 10px;
+  background: #fff;
+}
+.admin-vto-toolbar--compact { grid-template-columns: minmax(260px,1.2fr) minmax(170px,.8fr) minmax(160px,.7fr); }
+.admin-vto-toolbar--account-locks { grid-template-columns: minmax(320px,1fr) minmax(180px,.28fr); }
 .admin-vto-rule-table th:nth-child(1), .admin-vto-rule-table td:nth-child(1) { width: 220px; }
 .admin-vto-rule-table th:nth-child(2), .admin-vto-rule-table td:nth-child(2) { width: 160px; }
 .admin-vto-rule-table th:nth-child(3), .admin-vto-rule-table td:nth-child(3) { width: 180px; }
