@@ -324,6 +324,13 @@ const getCreateJobErrorAlert = (error: unknown) => {
     const validationAlert = imageValidationAlerts[error.errorCode];
     if (validationAlert) return validationAlert;
 
+    if (error.errorCode === 'VIRTUAL_TRY_ON_ACCOUNT_LOCKED') {
+      return {
+        title: 'Tài khoản bị khóa',
+        message: error.message || 'Tính năng phối đồ ảo của tài khoản đang bị khóa. Vui lòng liên hệ cửa hàng để được hỗ trợ.',
+      };
+    }
+
     const promptPolicyData = getPromptPolicyErrorData(error.data);
     if (
       error.errorCode === 'PROMPT_POLICY_DAILY_LIMIT_REACHED' ||

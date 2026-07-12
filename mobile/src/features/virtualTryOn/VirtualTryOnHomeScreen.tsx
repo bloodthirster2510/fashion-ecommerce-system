@@ -48,6 +48,13 @@ const isNoPersonAsset = (asset: VirtualTryOnAsset | null) =>
 
 const getUploadAssetErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError) {
+    if (error.errorCode === 'VIRTUAL_TRY_ON_ACCOUNT_LOCKED') {
+      return {
+        title: 'Tài khoản bị khóa',
+        message: error.message || 'Tính năng phối đồ ảo của tài khoản đang bị khóa. Vui lòng liên hệ cửa hàng để được hỗ trợ.',
+      };
+    }
+
     if (error.errorCode === 'IMAGE_POLICY_BLOCKED') {
       return {
         title: 'Ảnh chưa phù hợp',
