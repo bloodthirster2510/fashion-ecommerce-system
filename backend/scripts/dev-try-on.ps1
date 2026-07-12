@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$pythonVenvRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'fashion-ecommerce-system-venvs'
 
 function Test-TcpPort {
   param([int]$Port)
@@ -63,17 +64,19 @@ function Ensure-PythonService {
     [string]$ServicePath
   )
 
-  $venvPython = Join-Path $ServicePath '.venv\Scripts\python.exe'
+  $venvPath = Join-Path $pythonVenvRoot $ServiceName
+  $venvPython = Join-Path $venvPath 'Scripts\python.exe'
   if ($DryRun) {
-    Write-Host "[dry-run] Ensure $ServiceName venv at $ServicePath"
+    Write-Host "[dry-run] Ensure $ServiceName venv at $venvPath"
     return $venvPython
   }
 
   Push-Location $ServicePath
   try {
     if (-not (Test-Path -LiteralPath $venvPython)) {
-      Write-Host "[$ServiceName] Creating Python venv..."
-      python -m venv .venv 2>&1 | ForEach-Object {
+      Write-Host "[$ServiceName] Creating Python venv at $venvPath..."
+      New-Item -ItemType Directory -Force -Path $pythonVenvRoot | Out-Null
+      python -m venv $venvPath 2>&1 | ForEach-Object {
         Write-Host "[$ServiceName] $_"
       }
       if ($LASTEXITCODE -ne 0) {
@@ -184,11 +187,15 @@ if (-not $NoGarmentProcessing) {
     $garmentProcessingPython = Ensure-PythonService 'garment-processing' $garmentProcessingPath
     if (-not $SkipInstall) {
       Write-Host '[garment-processing] Ensuring model files are available...'
-      & $garmentProcessingPython (Join-Path $garmentProcessingPath 'scripts\download_models.py') 2>&1 | ForEach-Object {
-        Write-Host "[garment-processing] $_"
-      }
-      if ($LASTEXITCODE -ne 0) {
-        throw '[garment-processing] Failed to download model files.'
+      if ($DryRun) {
+        Write-Host "[dry-run] $garmentProcessingPython $((Join-Path $garmentProcessingPath 'scripts\download_models.py'))"
+      } else {
+        & $garmentProcessingPython (Join-Path $garmentProcessingPath 'scripts\download_models.py') 2>&1 | ForEach-Object {
+          Write-Host "[garment-processing] $_"
+        }
+        if ($LASTEXITCODE -ne 0) {
+          throw '[garment-processing] Failed to download model files.'
+        }
       }
     }
     $job = Start-DevJob `
