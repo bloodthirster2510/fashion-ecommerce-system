@@ -549,6 +549,57 @@
   background: #fff;
 }
 
+.admin-order-payment-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 4px;
+  border: 1px solid #e3e9ef;
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.admin-order-payment-section {
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b6b7b;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.admin-order-payment-section:hover {
+  background: #eef3f6;
+  color: #2c3e50;
+}
+
+.admin-order-payment-section.is-online { color: #31689b; }
+.admin-order-payment-section.is-online:hover { background: #e9f1f8; }
+.admin-order-payment-section.is-online.is-active {
+  border-color: #31689b;
+  background: #31689b;
+  color: #fff;
+}
+
+.admin-order-payment-section.is-cod { color: #8a5a2b; }
+.admin-order-payment-section.is-cod:hover { background: #f6efe6; }
+.admin-order-payment-section.is-cod.is-active {
+  border-color: #8a5a2b;
+  background: #8a5a2b;
+  color: #fff;
+}
+
+.admin-order-payment-section.is-active:not(.is-online):not(.is-cod) {
+  border-color: #2c3e50;
+  background: #2c3e50;
+  color: #fff;
+}
+
 .admin-orders-table {
   min-width: 1080px;
 }

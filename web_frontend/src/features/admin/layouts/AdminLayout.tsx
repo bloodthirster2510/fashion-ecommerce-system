@@ -36,6 +36,7 @@ import { NotificationSummaryProvider } from '../notifications/NotificationSummar
 import { useNotificationSummary } from '../notifications/notification-summary-context'
 import type { NotificationSummary } from '../notifications/notification-summary.types'
 import { CommandMenu, type CommandMenuItem } from '../components/ui'
+import { ADMIN_NAVIGATION_EVENT, notifyAdminNavigation } from '../services/adminNavigation'
 import shopNameImage from '../../../assets/images/ShopName.png'
 
 const ManagerListPage = lazy(() =>
@@ -78,7 +79,6 @@ type AdminLayoutProps = {
 }
 
 type NavId = AdminRouteId
-const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
 const ADMIN_SIDEBAR_COLLAPSED_KEY = 'admin.sidebar.collapsed'
 const adminContentFallback = (
   <div className="admin-content-loading" role="status">
@@ -172,10 +172,6 @@ const getActiveSectionFromPath = () => {
   const route = getAdminRouteByPath(window.location.pathname)
 
   return route && isImplementedRoute(route.id) ? route.id : 'orders'
-}
-
-const notifyAdminNavigation = () => {
-  window.dispatchEvent(new Event(ADMIN_NAVIGATION_EVENT))
 }
 
 const getCurrentAdminLocation = () => ({
@@ -553,8 +549,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                 const isActive = isOrderPaymentRoute
                   ? renderedSection === 'orders' &&
                     orderSectionParam === (item.id === 'ordersCod' ? 'cod' : 'online')
-                  : item.id === renderedSection &&
-                    !(item.id === 'orders' && (orderSectionParam === 'online' || orderSectionParam === 'cod'))
+                  : item.id === renderedSection
                 const isDisabled = !item.isImplemented
                 const notificationBadge = getNavNotificationBadge(item.id, summary)
                 const navHelper = getNavHelper(item)

@@ -11,6 +11,7 @@ import type { Notice, OrderTab, PaymentSectionKey } from '../orderTypes'
 import type { OrderTableColumnKey } from '../orderTypes'
 import { emptyOperationalSummary } from '../orderPresentation'
 import { OrderFilterBar } from './OrderFilterBar'
+import { OrderPaymentSectionTabs } from './OrderPaymentSectionTabs'
 import { OrderQueueTabs } from './OrderQueueTabs'
 import { OrdersPageHeader } from './OrdersPageHeader'
 import { OrderTable } from './OrderTable'
@@ -119,6 +120,10 @@ export function OrderWorkspacePanel({
         onExpireStalePayments={onExpireStalePayments}
         onRefresh={onRefresh}
       />
+
+      {!isLookupMode ? (
+        <OrderPaymentSectionTabs activePaymentSectionKey={activePaymentSectionKey} activeTabKey={activeTabKey} />
+      ) : null}
 
       {!isLookupMode || initialTabKey ? (
         <OrderQueueTabs

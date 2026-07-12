@@ -52,8 +52,6 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'catalog',
   'orders',
   'ordersLookup',
-  'ordersOnline',
-  'ordersCod',
   'inventory',
   'promotions',
   'reviews',
@@ -118,17 +116,17 @@ const adminRouteRecords: AdminRoute[] = [
     group: 'catalog',
   },
   {
-    id: 'orders',
-    path: '/admin/orders',
-    label: 'Vận hành đơn hàng',
-    helper: 'Xử lý đơn, thanh toán & giao hàng',
-    group: 'sales',
-  },
-  {
     id: 'ordersLookup',
     path: '/admin/orders/lookup',
     label: 'Tra cứu đơn & hóa đơn',
     helper: 'Tìm mã đơn, khách hàng & vận chuyển',
+    group: 'sales',
+  },
+  {
+    id: 'orders',
+    path: '/admin/orders',
+    label: 'Vận hành đơn hàng',
+    helper: 'Xử lý đơn, thanh toán & giao hàng',
     group: 'sales',
   },
   {
