@@ -26,7 +26,7 @@ type ColorSwatchProps = {
 };
 
 type ResolvedColorSwatch = {
-  value: string;
+  hex: string;
   isFallback: boolean;
 };
 
@@ -101,21 +101,21 @@ const sourceColorHexMap: Record<string, string> = {
   XTI: '#1790C8',
 };
 
-const colorNameHexMap: Array<{ terms: string[]; value: string }> = [
-  { terms: ['den', 'black'], value: '#111111' },
-  { terms: ['trang', 'white'], value: '#FFFFFF' },
-  { terms: ['be', 'beige', 'kem', 'cream'], value: '#E8D8BE' },
-  { terms: ['nau', 'brown'], value: '#7A5137' },
-  { terms: ['xam', 'ghi', 'gray', 'grey'], value: '#9EA4AA' },
-  { terms: ['navy'], value: '#1F2A44' },
-  { terms: ['xanh jean', 'xanh duong', 'xanh bien', 'blue'], value: '#4F7EA8' },
-  { terms: ['reu', 'olive'], value: '#66724A' },
-  { terms: ['xanh'], value: '#5E8FB4' },
-  { terms: ['do', 'red'], value: '#C62828' },
-  { terms: ['hong', 'pink'], value: '#E89AB5' },
-  { terms: ['vang', 'yellow'], value: '#F2CF62' },
-  { terms: ['cam', 'orange'], value: '#F2994A' },
-  { terms: ['tim', 'purple'], value: '#7B5FA7' },
+const colorNameHexMap: Array<{ terms: string[]; hex: string }> = [
+  { terms: ['den', 'black'], hex: '#111111' },
+  { terms: ['trang', 'white'], hex: '#FFFFFF' },
+  { terms: ['be', 'beige', 'kem', 'cream'], hex: '#E8D8BE' },
+  { terms: ['nau', 'brown'], hex: '#7A5137' },
+  { terms: ['xam', 'ghi', 'gray', 'grey'], hex: '#9EA4AA' },
+  { terms: ['navy'], hex: '#1F2A44' },
+  { terms: ['xanh jean', 'xanh duong', 'xanh bien', 'blue'], hex: '#4F7EA8' },
+  { terms: ['reu', 'olive'], hex: '#66724A' },
+  { terms: ['xanh'], hex: '#5E8FB4' },
+  { terms: ['do', 'red'], hex: '#C62828' },
+  { terms: ['hong', 'pink'], hex: '#E89AB5' },
+  { terms: ['vang', 'yellow'], hex: '#F2CF62' },
+  { terms: ['cam', 'orange'], hex: '#F2994A' },
+  { terms: ['tim', 'purple'], hex: '#7B5FA7' },
 ];
 
 const sizeConfig: Record<ColorSwatchSize, { outer: number; inner: number; icon: number }> = {
@@ -172,13 +172,13 @@ export const resolveColorSwatch = (label?: string, colorCode?: string): Resolved
   const code = colorCode?.trim();
 
   if (code && isHexColor(code)) {
-    return { value: normalizeHex(code), isFallback: false };
+    return { hex: normalizeHex(code), isFallback: false };
   }
 
   if (code) {
     const sourceColor = sourceColorHexMap[code.toUpperCase()];
     if (sourceColor) {
-      return { value: sourceColor, isFallback: false };
+      return { hex: sourceColor, isFallback: false };
     }
   }
 
@@ -186,7 +186,7 @@ export const resolveColorSwatch = (label?: string, colorCode?: string): Resolved
   const nameColor = colorNameHexMap.find((item) => item.terms.some((term) => hasColorTerm(normalizedLabel, term)));
 
   return {
-    value: nameColor?.value ?? colors.brandPale,
+    hex: nameColor?.hex ?? colors.brandPale,
     isFallback: !nameColor,
   };
 };
@@ -205,7 +205,7 @@ const ColorSwatch = ({
 }: ColorSwatchProps) => {
   const resolved = resolveColorSwatch(label, colorCode);
   const config = sizeConfig[size];
-  const light = isLightColor(resolved.value);
+  const light = isLightColor(resolved.hex);
   const showImageFallback = resolved.isFallback && Boolean(imageUri);
   const checkColor = light ? colors.text : colors.white;
   const containerStyle = (pressed = false) => [
@@ -228,7 +228,7 @@ const ColorSwatch = ({
           width: config.inner,
           height: config.inner,
           borderRadius: config.inner / 2,
-          backgroundColor: resolved.value,
+          backgroundColor: resolved.hex,
           borderColor: light ? colors.borderStrong : 'rgba(255,255,255,0.5)',
         },
       ]}
