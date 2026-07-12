@@ -32,6 +32,8 @@ import type {
   ProductVariantInput,
   UpdateProductInput,
 } from './product.types';
+import { tokenize, escapeRegex as escapeRegexToken, toTokenRegexes } from './search.util';
+import { inferGenderFromTokens, expandMaterialTokens } from './search-keywords';
 
 export class ProductServiceError extends Error {
   constructor(
@@ -634,25 +636,40 @@ const resolveCategoryFilter = async (query: ProductListQueryInput) => {
   return undefined;
 };
 
-const buildKeywordConditions = async (keyword?: string) => {
+const buildKeywordConditions = async (keyword?: string): Promise<Record<string, unknown>[] | undefined> => {
   const trimmedKeyword = keyword?.trim();
 
   if (!trimmedKeyword) {
     return undefined;
   }
 
-  const keywordRegex = new RegExp(escapeRegex(trimmedKeyword), 'i');
+  const tokens = tokenize(trimmedKeyword);
+  if (!tokens.length) {
+    return undefined;
+  }
+
+  const expandedTokens = expandMaterialTokens(tokens);
+  const tokenRegexes = toTokenRegexes(expandedTokens);
+
   const [brands, categories] = await Promise.all([
-    Brand.find({ name: keywordRegex, isActive: true }).select('_id').lean(),
-    Category.find({ name: keywordRegex, isActive: true }).select('_id').lean(),
+    Brand.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true }).select('_id').lean(),
+    Category.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true }).select('_id').lean(),
   ]);
 
-  return [
-    { name: keywordRegex },
-    { description: keywordRegex },
-    ...(brands.length ? [{ brand_id: { $in: brands.map((brand) => brand._id) } }] : []),
-    ...(categories.length ? [{ category_id: { $in: categories.map((category) => category._id) } }] : []),
-  ];
+  const brandIds = brands.map((brand) => brand._id);
+  const categoryIds = categories.map((category) => category._id);
+
+  return expandedTokens.map((token) => {
+    const regex = new RegExp(escapeRegexToken(token), 'i');
+    const orConditions: Record<string, unknown>[] = [
+      { name: regex },
+      { description: regex },
+      { materialNormalized: regex },
+    ];
+    if (brandIds.length) orConditions.push({ brand_id: { $in: brandIds } });
+    if (categoryIds.length) orConditions.push({ category_id: { $in: categoryIds } });
+    return { $or: orConditions };
+  });
 };
 
 type ProductListFilter = Record<string, unknown>;
@@ -663,7 +680,14 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
     variant: { $elemMatch: buildVariantFilter(query) },
   };
 
-  const categoryIds = await resolveCategoryFilter(query);
+  let effectiveGender = query.gender;
+  if (query.keyword && !effectiveGender) {
+    const tokens = tokenize(query.keyword);
+    const inferred = inferGenderFromTokens(tokens);
+    if (inferred) effectiveGender = inferred;
+  }
+
+  const categoryIds = await resolveCategoryFilter({ ...query, gender: effectiveGender });
   if (categoryIds) {
     filter.category_id = { $in: categoryIds };
   }
@@ -679,7 +703,7 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
 
   const keywordConditions = await buildKeywordConditions(query.keyword);
   if (keywordConditions?.length) {
-    filter.$or = keywordConditions;
+    filter.$and = keywordConditions;
   }
 
   return filter;
@@ -939,7 +963,7 @@ const mapFilterCategory = (category: {
 });
 
 const getProductListFilters = async (filter: ProductListFilter, query: ProductListQueryInput) => {
-  const [brands, categories, colors, fitTypes, sizes] = await Promise.all([
+  const [brands, categories, colors, fitTypes, sizes, materials] = await Promise.all([
     Brand.find({ isActive: true }).select('_id name image').sort({ name: 1 }).lean(),
     Category.find({ isActive: true, ...(query.gender ? { gender: query.gender } : {}) })
       .select('_id name gender parent_id level image')
@@ -948,6 +972,7 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
     Product.distinct('variant.colors.color', filter),
     Product.distinct('variant.fitTypeId', filter),
     Product.distinct('variant.sizeMeasurements.size', filter),
+    Product.distinct('material', { ...filter, material: { $ne: '' } }),
   ]);
 
   return {
@@ -956,6 +981,7 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
     fitTypes: fitTypes.filter(Boolean).map((fitTypeId) => String(fitTypeId)).sort(),
     sizes: sizes.filter(Boolean).sort(),
     categories: categories.map(mapFilterCategory),
+    materials: materials.filter(Boolean).sort(),
   };
 };
 

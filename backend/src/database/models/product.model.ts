@@ -1,4 +1,5 @@
 import { Schema, model, models, type Document, type Types } from 'mongoose';
+import { normalizeVietnamese } from '../../modules/catalog/products/search.util';
 
 export interface IMeasurementValue {
   key: string;
@@ -33,6 +34,8 @@ export interface IProduct extends Document {
   brand_id: Types.ObjectId;
   variant: IProductVariant[];
   description: string;
+  material: string;
+  materialNormalized: string;
   product_image: string;
   isActive: boolean;
   sold_quantity: number;
@@ -110,6 +113,8 @@ const productSchema = new Schema<IProduct>(
       default: [],
     },
     description: { type: String, required: true, trim: true, minlength: 10, maxlength: 3000 },
+    material: { type: String, trim: true, maxlength: 200, default: '' },
+    materialNormalized: { type: String, trim: true, select: false, default: '' },
     product_image: { type: String, required: true, trim: true, maxlength: 500 },
     isActive: { type: Boolean, default: true },
     sold_quantity: { type: Number, default: 0, min: 0 },
@@ -124,6 +129,13 @@ productSchema.index({ brand_id: 1, isActive: 1 });
 productSchema.index({ name: 'text', description: 'text' });
 productSchema.index({ 'variant.fitTypeId': 1 });
 productSchema.index({ 'variant.colors.color': 1 });
+productSchema.index({ materialNormalized: 1 });
+
+productSchema.pre('save', function () {
+  if (this.isModified('material')) {
+    this.materialNormalized = this.material ? normalizeVietnamese(this.material) : '';
+  }
+});
 
 export const Product = models.Product || model<IProduct>('Product', productSchema);
 

@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ProductServiceError, productService } from './product.service';
+import { suggest as suggestProducts } from './product.suggest.service';
 import type {
   CreateProductInput,
   ProductGenderFilter,
@@ -499,4 +500,23 @@ const getProductById = async (req: Request, res: Response) => {
   }
 };
 
-export { createProduct, updateProduct, deleteProduct, permanentlyDeleteProduct, getProducts, getProductList, getProductFilters, getProductById };
+const suggestSearch = async (req: Request, res: Response) => {
+  try {
+    const keyword = parseString(req.query.q) || parseString(req.query.keyword);
+    let limit = 5;
+    const parsedLimit = req.query.limit !== undefined ? parsePositiveInteger(req.query.limit, 'limit') : undefined;
+    if (parsedLimit) limit = Math.min(Math.max(parsedLimit, 1), 10);
+
+    if (!keyword || keyword.trim().length < 2) {
+      return ok(res, { products: [], categories: [], keywords: [] });
+    }
+
+    const result = await suggestProducts(keyword.trim(), limit);
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export { createProduct, updateProduct, deleteProduct, permanentlyDeleteProduct, getProducts, getProductList, getProductFilters, getProductById, suggestSearch };

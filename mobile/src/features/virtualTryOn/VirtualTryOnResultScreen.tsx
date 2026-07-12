@@ -226,7 +226,7 @@ const VirtualTryOnResultScreen = () => {
   };
 
   const shareAllImages = async () => {
-    if (!job || resultImageUrls.length < 2 || savingScope || sharingScope) return;
+    if (!job || !resultImageUrls.length || savingScope || sharingScope) return;
 
     setSharingScope('all');
     try {
@@ -235,7 +235,9 @@ const VirtualTryOnResultScreen = () => {
         .join('\n');
       await Share.share({
         title: 'Bộ ảnh phối đồ',
-        message: `Bộ ${resultImageUrls.length} ảnh phối đồ của tôi:\n\n${links}`,
+        message: resultImageUrls.length > 1
+          ? `Bộ ${resultImageUrls.length} ảnh phối đồ của tôi:\n\n${links}`
+          : `Ảnh phối đồ của tôi: ${resultImageUrls[0]}`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể chia sẻ cả bộ ảnh lúc này.';
@@ -656,85 +658,42 @@ const VirtualTryOnResultScreen = () => {
             <View style={styles.resultActions}>
               <View style={styles.actionGroup}>
                 <View style={styles.actionGroupHeader}>
-                  <Text style={styles.actionGroupTitle}>Ảnh này</Text>
-                  <Text style={styles.actionGroupMeta}>
-                    {resultImageUrls.length ? `Ảnh ${activeImageIndex + 1}/${resultImageUrls.length}` : 'Chưa có ảnh'}
-                  </Text>
+                  <Text style={styles.actionGroupTitle}>Bộ ảnh</Text>
+                  <Text style={styles.actionGroupMeta}>{resultImageUrls.length} ảnh</Text>
                 </View>
                 <View style={styles.actionRow}>
                   <TouchableOpacity
-                    style={[styles.actionButton, (!activeImageUrl || savingScope || sharingScope) && styles.actionButtonDisabled]}
-                    onPress={shareActiveImage}
-                    disabled={!activeImageUrl || Boolean(savingScope || sharingScope)}
+                    style={[styles.actionButton, (!resultImageUrls.length || savingScope || sharingScope) && styles.actionButtonDisabled]}
+                    onPress={() => void saveImages('all')}
+                    disabled={!resultImageUrls.length || Boolean(savingScope || sharingScope)}
                     activeOpacity={0.86}
                   >
-                    {sharingScope === 'active' ? (
+                    {savingScope === 'all' ? (
                       <ActivityIndicator color={studioPalette.ink} />
                     ) : (
                       <>
-                        <MaterialCommunityIcons name="share-variant-outline" size={24} color={studioPalette.ink} />
-                        <Text style={styles.actionText}>Chia sẻ</Text>
+                        <MaterialCommunityIcons name="download-multiple" size={24} color={studioPalette.ink} />
+                        <Text style={styles.actionText}>Lưu tất cả</Text>
                       </>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.actionButton, (!activeImageUrl || savingScope || sharingScope) && styles.actionButtonDisabled]}
-                    onPress={() => void saveImages('active')}
-                    disabled={!activeImageUrl || Boolean(savingScope || sharingScope)}
+                    style={[styles.actionButton, (!resultImageUrls.length || savingScope || sharingScope) && styles.actionButtonDisabled]}
+                    onPress={shareAllImages}
+                    disabled={!resultImageUrls.length || Boolean(savingScope || sharingScope)}
                     activeOpacity={0.86}
                   >
-                    {savingScope === 'active' ? (
+                    {sharingScope === 'all' ? (
                       <ActivityIndicator color={studioPalette.ink} />
                     ) : (
                       <>
-                        <MaterialCommunityIcons name="download-outline" size={24} color={studioPalette.ink} />
-                        <Text style={styles.actionText}>Lưu</Text>
+                        <MaterialCommunityIcons name="share-all-outline" size={24} color={studioPalette.ink} />
+                        <Text style={styles.actionText}>Chia sẻ tất cả</Text>
                       </>
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
-
-              {resultImageUrls.length > 1 ? (
-                <View style={styles.actionGroup}>
-                <View style={styles.actionGroupHeader}>
-                  <Text style={styles.actionGroupTitle}>Cả {resultImageUrls.length} ảnh</Text>
-                  <Text style={styles.actionGroupMeta}>{resultImageUrls.length} ảnh</Text>
-                </View>
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, (savingScope || sharingScope) && styles.actionButtonDisabled]}
-                      onPress={() => void saveImages('all')}
-                      disabled={Boolean(savingScope || sharingScope)}
-                      activeOpacity={0.86}
-                    >
-                      {savingScope === 'all' ? (
-                        <ActivityIndicator color={studioPalette.ink} />
-                      ) : (
-                        <>
-                          <MaterialCommunityIcons name="download-multiple" size={24} color={studioPalette.ink} />
-                          <Text style={styles.actionText}>Lưu tất cả</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, (savingScope || sharingScope) && styles.actionButtonDisabled]}
-                      onPress={shareAllImages}
-                      disabled={Boolean(savingScope || sharingScope)}
-                      activeOpacity={0.86}
-                    >
-                      {sharingScope === 'all' ? (
-                        <ActivityIndicator color={studioPalette.ink} />
-                      ) : (
-                        <>
-                          <MaterialCommunityIcons name="share-all-outline" size={24} color={studioPalette.ink} />
-                          <Text style={styles.actionText}>Chia sẻ tất cả</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : null}
             </View>
 
             <View style={styles.sectionHeader}>
@@ -870,13 +829,46 @@ const VirtualTryOnResultScreen = () => {
                 {previewImages.length > 1 ? `${previewImageIndex + 1}/${previewImages.length}` : '1/1'}
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.previewCloseButton}
-              onPress={() => setIsPreviewVisible(false)}
-              activeOpacity={0.82}
-            >
-              <MaterialCommunityIcons name="close" size={24} color={colors.white} />
-            </TouchableOpacity>
+            <View style={styles.previewHeaderActions}>
+              {previewSyncsResult ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.previewActionButton, (!activeImageUrl || savingScope || sharingScope) && styles.previewActionButtonDisabled]}
+                    onPress={() => void saveImages('active')}
+                    disabled={!activeImageUrl || Boolean(savingScope || sharingScope)}
+                    activeOpacity={0.82}
+                    accessibilityLabel="Lưu ảnh đang xem"
+                  >
+                    {savingScope === 'active' ? (
+                      <ActivityIndicator color={colors.white} size="small" />
+                    ) : (
+                      <MaterialCommunityIcons name="download-outline" size={22} color={colors.white} />
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.previewActionButton, (!activeImageUrl || savingScope || sharingScope) && styles.previewActionButtonDisabled]}
+                    onPress={shareActiveImage}
+                    disabled={!activeImageUrl || Boolean(savingScope || sharingScope)}
+                    activeOpacity={0.82}
+                    accessibilityLabel="Chia sẻ ảnh đang xem"
+                  >
+                    {sharingScope === 'active' ? (
+                      <ActivityIndicator color={colors.white} size="small" />
+                    ) : (
+                      <MaterialCommunityIcons name="share-variant-outline" size={22} color={colors.white} />
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : null}
+              <TouchableOpacity
+                style={styles.previewActionButton}
+                onPress={() => setIsPreviewVisible(false)}
+                activeOpacity={0.82}
+                accessibilityLabel="Đóng ảnh"
+              >
+                <MaterialCommunityIcons name="close" size={24} color={colors.white} />
+              </TouchableOpacity>
+            </View>
           </View>
           <ScrollView
             ref={previewScrollRef}
@@ -1638,13 +1630,21 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     fontWeight: '900',
   },
-  previewCloseButton: {
+  previewHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  previewActionButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  previewActionButtonDisabled: {
+    opacity: 0.52,
   },
   previewSlide: {
     alignItems: 'center',

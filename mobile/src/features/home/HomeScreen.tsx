@@ -335,6 +335,7 @@ const HomeScreen = () => {
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
+        onSearchFocus={() => navigation.navigate('Search')}
         onImageSearchPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}

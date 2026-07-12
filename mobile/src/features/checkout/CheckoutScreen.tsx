@@ -1223,7 +1223,6 @@ const CheckoutScreen = () => {
           </View>
         </View>
 
-        <View style={styles.footerGap} />
       </ScrollView>
 
       <View style={styles.stickyFooter}>
@@ -1884,14 +1883,7 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '900',
   },
-  footerGap: {
-    height: 100,
-  },
   stickyFooter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,

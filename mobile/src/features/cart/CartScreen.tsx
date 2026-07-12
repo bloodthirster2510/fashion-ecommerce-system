@@ -804,7 +804,6 @@ const CartScreen = () => {
           </View>
         ) : null}
 
-        <View style={styles.footerGap} />
       </>
     );
   };
@@ -1442,20 +1441,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
-  footerGap: {
-    paddingTop: spacing.xxl,
-    backgroundColor: colors.background,
-  },
   footerGapStorefront: {
     paddingTop: spacing.xxl,
-    paddingBottom: 120,
     backgroundColor: colors.background,
   },
   stickyFooter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,

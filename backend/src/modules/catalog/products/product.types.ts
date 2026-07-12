@@ -106,6 +106,7 @@ export interface ProductListFilters {
   colors: string[];
   fitTypes: string[];
   sizes: string[];
+  materials: string[];
   categories: Array<{
     _id: string;
     name: string;

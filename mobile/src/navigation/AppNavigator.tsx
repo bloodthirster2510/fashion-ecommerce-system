@@ -11,6 +11,7 @@ import MembershipScreen from '../features/account/MembershipScreen';
 import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
 import CartScreen from '../features/cart/CartScreen';
+import SearchScreen from '../features/search/SearchScreen';
 import CheckoutScreen from '../features/checkout/CheckoutScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
@@ -50,6 +51,7 @@ export type RootStackParamList = {
     isNew?: boolean;
     sort?: 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'rating_desc';
   } | undefined;
+  Search: undefined;
   ProductDetail: {
     productId: string;
     recommendationRequestId?: string;
@@ -155,6 +157,7 @@ const AppNavigator = () => {
       <Stack.Screen name="ProductList" component={ProductListScreen} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
       <Stack.Screen name="Cart" component={CartScreen} />
+      <Stack.Screen name="Search" component={SearchScreen} />
       <Stack.Screen name="Checkout" component={CheckoutScreen} />
       <Stack.Screen name="Coupons" component={CouponsScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
