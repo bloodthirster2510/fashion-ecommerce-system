@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$pythonVenvRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'fashion-ecommerce-system-venvs'
+$pythonVenvRoot = Join-Path ([System.IO.Path]::GetPathRoot($root)) 'fes-venvs'
 
 function Test-TcpPort {
   param([int]$Port)
@@ -64,7 +64,12 @@ function Ensure-PythonService {
     [string]$ServicePath
   )
 
-  $venvPath = Join-Path $pythonVenvRoot $ServiceName
+  $venvName = switch ($ServiceName) {
+    'image-validation' { 'iv' }
+    'garment-processing' { 'gp' }
+    default { $ServiceName }
+  }
+  $venvPath = Join-Path $pythonVenvRoot $venvName
   $venvPython = Join-Path $venvPath 'Scripts\python.exe'
   if ($DryRun) {
     Write-Host "[dry-run] Ensure $ServiceName venv at $venvPath"
