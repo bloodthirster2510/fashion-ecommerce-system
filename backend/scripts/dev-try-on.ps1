@@ -5,13 +5,18 @@ param(
   [switch]$NoImageValidation,
   [switch]$NoGarmentProcessing,
   [switch]$RestartExisting,
+  [string]$PythonVenvRoot = '',
   [int]$SmokeTestSeconds = 0
 )
 
 $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$pythonVenvRoot = Join-Path ([System.IO.Path]::GetPathRoot($root)) 'fes-venvs'
+$pythonVenvRoot = if ($PythonVenvRoot.Trim()) {
+  $PythonVenvRoot.Trim()
+} else {
+  Join-Path $root '.tmp\python-venvs'
+}
 
 function Test-TcpPort {
   param([int]$Port)
@@ -195,8 +200,10 @@ if (-not $NoGarmentProcessing) {
       if ($DryRun) {
         Write-Host "[dry-run] $garmentProcessingPython $((Join-Path $garmentProcessingPath 'scripts\download_models.py'))"
       } else {
-        & $garmentProcessingPython (Join-Path $garmentProcessingPath 'scripts\download_models.py') 2>&1 | ForEach-Object {
-          Write-Host "[garment-processing] $_"
+        $downloadScript = Join-Path $garmentProcessingPath 'scripts\download_models.py'
+        $downloadLog = & $garmentProcessingPython -u -W ignore $downloadScript 2>&1
+        foreach ($line in $downloadLog) {
+          Write-Host "[garment-processing] $line"
         }
         if ($LASTEXITCODE -ne 0) {
           throw '[garment-processing] Failed to download model files.'
