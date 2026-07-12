@@ -924,18 +924,6 @@ const ProductListScreen = () => {
               contentContainerStyle={styles.sheetContent}
             >
               {renderGroup(
-                'Tình trạng',
-                <View style={styles.choiceWrap}>
-                  {renderChoice('Hàng mới', Boolean(draftFilters.isNew), () =>
-                    setDraftFilters((current) => ({ ...current, isNew: current.isNew ? undefined : true })),
-                  )}
-                  {renderChoice('Đang sale', Boolean(draftFilters.isSale), () =>
-                    setDraftFilters((current) => ({ ...current, isSale: current.isSale ? undefined : true })),
-                  )}
-                </View>,
-              )}
-
-              {renderGroup(
                 'Đối tượng',
                 <View style={styles.choiceWrap}>
                   {visibleGenderOptions.map((option) =>
@@ -952,6 +940,18 @@ const ProductListScreen = () => {
                       undefined,
                       option.value,
                     ),
+                  )}
+                </View>,
+              )}
+
+              {renderGroup(
+                'Tình trạng',
+                <View style={styles.choiceWrap}>
+                  {renderChoice('Hàng mới', Boolean(draftFilters.isNew), () =>
+                    setDraftFilters((current) => ({ ...current, isNew: current.isNew ? undefined : true })),
+                  )}
+                  {renderChoice('Đang sale', Boolean(draftFilters.isSale), () =>
+                    setDraftFilters((current) => ({ ...current, isSale: current.isSale ? undefined : true })),
                   )}
                 </View>,
               )}
