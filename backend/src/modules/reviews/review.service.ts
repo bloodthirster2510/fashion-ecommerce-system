@@ -134,36 +134,16 @@ const moderateReview = (comment: string) => {
   };
 };
 
-const buildRatingDistribution = (
-  ratingCounts: Array<{ _id: number; count: number }>,
-  averageRating: number,
-  reviewCount: number,
-) => {
-  const actualCount = ratingCounts.reduce((total, item) => total + item.count, 0);
+const buildRatingDistribution = (ratingCounts: Array<{ _id: number; count: number }>) => {
+  const totalCount = ratingCounts.reduce((total, item) => total + item.count, 0);
   const countByRating = new Map(ratingCounts.map((item) => [item._id, item.count]));
 
-  // Dữ liệu catalog cũ chỉ có điểm trung bình và tổng lượt, chưa có từng review.
-  // Phân bổ số lượt vào hai mức sao gần nhất để progress vẫn biểu diễn được dữ liệu cũ.
-  if (actualCount === 0 && reviewCount > 0 && averageRating >= 1 && averageRating <= 5) {
-    const lowerRating = Math.floor(averageRating);
-    const upperRating = Math.ceil(averageRating);
-
-    if (lowerRating === upperRating) {
-      countByRating.set(lowerRating, reviewCount);
-    } else {
-      const upperCount = Math.round((averageRating - lowerRating) * reviewCount);
-      countByRating.set(upperRating, upperCount);
-      countByRating.set(lowerRating, reviewCount - upperCount);
-    }
-  }
-
-  const distributionTotal = actualCount || reviewCount;
   return [5, 4, 3, 2, 1].map((rating) => {
     const count = countByRating.get(rating) ?? 0;
     return {
       rating,
       count,
-      percent: distributionTotal > 0 ? Math.round((count / distributionTotal) * 100) : 0,
+      percent: totalCount > 0 ? Math.round((count / totalCount) * 100) : 0,
     };
   });
 };
@@ -496,25 +476,25 @@ const listProductReviews = async (productIdValue: string, query: ReviewListQuery
       .limit(limit)
       .lean(),
     Review.countDocuments(filter),
-    Product.findById(productId).select('averageRating reviewCount').lean(),
+    Product.findById(productId).select('_id').lean(),
     Review.aggregate<{ _id: number; count: number }>([
-    { $match: { product_id: productId, $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }] } },
+      { $match: { product_id: productId, $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }] } },
       { $group: { _id: '$rating', count: { $sum: 1 } } },
     ]),
   ]);
 
   if (!product) throw new ReviewServiceError('Product not found', 404);
+  const publicReviewCount = ratingCounts.reduce((total, item) => total + item.count, 0);
+  const publicAverageRating = publicReviewCount > 0
+    ? Math.round((ratingCounts.reduce((total, item) => total + item._id * item.count, 0) / publicReviewCount) * 10) / 10
+    : 0;
 
   return {
     items: reviews.map((review) => serializePublicReview(review as unknown as ReviewView)),
     summary: {
-      averageRating: product.averageRating,
-      reviewCount: product.reviewCount,
-      distribution: buildRatingDistribution(
-        ratingCounts,
-        product.averageRating,
-        product.reviewCount,
-      ),
+      averageRating: publicAverageRating,
+      reviewCount: publicReviewCount,
+      distribution: buildRatingDistribution(ratingCounts),
     },
     pagination: { page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
   };

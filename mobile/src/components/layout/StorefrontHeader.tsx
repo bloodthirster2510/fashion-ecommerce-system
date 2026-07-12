@@ -13,6 +13,7 @@ type StorefrontHeaderProps = {
   onProfilePress?: () => void;
   onFavoritesPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
+  onSearchFocus?: () => void;
   onImageSearchPress?: () => void;
   isAuthenticated?: boolean;
   userName?: string;
@@ -27,6 +28,7 @@ const StorefrontHeader = ({
   onProfilePress,
   onFavoritesPress,
   onSearchSubmit,
+  onSearchFocus,
   onImageSearchPress,
   isAuthenticated,
   userName,
@@ -48,6 +50,12 @@ const StorefrontHeader = ({
 
     if (keyword) {
       onSearchSubmit?.(keyword);
+    }
+  };
+
+  const handleSearchRowPress = () => {
+    if (onSearchFocus) {
+      onSearchFocus();
     }
   };
 
@@ -104,15 +112,26 @@ const StorefrontHeader = ({
 
       <View style={styles.searchRow}>
         <MaterialCommunityIcons name="magnify" size={23} color={colors.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          placeholder="Bạn tìm gì hôm nay?"
-          placeholderTextColor={colors.textMuted}
-          returnKeyType="search"
-          onSubmitEditing={handleSearchSubmit}
-        />
+        {onSearchFocus ? (
+          <TouchableOpacity
+            style={styles.searchFakeInput}
+            onPress={handleSearchRowPress}
+            activeOpacity={0.8}
+            accessibilityLabel="Mở tìm kiếm"
+          >
+            <Text style={styles.searchPlaceholder}>Bạn tìm gì hôm nay?</Text>
+          </TouchableOpacity>
+        ) : (
+          <TextInput
+            style={styles.searchInput}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            placeholder="Bạn tìm gì hôm nay?"
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="search"
+            onSubmitEditing={handleSearchSubmit}
+          />
+        )}
         <TouchableOpacity
           style={styles.cameraButton}
           onPress={onImageSearchPress}
@@ -200,6 +219,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     color: colors.text,
     fontSize: 13,
+  },
+  searchFakeInput: {
+    flex: 1,
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  searchPlaceholder: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
   },
   cameraButton: {
     width: 36,

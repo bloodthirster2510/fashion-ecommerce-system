@@ -27,6 +27,7 @@ const emptyData: PublicReviewList = {
   },
   pagination: { page: 1, limit: PAGE_SIZE, totalItems: 0, totalPages: 0 },
 };
+type ReviewSummary = PublicReviewList['summary'];
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   day: '2-digit', month: '2-digit', year: 'numeric',
@@ -54,7 +55,12 @@ const Stars = ({ rating, size = 14 }: { rating: number; size?: number }) => (
   </View>
 );
 
-export default function ProductReviewsSection({ productId }: { productId: string }) {
+type ProductReviewsSectionProps = {
+  productId: string;
+  onSummaryChange?: (summary: ReviewSummary) => void;
+};
+
+export default function ProductReviewsSection({ productId, onSummaryChange }: ProductReviewsSectionProps) {
   const { runWithAuth, session } = useAuth();
   const [data, setData] = React.useState<PublicReviewList>(emptyData);
   const [page, setPage] = React.useState(1);
@@ -66,7 +72,9 @@ export default function ProductReviewsSection({ productId }: { productId: string
   React.useEffect(() => {
     setPage(1);
     setSelectedRating(undefined);
-  }, [productId]);
+    setData(emptyData);
+    onSummaryChange?.(emptyData.summary);
+  }, [onSummaryChange, productId]);
 
   React.useEffect(() => {
     let active = true;
@@ -77,6 +85,7 @@ export default function ProductReviewsSection({ productId }: { productId: string
       .then((result) => {
         if (!active) return;
         setData(result);
+        onSummaryChange?.(result.summary);
         if (result.pagination.totalPages > 0 && page > result.pagination.totalPages) {
           setPage(result.pagination.totalPages);
         }
@@ -89,7 +98,7 @@ export default function ProductReviewsSection({ productId }: { productId: string
       });
 
     return () => { active = false; };
-  }, [page, productId, selectedRating]);
+  }, [onSummaryChange, page, productId, selectedRating]);
 
   const selectRating = (rating?: number) => {
     setSelectedRating(rating);

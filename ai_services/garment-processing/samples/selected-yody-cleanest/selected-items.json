@@ -1,0 +1,23 @@
+[
+  {
+    "role": "top",
+    "sourceFile": "top-23.webp",
+    "file": "top-navy-polo-product.webp",
+    "name": "Áo Polo Nam Airycool Dáng Ôm Siêu Mát",
+    "reason": "Ảnh product-only, nền sạch; phù hợp để test tách áo."
+  },
+  {
+    "role": "bottom",
+    "sourceFile": "bottom-078.webp",
+    "file": "bottom-slim-jeans-clean.webp",
+    "name": "Quần Jeans Nam Slim Fit Thêu Túi",
+    "reason": "Ảnh quần rõ trên nền sáng; data chưa có quần product-only nên chọn ảnh người mặc sạch nhất."
+  },
+  {
+    "role": "shoes",
+    "sourceFile": "shoes-01.webp",
+    "file": "shoes-black-sneaker-product.webp",
+    "name": "Giày Thể Thao Nam Phối Màu Năng Động",
+    "reason": "Ảnh product-only nền trắng; phù hợp để test giày/dép và hàng dưới của full_set."
+  }
+]

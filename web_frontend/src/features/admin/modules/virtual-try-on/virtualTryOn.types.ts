@@ -14,6 +14,8 @@ export type AdminVirtualTryOnJob = {
   contextPrompt?: string
   outputMode: 'image' | 'image_and_video'
   provider: string
+  providerJobId?: string | null
+  sourceImageUrl?: string | null
   selectedItemCount: number
   selectedItems: Array<{
     productId: string
@@ -24,6 +26,7 @@ export type AdminVirtualTryOnJob = {
     finalPriceSnapshot: number
   }>
   generatedImageUrl?: string | null
+  generatedImageUrls?: string[]
   generatedVideoUrl?: string | null
   errorCode?: string | null
   errorMessage?: string | null
@@ -90,4 +93,71 @@ export type AdminVirtualTryOnPromptTestResult = {
   maxLength: number
   matchedCategory?: string
   matchedRule?: string
+}
+
+export type PromptPolicyCategory =
+  | 'sexual_content'
+  | 'violence'
+  | 'prompt_injection'
+  | 'personal_data'
+  | 'hate_or_harassment'
+  | 'unsafe_request'
+
+export type AdminVirtualTryOnPromptRule = {
+  _id: string
+  term: string
+  category: PromptPolicyCategory
+  reasonCode: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminVirtualTryOnPromptRuleList = {
+  items: AdminVirtualTryOnPromptRule[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
+}
+
+export type AdminVirtualTryOnPromptRuleFilters = {
+  page: number
+  keyword: string
+  category: PromptPolicyCategory | ''
+  enabled: '' | 'true' | 'false'
+}
+
+export type AdminVirtualTryOnAccountLock = {
+  user: {
+    _id: string
+    name: string
+    email: string
+    isActive: boolean
+  }
+  isLocked: boolean
+  reason: string | null
+  lockedBy: { _id: string; name: string; email: string } | null
+  unlockedBy: { _id: string; name: string; email: string } | null
+  lockedAt: string | null
+  unlockedAt: string | null
+  updatedAt: string
+}
+
+export type AdminVirtualTryOnAccountLockList = {
+  items: AdminVirtualTryOnAccountLock[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
+}
+
+export type AdminVirtualTryOnAccountLockFilters = {
+  page: number
+  keyword: string
+  locked: '' | 'true' | 'false'
 }

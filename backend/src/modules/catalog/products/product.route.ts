@@ -10,6 +10,7 @@ import {
   getProductById,
   getProducts,
   permanentlyDeleteProduct,
+  suggestSearch,
   updateProduct,
 } from './product.controller';
 
@@ -26,6 +27,7 @@ const productImageUpload = withMulterErrorHandling(
 );
 
 customerProductRouter.get('/', getProductList);
+customerProductRouter.get('/suggest', suggestSearch);
 customerProductRouter.get('/filters', getProductFilters);
 customerProductRouter.get('/:id', getProductById);
 

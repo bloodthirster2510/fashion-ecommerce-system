@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -7,6 +7,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
+import ColorSwatch from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
 import {
   catalogApi,
@@ -17,13 +18,58 @@ import {
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
-import type { TryOnContextPreset, TryOnItemRole, TryOnOutfitMode, TryOnSelectedItem } from './virtualTryOn.types';
+import {
+  TRY_ON_ACTIVE_ITEM_LIMIT,
+  TRY_ON_QUEUE_LIMIT,
+  type TryOnContextPreset,
+  type TryOnImageValidationCapability,
+  type TryOnImageValidationCapabilityMode,
+  type TryOnImageValidationResult,
+  type TryOnItemRole,
+  type TryOnOutfitMode,
+  type TryOnSeedItem,
+  type TryOnSelectedItem,
+} from './virtualTryOn.types';
+import {
+  allTryOnRoles,
+  getOutfitSlots,
+  getPrefillOutfitMode,
+  getQueueSlotGroups,
+  getSelectedItemKey,
+  getSeedItemKey,
+  inferRole,
+  isSameTryOnItem,
+  normalizeItemsForMode,
+  normalizeSelectionForMode,
+  selectItemForSlot,
+  selectedItemToSeed,
+  tryOnRoleLabel as roleLabel,
+  type FashionIconName,
+  type OutfitSlot,
+  type SlotAlternativeGroup,
+  } from './virtualTryOnSelection';
+import { contextPresets, contextPresetMeta } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
-type FashionIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type TryOnProductSort = 'recommended' | 'price_asc' | 'price_desc';
 type TryOnGenderFilter = 'all' | 'male' | 'female' | 'unisex';
+type ImageValidationStatus = 'idle' | 'checking' | 'valid' | 'invalid' | 'error';
+
+type ImageValidationState = {
+  status: ImageValidationStatus;
+  key: string;
+  result?: TryOnImageValidationResult;
+  errorCode?: string | null;
+  message?: string;
+};
+
+type BuilderPreviewImage = {
+  uri: string;
+  label: string;
+  recyclingKey: string;
+  resizeMode?: 'cover' | 'contain';
+};
 
 type TryOnProductFilters = {
   categoryIds: string[];
@@ -59,6 +105,10 @@ const tryOnPalette = {
   successSoft: '#EAF7EF',
 } as const;
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
@@ -72,19 +122,10 @@ const outfitModes: Array<{
 }> = [
   { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm', icon: 'tshirt-crew' },
   { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'tshirt-v' },
-  { key: 'full_set', label: 'Nhiều món', description: 'Ghép nhiều món thành bộ phối', icon: 'hanger' },
+  { key: 'full_set', label: 'Nhiều món', description: 'Tạo bộ phối', icon: 'hanger' },
 ];
 
-const contextOptions: Array<{ key: TryOnContextPreset; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
-  { key: 'none', label: 'Giữ nền cũ', icon: 'image-outline' },
-  { key: 'work', label: 'Đi làm', icon: 'briefcase-outline' },
-  { key: 'casual', label: 'Đi chơi', icon: 'party-popper' },
-  { key: 'party', label: 'Dự tiệc', icon: 'glass-cocktail' },
-  { key: 'travel', label: 'Du lịch', icon: 'airplane' },
-  { key: 'sport', label: 'Thể thao', icon: 'run' },
-  { key: 'date', label: 'Hẹn hò', icon: 'heart-outline' },
-  { key: 'custom', label: 'Tự nhập', icon: 'pencil-outline' },
-];
+const contextOptions = contextPresets;
 
 const tryOnSortOptions: Array<{ key: TryOnProductSort; label: string }> = [
   { key: 'recommended', label: 'Gợi ý' },
@@ -99,86 +140,149 @@ const genderFilterOptions: Array<{ key: TryOnGenderFilter; label: string; icon: 
   { key: 'unisex', label: 'Unisex', icon: 'gender-male-female' },
 ];
 
-const roleLabel: Record<TryOnItemRole, string> = {
-  top: 'Áo',
-  bottom: 'Quần',
-  dress: 'Váy/đầm',
-  shoes: 'Giày',
-  accessory: 'Phụ kiện',
-  outerwear: 'Áo khoác',
+const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode, string> = {
+  full_set: 'nhiều món',
+  top_bottom: 'áo + quần',
+  top: 'áo',
+  bottom: 'quần',
+  dress: 'váy/đầm',
+  shoes: 'giày/dép',
+  outerwear: 'áo khoác',
+  accessory: 'món khác',
+};
+
+const imageValidationCapabilityPriority: TryOnImageValidationCapabilityMode[] = [
+  'full_set',
+  'top_bottom',
+  'top',
+  'bottom',
+  'dress',
+  'shoes',
+  'outerwear',
+];
+
+const getSelectionCapabilityModes = (
+  outfitMode: TryOnOutfitMode,
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>,
+): TryOnImageValidationCapabilityMode[] => {
+  if (outfitMode === 'full_set') {
+    return selectedItems.some((item) => item.role === 'shoes') ? ['full_set', 'shoes'] : ['full_set'];
+  }
+  if (outfitMode === 'top_bottom') return ['top_bottom'];
+
+  return Array.from(new Set(selectedItems.map((item) => item.role as TryOnImageValidationCapabilityMode)));
+};
+
+const getSupportedImageValidationModeSummary = (result?: TryOnImageValidationResult) => {
+  const supportedModes = new Set(result?.supportedModes ?? []);
+  const orderedModes = imageValidationCapabilityPriority.filter((mode) => supportedModes.has(mode));
+  if (!orderedModes.length) return '';
+
+  return orderedModes
+    .slice(0, 4)
+    .map((mode) => imageValidationCapabilityLabel[mode])
+    .join(', ');
+};
+
+const getUnsupportedImageValidationCapability = (
+  result: TryOnImageValidationResult,
+  outfitMode: TryOnOutfitMode,
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>,
+): TryOnImageValidationCapability | null => {
+  const capabilityByMode = new Map((result.capabilities ?? []).map((capability) => [capability.mode, capability]));
+  const supportedModes = result.supportedModes ?? [];
+
+  for (const mode of getSelectionCapabilityModes(outfitMode, selectedItems)) {
+    const capability = capabilityByMode.get(mode);
+    if (capability && !capability.allowed) return capability;
+
+    if (!capability && supportedModes.length && !supportedModes.includes(mode)) {
+      const blockedMode = result.blockedModes?.[mode];
+      return {
+        mode,
+        allowed: false,
+        reasonCode: blockedMode?.reasonCode ?? 'BODY_NOT_VISIBLE',
+        message: blockedMode?.message ?? null,
+        requiredRegions: [],
+        missingRegions: blockedMode?.missingRegions ?? [],
+      };
+    }
+  }
+
+  return null;
 };
 
 const imageValidationAlerts: Record<string, { title: string; message: string }> = {
   NO_PERSON_DETECTED: {
-    title: 'Ảnh chưa phù hợp',
-    message: 'Bạn hãy chọn ảnh có một người rõ ràng để hệ thống thử đồ chính xác hơn.',
+    title: 'Cần ảnh người mặc',
+    message: 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.',
   },
   MULTIPLE_PEOPLE_DETECTED: {
     title: 'Ảnh có nhiều người',
-    message: 'Bạn hãy dùng ảnh chỉ có một người chính trong khung hình.',
+    message: 'Dùng ảnh chỉ có một người.',
   },
   PERSON_TOO_SMALL: {
-    title: 'Người trong ảnh quá nhỏ',
-    message: 'Bạn hãy chọn ảnh chụp gần hơn, người chiếm phần lớn khung hình.',
+    title: 'Người quá nhỏ',
+    message: 'Chọn ảnh chụp gần hơn.',
   },
   BODY_NOT_VISIBLE: {
-    title: 'Chưa thấy đủ cơ thể',
-    message: 'Kiểu phối này cần ảnh thấy rõ người hơn. Bạn hãy chọn ảnh nửa người hoặc toàn thân phù hợp.',
+    title: 'Chưa đủ vùng cho món này',
+    message: 'Ảnh này chưa thấy đủ vùng cơ thể cho món đang chọn.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
-    message: 'Bạn hãy chọn ảnh đứng thẳng, mặt hướng camera và ít bị che khuất.',
+    message: 'Chọn ảnh đứng thẳng, ít bị che.',
   },
   IMAGE_TOO_BLURRY: {
     title: 'Ảnh bị mờ',
-    message: 'Bạn hãy chọn hoặc chụp lại ảnh rõ nét hơn.',
+    message: 'Chọn ảnh rõ nét hơn.',
   },
   IMAGE_TOO_DARK: {
     title: 'Ảnh quá tối',
-    message: 'Bạn hãy chọn ảnh đủ sáng hơn để hệ thống nhận diện cơ thể tốt hơn.',
+    message: 'Chọn ảnh sáng hơn.',
   },
   IMAGE_TOO_SMALL: {
     title: 'Ảnh quá nhỏ',
-    message: 'Bạn hãy chọn ảnh có độ phân giải cao hơn.',
+    message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh không phù hợp',
-    message: 'Ảnh này không thể dùng để tạo phối đồ ảo. Bạn hãy chọn ảnh khác.',
+    title: 'Ảnh ít trang phục.',
+    message: 'Ảnh có thể bị từ chối.\nBạn vẫn có thể tiếp tục.',
   },
   VALIDATION_PROVIDER_FAILED: {
-    title: 'Chưa kiểm tra được ảnh',
-    message: 'Hệ thống đang chưa kiểm tra được ảnh này. Bạn hãy thử lại sau ít phút.',
+    title: 'Chưa kiểm tra được ảnh.',
+    message: 'Bạn vẫn có thể tiếp tục.',
   },
 };
 
 const promptValidationAlerts: Record<string, { title: string; message: string }> = {
   PROMPT_SEXUAL_CONTENT: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả bối cảnh có nội dung nhạy cảm. Bạn hãy nhập bối cảnh thời trang an toàn hơn.',
+    message: 'Bỏ nội dung nhạy cảm khỏi mô tả.',
   },
   PROMPT_VIOLENCE: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả bối cảnh có nội dung bạo lực. Bạn hãy chọn một bối cảnh an toàn hơn.',
+    message: 'Bỏ nội dung bạo lực khỏi mô tả.',
   },
   PROMPT_PERSONAL_DATA: {
     title: 'Không dùng dữ liệu cá nhân',
-    message: 'Bạn hãy bỏ số điện thoại, địa chỉ, giấy tờ hoặc thông tin riêng tư khỏi mô tả.',
+    message: 'Bỏ số điện thoại, địa chỉ hoặc giấy tờ.',
   },
   PROMPT_PROFANITY: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả có ngôn ngữ thô tục. Bạn hãy nhập bối cảnh thời trang lịch sự hơn.',
+    message: 'Dùng mô tả lịch sự hơn.',
   },
   PROMPT_HATE_OR_HARASSMENT: {
     title: 'Mô tả chưa phù hợp',
-    message: 'Mô tả có nội dung xúc phạm, quấy rối hoặc kỳ thị. Bạn hãy đổi sang bối cảnh an toàn hơn.',
+    message: 'Bỏ nội dung xúc phạm hoặc kỳ thị.',
   },
   PROMPT_INJECTION: {
     title: 'Mô tả chưa hợp lệ',
-    message: 'Mô tả chỉ nên nói về bối cảnh phối đồ, phong cách, màu sắc hoặc dịp sử dụng.',
+    message: 'Chỉ mô tả bối cảnh, phong cách hoặc dịp mặc.',
   },
   PROMPT_TOO_LONG: {
     title: 'Mô tả quá dài',
-    message: 'Bạn hãy rút gọn mô tả bối cảnh trước khi tạo kết quả.',
+    message: 'Rút gọn mô tả.',
   },
 };
 
@@ -249,54 +353,52 @@ const getCreateJobErrorAlert = (error: unknown) => {
   };
 };
 
-type OutfitSlot = {
-  key: string;
-  label: string;
-  helper: string;
-  roles: TryOnItemRole[];
-  icon: FashionIconName;
-  required?: boolean;
-};
-
-const allTryOnRoles: TryOnItemRole[] = ['top', 'bottom', 'dress', 'shoes', 'outerwear'];
-
-const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
-  if (mode === 'single') {
-    return [
-      {
-        key: 'single',
-        label: 'Sản phẩm',
-        helper: 'Chọn 1 món bất kỳ',
-        roles: allTryOnRoles,
-        icon: 'plus-circle-outline',
-        required: true,
-      },
-    ];
+const getImageValidationMessage = (
+  result?: TryOnImageValidationResult,
+  fallback?: string,
+  outfitMode?: TryOnOutfitMode,
+  selectedItems: Array<Pick<TryOnSelectedItem, 'role'>> = [],
+) => {
+  const unsupportedCapability = result && outfitMode
+    ? getUnsupportedImageValidationCapability(result, outfitMode, selectedItems)
+    : null;
+  const reasonCode = unsupportedCapability?.reasonCode ?? result?.reasonCode;
+  const validationAlert = reasonCode ? imageValidationAlerts[reasonCode] : undefined;
+  const supportedSummary = getSupportedImageValidationModeSummary(result);
+  if (reasonCode === 'BODY_NOT_VISIBLE') {
+    const bodyMessage = validationAlert?.message || 'Ảnh hiện tại chưa đủ vùng cơ thể.';
+    return supportedSummary
+      ? `${bodyMessage}\nCó thể thử: ${supportedSummary}.`
+      : bodyMessage;
   }
 
-  if (mode === 'top_bottom') {
-    return [
-      { key: 'top', label: 'Áo', helper: 'Chọn áo', roles: ['top', 'outerwear'], icon: 'tshirt-v', required: true },
-      { key: 'bottom', label: 'Quần', helper: 'Chọn quần', roles: ['bottom'], icon: 'hanger', required: true },
-    ];
-  }
+  const baseMessage = validationAlert?.message ||
+    unsupportedCapability?.message ||
+    result?.message ||
+    fallback ||
+    'Ảnh đã sẵn sàng.';
 
-  return [
-    { key: 'top', label: 'Áo', helper: 'Áo, áo khoác', roles: ['top', 'outerwear'], icon: 'tshirt-v' },
-    { key: 'outfit', label: 'Quần/Váy', helper: 'Quần, jean, váy, đầm', roles: ['bottom', 'dress'], icon: 'hanger' },
-    { key: 'shoes', label: 'Giày', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-formal' },
-  ];
+  return baseMessage;
 };
 
-const inferRole = (product: CatalogProduct | CatalogProductDetail): TryOnItemRole => {
-  const haystack = `${product.name} ${product.category?.name ?? ''}`.toLowerCase();
-  if (haystack.includes('giày') || haystack.includes('dép') || haystack.includes('sandal')) return 'shoes';
-  if (haystack.includes('quần') || haystack.includes('jean') || haystack.includes('short')) return 'bottom';
-  if (haystack.includes('váy') || haystack.includes('đầm') || haystack.includes('dress')) return 'dress';
-  if (haystack.includes('khoác') || haystack.includes('blazer') || haystack.includes('jacket')) return 'outerwear';
-  if (haystack.includes('túi') || haystack.includes('mũ') || haystack.includes('nón') || haystack.includes('phụ kiện')) return 'accessory';
-  return 'top';
+const withSentencePeriod = (value: string) => /[.!?…]$/.test(value.trim()) ? value : `${value}.`;
+
+const getImageValidationReasonTitle = (reasonCode?: string | null) => {
+  if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
+  if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
+  if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này.';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh ít trang phục.';
+  if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
+  return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
 };
+
+const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' as const;
+
+const imageValidationBlockingReasonCodes = new Set([
+  'NO_PERSON_DETECTED',
+  'BODY_NOT_VISIBLE',
+  'PERSON_TOO_SMALL',
+]);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
@@ -346,47 +448,118 @@ const createSelectedItem = (
   color: ProductDetailColor,
   size?: string,
 ): TryOnSelectedItem => ({
-    productId: detail._id,
-    variantId: variant._id,
-    colorVariantId: color._id,
-    size,
-    role: inferRole(detail),
-    nameSnapshot: detail.name,
-    colorSnapshot: color.color,
-    imageSnapshot: color.image || detail.productImage,
-    priceSnapshot: variant.originalPrice,
-    finalPriceSnapshot: variant.finalPrice,
+  queueKey: `${detail._id}:${variant._id}:${color._id}:${size ?? ''}`,
+  productId: detail._id,
+  variantId: variant._id,
+  colorVariantId: color._id,
+  size,
+  role: inferRole(detail),
+  nameSnapshot: detail.name,
+  colorSnapshot: color.color,
+  imageSnapshot: color.image || detail.productImage,
+  priceSnapshot: variant.originalPrice,
+  finalPriceSnapshot: variant.finalPrice,
 });
+
+const createSelectedItemFromSeed = (
+  detail: CatalogProductDetail,
+  seed: TryOnSeedItem,
+): TryOnSelectedItem | null => {
+  const variant = detail.variants.find((item) => item._id === seed.variantId && item.isActive);
+  const color = variant?.colors.find((item) => item._id === seed.colorVariantId);
+  if (!variant || !color) return null;
+
+  const sizeOption = seed.size
+    ? variant.sizes.find((item) => item.size.trim().toLowerCase() === seed.size?.trim().toLowerCase())
+    : undefined;
+  if (seed.size && (!sizeOption || !isSizeAvailableForColor(variant, color._id, sizeOption))) return null;
+
+  const selected = createSelectedItem(
+    detail,
+    variant,
+    color,
+    sizeOption?.size ?? getFirstAvailableSize(variant, color._id),
+  );
+
+  return {
+    ...selected,
+    queueKey: getSeedItemKey(seed),
+    cartItemId: seed.cartItemId,
+    role: seed.role && allTryOnRoles.includes(seed.role) ? seed.role : selected.role,
+    nameSnapshot: seed.nameSnapshot || selected.nameSnapshot,
+    colorSnapshot: seed.colorSnapshot || selected.colorSnapshot,
+    imageSnapshot: seed.imageSnapshot || selected.imageSnapshot,
+  };
+};
 
 const VirtualTryOnBuilderScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { runWithAuth } = useAuth();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
   const [selectedItems, setSelectedItems] = React.useState<TryOnSelectedItem[]>([]);
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
-  const [includeVideo, setIncludeVideo] = React.useState(false);
+  const [contextPreviewLang, setContextPreviewLang] = React.useState<'vi' | 'en'>('vi');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
   const [isProductListVisible, setIsProductListVisible] = React.useState(false);
   const [isProductFilterVisible, setIsProductFilterVisible] = React.useState(false);
   const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isPrefilling, setIsPrefilling] = React.useState(false);
+  const [prefillNotice, setPrefillNotice] = React.useState('');
+  const [queueItems, setQueueItems] = React.useState<TryOnSelectedItem[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [imageValidation, setImageValidation] = React.useState<ImageValidationState>({ status: 'idle', key: '' });
+  const [imageValidationRetryNonce, setImageValidationRetryNonce] = React.useState(0);
   const [selectingProductId, setSelectingProductId] = React.useState<string | null>(null);
   const [activeSlotKey, setActiveSlotKey] = React.useState('top');
   const [configuringProduct, setConfiguringProduct] = React.useState<CatalogProductDetail | null>(null);
   const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
   const [selectedSize, setSelectedSize] = React.useState<string>();
+  const [previewImage, setPreviewImage] = React.useState<BuilderPreviewImage | null>(null);
   const iconPulse = React.useRef(new Animated.Value(0)).current;
+  const lastPrefillKeyRef = React.useRef('');
 
   const sourceAssetId = route.params?.assetId;
   const sourceImageUrl = route.params?.imageUrl;
+  const incomingSeedItems = React.useMemo(() => route.params?.seedItems ?? [], [route.params?.seedItems]);
+  const incomingAlternativeSeedItems = React.useMemo(
+    () => route.params?.alternativeSeedItems ?? [],
+    [route.params?.alternativeSeedItems],
+  );
+  const incomingSeedKey = React.useMemo(
+    () => incomingSeedItems
+      .map((item) => `${item.cartItemId ?? ''}:${item.productId}:${item.variantId}:${item.colorVariantId}:${item.size ?? ''}:${item.role ?? ''}`)
+      .join('|'),
+    [incomingSeedItems],
+  );
   const outfitSlots = React.useMemo(() => getOutfitSlots(outfitMode), [outfitMode]);
   const activeSlot = outfitSlots.find((slot) => slot.key === activeSlotKey) ?? outfitSlots[0];
+  const optionalLayerSlot = outfitMode === 'full_set'
+    ? outfitSlots.find((slot) => slot.key === 'layer')
+    : undefined;
+  const hasOptionalLayerItem = selectedItems.some((item) => item.role === 'outerwear');
+  const visibleOutfitSlots = React.useMemo(() => {
+    if (outfitMode !== 'full_set') return outfitSlots;
+    return outfitSlots.filter((slot) =>
+      slot.key !== 'layer' ||
+      hasOptionalLayerItem ||
+      activeSlotKey === 'layer',
+    );
+  }, [activeSlotKey, hasOptionalLayerItem, outfitMode, outfitSlots]);
+  const queueGroups = React.useMemo(
+    () => getQueueSlotGroups(queueItems, outfitMode),
+    [outfitMode, queueItems],
+  );
+  const queueActiveCount = React.useMemo(
+    () => queueItems.filter((item) => selectedItems.some((selected) => isSameTryOnItem(selected, item))).length,
+    [queueItems, selectedItems],
+  );
   const selectedVariant = configuringProduct?.variants.find((variant) => variant._id === selectedVariantId);
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);
   const selectedSizeOption = selectedVariant?.sizes.find((item) => item.size === selectedSize);
@@ -431,6 +604,24 @@ const VirtualTryOnBuilderScreen = () => {
     ],
   };
 
+  const animateSelectionLayout = React.useCallback(() => {
+    LayoutAnimation.configureNext({
+      duration: 220,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.spring,
+        springDamping: 0.82,
+      },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+  }, []);
+
   React.useEffect(() => {
     let isCurrent = true;
     setIsLoading(true);
@@ -440,7 +631,7 @@ const VirtualTryOnBuilderScreen = () => {
         if (isCurrent) setProducts(response.items);
       })
       .catch(() => {
-        if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách sản phẩm.');
+        if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách.');
       })
       .finally(() => {
         if (isCurrent) setIsLoading(false);
@@ -450,6 +641,75 @@ const VirtualTryOnBuilderScreen = () => {
   }, []);
 
   React.useEffect(() => {
+    if (!incomingSeedKey || lastPrefillKeyRef.current === incomingSeedKey) return;
+
+    lastPrefillKeyRef.current = incomingSeedKey;
+    let isCurrent = true;
+    setIsPrefilling(true);
+    setPrefillNotice('Đang đưa đúng màu và size đã chọn vào phòng phối...');
+
+    const limitedSeedItems = incomingSeedItems.slice(0, TRY_ON_QUEUE_LIMIT);
+    const limitedAlternativeSeedItems = incomingAlternativeSeedItems.slice(0, TRY_ON_QUEUE_LIMIT);
+
+    const resolveSeeds = async (seeds: TryOnSeedItem[]) => Promise.all(
+      seeds.map(async (seed) => {
+        try {
+          const detail = await catalogApi.getProductById(seed.productId);
+          return createSelectedItemFromSeed(detail, seed);
+        } catch {
+          return null;
+        }
+      }),
+    ).then((items) => items.filter((item): item is TryOnSelectedItem => Boolean(item)));
+
+    Promise.all([resolveSeeds(limitedSeedItems), resolveSeeds(limitedAlternativeSeedItems)])
+      .then(([activeResolved, alternativeResolved]) => {
+        if (!isCurrent) return;
+        const mode = getPrefillOutfitMode(activeResolved);
+        const normalized = normalizeSelectionForMode(activeResolved, mode);
+
+        const seenKeys = new Set(normalized.items.map(getSelectedItemKey));
+        const remainingActive = activeResolved.filter((item) => {
+          const key = getSelectedItemKey(item);
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+          return true;
+        });
+        const uniqueAlternatives = alternativeResolved.filter((item) => {
+          const key = getSelectedItemKey(item);
+          if (seenKeys.has(key)) return false;
+          seenKeys.add(key);
+          return true;
+        });
+        const mergedQueue = [...normalized.items, ...remainingActive, ...uniqueAlternatives];
+
+        setOutfitMode(mode);
+        setSelectedItems(normalized.items);
+        setQueueItems(mergedQueue);
+        setActiveSlotKey(getOutfitSlots(mode)[0].key);
+
+        const unavailableCount = limitedSeedItems.length - activeResolved.length;
+        const truncatedCount = Math.max(0, incomingSeedItems.length - limitedSeedItems.length);
+        const queuedButInactiveCount = remainingActive.length + uniqueAlternatives.length;
+        setPrefillNotice(
+          unavailableCount || queuedButInactiveCount || truncatedCount
+            ? `Đã đưa ${normalized.items.length} món vào phối, ${queuedButInactiveCount} món chờ thử. ${queuedButInactiveCount ? `${queuedButInactiveCount} món sẽ thử lần lượt. ` : ''}${unavailableCount ? `${unavailableCount} món không còn đúng màu/size. ` : ''}${truncatedCount ? `${truncatedCount} món vượt giới hạn. ` : ''}`.trim()
+            : `Đã điền sẵn ${normalized.items.length} món cùng màu và size đã chọn.`,
+        );
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent) return;
+        const message = error instanceof Error ? error.message : 'Không thể tải bộ đồ đã chọn.';
+        setPrefillNotice(message);
+      })
+      .finally(() => {
+        if (isCurrent) setIsPrefilling(false);
+      });
+
+    return () => { isCurrent = false; };
+  }, [incomingAlternativeSeedItems, incomingSeedItems, incomingSeedKey]);
+
+  React.useEffect(() => {
     if (!outfitSlots.some((slot) => slot.key === activeSlotKey)) {
       setActiveSlotKey(outfitSlots[0].key);
     }
@@ -457,22 +717,9 @@ const VirtualTryOnBuilderScreen = () => {
 
   React.useEffect(() => {
     setSelectedItems((current) => {
-      if (outfitMode === 'single') return current.slice(0, 1);
-
-      const allowedRoles = new Set(outfitSlots.flatMap((slot) => slot.roles));
-      const nextItems = current.filter((item) => allowedRoles.has(item.role));
-
-      if (outfitMode === 'top_bottom') {
-        const nextByRole = new Map<TryOnItemRole, TryOnSelectedItem>();
-        nextItems.forEach((item) => {
-          if (item.role === 'top' || item.role === 'bottom') nextByRole.set(item.role, item);
-        });
-        return Array.from(nextByRole.values());
-      }
-
-      return nextItems.slice(0, 4);
+      return normalizeItemsForMode(current, outfitMode);
     });
-  }, [outfitMode, outfitSlots]);
+  }, [outfitMode]);
 
   const slotProducts = React.useMemo(
     () => products.filter((product) => activeSlot.roles.includes(inferRole(product))),
@@ -594,17 +841,49 @@ const VirtualTryOnBuilderScreen = () => {
     });
   };
 
+  const upsertQueueItem = (item: TryOnSelectedItem) => {
+    const itemKey = getSelectedItemKey(item);
+
+    setQueueItems((current) => {
+      if (current.some((entry) => getSelectedItemKey(entry) === itemKey)) {
+        return current.map((entry) => (getSelectedItemKey(entry) === itemKey ? item : entry));
+      }
+
+      if (current.length >= TRY_ON_QUEUE_LIMIT) return current;
+
+      return [...current, item];
+    });
+  };
+
   const addSelectedItem = (item: TryOnSelectedItem) => {
     const roleForSlot = activeSlot.roles.includes(item.role) ? item.role : activeSlot.roles[0];
     const normalizedItem = { ...item, role: roleForSlot };
+    const replacedItem = outfitMode === 'single'
+      ? selectedItems.find((entry) => entry.productId !== normalizedItem.productId)
+      : selectedItems.find((entry) =>
+          entry.productId !== normalizedItem.productId &&
+          activeSlot.roles.includes(entry.role),
+        );
 
+    const itemAlreadyQueued = queueItems.some((entry) => isSameTryOnItem(entry, normalizedItem));
+    if (!itemAlreadyQueued && queueItems.length >= TRY_ON_QUEUE_LIMIT) {
+      Alert.alert('Danh sách chờ đã đầy', `Đang có tối đa ${TRY_ON_QUEUE_LIMIT} món. Bạn có thể tạo ảnh trước hoặc quay lại giỏ để đổi danh sách chờ.`);
+      return;
+    } else {
+      upsertQueueItem(normalizedItem);
+    }
+
+    animateSelectionLayout();
     setSelectedItems((current) => {
-      if (outfitMode === 'single') return [normalizedItem];
-
-      const withoutSameProduct = current.filter((entry) => entry.productId !== normalizedItem.productId);
-      const withoutSameSlot = withoutSameProduct.filter((entry) => !activeSlot.roles.includes(entry.role));
-      return [...withoutSameSlot, normalizedItem].slice(0, 4);
+      return selectItemForSlot(current, normalizedItem, activeSlot, outfitMode);
     });
+
+    if (replacedItem) {
+      Alert.alert(
+        `Đã thay ${activeSlot.label.toLowerCase()}`,
+        `Mỗi bản phối chỉ dùng 1 ${activeSlot.label.toLowerCase()} ở vị trí này. Muốn thử cả hai thì tạo lần lượt từng bản phối.`,
+      );
+    }
   };
 
   const selectProduct = async (product: CatalogProduct) => {
@@ -615,7 +894,7 @@ const VirtualTryOnBuilderScreen = () => {
       const color = variant?.colors[0];
 
       if (!variant || !color) {
-        Alert.alert('Sản phẩm', 'Sản phẩm này chưa có màu hoặc kích cỡ phù hợp để phối đồ.');
+        Alert.alert('Sản phẩm', 'Chưa có màu hoặc size phù hợp.');
         return;
       }
 
@@ -624,7 +903,7 @@ const VirtualTryOnBuilderScreen = () => {
       setSelectedColorId(color._id);
       setSelectedSize(getFirstAvailableSize(variant, color._id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Không lấy được chi tiết sản phẩm.';
+      const message = error instanceof Error ? error.message : 'Không tải được chi tiết.';
       Alert.alert('Sản phẩm', message);
     } finally {
       setSelectingProductId(null);
@@ -663,7 +942,7 @@ const VirtualTryOnBuilderScreen = () => {
     }
 
     if (!isSizeAvailableForColor(selectedVariant, selectedColor._id, selectedSizeOption)) {
-      Alert.alert('Biến thể', 'Màu và size này hiện chưa khả dụng.');
+      Alert.alert('Biến thể', 'Màu và size này chưa khả dụng.');
       return;
     }
 
@@ -672,14 +951,39 @@ const VirtualTryOnBuilderScreen = () => {
     setIsProductListVisible(false);
   };
 
-  const removeSelectedItem = (productId: string) => {
-    setSelectedItems((current) => current.filter((item) => item.productId !== productId));
+  const removeSelectedItem = (itemKey: string) => {
+    animateSelectionLayout();
+    setSelectedItems((current) => current.filter((item) => getSelectedItemKey(item) !== itemKey));
+  };
+
+  const removeQueueItem = (itemKey: string) => {
+    animateSelectionLayout();
+    setQueueItems((current) => current.filter((item) => getSelectedItemKey(item) !== itemKey));
+    setSelectedItems((current) => current.filter((item) => getSelectedItemKey(item) !== itemKey));
+  };
+
+  const chooseQueueItem = (group: SlotAlternativeGroup, item: TryOnSelectedItem) => {
+    const nextMode = outfitSlots.some((entry) => entry.roles.includes(item.role)) ? outfitMode : 'full_set';
+    const nextSlots = getOutfitSlots(nextMode);
+    const slot =
+      nextSlots.find((entry) => entry.key === group.slotKey && entry.roles.includes(item.role)) ??
+      nextSlots.find((entry) => entry.roles.includes(item.role)) ??
+      nextSlots[0];
+    if (!slot) return;
+
+    animateSelectionLayout();
+    setOutfitMode(nextMode);
+    setSelectedItems((current) => {
+      const normalizedCurrent = nextMode === outfitMode ? current : normalizeItemsForMode(current, nextMode);
+      return selectItemForSlot(normalizedCurrent, item, slot, nextMode);
+    });
+    setActiveSlotKey(slot.key);
   };
 
   const getSelectedItemForSlot = (slot: OutfitSlot) =>
     selectedItems.find((item) => slot.roles.includes(item.role));
 
-  const selectedSlotCount = outfitSlots.filter((slot) => getSelectedItemForSlot(slot)).length;
+  const selectedSlotCount = visibleOutfitSlots.filter((slot) => getSelectedItemForSlot(slot)).length;
 
   const hasTopSlot = selectedItems.some((item) => item.role === 'top' || item.role === 'outerwear');
   const hasBottomSlot = selectedItems.some((item) => item.role === 'bottom');
@@ -691,9 +995,222 @@ const VirtualTryOnBuilderScreen = () => {
     selectedItems.length > 0 &&
     hasRequiredTopBottom &&
     (outfitMode !== 'full_set' || selectedItems.length >= 2);
-  const submitDisabled = !canSubmit || isSubmitting;
+  const imageValidationRoleKey = selectedItems.map((item) => item.role).join(',');
+  const imageValidationScanKey = sourceAssetId && canSubmit
+    ? `asset:${sourceAssetId}:mode:${outfitMode}:roles:${imageValidationRoleKey}`
+    : '';
+  const currentSelectionUnsupportedCapability =
+    imageValidation.result && imageValidation.key === imageValidationScanKey
+      ? getUnsupportedImageValidationCapability(imageValidation.result, outfitMode, selectedItems)
+      : null;
+  const hasCurrentImageValidationResult = Boolean(imageValidation.result && imageValidation.key === imageValidationScanKey);
+  const imageValidationWarnsSubmit = Boolean(imageValidationScanKey) && canSubmit && (
+    imageValidation.status === 'checking' ||
+    (
+      hasCurrentImageValidationResult &&
+      (imageValidation.result?.allowed !== true || Boolean(currentSelectionUnsupportedCapability))
+    ) ||
+    (
+      (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
+      imageValidation.key === imageValidationScanKey
+    )
+  );
+  const imageValidationIsCheckingSubmit = Boolean(imageValidationScanKey) && canSubmit &&
+    imageValidation.status === 'checking' &&
+    imageValidation.key === imageValidationScanKey;
+  const imageValidationHardBlockReason = (() => {
+    if (!imageValidationScanKey || !canSubmit) return null;
+    const currentReasonCode =
+      currentSelectionUnsupportedCapability?.reasonCode ??
+      imageValidation.result?.reasonCode;
+    if (
+      hasCurrentImageValidationResult &&
+      currentReasonCode &&
+      imageValidationBlockingReasonCodes.has(currentReasonCode)
+    ) {
+      return currentReasonCode;
+    }
+    if (
+      (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
+      imageValidation.key === imageValidationScanKey &&
+      imageValidation.errorCode &&
+      imageValidationBlockingReasonCodes.has(imageValidation.errorCode)
+    ) {
+      return imageValidation.errorCode;
+    }
+    return null;
+  })();
+  const imageValidationBlocksSubmit = Boolean(imageValidationHardBlockReason);
+  const imageValidationSoftWarnsSubmit =
+    imageValidationWarnsSubmit &&
+    !imageValidationIsCheckingSubmit &&
+    !imageValidationBlocksSubmit;
+  const submitDisabled = !canSubmit || isPrefilling || isSubmitting || imageValidationBlocksSubmit || imageValidationIsCheckingSubmit;
+
+  React.useEffect(() => {
+    if (!imageValidationScanKey || !sourceAssetId) {
+      setImageValidation((current) =>
+        current.status === 'idle' && current.key === '' ? current : { status: 'idle', key: '' },
+      );
+      return undefined;
+    }
+
+    let isCurrent = true;
+    const timer = setTimeout(() => {
+      setImageValidation({ status: 'checking', key: imageValidationScanKey });
+      runWithAuth((token) =>
+        virtualTryOnApi.validateAsset(token, sourceAssetId, {
+          outfitMode,
+          selectedItems: selectedItems.map((item) => ({ role: item.role })),
+        }),
+      )
+        .then((result) => {
+          if (!isCurrent) return;
+          setImageValidation({
+            status: result.allowed ? 'valid' : 'invalid',
+            key: imageValidationScanKey,
+            result,
+            errorCode: result.reasonCode,
+            message: getImageValidationMessage(result, undefined, outfitMode, selectedItems),
+          });
+        })
+        .catch((error) => {
+          if (!isCurrent) return;
+          const alert = getCreateJobErrorAlert(error);
+          setImageValidation({
+            status: 'error',
+            key: imageValidationScanKey,
+            errorCode: error instanceof VirtualTryOnApiError ? error.errorCode : null,
+            message: alert.message,
+          });
+        });
+    }, 450);
+
+    return () => {
+      isCurrent = false;
+      clearTimeout(timer);
+    };
+  }, [imageValidationRetryNonce, imageValidationScanKey, outfitMode, runWithAuth, selectedItems, sourceAssetId]);
+
+  const retryImageValidation = React.useCallback(() => {
+    if (!imageValidationScanKey || imageValidation.status === 'checking') return;
+    setImageValidationRetryNonce((value) => value + 1);
+  }, [imageValidation.status, imageValidationScanKey]);
+
+  const imageValidationDisplay = (() => {
+    if (!sourceAssetId) {
+      return {
+        icon: 'image-outline' as FashionIconName,
+        tone: 'idle' as const,
+        title: 'Chưa có ảnh người mặc',
+        message: 'Tải ảnh hoặc chụp ảnh trước.',
+      };
+    }
+
+    if (!canSubmit) {
+      return {
+        icon: 'image-search-outline' as FashionIconName,
+        tone: 'idle' as const,
+        title: 'Chờ chọn đồ',
+        message: 'Chọn sản phẩm để kiểm tra ảnh.',
+      };
+    }
+
+    if (imageValidation.status === 'checking' && imageValidation.key === imageValidationScanKey) {
+      return {
+        icon: 'loading' as FashionIconName,
+        tone: 'checking' as const,
+        title: 'Đang kiểm tra ảnh',
+        message: 'Đang kiểm tra người và vùng cơ thể.',
+      };
+    }
+
+    if (hasCurrentImageValidationResult) {
+      if (!imageValidation.result?.allowed) {
+        const reasonCode = imageValidation.result?.reasonCode;
+        return {
+          icon: reasonCode === 'VALIDATION_PROVIDER_FAILED'
+            ? 'alert-outline' as FashionIconName
+            : 'alert-circle-outline' as FashionIconName,
+          tone: getImageValidationReasonTone(reasonCode),
+          title: getImageValidationReasonTitle(reasonCode),
+          message: getImageValidationMessage(imageValidation.result, undefined, outfitMode, selectedItems),
+        };
+      }
+
+      if (currentSelectionUnsupportedCapability) {
+        const reasonCode = currentSelectionUnsupportedCapability.reasonCode;
+        return {
+          icon: 'alert-circle-outline' as FashionIconName,
+          tone: getImageValidationReasonTone(reasonCode),
+          title: getImageValidationReasonTitle(reasonCode),
+          message: getImageValidationMessage(imageValidation.result, undefined, outfitMode, selectedItems),
+        };
+      }
+
+      const supportedSummary = getSupportedImageValidationModeSummary(imageValidation.result);
+      return {
+        icon: 'check-circle-outline' as FashionIconName,
+        tone: 'valid' as const,
+        title: 'Ảnh phù hợp',
+        message: supportedSummary
+          ? `Có thể thử: ${supportedSummary}.`
+          : 'Có thể tạo ảnh.',
+      };
+    }
+
+    if (
+      (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
+      imageValidation.key === imageValidationScanKey
+    ) {
+      const reasonCode = imageValidation.errorCode;
+      return {
+        icon: reasonCode === 'VALIDATION_PROVIDER_FAILED'
+          ? 'alert-outline' as FashionIconName
+          : 'alert-circle-outline' as FashionIconName,
+        tone: getImageValidationReasonTone(reasonCode),
+        title: getImageValidationReasonTitle(reasonCode),
+        message: imageValidation.message || 'Chọn ảnh rõ hơn.',
+      };
+    }
+
+    return {
+      icon: 'image-search-outline' as FashionIconName,
+      tone: 'checking' as const,
+      title: 'Chờ kiểm tra',
+      message: 'Ảnh sẽ được kiểm tra trước khi tạo.',
+    };
+  })();
+
+  const submitWarningActive = imageValidationSoftWarnsSubmit && imageValidationDisplay.tone === 'warning';
+  const submitButtonLabel = sourceAssetId
+    ? imageValidationBlocksSubmit
+      ? 'Không phù hợp'
+      : submitWarningActive
+      ? 'Vẫn tạo ảnh'
+      : 'Tạo ảnh'
+    : 'Chọn ảnh';
+  const submitButtonIcon = sourceAssetId
+    ? imageValidationBlocksSubmit || submitWarningActive
+      ? 'alert-circle-outline'
+      : 'auto-fix'
+    : 'image-plus';
+  const createConfirmTitle = submitWarningActive ? imageValidationDisplay.title : 'Tạo ảnh phối đồ?';
+  const createConfirmText = submitWarningActive
+    ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
+    : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
 
   const footerLabel = (() => {
+    if (imageValidationBlocksSubmit) {
+      return imageValidationHardBlockReason === 'NO_PERSON_DETECTED'
+        ? 'Cần ảnh người'
+        : 'Không phù hợp';
+    }
+
+    if (submitWarningActive) {
+      return 'Có cảnh báo';
+    }
+
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
       const missing = !hasTopSlot ? 'áo' : 'quần';
       return `Còn thiếu ${missing}`;
@@ -703,12 +1220,19 @@ const VirtualTryOnBuilderScreen = () => {
       return 'Cần 2 món';
     }
 
+    if (outfitMode === 'full_set') {
+      return hasOptionalLayerItem
+        ? `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món`
+        : `${selectedSlotCount}/3 món chính`;
+    }
+
     return `${selectedSlotCount}/${outfitSlots.length} món`;
   })();
 
   const submitCreateJob = async (confirmedSourceAssetId: string) => {
     setIsCreateConfirmVisible(false);
     setIsSubmitting(true);
+    const retainedSeedItems = (queueItems.length ? queueItems : selectedItems).map(selectedItemToSeed);
     try {
       const job = await runWithAuth((token) =>
         virtualTryOnApi.createJob(token, {
@@ -723,10 +1247,13 @@ const VirtualTryOnBuilderScreen = () => {
           })),
           contextPreset,
           contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
-          outputMode: includeVideo ? 'image_and_video' : 'image',
+          outputMode: 'image',
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       );
-      navigation.replace('VirtualTryOnProcessing', { jobId: job._id });
+      navigation.replace('VirtualTryOnProcessing', {
+        jobId: job._id,
+        seedItems: retainedSeedItems.length ? retainedSeedItems : undefined,
+      });
     } catch (error) {
       const alert = getCreateJobErrorAlert(error);
       Alert.alert(alert.title, alert.message);
@@ -735,25 +1262,44 @@ const VirtualTryOnBuilderScreen = () => {
     }
   };
 
+  const openPhotoStep = () => {
+    const seedSourceItems = queueItems.length ? queueItems : selectedItems;
+
+    navigation.navigate('VirtualTryOnHome', {
+      entryPoint: 'builder',
+      seedItems: seedSourceItems.map(selectedItemToSeed),
+    });
+  };
+
   const createJob = () => {
     if (!sourceAssetId) {
-      Alert.alert('Ảnh của bạn', 'Bạn cần tải ảnh hoặc chụp ảnh trước.');
-      navigation.navigate('VirtualTryOnHome');
+      Alert.alert('Ảnh của bạn', 'Tải ảnh hoặc chụp ảnh trước.');
+      openPhotoStep();
       return;
     }
 
     if (!selectedItems.length) {
-      Alert.alert('Chọn sản phẩm', 'Bạn hãy chọn ít nhất một sản phẩm để phối đồ.');
+      Alert.alert('Chọn sản phẩm', 'Chọn ít nhất một sản phẩm.');
       return;
     }
 
     if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
-      Alert.alert('Chọn áo và quần', 'Bạn cần chọn đủ áo và quần để tạo phối đồ.');
+      Alert.alert('Chọn áo và quần', 'Cần đủ áo và quần.');
       return;
     }
 
     if (outfitMode === 'full_set' && selectedItems.length < 2) {
-      Alert.alert('Chọn thêm sản phẩm', 'Bạn hãy chọn ít nhất 2 món để hệ thống tạo bộ phối rõ hơn.');
+      Alert.alert('Chọn thêm sản phẩm', 'Cần ít nhất 2 món.');
+      return;
+    }
+
+    if (imageValidationBlocksSubmit) {
+      Alert.alert(imageValidationDisplay.title, imageValidationDisplay.message);
+      return;
+    }
+
+    if (imageValidationIsCheckingSubmit) {
+      Alert.alert('Đang kiểm tra ảnh', 'Đợi vài giây để hệ thống kiểm tra ảnh trước khi tạo.');
       return;
     }
 
@@ -771,6 +1317,10 @@ const VirtualTryOnBuilderScreen = () => {
 
   const outfitTotal = selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0);
   const activeModeOption = outfitModes.find((mode) => mode.key === outfitMode) ?? outfitModes[0];
+  const openPreviewImage = (image: BuilderPreviewImage) => {
+    if (!image.uri) return;
+    setPreviewImage(image);
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -787,30 +1337,85 @@ const VirtualTryOnBuilderScreen = () => {
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.studioHero}>
-          <View style={styles.sourceImageWrap}>
-            {sourceImageUrl ? (
+          {sourceImageUrl ? (
+            <TouchableOpacity
+              style={styles.sourceImageWrap}
+              onPress={() => openPreviewImage({
+                uri: sourceImageUrl,
+                label: 'Ảnh người mặc',
+                recyclingKey: `source-preview-${sourceAssetId}`,
+                resizeMode: 'contain',
+              })}
+              activeOpacity={0.9}
+            >
               <RemoteImage uri={sourceImageUrl} style={styles.sourceImage} recyclingKey={sourceAssetId} />
-            ) : (
+              <View style={styles.imageExpandBadge}>
+                <MaterialCommunityIcons name="fullscreen" size={15} color={colors.white} />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.sourceImageWrap}>
               <MaterialCommunityIcons name="image-outline" size={44} color={tryOnPalette.ink} />
-            )}
-          </View>
+            </View>
+          )}
           <View style={styles.studioCopy}>
             <Text style={styles.studioEyebrow}>Ảnh người mặc</Text>
-            <Text style={styles.studioTitle}>Thử đồ trên ảnh thật của bạn</Text>
+            <Text style={styles.studioTitle}>Phối đồ trên ảnh thật của bạn</Text>
             <Text style={styles.studioText}>
               Chọn ảnh người mặc, thêm sản phẩm và chọn bối cảnh để tạo ảnh phối đồ.
             </Text>
-            <View style={styles.studioStepRow}>
-              <View style={[styles.studioStep, styles.studioStepDone]}><Text style={[styles.studioStepText, styles.studioStepTextDone]}>1 Ảnh</Text></View>
-              <View style={styles.studioStepActive}><Text style={[styles.studioStepText, styles.studioStepTextActive]}>2 Bộ đồ</Text></View>
-              <View style={styles.studioStep}><Text style={styles.studioStepText}>3 Kết quả</Text></View>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!imageValidationScanKey || imageValidationDisplay.tone === 'checking'}
+              onPress={retryImageValidation}
+              style={({ pressed }) => [
+                styles.imageValidationPill,
+                imageValidationDisplay.tone === 'valid' && styles.imageValidationPillValid,
+                imageValidationDisplay.tone === 'warning' && styles.imageValidationPillWarning,
+                imageValidationDisplay.tone === 'checking' && styles.imageValidationPillChecking,
+                pressed && styles.imageValidationPillPressed,
+              ]}
+            >
+              {imageValidationDisplay.tone === 'checking' ? (
+                <ActivityIndicator size="small" color={tryOnPalette.primary} />
+              ) : (
+                <MaterialCommunityIcons
+                  name={imageValidationDisplay.icon}
+                  size={19}
+                  color={
+                    imageValidationDisplay.tone === 'valid'
+                      ? tryOnPalette.success
+                      : imageValidationDisplay.tone === 'warning'
+                        ? colors.goldDark
+                        : tryOnPalette.primary
+                  }
+                />
+              )}
+              <View style={styles.imageValidationCopy}>
+                <Text style={styles.imageValidationTitle}>{imageValidationDisplay.title}</Text>
+                <Text style={styles.imageValidationText}>{imageValidationDisplay.message}</Text>
+              </View>
+            </Pressable>
+            <TouchableOpacity style={styles.changePhotoButton} onPress={openPhotoStep} activeOpacity={0.82}>
+              <MaterialCommunityIcons name="image-edit-outline" size={17} color={tryOnPalette.primary} />
+              <Text style={styles.changePhotoText}>{sourceImageUrl ? 'Đổi ảnh, giữ nguyên bộ đồ' : 'Chọn ảnh người mặc'}</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
+        {prefillNotice ? (
+          <View style={styles.prefillBanner}>
+            {isPrefilling ? (
+              <ActivityIndicator size="small" color={tryOnPalette.primary} />
+            ) : (
+              <MaterialCommunityIcons name="cart-check" size={20} color={tryOnPalette.success} />
+            )}
+            <Text style={styles.prefillBannerText}>{prefillNotice}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.sectionHeaderBlock}>
           <Text style={styles.sectionTitle}>Chế độ phối</Text>
-          <Text style={styles.sectionHint}>Chọn cách bạn muốn thử đồ trên ảnh.</Text>
         </View>
         <View style={styles.modeSegment}>
           {outfitModes.map((mode) => {
@@ -846,7 +1451,7 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
         </View>
         <View style={styles.slotGrid}>
-          {outfitSlots.map((slot, index) => {
+          {visibleOutfitSlots.map((slot) => {
             const active = activeSlot.key === slot.key;
             const selectedItem = getSelectedItemForSlot(slot);
 
@@ -864,9 +1469,6 @@ const VirtualTryOnBuilderScreen = () => {
                 }}
                 activeOpacity={0.86}
               >
-                <View style={styles.slotNumber}>
-                  <Text style={styles.slotNumberText}>{index + 1}</Text>
-                </View>
                 <Animated.View style={[
                   styles.slotIconWrap,
                   active && !selectedItem && styles.slotIconWrapActive,
@@ -910,7 +1512,7 @@ const VirtualTryOnBuilderScreen = () => {
                     style={styles.slotRemoveButton}
                     onPress={(event) => {
                       event.stopPropagation();
-                      removeSelectedItem(selectedItem.productId);
+                      removeSelectedItem(getSelectedItemKey(selectedItem));
                     }}
                     activeOpacity={0.75}
                   >
@@ -923,6 +1525,105 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
+
+        {optionalLayerSlot && !visibleOutfitSlots.some((slot) => slot.key === optionalLayerSlot.key) ? (
+          <TouchableOpacity
+            style={styles.optionalLayerButton}
+            onPress={() => {
+              setActiveSlotKey(optionalLayerSlot.key);
+              setIsProductListVisible(true);
+            }}
+            activeOpacity={0.84}
+          >
+            <View style={styles.optionalLayerIcon}>
+              <MaterialCommunityIcons name="wardrobe-outline" size={21} color={tryOnPalette.primary} />
+            </View>
+            <View style={styles.optionalLayerCopy}>
+              <Text style={styles.optionalLayerText}>Thêm áo khoác</Text>
+              <Text style={styles.optionalLayerMeta}>Không bắt buộc, dùng khi muốn khoác ngoài.</Text>
+            </View>
+            <MaterialCommunityIcons name="plus-circle-outline" size={22} color={tryOnPalette.primary} />
+          </TouchableOpacity>
+        ) : null}
+
+        {queueGroups.length ? (
+          <View style={styles.alternativePanel}>
+            <View style={styles.alternativeHeader}>
+              <View style={styles.alternativeHeaderIcon}>
+                <MaterialCommunityIcons name="playlist-check" size={20} color={tryOnPalette.primary} />
+              </View>
+              <View style={styles.alternativeHeaderCopy}>
+                <Text style={styles.alternativeTitle}>Món chờ thử</Text>
+                <Text style={styles.alternativeText}>
+                  Chạm một món để thử ngay; món cùng vị trí sẽ được thay vào bản phối.
+                </Text>
+              </View>
+              <View style={styles.alternativeHeaderBadge}>
+                <Text style={styles.alternativeHeaderBadgeText}>{queueActiveCount}/{queueItems.length} đang thử</Text>
+              </View>
+            </View>
+            {queueGroups.map((group) => (
+              <View key={group.slotKey} style={styles.alternativeGroup}>
+                <Text style={styles.alternativeGroupTitle}>{group.slotLabel}</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.alternativeList}
+                >
+                  {group.items.map((item) => {
+                    const active = selectedItems.some((selected) => isSameTryOnItem(selected, item));
+                    const itemKey = getSelectedItemKey(item);
+
+                    return (
+                      <TouchableOpacity
+                        key={`${group.slotKey}-${itemKey}`}
+                        style={[styles.alternativeItem, active && styles.alternativeItemActive]}
+                        onPress={() => chooseQueueItem(group, item)}
+                        activeOpacity={0.86}
+                      >
+                        <RemoteImage
+                          uri={item.imageSnapshot}
+                          style={styles.alternativeImage}
+                          recyclingKey={`alternative-${itemKey}`}
+                        />
+                        <View style={styles.alternativeItemCopy}>
+                          <Text style={styles.alternativeItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                          <Text style={styles.alternativeItemMeta} numberOfLines={1}>
+                            {[item.colorSnapshot, item.size].filter(Boolean).join(' / ') || roleLabel[item.role]}
+                          </Text>
+                          <View style={[styles.alternativeStatusPill, active ? styles.alternativeStatusPillActive : styles.alternativeStatusPillIdle]}>
+                            <Text style={[styles.alternativeStatusText, active ? styles.alternativeStatusTextActive : styles.alternativeStatusTextIdle]}>
+                              {active ? 'Đang thử' : 'Chờ thử'}
+                            </Text>
+                          </View>
+                        </View>
+                        {active ? (
+                          <View style={styles.alternativeActiveMark}>
+                            <MaterialCommunityIcons name="check" size={14} color={colors.white} />
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.alternativeRemoveMark}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              removeQueueItem(itemKey);
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.82}
+                            accessibilityRole="button"
+                            accessibilityLabel="Bỏ món khỏi danh sách chờ"
+                          >
+                            <MaterialCommunityIcons name="close" size={14} color={colors.white} />
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <TouchableOpacity
           style={styles.openProductListButton}
@@ -940,6 +1641,130 @@ const VirtualTryOnBuilderScreen = () => {
             <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
           </View>
         </TouchableOpacity>
+
+        <View style={styles.mixPreviewCard}>
+          <View style={styles.mixPreviewHeader}>
+            <View style={styles.mixPreviewHeaderCopy}>
+              <Text style={styles.mixPreviewEyebrow}>Xem trước phối đồ</Text>
+              <Text style={styles.mixPreviewTitle}>Ảnh của bạn và món đã chọn</Text>
+            </View>
+            <View style={styles.mixPreviewCount}>
+              <Text style={styles.mixPreviewCountText}>
+                {selectedItems.length ? `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món` : 'Chưa chọn'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.mixBeforeAfterRow}>
+            <View style={styles.mixPortraitStage}>
+              {sourceImageUrl ? (
+                <TouchableOpacity
+                  style={styles.mixStageVisual}
+                  onPress={() => openPreviewImage({
+                    uri: sourceImageUrl,
+                    label: 'Ảnh gốc',
+                    recyclingKey: `mix-source-preview-${sourceAssetId}`,
+                    resizeMode: 'contain',
+                  })}
+                  activeOpacity={0.9}
+                >
+                  <RemoteImage uri={sourceImageUrl} style={styles.mixSourceImage} recyclingKey={`mix-source-${sourceAssetId}`} />
+                  <View style={styles.imageExpandBadge}>
+                    <MaterialCommunityIcons name="fullscreen" size={15} color={colors.white} />
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.mixStageVisual}>
+                  <MaterialCommunityIcons name="account-outline" size={30} color={tryOnPalette.primary} />
+                </View>
+              )}
+              <Text style={styles.mixStageLabel}>Ảnh gốc</Text>
+            </View>
+
+            <View style={styles.mixProcessStep}>
+              <View style={styles.mixProcessIcon}>
+                <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
+              </View>
+              <Text style={styles.mixProcessText}>AI thử đồ</Text>
+              <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
+            </View>
+
+            <View style={styles.mixPortraitStage}>
+              <View style={[styles.mixStageVisual, styles.mixResultVisual]}>
+                <View style={styles.mixResultGlow} />
+                <MaterialCommunityIcons name="auto-fix" size={28} color={colors.white} />
+                <View style={styles.mixAiPreviewFrame}>
+                  <View style={styles.mixAiPersonMark}>
+                    <MaterialCommunityIcons name="account" size={24} color="#D7F4FF" />
+                  </View>
+                  <View style={styles.mixAiSparkleOne} />
+                  <View style={styles.mixAiSparkleTwo} />
+                </View>
+                <Text style={styles.mixResultHint}>Ảnh sau khi phối</Text>
+                <View style={styles.mixSparkleDot} />
+              </View>
+              <Text style={styles.mixStageLabel}>Kết quả AI</Text>
+            </View>
+          </View>
+
+          <View style={styles.mixItemsHeader}>
+            <Text style={styles.mixItemsTitle}>Sản phẩm dùng để phối</Text>
+            <Text style={styles.mixItemsMeta}>
+              {selectedItems.length ? `${selectedItems.length} món đang chọn` : 'Chọn từ các ô bên trên'}
+            </Text>
+          </View>
+          {selectedItems.length ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.mixItemList}
+            >
+              {selectedItems.map((item, index) => (
+                <TouchableOpacity
+                  key={`mix-${getSelectedItemKey(item)}`}
+                  style={styles.mixItemCard}
+                  onPress={() => openPreviewImage({
+                    uri: item.imageSnapshot,
+                    label: roleLabel[item.role],
+                    recyclingKey: `mix-garment-preview-${item.colorVariantId}`,
+                    resizeMode: 'contain',
+                  })}
+                  activeOpacity={0.88}
+                >
+                  <View style={styles.mixItemImageWrap}>
+                    <RemoteImage
+                      uri={item.imageSnapshot}
+                      style={styles.mixItemImage}
+                      recyclingKey={`mix-garment-${item.colorVariantId}`}
+                    />
+                    <View style={styles.imageExpandBadgeSmall}>
+                      <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
+                    </View>
+                  </View>
+                  <View style={styles.mixItemCopy}>
+                    <Text style={styles.mixItemRole}>{roleLabel[item.role]}</Text>
+                    <Text style={styles.mixItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
+                    <Text style={styles.mixItemVariant} numberOfLines={1}>
+                      {[item.colorSnapshot, item.size].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.mixItemsEmpty}>
+              <MaterialCommunityIcons name="hanger" size={22} color="#BFD8E6" />
+              <Text style={styles.mixItemsEmptyText}>Chọn áo, quần hoặc phụ kiện để xem trước tại đây.</Text>
+            </View>
+          )}
+
+          <View style={styles.mixPreviewFooter}>
+            <MaterialCommunityIcons name="shield-check-outline" size={18} color={tryOnPalette.success} />
+            <Text style={styles.mixPreviewText}>
+              AI giữ dáng người và bối cảnh ảnh gốc, chỉ thay sản phẩm đúng màu và size bạn chọn.
+            </Text>
+          </View>
+        </View>
 
         <View style={styles.sectionHeaderBlock}>
           <Text style={styles.sectionTitle}>Bối cảnh kết quả</Text>
@@ -961,12 +1786,76 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
+        {(() => {
+          const meta = contextPresetMeta(contextPreset);
+          if (!meta) return null;
+          const isCustom = contextPreset === 'custom';
+          const showEn = contextPreviewLang === 'en' && !isCustom;
+          const previewText = isCustom
+            ? contextPrompt.trim()
+              ? `AI sẽ hiểu: ${contextPrompt.trim()}`
+              : meta.viPreview
+            : showEn
+              ? meta.enPromptPreview
+              : meta.viPreview;
+          return (
+            <View style={styles.contextPreviewCard}>
+              <View style={styles.contextPreviewHeader}>
+                <MaterialCommunityIcons
+                  name="auto-fix"
+                  size={15}
+                  color={tryOnPalette.primary}
+                />
+                <Text style={styles.contextPreviewLabel}>AI sẽ hiểu bối cảnh này như sau</Text>
+                {!isCustom ? (
+                  <View style={styles.contextPreviewLangToggle}>
+                    <TouchableOpacity
+                      style={[
+                        styles.contextPreviewLangBtn,
+                        contextPreviewLang === 'vi' && styles.contextPreviewLangBtnActive,
+                      ]}
+                      onPress={() => setContextPreviewLang('vi')}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.contextPreviewLangText,
+                          contextPreviewLang === 'vi' && styles.contextPreviewLangTextActive,
+                        ]}
+                      >
+                        VI
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.contextPreviewLangBtn,
+                        contextPreviewLang === 'en' && styles.contextPreviewLangBtnActive,
+                      ]}
+                      onPress={() => setContextPreviewLang('en')}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.contextPreviewLangText,
+                          contextPreviewLang === 'en' && styles.contextPreviewLangTextActive,
+                        ]}
+                      >
+                        EN
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.contextPreviewText}>{previewText}</Text>
+            </View>
+          );
+        })()}
         {contextPreset === 'custom' ? (
           <TextInput
             style={styles.promptInput}
             value={contextPrompt}
             onChangeText={setContextPrompt}
-            placeholder="VD: đi phỏng vấn ở văn phòng hiện đại"
+            placeholder="Ví dụ: quán cà phê sáng, phong cách thanh lịch"
             placeholderTextColor={colors.textMuted}
             maxLength={200}
             multiline
@@ -975,20 +1864,14 @@ const VirtualTryOnBuilderScreen = () => {
 
         <View style={styles.outputOptionCard}>
           <View style={styles.outputOptionIcon}>
-            <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
+            <MaterialCommunityIcons name="view-grid-outline" size={26} color={tryOnPalette.primary} />
           </View>
           <View style={styles.outputOptionCopy}>
-            <Text style={styles.outputOptionTitle}>Thêm chuyển động</Text>
+            <Text style={styles.outputOptionTitle}>4 ảnh gợi ý</Text>
             <Text style={styles.outputOptionText}>
-              Tạo thêm video ngắn cho bộ đồ, thời gian xử lý sẽ lâu hơn ảnh tĩnh.
+              Kết quả trả về 4 ảnh riêng để bạn lướt và chọn ảnh ưng ý.
             </Text>
           </View>
-          <Switch
-            value={includeVideo}
-            onValueChange={setIncludeVideo}
-            trackColor={{ false: colors.border, true: tryOnPalette.primarySoft }}
-            thumbColor={includeVideo ? tryOnPalette.primary : colors.white}
-          />
         </View>
       </ScrollView>
 
@@ -1001,7 +1884,11 @@ const VirtualTryOnBuilderScreen = () => {
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.submitButton, submitDisabled && styles.submitButtonDisabled]}
+            style={[
+              styles.submitButton,
+              submitWarningActive && styles.submitButtonWarning,
+              submitDisabled && styles.submitButtonDisabled,
+            ]}
             onPress={createJob}
             disabled={submitDisabled}
             activeOpacity={0.86}
@@ -1010,13 +1897,53 @@ const VirtualTryOnBuilderScreen = () => {
               <ActivityIndicator color={colors.textMuted} />
             ) : (
               <>
-                <MaterialCommunityIcons name="auto-fix" size={22} color={submitDisabled ? colors.textMuted : colors.white} />
-                <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>Tạo ảnh</Text>
+                <MaterialCommunityIcons
+                  name={submitButtonIcon}
+                  size={22}
+                  color={submitDisabled ? colors.textMuted : colors.white}
+                />
+                <Text style={[styles.submitText, submitDisabled && styles.submitTextDisabled]}>
+                  {submitButtonLabel}
+                </Text>
               </>
             )}
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={Boolean(previewImage)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImage(null)}
+      >
+        <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
+          <View style={styles.previewHeader}>
+            <View style={styles.previewCounter}>
+              <Text style={styles.previewCounterLabel} numberOfLines={1}>
+                {previewImage?.label ?? 'Ảnh'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.previewCloseButton}
+              onPress={() => setPreviewImage(null)}
+              activeOpacity={0.82}
+            >
+              <MaterialCommunityIcons name="close" size={24} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
+            {previewImage ? (
+              <RemoteImage
+                uri={previewImage.uri}
+                style={styles.previewImage}
+                recyclingKey={previewImage.recyclingKey}
+                resizeMode={previewImage.resizeMode ?? 'contain'}
+              />
+            ) : null}
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       <Modal
         visible={isCreateConfirmVisible}
@@ -1027,12 +1954,16 @@ const VirtualTryOnBuilderScreen = () => {
         <View style={styles.confirmModalRoot}>
           <Pressable style={styles.confirmBackdrop} onPress={() => setIsCreateConfirmVisible(false)} />
           <View style={styles.confirmCard}>
-            <View style={styles.confirmIconWrap}>
-              <MaterialCommunityIcons name="auto-fix" size={26} color={tryOnPalette.ink} />
+            <View style={[styles.confirmIconWrap, submitWarningActive && styles.confirmIconWrapWarning]}>
+              <MaterialCommunityIcons
+                name={submitWarningActive ? 'alert-circle-outline' : 'auto-fix'}
+                size={26}
+                color={submitWarningActive ? colors.goldDark : tryOnPalette.ink}
+              />
             </View>
-            <Text style={styles.confirmTitle}>Tạo ảnh thử đồ?</Text>
+            <Text style={styles.confirmTitle}>{createConfirmTitle}</Text>
             <Text style={styles.confirmText}>
-              Ảnh của bạn sẽ được kiểm tra trước khi xử lý. Bạn có chắc muốn tạo ngay bây giờ?
+              {createConfirmText}
             </Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity
@@ -1043,11 +1974,13 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.confirmCancelText}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.confirmPrimaryButton}
+                style={[styles.confirmPrimaryButton, submitWarningActive && styles.confirmPrimaryButtonWarning]}
                 onPress={confirmCreateJob}
                 activeOpacity={0.86}
               >
-                <Text style={styles.confirmPrimaryText}>Tạo ảnh</Text>
+                <Text style={[styles.confirmPrimaryText, submitWarningActive && styles.confirmPrimaryTextWarning]}>
+                  {submitWarningActive ? 'Vẫn tạo ảnh' : 'Tạo ảnh'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1071,15 +2004,10 @@ const VirtualTryOnBuilderScreen = () => {
             <Text style={styles.productHeaderTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
             <TouchableOpacity
               style={styles.headerButton}
-              onPress={() => setIsProductFilterVisible(true)}
+              onPress={() => setIsProductListVisible(false)}
               activeOpacity={0.8}
             >
-              <MaterialCommunityIcons name="tune-variant" size={22} color={colors.white} />
-              {productFilterCount > 0 ? (
-                <View style={styles.headerFilterBadge}>
-                  <Text style={styles.headerFilterBadgeText}>{productFilterCount}</Text>
-                </View>
-              ) : null}
+              <MaterialCommunityIcons name="close" size={23} color={colors.white} />
             </TouchableOpacity>
           </View>
 
@@ -1094,7 +2022,7 @@ const VirtualTryOnBuilderScreen = () => {
                 style={styles.searchInput}
                 value={searchTerm}
                 onChangeText={setSearchTerm}
-                placeholder="Tìm áo, quần, giày..."
+                placeholder="Tìm áo, quần, giày/dép..."
                 placeholderTextColor={colors.textMuted}
               />
               <TouchableOpacity
@@ -1107,11 +2035,6 @@ const VirtualTryOnBuilderScreen = () => {
                   size={21}
                   color={productFilterCount > 0 ? tryOnPalette.ink : tryOnPalette.primary}
                 />
-                {productFilterCount > 0 ? (
-                  <View style={styles.searchFilterBadge}>
-                    <Text style={styles.searchFilterBadgeText}>{productFilterCount}</Text>
-                  </View>
-                ) : null}
               </TouchableOpacity>
             </View>
 
@@ -1268,7 +2191,14 @@ const VirtualTryOnBuilderScreen = () => {
                           onPress={() => selectColor(color)}
                           activeOpacity={0.82}
                         >
-                          <RemoteImage uri={color.image} style={styles.colorChoiceImage} recyclingKey={color._id} />
+                          <ColorSwatch
+                            label={color.color}
+                            colorCode={color.colorCode}
+                            imageUri={color.image}
+                            selected={active}
+                            selectedTint={tryOnPalette.success}
+                            size="sm"
+                          />
                           <Text style={[styles.colorChoiceText, active && styles.colorChoiceTextActive]} numberOfLines={1}>
                             {color.color}
                           </Text>
@@ -1518,26 +2448,6 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 40,
   },
-  headerFilterBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-    borderWidth: 1,
-    borderColor: tryOnPalette.surface,
-  },
-  headerFilterBadgeText: {
-    color: colors.white,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '900',
-  },
   content: {
     flex: 1,
     backgroundColor: tryOnPalette.canvas,
@@ -1573,6 +2483,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(84,119,146,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   sourceImage: {
     width: '100%',
@@ -1629,45 +2540,86 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: spacing.sm,
   },
-  studioStepRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.md,
-  },
-  studioStep: {
-    minHeight: 28,
-    borderRadius: radii.pill,
+  imageValidationPill: {
+    minHeight: 62,
+    borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: tryOnPalette.line,
-    backgroundColor: tryOnPalette.surface,
-    paddingHorizontal: spacing.sm,
+    backgroundColor: tryOnPalette.primarySoft,
+    padding: spacing.sm,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
-  studioStepActive: {
-    minHeight: 28,
-    borderRadius: radii.pill,
-    backgroundColor: tryOnPalette.primaryPale,
-    paddingHorizontal: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
+  imageValidationPillChecking: {
+    backgroundColor: tryOnPalette.primarySoft,
+    borderColor: tryOnPalette.primaryPale,
   },
-  studioStepDone: {
+  imageValidationPillValid: {
     backgroundColor: tryOnPalette.successSoft,
     borderColor: tryOnPalette.success,
   },
-  studioStepText: {
+  imageValidationPillWarning: {
+    backgroundColor: colors.goldSoft,
+    borderColor: colors.goldDark,
+  },
+  imageValidationPillPressed: {
+    opacity: 0.82,
+  },
+  imageValidationCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  imageValidationTitle: {
     color: tryOnPalette.ink,
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
-  studioStepTextActive: {
-    color: tryOnPalette.ink,
+  imageValidationText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
   },
-  studioStepTextDone: {
-    color: tryOnPalette.success,
+  changePhotoButton: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    borderRadius: radii.pill,
+    backgroundColor: tryOnPalette.primarySoft,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: spacing.sm,
+  },
+  changePhotoText: {
+    flexShrink: 1,
+    color: tryOnPalette.primary,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  prefillBanner: {
+    minHeight: 48,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  prefillBannerText: {
+    flex: 1,
+    minWidth: 0,
+    color: tryOnPalette.ink,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
   },
   sectionHeaderBlock: {
     gap: 3,
@@ -1783,20 +2735,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderColor: tryOnPalette.success,
   },
-  slotNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: tryOnPalette.primaryPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  slotNumberText: {
-    color: tryOnPalette.ink,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '900',
-  },
   slotIconWrap: {
     width: 72,
     height: 78,
@@ -1867,6 +2805,198 @@ const styles = StyleSheet.create({
   slotSingleText: {
     textAlign: 'left',
   },
+  optionalLayerButton: {
+    minHeight: 58,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  optionalLayerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: tryOnPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionalLayerCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  optionalLayerText: {
+    color: tryOnPalette.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  optionalLayerMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  alternativePanel: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: tryOnPalette.primarySoft,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  alternativeHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  alternativeHeaderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativeHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  alternativeHeaderBadge: {
+    minHeight: 30,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativeHeaderBadgeText: {
+    color: tryOnPalette.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  alternativeTitle: {
+    color: tryOnPalette.primaryDark,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  alternativeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  alternativeGroup: {
+    gap: spacing.sm,
+  },
+  alternativeGroupTitle: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  alternativeList: {
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  alternativeItem: {
+    width: 238,
+    minHeight: 104,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: tryOnPalette.line,
+    backgroundColor: colors.surface,
+    padding: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    position: 'relative',
+  },
+  alternativeItemActive: {
+    borderColor: tryOnPalette.success,
+    borderWidth: 2,
+    backgroundColor: tryOnPalette.successSoft,
+  },
+  alternativeImage: {
+    width: 64,
+    height: 78,
+    borderRadius: radii.xs,
+    backgroundColor: tryOnPalette.primarySoft,
+  },
+  alternativeItemCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  alternativeItemName: {
+    color: colors.text,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  alternativeItemMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  alternativeStatusPill: {
+    alignSelf: 'flex-start',
+    minHeight: 22,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
+  alternativeStatusPillActive: {
+    backgroundColor: tryOnPalette.success,
+  },
+  alternativeStatusPillIdle: {
+    backgroundColor: tryOnPalette.primaryPale,
+  },
+  alternativeStatusText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  alternativeStatusTextActive: {
+    color: colors.white,
+  },
+  alternativeStatusTextIdle: {
+    color: tryOnPalette.primaryDark,
+  },
+  alternativeActiveMark: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: tryOnPalette.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alternativeRemoveMark: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(33,52,72,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   openProductListButton: {
     minHeight: 78,
     borderRadius: radii.md,
@@ -1914,6 +3044,313 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  mixPreviewCard: {
+    borderRadius: radii.md,
+    backgroundColor: '#172431',
+    padding: spacing.md,
+    gap: spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    ...shadows.card,
+  },
+  mixPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  mixPreviewHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mixPreviewEyebrow: {
+    color: '#BFD8E6',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  mixPreviewTitle: {
+    color: colors.white,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  mixPreviewCount: {
+    minHeight: 30,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixPreviewCountText: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  mixBeforeAfterRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  mixPortraitStage: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  mixStageVisual: {
+    width: '100%',
+    aspectRatio: 0.82,
+    maxHeight: 124,
+    borderRadius: radii.sm,
+    backgroundColor: '#F3F8FB',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  mixSourceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mixResultVisual: {
+    backgroundColor: tryOnPalette.primary,
+    position: 'relative',
+    gap: spacing.xs,
+  },
+  mixResultGlow: {
+    position: 'absolute',
+    left: -24,
+    right: -24,
+    top: 18,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(215,244,255,0.2)',
+    transform: [{ rotate: '-12deg' }],
+  },
+  mixAiPreviewFrame: {
+    width: 48,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(215,244,255,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginTop: 2,
+  },
+  mixAiPersonMark: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(33,52,72,0.26)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixAiSparkleOne: {
+    position: 'absolute',
+    top: 7,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D7F4FF',
+  },
+  mixAiSparkleTwo: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(215,244,255,0.72)',
+  },
+  mixResultHint: {
+    color: '#D7F4FF',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+  },
+  mixSparkleDot: {
+    position: 'absolute',
+    top: 16,
+    right: 15,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D7F4FF',
+  },
+  mixStageLabel: {
+    color: '#DCEAF1',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mixProcessStep: {
+    width: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingTop: spacing.xl,
+  },
+  mixProcessIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: tryOnPalette.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixProcessText: {
+    color: '#DCEAF1',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mixItemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  mixItemsTitle: {
+    color: colors.white,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  mixItemsMeta: {
+    color: '#BFD8E6',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
+    textAlign: 'right',
+    maxWidth: '44%',
+  },
+  mixItemList: {
+    gap: spacing.sm,
+    paddingRight: spacing.sm,
+  },
+  mixItemCard: {
+    width: 218,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    padding: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    overflow: 'hidden',
+  },
+  mixItemImageWrap: {
+    width: 70,
+    height: 88,
+    borderRadius: radii.xs,
+    overflow: 'hidden',
+    backgroundColor: tryOnPalette.primarySoft,
+  },
+  mixItemImage: {
+    width: '100%',
+    height: '100%',
+  },
+  mixItemCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: spacing.xs,
+  },
+  mixItemRole: {
+    color: tryOnPalette.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  mixItemName: {
+    color: tryOnPalette.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  mixItemVariant: {
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  imageExpandBadge: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: spacing.xs,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(23,36,49,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageExpandBadgeSmall: {
+    position: 'absolute',
+    right: 5,
+    top: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(23,36,49,0.76)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mixItemsEmpty: {
+    minHeight: 58,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  mixItemsEmptyText: {
+    flex: 1,
+    minWidth: 0,
+    color: '#DCEAF1',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  mixPreviewFooter: {
+    minHeight: 44,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  mixPreviewText: {
+    flex: 1,
+    minWidth: 0,
+    color: '#DCEAF1',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
   searchRow: {
     minHeight: 54,
     borderRadius: radii.md,
@@ -1942,24 +3379,6 @@ const styles = StyleSheet.create({
   },
   searchFilterButtonActive: {
     backgroundColor: tryOnPalette.primaryPale,
-  },
-  searchFilterBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 17,
-    height: 17,
-    borderRadius: 9,
-    backgroundColor: colors.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  searchFilterBadgeText: {
-    color: colors.white,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '900',
   },
   genderSegment: {
     minHeight: 54,
@@ -2187,6 +3606,58 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlignVertical: 'top',
   },
+  contextPreviewCard: {
+    marginTop: spacing.sm,
+    borderRadius: radii.sm,
+    backgroundColor: tryOnPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: tryOnPalette.primaryPale,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  contextPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  contextPreviewLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: tryOnPalette.primary,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  contextPreviewLangToggle: {
+    flexDirection: 'row',
+    borderRadius: radii.pill,
+    backgroundColor: tryOnPalette.surface,
+    borderWidth: 1,
+    borderColor: tryOnPalette.primaryPale,
+    overflow: 'hidden',
+  },
+  contextPreviewLangBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  contextPreviewLangBtnActive: {
+    backgroundColor: tryOnPalette.primary,
+  },
+  contextPreviewLangText: {
+    color: tryOnPalette.primary,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  contextPreviewLangTextActive: {
+    color: tryOnPalette.surface,
+  },
+  contextPreviewText: {
+    color: tryOnPalette.ink,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
   outputOptionCard: {
     minHeight: 96,
     borderRadius: radii.md,
@@ -2268,6 +3739,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
+  submitButtonWarning: {
+    backgroundColor: colors.goldDark,
+  },
   submitButtonDisabled: {
     backgroundColor: colors.border,
     borderWidth: 1,
@@ -2281,6 +3755,53 @@ const styles = StyleSheet.create({
   },
   submitTextDisabled: {
     color: colors.textMuted,
+  },
+  previewModal: {
+    flex: 1,
+    backgroundColor: '#05070A',
+  },
+  previewHeader: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 2,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewCounter: {
+    minHeight: 34,
+    borderRadius: radii.pill,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '72%',
+  },
+  previewCounterLabel: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  previewCloseButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewSlide: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
   },
   confirmModalRoot: {
     flex: 1,
@@ -2310,6 +3831,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
+  },
+  confirmIconWrapWarning: {
+    backgroundColor: colors.goldSoft,
   },
   confirmTitle: {
     color: colors.text,
@@ -2348,6 +3872,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  confirmPrimaryButtonWarning: {
+    backgroundColor: colors.goldDark,
+  },
   confirmCancelText: {
     color: colors.textMuted,
     fontSize: 14,
@@ -2359,6 +3886,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
+  },
+  confirmPrimaryTextWarning: {
+    color: colors.white,
   },
   variantModalRoot: {
     flex: 1,
@@ -2485,30 +4015,29 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   colorChoice: {
-    width: 92,
+    width: 86,
+    minHeight: 72,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.field,
-    overflow: 'hidden',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
   },
   colorChoiceActive: {
     borderColor: tryOnPalette.success,
-    borderWidth: 2,
-    backgroundColor: colors.surface,
-  },
-  colorChoiceImage: {
-    width: '100%',
-    height: 72,
+    backgroundColor: tryOnPalette.successSoft,
   },
   colorChoiceText: {
     color: colors.text,
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '800',
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 6,
     textAlign: 'center',
+    maxWidth: '100%',
   },
   colorChoiceTextActive: {
     color: tryOnPalette.success,

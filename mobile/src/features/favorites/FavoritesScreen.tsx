@@ -255,7 +255,7 @@ const FavoritesScreen = () => {
       </View>
       <TouchableOpacity
         style={styles.headerButton}
-        onPress={() => navigation.navigate('Cart')}
+        onPress={() => navigation.navigate('Cart', { selectionSource: 'normal' })}
         activeOpacity={0.82}
         accessibilityLabel="Giỏ hàng"
       >

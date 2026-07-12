@@ -19,7 +19,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.fashionshop.app",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Ứng dụng cần truy cập thư viện ảnh để cập nhật ảnh đại diện.",
+        "NSPhotoLibraryUsageDescription": "Ứng dụng cần truy cập thư viện ảnh để chọn và lưu ảnh thử đồ.",
+        "NSPhotoLibraryAddUsageDescription": "Ứng dụng cần quyền lưu ảnh để tải kết quả thử đồ về máy.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -50,7 +51,14 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Ứng dụng cần truy cập thư viện ảnh để cập nhật ảnh đại diện."
+          "photosPermission": "Ứng dụng cần truy cập thư viện ảnh để chọn ảnh thử đồ."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Ứng dụng cần truy cập thư viện ảnh để lưu kết quả thử đồ.",
+          "savePhotosPermission": "Ứng dụng cần quyền lưu ảnh để tải kết quả thử đồ về máy."
         }
       ],
       "expo-secure-store",

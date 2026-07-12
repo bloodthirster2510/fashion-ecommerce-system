@@ -9,6 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",
+    "dev:try-on": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-try-on.ps1",
     "dev:vnpay": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-vnpay-tunnel.ps1",
     "vnpay:public-url": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-vnpay-public-url.ps1",
     "migrate:coupon-index": "node scripts/migrate-coupon-code-index.js",
@@ -16,6 +17,7 @@
     "migrate:payment-deadlines": "node scripts/migrate-order-payment-deadlines.js",
     "recommendations:backfill": "npm run build && node dist/scripts/recommendation-backfill.js",
     "recommendations:evaluate": "npm run build && node dist/scripts/recommendation-evaluate.js",
+    "virtual-try-on:backfill-assets": "npm run build && node dist/scripts/virtual-try-on-backfill-assets.js",
     "test": "jest --passWithNoTests",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand"
   },

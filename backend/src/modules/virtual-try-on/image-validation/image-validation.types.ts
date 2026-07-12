@@ -1,4 +1,4 @@
-import type { VirtualTryOnOutfitMode } from '../../../database/models';
+import type { VirtualTryOnItemRole, VirtualTryOnOutfitMode } from '../../../database/models';
 
 export type ImageValidationProviderName =
   | 'disabled'
@@ -13,6 +13,30 @@ export type ImageValidationQuality = {
   blur: ImageValidationQualityLevel;
   brightness: ImageValidationQualityLevel;
   resolution: ImageValidationQualityLevel;
+};
+
+export type ImageValidationBodyRegion = 'upper' | 'hips' | 'legs' | 'feet';
+
+export type ImageValidationCapabilityMode =
+  | 'full_set'
+  | 'top_bottom'
+  | 'top'
+  | 'bottom'
+  | 'dress'
+  | 'shoes'
+  | 'outerwear'
+  | 'accessory';
+
+export type ImageValidationCapabilityBlock = {
+  reasonCode: string | null;
+  message: string | null;
+  missingRegions: ImageValidationBodyRegion[];
+};
+
+export type ImageValidationCapability = ImageValidationCapabilityBlock & {
+  mode: ImageValidationCapabilityMode;
+  allowed: boolean;
+  requiredRegions: ImageValidationBodyRegion[];
 };
 
 export type ImageValidationBodyVisibility = 'good' | 'partial' | 'unknown';
@@ -46,6 +70,7 @@ export type ImageValidationInput = {
   bytes: number;
   source: 'upload' | 'camera';
   outfitMode?: VirtualTryOnOutfitMode;
+  itemRoles?: VirtualTryOnItemRole[];
 };
 
 export type ImageValidationResult = {
@@ -60,6 +85,11 @@ export type ImageValidationResult = {
   poseConfidence?: number;
   quality: ImageValidationQuality;
   safetyFlags: ImageValidationSafetyFlag[];
+  visibleRegions: ImageValidationBodyRegion[];
+  supportedModes: ImageValidationCapabilityMode[];
+  blockedModes: Partial<Record<ImageValidationCapabilityMode, ImageValidationCapabilityBlock>>;
+  recommendedMode: ImageValidationCapabilityMode | null;
+  capabilities: ImageValidationCapability[];
 };
 
 export interface ImageValidationProvider {
@@ -81,7 +111,7 @@ export const IMAGE_VALIDATION_REASON_CODES: readonly ImageValidationReasonCode[]
 ];
 
 export const IMAGE_VALIDATION_REASON_MESSAGES: Record<ImageValidationReasonCode, string> = {
-  NO_PERSON_DETECTED: 'Ảnh cần có một người rõ ràng để thử đồ',
+  NO_PERSON_DETECTED: 'Ảnh cần có người hoặc một phần cơ thể rõ ràng để thử đồ',
   MULTIPLE_PEOPLE_DETECTED: 'Ảnh chỉ nên có một người chính để thử đồ',
   PERSON_TOO_SMALL: 'Người trong ảnh quá nhỏ, vui lòng chọn ảnh chụp gần hơn',
   BODY_NOT_VISIBLE: 'Ảnh chưa thấy đủ vùng cơ thể cho outfit đã chọn',

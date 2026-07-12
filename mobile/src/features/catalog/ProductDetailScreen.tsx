@@ -17,10 +17,11 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import ShopNameLogo from '../../components/branding/ShopNameLogo';
-import { colors, radii, shadows, spacing } from '../../theme';
+import ColorSwatch from '../../components/ui/ColorSwatch';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
-import { cartApi } from '../cart/cartApi';
+import { cartApi, type CartResponse } from '../cart/cartApi';
 import { favoritesApi } from '../favorites/favoritesApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
@@ -35,10 +36,18 @@ import {
 } from './catalogApi';
 import ProductCard from './ProductCard';
 import ProductReviewsSection from '../reviews/ProductReviewsSection';
+import type { PublicReviewList } from '../reviews/review.types';
 
 type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+type ReviewSummary = PublicReviewList['summary'];
+type AddCartFeedback = {
+  id: number;
+  productName: string;
+  variantText: string;
+  imageUri?: string;
+};
 
 const fallbackQuantityLimit = 99;
 
@@ -47,6 +56,32 @@ const formatCurrency = (value: number) => {
 };
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
+
+const stripDescription = (value?: string | null) =>
+  (value ?? '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const findCartItemIdForSelection = (
+  cart: CartResponse,
+  selection: {
+    productId: string;
+    variantId: string;
+    colorVariantId: string;
+    size: string;
+  },
+) => {
+  const normalizedSize = selection.size.trim().toLowerCase();
+
+  return cart.product_list.find((item) => (
+    item.productId === selection.productId &&
+    item.variantId === selection.variantId &&
+    item.colorVariantId === selection.colorVariantId &&
+    item.size.trim().toLowerCase() === normalizedSize
+  ))?._id;
+};
 
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -127,96 +162,6 @@ const getPolicyIcon = (value: string): IconName => {
     : 'shield-check-outline';
 };
 
-const sourceColorHexMap: Record<string, string> = {
-  BEE: '#F5F5DC',
-  BSA: '#F5F5DC',
-  CAM: '#F36B26',
-  CBA: '#1790C8',
-  CHI: '#A0A0A0',
-  CVT: '#7BBA3C',
-  DDL: '#000000',
-  DDO: '#E7352B',
-  DEN: '#111111',
-  DET: '#111111',
-  DGH: '#111111',
-  DKT: '#E7352B',
-  DN1: '#1C1C1C',
-  DOD: '#E7352B',
-  GAH: '#E7352B',
-  GHD: '#CCCCCC',
-  GHI: '#CCCCCC',
-  HG1: '#F0728F',
-  HOG: '#F0728F',
-  IDC: '#000000',
-  IDG: '#000000',
-  IDX: '#000000',
-  ITC: '#FFFFFF',
-  ITG: '#FFFFFF',
-  ITX: '#FFFFFF',
-  KEM: '#F5F5DC',
-  NAD: '#825D41',
-  NAN: '#825D41',
-  NAU: '#825D41',
-  NAV: '#000080',
-  NKT: '#000080',
-  NSU: '#825D41',
-  REU: '#636B2F',
-  TAN: '#CCCCCC',
-  TGD: '#FFFFFF',
-  THX: '#000080',
-  TIK: '#000080',
-  TIT: '#000080',
-  TKA: '#FFFFFF',
-  TKC: '#FFFFFF',
-  TKD: '#FFFFFF',
-  TKE: '#FFFFFF',
-  TKG: '#CCCCCC',
-  TKH: '#FFFFFF',
-  TKN: '#FFFFFF',
-  TKX: '#FFFFFF',
-  TMT: '#FFFFFF',
-  TNY: '#FFFFFF',
-  TRA: '#FFFFFF',
-  TRD: '#FFFFFF',
-  TRG: '#FFFFFF',
-  TTM: '#FFFFFF',
-  VAG: '#FED533',
-  XAH: '#1790C8',
-  XAM: '#CCCCCC',
-  XAR: '#7BBA3C',
-  XBD: '#1790C8',
-  XBI: '#1790C8',
-  XCV: '#7BBA3C',
-  XDE: '#111111',
-  XH1: '#1790C8',
-  XLA: '#7BBA3C',
-  XLO: '#1790C8',
-  XMN: '#67F0E5',
-  XN1: '#1790C8',
-  XNA: '#CCCCCC',
-  XNG: '#67F0E5',
-  XTI: '#1790C8',
-};
-
-const colorNameHexMap: Array<{ pattern: RegExp; value: string }> = [
-  { pattern: /đen|black/i, value: '#111111' },
-  { pattern: /trắng|trang|white/i, value: '#FFFFFF' },
-  { pattern: /be|beige|kem|cream/i, value: '#E8D8BE' },
-  { pattern: /nâu|nau|brown/i, value: '#7A5137' },
-  { pattern: /xám|xam|ghi|gray|grey/i, value: '#9EA4AA' },
-  { pattern: /navy/i, value: '#1F2A44' },
-  { pattern: /xanh jean|xanh dương|xanh biển|blue/i, value: '#4F7EA8' },
-  { pattern: /rêu|reu|olive/i, value: '#66724A' },
-  { pattern: /xanh/i, value: '#5E8FB4' },
-  { pattern: /đỏ|do|red/i, value: '#C62828' },
-  { pattern: /hồng|hong|pink/i, value: '#E89AB5' },
-  { pattern: /vàng|vang|yellow/i, value: '#F2CF62' },
-  { pattern: /cam|orange/i, value: '#F2994A' },
-  { pattern: /tím|tim|purple/i, value: '#7B5FA7' },
-];
-
-const isHexColor = (value?: string) => Boolean(value && /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value.trim()));
-
 const getRatingDistribution = (product: CatalogProductDetail) => {
   const existing = product.ratingSummary.distribution;
   const totalFromDistribution = existing.reduce((sum, item) => sum + item.count, 0);
@@ -232,24 +177,6 @@ const getRatingDistribution = (product: CatalogProductDetail) => {
     count: product.reviewCount && rating === roundedRating ? product.reviewCount : 0,
     percent: product.reviewCount && rating === roundedRating ? 100 : 0,
   }));
-};
-
-const getSwatchColor = (color?: ProductDetailColor) => {
-  const colorCode = color?.colorCode?.trim();
-
-  if (isHexColor(colorCode)) {
-    return colorCode;
-  }
-
-  if (colorCode) {
-    const sourceColor = sourceColorHexMap[colorCode.toUpperCase()];
-    if (sourceColor) {
-      return sourceColor;
-    }
-  }
-
-  const nameColor = colorNameHexMap.find((item) => item.pattern.test(color?.color ?? ''));
-  return nameColor?.value ?? colors.brandPale;
 };
 
 const ProductDetailScreen = () => {
@@ -275,6 +202,36 @@ const ProductDetailScreen = () => {
   const [selectedImage, setSelectedImage] = React.useState<string>();
   const [quantity, setQuantity] = React.useState(1);
   const [searchTerm, setSearchTerm] = React.useState('');
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
+  const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
+  const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
+  const addCartFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearAddCartFeedbackTimer = React.useCallback(() => {
+    if (addCartFeedbackTimerRef.current) {
+      clearTimeout(addCartFeedbackTimerRef.current);
+      addCartFeedbackTimerRef.current = null;
+    }
+  }, []);
+
+  const dismissAddCartFeedback = React.useCallback(() => {
+    clearAddCartFeedbackTimer();
+    setAddCartFeedback(null);
+  }, [clearAddCartFeedbackTimer]);
+
+  const showAddCartFeedback = React.useCallback(
+    (feedback: Omit<AddCartFeedback, 'id'>) => {
+      clearAddCartFeedbackTimer();
+      setAddCartFeedback({ ...feedback, id: Date.now() });
+      addCartFeedbackTimerRef.current = setTimeout(() => {
+        setAddCartFeedback(null);
+        addCartFeedbackTimerRef.current = null;
+      }, 4500);
+    },
+    [clearAddCartFeedbackTimer],
+  );
+
+  React.useEffect(() => clearAddCartFeedbackTimer, [clearAddCartFeedbackTimer]);
 
   const initializeSelection = React.useCallback((detail: CatalogProductDetail) => {
     const initialVariant = getInitialVariant(detail);
@@ -339,6 +296,8 @@ const ProductDetailScreen = () => {
     setRecommendationItems([]);
     setRecommendationRequestId(null);
     setRecommendationAlgorithmVersion(undefined);
+    setIsDescriptionExpanded(false);
+    setPublicReviewSummary(null);
 
     catalogApi
       .getProductById(productId)
@@ -464,6 +423,13 @@ const ProductDetailScreen = () => {
   const isQuantityAtLimit = !canCheckout || quantity >= maxPurchasableQuantity;
   const imageOptions = product ? getImageOptions(product) : [];
   const ratingDistribution = product ? getRatingDistribution(product) : [];
+  const productDescription = React.useMemo(
+    () => stripDescription(product?.description),
+    [product?.description],
+  );
+  const handleReviewSummaryChange = React.useCallback((summary: ReviewSummary) => {
+    setPublicReviewSummary(summary);
+  }, []);
 
   React.useEffect(() => {
     setQuantity((current) => {
@@ -556,24 +522,36 @@ const ProductDetailScreen = () => {
 
     try {
       setIsAddingToCart(true);
-      await runWithAuth((accessToken) => cartApi.addItem(accessToken, {
+      const nextCart = await runWithAuth((accessToken) => cartApi.addItem(accessToken, {
         productId: product._id,
         variantId: selectedVariant._id,
         colorVariantId: selectedColor._id,
         size: selectedSizeOption.size,
         quantity,
+        isSelected: false,
         recommendationRequestId: route.params.recommendationRequestId,
       }));
+      const checkoutCartItemId = findCartItemIdForSelection(nextCart, {
+        productId: product._id,
+        variantId: selectedVariant._id,
+        colorVariantId: selectedColor._id,
+        size: selectedSizeOption.size,
+      });
 
       if (action === 'buy') {
-        navigation.navigate('Cart');
+        if (!checkoutCartItemId) {
+          throw new Error('Chưa xác định được sản phẩm vừa thêm vào giỏ. Bạn thử lại nha.');
+        }
+
+        navigation.navigate('Checkout', { cartItemIds: [checkoutCartItemId] });
         return;
       }
 
-      Alert.alert('Đã thêm vào giỏ', `${product.name}\nMàu: ${selectedColor.color}\nSize: ${selectedSizeOption.size}\nSố lượng: ${quantity}`, [
-        { text: 'Mua tiếp', style: 'cancel' },
-        { text: 'Xem giỏ', onPress: () => navigation.navigate('Cart') },
-      ]);
+      showAddCartFeedback({
+        productName: product.name,
+        variantText: `${selectedColor.color} · Size ${selectedSizeOption.size} · SL ${quantity}`,
+        imageUri: selectedColor.image || selectedImage || product.productImage,
+      });
       return;
     } catch (error) {
       Alert.alert(
@@ -637,6 +615,110 @@ const ProductDetailScreen = () => {
     }
   };
 
+  const renderAddCartFeedback = () => {
+    if (!addCartFeedback) {
+      return null;
+    }
+
+    const imageUri = addCartFeedback.imageUri?.trim();
+
+    return (
+      <View style={[styles.addCartFeedback, { bottom: 88 + Math.max(insets.bottom, spacing.sm) }]}>
+        <View style={styles.addCartFeedbackIcon}>
+          <MaterialCommunityIcons name="check" size={17} color={colors.success} />
+        </View>
+        <View style={styles.addCartFeedbackImageWrap}>
+          {isRemoteImage(imageUri) ? (
+            <Image source={{ uri: imageUri! }} style={styles.addCartFeedbackImage} />
+          ) : (
+            <MaterialCommunityIcons name="tshirt-crew-outline" size={24} color={colors.brand} />
+          )}
+        </View>
+        <View style={styles.addCartFeedbackCopy}>
+          <Text style={styles.addCartFeedbackTitle} numberOfLines={1}>
+            Đã thêm vào giỏ
+          </Text>
+          <Text style={styles.addCartFeedbackName} numberOfLines={1}>
+            {addCartFeedback.productName}
+          </Text>
+          <Text style={styles.addCartFeedbackMeta} numberOfLines={1}>
+            {addCartFeedback.variantText}
+          </Text>
+          <View style={styles.addCartFeedbackActions}>
+            <TouchableOpacity
+              style={styles.addCartFeedbackSecondary}
+              onPress={dismissAddCartFeedback}
+              activeOpacity={0.82}
+            >
+              <Text style={styles.addCartFeedbackSecondaryText}>Mua tiếp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addCartFeedbackPrimary}
+              onPress={() => {
+                dismissAddCartFeedback();
+                navigation.navigate('Cart', { selectionSource: 'normal' });
+              }}
+              activeOpacity={0.82}
+            >
+              <Text style={styles.addCartFeedbackPrimaryText}>Xem giỏ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <TouchableOpacity
+          style={styles.addCartFeedbackClose}
+          onPress={dismissAddCartFeedback}
+          accessibilityLabel="Đóng thông báo"
+          activeOpacity={0.82}
+        >
+          <MaterialCommunityIcons name="close" size={17} color={colors.textMuted} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderProductDescription = () => {
+    if (!productDescription) {
+      return null;
+    }
+
+    const canToggleDescription = productDescription.length > 180;
+
+    return (
+      <View style={styles.descriptionSection}>
+        <View style={styles.descriptionHeader}>
+          <View style={styles.descriptionIcon}>
+            <MaterialCommunityIcons name="text-box-check-outline" size={19} color={colors.brand} />
+          </View>
+          <Text style={styles.descriptionTitle}>Mô tả sản phẩm</Text>
+        </View>
+
+        <Text
+          style={styles.descriptionText}
+          numberOfLines={isDescriptionExpanded ? undefined : 5}
+        >
+          {productDescription}
+        </Text>
+
+        {canToggleDescription ? (
+          <TouchableOpacity
+            style={styles.descriptionToggle}
+            onPress={() => setIsDescriptionExpanded((current) => !current)}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.descriptionToggleText}>
+              {isDescriptionExpanded ? 'Thu gọn' : 'Xem thêm'}
+            </Text>
+            <MaterialCommunityIcons
+              name={isDescriptionExpanded ? 'chevron-up' : 'chevron-down'}
+              size={17}
+              color={colors.brand}
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
+
   const renderStars = (rating: number, size = 14) => (
     <View style={styles.starRow}>
       {[1, 2, 3, 4, 5].map((star) => (
@@ -663,7 +745,7 @@ const ProductDetailScreen = () => {
         </TouchableOpacity>
 
         <View style={styles.headerBrand}>
-          <ShopNameLogo />
+          <ShopNameLogo compact />
         </View>
 
         <View style={styles.headerActions}>
@@ -682,7 +764,7 @@ const ProductDetailScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}
-            onPress={() => navigation.navigate('Cart')}
+            onPress={() => navigation.navigate('Cart', { selectionSource: 'normal' })}
             activeOpacity={0.82}
             accessibilityLabel="Giỏ hàng"
           >
@@ -744,6 +826,8 @@ const ProductDetailScreen = () => {
   }
 
   const breadcrumbCategories = getBreadcrumbCategories(product);
+  const realReviewCount = publicReviewSummary?.reviewCount ?? 0;
+  const realAverageRating = publicReviewSummary?.averageRating ?? 0;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -864,12 +948,21 @@ const ProductDetailScreen = () => {
           </View>
 
           <View style={styles.quickStats}>
-            <View style={styles.statItem}>
-              <MaterialCommunityIcons name="star" size={16} color={colors.goldDark} />
-              <Text style={styles.statText}>{product.averageRating.toFixed(1)}</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <Text style={styles.statText}>{product.reviewCount} đánh giá</Text>
+            {realReviewCount > 0 ? (
+              <>
+                <View style={styles.statItem}>
+                  <MaterialCommunityIcons name="star" size={16} color={colors.goldDark} />
+                  <Text style={styles.statText}>{realAverageRating.toFixed(1)}</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <Text style={styles.statText}>{realReviewCount} đánh giá</Text>
+              </>
+            ) : (
+              <View style={styles.statItem}>
+                <MaterialCommunityIcons name="star-outline" size={16} color={colors.textMuted} />
+                <Text style={styles.statText}>Chưa có đánh giá</Text>
+              </View>
+            )}
             <View style={styles.statDivider} />
             <Text style={styles.statText}>Đã bán {product.soldQuantity}</Text>
           </View>
@@ -912,15 +1005,15 @@ const ProductDetailScreen = () => {
                 const isActive = color._id === selectedColorId;
 
                 return (
-                  <TouchableOpacity
+                  <ColorSwatch
                     key={color._id}
-                    style={[styles.swatchButton, isActive && styles.swatchButtonActive]}
+                    label={color.color}
+                    colorCode={color.colorCode}
+                    imageUri={color.image}
+                    selected={isActive}
                     onPress={() => handleColorPress(color)}
-                    activeOpacity={0.82}
                     accessibilityLabel={`Chọn màu ${color.color}`}
-                  >
-                    <View style={[styles.swatchColor, { backgroundColor: getSwatchColor(color) }]} />
-                  </TouchableOpacity>
+                  />
                 );
               })}
             </View>
@@ -1011,6 +1104,8 @@ const ProductDetailScreen = () => {
           </Text>
         </View>
 
+        {renderProductDescription()}
+
         <View style={styles.policyPanel}>
           {product.policies.map((policy) => (
             <View key={`${policy.title}-${policy.icon}`} style={styles.policyItem}>
@@ -1026,7 +1121,7 @@ const ProductDetailScreen = () => {
         </View>
 
         <View style={styles.reviewSection}>
-          <ProductReviewsSection productId={product._id} />
+          <ProductReviewsSection productId={product._id} onSummaryChange={handleReviewSummaryChange} />
         </View>
 
         <View
@@ -1064,6 +1159,8 @@ const ProductDetailScreen = () => {
         <StorefrontFooter />
       </ScrollView>
 
+      {renderAddCartFeedback()}
+
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
         <Pressable
           style={[styles.bottomButton, styles.cartCta, (!canCheckout || isAddingToCart) && styles.bottomButtonDisabled]}
@@ -1095,43 +1192,39 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
   },
   headerTop: {
-    minHeight: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
+    ...brandedHeaderStyles.container,
+    minHeight: 76,
+    paddingVertical: spacing.sm,
   },
   headerIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...brandedHeaderStyles.action,
   },
   headerBrand: {
-    flex: 1,
+    ...brandedHeaderStyles.titleGroup,
     alignItems: 'center',
   },
   headerActions: {
-    minWidth: 96,
+    minWidth: 132,
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    gap: spacing.xs,
   },
   searchRow: {
-    minHeight: 36,
-    marginTop: 8,
-    borderRadius: radii.xs,
+    minHeight: 42,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: radii.sm,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
+    ...shadows.card,
   },
   searchInput: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 42,
     paddingHorizontal: spacing.sm,
     paddingVertical: 0,
     color: colors.text,
@@ -1413,27 +1506,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  swatchButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  swatchButtonActive: {
-    borderWidth: 2,
-    borderColor: colors.action,
-  },
-  swatchColor: {
-    width: 27,
-    height: 27,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   sizeGuide: {
     color: colors.action,
     fontSize: 12,
@@ -1557,6 +1629,61 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     fontWeight: '700',
     textAlign: 'right',
+  },
+  descriptionSection: {
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.md,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    ...shadows.card,
+  },
+  descriptionHeader: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  descriptionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  descriptionTitle: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  descriptionText: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+  descriptionToggle: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    marginTop: spacing.md,
+    borderRadius: radii.xs,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  descriptionToggleText: {
+    color: colors.brand,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
   },
   policyPanel: {
     marginTop: spacing.sm,
@@ -1744,6 +1871,112 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  addCartFeedback: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 20,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    ...shadows.card,
+    elevation: 8,
+  },
+  addCartFeedbackIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.successSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addCartFeedbackImageWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: radii.xs,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  addCartFeedbackImage: {
+    width: '100%',
+    height: '100%',
+  },
+  addCartFeedbackCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  addCartFeedbackTitle: {
+    color: colors.black,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
+  },
+  addCartFeedbackName: {
+    color: colors.text,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  addCartFeedbackMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  addCartFeedbackActions: {
+    minHeight: 34,
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+  },
+  addCartFeedbackSecondary: {
+    minHeight: 34,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addCartFeedbackPrimary: {
+    minHeight: 34,
+    borderRadius: radii.xs,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addCartFeedbackSecondaryText: {
+    color: colors.text,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  addCartFeedbackPrimaryText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  addCartFeedbackClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   bottomBar: {
     position: 'absolute',

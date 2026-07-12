@@ -20,6 +20,11 @@ export interface IVirtualTryOnAsset extends Document {
   bytes?: number;
   source: 'upload' | 'camera' | 'ai_provider';
   status: VirtualTryOnAssetStatus;
+  validationWarning?: {
+    reasonCode: string;
+    message: string;
+  } | null;
+  validationCheckedAt?: Date | null;
   deletedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -51,6 +56,15 @@ const virtualTryOnAssetSchema = new Schema<IVirtualTryOnAsset>(
       default: 'active',
       index: true,
     },
+    validationWarning: {
+      type: {
+        reasonCode: { type: String, trim: true, maxlength: 80 },
+        message: { type: String, trim: true, maxlength: 300 },
+      },
+      default: undefined,
+      _id: false,
+    },
+    validationCheckedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
   },
   { timestamps: true },

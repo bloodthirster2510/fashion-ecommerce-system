@@ -12,7 +12,9 @@ export type VirtualTryOnRealtimeEvent = {
   status: VirtualTryOnJobStatus;
   progress: number;
   generatedImageUrl?: string | null;
+  generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
+  errorCode?: string | null;
   errorMessage?: string | null;
   at: string;
 };

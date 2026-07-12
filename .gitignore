@@ -144,6 +144,16 @@ vite.config.ts.timestamp-*
 
 # Project specific
 .codex-remote-attachments/
+backend/tmp/
+
+# Python AI services
+__pycache__/
+*.py[cod]
+.pytest_cache/
+ai_services/**/.venv/
+ai_services/**/*.pt
+ai_services/**/models/*
+!ai_services/**/models/.gitkeep
 
 # Local audit/fix notes
 BugList.md

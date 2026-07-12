@@ -8,7 +8,9 @@ export type VirtualTryOnRealtimeEvent = {
   status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
   generatedImageUrl?: string | null;
+  generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
+  errorCode?: string | null;
   errorMessage?: string | null;
   at: string;
 };

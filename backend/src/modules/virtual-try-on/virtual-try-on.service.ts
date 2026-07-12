@@ -4,12 +4,15 @@ import {
   Product,
   User,
   VirtualTryOnAsset,
+  VirtualTryOnAccountLock,
   VirtualTryOnJob,
+  VirtualTryOnPromptRule,
   VirtualTryOnPromptViolation,
   type IColorVariant,
   type IProduct,
   type IProductVariant,
   type IVirtualTryOnAsset,
+  type IVirtualTryOnPromptRule,
   type IVirtualTryOnJob,
   type VirtualTryOnAssetType,
   type VirtualTryOnContextPreset,
@@ -22,25 +25,38 @@ import { deleteFromCloudinary, uploadToCloudinary } from '../../utils/cloudinary
 import { emitVirtualTryOnJobEvent } from '../realtime/virtual-try-on.gateway';
 import {
   buildVirtualTryOnPrompt,
+  contextPresetPreviews,
   createVirtualTryOnProvider,
   VirtualTryOnProviderError,
+  type VirtualTryOnContextPresetPreview,
   type VirtualTryOnProviderBinaryOutput,
+  type VirtualTryOnSourceImageProfile,
 } from './providers';
 import {
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
   getImageValidationReasonMessage,
-  getImageValidationReasonStatus,
+  isImageValidationReasonCode,
+  type ImageValidationBodyRegion,
+  type ImageValidationCapability,
+  type ImageValidationCapabilityMode,
   type ImageValidationInput,
   type ImageValidationReasonCode,
   type ImageValidationResult,
 } from './image-validation';
-import { PROMPT_MAX_LENGTH, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
+import { PROMPT_MAX_LENGTH, escapeRegExp, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
+import type { PromptPolicyCategory, PromptPolicyRule } from './prompt-policy/prompt-policy.types';
 import type {
   CreateVirtualTryOnItemInput,
   CreateVirtualTryOnJobInput,
   UploadAssetSource,
+  ValidateVirtualTryOnAssetInput,
   VirtualTryOnListQuery,
+  VirtualTryOnPromptRuleListQuery,
+  CreatePromptRuleInput,
+  UpdatePromptRuleInput,
+  VirtualTryOnAccountLockListQuery,
+  LockAccountInput,
 } from './virtual-try-on.types';
 
 export class VirtualTryOnServiceError extends Error {
@@ -63,6 +79,11 @@ const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 const DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY = 5;
+const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
+  'NO_PERSON_DETECTED',
+  'BODY_NOT_VISIBLE',
+  'PERSON_TOO_SMALL',
+]);
 
 const allowedRoles = new Set<VirtualTryOnItemRole>([
   'top',
@@ -72,6 +93,14 @@ const allowedRoles = new Set<VirtualTryOnItemRole>([
   'accessory',
   'outerwear',
 ]);
+const roleDisplayLabels: Record<VirtualTryOnItemRole, string> = {
+  top: 'áo chính',
+  bottom: 'quần',
+  dress: 'váy/đầm',
+  shoes: 'giày/dép',
+  accessory: 'phụ kiện',
+  outerwear: 'áo khoác',
+};
 const allowedOutfitModes = new Set<VirtualTryOnOutfitMode>(['single', 'top_bottom', 'full_set']);
 const allowedContextPresets = new Set<VirtualTryOnContextPreset>([
   'none',
@@ -91,12 +120,44 @@ const allowedStatuses = new Set<VirtualTryOnJobStatus>([
   'failed',
   'canceled',
 ]);
+const promptPolicyCategoryReasonCodes: Record<PromptPolicyCategory, string> = {
+  sexual_content: 'PROMPT_SEXUAL_CONTENT',
+  violence: 'PROMPT_VIOLENCE',
+  prompt_injection: 'PROMPT_INJECTION',
+  personal_data: 'PROMPT_PERSONAL_DATA',
+  hate_or_harassment: 'PROMPT_HATE_OR_HARASSMENT',
+  unsafe_request: 'PROMPT_UNSAFE_REQUEST',
+};
+const allowedPromptPolicyCategories = new Set<PromptPolicyCategory>(
+  Object.keys(promptPolicyCategoryReasonCodes) as PromptPolicyCategory[],
+);
 
 const getPromptViolationLimitPerDay = () => {
   const configuredLimit = Number(process.env.VIRTUAL_TRY_ON_PROMPT_VIOLATION_LIMIT_PER_DAY);
   return Number.isFinite(configuredLimit) && configuredLimit > 0
     ? Math.floor(configuredLimit)
     : DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY;
+};
+
+const ensureVirtualTryOnAccountEnabled = async (userObjectId: Types.ObjectId) => {
+  const lock = await VirtualTryOnAccountLock.findOne({
+    userId: userObjectId,
+    isLocked: true,
+  });
+
+  if (!lock) return;
+
+  throw new VirtualTryOnServiceError(
+    lock.reason
+      ? `Tính năng phối đồ ảo đang bị khóa: ${lock.reason}`
+      : 'Tính năng phối đồ ảo đang bị khóa',
+    403,
+    'VIRTUAL_TRY_ON_FEATURE_LOCKED',
+    {
+      lockedAt: lock.lockedAt?.toISOString() ?? null,
+      reason: lock.reason ?? null,
+    },
+  );
 };
 
 const getLocalDayRange = (value = new Date()) => {
@@ -123,6 +184,118 @@ const toObjectId = (id: string, field: string) => {
   return new Types.ObjectId(id);
 };
 
+const getActorObjectId = (actorUserId?: string) =>
+  actorUserId && Types.ObjectId.isValid(actorUserId) ? new Types.ObjectId(actorUserId) : null;
+
+const resolveUserForFeatureLock = async (value: unknown) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new VirtualTryOnServiceError('Email hoặc User ID không hợp lệ', 400);
+  }
+
+  const identifier = value.trim().toLowerCase();
+  const user = Types.ObjectId.isValid(identifier)
+    ? await User.findById(identifier).select('_id').lean<{ _id: Types.ObjectId } | null>()
+    : await User.findOne({ email: identifier }).select('_id').lean<{ _id: Types.ObjectId } | null>();
+
+  if (!user) {
+    throw new VirtualTryOnServiceError('Không tìm thấy user theo email/User ID', 404);
+  }
+
+  return user;
+};
+
+const normalizePromptRuleTerm = (value: unknown) => {
+  if (typeof value !== 'string') {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm không hợp lệ', 400);
+  }
+
+  const term = value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (term.length < 2 || term.length > 120) {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm phải từ 2 đến 120 ký tự', 400);
+  }
+
+  return term;
+};
+
+const normalizePromptRuleCategory = (value: unknown): PromptPolicyCategory => {
+  if (typeof value !== 'string' || !allowedPromptPolicyCategories.has(value as PromptPolicyCategory)) {
+    throw new VirtualTryOnServiceError('Nhóm prompt policy không hợp lệ', 400);
+  }
+
+  return value as PromptPolicyCategory;
+};
+
+const getPromptRuleReasonCode = (category: PromptPolicyCategory, reasonCode?: unknown) => {
+  if (typeof reasonCode === 'string' && reasonCode.trim()) {
+    return reasonCode.trim().slice(0, 80);
+  }
+
+  return promptPolicyCategoryReasonCodes[category];
+};
+
+const serializePromptRule = (rule: IVirtualTryOnPromptRule) => ({
+  _id: rule._id.toString(),
+  term: rule.term,
+  category: rule.category,
+  reasonCode: rule.reasonCode,
+  enabled: rule.enabled,
+  createdAt: rule.createdAt.toISOString(),
+  updatedAt: rule.updatedAt.toISOString(),
+});
+
+const serializeAccountLock = async (lock: {
+  userId: Types.ObjectId;
+  isLocked: boolean;
+  reason?: string | null;
+  lockedBy?: Types.ObjectId | null;
+  unlockedBy?: Types.ObjectId | null;
+  lockedAt?: Date | null;
+  unlockedAt?: Date | null;
+  updatedAt: Date;
+}) => {
+  const [user, lockedBy, unlockedBy] = await Promise.all([
+    User.findById(lock.userId).select('_id name email isActive').lean<{
+      _id: Types.ObjectId;
+      name?: string;
+      email?: string;
+      isActive?: boolean;
+    } | null>(),
+    lock.lockedBy
+      ? User.findById(lock.lockedBy).select('_id name email').lean<{ _id: Types.ObjectId; name?: string; email?: string } | null>()
+      : Promise.resolve(null),
+    lock.unlockedBy
+      ? User.findById(lock.unlockedBy).select('_id name email').lean<{ _id: Types.ObjectId; name?: string; email?: string } | null>()
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    user: user
+      ? {
+          _id: user._id.toString(),
+          name: user.name ?? '',
+          email: user.email ?? '',
+          isActive: user.isActive !== false,
+        }
+      : {
+          _id: lock.userId.toString(),
+          name: '',
+          email: '',
+          isActive: false,
+        },
+    isLocked: lock.isLocked,
+    reason: lock.reason ?? null,
+    lockedBy: lockedBy
+      ? { _id: lockedBy._id.toString(), name: lockedBy.name ?? '', email: lockedBy.email ?? '' }
+      : null,
+    unlockedBy: unlockedBy
+      ? { _id: unlockedBy._id.toString(), name: unlockedBy.name ?? '', email: unlockedBy.email ?? '' }
+      : null,
+    lockedAt: lock.lockedAt?.toISOString() ?? null,
+    unlockedAt: lock.unlockedAt?.toISOString() ?? null,
+    updatedAt: lock.updatedAt.toISOString(),
+  };
+};
+
 const toIdString = (value: unknown) => {
   if (value instanceof Types.ObjectId) return value.toString();
   if (value && typeof value === 'object' && 'toString' in value) return value.toString();
@@ -141,6 +314,26 @@ const getFinalPrice = (price: number, discount: number) =>
 const getAssetType = (source: UploadAssetSource): VirtualTryOnAssetType =>
   source === 'camera' ? 'source_camera' : 'source_upload';
 
+const sourceAssetTypes: VirtualTryOnAssetType[] = ['source_upload', 'source_camera'];
+const virtualTryOnAssetTypes: VirtualTryOnAssetType[] = [
+  ...sourceAssetTypes,
+  'generated_image',
+  'generated_video',
+];
+
+const isVirtualTryOnAssetType = (value: string): value is VirtualTryOnAssetType =>
+  virtualTryOnAssetTypes.includes(value as VirtualTryOnAssetType);
+
+const serializeAssetValidationWarning = (asset: IVirtualTryOnAsset) => {
+  const reasonCode = asset.validationWarning?.reasonCode?.trim();
+  if (!reasonCode) return undefined;
+
+  return {
+    reasonCode,
+    message: asset.validationWarning?.message?.trim() || getImageValidationReasonMessage(reasonCode),
+  };
+};
+
 const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   _id: asset._id.toString(),
   type: asset.type,
@@ -151,9 +344,16 @@ const serializeAsset = (asset: IVirtualTryOnAsset) => ({
   bytes: asset.bytes,
   source: asset.source,
   status: asset.status,
+  validationWarning: serializeAssetValidationWarning(asset),
+  validationCheckedAt: asset.validationCheckedAt?.toISOString() ?? null,
   createdAt: asset.createdAt.toISOString(),
   updatedAt: asset.updatedAt.toISOString(),
 });
+
+const getGeneratedImageUrls = (job: Pick<IVirtualTryOnJob, 'generatedImageUrl' | 'generatedImageUrls'>) => {
+  if (job.generatedImageUrls?.length) return job.generatedImageUrls;
+  return job.generatedImageUrl ? [job.generatedImageUrl] : [];
+};
 
 const serializeJob = async (job: IVirtualTryOnJob) => {
   const sourceAsset = await VirtualTryOnAsset.findOne({
@@ -183,6 +383,7 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
     generatedImageUrl: job.generatedImageUrl,
+    generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
     provider: job.provider,
     errorCode: job.errorCode,
@@ -202,7 +403,9 @@ const emitJob = (job: IVirtualTryOnJob, type: 'queued' | 'processing' | 'progres
     status: job.status,
     progress: job.progress,
     generatedImageUrl: job.generatedImageUrl,
+    generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
+    errorCode: job.errorCode,
     errorMessage: job.errorMessage,
   });
 };
@@ -211,7 +414,7 @@ const updateJobStatus = async (
   jobId: string,
   update: Partial<Pick<
     IVirtualTryOnJob,
-    'status' | 'progress' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
+    'status' | 'progress' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedImageAssetIds' | 'generatedImageUrls' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
   >>,
   eventType: 'queued' | 'processing' | 'progress' | 'succeeded' | 'failed' | 'canceled',
 ) => {
@@ -227,6 +430,8 @@ const updateJobStatus = async (
 type VirtualTryOnProviderResult = {
   generatedImageUrl: string;
   generatedImageAssetId?: Types.ObjectId | null;
+  generatedImageUrls: string[];
+  generatedImageAssetIds?: Types.ObjectId[];
   generatedVideoUrl?: string | null;
   generatedVideoAssetId?: Types.ObjectId | null;
   providerJobId?: string | null;
@@ -246,20 +451,23 @@ const getGeneratedFileName = (
   job: IVirtualTryOnJob,
   type: VirtualTryOnAssetType,
   output: VirtualTryOnProviderBinaryOutput,
+  index?: number,
 ) => {
   const fallbackExtension = output.fileName.split('.').pop() || 'bin';
   const extension = mimeExtensions[output.mimeType] || fallbackExtension;
-  return `${job._id.toString()}-${type}.${extension}`;
+  const suffix = typeof index === 'number' ? `-${index}` : '';
+  return `${job._id.toString()}-${type}${suffix}.${extension}`;
 };
 
 const persistGeneratedOutput = async (
   job: IVirtualTryOnJob,
   type: Extract<VirtualTryOnAssetType, 'generated_image' | 'generated_video'>,
   output: VirtualTryOnProviderBinaryOutput,
+  index?: number,
 ) => {
   const uploaded = await uploadToCloudinary(
     output.buffer,
-    getGeneratedFileName(job, type, output),
+    getGeneratedFileName(job, type, output, index),
     `fashion-ecommerce/virtual-try-on/users/${job.userId.toString()}/generated`,
     output.mimeType.startsWith('video/') ? 'video' : 'image',
   );
@@ -285,6 +493,7 @@ const persistGeneratedOutput = async (
 };
 
 const buildProviderInput = (job: IVirtualTryOnJob) => {
+  const sourceImageProfile = getJobSourceImageProfile(job);
   const garments = job.selectedItems.map((item) => ({
     role: item.role,
     productId: item.productId.toString(),
@@ -298,13 +507,16 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
   const prompt = buildVirtualTryOnPrompt({
     garments,
     preset: job.contextPreset,
+    outfitMode: job.outfitMode,
     customPrompt: job.contextPrompt,
+    sourceImageProfile,
   });
 
   return {
     jobId: job._id.toString(),
     userId: job.userId.toString(),
     sourceImageUrl: job.sourceImageUrlSnapshot,
+    sourceImageProfile,
     outfitMode: job.outfitMode,
     outputMode: job.outputMode,
     garments,
@@ -322,13 +534,26 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
   const provider = createVirtualTryOnProvider(PROVIDER);
   const providerResult = await provider.generate(buildProviderInput(job));
 
-  let generatedImageUrl = providerResult.imageUrl;
-  let generatedImageAssetId: Types.ObjectId | null = null;
-  if (providerResult.image) {
-    const persistedImage = await persistGeneratedOutput(job, 'generated_image', providerResult.image);
-    generatedImageUrl = persistedImage.url;
-    generatedImageAssetId = persistedImage.assetId;
+  const generatedImageUrls = providerResult.imageUrls?.length
+    ? [...providerResult.imageUrls]
+    : providerResult.imageUrl
+      ? [providerResult.imageUrl]
+      : [];
+  const generatedImageAssetIds: Types.ObjectId[] = [];
+  const imageOutputs = providerResult.images?.length
+    ? providerResult.images
+    : providerResult.image
+      ? [providerResult.image]
+      : [];
+
+  for (const [index, imageOutput] of imageOutputs.entries()) {
+    const persistedImage = await persistGeneratedOutput(job, 'generated_image', imageOutput, index + 1);
+    generatedImageUrls.push(persistedImage.url);
+    generatedImageAssetIds.push(persistedImage.assetId);
   }
+
+  const generatedImageUrl = generatedImageUrls[0];
+  const generatedImageAssetId = generatedImageAssetIds[0] ?? null;
   if (!generatedImageUrl) {
     throw new VirtualTryOnProviderError('Provider did not return a generated image', 502, 'PROVIDER_OUTPUT_MISSING');
   }
@@ -344,6 +569,8 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
   return {
     generatedImageUrl,
     generatedImageAssetId,
+    generatedImageUrls,
+    generatedImageAssetIds,
     generatedVideoUrl,
     generatedVideoAssetId,
     providerJobId: providerResult.providerJobId ?? null,
@@ -352,6 +579,7 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
       outputMode: job.outputMode,
       videoRequested: job.outputMode === 'image_and_video',
       videoReturned: Boolean(generatedVideoUrl),
+      imageCount: generatedImageUrls.length,
     },
   };
 };
@@ -387,6 +615,8 @@ const runProviderJob = async (jobId: string) => {
         progress: 100,
         generatedImageAssetId: providerResult.generatedImageAssetId ?? null,
         generatedImageUrl: providerResult.generatedImageUrl,
+        generatedImageAssetIds: providerResult.generatedImageAssetIds ?? [],
+        generatedImageUrls: providerResult.generatedImageUrls,
         generatedVideoAssetId: providerResult.generatedVideoAssetId ?? null,
         generatedVideoUrl: providerResult.generatedVideoUrl ?? null,
         providerJobId: providerResult.providerJobId ?? null,
@@ -435,6 +665,21 @@ const findAssetForUser = async (userId: string, assetId: string) => {
   return asset;
 };
 
+const findSourceAssetForUser = async (userId: string, assetId: string) => {
+  const asset = await VirtualTryOnAsset.findOne({
+    _id: toObjectId(assetId, 'asset id'),
+    userId: toObjectId(userId, 'user id'),
+    type: { $in: sourceAssetTypes },
+    status: 'active',
+  });
+
+  if (!asset) {
+    throw new VirtualTryOnServiceError('Không tìm thấy ảnh người mặc', 404);
+  }
+
+  return asset;
+};
+
 const shouldFailOpenImageValidation = () => process.env.IMAGE_VALIDATION_FAIL_OPEN === 'true';
 
 const getImageValidationSource = (asset: IVirtualTryOnAsset): ImageValidationInput['source'] =>
@@ -456,6 +701,175 @@ const downloadImageValidationBuffer = async (asset: IVirtualTryOnAsset) => {
 const getPersonScoreThreshold = () => {
   const threshold = Number(process.env.IMAGE_VALIDATION_PERSON_SCORE_THRESHOLD);
   return Number.isFinite(threshold) ? threshold : 0.5;
+};
+
+const imageValidationCapabilityModes: readonly ImageValidationCapabilityMode[] = [
+  'full_set',
+  'top_bottom',
+  'top',
+  'bottom',
+  'dress',
+  'shoes',
+  'outerwear',
+  'accessory',
+];
+
+const imageValidationCapabilityRequiredRegions: Record<ImageValidationCapabilityMode, ImageValidationBodyRegion[]> = {
+  full_set: ['upper', 'hips', 'legs'],
+  top_bottom: ['upper', 'hips', 'legs'],
+  top: ['upper'],
+  bottom: ['hips', 'legs'],
+  dress: ['upper', 'hips', 'legs'],
+  shoes: ['legs', 'feet'],
+  outerwear: ['upper'],
+  accessory: ['upper'],
+};
+
+const getSelectionCapabilityModes = (
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+): ImageValidationCapabilityMode[] => {
+  if (outfitMode === 'full_set') {
+    return itemRoles.includes('shoes') ? ['full_set', 'shoes'] : ['full_set'];
+  }
+  if (outfitMode === 'top_bottom') return ['top_bottom'];
+
+  return Array.from(new Set(itemRoles.map((role) => role as ImageValidationCapabilityMode)));
+};
+
+const buildAllowedImageValidationCapabilities = (): ImageValidationCapability[] =>
+  imageValidationCapabilityModes.map((mode) => ({
+    mode,
+    allowed: true,
+    reasonCode: null,
+    message: null,
+    requiredRegions: imageValidationCapabilityRequiredRegions[mode],
+    missingRegions: [],
+  }));
+
+const getBaseBodySuitabilityReason = (result: ImageValidationResult): ImageValidationReasonCode | null => {
+  if (result.provider === 'disabled') return null;
+  if (result.quality.resolution === 'fail') return 'IMAGE_TOO_SMALL';
+  if (result.quality.blur === 'fail') return 'IMAGE_TOO_BLURRY';
+  if (result.quality.brightness === 'fail') return 'IMAGE_TOO_DARK';
+  if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
+    return 'NO_PERSON_DETECTED';
+  }
+  if (result.personCount > 1) return 'MULTIPLE_PEOPLE_DETECTED';
+  return null;
+};
+
+const buildBodySuitabilityCapabilities = (
+  result: ImageValidationResult,
+  baseReason: ImageValidationReasonCode | null,
+): ImageValidationCapability[] => {
+  const visibleRegions = new Set(result.visibleRegions);
+  return imageValidationCapabilityModes.map((mode) => {
+    const requiredRegions = imageValidationCapabilityRequiredRegions[mode];
+    const missingRegions = baseReason
+      ? []
+      : requiredRegions.filter((region) => !visibleRegions.has(region));
+    const reasonCode = baseReason || (missingRegions.length ? 'BODY_NOT_VISIBLE' : null);
+    return {
+      mode,
+      allowed: !reasonCode,
+      reasonCode,
+      message: reasonCode ? getImageValidationReasonMessage(reasonCode) : null,
+      requiredRegions,
+      missingRegions,
+    };
+  });
+};
+
+const buildBodySuitabilityResult = (
+  result: ImageValidationResult,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+): ImageValidationResult => {
+  if (
+    result.provider === 'disabled' ||
+    result.message === 'Image validation is disabled' ||
+    result.message === 'Image validation failed open'
+  ) {
+    return result;
+  }
+
+  const hasBodyRegionData =
+    result.visibleRegions.length > 0 ||
+    result.capabilities.some((capability) => (
+      capability.allowed ||
+      capability.reasonCode === 'BODY_NOT_VISIBLE' ||
+      capability.missingRegions.length > 0
+    )) ||
+    result.supportedModes.length > 0 ||
+    Object.values(result.blockedModes).some((block) => (
+      block?.reasonCode === 'BODY_NOT_VISIBLE' ||
+      Boolean(block?.missingRegions?.length)
+    ));
+
+  if (!hasBodyRegionData) {
+    return applySelectionCapabilityPolicy({
+      ...result,
+      allowed: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? true : result.allowed,
+      reasonCode: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? null : result.reasonCode,
+      message: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? null : result.message,
+      safetyFlags: [],
+    }, outfitMode, itemRoles);
+  }
+
+  const baseReason = getBaseBodySuitabilityReason(result);
+  const capabilities = buildBodySuitabilityCapabilities(result, baseReason);
+  const supportedModes = capabilities.filter((capability) => capability.allowed).map((capability) => capability.mode);
+  const blockedModes = capabilities.reduce<ImageValidationResult['blockedModes']>((acc, capability) => {
+    if (!capability.allowed) {
+      acc[capability.mode] = {
+        reasonCode: capability.reasonCode,
+        message: capability.message,
+        missingRegions: capability.missingRegions,
+      };
+    }
+    return acc;
+  }, {});
+  const selectedUnsupported = getSelectionCapabilityModes(outfitMode, itemRoles)
+    .map((mode) => capabilities.find((capability) => capability.mode === mode))
+    .find((capability): capability is ImageValidationCapability => Boolean(capability && !capability.allowed));
+  const reasonCode = selectedUnsupported?.reasonCode ?? baseReason;
+
+  return {
+    ...result,
+    allowed: !reasonCode,
+    reasonCode,
+    message: reasonCode
+      ? selectedUnsupported?.message || getImageValidationReasonMessage(reasonCode)
+      : null,
+    safetyFlags: [],
+    supportedModes,
+    blockedModes,
+    recommendedMode: supportedModes[0] ?? null,
+    capabilities,
+  };
+};
+
+const getUnsupportedSelectionCapability = (
+  result: ImageValidationResult,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  if (!result.capabilities.length && !result.supportedModes.length && !Object.keys(result.blockedModes).length) {
+    return null;
+  }
+
+  const capabilityByMode = new Map(result.capabilities.map((capability) => [capability.mode, capability]));
+  return getSelectionCapabilityModes(outfitMode, itemRoles)
+    .map((mode) => capabilityByMode.get(mode) ?? {
+      mode,
+      allowed: result.supportedModes.includes(mode),
+      reasonCode: result.blockedModes[mode]?.reasonCode ?? 'BODY_NOT_VISIBLE',
+      message: result.blockedModes[mode]?.message ?? getImageValidationReasonMessage('BODY_NOT_VISIBLE'),
+      requiredRegions: imageValidationCapabilityRequiredRegions[mode],
+      missingRegions: result.blockedModes[mode]?.missingRegions ?? [],
+    })
+    .find((capability) => !capability.allowed) ?? null;
 };
 
 const rejectImageValidationResult = (
@@ -483,58 +897,247 @@ const applyImageValidationPolicy = (result: ImageValidationResult): ImageValidat
   return result;
 };
 
-const throwImageValidationError = (result: Pick<ImageValidationResult, 'reasonCode' | 'message'>): never => {
-  const reasonCode = result.reasonCode || 'NO_PERSON_DETECTED';
-  throw new VirtualTryOnServiceError(
-    result.message || getImageValidationReasonMessage(reasonCode),
-    getImageValidationReasonStatus(reasonCode),
+const applySelectionCapabilityPolicy = (
+  result: ImageValidationResult,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+): ImageValidationResult => {
+  if (!result.allowed) return result;
+
+  const unsupportedCapability = getUnsupportedSelectionCapability(result, outfitMode, itemRoles);
+  if (!unsupportedCapability) return result;
+
+  const reasonCode = unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE';
+  return {
+    ...rejectImageValidationResult(result, reasonCode as ImageValidationReasonCode),
+    message: unsupportedCapability.message || getImageValidationReasonMessage(reasonCode),
+  };
+};
+
+const getImageValidationWarning = (
+  result: Pick<ImageValidationResult, 'allowed' | 'reasonCode' | 'message'>,
+): { reasonCode: ImageValidationReasonCode; message: string } | null => {
+  if (result.allowed) return null;
+
+  const reasonCode: ImageValidationReasonCode = isImageValidationReasonCode(result.reasonCode)
+    ? result.reasonCode
+    : 'NO_PERSON_DETECTED';
+  return {
     reasonCode,
+    message: result.message || getImageValidationReasonMessage(reasonCode),
+  };
+};
+
+const buildSourceImageProfile = (result: ImageValidationResult): VirtualTryOnSourceImageProfile => ({
+  bodyVisibility: result.bodyVisibility,
+  visibleRegions: result.visibleRegions,
+  supportedModes: result.supportedModes,
+  recommendedMode: result.recommendedMode,
+  reasonCode: result.reasonCode,
+});
+
+const isSourceImageProfile = (value: unknown): value is VirtualTryOnSourceImageProfile => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.visibleRegions === undefined ||
+    Array.isArray(candidate.visibleRegions)
   );
 };
 
-const validateSourceImageForJob = async (
-  sourceAsset: IVirtualTryOnAsset,
-  outfitMode: VirtualTryOnOutfitMode,
-) => {
-  const providerName = getConfiguredImageValidationProviderName();
-  if (providerName === 'disabled') return;
+const getJobSourceImageProfile = (job: IVirtualTryOnJob): VirtualTryOnSourceImageProfile | undefined => {
+  const profile = job.providerMetadata?.sourceImageProfile;
+  return isSourceImageProfile(profile) ? profile : undefined;
+};
 
-  let result: ImageValidationResult | undefined;
+const createImageValidationFallbackResult = (
+  provider: ImageValidationResult['provider'],
+  overrides: Partial<ImageValidationResult> = {},
+): ImageValidationResult => {
+  const allowed = overrides.allowed ?? true;
+  const reasonCode = overrides.reasonCode ?? null;
+  const message = overrides.message ?? (reasonCode ? getImageValidationReasonMessage(reasonCode) : null);
+  const capabilities = allowed
+    ? buildAllowedImageValidationCapabilities()
+    : imageValidationCapabilityModes.map((mode) => ({
+        mode,
+        allowed: false,
+        reasonCode,
+        message,
+        requiredRegions: imageValidationCapabilityRequiredRegions[mode],
+        missingRegions: [],
+      }));
+  const supportedModes = capabilities.filter((capability) => capability.allowed).map((capability) => capability.mode);
+
+  return {
+    allowed,
+    reasonCode,
+    message,
+    provider,
+    personCount: 0,
+    mainPersonScore: 0,
+    mainPersonBox: null,
+    bodyVisibility: 'unknown',
+    quality: {
+      blur: 'warn',
+      brightness: 'warn',
+      resolution: 'warn',
+    },
+    safetyFlags: [],
+    visibleRegions: [],
+    supportedModes,
+    blockedModes: capabilities.reduce<ImageValidationResult['blockedModes']>((blockedModes, capability) => {
+      if (!capability.allowed) {
+        blockedModes[capability.mode] = {
+          reasonCode: capability.reasonCode,
+          message: capability.message,
+          missingRegions: capability.missingRegions,
+        };
+      }
+      return blockedModes;
+    }, {}),
+    recommendedMode: supportedModes[0] ?? null,
+    capabilities,
+    ...overrides,
+  };
+};
+
+const getImageValidationResultForInput = async (input: ImageValidationInput) => {
+  const providerName = getConfiguredImageValidationProviderName();
+  if (providerName === 'disabled') {
+    return createImageValidationFallbackResult('disabled', {
+      provider: 'disabled',
+      message: 'Image validation is disabled',
+    });
+  }
+
   try {
-    const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
     const provider = createImageValidationProvider(providerName);
-    result = applyImageValidationPolicy(await provider.validate({
-      imageBuffer: buffer,
-      mimeType,
-      width: sourceAsset.width ?? 0,
-      height: sourceAsset.height ?? 0,
-      bytes: sourceAsset.bytes ?? buffer.byteLength,
-      source: getImageValidationSource(sourceAsset),
-      outfitMode,
-    }));
+    return applyImageValidationPolicy(await provider.validate(input));
   } catch (error) {
     if (shouldFailOpenImageValidation()) {
       console.warn('Image validation failed open:', error);
-      return;
+      return createImageValidationFallbackResult(providerName, {
+        message: 'Image validation failed open',
+      });
     }
 
-    throwImageValidationError({
+    return createImageValidationFallbackResult(providerName, {
+      allowed: false,
       reasonCode: 'VALIDATION_PROVIDER_FAILED',
       message: getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
     });
   }
+};
 
-  if (!result) {
+const getSourceImageValidationResult = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  if (getConfiguredImageValidationProviderName() === 'disabled') {
+    return createImageValidationFallbackResult('disabled', {
+      provider: 'disabled',
+      message: 'Image validation is disabled',
+    });
+  }
+
+  const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
+  const result = await getImageValidationResultForInput({
+    imageBuffer: buffer,
+    mimeType,
+    width: sourceAsset.width ?? 0,
+    height: sourceAsset.height ?? 0,
+    bytes: sourceAsset.bytes ?? buffer.byteLength,
+    source: getImageValidationSource(sourceAsset),
+    outfitMode,
+    itemRoles,
+  });
+
+  return applySelectionCapabilityPolicy(result, outfitMode, itemRoles);
+};
+
+const getSourceImageSuitabilityResult = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
+  return buildBodySuitabilityResult(result, outfitMode, itemRoles);
+};
+
+const warnSourceImageForJob = async (
+  sourceAsset: IVirtualTryOnAsset,
+  outfitMode: VirtualTryOnOutfitMode,
+  itemRoles: VirtualTryOnItemRole[],
+) => {
+  const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
+  const suitabilityResult = buildBodySuitabilityResult(result, outfitMode, itemRoles);
+  const suitabilityWarning = getImageValidationWarning(suitabilityResult);
+  if (suitabilityWarning && jobBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
     throw new VirtualTryOnServiceError(
-      getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
-      getImageValidationReasonStatus('VALIDATION_PROVIDER_FAILED'),
-      'VALIDATION_PROVIDER_FAILED',
+      suitabilityWarning.message,
+      422,
+      suitabilityWarning.reasonCode,
+      { reasonCode: suitabilityWarning.reasonCode, message: suitabilityWarning.message },
     );
   }
 
-  if (!result.allowed) {
-    throwImageValidationError(result);
+  const warning = getImageValidationWarning(result);
+
+  if (warning) {
+    if (jobBlockingImageValidationReasonCodes.has(warning.reasonCode)) {
+      throw new VirtualTryOnServiceError(
+        warning.message,
+        422,
+        warning.reasonCode,
+        { reasonCode: warning.reasonCode, message: warning.message },
+      );
+    }
+
+    console.warn('Virtual try-on source image validation warning:', {
+      assetId: sourceAsset._id.toString(),
+      reasonCode: warning.reasonCode,
+      message: warning.message,
+    });
+    return suitabilityResult;
   }
+
+  const unsupportedCapability = getUnsupportedSelectionCapability(result, outfitMode, itemRoles);
+  if (unsupportedCapability) {
+    const reasonCode = unsupportedCapability.reasonCode || 'BODY_NOT_VISIBLE';
+    console.warn('Virtual try-on source image capability warning:', {
+      assetId: sourceAsset._id.toString(),
+      reasonCode,
+      message: unsupportedCapability.message || getImageValidationReasonMessage(reasonCode),
+    });
+  }
+
+  return suitabilityResult;
+};
+
+const getSelectedItemRolesForValidation = (items: Array<Pick<CreateVirtualTryOnItemInput, 'role'>>) => {
+  if (!Array.isArray(items) || items.length < 1 || items.length > MAX_SELECTED_ITEMS) {
+    throw new VirtualTryOnServiceError(`Vui lòng chọn từ 1 đến ${MAX_SELECTED_ITEMS} sản phẩm`, 400);
+  }
+
+  const roles = items.map((item) => {
+    if (!allowedRoles.has(item.role)) {
+      throw new VirtualTryOnServiceError('Vai trò sản phẩm không hợp lệ', 400);
+    }
+    return item.role;
+  });
+  const duplicateRole = roles.find((role, index) => roles.indexOf(role) !== index);
+  if (duplicateRole) {
+    const label = roleDisplayLabels[duplicateRole];
+    throw new VirtualTryOnServiceError(
+      `Mỗi bản phối chỉ nhận 1 ${label}. Hãy tạo lần lượt nếu muốn thử nhiều ${label}.`,
+      400,
+      'DUPLICATE_ITEM_ROLE',
+    );
+  }
+
+  return roles;
 };
 
 const resolveSelectedItem = (
@@ -642,11 +1245,26 @@ const normalizePromptForLog = (prompt?: string) => {
   return (normalized || '(empty)').slice(0, 500);
 };
 
+const getEnabledPromptPolicyRules = async (): Promise<PromptPolicyRule[]> => {
+  const rules = await VirtualTryOnPromptRule.find({
+    enabled: true,
+    deletedAt: null,
+  }).sort({ updatedAt: -1 });
+
+  return rules.map((rule) => ({
+    key: `admin_rule_${rule._id.toString()}`,
+    category: rule.category,
+    reasonCode: rule.reasonCode,
+    terms: [rule.term],
+    foldVietnamese: true,
+  }));
+};
+
 const validatePromptForCreateJob = async (userObjectId: Types.ObjectId, prompt?: string) => {
   const now = new Date();
   await ensurePromptPolicyNotBlocked(userObjectId, now);
 
-  const promptValidation = validateVirtualTryOnPrompt(prompt);
+  const promptValidation = validateVirtualTryOnPrompt(prompt, await getEnabledPromptPolicyRules());
   if (promptValidation.allowed) return promptValidation;
 
   const limit = getPromptViolationLimitPerDay();
@@ -719,38 +1337,68 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
   }
 
   const userObjectId = toObjectId(userId, 'user id');
+  await ensureVirtualTryOnAccountEnabled(userObjectId);
   const uploaded = await uploadToCloudinary(
     file.buffer,
     file.originalname || 'try-on-source',
     `fashion-ecommerce/virtual-try-on/users/${userId}/source`,
   );
 
-  const asset = await VirtualTryOnAsset.create({
-    userId: userObjectId,
-    type: getAssetType(source),
-    url: uploaded.secure_url,
-    thumbnailUrl: uploaded.secure_url,
-    publicId: uploaded.public_id,
-    mimeType: file.mimetype,
-    width: uploaded.width,
-    height: uploaded.height,
-    bytes: uploaded.bytes,
-    source,
-    status: 'active',
-  });
+  try {
+    const validationResult = await getImageValidationResultForInput({
+      imageBuffer: file.buffer,
+      mimeType: file.mimetype || 'image/jpeg',
+      width: uploaded.width ?? 0,
+      height: uploaded.height ?? 0,
+      bytes: uploaded.bytes ?? file.size ?? file.buffer.byteLength,
+      source,
+    });
+    const validationWarning = getImageValidationWarning(validationResult);
 
-  return serializeAsset(asset);
+    const asset = await VirtualTryOnAsset.create({
+      userId: userObjectId,
+      type: getAssetType(source),
+      url: uploaded.secure_url,
+      thumbnailUrl: uploaded.secure_url,
+      publicId: uploaded.public_id,
+      mimeType: file.mimetype,
+      width: uploaded.width,
+      height: uploaded.height,
+      bytes: uploaded.bytes,
+      source,
+      status: 'active',
+      validationWarning,
+      validationCheckedAt: new Date(),
+    });
+
+    return {
+      ...serializeAsset(asset),
+      ...(validationWarning ? { validationWarning } : {}),
+    };
+  } catch (error) {
+    deleteFromCloudinary(uploaded.public_id).catch((cleanupError) => {
+      console.warn('Virtual try-on rejected source image cleanup failed:', cleanupError);
+    });
+    throw error;
+  }
 };
 
 const listAssets = async (userId: string, query: VirtualTryOnListQuery) => {
   const { page, limit } = clampPagination(query);
-  const type = typeof query.type === 'string' ? query.type : undefined;
+  const requestedType = typeof query.type === 'string' ? query.type.trim() : '';
   const filter: Record<string, unknown> = {
     userId: toObjectId(userId, 'user id'),
     status: 'active',
   };
 
-  if (type) filter.type = type;
+  if (requestedType) {
+    if (!isVirtualTryOnAssetType(requestedType)) {
+      throw new VirtualTryOnServiceError('Loại ảnh không hợp lệ', 400);
+    }
+    filter.type = requestedType;
+  } else {
+    filter.type = { $in: sourceAssetTypes };
+  }
 
   const [items, totalItems] = await Promise.all([
     VirtualTryOnAsset.find(filter)
@@ -784,6 +1432,24 @@ const deleteAsset = async (userId: string, assetId: string) => {
   return serializeAsset(asset);
 };
 
+const validateAsset = async (
+  userId: string,
+  assetId: string,
+  input: ValidateVirtualTryOnAssetInput,
+) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new VirtualTryOnServiceError('Request body must be an object', 400);
+  }
+  if (!allowedOutfitModes.has(input.outfitMode)) {
+    throw new VirtualTryOnServiceError('Chế độ phối đồ không hợp lệ', 400);
+  }
+
+  await ensureVirtualTryOnAccountEnabled(toObjectId(userId, 'user id'));
+  const sourceAsset = await findSourceAssetForUser(userId, assetId);
+  const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
+  return getSourceImageSuitabilityResult(sourceAsset, input.outfitMode, itemRoles);
+};
+
 const getActiveJobCount = (userId: string) =>
   VirtualTryOnJob.countDocuments({
     userId: toObjectId(userId, 'user id'),
@@ -798,6 +1464,7 @@ const createJob = async (
 ) => {
   const normalized = validateCreateJobInput(input);
   const userObjectId = toObjectId(userId, 'user id');
+  await ensureVirtualTryOnAccountEnabled(userObjectId);
 
   if (PROVIDER === 'disabled') {
     throw new VirtualTryOnServiceError('Tính năng phối đồ ảo đang tắt', 503, 'VIRTUAL_TRY_ON_DISABLED');
@@ -819,8 +1486,9 @@ const createJob = async (
     throw new VirtualTryOnServiceError('Bạn đang có yêu cầu phối đồ khác đang xử lý', 409, 'ACTIVE_JOB_EXISTS');
   }
 
-  const sourceAsset = await findAssetForUser(userId, input.sourceAssetId);
-  await validateSourceImageForJob(sourceAsset, input.outfitMode);
+  const sourceAsset = await findSourceAssetForUser(userId, input.sourceAssetId);
+  const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
+  const sourceImageValidationResult = await warnSourceImageForJob(sourceAsset, input.outfitMode, itemRoles);
 
   const selectedItems = await resolveSelectedItems(input.selectedItems);
 
@@ -837,7 +1505,9 @@ const createJob = async (
     progress: 0,
     provider: PROVIDER,
     idempotencyKey: idempotencyKey || null,
-    providerMetadata: {},
+    providerMetadata: {
+      sourceImageProfile: buildSourceImageProfile(sourceImageValidationResult),
+    },
   });
 
   emitJob(job, 'queued');
@@ -917,6 +1587,8 @@ const retryJob = async (userId: string, jobId: string) => {
 
   job.status = 'queued';
   job.progress = 0;
+  job.generatedImageAssetIds = [];
+  job.generatedImageUrls = [];
   job.generatedImageUrl = null;
   job.generatedVideoUrl = null;
   job.errorCode = null;
@@ -1003,6 +1675,8 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
     provider: job.provider,
+    providerJobId: job.providerJobId,
+    sourceImageUrl: job.sourceImageUrlSnapshot,
     selectedItemCount: job.selectedItems.length,
     selectedItems: job.selectedItems.map((item) => ({
       productId: item.productId.toString(),
@@ -1013,6 +1687,7 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
       finalPriceSnapshot: item.finalPriceSnapshot,
     })),
     generatedImageUrl: job.generatedImageUrl,
+    generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
@@ -1182,6 +1857,8 @@ const retryAdminJob = async (jobId: string) => {
 
   job.status = 'queued';
   job.progress = 0;
+  job.generatedImageAssetIds = [];
+  job.generatedImageUrls = [];
   job.generatedImageUrl = null;
   job.generatedVideoUrl = null;
   job.errorCode = null;
@@ -1236,10 +1913,222 @@ const hideAdminJob = async (jobId: string) => {
   return serializeAdminJob(job);
 };
 
+const listPromptRules = async (query: VirtualTryOnPromptRuleListQuery) => {
+  const { page, limit } = clampPagination(query);
+  const filter: Record<string, unknown> = { deletedAt: null };
+  if (query.category) filter.category = query.category;
+  if (query.enabled !== undefined) filter.enabled = query.enabled;
+  if (query.keyword) filter.term = new RegExp(escapeRegExp(query.keyword), 'i');
+
+  const [totalItems, rules] = await Promise.all([
+    VirtualTryOnPromptRule.countDocuments(filter),
+    VirtualTryOnPromptRule.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+  ]);
+
+  return {
+    items: rules.map(serializePromptRule),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const createPromptRule = async (actorUserId: string | undefined, input: CreatePromptRuleInput) => {
+  const term = normalizePromptRuleTerm(input?.term);
+  const category = normalizePromptRuleCategory(input?.category);
+  const reasonCode = getPromptRuleReasonCode(category, input?.reasonCode);
+  const enabled = input?.enabled !== false;
+  const actorObjectId = getActorObjectId(actorUserId);
+
+  const existing = await VirtualTryOnPromptRule.findOne({
+    term,
+    deletedAt: { $ne: null },
+  });
+  if (existing) {
+    existing.term = term;
+    existing.category = category;
+    existing.reasonCode = reasonCode;
+    existing.enabled = enabled;
+    existing.deletedAt = null;
+    existing.updatedBy = actorObjectId;
+    await existing.save();
+    return serializePromptRule(existing);
+  }
+
+  try {
+    const rule = await VirtualTryOnPromptRule.create({
+      term,
+      category,
+      reasonCode,
+      enabled,
+      createdBy: actorObjectId,
+      updatedBy: actorObjectId,
+    });
+    return serializePromptRule(rule);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
+      throw new VirtualTryOnServiceError('Từ khóa bị cấm đã tồn tại', 409);
+    }
+    throw error;
+  }
+};
+
+const updatePromptRule = async (
+  actorUserId: string | undefined,
+  ruleId: string,
+  input: UpdatePromptRuleInput,
+) => {
+  const rule = await VirtualTryOnPromptRule.findOne({
+    _id: toObjectId(ruleId, 'rule id'),
+    deletedAt: null,
+  });
+
+  if (!rule) {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm không tồn tại', 404);
+  }
+
+  const updates: Partial<IVirtualTryOnPromptRule> = {
+    updatedBy: getActorObjectId(actorUserId),
+  };
+
+  if (input?.term !== undefined) updates.term = normalizePromptRuleTerm(input.term);
+  if (input?.category !== undefined) updates.category = normalizePromptRuleCategory(input.category);
+  if (input?.reasonCode !== undefined) {
+    updates.reasonCode = getPromptRuleReasonCode(updates.category ?? rule.category, input.reasonCode);
+  }
+  if (input?.enabled !== undefined) updates.enabled = Boolean(input.enabled);
+
+  try {
+    Object.assign(rule, updates);
+    await rule.save();
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
+      throw new VirtualTryOnServiceError('Từ khóa bị cấm đã tồn tại', 409);
+    }
+    throw error;
+  }
+
+  return serializePromptRule(rule);
+};
+
+const deletePromptRule = async (actorUserId: string | undefined, ruleId: string) => {
+  const rule = await VirtualTryOnPromptRule.findOneAndUpdate(
+    { _id: toObjectId(ruleId, 'rule id'), deletedAt: null },
+    { deletedAt: new Date(), updatedBy: getActorObjectId(actorUserId) },
+    { new: true },
+  );
+
+  if (!rule) {
+    throw new VirtualTryOnServiceError('Từ khóa bị cấm không tồn tại', 404);
+  }
+
+  return { _id: rule._id.toString(), deleted: true };
+};
+
+const listAccountLocks = async (query: VirtualTryOnAccountLockListQuery) => {
+  const { page, limit } = clampPagination(query);
+  const filter: Record<string, unknown> = {};
+  if (query.locked !== undefined) filter.isLocked = query.locked;
+  if (query.keyword) {
+    const keywordRegex = new RegExp(escapeRegExp(query.keyword), 'i');
+    const userConditions: Record<string, unknown>[] = [
+      { name: keywordRegex },
+      { email: keywordRegex },
+    ];
+    if (Types.ObjectId.isValid(query.keyword)) {
+      userConditions.push({ _id: new Types.ObjectId(query.keyword) });
+    }
+    const users = await User.find({
+      $or: userConditions,
+    })
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }[]>();
+    if (users.length === 0) {
+      return {
+        items: [],
+        pagination: { page, limit, totalItems: 0, totalPages: 0 },
+      };
+    }
+    filter.userId = { $in: users.map((u) => u._id) };
+  }
+
+  const [totalItems, locks] = await Promise.all([
+    VirtualTryOnAccountLock.countDocuments(filter),
+    VirtualTryOnAccountLock.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+  ]);
+
+  return {
+    items: await Promise.all(locks.map((lock) => serializeAccountLock(lock))),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const lockAccount = async (actorUserId: string | undefined, input: LockAccountInput) => {
+  const user = await resolveUserForFeatureLock(input?.userId);
+  const userId = user._id;
+  if (input?.reason && typeof input.reason !== 'string') {
+    throw new VirtualTryOnServiceError('Lý do khóa không hợp lệ', 400);
+  }
+  const reason = input?.reason?.trim().slice(0, 240) || null;
+  const actorObjectId = getActorObjectId(actorUserId);
+
+  const lock = await VirtualTryOnAccountLock.findOneAndUpdate(
+    { userId },
+    {
+      isLocked: true,
+      reason,
+      lockedBy: actorObjectId,
+      unlockedBy: null,
+      unlockedAt: null,
+      lockedAt: new Date(),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+
+  return serializeAccountLock(lock);
+};
+
+const unlockAccount = async (actorUserId: string | undefined, userId: string) => {
+  const userObjectId = toObjectId(userId, 'user id');
+  const lock = await VirtualTryOnAccountLock.findOneAndUpdate(
+    { userId: userObjectId, isLocked: true },
+    {
+      isLocked: false,
+      reason: null,
+      unlockedBy: getActorObjectId(actorUserId),
+      unlockedAt: new Date(),
+    },
+    { new: true },
+  );
+
+  if (!lock) {
+    throw new VirtualTryOnServiceError('User chưa bị khóa tính năng phối đồ ảo', 404);
+  }
+
+  return serializeAccountLock(lock);
+};
+
+const getContextPresetPreviews = (): VirtualTryOnContextPresetPreview[] => contextPresetPreviews;
+
 export const virtualTryOnService = {
   uploadAsset,
   listAssets,
   deleteAsset,
+  validateAsset,
   createJob,
   getJob,
   getLatestJob,
@@ -1254,4 +2143,12 @@ export const virtualTryOnService = {
   retryAdminJob,
   cancelAdminJob,
   hideAdminJob,
+  listPromptRules,
+  createPromptRule,
+  updatePromptRule,
+  deletePromptRule,
+  listAccountLocks,
+  lockAccount,
+  unlockAccount,
+  getContextPresetPreviews,
 };

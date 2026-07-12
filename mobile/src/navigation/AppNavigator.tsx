@@ -11,6 +11,8 @@ import MembershipScreen from '../features/account/MembershipScreen';
 import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
 import CartScreen from '../features/cart/CartScreen';
+import SearchScreen from '../features/search/SearchScreen';
+import CheckoutScreen from '../features/checkout/CheckoutScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
 import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
@@ -29,6 +31,7 @@ import VirtualTryOnBuilderScreen from '../features/virtualTryOn/VirtualTryOnBuil
 import VirtualTryOnProcessingScreen from '../features/virtualTryOn/VirtualTryOnProcessingScreen';
 import VirtualTryOnResultScreen from '../features/virtualTryOn/VirtualTryOnResultScreen';
 import VirtualTryOnHistoryScreen from '../features/virtualTryOn/VirtualTryOnHistoryScreen';
+import type { TryOnSeedItem } from '../features/virtualTryOn/virtualTryOn.types';
 import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
 
 export type RootStackParamList = {
@@ -48,12 +51,18 @@ export type RootStackParamList = {
     isNew?: boolean;
     sort?: 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'rating_desc';
   } | undefined;
+  Search: undefined;
   ProductDetail: {
     productId: string;
     recommendationRequestId?: string;
   };
   Cart: {
     couponCode?: string;
+    selectionSource?: 'normal' | 'virtualTryOn';
+  } | undefined;
+  Checkout: {
+    couponCode?: string;
+    cartItemIds?: string[];
   } | undefined;
   Coupons: {
     cartItemIds?: string[];
@@ -89,16 +98,27 @@ export type RootStackParamList = {
     editImages?: Array<{ _id: string | null; url: string; thumbnailUrl: string }>;
   };
   MyReviews: undefined;
-  VirtualTryOnHome: undefined;
+  VirtualTryOnHome: {
+    seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
+    entryPoint?: 'cart' | 'builder';
+  } | undefined;
   VirtualTryOnBuilder: {
     assetId?: string;
     imageUrl?: string;
+    seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
+    entryPoint?: 'cart' | 'builder';
   } | undefined;
   VirtualTryOnProcessing: {
     jobId: string;
+    seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
   };
   VirtualTryOnResult: {
     jobId: string;
+    seedItems?: TryOnSeedItem[];
+    alternativeSeedItems?: TryOnSeedItem[];
   };
   VirtualTryOnHistory: undefined;
   SupportHome: undefined;
@@ -137,6 +157,8 @@ const AppNavigator = () => {
       <Stack.Screen name="ProductList" component={ProductListScreen} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
       <Stack.Screen name="Cart" component={CartScreen} />
+      <Stack.Screen name="Search" component={SearchScreen} />
+      <Stack.Screen name="Checkout" component={CheckoutScreen} />
       <Stack.Screen name="Coupons" component={CouponsScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "top-small-person-busy-background",
+    "sourceFile": "top-small-person-busy-background.webp",
+    "role": "top",
+    "challenge": "Full-body model is small relative to a detailed outdoor background.",
+    "expectedBehavior": "Isolate the upper garment or reject the result."
+  },
+  {
+    "id": "top-full-outfit-busy-background",
+    "sourceFile": "top-full-outfit-busy-background.webp",
+    "role": "top",
+    "challenge": "Model wears a top and bottom in a detailed scene.",
+    "expectedBehavior": "Keep only the top or reject the result."
+  },
+  {
+    "id": "top-white-cropped-model",
+    "sourceFile": "top-white-cropped-model.webp",
+    "role": "top",
+    "challenge": "White garment on a bright background with the model cropped at the neck.",
+    "expectedBehavior": "Keep the complete visible top without losing white fabric."
+  },
+  {
+    "id": "bottom-lower-body-with-bag",
+    "sourceFile": "bottom-lower-body-with-bag.webp",
+    "role": "bottom",
+    "challenge": "Lower-body crop includes a bag, hands, shoes, and a street background.",
+    "expectedBehavior": "Keep only the pants or reject the result."
+  },
+  {
+    "id": "bottom-full-body-busy-background",
+    "sourceFile": "bottom-full-body-busy-background.webp",
+    "role": "bottom",
+    "challenge": "Full-body model wears multiple garments in a detailed outdoor scene.",
+    "expectedBehavior": "Keep only the pants or reject the result."
+  },
+  {
+    "id": "shoes-worn-with-legs",
+    "sourceFile": "shoes-worn-with-legs.webp",
+    "role": "shoes",
+    "challenge": "Shoes are worn and overlap feet, legs, and a skirt.",
+    "expectedBehavior": "Keep only the pair of shoes or reject the result."
+  },
+  {
+    "id": "shoes-with-many-props",
+    "sourceFile": "shoes-with-many-props.webp",
+    "role": "shoes",
+    "challenge": "Two shoes appear with a camera, belt, wallet, text, and textured background.",
+    "expectedBehavior": "Keep only the pair of shoes or reject the result."
+  },
+  {
+    "id": "shoes-worn-flatlay-with-props",
+    "sourceFile": "shoes-worn-flatlay-with-props.webp",
+    "role": "shoes",
+    "challenge": "Shoes are worn in a flat-lay scene with cosmetics and other objects.",
+    "expectedBehavior": "Keep only the pair of shoes or reject the result."
+  }
+]

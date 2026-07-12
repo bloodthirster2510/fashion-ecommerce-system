@@ -197,7 +197,7 @@ export class CatalogApiError extends Error {
   }
 }
 
-const parseApiResponse = <T>(text: string): ApiResponse<T> => {
+export const parseApiResponse = <T>(text: string): ApiResponse<T> => {
   if (!text) return {};
 
   try {
