@@ -42,6 +42,55 @@
 .admin-vto-stats strong { color: var(--admin-text); font-size: 22px; line-height: 1; }
 .admin-vto-stats em { overflow: hidden; color: #7d8895; font-size: 11px; font-style: normal; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 
+.admin-vto-command-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 0 0 12px; }
+.admin-vto-command-card {
+  min-height: 172px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dfe6eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(31,45,61,.06);
+}
+.admin-vto-command-card.is-attention { border-left: 4px solid #ba6259; }
+.admin-vto-command-card > div:first-child { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-vto-command-card > div:first-child span { color: #6d7c8c; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.admin-vto-command-card > div:first-child strong { color: var(--admin-text); font-size: 20px; line-height: 1; text-align: right; }
+.admin-vto-command-card p { margin: 0; align-self: center; color: #728091; font-size: 12px; line-height: 1.45; font-weight: 750; }
+.admin-vto-mini-list,
+.admin-vto-product-insights,
+.admin-vto-policy-list { display: grid; gap: 6px; min-width: 0; }
+.admin-vto-mini-list button,
+.admin-vto-command-actions button {
+  border: 1px solid #d9e1e7;
+  border-radius: 7px;
+  color: var(--admin-text);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 850;
+}
+.admin-vto-mini-list button { min-width: 0; display: grid; gap: 2px; padding: 7px 8px; text-align: left; }
+.admin-vto-mini-list span { color: #728091; font-size: 10px; font-weight: 850; }
+.admin-vto-mini-list strong { overflow: hidden; color: var(--admin-text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-vto-command-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-vto-command-actions button { min-height: 30px; padding: 0 9px; font-size: 11px; }
+.admin-vto-review-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; align-content: start; }
+.admin-vto-review-strip button { height: 74px; overflow: hidden; border: 1px solid #dfe6eb; border-radius: 7px; padding: 0; background: #f3f6f8; cursor: pointer; }
+.admin-vto-review-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.admin-vto-product-insights > div { min-width: 0; display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid #eef2f5; }
+.admin-vto-product-insights span,
+.admin-vto-product-insights strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-vto-product-insights span { color: var(--admin-text); font-size: 12px; font-weight: 850; }
+.admin-vto-product-insights strong { color: #728091; font-size: 11px; }
+.admin-vto-policy-list { margin: 0; }
+.admin-vto-policy-list > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.admin-vto-policy-list dt { color: #728091; font-size: 11px; font-weight: 800; }
+.admin-vto-policy-list dd { margin: 0; color: var(--admin-text); font-size: 11px; font-weight: 900; text-align: right; }
+.admin-vto-policy-meter { display: block; height: 6px; overflow: hidden; border-radius: 999px; background: #e7edf2; }
+.admin-vto-policy-meter i { display: block; height: 100%; border-radius: inherit; background: #ba6259; }
+
 .admin-vto-status-board {
   display: flex;
   flex-wrap: wrap;
@@ -167,6 +216,19 @@
 .admin-vto-drawer-hero strong { color: var(--admin-text); font-size: 15px; }
 .admin-vto-drawer-preview { width: 92px; height: 116px; flex: 0 0 auto; overflow: hidden; border: 1px solid #dfe6eb; border-radius: 8px; background: #f2f5f7; }
 .admin-vto-drawer-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.admin-vto-drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0!important; }
+.admin-vto-drawer-actions button {
+  min-height: 34px;
+  border: 1px solid #d9e1e7;
+  border-radius: 7px;
+  padding: 0 12px;
+  color: var(--admin-text);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 850;
+}
+.admin-vto-drawer-actions button.is-danger { color: #9b351e; border-color: #efc0b6; background: #fff7f4; }
+.admin-vto-drawer-actions button:disabled { cursor: not-allowed; opacity: .55; }
 .admin-vto-drawer h3 { margin: 0 0 10px; color: var(--admin-text); font-size: 15px; }
 .admin-vto-drawer p { margin: 0; color: #728091; font-size: 13px; line-height: 1.5; }
 .admin-vto-drawer dl { display: grid; gap: 8px; margin: 0; }
@@ -174,6 +236,20 @@
 .admin-vto-drawer dt { color: #728091; font-size: 12px; font-weight: 800; }
 .admin-vto-drawer dd { margin: 0; color: var(--admin-text); font-size: 12px; font-weight: 900; text-align: right; }
 .admin-vto-error-text { margin-top: 10px!important; padding: 10px; border-radius: 8px; color: #9b351e!important; background: #fff2ee; }
+.admin-vto-moderation-grid { display: grid; grid-template-columns: minmax(0,.86fr) minmax(0,1.14fr); gap: 10px; }
+.admin-vto-moderation-grid article { min-width: 0; display: grid; align-content: start; gap: 8px; }
+.admin-vto-moderation-grid article > span { color: #728091; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.admin-vto-moderation-grid article > img,
+.admin-vto-generated-grid img {
+  width: 100%;
+  max-height: 300px;
+  border: 1px solid #dfe6eb;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #f4f7f9;
+}
+.admin-vto-generated-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.admin-vto-generated-grid img:first-child:nth-last-child(1) { grid-column: 1 / -1; }
 .admin-vto-result-preview { display: grid; gap: 10px; }
 .admin-vto-result-preview img,
 .admin-vto-result-preview video { width: 100%; max-height: 420px; border: 1px solid #dfe6eb; border-radius: 8px; object-fit: contain; background: #f4f7f9; }
@@ -189,6 +265,7 @@
 @media (max-width: 1180px) {
   .admin-vto-layout { grid-template-columns: 1fr; }
   .admin-vto-side { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .admin-vto-command-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 920px) {
   .admin-vto-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -197,6 +274,8 @@
 }
 @media (max-width: 640px) {
   .admin-vto-stats,
-  .admin-vto-toolbar { grid-template-columns: 1fr; }
+  .admin-vto-command-grid,
+  .admin-vto-toolbar,
+  .admin-vto-moderation-grid { grid-template-columns: 1fr; }
   .admin-vto-heading { align-items: flex-start; flex-direction: column; }
 }

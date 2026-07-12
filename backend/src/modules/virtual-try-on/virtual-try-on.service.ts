@@ -1504,6 +1504,8 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
     provider: job.provider,
+    providerJobId: job.providerJobId,
+    sourceImageUrl: job.sourceImageUrlSnapshot,
     selectedItemCount: job.selectedItems.length,
     selectedItems: job.selectedItems.map((item) => ({
       productId: item.productId.toString(),

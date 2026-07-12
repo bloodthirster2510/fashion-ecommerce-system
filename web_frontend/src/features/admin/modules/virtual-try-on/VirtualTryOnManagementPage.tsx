@@ -74,6 +74,26 @@ const getUserLabel = (job: AdminVirtualTryOnJob) => {
   return job.user.name || job.user.email
 }
 
+const getJobResultLabel = (job: AdminVirtualTryOnJob) => {
+  if (job.generatedImageUrls?.length) return `${job.generatedImageUrls.length} ảnh kết quả`
+  if (job.generatedImageUrl) return '1 ảnh kết quả'
+  return 'Chưa có kết quả'
+}
+
+const getJobLeadImage = (job: AdminVirtualTryOnJob) =>
+  job.generatedImageUrl || job.generatedImageUrls?.[0] || job.selectedItems[0]?.imageSnapshot || job.sourceImageUrl || ''
+
+const getJobAgeMinutes = (job: AdminVirtualTryOnJob) =>
+  Math.max(0, Math.round((Date.now() - new Date(job.createdAt).getTime()) / 60000))
+
+const getAttentionReason = (job: AdminVirtualTryOnJob) => {
+  if (job.status === 'failed') return job.errorCode || 'Provider lỗi'
+  if (job.status === 'processing') return `Đang chạy ${job.progress}%`
+  if (job.status === 'queued') return `Chờ ${getJobAgeMinutes(job)} phút`
+  if (job.status === 'succeeded') return 'Cần kiểm duyệt ảnh'
+  return 'Đã hủy'
+}
+
 export function VirtualTryOnManagementPage({ currentUser }: { currentUser: AdminUser }) {
   const [filters, setFilters] = useState(initialFilters)
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
@@ -178,6 +198,31 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     ...meta,
     count: summary?.[status as VirtualTryOnJobStatus] ?? 0,
   }))
+  const attentionJobs = [
+    ...(summary?.latestFailedJobs ?? []),
+    ...jobs.filter((job) => ['queued', 'processing'].includes(job.status)),
+  ].filter((job, index, list) => list.findIndex((item) => item._id === job._id) === index).slice(0, 4)
+  const reviewJobs = jobs.filter((job) => job.status === 'succeeded' && (job.generatedImageUrl || job.generatedImageUrls?.length)).slice(0, 4)
+  const productInsightMap = new Map<string, { name: string; count: number; value: number }>()
+  jobs.forEach((job) => {
+    job.selectedItems.forEach((item) => {
+      const current = productInsightMap.get(item.productId) ?? { name: item.nameSnapshot, count: 0, value: 0 }
+      current.count += 1
+      current.value += item.finalPriceSnapshot
+      productInsightMap.set(item.productId, current)
+    })
+  })
+  const productInsights = Array.from(productInsightMap.values())
+    .sort((a, b) => b.count - a.count || b.value - a.value)
+    .slice(0, 4)
+  const promptBlockRatio = settings?.promptViolationLimitPerDay
+    ? Math.min(100, Math.round(((summary?.promptBlocksToday ?? 0) / settings.promptViolationLimitPerDay) * 100))
+    : 0
+  const generatedImages = selectedJob?.generatedImageUrls?.length
+    ? selectedJob.generatedImageUrls
+    : selectedJob?.generatedImageUrl
+      ? [selectedJob.generatedImageUrl]
+      : []
 
   return (
     <section className="admin-vto-page">
@@ -219,6 +264,87 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           <strong>{summary?.failed ?? 0}</strong>
           <em>{summary?.latestFailedJobs.length ?? 0} lỗi gần đây · {summary?.promptBlocksToday ?? 0} khóa prompt</em>
         </div>
+      </div>
+
+      <div className="admin-vto-command-grid" aria-label="Bảng điều hành phòng phối đồ ảo">
+        <section className="admin-vto-command-card is-attention">
+          <div>
+            <span>Việc cần xử lý</span>
+            <strong>{(summary?.failed ?? 0) + activeJobCount}</strong>
+          </div>
+          {attentionJobs.length ? (
+            <div className="admin-vto-mini-list">
+              {attentionJobs.map((job) => (
+                <button type="button" key={job._id} onClick={() => setSelectedJob(job)}>
+                  <span>{job._id.slice(-8)}</span>
+                  <strong>{getAttentionReason(job)}</strong>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p>Không có job lỗi hoặc đang treo.</p>
+          )}
+          <div className="admin-vto-command-actions">
+            <button type="button" onClick={() => updateFilter('status', 'failed')}>Xem lỗi</button>
+            <button type="button" onClick={() => updateFilter('status', 'processing')}>Đang chạy</button>
+          </div>
+        </section>
+
+        <section className="admin-vto-command-card">
+          <div>
+            <span>Kiểm duyệt kết quả</span>
+            <strong>{reviewJobs.length}</strong>
+          </div>
+          {reviewJobs.length ? (
+            <div className="admin-vto-review-strip">
+              {reviewJobs.map((job) => (
+                <button type="button" key={job._id} onClick={() => setSelectedJob(job)} aria-label={`Mở job ${job._id.slice(-8)}`}>
+                  <img src={getJobLeadImage(job)} alt="" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p>Trang hiện tại chưa có ảnh thành công để kiểm duyệt.</p>
+          )}
+          <div className="admin-vto-command-actions">
+            <button type="button" onClick={() => updateFilter('status', 'succeeded')}>Xem ảnh mới</button>
+          </div>
+        </section>
+
+        <section className="admin-vto-command-card">
+          <div>
+            <span>Sản phẩm được thử nhiều</span>
+            <strong>{productInsights.length}</strong>
+          </div>
+          {productInsights.length ? (
+            <div className="admin-vto-product-insights">
+              {productInsights.map((item) => (
+                <div key={item.name}>
+                  <span>{item.name}</span>
+                  <strong>{item.count} lượt · {formatPrice(item.value)}</strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>Chưa đủ dữ liệu trong trang hiện tại.</p>
+          )}
+        </section>
+
+        <section className="admin-vto-command-card">
+          <div>
+            <span>Quota & policy</span>
+            <strong>{settings?.enabled ? 'Bật' : 'Tắt'}</strong>
+          </div>
+          <dl className="admin-vto-policy-list">
+            <div><dt>Provider</dt><dd>{settings?.provider ?? '-'}</dd></div>
+            <div><dt>Món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
+            <div><dt>Đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
+            <div><dt>Prompt block</dt><dd>{summary?.promptBlocksToday ?? 0}/{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
+          </dl>
+          <span className="admin-vto-policy-meter" aria-label={`Prompt block ${promptBlockRatio}%`}>
+            <i style={{ width: `${promptBlockRatio}%` }} />
+          </span>
+        </section>
       </div>
 
       <div className="admin-vto-layout">
@@ -287,17 +413,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <td>
                           <button className="admin-vto-job-link" type="button" onClick={() => setSelectedJob(job)}>
                             <span className="admin-vto-job-preview" aria-hidden="true">
-                              {job.generatedImageUrl ? (
-                                <img src={job.generatedImageUrl} alt="" />
-                              ) : job.selectedItems[0]?.imageSnapshot ? (
-                                <img src={job.selectedItems[0].imageSnapshot} alt="" />
+                              {getJobLeadImage(job) ? (
+                                <img src={getJobLeadImage(job)} alt="" />
                               ) : (
                                 <i />
                               )}
                             </span>
                             <span className="admin-vto-job-code">
                               <strong>{job._id.slice(-8)}</strong>
-                              <span>{job.generatedImageUrl ? 'Có kết quả' : 'Chưa có kết quả'}</span>
+                              <span>{getJobResultLabel(job)}</span>
                               <span>{outputModeLabels[job.outputMode]} · {outfitModeLabels[job.outfitMode]}</span>
                             </span>
                           </button>
@@ -444,10 +568,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             </header>
             <section className="admin-vto-drawer-hero">
               <div className="admin-vto-drawer-preview">
-                {selectedJob.generatedImageUrl ? (
-                  <img src={selectedJob.generatedImageUrl} alt="Kết quả phối đồ" />
-                ) : selectedJob.selectedItems[0]?.imageSnapshot ? (
-                  <img src={selectedJob.selectedItems[0].imageSnapshot} alt="Sản phẩm phối đồ" />
+                {getJobLeadImage(selectedJob) ? (
+                  <img src={getJobLeadImage(selectedJob)} alt="Ảnh đại diện job phối đồ" />
                 ) : null}
               </div>
               <div>
@@ -458,6 +580,19 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <p>{selectedJob.progress}% hoàn tất · {formatPrice(selectedJob.totalFinalPrice)}</p>
               </div>
             </section>
+            {canManage ? (
+              <section className="admin-vto-drawer-actions" aria-label="Thao tác quản trị job">
+                {['failed', 'canceled'].includes(selectedJob.status) ? (
+                  <button type="button" disabled={actionLoading} onClick={() => void handleRetry(selectedJob)}>Retry job</button>
+                ) : null}
+                {['queued', 'processing'].includes(selectedJob.status) ? (
+                  <button type="button" disabled={actionLoading} onClick={() => void handleCancel(selectedJob)}>Hủy job</button>
+                ) : null}
+                <button type="button" className="is-danger" disabled={actionLoading} onClick={() => handleHide(selectedJob)}>
+                  Ẩn khỏi lịch sử
+                </button>
+              </section>
+            ) : null}
             <section>
               <h3>Khách hàng</h3>
               <p>{getUserLabel(selectedJob)} · {selectedJob.user?.email ?? 'Không có email'}</p>
@@ -466,6 +601,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <h3>Metadata</h3>
               <dl>
                 <div><dt>Provider</dt><dd>{selectedJob.provider}</dd></div>
+                <div><dt>Provider job</dt><dd>{selectedJob.providerJobId ?? '-'}</dd></div>
                 <div><dt>Output</dt><dd>{outputModeLabels[selectedJob.outputMode]}</dd></div>
                 <div><dt>Bối cảnh</dt><dd>{contextLabels[selectedJob.contextPreset] ?? selectedJob.contextPreset}</dd></div>
                 <div><dt>Tiến trình</dt><dd>{selectedJob.progress}%</dd></div>
@@ -475,15 +611,34 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               {selectedJob.errorMessage ? <p className="admin-vto-error-text">{selectedJob.errorCode}: {selectedJob.errorMessage}</p> : null}
             </section>
             <section>
-              <h3>Kết quả AI</h3>
-              {selectedJob.generatedImageUrl || selectedJob.generatedVideoUrl ? (
+              <h3>Kiểm duyệt ảnh</h3>
+              <div className="admin-vto-moderation-grid">
+                <article>
+                  <span>Ảnh gốc của khách</span>
+                  {selectedJob.sourceImageUrl ? (
+                    <img src={selectedJob.sourceImageUrl} alt="Ảnh gốc khách tải lên" />
+                  ) : (
+                    <p>Không có ảnh gốc.</p>
+                  )}
+                </article>
+                <article>
+                  <span>Kết quả AI</span>
+                  {generatedImages.length ? (
+                    <div className="admin-vto-generated-grid">
+                      {generatedImages.map((imageUrl, index) => (
+                        <img key={`${imageUrl}-${index}`} src={imageUrl} alt={`Kết quả phối đồ ${index + 1}`} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p>Job chưa có ảnh kết quả.</p>
+                  )}
+                </article>
+              </div>
+              {selectedJob.generatedVideoUrl ? (
                 <div className="admin-vto-result-preview">
-                  {selectedJob.generatedImageUrl ? <img src={selectedJob.generatedImageUrl} alt="Kết quả phối đồ" /> : null}
                   {selectedJob.generatedVideoUrl ? <video src={selectedJob.generatedVideoUrl} controls /> : null}
                 </div>
-              ) : (
-                <p>Job chưa có ảnh hoặc video kết quả.</p>
-              )}
+              ) : null}
             </section>
             <section>
               <h3>Sản phẩm đã chọn</h3>

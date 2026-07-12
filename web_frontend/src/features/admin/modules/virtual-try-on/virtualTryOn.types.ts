@@ -14,6 +14,8 @@ export type AdminVirtualTryOnJob = {
   contextPrompt?: string
   outputMode: 'image' | 'image_and_video'
   provider: string
+  providerJobId?: string | null
+  sourceImageUrl?: string | null
   selectedItemCount: number
   selectedItems: Array<{
     productId: string
@@ -24,6 +26,7 @@ export type AdminVirtualTryOnJob = {
     finalPriceSnapshot: number
   }>
   generatedImageUrl?: string | null
+  generatedImageUrls?: string[]
   generatedVideoUrl?: string | null
   errorCode?: string | null
   errorMessage?: string | null
