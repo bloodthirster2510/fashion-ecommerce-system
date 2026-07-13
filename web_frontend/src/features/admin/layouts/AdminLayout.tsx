@@ -72,6 +72,9 @@ const SupportManagementPage = lazy(() =>
 const VirtualTryOnManagementPage = lazy(() =>
   import('../modules/virtual-try-on/VirtualTryOnManagementPage').then((module) => ({ default: module.VirtualTryOnManagementPage })),
 )
+const RecommendationReportsPage = lazy(() =>
+  import('../modules/reports/RecommendationReportsPage').then((module) => ({ default: module.RecommendationReportsPage })),
+)
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -483,6 +486,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'virtualTryOn') {
       return <VirtualTryOnManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'reports') {
+      return <RecommendationReportsPage />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)

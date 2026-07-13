@@ -57,6 +57,7 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'reviews',
   'support',
   'virtualTryOn',
+  'reports',
 ]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
@@ -167,8 +168,8 @@ const adminRouteRecords: AdminRoute[] = [
   {
     id: 'reports',
     path: '/admin/reports',
-    label: 'Báo cáo',
-    helper: 'Doanh thu & hiệu quả',
+    label: 'Báo cáo gợi ý',
+    helper: 'CTR, funnel & search',
     group: 'insights',
   },
   {
