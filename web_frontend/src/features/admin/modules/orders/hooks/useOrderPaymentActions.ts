@@ -14,6 +14,7 @@ import {
 } from '../orderAdminApi'
 import type { Notice, OrderActionDialogState } from '../orderTypes'
 import { getErrorMessage } from '../orderPresentation'
+import { getVNPayReconcileNotice, getVNPayRefundNotice } from '../utils/vnpayReconcile'
 
 type UseOrderPaymentActionsOptions = {
   canAdjustPayments: boolean
@@ -105,14 +106,7 @@ export function useOrderPaymentActions({
       if (nextStatus === 'refunded' && order.paymentMethod === 'VNPAY') {
         const result = await refundVNPayOrder(order._id, reason.trim())
         replaceOrderRow(result.order)
-        setNotice({
-          type: result.refundStatus === 'failed' ? 'error' : 'success',
-          message: result.refundStatus === 'completed'
-            ? 'VNPay Ä‘Ã£ xÃ¡c nháº­n hoÃ n tiá»n'
-            : result.refundStatus === 'pending'
-              ? 'YÃªu cáº§u hoÃ n tiá»n Ä‘Ã£ gá»­i VNPay, Ä‘ang chá» Ä‘á»‘i soÃ¡t'
-              : 'VNPay tá»« chá»‘i yÃªu cáº§u hoÃ n tiá»n',
-        })
+        setNotice(getVNPayRefundNotice(result.refundStatus))
         await refreshSelectedOrder(result.order._id)
         await loadOrders()
         requestAdminNotificationRefresh()
@@ -148,13 +142,7 @@ export function useOrderPaymentActions({
       await refreshSelectedOrder(selectedOrder._id)
       await loadOrders()
       requestAdminNotificationRefresh()
-      const gatewayStatus = String(result.gateway.vnp_TransactionStatus ?? '')
-      setNotice({
-        type: gatewayStatus === '00' ? 'success' : 'error',
-        message: gatewayStatus === '00'
-          ? 'ÄÃ£ Ä‘á»‘i soÃ¡t VNPay vÃ  Ä‘á»“ng bá»™ tráº¡ng thÃ¡i'
-          : `VNPay tráº£ vá» tráº¡ng thÃ¡i ${gatewayStatus || 'khÃ´ng xÃ¡c Ä‘á»‹nh'}`,
-      })
+      setNotice(getVNPayReconcileNotice(result))
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
     } finally {

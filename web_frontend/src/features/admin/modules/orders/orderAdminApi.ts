@@ -199,6 +199,7 @@ export type ExpireStalePaymentsResponse = {
 
 export type VNPayReconcileResponse = {
   gateway: Record<string, string | boolean>
+  reconciliationStatus: 'paid' | 'refunded' | 'pending_refund' | 'unchanged'
   settlement?: {
     paymentStatus?: AdminOrderPaymentStatus
     transactionStatus?: AdminTransaction['status']

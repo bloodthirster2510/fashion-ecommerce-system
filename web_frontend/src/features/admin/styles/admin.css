@@ -247,6 +247,12 @@ a {
   background: #eef9f2;
 }
 
+.admin-notice.is-warning {
+  border-color: #e3c77b;
+  color: #765615;
+  background: #fff8df;
+}
+
 .admin-notice.is-error {
   border-color: #efb5a7;
   color: var(--admin-danger);
