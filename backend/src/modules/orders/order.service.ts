@@ -1617,6 +1617,23 @@ const adjustOrderPaymentStatus = async (
     return order;
   }
 
+  if (order.paymentStatus === 'refunded') {
+    throw new SalesServiceError('Refunded payment status is final', 409);
+  }
+
+  if (order.paymentStatus === 'paid' && input.paymentStatus !== 'refunded') {
+    throw new SalesServiceError('Paid payment status cannot be downgraded', 409);
+  }
+
+  if (input.paymentStatus === 'refunded' && (
+    order.paymentStatus !== 'paid' || !['cancelled', 'returned'].includes(order.status)
+  )) {
+    throw new SalesServiceError(
+      'Payment can only be marked refunded after a paid order is cancelled or returned',
+      409,
+    );
+  }
+
   order.paymentStatus = input.paymentStatus;
   const updatedOrder = await order.save();
 

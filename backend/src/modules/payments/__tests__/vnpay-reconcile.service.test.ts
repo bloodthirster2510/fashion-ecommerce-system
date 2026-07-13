@@ -119,7 +119,14 @@ describe('vnpayReconcileService', () => {
     };
     const pendingRefund = {
       _id: new Types.ObjectId('665000000000000000000603'),
+      order_id: orderId,
       status: 'pending',
+      createdAt: new Date('2026-06-18T06:00:00.000Z'),
+      paymentDetail: {
+        vnp_Command: 'refund',
+        vnp_OriginalTxnRef: 'FSORDERA1',
+      },
+      gatewayTransactionId: null,
     };
     mockedOrder.findById
       .mockReturnValueOnce(leanResult({
@@ -155,6 +162,71 @@ describe('vnpayReconcileService', () => {
     expect(mockedOrderService.markVNPayRefundCompleted).toHaveBeenCalledWith(orderId.toString());
     expect(mockedSettle).not.toHaveBeenCalled();
     expect(result.refundedOrder).toMatchObject({ paymentStatus: 'refunded' });
+    expect(result.reconciliationStatus).toBe('refunded');
+  });
+
+  it('keeps a pending refund pending when QueryDr only confirms the original payment', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000504');
+    const pendingRefund = {
+      _id: new Types.ObjectId('665000000000000000000606'),
+      order_id: orderId,
+      status: 'pending',
+      createdAt: new Date('2026-06-18T06:00:00.000Z'),
+      paymentDetail: {
+        vnp_Command: 'refund',
+        vnp_OriginalTxnRef: 'FSORDERA1',
+      },
+      gatewayTransactionId: null,
+    };
+    const originalPayment = {
+      _id: new Types.ObjectId('665000000000000000000607'),
+      order_id: orderId,
+      txnRef: 'FSORDERA1',
+      status: 'success',
+      createdAt: new Date('2026-06-18T05:00:00.000Z'),
+      paymentDetail: { vnp_CreateDate: '20260618120000' },
+      gatewayTransactionId: '123456',
+    };
+    mockedOrder.findById.mockReturnValue(leanResult({
+      _id: orderId,
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      status: 'returned',
+      totalAmount: 385000,
+    }) as never);
+    mockedTransactionService.findLatestVNPayRefundByOrderId.mockResolvedValue(pendingRefund as never);
+    mockedTransactionService.findLatestSuccessfulByOrderId.mockResolvedValue(originalPayment as never);
+    mockedQuery.mockResolvedValue({
+      isValidSignature: true,
+      vnp_ResponseCode: '00',
+      vnp_TransactionStatus: '00',
+      vnp_TransactionType: '01',
+      vnp_TxnRef: 'FSORDERA1',
+      vnp_Amount: '38500000',
+      vnp_TransactionNo: '123456',
+      vnp_BankCode: 'NCB',
+      vnp_PayDate: '20260618120500',
+    });
+
+    const result = await vnpayReconcileService.reconcileOrder(orderId.toString());
+
+    expect(mockedQuery).toHaveBeenCalledWith(expect.objectContaining({
+      txnRef: 'FSORDERA1',
+      transactionDate: '20260618120000',
+      transactionNo: '123456',
+    }));
+    expect(mockedTransactionService.recordVNPayQueryResult).toHaveBeenCalledWith(expect.objectContaining({
+      transactionId: pendingRefund._id.toString(),
+    }));
+    expect(mockedSettle).not.toHaveBeenCalled();
+    expect(mockedTransactionService.resolveVNPayRefundTransaction).not.toHaveBeenCalled();
+    expect(mockedOrderService.markVNPayRefundCompleted).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      transaction: pendingRefund,
+      settlement: null,
+      refundedOrder: null,
+      reconciliationStatus: 'pending_refund',
+    });
   });
 
   it('automatically reconciles a pending refund using the original payment metadata', async () => {

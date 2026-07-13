@@ -1476,6 +1476,94 @@ describe('orderService', () => {
     });
   });
 
+  it('allows a paid returned COD order to be marked refunded after manual reconciliation', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000072');
+    const actorId = '665000000000000000000073';
+    const order = {
+      _id: orderId,
+      orderCode: 'FSCODREFUND',
+      user_id: new Types.ObjectId(userId),
+      status: 'returned',
+      paymentMethod: 'COD',
+      paymentMethodId: null,
+      paymentStatus: 'paid',
+      totalAmount: 385000,
+      shipping: { status: 'delivered' },
+      order_list: [],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'refunded',
+      reason: 'Cash refund verified by operations',
+      actorId,
+    });
+
+    expect(order.paymentStatus).toBe('refunded');
+    expect(mockedTransactionService.createManualAdjustmentTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: orderId.toString(),
+        paymentMethod: 'COD',
+        status: 'success',
+        reason: 'Cash refund verified by operations',
+      }),
+    );
+  });
+
+  it('rejects downgrading a paid payment status', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000074');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'completed',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'failed',
+      reason: 'Invalid downgrade attempt',
+      actorId: '665000000000000000000075',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'Paid payment status cannot be downgraded',
+    });
+
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedTransactionService.createManualAdjustmentTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects marking an active paid order refunded through manual adjustment', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000076');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'completed',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'refunded',
+      reason: 'Invalid active order refund',
+      actorId: '665000000000000000000077',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'Payment can only be marked refunded after a paid order is cancelled or returned',
+    });
+
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedTransactionService.createManualAdjustmentTransaction).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid order status transitions', async () => {
     const orderId = new Types.ObjectId('665000000000000000000051');
     const order = {

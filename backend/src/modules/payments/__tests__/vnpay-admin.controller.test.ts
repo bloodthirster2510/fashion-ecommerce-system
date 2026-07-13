@@ -140,4 +140,48 @@ describe('refundVNPayOrder', () => {
       message: 'Order must be cancelled or returned before refund',
     }));
   });
+
+  it('fails closed when VNPay confirms a non-refund transaction type', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000707');
+    const actorId = new Types.ObjectId('665000000000000000000708');
+    mockedOrderService.getOrderById.mockResolvedValue({
+      _id: orderId,
+      user_id: new Types.ObjectId('665000000000000000000709'),
+      status: 'returned',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      totalAmount: 385000,
+    } as never);
+    mockedTransactionService.findLatestVNPayRefundByOrderId.mockResolvedValue(null);
+    mockedTransactionService.findLatestSuccessfulByOrderId.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000710'),
+      txnRef: 'FSORDERA1',
+      gatewayTransactionId: '123456',
+      createdAt: new Date('2026-06-18T05:00:00.000Z'),
+      paymentDetail: { vnp_CreateDate: '20260618120000' },
+    } as never);
+    mockedRefund.mockResolvedValue({
+      isValidSignature: true,
+      vnp_ResponseCode: '00',
+      vnp_TransactionStatus: '00',
+      vnp_TransactionType: '01',
+      vnp_TxnRef: 'FSORDERA1',
+      vnp_Amount: '38500000',
+    });
+    const req = {
+      params: { orderId: orderId.toString() },
+      body: { reason: 'Customer returned the item' },
+      user: { userId: actorId.toString(), role: 'admin' },
+    } as unknown as Request;
+    const res = createResponse();
+
+    await refundVNPayOrder(req, res);
+
+    expect(mockedTransactionService.createVNPayRefundTransaction).not.toHaveBeenCalled();
+    expect(mockedOrderService.markVNPayRefundCompleted).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'VNPay full refund transaction type mismatch',
+    }));
+  });
 });

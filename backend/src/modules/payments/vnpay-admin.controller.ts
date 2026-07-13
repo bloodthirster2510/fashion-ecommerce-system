@@ -46,6 +46,7 @@ export const reconcileVNPayOrder = async (req: Request, res: Response) => {
         responseCode: result.response.vnp_ResponseCode ?? null,
         transactionStatus: result.response.vnp_TransactionStatus ?? null,
         transactionType: result.response.vnp_TransactionType ?? null,
+        reconciliationStatus: result.reconciliationStatus,
         paymentStatus: result.settlement?.paymentStatus ?? result.refundedOrder?.paymentStatus ?? null,
       },
       metadata: {
@@ -58,6 +59,7 @@ export const reconcileVNPayOrder = async (req: Request, res: Response) => {
       gateway: result.response,
       settlement: result.settlement,
       order: result.refundedOrder,
+      reconciliationStatus: result.reconciliationStatus,
     }, 'Reconciled VNPay transaction');
   } catch (value) {
     const status = getErrorStatus(value);
@@ -109,6 +111,9 @@ export const refundVNPayOrder = async (req: Request, res: Response) => {
     }
     if (gateway.vnp_TxnRef?.toUpperCase() !== txnRef) {
       return error(res, 'VNPay refund transaction reference mismatch', 502);
+    }
+    if (gateway.vnp_ResponseCode === '00' && gateway.vnp_TransactionType !== '02') {
+      return error(res, 'VNPay full refund transaction type mismatch', 502);
     }
 
     const gatewayAmount = Number(gateway.vnp_Amount) / 100;

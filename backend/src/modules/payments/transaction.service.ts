@@ -207,9 +207,12 @@ export const transactionService = {
     const latestAttempt = await transactionService.findLatestAttemptByOrderId(orderId);
     const responseCode = String(response.vnp_ResponseCode ?? '');
     const transactionStatus = String(response.vnp_TransactionStatus ?? '');
-    const status: TransactionStatus = responseCode === '00'
-      ? transactionStatus === '00' ? 'success' : 'pending'
-      : responseCode === '94' ? 'pending' : 'failed';
+    const isSuccessful = responseCode === '00' && transactionStatus === '00';
+    const isPending = responseCode === '94'
+      || (responseCode === '00' && ['01', '05', '06'].includes(transactionStatus));
+    const status: TransactionStatus = isSuccessful
+      ? 'success'
+      : isPending ? 'pending' : 'failed';
 
     return Transaction.create({
       user_id: new Types.ObjectId(userId),
@@ -222,7 +225,7 @@ export const transactionService = {
       status,
       resolvedAt: status === 'pending' ? null : new Date(),
       failureReason: status === 'failed'
-        ? `VNPay refund response ${responseCode || 'unknown'}`
+        ? `VNPay refund response ${responseCode || 'unknown'} status ${transactionStatus || 'unknown'}`
         : null,
       gatewayTransactionId: response.vnp_TransactionNo
         ? String(response.vnp_TransactionNo)

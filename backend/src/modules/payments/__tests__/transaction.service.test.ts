@@ -152,4 +152,56 @@ describe('transactionService', () => {
     }));
     expect(result).toBe(createdTransaction);
   });
+
+  it('keeps a refund pending after VNPay sends it to the bank', async () => {
+    const orderId = '665000000000000000000204';
+    mockedTransaction.findOne.mockReturnValue(chainSortResult({ attemptNo: 1 }) as never);
+    mockedTransaction.create.mockResolvedValue({ status: 'pending' } as never);
+
+    await transactionService.createVNPayRefundTransaction({
+      userId: '665000000000000000000101',
+      orderId,
+      amount: 385000,
+      actorId: '665000000000000000000102',
+      reason: 'Customer return approved',
+      originalTxnRef: 'FSORDERA1',
+      response: {
+        vnp_ResponseCode: '00',
+        vnp_TransactionStatus: '06',
+        vnp_TransactionType: '02',
+      },
+    });
+
+    expect(mockedTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'pending',
+      resolvedAt: null,
+      failureReason: null,
+    }));
+  });
+
+  it('marks a rejected VNPay refund as failed instead of leaving it pending', async () => {
+    const orderId = '665000000000000000000205';
+    mockedTransaction.findOne.mockReturnValue(chainSortResult({ attemptNo: 1 }) as never);
+    mockedTransaction.create.mockResolvedValue({ status: 'failed' } as never);
+
+    await transactionService.createVNPayRefundTransaction({
+      userId: '665000000000000000000101',
+      orderId,
+      amount: 385000,
+      actorId: '665000000000000000000102',
+      reason: 'Customer return approved',
+      originalTxnRef: 'FSORDERA1',
+      response: {
+        vnp_ResponseCode: '00',
+        vnp_TransactionStatus: '09',
+        vnp_TransactionType: '02',
+      },
+    });
+
+    expect(mockedTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      resolvedAt: expect.any(Date),
+      failureReason: 'VNPay refund response 00 status 09',
+    }));
+  });
 });

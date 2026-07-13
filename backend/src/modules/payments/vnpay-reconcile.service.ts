@@ -112,7 +112,7 @@ const reconcileTransaction = async (transaction: ITransaction, ipAddr = getVNPay
         });
       }
       refundedOrder = await orderService.markVNPayRefundCompleted(transaction.order_id.toString());
-    } else if (response.vnp_TransactionType !== '03') {
+    } else if (!isRefundAttempt && response.vnp_TransactionType !== '03') {
       settlement = await settleVNPayPayment({
         isValidSignature: true,
         isSuccess: true,
@@ -127,7 +127,15 @@ const reconcileTransaction = async (transaction: ITransaction, ipAddr = getVNPay
     }
   }
 
-  return { transaction, response, settlement, refundedOrder };
+  const reconciliationStatus = refundedOrder
+    ? 'refunded'
+    : settlement?.paymentStatus === 'paid'
+      ? 'paid'
+      : isRefundAttempt
+        ? 'pending_refund'
+        : 'unchanged';
+
+  return { transaction, response, settlement, refundedOrder, reconciliationStatus };
 };
 
 const reconcileOrder = async (orderId: string, ipAddr = getVNPayServerIp()) => {
@@ -136,9 +144,14 @@ const reconcileOrder = async (orderId: string, ipAddr = getVNPayServerIp()) => {
     throw new SalesServiceError('VNPay order not found', 404);
   }
 
-  const transaction = order.paymentStatus === 'paid' || order.paymentStatus === 'refunded'
-    ? await transactionService.findLatestSuccessfulByOrderId(orderId)
-    : await transactionService.findLatestAttemptByOrderId(orderId);
+  const latestRefund = order.paymentStatus === 'paid'
+    ? await transactionService.findLatestVNPayRefundByOrderId(orderId)
+    : null;
+  const transaction = latestRefund?.status === 'pending'
+    ? latestRefund
+    : order.paymentStatus === 'paid' || order.paymentStatus === 'refunded'
+      ? await transactionService.findLatestSuccessfulByOrderId(orderId)
+      : await transactionService.findLatestAttemptByOrderId(orderId);
   if (!transaction) {
     throw new SalesServiceError('VNPay transaction not found', 404);
   }
