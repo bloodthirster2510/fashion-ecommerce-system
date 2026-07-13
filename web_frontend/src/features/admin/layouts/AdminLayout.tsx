@@ -735,11 +735,17 @@ const getNavNotificationBadge = (
   if (!summary) return null
 
   const badges: Partial<Record<NavId, NavNotificationBadge>> = {
+    orders: summary.orders.total > 0
+      ? { count: summary.orders.total, tone: 'danger', label: `${summary.orders.total} đơn cần xử lý` }
+      : undefined,
     ordersOnline: summary.orders.online > 0
       ? { count: summary.orders.online, tone: 'danger', label: `${summary.orders.online} đơn online cần xử lý` }
       : undefined,
     ordersCod: summary.orders.cod > 0
       ? { count: summary.orders.cod, tone: 'danger', label: `${summary.orders.cod} đơn COD cần xử lý` }
+      : undefined,
+    inventory: summary.lowStockVariants > 0
+      ? { count: summary.lowStockVariants, tone: 'warning', label: `${summary.lowStockVariants} biến thể tồn kho thấp` }
       : undefined,
     promotions: summary.expiringCoupons > 0
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
