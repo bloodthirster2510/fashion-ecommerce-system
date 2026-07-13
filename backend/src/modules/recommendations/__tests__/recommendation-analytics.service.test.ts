@@ -39,7 +39,7 @@ describe('recommendation analytics helpers', () => {
       algorithmVersion: 'v3_cart_complementary',
     });
     expect(result.range.from.toISOString()).toBe('2026-07-01T00:00:00.000Z');
-    expect(result.range.to.toISOString().startsWith('2026-07-10')).toBe(true);
+    expect(result.range.to.toISOString()).toBe('2026-07-10T23:59:59.999Z');
     expect(result.range.previousTo.getTime()).toBe(result.range.from.getTime() - 1);
   });
 
@@ -52,5 +52,7 @@ describe('recommendation analytics helpers', () => {
     );
     expect(() => normalizeRecommendationAnalyticsQuery({ from: '2026-07-10', to: '2026-07-01' }))
       .toThrow('Recommendation analytics end date must be after start date');
+    expect(() => normalizeRecommendationAnalyticsQuery({ from: '2026-01-01', to: '2026-07-01' }))
+      .toThrow('Recommendation analytics date range cannot exceed 180 days');
   });
 });

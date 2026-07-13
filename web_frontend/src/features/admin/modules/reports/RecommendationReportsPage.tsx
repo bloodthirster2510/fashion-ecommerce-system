@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Boxes,
   Eye,
@@ -338,23 +338,34 @@ function SegmentTable({ segments }: { segments: RecommendationSegment[] }) {
 
 export function RecommendationReportsPage() {
   const [filters, setFilters] = useState<RecommendationAnalyticsFilters>(() => defaultFilters())
+  const [appliedFilters, setAppliedFilters] = useState<RecommendationAnalyticsFilters>(() => defaultFilters())
   const [analytics, setAnalytics] = useState<RecommendationAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const latestRequestId = useRef(0)
 
-  const loadAnalytics = useCallback(async () => {
+  const loadAnalytics = useCallback(async (activeFilters: RecommendationAnalyticsFilters) => {
+    const requestId = latestRequestId.current + 1
+    latestRequestId.current = requestId
     setLoading(true)
     setError('')
     try {
-      setAnalytics(await getRecommendationAnalytics(filters))
+      const nextAnalytics = await getRecommendationAnalytics(activeFilters)
+      if (requestId === latestRequestId.current) {
+        setAnalytics(nextAnalytics)
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể tải báo cáo gợi ý.')
+      if (requestId === latestRequestId.current) {
+        setError(caught instanceof Error ? caught.message : 'Không thể tải báo cáo gợi ý.')
+      }
     } finally {
-      setLoading(false)
+      if (requestId === latestRequestId.current) {
+        setLoading(false)
+      }
     }
-  }, [filters])
+  }, [])
 
-  useEffect(() => { void loadAnalytics() }, [loadAnalytics])
+  useEffect(() => { void loadAnalytics(appliedFilters) }, [appliedFilters, loadAnalytics])
 
   const algorithmOptions = useMemo(() => {
     const versions = new Set(analytics?.segments.map((segment) => segment.algorithmVersion) ?? [])
@@ -376,14 +387,17 @@ export function RecommendationReportsPage() {
             variant="primary"
             icon={<RefreshCcw aria-hidden="true" />}
             disabled={loading}
-            onClick={() => void loadAnalytics()}
+            onClick={() => void loadAnalytics(appliedFilters)}
           >
             {loading ? 'Đang tải' : 'Làm mới'}
           </Button>
         )}
       />
 
-      <form className="admin-rec-filters" onSubmit={(event) => { event.preventDefault(); void loadAnalytics() }}>
+      <form className="admin-rec-filters" onSubmit={(event) => {
+        event.preventDefault()
+        setAppliedFilters({ ...filters })
+      }}>
         <label>
           <span>Từ ngày</span>
           <input

@@ -153,6 +153,8 @@ type RecentRequestEventRow = {
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 180;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const RECENT_REQUEST_LIMIT = 12;
 
 const EVENT_COUNT_KEYS: Record<RecommendationEventType, keyof EventCounts> = {
@@ -196,13 +198,12 @@ const parseDate = (value: unknown, fallback: Date, endOfDay = false) => {
     return fallback;
   }
 
-  const date = new Date(value);
+  const normalized = value.trim();
+  const date = DATE_ONLY_PATTERN.test(normalized)
+    ? new Date(`${normalized}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`)
+    : new Date(normalized);
   if (Number.isNaN(date.getTime())) {
     throw Object.assign(new Error('Invalid recommendation analytics date range'), { statusCode: 400 });
-  }
-
-  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    date.setHours(23, 59, 59, 999);
   }
 
   return date;
@@ -256,6 +257,13 @@ export const normalizeRecommendationAnalyticsQuery = (
   }
 
   const duration = to.getTime() - from.getTime();
+  if (duration > MAX_DAYS * DAY_MS) {
+    throw Object.assign(
+      new Error(`Recommendation analytics date range cannot exceed ${MAX_DAYS} days`),
+      { statusCode: 400 },
+    );
+  }
+
   const previousTo = new Date(from.getTime() - 1);
   const previousFrom = new Date(previousTo.getTime() - duration);
   const context = parseOptionalText(query.context, 80);
@@ -442,13 +450,13 @@ const collectSegments = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filte
 const buildDayBuckets = (range: Pick<AnalyticsRange, 'from' | 'to'>) => {
   const buckets = new Map<string, MetricSnapshot>();
   const cursor = new Date(range.from);
-  cursor.setHours(0, 0, 0, 0);
+  cursor.setUTCHours(0, 0, 0, 0);
   const end = new Date(range.to);
-  end.setHours(0, 0, 0, 0);
+  end.setUTCHours(0, 0, 0, 0);
 
   while (cursor <= end) {
     buckets.set(toDateInput(cursor), toMetricSnapshot(undefined, []));
-    cursor.setDate(cursor.getDate() + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
   return buckets;
