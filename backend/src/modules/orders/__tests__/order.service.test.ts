@@ -8,6 +8,8 @@ import { transactionService } from '../../payments/transaction.service';
 import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-pricing.types';
 import { GHNService } from '../../shipping/ghn.service';
 import { loyaltyRuleService } from '../../admin/loyalty/loyalty-rule.service';
+import { interactionService } from '../../interactions/interaction.service';
+import { recommendationService } from '../../recommendations/recommendation.service';
 import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
 import { emitOrderUpdate } from '../../realtime/order.gateway';
 
@@ -92,6 +94,18 @@ jest.mock('../../realtime/order.gateway', () => ({
   emitOrderUpdate: jest.fn(),
 }));
 
+jest.mock('../../interactions/interaction.service', () => ({
+  interactionService: {
+    recordPurchaseInteractions: jest.fn(),
+  },
+}));
+
+jest.mock('../../recommendations/recommendation.service', () => ({
+  recommendationService: {
+    recordRecommendationConversionEvent: jest.fn(),
+  },
+}));
+
 jest.mock('../../notifications/push-notification.service', () => ({
   sendShippingUpdatePush: jest.fn().mockResolvedValue({ sent: 0 }),
 }));
@@ -108,6 +122,8 @@ const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
 const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyaltyRuleService>;
+const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
+const mockedRecommendationService = recommendationService as jest.Mocked<typeof recommendationService>;
 const mockedEmitOrderUpdate = emitOrderUpdate as jest.MockedFunction<typeof emitOrderUpdate>;
 
 type MockSession = {
@@ -312,7 +328,9 @@ describe('orderService', () => {
       status: 'confirmed',
     };
 
-    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(buildPricingResult());
+    const pricing = buildPricingResult();
+    pricing.items[0].recommendationRequestId = 'rec_123';
+    mockedPromotionPricingService.calculateCheckout.mockResolvedValue(pricing);
     mockedInventoryService.reserveInventory.mockResolvedValue([
       { _id: reservationId },
     ] as never);
@@ -402,6 +420,13 @@ describe('orderService', () => {
       { session: mockSession },
     );
     expect(mockedCartService.deleteCartItems).toHaveBeenCalledWith(userId, [cartItemId.toString()]);
+    expect(mockedInteractionService.recordPurchaseInteractions).toHaveBeenCalled();
+    expect(mockedRecommendationService.recordRecommendationConversionEvent).toHaveBeenCalledWith({
+      userId,
+      requestId: 'rec_123',
+      recommendedProductId: productId.toString(),
+      eventType: 'purchase',
+    });
     expect(result).toBe(order);
   });
 
