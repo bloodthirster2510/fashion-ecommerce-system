@@ -23,6 +23,11 @@ type GhnAvailableService = {
   serviceName: string | null;
 };
 
+type GhnQuoteAttempt = {
+  option: ShippingOptionQuote | null;
+  validationError: GHNServiceError | null;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
@@ -263,7 +268,7 @@ const quoteGhnOptions = async (input: {
           serviceName: 'GHN',
         }];
 
-    const settledQuotes = await Promise.all(
+    const quoteAttempts: GhnQuoteAttempt[] = await Promise.all(
       serviceCandidates.map(async (service) => {
         try {
           const rawQuote = await GHNService.calculateShippingFee({
@@ -281,35 +286,45 @@ const quoteGhnOptions = async (input: {
           const normalizedFee = fee == null ? DEFAULT_SHIPPING_FEE : Math.max(0, Math.round(fee));
 
           return {
-            key: `GHN:${service.serviceId > 0 ? service.serviceId : 'DEFAULT'}:${service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID}`,
-            provider: 'GHN' as const,
-            serviceId: service.serviceId > 0 ? service.serviceId : null,
-            serviceTypeId: service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID,
-            serviceName: service.serviceName,
-            providerCost: normalizedFee,
-            customerFee: normalizedFee,
-            estimatedDeliveryDate: null,
-            availability: 'available' as const,
-            isRecommended: false,
-            reason: fee == null ? 'ghn_fee_missing' : 'ghn_live_quote',
-            rawQuote: normalizeRawQuote(rawQuote),
-          };
-        } catch (error) {
-          if (shouldFallbackToFixedFee(error)) {
-            return {
+            option: {
               key: `GHN:${service.serviceId > 0 ? service.serviceId : 'DEFAULT'}:${service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID}`,
               provider: 'GHN' as const,
               serviceId: service.serviceId > 0 ? service.serviceId : null,
               serviceTypeId: service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID,
               serviceName: service.serviceName,
-              providerCost: DEFAULT_SHIPPING_FEE,
-              customerFee: DEFAULT_SHIPPING_FEE,
+              providerCost: normalizedFee,
+              customerFee: normalizedFee,
               estimatedDeliveryDate: null,
-              availability: 'unavailable' as const,
+              availability: 'available' as const,
               isRecommended: false,
-              reason: error instanceof Error ? error.message : 'ghn_unavailable',
-              rawQuote: null,
+              reason: fee == null ? 'ghn_fee_missing' : 'ghn_live_quote',
+              rawQuote: normalizeRawQuote(rawQuote),
+            },
+            validationError: null,
+          };
+        } catch (error) {
+          if (shouldFallbackToFixedFee(error)) {
+            return {
+              option: {
+                key: `GHN:${service.serviceId > 0 ? service.serviceId : 'DEFAULT'}:${service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID}`,
+                provider: 'GHN' as const,
+                serviceId: service.serviceId > 0 ? service.serviceId : null,
+                serviceTypeId: service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID,
+                serviceName: service.serviceName,
+                providerCost: DEFAULT_SHIPPING_FEE,
+                customerFee: DEFAULT_SHIPPING_FEE,
+                estimatedDeliveryDate: null,
+                availability: 'unavailable' as const,
+                isRecommended: false,
+                reason: error instanceof Error ? error.message : 'ghn_unavailable',
+                rawQuote: null,
+              },
+              validationError: null,
             };
+          }
+
+          if (error instanceof GHNServiceError && error.statusCode >= 400 && error.statusCode < 500) {
+            return { option: null, validationError: error };
           }
 
           throw error;
@@ -317,10 +332,20 @@ const quoteGhnOptions = async (input: {
       }),
     );
 
+    const settledQuotes = quoteAttempts
+      .map((attempt) => attempt.option)
+      .filter((option): option is ShippingOptionQuote => Boolean(option));
+    const validationErrors = quoteAttempts
+      .map((attempt) => attempt.validationError)
+      .filter((error): error is GHNServiceError => Boolean(error));
     const availableOptions = settledQuotes
       .filter((option) => option.availability === 'available')
       .sort((left, right) => left.providerCost - right.providerCost);
-    const hadUnavailable = settledQuotes.some((option) => option.availability === 'unavailable');
+    if (!availableOptions.length && validationErrors.length) {
+      throw validationErrors[0];
+    }
+    const hadUnavailable = validationErrors.length > 0
+      || settledQuotes.some((option) => option.availability === 'unavailable');
 
     return { options: availableOptions, hadUnavailable };
   } catch (error) {
