@@ -1,4 +1,5 @@
 import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword, clearAuthRequestThrottleForTests } from '../auth.service';
+import { LEGAL_POLICY_VERSION } from '../legal-policy';
 import { User } from '../../../database/models/user.model';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -76,6 +77,8 @@ describe('Auth Service', () => {
         gender: 'male',
         dateOfBirth: '1990-01-01',
         otpToken: 'bad_token',
+        acceptedTerms: true,
+        policyVersion: LEGAL_POLICY_VERSION,
         address: {
           customerName: 'Test',
           province: 'Cần Thơ',
@@ -102,6 +105,8 @@ describe('Auth Service', () => {
         gender: 'male',
         dateOfBirth: '1990-01-01',
         otpToken: 'valid_token',
+        acceptedTerms: true,
+        policyVersion: LEGAL_POLICY_VERSION,
         address: {
           customerName: 'Test',
           province: 'Cần Thơ',
@@ -141,6 +146,8 @@ describe('Auth Service', () => {
         gender: 'male',
         dateOfBirth: '1990-01-01',
         otpToken: 'valid_token',
+        acceptedTerms: true,
+        policyVersion: LEGAL_POLICY_VERSION,
         address: {
           customerName: 'Test',
           province: 'Cần Thơ',
@@ -159,6 +166,12 @@ describe('Auth Service', () => {
       expect(result.refreshToken).toBe('refresh_token');
       expect(result.user.name).toBe('Test');
       expect(result.user.role).toBe('user');
+      expect(User.create).toHaveBeenCalledWith(expect.objectContaining({
+        legalConsent: {
+          policyVersion: LEGAL_POLICY_VERSION,
+          acceptedAt: expect.any(Date),
+        },
+      }));
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
         { $set: expect.objectContaining({ refreshToken: hashToken('refresh_token'), lastLoginAt: expect.any(Date) }) },
@@ -190,6 +203,8 @@ describe('Auth Service', () => {
         gender: 'male',
         dateOfBirth: '1990-01-01',
         otpToken: 'valid_token',
+        acceptedTerms: true,
+        policyVersion: LEGAL_POLICY_VERSION,
         address: {
           customerName: 'Test',
           province: 'Thanh pho Can Tho',

@@ -808,8 +808,10 @@ const OrderDetailScreen = () => {
     order.paymentStatus !== 'paid' &&
     order.paymentStatus !== 'refunded' &&
     order.status !== 'cancelled' &&
+    order.status !== 'return_approved' &&
     order.status !== 'returned' &&
     (paymentDeadlineRemainingMs === null || paymentDeadlineRemainingMs > 0);
+  const usesVNPay = order.paymentMethod === 'VNPAY';
   const preferredRefundMethod = getPreferredRefundMethod(refundMethods);
   const showRefundSupport =
     canReturn ||
@@ -837,19 +839,25 @@ const OrderDetailScreen = () => {
   })();
   const refundSupportText = (() => {
     if (order.paymentStatus === 'refunded') {
-      return 'Shop đã ghi nhận hoàn tiền cho đơn này. Bạn có thể đối chiếu theo tài khoản nhận hoàn tiền đã lưu.';
+      return usesVNPay
+        ? 'Shop đã ghi nhận hoàn tiền qua VNPay. Khoản hoàn sẽ được trả về phương thức thanh toán ban đầu theo thời gian xử lý của ngân hàng.'
+        : 'Shop đã ghi nhận hoàn tiền cho đơn này. Bạn có thể đối chiếu theo tài khoản nhận hoàn tiền đã lưu.';
     }
     if (order.returnRequest?.status === 'requested') {
       return 'Yêu cầu trả hàng đã được gửi. Shop sẽ duyệt minh chứng và phản hồi trên đơn hàng này.';
     }
     if (order.returnRequest?.status === 'approved') {
-      return 'Yêu cầu đã được duyệt. Shop sẽ xử lý nhận hàng trả và hoàn tiền theo tài khoản bạn đã lưu.';
+      return usesVNPay
+        ? 'Yêu cầu đã được duyệt. Hãy gửi hàng về shop; sau khi xác nhận nhận hàng, khoản hoàn sẽ được xử lý qua VNPay về phương thức thanh toán ban đầu.'
+        : 'Yêu cầu đã được duyệt. Hãy gửi hàng về shop; sau khi xác nhận nhận hàng, shop sẽ hoàn tiền theo tài khoản bạn đã lưu.';
     }
     if (order.returnRequest?.status === 'rejected') {
       return 'Yêu cầu chưa được duyệt. Bạn vẫn có thể tạo phiếu hỗ trợ nếu cần trao đổi thêm với shop.';
     }
     if ((order.status === 'cancelled' || order.status === 'returned') && order.paymentStatus === 'paid') {
-      return 'Đơn đã thanh toán cần được hoàn tiền. Hãy bảo đảm tài khoản nhận hoàn tiền đã được cập nhật chính xác.';
+      return usesVNPay
+        ? 'Đơn đang chờ shop đối soát và gửi yêu cầu hoàn tiền qua VNPay về phương thức thanh toán ban đầu.'
+        : 'Đơn đã thanh toán cần được hoàn tiền. Hãy bảo đảm tài khoản nhận hoàn tiền đã được cập nhật chính xác.';
     }
     return 'Nếu sản phẩm có vấn đề, gửi yêu cầu kèm ảnh minh chứng để shop duyệt và hướng dẫn bước tiếp theo.';
   })();

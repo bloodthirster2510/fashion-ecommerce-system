@@ -118,4 +118,38 @@ describe('transactionService', () => {
     );
     expect(result).toBe(updatedTransaction);
   });
+
+  it('keeps duplicate VNPay refund response 94 pending for reconciliation', async () => {
+    const orderId = '665000000000000000000203';
+    const createdTransaction = {
+      _id: new Types.ObjectId('665000000000000000000303'),
+      status: 'pending',
+    };
+    mockedTransaction.findOne.mockReturnValue(chainSortResult({ attemptNo: 1 }) as never);
+    mockedTransaction.create.mockResolvedValue(createdTransaction as never);
+
+    const result = await transactionService.createVNPayRefundTransaction({
+      userId: '665000000000000000000101',
+      orderId,
+      amount: 385000,
+      actorId: '665000000000000000000102',
+      reason: 'Customer return approved',
+      originalTxnRef: 'FSORDERA1',
+      response: {
+        vnp_ResponseCode: '94',
+        vnp_TransactionStatus: '05',
+        vnp_Command: 'refund',
+      },
+    });
+
+    expect(mockedTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'pending',
+      failureReason: null,
+      paymentDetail: expect.objectContaining({
+        vnp_Command: 'refund',
+        vnp_OriginalTxnRef: 'FSORDERA1',
+      }),
+    }));
+    expect(result).toBe(createdTransaction);
+  });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Empty, Image, Skeleton, message } from 'antd'
+import { Alert, Button, Empty, Image, Input, Modal, Skeleton, message } from 'antd'
 import {
   CheckOutlined,
   ClockCircleOutlined,
@@ -8,6 +8,8 @@ import {
   FileTextOutlined,
   ReloadOutlined,
   ShoppingOutlined,
+  StopOutlined,
+  UndoOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
@@ -18,11 +20,12 @@ import '../order.css'
 
 const statusLabels: Record<OrderStatus, string> = {
   confirmed: 'Đã xác nhận', packed: 'Đã đóng gói', shipping: 'Đang giao hàng', delivered: 'Đã giao',
-  cancelled: 'Đã hủy', return_requested: 'Đang yêu cầu trả hàng', returned: 'Đã trả hàng',
+  completed: 'Hoàn tất', cancelled: 'Đã hủy', return_requested: 'Đang yêu cầu trả hàng',
+  return_approved: 'Yêu cầu trả đã duyệt', returned: 'Đã trả hàng',
 }
 const paymentLabels = { pending: 'Chờ thanh toán', paid: 'Đã thanh toán', failed: 'Thanh toán thất bại', refunded: 'Đã hoàn tiền' }
 const paymentMethods = { COD: 'Thanh toán khi nhận hàng (COD)', VNPAY: 'VNPay', MOMO: 'MoMo', CARD: 'Thẻ', BANK: 'Chuyển khoản' }
-const progressStatuses: OrderStatus[] = ['confirmed', 'packed', 'shipping', 'delivered']
+const progressStatuses: OrderStatus[] = ['confirmed', 'packed', 'shipping', 'delivered', 'completed']
 
 const formatDate = (value?: string | null, includeTime = false) => {
   if (!value) return 'Đang cập nhật'
@@ -41,6 +44,9 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
   const [fitTypeLabelByItemId, setFitTypeLabelByItemId] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [paying, setPaying] = useState(false)
+  const [orderAction, setOrderAction] = useState<'cancel' | 'return' | null>(null)
+  const [actionReason, setActionReason] = useState('')
+  const [actionSubmitting, setActionSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const loadOrder = useCallback(async () => {
@@ -136,6 +142,25 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
     }
   }
 
+  const submitOrderAction = async () => {
+    if (!order || !orderAction || actionReason.trim().length < 5) return
+    setActionSubmitting(true)
+    try {
+      const updatedOrder = orderAction === 'cancel'
+        ? await orderService.cancel(order._id, actionReason.trim())
+        : await orderService.requestReturn(order._id, actionReason.trim())
+      setOrder(updatedOrder)
+      setOrderAction(null)
+      setActionReason('')
+      message.success(orderAction === 'cancel' ? 'Đã hủy đơn hàng.' : 'Đã gửi yêu cầu trả hàng.')
+      await loadOrder()
+    } catch (actionError) {
+      message.error(actionError instanceof Error ? actionError.message : 'Không thể cập nhật đơn hàng.')
+    } finally {
+      setActionSubmitting(false)
+    }
+  }
+
   return (
     <MainLayout>
       <main className="order-detail-page">
@@ -149,7 +174,15 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
                   <div className="order-title-row"><h1>Mã đơn hàng: {order.orderCode}</h1><span className={`order-payment-badge ${order.paymentStatus}`}>{paymentLabels[order.paymentStatus]}</span></div>
                   <p>Ngày đặt: <b>{formatDate(order.createdAt, true)}</b>{order.shipping.estimatedDeliveryDate && <><span className="order-dot">•</span><em>Dự kiến giao: {formatDate(order.shipping.estimatedDeliveryDate)}</em></>}</p>
                 </div>
-                {order.invoiceCode && <Button icon={<FileTextOutlined />}>Hóa đơn</Button>}
+                <div className="order-customer-actions">
+                  {['confirmed', 'packed'].includes(order.status) ? (
+                    <Button danger icon={<StopOutlined />} onClick={() => setOrderAction('cancel')}>Hủy đơn</Button>
+                  ) : null}
+                  {['delivered', 'completed'].includes(order.status) ? (
+                    <Button icon={<UndoOutlined />} onClick={() => setOrderAction('return')}>Yêu cầu trả hàng</Button>
+                  ) : null}
+                  {order.invoiceCode && <Button icon={<FileTextOutlined />}>Hóa đơn</Button>}
+                </div>
               </header>
 
               {payment?.canPayNow && (
@@ -159,8 +192,8 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
                   action={<Button type="primary" loading={paying} onClick={() => void payAgain()}>Thanh toán ngay</Button>} />
               )}
 
-              <section className={`order-progress-card ${order.status === 'cancelled' || order.status === 'returned' ? 'is-stopped' : ''}`}>
-                {(order.status === 'cancelled' || order.status === 'returned') ? (
+              <section className={`order-progress-card ${['cancelled', 'return_requested', 'return_approved', 'returned'].includes(order.status) ? 'is-stopped' : ''}`}>
+                {(['cancelled', 'return_requested', 'return_approved', 'returned'] as OrderStatus[]).includes(order.status) ? (
                   <div className="order-stopped"><ClockCircleOutlined /><div><b>{statusLabels[order.status]}</b><span>Cập nhật {formatDate(order.updatedAt, true)}</span></div></div>
                 ) : progressStatuses.map((status, index) => {
                   const completed = index <= activeStep
@@ -209,7 +242,27 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
                 </aside>
               </div>
 
-              <section className="order-help-card"><h2><ShoppingOutlined /> Cần trợ giúp?</h2><a href="/">Vấn đề đơn hàng <span>›</span></a><a href="/">Thông tin giao hàng <span>›</span></a><a href="/">Trả hàng <span>›</span></a></section>
+              <section className="order-help-card"><h2><ShoppingOutlined /> Cần trợ giúp?</h2><a href={`/support?topic=orders&orderId=${order._id}`}>Vấn đề đơn hàng <span>›</span></a><a href="/policies/shipping">Thông tin giao hàng <span>›</span></a><a href="/policies/returns">Trả hàng <span>›</span></a></section>
+
+              <Modal
+                title={orderAction === 'cancel' ? 'Hủy đơn hàng' : 'Yêu cầu trả hàng'}
+                open={Boolean(orderAction)}
+                okText={orderAction === 'cancel' ? 'Xác nhận hủy' : 'Gửi yêu cầu'}
+                cancelText="Đóng"
+                confirmLoading={actionSubmitting}
+                okButtonProps={{ disabled: actionReason.trim().length < 5, danger: orderAction === 'cancel' }}
+                onOk={() => void submitOrderAction()}
+                onCancel={() => { if (!actionSubmitting) { setOrderAction(null); setActionReason('') } }}
+              >
+                <Input.TextArea
+                  value={actionReason}
+                  rows={4}
+                  maxLength={500}
+                  showCount
+                  placeholder={orderAction === 'cancel' ? 'Lý do hủy đơn' : 'Mô tả lý do và tình trạng sản phẩm'}
+                  onChange={(event) => setActionReason(event.target.value)}
+                />
+              </Modal>
             </>
           )}
         </Skeleton>

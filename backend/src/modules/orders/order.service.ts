@@ -215,8 +215,8 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
 
   const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk, paymentDeadlineSoon] = await Promise.all([
     countWith({
-      status: 'return_requested',
-      'returnRequest.status': 'requested',
+      status: { $in: ['return_requested', 'return_approved'] },
+      'returnRequest.status': { $in: ['requested', 'approved'] },
     }),
     countWith({
       status: { $in: ['cancelled', 'returned'] },
@@ -1023,24 +1023,16 @@ type SessionOptions = {
   session?: ClientSession;
 };
 
-const isMongoTransactionSupportError = (error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-
-  return /Transaction numbers are only allowed|transactions? (are|is) not supported|Only servers in a sharded cluster can start a new transaction|active transaction number/i
-    .test(message);
-};
-
-const runWithMongoTransactionFallback = async <T>(
+const runWithMongoTransaction = async <T>(
   operation: (options: SessionOptions) => Promise<T>,
 ) => {
-  let session: ClientSession | null = null;
+  const session = await mongoose.startSession();
 
   try {
-    session = await mongoose.startSession();
     let result: T | undefined;
 
     await session.withTransaction(async () => {
-      result = await operation({ session: session! });
+      result = await operation({ session });
     });
 
     if (result === undefined) {
@@ -1048,24 +1040,8 @@ const runWithMongoTransactionFallback = async <T>(
     }
 
     return result;
-  } catch (error) {
-    if (!isMongoTransactionSupportError(error)) {
-      throw error;
-    }
-
-    if (session) {
-      await session.endSession();
-      session = null;
-    }
-
-    console.warn(
-      'MongoDB transactions are unavailable; continuing checkout without a transaction. Configure MongoDB as a replica set for atomic checkout writes.',
-    );
-    return operation({});
   } finally {
-    if (session) {
-      await session.endSession();
-    }
+    await session.endSession();
   }
 };
 
@@ -1380,7 +1356,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   let createdOrder: IOrder | null = null;
 
   try {
-    createdOrder = await runWithMongoTransactionFallback(async ({ session }) => {
+    createdOrder = await runWithMongoTransaction(async ({ session }) => {
       const sessionOptions = session ? { session } : {};
 
       for (const appliedCoupon of appliedCoupons) {
@@ -1659,6 +1635,28 @@ const adjustOrderPaymentStatus = async (
   return updatedOrder;
 };
 
+const markVNPayRefundCompleted = async (id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
+
+  if (order.paymentStatus === 'refunded') {
+    return order;
+  }
+
+  if (order.paymentMethod !== 'VNPAY' || order.paymentStatus !== 'paid') {
+    throw new SalesServiceError('Only paid VNPay orders can be gateway-refunded', 409);
+  }
+
+  if (!['cancelled', 'returned'].includes(order.status)) {
+    throw new SalesServiceError('Order must be cancelled or returned before refund completion', 409);
+  }
+
+  order.paymentStatus = 'refunded';
+  const updatedOrder = await order.save();
+  await triggerOrderPaymentChange(updatedOrder, before);
+  return updatedOrder;
+};
+
 const restockCommittedOrder = async (order: IOrder) => {
   await Promise.all(
     order.order_list.map((item) =>
@@ -1883,9 +1881,9 @@ const reviewReturnRequest = async (
   const reviewedBy = toObjectId(reviewerId, 'reviewerId');
 
   if (input.decision === 'approved') {
-    assertOrderStatusTransition(order.status, 'returned');
-    assertPaymentAllowsOrderStatus(order, 'returned');
-    order.status = 'returned';
+    assertOrderStatusTransition(order.status, 'return_approved');
+    assertPaymentAllowsOrderStatus(order, 'return_approved');
+    order.status = 'return_approved';
   } else {
     order.status = order.returnRequest.previousOrderStatus === 'completed' ? 'completed' : 'delivered';
     ensureDeliveredInvoiceCode(order);
@@ -1902,10 +1900,6 @@ const reviewReturnRequest = async (
     reviewReason,
   };
 
-  if (input.decision === 'approved') {
-    return saveOrderWithLoyaltyClawback(order, 'Order returned');
-  }
-
   return order.save();
 };
 
@@ -1919,7 +1913,7 @@ const updateOrderStatus = async (
   }
 
   const order = await getOrderByIdOrThrow(id);
-  if (input.status === 'return_requested' || input.status === 'returned') {
+  if (input.status === 'return_requested' || input.status === 'return_approved') {
     throw new SalesServiceError('Use the return request review workflow for return orders', 400);
   }
 
@@ -1964,6 +1958,12 @@ const updateOrderStatus = async (
       'status_update',
       input.status === 'delivered' ? 'delivered' : undefined,
     );
+    return savedOrder;
+  }
+
+  if (input.status === 'returned') {
+    const savedOrder = await saveOrderWithLoyaltyClawback(order, 'Returned merchandise received');
+    await triggerOrderStatusChange(savedOrder, before, 'status_update');
     return savedOrder;
   }
 
@@ -2138,7 +2138,25 @@ const syncGhnShipment = async (id: string) => {
 const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) => {
   const order = await getOrderByIdOrThrow(id);
   const before = createOrderChangeSnapshot(order);
-  const nextCustomerFee = input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null;
+  const currentCustomerFee = order.shipping?.customerFee ?? order.shippingFee ?? null;
+  const nextCustomerFee = input.customerFee ?? currentCustomerFee;
+  const changesCustomerTotal = typeof input.customerFee === 'number' &&
+    Number.isFinite(input.customerFee) &&
+    input.customerFee !== currentCustomerFee;
+
+  if (changesCustomerTotal) {
+    const canChangeCodTotal = order.paymentMethod === 'COD' &&
+      order.paymentStatus === 'pending' &&
+      ['confirmed', 'packed'].includes(order.status) &&
+      !order.shipping?.trackingCode;
+
+    if (!canChangeCodTotal) {
+      throw new SalesServiceError(
+        'Customer shipping fee cannot be changed after online checkout, payment, or shipment creation',
+        409,
+      );
+    }
+  }
 
   order.shipping = {
     provider: input.provider ?? order.shipping?.provider ?? null,
@@ -2372,17 +2390,8 @@ const applyGhnShippingWebhook = async (payload: unknown) => (
 const autoCompleteDeliveredOrders = async (now = new Date()) => {
   const cutoff = new Date(now.getTime() - AUTO_COMPLETE_DELIVERED_AFTER_MS);
   const orders = await Order.find({
-    $or: [
-      {
-        status: 'delivered',
-        deliveredAt: { $lte: cutoff },
-      },
-      {
-        status: 'shipping',
-        'shipping.estimatedDeliveryDate': { $lte: cutoff },
-        'shipping.status': { $nin: ['failed', 'cancelled'] },
-      },
-    ],
+    status: 'delivered',
+    deliveredAt: { $lte: cutoff },
   }).limit(AUTO_COMPLETE_BATCH_SIZE) as IOrder[];
 
   const completedOrderIds: string[] = [];
@@ -2391,12 +2400,8 @@ const autoCompleteDeliveredOrders = async (now = new Date()) => {
   for (const order of orders) {
     const before = createOrderChangeSnapshot(order);
     try {
-      const inferredDeliveredAt = order.status === 'shipping'
-        ? order.shipping?.estimatedDeliveryDate ?? cutoff
-        : order.deliveredAt ?? cutoff;
       order.status = 'completed';
       order.receivedAt = order.receivedAt ?? now;
-      order.deliveredAt = order.deliveredAt ?? inferredDeliveredAt;
       if (order.paymentMethod === 'COD') {
         order.paymentStatus = 'paid';
       }
@@ -2434,6 +2439,7 @@ export const orderService = {
   getOrderById,
   getOrderTransactions,
   adjustOrderPaymentStatus,
+  markVNPayRefundCompleted,
   cancelOrder,
   confirmOrderReceived,
   requestReturn,

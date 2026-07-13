@@ -47,6 +47,8 @@ export type RegisterPayload = {
   password: string
   confirmPassword: string
   otpToken: string
+  acceptedTerms: true
+  policyVersion: string
 }
 
 export type Province = {

@@ -295,7 +295,7 @@ const quoteGhnOptions = async (input: {
             rawQuote: normalizeRawQuote(rawQuote),
           };
         } catch (error) {
-          if (shouldFallbackToFixedFee(error) || error instanceof GHNServiceError) {
+          if (shouldFallbackToFixedFee(error)) {
             return {
               key: `GHN:${service.serviceId > 0 ? service.serviceId : 'DEFAULT'}:${service.serviceTypeId ?? DEFAULT_SERVICE_TYPE_ID}`,
               provider: 'GHN' as const,
@@ -324,7 +324,7 @@ const quoteGhnOptions = async (input: {
 
     return { options: availableOptions, hadUnavailable };
   } catch (error) {
-    if (shouldFallbackToFixedFee(error) || error instanceof GHNServiceError) {
+    if (shouldFallbackToFixedFee(error)) {
       return { options: [], hadUnavailable: true };
     }
 

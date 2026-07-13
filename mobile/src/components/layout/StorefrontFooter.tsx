@@ -1,27 +1,34 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
+import { policyUrls, STOREFRONT_URL } from '../../config/policies';
 
 type SocialLink = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
+  url: string;
 };
 
 const supportLinks = [
-  'Hướng dẫn đặt hàng',
-  'Giao hàng',
-  'Chính sách trả hàng hoàn tiền',
-  'Chính sách bảo mật',
-  'Liên hệ với chúng tôi',
+  { label: 'Hướng dẫn đặt hàng', url: `${STOREFRONT_URL}/support?topic=orders` },
+  { label: 'Chính sách giao hàng', url: policyUrls.shipping },
+  { label: 'Trả hàng và hoàn tiền', url: policyUrls.returns },
+  { label: 'Chính sách bảo mật', url: policyUrls.privacy },
+  { label: 'Tiếp nhận khiếu nại', url: policyUrls.complaints },
 ];
 
-const socialLinks: SocialLink[] = [
-  { icon: 'facebook', label: 'Facebook' },
-  { icon: 'instagram', label: 'Instagram' },
-  { icon: 'alpha-t-circle', label: 'TikTok' },
-  { icon: 'alpha-z-circle', label: 'Zalo' },
+const socialLinkCandidates: SocialLink[] = [
+  { icon: 'facebook', label: 'Facebook', url: process.env.EXPO_PUBLIC_FACEBOOK_URL?.trim() || '' },
+  { icon: 'instagram', label: 'Instagram', url: process.env.EXPO_PUBLIC_INSTAGRAM_URL?.trim() || '' },
+  { icon: 'alpha-t-circle', label: 'TikTok', url: process.env.EXPO_PUBLIC_TIKTOK_URL?.trim() || '' },
 ];
+
+const socialLinks = socialLinkCandidates.filter((item) => Boolean(item.url));
+
+const shopPhone = process.env.EXPO_PUBLIC_SHOP_PHONE?.trim();
+const shopEmail = process.env.EXPO_PUBLIC_SHOP_EMAIL?.trim();
+const shopHours = process.env.EXPO_PUBLIC_SHOP_HOURS?.trim();
 
 const StorefrontFooter = () => {
   return (
@@ -29,21 +36,29 @@ const StorefrontFooter = () => {
       <View style={styles.section}>
         <Text style={styles.heading}>GIỚI THIỆU</Text>
         <Text style={styles.bodyText}>Cửa hàng FASHIONISTA</Text>
-        <Text style={styles.bodyText}>SĐT: 0123.456.789</Text>
-        <Text style={styles.bodyText}>Email: cuahang@gmail.com</Text>
-        <Text style={styles.bodyText}>Giờ mở cửa: 8:30 - 22:00</Text>
+        {shopPhone ? (
+          <TouchableOpacity onPress={() => void Linking.openURL(`tel:${shopPhone}`)}>
+            <Text style={styles.bodyText}>SĐT: {shopPhone}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {shopEmail ? (
+          <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${shopEmail}`)}>
+            <Text style={styles.bodyText}>Email: {shopEmail}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {shopHours ? <Text style={styles.bodyText}>Giờ mở cửa: {shopHours}</Text> : null}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.heading}>HỖ TRỢ</Text>
         {supportLinks.map((item) => (
-          <Text key={item} style={styles.bodyText}>
-            {item}
-          </Text>
+          <TouchableOpacity key={item.label} onPress={() => void Linking.openURL(item.url)}>
+            <Text style={styles.bodyText}>{item.label}</Text>
+          </TouchableOpacity>
         ))}
       </View>
 
-      <View style={styles.section}>
+      {socialLinks.length > 0 ? <View style={styles.section}>
         <Text style={styles.heading}>CỘNG ĐỒNG</Text>
         <View style={styles.socialRow}>
           {socialLinks.map((item) => (
@@ -52,12 +67,13 @@ const StorefrontFooter = () => {
               style={styles.socialButton}
               accessibilityLabel={item.label}
               activeOpacity={0.8}
+              onPress={() => void Linking.openURL(item.url)}
             >
               <MaterialCommunityIcons name={item.icon} size={18} color={colors.brand} />
             </TouchableOpacity>
           ))}
         </View>
-      </View>
+      </View> : null}
 
       <View style={styles.section}>
         <Text style={styles.heading}>THANH TOÁN</Text>
@@ -66,7 +82,7 @@ const StorefrontFooter = () => {
             <Text style={styles.paymentText}>COD</Text>
           </View>
           <View style={styles.paymentChip}>
-            <Text style={styles.paymentText}>CARD</Text>
+            <Text style={styles.paymentText}>VNPAY</Text>
           </View>
         </View>
       </View>

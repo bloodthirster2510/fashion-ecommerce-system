@@ -54,6 +54,11 @@ export interface IUserAuthProvider {
   providerId: string;
 }
 
+export interface IUserLegalConsent {
+  policyVersion: string;
+  acceptedAt: Date;
+}
+
 export interface IUser extends Document {
   name: string;
   email: string;
@@ -79,6 +84,7 @@ export interface IUser extends Document {
   avatarImage?: string | null;
   avatarPublicId?: string | null;
   isActive: boolean;
+  legalConsent?: IUserLegalConsent | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -113,6 +119,14 @@ const authProviderSchema = new Schema<IUserAuthProvider>(
   {
     provider: { type: String, enum: ['google', 'facebook', 'apple'], required: true },
     providerId: { type: String, required: true, trim: true },
+  },
+  { _id: false },
+);
+
+const userLegalConsentSchema = new Schema<IUserLegalConsent>(
+  {
+    policyVersion: { type: String, required: true, trim: true, maxlength: 40 },
+    acceptedAt: { type: Date, required: true },
   },
   { _id: false },
 );
@@ -160,6 +174,7 @@ const userSchema = new Schema<IUser>(
     avatarImage: { type: String, default: null, maxlength: 1000 },
     avatarPublicId: { type: String, default: null, maxlength: 255 },
     isActive: { type: Boolean, default: false },
+    legalConsent: { type: userLegalConsentSchema, default: null },
   },
   { timestamps: true },
 );

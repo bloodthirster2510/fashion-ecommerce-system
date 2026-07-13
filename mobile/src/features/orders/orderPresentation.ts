@@ -38,7 +38,7 @@ export const orderTabs: OrderTab[] = [
     key: 'issues',
     label: 'Cần hỗ trợ',
     helper: 'Trả hàng/chờ đối soát',
-    statuses: ['return_requested'],
+    statuses: ['return_requested', 'return_approved'],
   },
   {
     key: 'all',
@@ -159,6 +159,19 @@ export const getOrderDisplayState = (order: CustomerOrder): OrderDisplayState =>
       color: colors.coral,
       backgroundColor: '#FFF0EA',
       requiresUserAction: false,
+    };
+  }
+
+  if (order.status === 'return_approved') {
+    return {
+      label: 'Đã duyệt trả hàng',
+      description: 'Gửi sản phẩm theo hướng dẫn của shop.',
+      deliveryLine: 'Shop đang chờ nhận hàng trả.',
+      icon: 'archive-arrow-up-outline',
+      tone: 'info',
+      color: colors.action,
+      backgroundColor: '#EAF3FF',
+      requiresUserAction: true,
     };
   }
 
@@ -306,6 +319,12 @@ export const statusMeta: Record<OrderStatus, {
     description: 'Shop đang xem yêu cầu của bạn.',
     color: colors.coral,
     backgroundColor: '#FFF0EA',
+  },
+  return_approved: {
+    label: 'Đã duyệt trả hàng',
+    description: 'Shop đang chờ nhận sản phẩm trả.',
+    color: colors.action,
+    backgroundColor: '#EAF3FF',
   },
   returned: {
     label: 'Đã trả hàng',

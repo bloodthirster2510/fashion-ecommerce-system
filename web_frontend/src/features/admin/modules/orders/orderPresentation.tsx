@@ -29,6 +29,7 @@ export const emptyStatusSummary: Record<AdminOrderStatus | 'all', number> = {
   completed: 0,
   cancelled: 0,
   return_requested: 0,
+  return_approved: 0,
   returned: 0,
 }
 
@@ -107,10 +108,10 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'review',
-    label: 'Duyệt yêu cầu trả hàng',
-    helper: 'Yêu cầu đổi/trả cần kiểm tra lý do, minh chứng và thời hạn 7 ngày từ lúc giao.',
+    label: 'Xử lý trả hàng',
+    helper: 'Duyệt yêu cầu mới và theo dõi các đơn đã duyệt đang chờ shop nhận lại hàng.',
     group: 'exceptions',
-    statuses: ['return_requested'],
+    statuses: ['return_requested', 'return_approved'],
     queue: 'review',
   },
   {
@@ -158,6 +159,7 @@ export const statusLabels: Record<AdminOrderStatus, string> = {
   completed: 'Hoàn tất',
   cancelled: 'Đã hủy',
   return_requested: 'Chờ duyệt trả',
+  return_approved: 'Chờ nhận hàng trả',
   returned: 'Đã nhận trả',
 }
 
@@ -230,8 +232,12 @@ export const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'order.status_update': 'Cập nhật trạng thái đơn',
   'order.shipping_update': 'Cập nhật vận chuyển',
   'order.shipping_webhook': 'Webhook vận chuyển',
+  'order.shipping_reconcile': 'Đối soát vận chuyển',
+  'order.auto_complete_delivered': 'Tự hoàn tất đơn đã giao',
   'payment.adjust': 'Điều chỉnh thanh toán',
   'payment.expire': 'Đánh dấu thanh toán hết hạn',
+  'payment.vnpay_reconcile': 'Đối soát VNPay',
+  'payment.vnpay_refund': 'Yêu cầu hoàn tiền VNPay',
   'payment_method.status_update': 'Cập nhật phương thức thanh toán',
   'payment_method.account_reveal': 'Xem số tài khoản hoàn tiền',
 }
@@ -285,6 +291,7 @@ export const nextStatusOptions: Partial<Record<AdminOrderStatus, AdminOrderStatu
   confirmed: ['packed', 'cancelled'],
   packed: ['cancelled'],
   delivered: ['completed'],
+  return_approved: ['returned'],
 }
 
 export const getNoNextOrderStepMessage = (order: AdminOrder) => {
@@ -300,6 +307,10 @@ export const getNoNextOrderStepMessage = (order: AdminOrder) => {
     return 'Khách đã xác nhận nhận hàng. Đơn vẫn có thể phát sinh yêu cầu trả hàng trong thời hạn chính sách.'
   }
 
+  if (order.status === 'return_approved') {
+    return 'Yêu cầu trả đã được duyệt. Chỉ xác nhận đã nhận hàng trả sau khi shop thực tế nhận và kiểm tra sản phẩm.'
+  }
+
   return 'Đơn hàng không có bước xử lý tiếp theo.'
 }
 
@@ -309,6 +320,7 @@ export const getStatusActionLabel = (status: AdminOrderStatus) => {
   if (status === 'delivered') return 'Xác nhận giao thành công'
   if (status === 'completed') return 'Khách đã nhận hàng'
   if (status === 'cancelled') return 'Hủy đơn'
+  if (status === 'returned') return 'Xác nhận đã nhận hàng trả'
 
   return statusLabels[status]
 }
@@ -375,6 +387,7 @@ export const getOrderPillClass = (status: AdminOrderStatus) => {
   if (status === 'shipping') return 'admin-status-pill is-info'
   if (status === 'packed') return 'admin-status-pill is-progress'
   if (status === 'return_requested') return 'admin-status-pill is-review'
+  if (status === 'return_approved') return 'admin-status-pill is-progress'
   if (status === 'returned') return 'admin-status-pill is-refund'
   if (status === 'cancelled') return 'admin-status-pill is-blocked'
   return 'admin-status-pill is-warning'
@@ -418,7 +431,7 @@ export const orderFlowLabels: Record<(typeof orderFlowSteps)[number], string> = 
 
 export const getOrderProgressPercent = (status: AdminOrderStatus, shippingStatus?: string | null) => {
   if (status === 'cancelled') return 0
-  if (status === 'return_requested' || status === 'returned') return 100
+  if (status === 'return_requested' || status === 'return_approved' || status === 'returned') return 100
 
   if (status === 'packed') {
     if (shippingStatus === 'ready') return 60

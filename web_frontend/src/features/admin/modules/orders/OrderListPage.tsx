@@ -129,6 +129,7 @@ export function OrderListPage({
     handleCancelGhnShipment,
     handleCreateGhnShipment,
     handleExpireStalePayments,
+    handleReconcileVNPay,
     handleRevealRefundAccount,
     handleReviewReturnRequest,
     handleShippingUpdate,
@@ -232,6 +233,8 @@ export function OrderListPage({
           onCreateGhnShipment={() => void handleCreateGhnShipment()}
           onUpdatePaymentMethodStatus={(method, status) => void handleUpdatePaymentMethodStatus(method, status)}
           onRefresh={() => void refreshSelectedOrder(selectedOrder._id)}
+          onReconcileVNPay={() => void handleReconcileVNPay()}
+          onRefundVNPay={() => void handleAdjustPaymentStatus('refunded')}
           onReviewReturnRequest={(decision) => void handleReviewReturnRequest(decision)}
           onShippingUpdate={() => void handleShippingUpdate()}
           onSimulateShippingStatus={(status) => void handleSimulateShippingStatus(status)}

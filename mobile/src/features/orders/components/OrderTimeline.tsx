@@ -31,6 +31,14 @@ const getTimelineSteps = (order: CustomerOrder): TimelineStep[] => {
     ];
   }
 
+  if (order.status === 'return_approved') {
+    return [
+      ...baseSteps,
+      { key: 'return_requested', label: 'Đã duyệt trả', helper: 'Shop đã duyệt' },
+      { key: 'return_approved', label: 'Chờ nhận hàng trả', helper: 'Gửi hàng về shop' },
+    ];
+  }
+
   if (order.status === 'returned') {
     return [
       ...baseSteps,
@@ -62,7 +70,10 @@ export function OrderTimeline({ order }: { order: CustomerOrder }) {
         <View style={styles.cancelledCopy}>
           <Text style={styles.cancelledTitle}>Đơn hàng đã hủy</Text>
           <Text style={styles.cancelledText}>
-            Đơn dừng xử lý vào {formatDate(order.updatedAt)}. Nếu có thanh toán trước, shop sẽ hoàn tiền theo kênh thanh toán ban đầu.
+            Đơn dừng xử lý vào {formatDate(order.updatedAt)}.{' '}
+            {order.paymentMethod === 'VNPAY'
+              ? 'Khoản đã thanh toán sẽ được yêu cầu hoàn qua VNPay.'
+              : 'Nếu phát sinh khoản cần hoàn, shop sẽ chuyển vào tài khoản ngân hàng đã xác minh.'}
           </Text>
         </View>
       </View>

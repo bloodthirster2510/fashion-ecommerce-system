@@ -9,6 +9,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -19,6 +20,7 @@ import { authApi } from '../authApi';
 import { locationApi, type ProvinceApiItem, type WardApiItem } from '../locationApi';
 import { LocationPicker } from '../../../components/ui/LocationPicker';
 import { colors, sharedStyles } from '../../../theme';
+import { LEGAL_POLICY_VERSION, policyUrls } from '../../../config/policies';
 
 type AuthNavigationProp = StackNavigationProp<RootStackParamList>;
 type Gender = 'male' | 'female';
@@ -596,6 +598,8 @@ const RegisterScreen = () => {
         password,
         confirmPassword,
         otpToken,
+        acceptedTerms: true,
+        policyVersion: LEGAL_POLICY_VERSION,
       });
       navigation.navigate('Login');
     } catch (error) {
@@ -950,8 +954,21 @@ const RegisterScreen = () => {
               </View>
             </TouchableOpacity>
             <Text style={styles.termsText}>
-              Tôi đồng ý với <Text style={styles.termsLink}>Điều khoản sử dụng</Text> và{' '}
-              <Text style={styles.termsLink}>Chính sách bảo mật</Text>
+              Tôi đồng ý với{' '}
+              <Text
+                style={styles.termsLink}
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(policyUrls.terms)}
+              >
+                Điều khoản sử dụng
+              </Text>{' '}và{' '}
+              <Text
+                style={styles.termsLink}
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(policyUrls.privacy)}
+              >
+                Chính sách bảo mật
+              </Text>
             </Text>
           </View>
 

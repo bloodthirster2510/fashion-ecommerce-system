@@ -63,6 +63,8 @@ export function OrderDetailDrawer({
   onCreateGhnShipment,
   onUpdatePaymentMethodStatus,
   onRefresh,
+  onReconcileVNPay,
+  onRefundVNPay,
   onReviewReturnRequest,
   onShippingUpdate,
   onSimulateShippingStatus,
@@ -88,6 +90,8 @@ export function OrderDetailDrawer({
   onCreateGhnShipment: () => void
   onUpdatePaymentMethodStatus: (method: AdminCustomerPaymentMethod, status: AdminPaymentMethodStatus) => void
   onRefresh: () => void
+  onReconcileVNPay: () => void
+  onRefundVNPay: () => void
   onReviewReturnRequest: (decision: AdminReturnReviewDecision) => void
   onShippingUpdate: () => void
   onSimulateShippingStatus: (status: ShippingSimulationStatus) => void
@@ -207,6 +211,7 @@ export function OrderDetailDrawer({
             paymentMethods={paymentMethods}
             revealedRefundAccounts={revealedRefundAccounts}
             onCopyReference={onCopyReference}
+            onRefundVNPay={onRefundVNPay}
             onRevealRefundAccount={onRevealRefundAccount}
             onUpdatePaymentMethodStatus={onUpdatePaymentMethodStatus}
           />
@@ -237,6 +242,7 @@ export function OrderDetailDrawer({
             order={order}
             transactions={transactions}
             onAdjustPaymentStatus={onAdjustPaymentStatus}
+            onReconcileVNPay={onReconcileVNPay}
             onRefresh={onRefresh}
           />
         ) : null}

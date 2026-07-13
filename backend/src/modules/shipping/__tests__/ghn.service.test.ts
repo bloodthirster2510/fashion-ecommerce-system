@@ -74,5 +74,66 @@ describe('GHNService', () => {
     expect(first).not.toBe(second);
     expect(post).toHaveBeenCalledTimes(2);
   });
+
+  it('charges the shop for shipping because customer totals already include the shipping fee', async () => {
+    process.env.SHOP_NAME = 'Fashion Shop';
+    process.env.SHOP_PHONE = '0900000000';
+    process.env.SHOP_ADDRESS = '123 Shop Street';
+    process.env.SHOP_DISTRICT_ID = '1574';
+    process.env.SHOP_WARD_CODE = '550101';
+    const post = jest.fn().mockResolvedValue({ data: { data: { order_code: 'GHD123' } } });
+    mockedAxios.create.mockReturnValue({ post } as never);
+
+    await GHNService.createShippingOrder({
+      clientOrderCode: 'FS123',
+      toName: 'Customer',
+      toPhone: '0911111111',
+      toAddress: '456 Customer Street',
+      toWardCode: '20101',
+      toDistrictId: 1442,
+      codAmount: 120000,
+      content: 'Basic Tee',
+      weight: 500,
+      insuranceValue: 9000000,
+      serviceId: 53320,
+      items: [{ name: 'Basic Tee', quantity: 1, price: 99000 }],
+    });
+
+    expect(post).toHaveBeenCalledWith(
+      '/v2/shipping-order/create',
+      expect.objectContaining({
+        payment_type_id: 1,
+        cod_amount: 120000,
+        insurance_value: 5000000,
+      }),
+    );
+  });
+
+  it('rejects packages that exceed GHN weight or COD limits before calling the gateway', async () => {
+    const post = jest.fn();
+    mockedAxios.create.mockReturnValue({ post } as never);
+    const baseInput = {
+      clientOrderCode: 'FS123',
+      toName: 'Customer',
+      toPhone: '0911111111',
+      toAddress: '456 Customer Street',
+      toWardCode: '20101',
+      toDistrictId: 1442,
+      codAmount: 120000,
+      content: 'Basic Tee',
+      weight: 500,
+      items: [{ name: 'Basic Tee', quantity: 1, price: 99000 }],
+    };
+
+    await expect(GHNService.createShippingOrder({
+      ...baseInput,
+      weight: 50001,
+    })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(GHNService.createShippingOrder({
+      ...baseInput,
+      codAmount: 50000001,
+    })).rejects.toMatchObject({ statusCode: 400 });
+    expect(post).not.toHaveBeenCalled();
+  });
 });
 

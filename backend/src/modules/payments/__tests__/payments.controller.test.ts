@@ -168,6 +168,59 @@ describe('settleVNPayPayment', () => {
     });
   });
 
+  it('recovers a valid successful callback after the local attempt expired', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000205');
+    const transactionId = new Types.ObjectId('665000000000000000000305');
+    const transaction = {
+      _id: transactionId,
+      order_id: orderId,
+      amount: 385000,
+      status: 'expired',
+      paymentDetail: { vnp_CreateDate: '20260618120000' },
+    };
+    const order = {
+      _id: orderId,
+      orderCode: 'FSORDER',
+      paymentStatus: 'pending',
+    };
+    const resolvedTransaction = { ...transaction, status: 'success' };
+
+    mockedTransactionService.findByTxnRef.mockResolvedValue(transaction as never);
+    mockedOrder.findById.mockReturnValue(chainLeanResult(order) as never);
+    mockedTransactionService.resolveTransaction.mockResolvedValue(resolvedTransaction as never);
+    mockedTransactionService.findLatestAttemptByOrderId.mockResolvedValue(resolvedTransaction as never);
+
+    const result = await settleVNPayPayment({
+      isValidSignature: true,
+      isSuccess: true,
+      orderId: 'FSORDERA1',
+      amount: 385000,
+      responseCode: '00',
+      transactionStatus: '00',
+      transactionNo: 'VNP127',
+      bankCode: 'NCB',
+      payDate: '20260618124000',
+    });
+
+    expect(mockedTransactionService.resolveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionId: transactionId.toString(),
+        status: 'success',
+        currentStatuses: ['pending', 'expired', 'failed'],
+        paymentDetail: expect.objectContaining({
+          vnp_CreateDate: '20260618120000',
+          vnp_TransactionNo: 'VNP127',
+        }),
+      }),
+    );
+    expect(mockedOrder.updateOne).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      rspCode: '00',
+      transactionStatus: 'success',
+      paymentStatus: 'paid',
+    });
+  });
+
   it('does not let a late failed latest attempt overwrite an already paid order', async () => {
     const orderId = new Types.ObjectId('665000000000000000000202');
     const transactionId = new Types.ObjectId('665000000000000000000302');

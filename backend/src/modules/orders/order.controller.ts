@@ -801,7 +801,10 @@ const simulateShippingWebhook = async (req: Request, res: Response) => {
 
 const handleGhnShippingWebhook = async (req: Request, res: Response) => {
   try {
-    const receivedSecret = parseString(req.headers['x-webhook-secret']);
+    // GHN does not document support for custom headers. A secret query parameter
+    // keeps the public callback compatible while still failing closed.
+    const receivedSecret = parseString(req.headers['x-webhook-secret'])
+      ?? parseString(req.query.token);
     if (!timingSafeSecretEqual(receivedSecret, getRequiredWebhookSecret('GHN_WEBHOOK_SECRET'))) {
       return errorResponse(res, 'Invalid GHN webhook secret', 401);
     }

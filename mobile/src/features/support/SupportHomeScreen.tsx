@@ -29,6 +29,9 @@ export default function SupportHomeScreen() {
   const [summary, setSummary] = React.useState<SupportSummary | null>(null);
   const [error, setError] = React.useState('');
   const [notificationMessage, setNotificationMessage] = React.useState('');
+  const shopPhone = process.env.EXPO_PUBLIC_SHOP_PHONE?.trim();
+  const shopEmail = process.env.EXPO_PUBLIC_SHOP_EMAIL?.trim();
+  const shopHours = process.env.EXPO_PUBLIC_SHOP_HOURS?.trim();
 
   const load = React.useCallback(() => {
     supportApi.listFaqs(search).then((result) => setFaqs(result.items.slice(0, 6))).catch(() => setError('Không thể tải câu hỏi thường gặp.'));
@@ -72,7 +75,14 @@ export default function SupportHomeScreen() {
           <Text style={s.secondaryText}>Bật thông báo phản hồi</Text>
         </TouchableOpacity>
         {notificationMessage ? <Text style={s.success}>{notificationMessage}</Text> : null}
-        <View style={s.card}><Text style={s.cardTitle}>Liên hệ trực tiếp</Text><TouchableOpacity onPress={() => void Linking.openURL('tel:0123456789')}><Text style={s.muted}>Hotline: 0123 456 789</Text></TouchableOpacity><TouchableOpacity onPress={() => void Linking.openURL('mailto:cuahang@gmail.com')}><Text style={s.muted}>Email: cuahang@gmail.com</Text></TouchableOpacity><Text style={s.muted}>Giờ hỗ trợ: 8:30 – 21:45 mỗi ngày</Text></View>
+        {shopPhone || shopEmail || shopHours ? (
+          <View style={s.card}>
+            <Text style={s.cardTitle}>Liên hệ trực tiếp</Text>
+            {shopPhone ? <TouchableOpacity onPress={() => void Linking.openURL(`tel:${shopPhone}`)}><Text style={s.muted}>Hotline: {shopPhone}</Text></TouchableOpacity> : null}
+            {shopEmail ? <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${shopEmail}`)}><Text style={s.muted}>Email: {shopEmail}</Text></TouchableOpacity> : null}
+            {shopHours ? <Text style={s.muted}>Giờ hỗ trợ: {shopHours}</Text> : null}
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

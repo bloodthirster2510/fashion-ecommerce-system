@@ -1,4 +1,4 @@
-import { Copy } from 'lucide-react'
+import { Copy, RotateCcw } from 'lucide-react'
 import type {
   AdminCustomerPaymentMethod,
   AdminOrder,
@@ -29,6 +29,7 @@ type OrderRefundMethodsPanelProps = {
   paymentMethods: AdminCustomerPaymentMethod[]
   revealedRefundAccounts: Record<string, string>
   onCopyReference: (value: string, label: string) => void
+  onRefundVNPay: () => void
   onRevealRefundAccount: (method: AdminCustomerPaymentMethod) => void
   onUpdatePaymentMethodStatus: (method: AdminCustomerPaymentMethod, status: AdminPaymentMethodStatus) => void
 }
@@ -43,6 +44,7 @@ export function OrderRefundMethodsPanel({
   paymentMethods,
   revealedRefundAccounts,
   onCopyReference,
+  onRefundVNPay,
   onRevealRefundAccount,
   onUpdatePaymentMethodStatus,
 }: OrderRefundMethodsPanelProps) {
@@ -57,6 +59,32 @@ export function OrderRefundMethodsPanel({
       recommendedRefundMethod?.maskedInfo &&
       /[•*xX]/.test(recommendedRefundMethod.maskedInfo),
   )
+
+  if (needsRefundHandling && order.paymentMethod === 'VNPAY') {
+    return (
+      <section className="admin-drawer-section admin-order-section-side admin-order-section-refund">
+        <h3>Hoàn tiền VNPay</h3>
+        <div className="admin-refund-panel">
+          <div className="admin-refund-panel-header">
+            <span>Số tiền hoàn toàn phần</span>
+            <strong>{formatCurrency(order.totalAmount)}</strong>
+          </div>
+          <button
+            className="admin-primary-button"
+            type="button"
+            disabled={!canAdjustPayments || isActionLoading}
+            onClick={onRefundVNPay}
+          >
+            <RotateCcw size={16} aria-hidden="true" />
+            Gửi yêu cầu hoàn qua VNPay
+          </button>
+          {!canAdjustPayments ? (
+            <p className="admin-permission-note">Cần quyền payments.adjust để hoàn tiền.</p>
+          ) : null}
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="admin-drawer-section admin-order-section-side admin-order-section-refund">

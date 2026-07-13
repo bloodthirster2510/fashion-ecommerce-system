@@ -8,6 +8,8 @@ export type AuditLogAction =
   | 'order.auto_complete_delivered'
   | 'payment.adjust'
   | 'payment.expire'
+  | 'payment.vnpay_reconcile'
+  | 'payment.vnpay_refund'
   | 'payment_method.status_update'
   | 'payment_method.account_reveal'
   | 'membership_ranking.create'
@@ -54,6 +56,8 @@ const auditLogSchema = new Schema<IAuditLog>(
         'order.auto_complete_delivered',
         'payment.adjust',
         'payment.expire',
+        'payment.vnpay_reconcile',
+        'payment.vnpay_refund',
         'payment_method.status_update',
         'payment_method.account_reveal',
         'membership_ranking.create',

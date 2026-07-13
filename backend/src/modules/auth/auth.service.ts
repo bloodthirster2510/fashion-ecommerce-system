@@ -12,6 +12,7 @@ import {
 import { sendResetPasswordEmail } from '../../utils/email';
 import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
+import { LEGAL_POLICY_VERSION } from './legal-policy';
 
 const SALT_ROUNDS = 10;
 const DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS = 60_000;
@@ -175,7 +176,13 @@ export const registerUser = async (data: {
   dateOfBirth: string;
   address: UserAddressInput;
   otpToken: string;
+  acceptedTerms: boolean;
+  policyVersion: string;
 }) => {
+  if (!data.acceptedTerms || data.policyVersion !== LEGAL_POLICY_VERSION) {
+    throw { status: 400, message: 'Bạn cần đồng ý với phiên bản điều khoản hiện hành' };
+  }
+
   if (!(await verifyOtpToken(data.phone, data.otpToken))) {
     throw { status: 400, message: 'Số điện thoại chưa được xác thực' };
   }
@@ -207,6 +214,10 @@ export const registerUser = async (data: {
     role: 'user',
     isActive: true,
     address: [address],
+    legalConsent: {
+      policyVersion: LEGAL_POLICY_VERSION,
+      acceptedAt: new Date(),
+    },
   });
 
   const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };

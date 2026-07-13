@@ -9,6 +9,7 @@ import {
 } from './payments.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
+import { reconcileVNPayOrder, refundVNPayOrder } from './vnpay-admin.controller';
 
 const router = Router();
 const adminPaymentRouter = Router();
@@ -44,6 +45,16 @@ adminPaymentRouter.patch(
   '/orders/:orderId/payment-status',
   requirePermission('payments.adjust'),
   adjustOrderPaymentStatus,
+);
+adminPaymentRouter.post(
+  '/orders/:orderId/vnpay/reconcile',
+  requirePermission('payments.adjust'),
+  reconcileVNPayOrder,
+);
+adminPaymentRouter.post(
+  '/orders/:orderId/vnpay/refund',
+  requirePermission('payments.adjust'),
+  refundVNPayOrder,
 );
 
 export { adminPaymentRouter };

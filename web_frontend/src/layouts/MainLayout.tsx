@@ -3,12 +3,16 @@ import { Button, Dropdown, Input, type MenuProps } from 'antd'
 import {
   ClockCircleOutlined,
   DownOutlined,
+  FacebookFilled,
   HeartOutlined,
+  InstagramOutlined,
   MailOutlined,
   PhoneOutlined,
   SearchOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
+  TikTokOutlined,
+  YoutubeFilled,
 } from '@ant-design/icons'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { fetchCart } from '../features/cart/cart.slice'
@@ -42,16 +46,23 @@ const navLinks = [
 ] satisfies NavLink[]
 const supportLinks = [
   { label: 'Hướng dẫn đặt hàng', href: '/support?topic=orders' },
-  { label: 'Giao hàng', href: '/support?topic=shipping' },
-  { label: 'Chính sách trả hàng hoàn tiền', href: '/support?topic=returns' },
-  { label: 'Câu hỏi thường gặp', href: '/support/faqs' },
-  { label: 'Liên hệ với chúng tôi', href: '/support' },
+  { label: 'Chính sách giao hàng', href: '/policies/shipping' },
+  { label: 'Trả hàng và hoàn tiền', href: '/policies/returns' },
+  { label: 'Bảo vệ dữ liệu cá nhân', href: '/policies/privacy' },
+  { label: 'Điều khoản sử dụng', href: '/policies/terms' },
+  { label: 'Tiếp nhận khiếu nại', href: '/policies/complaints' },
 ]
 const shopContact = {
-  phone: import.meta.env.VITE_SHOP_PHONE?.trim() || 'Đang cập nhật',
-  email: import.meta.env.VITE_SHOP_EMAIL?.trim() || 'Đang cập nhật',
-  hours: import.meta.env.VITE_SHOP_HOURS?.trim() || 'Đang cập nhật',
+  phone: import.meta.env.VITE_SHOP_PHONE?.trim(),
+  email: import.meta.env.VITE_SHOP_EMAIL?.trim(),
+  hours: import.meta.env.VITE_SHOP_HOURS?.trim(),
 }
+const socialLinks = [
+  { label: 'Facebook', href: import.meta.env.VITE_FACEBOOK_URL?.trim(), Icon: FacebookFilled },
+  { label: 'Instagram', href: import.meta.env.VITE_INSTAGRAM_URL?.trim(), Icon: InstagramOutlined },
+  { label: 'TikTok', href: import.meta.env.VITE_TIKTOK_URL?.trim(), Icon: TikTokOutlined },
+  { label: 'YouTube', href: import.meta.env.VITE_YOUTUBE_URL?.trim(), Icon: YoutubeFilled },
+].filter((link): link is typeof link & { href: string } => Boolean(link.href))
 type CategoryMenuGroup = {
   parent: CatalogCategory
   children: CatalogCategory[]
@@ -311,18 +322,24 @@ function Footer() {
             <ShopOutlined aria-hidden="true" />
             <span>Cửa hàng thời trang</span>
           </p>
-          <p>
-            <PhoneOutlined aria-hidden="true" />
-            <span>{shopContact.phone}</span>
-          </p>
-          <p>
-            <MailOutlined aria-hidden="true" />
-            <span>{shopContact.email}</span>
-          </p>
-          <p>
-            <ClockCircleOutlined aria-hidden="true" />
-            <span>{shopContact.hours}</span>
-          </p>
+          {shopContact.phone ? (
+            <p>
+              <PhoneOutlined aria-hidden="true" />
+              <span>{shopContact.phone}</span>
+            </p>
+          ) : null}
+          {shopContact.email ? (
+            <p>
+              <MailOutlined aria-hidden="true" />
+              <span>{shopContact.email}</span>
+            </p>
+          ) : null}
+          {shopContact.hours ? (
+            <p>
+              <ClockCircleOutlined aria-hidden="true" />
+              <span>{shopContact.hours}</span>
+            </p>
+          ) : null}
         </section>
 
         <section>
@@ -337,18 +354,23 @@ function Footer() {
         </section>
 
         <section>
-          <h2>Cộng đồng</h2>
-          <div className="social-list" aria-label="Mạng xã hội">
-            <a href="/" aria-label="Facebook">f</a>
-            <a href="/" aria-label="Instagram">ig</a>
-            <a href="/" aria-label="TikTok">tt</a>
-            <a href="/" aria-label="YouTube">yt</a>
-          </div>
+          {socialLinks.length ? (
+            <>
+              <h2>Cộng đồng</h2>
+              <div className="social-list" aria-label="Mạng xã hội">
+                {socialLinks.map(({ label, href, Icon }) => (
+                  <a key={label} href={href} aria-label={label} target="_blank" rel="noreferrer">
+                    <Icon aria-hidden="true" />
+                  </a>
+                ))}
+              </div>
+            </>
+          ) : null}
 
           <h2 className="payment-heading">Thanh toán</h2>
           <div className="payment-list" aria-label="Phương thức thanh toán">
-            <span>CC</span>
-            <span>QR</span>
+            <span>COD</span>
+            <span>VNPAY</span>
           </div>
         </section>
       </div>

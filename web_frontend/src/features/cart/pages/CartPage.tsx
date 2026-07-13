@@ -26,6 +26,7 @@ export function CartPage() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [placingOrder, setPlacingOrder] = useState(false)
   const previewRequest = useRef(0)
+  const checkoutIdempotencyKey = useRef<string | null>(null)
   const selectedItems = useMemo(() => cart?.product_list.filter((item) => item.isSelected && item.isAvailable) ?? [], [cart])
   const selectedIds = useMemo(() => selectedItems.map((item) => item._id), [selectedItems])
   const allSelected = Boolean(cart?.product_list.length && cart.product_list.every((item) => !item.isAvailable || item.isSelected))
@@ -57,6 +58,9 @@ export function CartPage() {
   }, [addressId, appliedCoupon, paymentMethod, selectedIds])
 
   useEffect(() => { if (error) message.error(error) }, [error])
+  useEffect(() => {
+    checkoutIdempotencyKey.current = null
+  }, [addressId, appliedCoupon, note, paymentMethod, selectedIds])
 
   const applyCoupon = () => {
     const normalized = couponInput.trim().toUpperCase()
@@ -68,6 +72,7 @@ export function CartPage() {
     if (!preview || !addressId || !selectedIds.length) return
     setPlacingOrder(true)
     try {
+      checkoutIdempotencyKey.current ??= crypto.randomUUID()
       const order = await cartService.createOrder({
         cartItemIds: selectedIds,
         addressId,
@@ -75,7 +80,7 @@ export function CartPage() {
         couponCode: appliedCoupon || undefined,
         quoteVersion: preview.quoteVersion,
         orderNote: note || undefined,
-      })
+      }, checkoutIdempotencyKey.current)
       if (paymentMethod === 'VNPAY') {
         const payment = await cartService.createVNPayUrl(order._id)
         window.location.assign(payment.paymentUrl)

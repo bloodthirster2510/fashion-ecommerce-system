@@ -4,7 +4,7 @@ import { Order, type OrderPaymentStatus, type TransactionStatus } from '../../da
 import { error, ok, serverError } from '../../utils/response';
 import { auditLogService } from '../audit-logs/audit-log.service';
 import {
-  createVNPayPaymentUrl,
+  createVNPayPaymentRequest,
   verifyVNPayResponse,
 } from './payments.service';
 import { paymentExpiryService } from './payment-expiry.service';
@@ -134,7 +134,9 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
     };
   }
 
-  if (transaction.status !== 'pending') {
+  const canRecoverSuccessfulAttempt = result.isSuccess &&
+    ['expired', 'failed'].includes(transaction.status);
+  if (transaction.status !== 'pending' && !canRecoverSuccessfulAttempt) {
     return {
       rspCode: transaction.status === 'success' ? '02' : '00',
       message: 'Transaction already resolved',
@@ -182,9 +184,11 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
       resolvedTransaction = await transactionService.resolveTransaction({
         transactionId: transaction._id.toString(),
         status: newStatus,
+        currentStatuses: isSuccess ? ['pending', 'expired', 'failed'] : undefined,
         gatewayTransactionId: result.transactionNo ? String(result.transactionNo) : null,
         failureReason: isSuccess ? null : `VNPay response ${result.responseCode || 'unknown'}`,
         paymentDetail: {
+          ...(transaction.paymentDetail ?? {}),
           vnp_ResponseCode: result.responseCode,
           vnp_TransactionStatus: result.transactionStatus,
           vnp_TransactionNo: result.transactionNo,
@@ -300,16 +304,26 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
       return error(res, `Invalid VNPay txnRef "${txnRef}"`, 500);
     }
 
-    const paymentUrl = createVNPayPaymentUrl({
+    const ipAddr = getClientIp(req);
+    const paymentRequest = createVNPayPaymentRequest({
       orderId: txnRef,
       amount: order.totalAmount,
-      ipAddr: getClientIp(req),
+      ipAddr,
       bankCode: bankCode || undefined,
       locale: locale || 'vn',
     });
+    const updatedTransaction = await transactionService.attachVNPayRequestMetadata({
+      transactionId: transaction._id.toString(),
+      createDate: paymentRequest.createDate,
+      ipAddr,
+    });
+
+    if (!updatedTransaction) {
+      return error(res, 'Payment attempt is no longer pending', 409);
+    }
 
     return ok(res, {
-      paymentUrl,
+      paymentUrl: paymentRequest.paymentUrl,
       transactionId: transaction._id.toString(),
       txnRef,
       attemptNo: transaction.attemptNo ?? 1,
@@ -496,6 +510,7 @@ const escapeHtml = (value: string) =>
 
 const renderVNPayReturnPage = (mobileReturnUrl: string, isSuccess: boolean) => {
   const safeMobileReturnUrl = escapeHtml(mobileReturnUrl);
+  const scriptMobileReturnUrl = JSON.stringify(mobileReturnUrl).replace(/</g, '\\u003c');
   const title = isSuccess ? 'Thanh toán thành công' : 'Đã nhận kết quả thanh toán';
   const message = isSuccess
     ? 'Hệ thống đã ghi nhận thanh toán. Bạn có thể quay lại ứng dụng để xem đơn hàng.'
@@ -568,7 +583,7 @@ const renderVNPayReturnPage = (mobileReturnUrl: string, isSuccess: boolean) => {
   </main>
   <script>
     setTimeout(function () {
-      window.location.href = '${safeMobileReturnUrl}';
+      window.location.href = ${scriptMobileReturnUrl};
     }, 700);
   </script>
 </body>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Form, Input, Modal, Select, message } from 'antd'
+import { Alert, Button, Checkbox, Form, Input, Modal, Select, message } from 'antd'
 import { authService } from '../auth.service'
 import { AuthApiError, type AuthUser, type Province, type RegisterPayload, type Ward } from '../auth.types'
+import { LEGAL_POLICY_VERSION } from '../../policies/policy.constants'
 
 type RegisterModalProps = {
   open: boolean
@@ -23,6 +24,7 @@ type RegisterFormValues = {
   streetName: string
   password: string
   confirmPassword: string
+  acceptedTerms: boolean
 }
 
 type ProvinceOption = {
@@ -60,6 +62,7 @@ const backendFieldMap: Record<string, keyof RegisterFormValues> = {
   'address.phoneNumber': 'phone',
   otpToken: 'otp',
   dateOfBirth: 'birthDay',
+  acceptedTerms: 'acceptedTerms',
 }
 
 const buildDateOfBirth = (year: number, month: number, day: number) => {
@@ -235,6 +238,8 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
       password: values.password,
       confirmPassword: values.confirmPassword,
       otpToken,
+      acceptedTerms: true,
+      policyVersion: LEGAL_POLICY_VERSION,
     }
 
     setIsRegistering(true)
@@ -418,6 +423,21 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
             <Input.Password placeholder="Nhập lại mật khẩu" />
           </Form.Item>
         </div>
+
+        <Form.Item
+          name="acceptedTerms"
+          valuePropName="checked"
+          rules={[{
+            validator: (_, checked: boolean) => checked
+              ? Promise.resolve()
+              : Promise.reject(new Error('Vui lòng đồng ý với điều khoản và chính sách bảo mật.')),
+          }]}
+        >
+          <Checkbox>
+            Tôi đồng ý với <a href="/policies/terms" target="_blank" rel="noreferrer">Điều khoản sử dụng</a>
+            {' '}và <a href="/policies/privacy" target="_blank" rel="noreferrer">Chính sách bảo mật</a>.
+          </Checkbox>
+        </Form.Item>
 
         <Button type="primary" htmlType="submit" block className="register-submit" loading={isRegistering}>
           Đăng ký
