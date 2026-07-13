@@ -1,6 +1,7 @@
 import { apiFetch } from '../../config/api';
 import { withCache } from '../../config/apiCache';
 import type { ApiResponse, ApiValidationError } from '../auth/types';
+import { getRecommendationSessionId } from '../recommendation/recommendationSession';
 
 export type CatalogGender = 'male' | 'female' | 'unisex';
 
@@ -228,8 +229,15 @@ const toQueryString = (query: Record<string, unknown>) => {
   return params.length ? `?${params.join('&')}` : '';
 };
 
-const request = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
-  const response = await apiFetch(path, { signal });
+const request = async <T>(path: string, signal?: AbortSignal, token?: string): Promise<T> => {
+  const sessionId = await getRecommendationSessionId();
+  const response = await apiFetch(path, {
+    signal,
+    headers: {
+      'X-Session-Id': sessionId,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
   const payload = parseApiResponse<T>(await response.text());
 
   if (!response.ok) {
@@ -252,8 +260,8 @@ const CATEGORIES_CACHE_TTL_MS = 5 * 60 * 1000;
 const PRODUCT_DETAIL_CACHE_TTL_MS = 60 * 1000;
 const PRODUCT_DETAIL_STALE_MS = 5 * 60 * 1000;
 
-const getProducts = (params: ProductListParams = {}, signal?: AbortSignal) => {
-  return request<ProductListResponse>(`/products${toQueryString(params)}`, signal);
+const getProducts = (params: ProductListParams = {}, signal?: AbortSignal, token?: string) => {
+  return request<ProductListResponse>(`/products${toQueryString(params)}`, signal, token);
 };
 
 const getProductById = (productId: string, signal?: AbortSignal) => {

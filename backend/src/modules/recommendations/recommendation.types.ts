@@ -4,7 +4,7 @@ import type {
 } from '../../database/models/recommendation-event.model';
 import type { ProductListItem } from '../catalog/products/product.types';
 
-export const RECOMMENDATION_ALGORITHM_VERSION = 'v1_hybrid_rule_based';
+export const RECOMMENDATION_ALGORITHM_VERSION = 'v3_cart_complementary';
 
 export type RecommendationReasonCode =
   | 'same_category'
@@ -15,6 +15,8 @@ export type RecommendationReasonCode =
   | 'preferred_category'
   | 'preferred_brand'
   | 'preferred_color'
+  | 'completes_outfit'
+  | 'matches_cart_style'
   | 'popular'
   | 'on_sale'
   | 'new_arrival';

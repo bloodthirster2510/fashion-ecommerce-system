@@ -21,30 +21,50 @@ const getOnlineMetrics = async (days: number) => {
   since.setDate(since.getDate() - days);
 
   const rows = await RecommendationEvent.aggregate<{
-    _id: { context: string; eventType: string };
+    _id: { algorithmVersion: string; context: string; eventType: string };
     count: number;
   }>([
     { $match: { createdAt: { $gte: since } } },
     {
       $group: {
-        _id: { context: '$context', eventType: '$eventType' },
+        _id: {
+          algorithmVersion: { $ifNull: ['$algorithmVersion', 'unknown'] },
+          context: '$context',
+          eventType: '$eventType',
+        },
         count: { $sum: 1 },
       },
     },
-    { $sort: { '_id.context': 1, '_id.eventType': 1 } },
+    {
+      $sort: {
+        '_id.algorithmVersion': 1,
+        '_id.context': 1,
+        '_id.eventType': 1,
+      },
+    },
   ]);
-  const byContext = new Map<string, Record<string, number>>();
+  const byVersionAndContext = new Map<string, {
+    algorithmVersion: string;
+    context: string;
+    counts: Record<string, number>;
+  }>();
 
   rows.forEach((row) => {
-    const current = byContext.get(row._id.context) ?? {};
-    current[row._id.eventType] = row.count;
-    byContext.set(row._id.context, current);
+    const key = `${row._id.algorithmVersion}:${row._id.context}`;
+    const current = byVersionAndContext.get(key) ?? {
+      algorithmVersion: row._id.algorithmVersion,
+      context: row._id.context,
+      counts: {},
+    };
+    current.counts[row._id.eventType] = row.count;
+    byVersionAndContext.set(key, current);
   });
 
-  return [...byContext.entries()].map(([context, counts]) => {
+  return [...byVersionAndContext.values()].map(({ algorithmVersion, context, counts }) => {
     const impression = counts.impression ?? 0;
 
     return {
+      algorithmVersion,
       context,
       impression,
       click: counts.click ?? 0,

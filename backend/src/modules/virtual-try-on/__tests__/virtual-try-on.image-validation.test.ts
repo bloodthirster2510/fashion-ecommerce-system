@@ -10,6 +10,7 @@ import {
 } from '../../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
 import { virtualTryOnService } from '../virtual-try-on.service';
+import { interactionService } from '../../interactions/interaction.service';
 
 jest.mock('axios', () => ({
   __esModule: true,
@@ -53,6 +54,12 @@ jest.mock('../../realtime/virtual-try-on.gateway', () => ({
   emitVirtualTryOnJobEvent: jest.fn(),
 }));
 
+jest.mock('../../interactions/interaction.service', () => ({
+  interactionService: {
+    recordInteractionBestEffort: jest.fn().mockResolvedValue(null),
+  },
+}));
+
 jest.mock('../../../utils/cloudinary.util', () => ({
   deleteFromCloudinary: jest.fn(),
   uploadToCloudinary: jest.fn(),
@@ -83,6 +90,7 @@ const mockedVirtualTryOnAccountLock = VirtualTryOnAccountLock as unknown as {
 const mockedVirtualTryOnPromptRule = VirtualTryOnPromptRule as unknown as {
   find: jest.Mock;
 };
+const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
 
 const userId = '665000000000000000000020';
 const sourceAssetId = new Types.ObjectId('665000000000000000000101');
@@ -286,6 +294,19 @@ describe('virtualTryOnService image validation', () => {
     expect(result._id).toBe(jobId.toString());
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
     expect(mockedProduct.find).toHaveBeenCalled();
+    expect(mockedInteractionService.recordInteractionBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        productId: productId.toString(),
+        variantId: variantId.toString(),
+        colorVariantId: colorVariantId.toString(),
+        size: 'M',
+        actionType: 'try_on',
+        source: 'virtual_try_on',
+        metadata: expect.objectContaining({ virtualTryOnJobId: jobId.toString() }),
+      }),
+      'Failed to record virtual try-on interaction',
+    );
     expect(console.warn).toHaveBeenCalledWith(
       'Virtual try-on source image validation warning:',
       expect.objectContaining({ reasonCode: 'IMAGE_POLICY_BLOCKED' }),

@@ -3,8 +3,19 @@ import {
   RecommendationEvent,
   RecommendationRequest,
 } from '../../../database/models';
-import { recommendationService } from '../recommendation.service';
-import type { RecommendationResponse } from '../recommendation.types';
+import {
+  applyRecommendationDiversity,
+  calculateCartRecommendationScore,
+  calculatePersonalRecommendationScore,
+  getCartComplementaryRoleScore,
+  inferOutfitRole,
+  recommendationService,
+} from '../recommendation.service';
+import {
+  RECOMMENDATION_ALGORITHM_VERSION,
+  type RecommendationResponse,
+} from '../recommendation.types';
+import { interactionService } from '../../interactions/interaction.service';
 
 jest.mock('../../../database/models', () => ({
   Cart: {},
@@ -27,10 +38,17 @@ jest.mock('../../../database/models', () => ({
 jest.mock('../../interactions/interaction.service', () => ({
   INTERACTION_ACTION_WEIGHTS: {
     view: 1,
+    click: 1,
     search: 2,
     favorite: 3,
     add_to_cart: 5,
     purchase: 10,
+    search_result_click: 2,
+    recommendation_click: 3,
+    try_on: 4,
+  },
+  interactionService: {
+    recordInteractionBestEffort: jest.fn(),
   },
 }));
 
@@ -42,6 +60,7 @@ const mockedRecommendationRequest = RecommendationRequest as unknown as {
   create: jest.Mock;
   findOne: jest.Mock;
 };
+const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
 
 const userId = new Types.ObjectId('665000000000000000000020');
 const productId = new Types.ObjectId('665000000000000000000003');
@@ -52,7 +71,7 @@ const sessionId = 'rec_session_test';
 
 const response: RecommendationResponse = {
   requestId,
-  algorithmVersion: 'v1_hybrid_rule_based',
+  algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
   fallbackUsed: false,
   items: [
     {
@@ -70,7 +89,7 @@ const issuedRequest = {
   sessionId,
   context: 'home',
   sourceProductId: null,
-  algorithmVersion: 'v1_hybrid_rule_based',
+  algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
   items: [
     {
       productId,
@@ -95,6 +114,89 @@ const mockExistingEvent = (value: unknown) => {
   });
 };
 
+describe('recommendation ranking', () => {
+  it('infers outfit roles from Vietnamese product and category names', () => {
+    expect(inferOutfitRole({
+      name: 'Bộ Quần Áo Thể Thao Nữ Thấm Hút Tốt',
+      categoryName: 'Bộ thể thao',
+    })).toBe('set');
+    expect(inferOutfitRole({
+      name: 'Áo len nam bộ gia đình cổ tròn',
+      categoryName: 'Áo len',
+    })).toBe('top');
+    expect(inferOutfitRole({
+      name: 'Giày nam derby da bò nappa sang trọng',
+      categoryName: 'Giày / Dép khác',
+    })).toBe('shoes');
+    expect(inferOutfitRole({
+      name: 'Quần Âu Nữ Dáng Suông',
+      categoryName: 'Quần âu',
+    })).toBe('bottom');
+  });
+
+  it('prioritizes missing complementary roles over roles already in the cart', () => {
+    expect(getCartComplementaryRoleScore(['top'], 'bottom')).toBe(1);
+    expect(getCartComplementaryRoleScore(['top', 'bottom'], 'shoes')).toBe(0.75);
+    expect(getCartComplementaryRoleScore(['top', 'bottom'], 'top')).toBe(0.2);
+  });
+
+  it('uses role complementarity as the main cart ranking signal', () => {
+    expect(calculateCartRecommendationScore({
+      complementaryRole: 1,
+      styleCompatibility: 0,
+      popularity: 0,
+      business: 0,
+    })).toBeCloseTo(0.55);
+    expect(calculateCartRecommendationScore({
+      complementaryRole: 0,
+      styleCompatibility: 1,
+      popularity: 1,
+      business: 1,
+    })).toBeCloseTo(0.45);
+  });
+
+  it('uses preference once in the balanced personal score', () => {
+    expect(calculatePersonalRecommendationScore({
+      preferenceMatch: 1,
+      popularity: 0,
+      business: 0,
+    })).toBeCloseTo(0.7);
+    expect(calculatePersonalRecommendationScore({
+      preferenceMatch: 0,
+      popularity: 1,
+      business: 1,
+    })).toBeCloseTo(0.3);
+  });
+
+  it('limits repeated categories and brands when alternatives exist', () => {
+    const item = (id: string, categoryId: string, brandId: string, score: number) => ({
+      score,
+      productItem: {
+        _id: id,
+        category: { _id: categoryId },
+        brand: { _id: brandId },
+      },
+    });
+    const items = [
+      item('one', 'category-a', 'brand-x', 1),
+      item('two', 'category-a', 'brand-x', 0.99),
+      item('three', 'category-a', 'brand-x', 0.98),
+      item('four', 'category-b', 'brand-y', 0.97),
+      item('five', 'category-c', 'brand-z', 0.96),
+      item('six', 'category-d', 'brand-w', 0.95),
+    ];
+
+    const result = applyRecommendationDiversity(items, 4);
+
+    expect(result.map((entry) => entry.productItem._id)).toEqual([
+      'one',
+      'four',
+      'five',
+      'six',
+    ]);
+  });
+});
+
 describe('recommendationService event integrity', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -118,7 +220,7 @@ describe('recommendationService event integrity', () => {
         userId,
         sessionId,
         context: 'home',
-        algorithmVersion: 'v1_hybrid_rule_based',
+        algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
         items: [
           {
             productId,
@@ -152,7 +254,7 @@ describe('recommendationService event integrity', () => {
       context: 'home',
       sourceProductId: null,
       recommendedProductId: productId,
-      algorithmVersion: 'v1_hybrid_rule_based',
+      algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
       score: 0.42,
       rank: 1,
       reasonCodes: ['same_category'],
@@ -180,6 +282,32 @@ describe('recommendationService event integrity', () => {
     expect(mockedRecommendationEvent.create).not.toHaveBeenCalled();
   });
 
+  it('adds a preference-profile interaction for a recorded click', async () => {
+    await recommendationService.recordRecommendationEvent({
+      userId: userId.toString(),
+      sessionId,
+      context: 'home',
+      recommendedProductId: productId.toString(),
+      requestId,
+      eventType: 'click',
+    });
+
+    expect(mockedInteractionService.recordInteractionBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: userId.toString(),
+        sessionId,
+        productId: productId.toString(),
+        actionType: 'recommendation_click',
+        source: 'recommendation',
+        metadata: expect.objectContaining({
+          recommendationRequestId: requestId,
+          recommendationRank: 1,
+        }),
+      }),
+      'Failed to record recommendation click interaction',
+    );
+  });
+
   it('does not duplicate the same event for one request and product', async () => {
     mockExistingEvent({ _id: eventId });
 
@@ -201,7 +329,7 @@ describe('recommendationService event integrity', () => {
       sessionId,
       context: 'home',
       sourceProductId: null,
-      algorithmVersion: 'v1_hybrid_rule_based',
+      algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
       score: 0.42,
       rank: 1,
       reasonCodes: ['same_category'],

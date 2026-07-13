@@ -13,6 +13,7 @@ import { uploadToCloudinary, deleteFromCloudinary, extractPublicIdFromUrl } from
 import { handleMulterError, type MulterRequest } from '../../../middlewares/upload.middleware';
 import type { IProductVariant } from '../../../database/models/product.model';
 import { created, error as errorResponse, ok } from '../../../utils/response';
+import { searchHistoryService } from '../../search-history/search-history.service';
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   return (
@@ -236,6 +237,32 @@ const parseProductListQuery = (req: Request): ProductListQueryInput => {
   };
 };
 
+const getSessionId = (req: Request) => parseString(req.headers['x-session-id']);
+
+const trackKeywordSearch = (
+  req: Request,
+  query: ProductListQueryInput,
+  products: Awaited<ReturnType<typeof productService.getProductList>>,
+) => {
+  if (!query.keyword || (query.page ?? 1) !== 1) return;
+
+  const sessionId = getSessionId(req);
+  if (!req.user?.userId && !sessionId) return;
+
+  const resultLength = products.items.length;
+  void searchHistoryService.recordSearchBestEffort({
+    userId: req.user?.userId,
+    sessionId,
+    searchType: 'keyword',
+    keyword: query.keyword,
+    resultProducts: products.items.map((product, index) => ({
+      productId: product._id,
+      score: resultLength ? 1 - index / resultLength : 0,
+    })),
+    resultCount: products.pagination.totalItems,
+  });
+};
+
 const uploadProductImage = async (file: Express.Multer.File) => {
   const uploadResult = await uploadToCloudinary(
     file.buffer,
@@ -452,6 +479,7 @@ const getProductList = async (req: Request, res: Response) => {
   try {
     const query = parseProductListQuery(req);
     const products = await productService.getProductList(query);
+    trackKeywordSearch(req, query, products);
 
     return ok(res, products);
   } catch (e: unknown) {

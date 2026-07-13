@@ -4,22 +4,32 @@ import { getRecommendationSessionId } from './recommendationSession';
 
 export type InteractionActionType =
   | 'view'
+  | 'click'
   | 'search'
   | 'favorite'
   | 'add_to_cart'
-  | 'purchase';
+  | 'purchase'
+  | 'search_result_click'
+  | 'recommendation_click'
+  | 'try_on';
 
 export type InteractionSource =
   | 'home'
   | 'product_list'
   | 'product_detail'
   | 'search'
+  | 'image_search'
   | 'cart'
   | 'checkout'
+  | 'recommendation'
+  | 'virtual_try_on'
   | 'backend';
 
 export type InteractionPayload = {
   productId?: string;
+  variantId?: string;
+  colorVariantId?: string;
+  size?: string;
   actionType: InteractionActionType;
   source: InteractionSource;
   metadata?: Record<string, unknown>;

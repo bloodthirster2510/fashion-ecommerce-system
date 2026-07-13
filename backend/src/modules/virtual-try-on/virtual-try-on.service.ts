@@ -23,6 +23,7 @@ import {
 } from '../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../utils/cloudinary.util';
 import { emitVirtualTryOnJobEvent } from '../realtime/virtual-try-on.gateway';
+import { interactionService } from '../interactions/interaction.service';
 import {
   buildVirtualTryOnPrompt,
   contextPresetPreviews,
@@ -1512,6 +1513,31 @@ const createJob = async (
 
   emitJob(job, 'queued');
   enqueueJob(job._id.toString());
+
+  void Promise.all(
+    selectedItems.map((item) =>
+      interactionService.recordInteractionBestEffort(
+        {
+          userId,
+          productId: item.productId.toString(),
+          variantId: item.variantId.toString(),
+          colorVariantId: item.colorVariantId.toString(),
+          size: item.size,
+          actionType: 'try_on',
+          source: 'virtual_try_on',
+          metadata: {
+            virtualTryOnJobId: job._id.toString(),
+            role: item.role,
+            outfitMode: job.outfitMode,
+            contextPreset: job.contextPreset,
+          },
+        },
+        'Failed to record virtual try-on interaction',
+      ),
+    ),
+  ).catch((error) => {
+    console.warn('Failed to record virtual try-on interaction batch:', error);
+  });
 
   return serializeJob(job);
 };

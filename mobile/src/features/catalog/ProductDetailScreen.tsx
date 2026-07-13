@@ -25,16 +25,15 @@ import { cartApi, type CartResponse } from '../cart/cartApi';
 import { favoritesApi } from '../favorites/favoritesApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import {
   catalogApi,
-  CatalogProduct,
   CatalogProductDetail,
   ProductCategoryBreadcrumbItem,
   ProductDetailColor,
   ProductDetailVariant,
 } from './catalogApi';
-import ProductCard from './ProductCard';
 import ProductReviewsSection from '../reviews/ProductReviewsSection';
 import type { PublicReviewList } from '../reviews/review.types';
 
@@ -186,7 +185,6 @@ const ProductDetailScreen = () => {
   const { isAuthenticated, session, runWithAuth } = useAuth();
   const { productId } = route.params;
   const [product, setProduct] = React.useState<CatalogProductDetail | null>(null);
-  const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
   const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
   const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
   const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
@@ -280,6 +278,7 @@ const ProductDetailScreen = () => {
   const {
     recommendationSectionRef,
     checkRecommendationVisibility,
+    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
@@ -292,7 +291,6 @@ const ProductDetailScreen = () => {
     setIsLoading(true);
     setIsRecommendationLoading(false);
     setError(null);
-    setRecommendations([]);
     setRecommendationItems([]);
     setRecommendationRequestId(null);
     setRecommendationAlgorithmVersion(undefined);
@@ -310,8 +308,8 @@ const ProductDetailScreen = () => {
         setIsRecommendationLoading(true);
 
         const recommendationPromise = isAuthenticated
-          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 4, accessToken))
-          : recommendationApi.getSimilarProducts(detail._id, 4);
+          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 8, accessToken))
+          : recommendationApi.getSimilarProducts(detail._id, 8);
 
         recommendationPromise
           .then((response) => {
@@ -319,7 +317,6 @@ const ProductDetailScreen = () => {
               setRecommendationItems(response.items);
               setRecommendationRequestId(response.requestId);
               setRecommendationAlgorithmVersion(response.algorithmVersion);
-              setRecommendations(response.items.map((item) => item.product));
             }
           })
           .catch(() => {
@@ -327,7 +324,6 @@ const ProductDetailScreen = () => {
               setRecommendationItems([]);
               setRecommendationRequestId(null);
               setRecommendationAlgorithmVersion(undefined);
-              setRecommendations([]);
             }
           })
           .finally(() => {
@@ -600,16 +596,12 @@ const ProductDetailScreen = () => {
     }
   };
 
-  const handleRecommendationProductPress = (nextProduct: CatalogProduct) => {
-    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === nextProduct._id);
+  const handleRecommendationProductPress = (item: RecommendationItem) => {
+    recordRecommendationEvent(item, 'click');
 
-    if (item) {
-      recordRecommendationEvent(item, 'click');
-    }
-
-    if (nextProduct._id) {
+    if (item.product._id) {
       navigation.navigate('ProductDetail', {
-        productId: nextProduct._id,
+        productId: item.product._id,
         recommendationRequestId: recommendationRequestId ?? undefined,
       });
     }
@@ -1124,37 +1116,15 @@ const ProductDetailScreen = () => {
           <ProductReviewsSection productId={product._id} onSummaryChange={handleReviewSummaryChange} />
         </View>
 
-        <View
-          ref={recommendationSectionRef}
-          collapsable={false}
-          style={styles.recommendationSection}
-        >
-          <Text style={styles.sectionTitle}>Sản phẩm tương tự</Text>
-
-          {isRecommendationLoading ? (
-            <View style={styles.recommendationState}>
-              <ActivityIndicator color={colors.brand} />
-              <Text style={styles.recommendationStateText}>Đang tìm sản phẩm phù hợp</Text>
-            </View>
-          ) : recommendations.length ? (
-            <View style={styles.recommendationGrid}>
-              {recommendations.map((item) => (
-                <View key={item._id} style={styles.recommendationItem}>
-                  <ProductCard
-                    product={item}
-                    onPress={handleRecommendationProductPress}
-                    onCartPress={handleRecommendationProductPress}
-                  />
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.recommendationState}>
-              <MaterialCommunityIcons name="hanger" size={24} color={colors.brand} />
-              <Text style={styles.recommendationStateText}>Chưa có sản phẩm gợi ý phù hợp</Text>
-            </View>
-          )}
-        </View>
+        <RecommendationRail
+          title="Sản phẩm tương tự"
+          subtitle="Gần với kiểu dáng, màu sắc hoặc khoảng giá của sản phẩm này"
+          items={recommendationItems}
+          isLoading={isRecommendationLoading}
+          trackingRef={recommendationSectionRef}
+          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
+          onProductPress={handleRecommendationProductPress}
+        />
 
         <StorefrontFooter />
       </ScrollView>
@@ -1843,34 +1813,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: spacing.xs,
-  },
-  recommendationSection: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  recommendationGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  recommendationItem: {
-    width: '47.5%',
-  },
-  recommendationState: {
-    minHeight: 112,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  recommendationStateText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginTop: spacing.sm,
   },
   addCartFeedback: {
     position: 'absolute',

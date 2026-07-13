@@ -27,15 +27,27 @@ export class InteractionServiceError extends Error {
 
 export const INTERACTION_ACTION_WEIGHTS: Record<InteractionActionType, number> = {
   view: 1,
+  click: 1,
   search: 2,
   favorite: 3,
   add_to_cart: 5,
   purchase: 10,
+  search_result_click: 2,
+  recommendation_click: 3,
+  try_on: 4,
 };
 
 const VIEW_COOLDOWN_MS = 45 * 60 * 1000;
 const MAX_METADATA_KEYS = 30;
 const MAX_METADATA_STRING_LENGTH = 300;
+const PRODUCT_OPTIONAL_ACTIONS = new Set<InteractionActionType>([
+  'search',
+  'search_result_click',
+  'recommendation_click',
+]);
+
+export const isInteractionTrackingEnabled = () =>
+  process.env.INTERACTION_TRACKING_ENABLED !== 'false';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -62,6 +74,19 @@ const toObjectId = (value: string, fieldName: string) => {
   }
 
   return new Types.ObjectId(value);
+};
+
+const toOptionalObjectId = (value: string | null | undefined, fieldName: string) =>
+  value ? toObjectId(value, fieldName) : null;
+
+const normalizeSize = (value?: string | null) => {
+  const size = value?.trim();
+
+  if (size && size.length > 20) {
+    throw new InteractionServiceError('Invalid size', 400);
+  }
+
+  return size || null;
 };
 
 const sanitizeMetadataValue = (value: unknown): unknown => {
@@ -139,11 +164,34 @@ const getRecentView = async ({
   return null;
 };
 
-const assertProductExists = async (productId: Types.ObjectId) => {
-  const product = await Product.exists({ _id: productId, isActive: true });
+const assertProductSelectionExists = async ({
+  productId,
+  variantId,
+  colorVariantId,
+}: {
+  productId: Types.ObjectId;
+  variantId?: Types.ObjectId | null;
+  colorVariantId?: Types.ObjectId | null;
+}) => {
+  const filter: Record<string, unknown> = { _id: productId, isActive: true };
+
+  if (variantId && colorVariantId) {
+    filter.variant = {
+      $elemMatch: {
+        _id: variantId,
+        'colors._id': colorVariantId,
+      },
+    };
+  } else if (variantId) {
+    filter['variant._id'] = variantId;
+  } else if (colorVariantId) {
+    filter['variant.colors._id'] = colorVariantId;
+  }
+
+  const product = await Product.exists(filter);
 
   if (!product) {
-    throw new InteractionServiceError('Product is not available', 404);
+    throw new InteractionServiceError('Product selection is not available', 404);
   }
 };
 
@@ -166,6 +214,13 @@ const claimGuestSessionInteractions = async (
 const recordInteraction = async (
   input: RecordInteractionInput,
 ): Promise<RecordInteractionResult> => {
+  if (!isInteractionTrackingEnabled()) {
+    return {
+      recorded: false,
+      skippedReason: 'tracking_disabled',
+    };
+  }
+
   if (!isActionType(input.actionType)) {
     throw new InteractionServiceError('Invalid actionType', 400);
   }
@@ -189,13 +244,20 @@ const recordInteraction = async (
   const productId = input.productId
     ? toObjectId(input.productId, 'productId')
     : null;
+  const variantId = toOptionalObjectId(input.variantId, 'variantId');
+  const colorVariantId = toOptionalObjectId(input.colorVariantId, 'colorVariantId');
+  const size = normalizeSize(input.size);
 
-  if (input.actionType !== 'search' && !productId) {
+  if (!PRODUCT_OPTIONAL_ACTIONS.has(input.actionType) && !productId) {
     throw new InteractionServiceError('productId is required for this actionType', 400);
   }
 
+  if (!productId && (variantId || colorVariantId || size)) {
+    throw new InteractionServiceError('productId is required when product options are provided', 400);
+  }
+
   if (productId) {
-    await assertProductExists(productId);
+    await assertProductSelectionExists({ productId, variantId, colorVariantId });
   }
 
   if (input.actionType === 'view' && productId) {
@@ -214,6 +276,9 @@ const recordInteraction = async (
     userId,
     sessionId,
     productId,
+    variantId,
+    colorVariantId,
+    size,
     actionType: input.actionType,
     weight: INTERACTION_ACTION_WEIGHTS[input.actionType],
     source,
@@ -253,6 +318,9 @@ const recordAddToCartBestEffort = (
   recordInteractionBestEffort({
     userId,
     productId: item.productId,
+    variantId: item.variantId,
+    colorVariantId: item.colorVariantId,
+    size: item.size,
     actionType: 'add_to_cart',
     source: 'backend',
     metadata: {
@@ -268,6 +336,10 @@ const recordPurchaseInteractions = async (
   items: RecordPurchaseInteractionItem[],
   metadata: InteractionMetadata = {},
 ) => {
+  if (!isInteractionTrackingEnabled()) {
+    return [];
+  }
+
   const userObjectId = toObjectId(userId, 'userId');
 
   await Promise.all(
@@ -276,6 +348,9 @@ const recordPurchaseInteractions = async (
         return recordInteraction({
           userId,
           productId: item.productId,
+          variantId: item.variantId,
+          colorVariantId: item.colorVariantId,
+          size: item.size,
           actionType: 'purchase',
           source: 'backend',
           metadata: {
@@ -289,7 +364,10 @@ const recordPurchaseInteractions = async (
       }
 
       const productId = toObjectId(item.productId, 'productId');
-      await assertProductExists(productId);
+      const variantId = toOptionalObjectId(item.variantId, 'variantId');
+      const colorVariantId = toOptionalObjectId(item.colorVariantId, 'colorVariantId');
+      const size = normalizeSize(item.size);
+      await assertProductSelectionExists({ productId, variantId, colorVariantId });
       const interactionMetadata = sanitizeMetadata({
         ...metadata,
         sourceId: item.sourceId,
@@ -310,6 +388,9 @@ const recordPurchaseInteractions = async (
             userId: userObjectId,
             sessionId: null,
             productId,
+            variantId,
+            colorVariantId,
+            size,
             actionType: 'purchase',
             weight: INTERACTION_ACTION_WEIGHTS.purchase,
             source: 'backend',

@@ -29,6 +29,10 @@ import {
 import ProductCard from './ProductCard';
 import ShopNameLogo from '../../components/branding/ShopNameLogo';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
+import {
+  interactionApi,
+  type InteractionPayload,
+} from '../recommendation/interactionApi';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
@@ -290,7 +294,7 @@ const getCategorySelectionGroups = (
 const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, runWithAuth } = useAuth();
   const params = route.params;
   const insets = useSafeAreaInsets();
   const scrollViewRef = React.useRef<ScrollView>(null);
@@ -500,23 +504,25 @@ const ProductListScreen = () => {
 
     setLoadMoreError(null);
 
-    catalogApi
-      .getProducts(
-        {
-          keyword: params?.keyword,
-          gender: appliedFilters.gender,
-          categoryId: toQueryArray(appliedFilters.categoryId),
-          brandId: toQueryArray(appliedFilters.brandId),
-          minPrice: appliedFilters.minPrice,
-          maxPrice: appliedFilters.maxPrice,
-          isNew: appliedFilters.isNew,
-          isSale: appliedFilters.isSale,
-          sort: appliedFilters.sort,
-          page: targetPage,
-          limit: PRODUCT_PAGE_LIMIT,
-        },
-        controller.signal,
-      )
+    const productListParams = {
+      keyword: params?.keyword,
+      gender: appliedFilters.gender,
+      categoryId: toQueryArray(appliedFilters.categoryId),
+      brandId: toQueryArray(appliedFilters.brandId),
+      minPrice: appliedFilters.minPrice,
+      maxPrice: appliedFilters.maxPrice,
+      isNew: appliedFilters.isNew,
+      isSale: appliedFilters.isSale,
+      sort: appliedFilters.sort,
+      page: targetPage,
+      limit: PRODUCT_PAGE_LIMIT,
+    };
+    const request = isAuthenticated
+      ? runWithAuth((accessToken) =>
+          catalogApi.getProducts(productListParams, controller.signal, accessToken))
+      : catalogApi.getProducts(productListParams, controller.signal);
+
+    request
       .then((response) => {
         if (controller.signal.aborted || requestIdRef.current !== requestId) return;
 
@@ -571,7 +577,7 @@ const ProductListScreen = () => {
     return () => {
       controller.abort();
     };
-  }, [appliedFilters, params?.keyword]);
+  }, [appliedFilters, isAuthenticated, params?.keyword, runWithAuth]);
 
   React.useEffect(() => loadProducts(1), [loadProducts]);
 
@@ -625,8 +631,35 @@ const ProductListScreen = () => {
     toggleDraftValues(key, [value]);
   };
 
+  const recordInteraction = React.useCallback((payload: InteractionPayload) => {
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) =>
+        interactionApi.recordInteraction(payload, accessToken)).catch(() => undefined);
+      return;
+    }
+
+    void interactionApi.recordInteraction(payload).catch(() => undefined);
+  }, [isAuthenticated, runWithAuth]);
+
+  const recordSearchResultClick = (product: CatalogProduct) => {
+    const keyword = params?.keyword?.trim();
+    if (!keyword) return;
+
+    const rank = products.findIndex((item) => item._id === product._id) + 1;
+    recordInteraction({
+      productId: product._id,
+      actionType: 'search_result_click',
+      source: 'search',
+      metadata: {
+        keyword,
+        ...(rank > 0 ? { rank } : {}),
+      },
+    });
+  };
+
   const handleProductPress = (product: CatalogProduct) => {
     if (product._id) {
+      recordSearchResultClick(product);
       navigation.navigate('ProductDetail', { productId: product._id });
     } else {
     Alert.alert('Chi tiết sản phẩm', `${product.name} sẽ được bổ sung ở màn chi tiết sản phẩm.`);
@@ -635,6 +668,7 @@ const ProductListScreen = () => {
 
   const handleCartPress = (product: CatalogProduct) => {
     if (product._id) {
+      recordSearchResultClick(product);
       navigation.navigate('ProductDetail', { productId: product._id });
       return;
     }

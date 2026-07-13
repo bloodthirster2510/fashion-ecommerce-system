@@ -12,6 +12,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { catalogApi, CatalogCategory, CatalogGender, CatalogProduct } from '../catalog/catalogApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import CategoryDrawer from './components/CategoryDrawer';
 import CategoryRail, { CategoryRailItem } from './components/CategoryRail';
@@ -31,7 +32,6 @@ const HomeScreen = () => {
   const [categories, setCategories] = React.useState<CatalogCategory[]>([]);
   const [isCategoryLoading, setIsCategoryLoading] = React.useState(false);
   const [bestSellers, setBestSellers] = React.useState<CatalogProduct[]>([]);
-  const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
   const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
   const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
   const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
@@ -85,6 +85,7 @@ const HomeScreen = () => {
   const {
     recommendationSectionRef,
     checkRecommendationVisibility,
+    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
@@ -129,8 +130,8 @@ const HomeScreen = () => {
     setRecommendationAlgorithmVersion(undefined);
 
     const recommendationPromise = isAuthenticated
-      ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(4, accessToken))
-      : recommendationApi.getPersonalRecommendations(4);
+      ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(10, accessToken))
+      : recommendationApi.getPersonalRecommendations(10);
 
     Promise.allSettled([catalogApi.getBestSellers(4), recommendationPromise])
       .then(([bestSellerResult, recommendationResult]) => {
@@ -147,12 +148,10 @@ const HomeScreen = () => {
           setRecommendationItems(recommendationResult.value.items);
           setRecommendationRequestId(recommendationResult.value.requestId);
           setRecommendationAlgorithmVersion(recommendationResult.value.algorithmVersion);
-          setRecommendations(recommendationResult.value.items.map((item) => item.product));
         } else {
           setRecommendationItems([]);
           setRecommendationRequestId(null);
           setRecommendationAlgorithmVersion(undefined);
-          setRecommendations([]);
           setRecommendationError('Không tải được sản phẩm gợi ý');
         }
       })
@@ -301,29 +300,15 @@ const HomeScreen = () => {
     Alert.alert('Giỏ hàng', 'Bạn mở chi tiết sản phẩm để chọn màu, size và số lượng trước nha.');
   };
 
-  const handleRecommendationProductPress = (product: CatalogProduct) => {
-    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === product._id);
+  const handleRecommendationProductPress = (item: RecommendationItem) => {
+    recordRecommendationEvent(item, 'click');
 
-    if (item) {
-      recordRecommendationEvent(item, 'click');
-    }
-
-    if (product._id) {
+    if (item.product._id) {
       navigation.navigate('ProductDetail', {
-        productId: product._id,
+        productId: item.product._id,
         recommendationRequestId: recommendationRequestId ?? undefined,
       });
     }
-  };
-
-  const handleRecommendationCartPress = (product: CatalogProduct) => {
-    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === product._id);
-
-    if (item) {
-      recordRecommendationEvent(item, 'click');
-    }
-
-    handleCartPress(product);
   };
 
   return (
@@ -386,18 +371,17 @@ const HomeScreen = () => {
           onCartPress={handleCartPress}
         />
 
-        <View ref={recommendationSectionRef} collapsable={false}>
-        <ProductSection
-          title="Bạn cũng có thể thích"
-          products={recommendations}
+        <RecommendationRail
+          title="Dành cho bạn"
+          subtitle={isAuthenticated ? 'Dựa trên những sản phẩm bạn đã quan tâm' : 'Những lựa chọn đang được yêu thích'}
+          items={recommendationItems}
           isLoading={isProductLoading}
           error={recommendationError}
           onRetry={loadHomeProducts}
-          onViewMore={() => navigateToProductList({ title: 'Bạn cũng có thể thích', sort: 'newest' })}
+          trackingRef={recommendationSectionRef}
+          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
           onProductPress={handleRecommendationProductPress}
-          onCartPress={handleRecommendationCartPress}
         />
-        </View>
 
         <View style={styles.footerGap}>
           <StorefrontFooter />

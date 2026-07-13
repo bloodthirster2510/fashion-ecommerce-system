@@ -21,7 +21,10 @@ import type {
   ProductGenderFilter,
   ProductListItem,
 } from '../catalog/products/product.types';
-import { INTERACTION_ACTION_WEIGHTS } from '../interactions/interaction.service';
+import {
+  INTERACTION_ACTION_WEIGHTS,
+  interactionService,
+} from '../interactions/interaction.service';
 import {
   RECOMMENDATION_ALGORITHM_VERSION,
   type CartRecommendationInput,
@@ -79,11 +82,21 @@ type InventoryStockDocument = Pick<
   'productId' | 'variantId' | 'colorVariantId' | 'size' | 'availableQuantity'
 >;
 
+export type OutfitRole =
+  | 'top'
+  | 'bottom'
+  | 'dress'
+  | 'set'
+  | 'shoes'
+  | 'accessory'
+  | 'outerwear';
+
 type ProductFeature = {
   productId: string;
   categoryId: string;
   gender?: ProductGenderFilter;
   brandId: string;
+  role: OutfitRole;
   colors: Set<string>;
   fitTypes: Set<string>;
   price: number;
@@ -119,9 +132,8 @@ const RECENT_PURCHASE_EXCLUSION_DAYS = 30;
 const INTERACTION_LOOKBACK_DAYS = 180;
 const NEW_PRODUCT_DAYS = 30;
 
-const SCORE_WEIGHTS = {
-  contentSimilarity: 0.40,
-  userPreference: 0.30,
+const PERSONAL_SCORE_WEIGHTS = {
+  preferenceMatch: 0.70,
   popularity: 0.20,
   business: 0.10,
 };
@@ -130,6 +142,28 @@ const SIMILAR_SCORE_WEIGHTS = {
   contentSimilarity: 0.65,
   popularity: 0.25,
   business: 0.10,
+};
+
+const CART_SCORE_WEIGHTS = {
+  complementaryRole: 0.55,
+  styleCompatibility: 0.20,
+  popularity: 0.15,
+  business: 0.10,
+};
+
+const CART_ROLE_COMPATIBILITY: Record<OutfitRole, Record<OutfitRole, number>> = {
+  top: { top: 0.1, bottom: 1, dress: 0.15, set: 0.2, shoes: 0.75, accessory: 0.55, outerwear: 0.7 },
+  bottom: { top: 1, bottom: 0.1, dress: 0.15, set: 0.2, shoes: 0.75, accessory: 0.5, outerwear: 0.65 },
+  dress: { top: 0.2, bottom: 0.2, dress: 0.1, set: 0.15, shoes: 1, accessory: 0.7, outerwear: 0.8 },
+  set: { top: 0.2, bottom: 0.2, dress: 0.15, set: 0.1, shoes: 1, accessory: 0.7, outerwear: 0.8 },
+  shoes: { top: 0.8, bottom: 0.85, dress: 0.9, set: 0.9, shoes: 0.1, accessory: 0.4, outerwear: 0.6 },
+  accessory: { top: 0.75, bottom: 0.7, dress: 0.8, set: 0.8, shoes: 0.5, accessory: 0.1, outerwear: 0.6 },
+  outerwear: { top: 1, bottom: 0.9, dress: 0.8, set: 0.8, shoes: 0.65, accessory: 0.5, outerwear: 0.1 },
+};
+
+const DIVERSITY_PENALTIES = {
+  repeatedCategory: 0.08,
+  repeatedBrand: 0.04,
 };
 
 const REASON_TEXT: Record<RecommendationReasonCode, string> = {
@@ -141,6 +175,8 @@ const REASON_TEXT: Record<RecommendationReasonCode, string> = {
   preferred_category: 'Hop danh muc ban quan tam',
   preferred_brand: 'Hop thuong hieu ban quan tam',
   preferred_color: 'Hop mau ban hay xem',
+  completes_outfit: 'Hoan thien set do',
+  matches_cart_style: 'Hop phong cach gio hang',
   popular: 'Dang ban chay',
   on_sale: 'Dang giam gia',
   new_arrival: 'Hang moi',
@@ -169,6 +205,56 @@ const assertObjectId = (id: string, fieldName: string) => {
 };
 
 const normalizeText = (value?: string | null) => value?.trim().toLowerCase() ?? '';
+
+const normalizeRoleText = (value?: string | null) => (
+  value
+    ?.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim() ?? ''
+);
+
+const hasAnyRoleKeyword = (value: string, keywords: string[]) => {
+  const paddedValue = ` ${value} `;
+  return keywords.some((keyword) => paddedValue.includes(` ${keyword} `));
+};
+
+export const inferOutfitRole = ({
+  name,
+  categoryName,
+}: {
+  name: string;
+  categoryName?: string | null;
+}): OutfitRole => {
+  const normalizedName = normalizeRoleText(name);
+  const normalizedCategory = normalizeRoleText(categoryName);
+  const haystack = `${normalizedName} ${normalizedCategory}`.trim();
+
+  if (hasAnyRoleKeyword(haystack, ['giay', 'dep', 'sandal', 'sneaker', 'boot', 'loafer', 'slipon'])) {
+    return 'shoes';
+  }
+
+  if (
+    hasAnyRoleKeyword(normalizedCategory, ['bo the thao', 'set bo', 'do bo']) ||
+    normalizedName.startsWith('bo ') ||
+    normalizedName.startsWith('do bo ')
+  ) {
+    return 'set';
+  }
+
+  if (hasAnyRoleKeyword(haystack, ['chan vay', 'vay', 'dam', 'dress'])) return 'dress';
+  if (hasAnyRoleKeyword(haystack, ['khoac', 'blazer', 'jacket', 'cardigan', 'hoodie', 'coat', 'outerwear'])) {
+    return 'outerwear';
+  }
+  if (hasAnyRoleKeyword(haystack, ['quan', 'jean', 'short', 'pants', 'trouser'])) return 'bottom';
+  if (hasAnyRoleKeyword(haystack, ['tui', 'that lung', 'mu', 'non', 'khan', 'kinh', 'phu kien', 'dong ho', 'trang suc'])) {
+    return 'accessory';
+  }
+
+  return 'top';
+};
 
 const getRequestId = () => `rec_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -318,6 +404,10 @@ const getProductFeature = (
     categoryId: getRelationId(product.category_id),
     gender: isPopulatedCategory(product.category_id) ? product.category_id.gender : undefined,
     brandId: getRelationId(product.brand_id),
+    role: inferOutfitRole({
+      name: product.name,
+      categoryName: isPopulatedCategory(product.category_id) ? product.category_id.name : undefined,
+    }),
     colors: new Set(
       product.variant.flatMap((variant) =>
         variant.colors.map((color) => normalizeText(color.color)).filter(Boolean),
@@ -372,6 +462,73 @@ const getContentSimilarityScore = (source: ProductFeature, candidate: ProductFea
   );
 };
 
+export const getCartComplementaryRoleScore = (
+  sourceRoles: OutfitRole[],
+  candidateRole: OutfitRole,
+) => {
+  if (!sourceRoles.length) return 0;
+
+  const bestScore = Math.max(
+    ...sourceRoles.map((sourceRole) => CART_ROLE_COMPATIBILITY[sourceRole][candidateRole]),
+  );
+
+  return sourceRoles.includes(candidateRole) ? Math.min(bestScore, 0.2) : bestScore;
+};
+
+export const calculateCartRecommendationScore = ({
+  complementaryRole,
+  styleCompatibility,
+  popularity,
+  business,
+}: {
+  complementaryRole: number;
+  styleCompatibility: number;
+  popularity: number;
+  business: number;
+}) => (
+  CART_SCORE_WEIGHTS.complementaryRole * complementaryRole +
+  CART_SCORE_WEIGHTS.styleCompatibility * styleCompatibility +
+  CART_SCORE_WEIGHTS.popularity * popularity +
+  CART_SCORE_WEIGHTS.business * business
+);
+
+const getGenderCompatibilityScore = (source: ProductFeature, candidate: ProductFeature) => {
+  if (!source.gender || !candidate.gender) return 0.7;
+  return source.gender === candidate.gender ? 1 : 0.25;
+};
+
+const getCartStyleCompatibilityScore = (source: ProductFeature, candidate: ProductFeature) => {
+  const genderScore = getGenderCompatibilityScore(source, candidate);
+  const colorScore = getSetOverlapScore(source.colors, candidate.colors);
+  const priceScore = getPriceSimilarity(source.price, candidate.price);
+  const brandScore = source.brandId && source.brandId === candidate.brandId ? 1 : 0;
+
+  return 0.40 * genderScore + 0.25 * colorScore + 0.20 * priceScore + 0.15 * brandScore;
+};
+
+const getBestCartSourceFeature = (
+  sourceFeatures: ProductFeature[],
+  candidateFeature: ProductFeature,
+) => {
+  let bestSource = sourceFeatures[0];
+  let bestStyleScore = 0;
+  let bestCombinedScore = Number.NEGATIVE_INFINITY;
+
+  sourceFeatures.forEach((sourceFeature) => {
+    const roleScore = CART_ROLE_COMPATIBILITY[sourceFeature.role][candidateFeature.role];
+    const styleScore = getCartStyleCompatibilityScore(sourceFeature, candidateFeature);
+    const combinedScore = 0.7 * roleScore + 0.3 * styleScore;
+
+    if (combinedScore > bestCombinedScore) {
+      bestSource = sourceFeature;
+      bestStyleScore = styleScore;
+      bestCombinedScore = combinedScore;
+    }
+  });
+
+  return { sourceFeature: bestSource, styleScore: bestStyleScore };
+};
+
 const getPopularityScore = (feature: ProductFeature) => {
   const soldScore = Math.min(feature.soldQuantity / 100, 1);
   const reviewScore = Math.min(feature.reviewCount / 50, 1);
@@ -403,6 +560,32 @@ const getSimilarReasonCodes = (
   if (source.brandId && source.brandId === candidate.brandId) addReasonCode(reasonCodes, 'same_brand');
   if (source.gender && source.gender === candidate.gender) addReasonCode(reasonCodes, 'same_gender');
   if (getSetOverlapScore(source.colors, candidate.colors) > 0) addReasonCode(reasonCodes, 'same_color');
+  if (getPriceSimilarity(source.price, candidate.price) >= 0.75) addReasonCode(reasonCodes, 'similar_price');
+  if (getPopularityScore(candidate) >= 0.35) addReasonCode(reasonCodes, 'popular');
+  if (candidate.isSale) addReasonCode(reasonCodes, 'on_sale');
+  if (candidate.isNew) addReasonCode(reasonCodes, 'new_arrival');
+
+  return reasonCodes.length ? reasonCodes : ['popular'];
+};
+
+const getCartReasonCodes = ({
+  source,
+  candidate,
+  complementaryRole,
+  styleCompatibility,
+}: {
+  source: ProductFeature;
+  candidate: ProductFeature;
+  complementaryRole: number;
+  styleCompatibility: number;
+}): RecommendationReasonCode[] => {
+  const reasonCodes: RecommendationReasonCode[] = [];
+
+  if (complementaryRole >= 0.45) addReasonCode(reasonCodes, 'completes_outfit');
+  if (styleCompatibility >= 0.45) addReasonCode(reasonCodes, 'matches_cart_style');
+  if (source.gender && source.gender === candidate.gender) addReasonCode(reasonCodes, 'same_gender');
+  if (getSetOverlapScore(source.colors, candidate.colors) > 0) addReasonCode(reasonCodes, 'same_color');
+  if (source.brandId && source.brandId === candidate.brandId) addReasonCode(reasonCodes, 'same_brand');
   if (getPriceSimilarity(source.price, candidate.price) >= 0.75) addReasonCode(reasonCodes, 'similar_price');
   if (getPopularityScore(candidate) >= 0.35) addReasonCode(reasonCodes, 'popular');
   if (candidate.isSale) addReasonCode(reasonCodes, 'on_sale');
@@ -454,40 +637,46 @@ const mergeProducts = (
   return [...productById.values()];
 };
 
-const applyDiversity = (items: ScoredProduct[], limit: number) => {
-  const categoryCap = Math.max(1, Math.ceil(limit * 0.4));
-  const brandCap = Math.max(1, Math.ceil(limit * 0.4));
+type DiversityCandidate = {
+  score: number;
+  productItem: {
+    _id: string;
+    category?: { _id: string } | null;
+    brand?: { _id: string } | null;
+  };
+};
+
+export const applyRecommendationDiversity = <T extends DiversityCandidate>(items: T[], limit: number) => {
+  const remaining = [...items];
   const categoryCounts = new Map<string, number>();
   const brandCounts = new Map<string, number>();
-  const selected: ScoredProduct[] = [];
+  const selected: T[] = [];
 
-  for (const item of items) {
-    const categoryId = item.productItem.category?._id ?? 'unknown';
-    const brandId = item.productItem.brand?._id ?? 'unknown';
-    const nextCategoryCount = (categoryCounts.get(categoryId) ?? 0) + 1;
-    const nextBrandCount = (brandCounts.get(brandId) ?? 0) + 1;
+  while (remaining.length && selected.length < limit) {
+    let bestIndex = 0;
+    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
 
-    if (nextCategoryCount > categoryCap || nextBrandCount > brandCap) {
-      continue;
-    }
+    remaining.forEach((item, index) => {
+      const categoryId = item.productItem.category?._id ?? `unknown:${item.productItem._id}`;
+      const brandId = item.productItem.brand?._id ?? `unknown:${item.productItem._id}`;
+      const adjustedScore =
+        item.score -
+        DIVERSITY_PENALTIES.repeatedCategory * (categoryCounts.get(categoryId) ?? 0) -
+        DIVERSITY_PENALTIES.repeatedBrand * (brandCounts.get(brandId) ?? 0);
 
-    selected.push(item);
-    categoryCounts.set(categoryId, nextCategoryCount);
-    brandCounts.set(brandId, nextBrandCount);
+      if (adjustedScore > bestAdjustedScore) {
+        bestAdjustedScore = adjustedScore;
+        bestIndex = index;
+      }
+    });
 
-    if (selected.length >= limit) {
-      return selected;
-    }
-  }
+    const [nextItem] = remaining.splice(bestIndex, 1);
+    const categoryId = nextItem.productItem.category?._id ?? `unknown:${nextItem.productItem._id}`;
+    const brandId = nextItem.productItem.brand?._id ?? `unknown:${nextItem.productItem._id}`;
 
-  for (const item of items) {
-    if (!selected.some((selectedItem) => selectedItem.productItem._id === item.productItem._id)) {
-      selected.push(item);
-    }
-
-    if (selected.length >= limit) {
-      break;
-    }
+    selected.push(nextItem);
+    categoryCounts.set(categoryId, (categoryCounts.get(categoryId) ?? 0) + 1);
+    brandCounts.set(brandId, (brandCounts.get(brandId) ?? 0) + 1);
   }
 
   return selected;
@@ -499,7 +688,7 @@ const toRecommendationResponse = (
   fallbackUsed: boolean,
 ): RecommendationResponse => {
   const requestId = getRequestId();
-  const selectedItems = applyDiversity(
+  const selectedItems = applyRecommendationDiversity(
     scoredProducts
       .filter((item) => item.productItem.isAvailable)
       .sort((left, right) => right.score - left.score),
@@ -619,50 +808,6 @@ const getSimilarRecommendations = async (
   );
 };
 
-const getCartCandidateFilter = (
-  sourceFeatures: ProductFeature[],
-  excludedIds: Set<string>,
-): ProductFilter => {
-  const conditions: ProductFilter[] = [];
-  const categoryIds = new Set(sourceFeatures.map((feature) => feature.categoryId).filter(Boolean));
-  const brandIds = new Set(sourceFeatures.map((feature) => feature.brandId).filter(Boolean));
-  const colors = new Set(sourceFeatures.flatMap((feature) => [...feature.colors]));
-
-  if (categoryIds.size) conditions.push({ category_id: { $in: [...categoryIds] } });
-  if (brandIds.size) conditions.push({ brand_id: { $in: [...brandIds] } });
-  if (colors.size) conditions.push({ 'variant.colors.color': { $in: [...colors] } });
-
-  return {
-    ...(conditions.length ? { $or: conditions } : {}),
-    _id: {
-      $nin: [...excludedIds]
-        .filter((id) => Types.ObjectId.isValid(id))
-        .map((id) => new Types.ObjectId(id)),
-    },
-  };
-};
-
-const getBestSourceFeature = (
-  sourceFeatures: ProductFeature[],
-  candidateFeature: ProductFeature,
-) => {
-  let bestSource = sourceFeatures[0];
-  let bestScore = 0;
-
-  sourceFeatures.forEach((sourceFeature) => {
-    const score = getContentSimilarityScore(sourceFeature, candidateFeature);
-    if (score >= bestScore) {
-      bestSource = sourceFeature;
-      bestScore = score;
-    }
-  });
-
-  return {
-    sourceFeature: bestSource,
-    score: bestScore,
-  };
-};
-
 const getCartRecommendations = async (
   input: CartRecommendationInput,
 ): Promise<RecommendationResponse> => {
@@ -701,37 +846,44 @@ const getCartRecommendations = async (
     );
   }
 
-  const candidateFilter = getCartCandidateFilter(sourceFeatures, cartProductIds);
-  const [primaryCandidates, broadCandidates] = await Promise.all([
-    fetchProducts(candidateFilter, CANDIDATE_POOL_LIMIT),
-    fetchProducts(
-      {
-        _id: {
-          $nin: [...cartProductIds]
-            .filter((id) => Types.ObjectId.isValid(id))
-            .map((id) => new Types.ObjectId(id)),
-        },
-      },
-      Math.max(limit * 4, 40),
-    ),
-  ]);
-  const candidates = mergeProducts(primaryCandidates, broadCandidates);
+  const candidates = await fetchProducts({
+    _id: {
+      $nin: [...cartProductIds]
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id)),
+    },
+  });
   const inventoryByProductId = await getInventoryByProductId(candidates);
+  const sourceRoles = sourceFeatures.map((feature) => feature.role);
   const scoredProducts = candidates.map<ScoredProduct>((candidate) => {
     const candidateFeature = getProductFeature(candidate, inventoryByProductId);
-    const bestSource = getBestSourceFeature(sourceFeatures, candidateFeature);
+    const roleScore = getCartComplementaryRoleScore(sourceRoles, candidateFeature.role);
+    const genderCompatibility = Math.max(
+      ...sourceFeatures.map((sourceFeature) => (
+        getGenderCompatibilityScore(sourceFeature, candidateFeature)
+      )),
+    );
+    const complementaryRole = roleScore * genderCompatibility;
+    const bestSource = getBestCartSourceFeature(sourceFeatures, candidateFeature);
     const popularity = getPopularityScore(candidateFeature);
     const business = getBusinessScore(candidateFeature);
-    const score =
-      SIMILAR_SCORE_WEIGHTS.contentSimilarity * bestSource.score +
-      SIMILAR_SCORE_WEIGHTS.popularity * popularity +
-      SIMILAR_SCORE_WEIGHTS.business * business;
+    const score = calculateCartRecommendationScore({
+      complementaryRole,
+      styleCompatibility: bestSource.styleScore,
+      popularity,
+      business,
+    });
 
     return {
       product: candidate,
       productItem: mapProductListItem(candidate, inventoryByProductId),
       score,
-      reasonCodes: getSimilarReasonCodes(bestSource.sourceFeature, candidateFeature),
+      reasonCodes: getCartReasonCodes({
+        source: bestSource.sourceFeature,
+        candidate: candidateFeature,
+        complementaryRole,
+        styleCompatibility: bestSource.styleScore,
+      }),
     };
   });
 
@@ -831,6 +983,20 @@ const getProfileMatchScore = (profile: PreferenceProfile, feature: ProductFeatur
     0.15 * getScoreRatio(profile.priceBucketScores, feature.priceBucket)
   );
 };
+
+export const calculatePersonalRecommendationScore = ({
+  preferenceMatch,
+  popularity,
+  business,
+}: {
+  preferenceMatch: number;
+  popularity: number;
+  business: number;
+}) => (
+  PERSONAL_SCORE_WEIGHTS.preferenceMatch * preferenceMatch +
+  PERSONAL_SCORE_WEIGHTS.popularity * popularity +
+  PERSONAL_SCORE_WEIGHTS.business * business
+);
 
 const getPreferenceReasonCodes = (
   profile: PreferenceProfile,
@@ -979,14 +1145,13 @@ const getPersonalRecommendations = async (
   const scoredProducts = candidates.map<ScoredProduct>((candidate) => {
     const feature = getProductFeature(candidate, inventoryByProductId);
     const userPreference = getProfileMatchScore(profile, feature);
-    const contentSimilarity = Math.min(1, userPreference * 1.1);
     const popularity = getPopularityScore(feature);
     const business = getBusinessScore(feature);
-    const score =
-      SCORE_WEIGHTS.contentSimilarity * contentSimilarity +
-      SCORE_WEIGHTS.userPreference * userPreference +
-      SCORE_WEIGHTS.popularity * popularity +
-      SCORE_WEIGHTS.business * business;
+    const score = calculatePersonalRecommendationScore({
+      preferenceMatch: userPreference,
+      popularity,
+      business,
+    });
 
     return {
       product: candidate,
@@ -1169,6 +1334,26 @@ const recordRecommendationEvent = async (input: RecommendationEventInput) => {
       recorded: false,
       eventId: duplicateEvent?._id.toString(),
     };
+  }
+
+  if (input.eventType === 'click') {
+    await interactionService.recordInteractionBestEffort(
+      {
+        userId: userId?.toString(),
+        sessionId,
+        productId: recommendedProductId.toString(),
+        actionType: 'recommendation_click',
+        source: 'recommendation',
+        metadata: {
+          recommendationRequestId: requestId,
+          recommendationContext: issuedRequest.context,
+          recommendationRank: issuedItem.rank,
+          recommendationScore: issuedItem.score,
+          algorithmVersion: issuedRequest.algorithmVersion,
+        },
+      },
+      'Failed to record recommendation click interaction',
+    );
   }
 
   return {
