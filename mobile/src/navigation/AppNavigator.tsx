@@ -50,6 +50,7 @@ export type RootStackParamList = {
     isSale?: boolean;
     isNew?: boolean;
     sort?: 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'rating_desc';
+    discoveryEntry?: 'products';
   } | undefined;
   Search: undefined;
   ProductDetail: {

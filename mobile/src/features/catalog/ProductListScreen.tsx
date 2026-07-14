@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
@@ -29,7 +29,6 @@ import {
   ProductSortOption,
 } from './catalogApi';
 import ProductCard from './ProductCard';
-import ShopNameLogo from '../../components/branding/ShopNameLogo';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import {
@@ -302,8 +301,23 @@ const ProductListScreen = () => {
   const route = useRoute<ProductListRouteProp>();
   const { isAuthenticated, runWithAuth } = useAuth();
   const params = route.params;
+  const hasScopedCatalogRequest = Boolean(
+    params?.keyword
+      || params?.gender
+      || params?.categoryId
+      || params?.brandId
+      || params?.minPrice !== undefined
+      || params?.maxPrice !== undefined
+      || params?.isSale
+      || params?.isNew
+      || params?.sort,
+  );
+  const opensAtDiscoveryProducts = params?.discoveryEntry === 'products';
+  const showDiscoveryExperience = opensAtDiscoveryProducts || !hasScopedCatalogRequest;
   const insets = useSafeAreaInsets();
   const scrollViewRef = React.useRef<ScrollView>(null);
+  const catalogHeadingOffsetRef = React.useRef<number | null>(null);
+  const shouldScrollToCatalogRef = React.useRef(opensAtDiscoveryProducts);
   const requestIdRef = React.useRef(0);
   const isRequestInFlightRef = React.useRef(false);
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
@@ -338,12 +352,22 @@ const ProductListScreen = () => {
         maxPrice: params?.maxPrice,
         minPrice: params?.minPrice,
         sort: params?.sort,
+        discoveryEntry: params?.discoveryEntry,
       }),
     [params],
   );
 
   const scrollToTop = React.useCallback((animated = true) => {
     scrollViewRef.current?.scrollTo({ y: 0, animated });
+  }, []);
+
+  const scrollToCatalogHeading = React.useCallback((catalogHeadingOffset: number) => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(catalogHeadingOffset - spacing.md, 0),
+        animated: false,
+      });
+    });
   }, []);
 
   React.useEffect(() => {
@@ -354,7 +378,27 @@ const ProductListScreen = () => {
     setAppliedFilters(nextFilters);
     setDraftFilters(nextFilters);
     scrollToTop(false);
-  }, [params, routeFilterKey, scrollToTop]);
+    shouldScrollToCatalogRef.current = opensAtDiscoveryProducts;
+  }, [opensAtDiscoveryProducts, params, routeFilterKey, scrollToTop]);
+
+  const handleCatalogHeadingLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const catalogHeadingOffset = event.nativeEvent.layout.y;
+
+    catalogHeadingOffsetRef.current = catalogHeadingOffset;
+    if (!shouldScrollToCatalogRef.current || isLoading) return;
+
+    shouldScrollToCatalogRef.current = false;
+    scrollToCatalogHeading(catalogHeadingOffset);
+  }, [isLoading, scrollToCatalogHeading]);
+
+  React.useEffect(() => {
+    if (isLoading || !shouldScrollToCatalogRef.current || catalogHeadingOffsetRef.current === null) {
+      return;
+    }
+
+    shouldScrollToCatalogRef.current = false;
+    scrollToCatalogHeading(catalogHeadingOffsetRef.current);
+  }, [isLoading, scrollToCatalogHeading]);
 
   React.useEffect(() => {
     const revealAnimation = Animated.timing(heroReveal, {
@@ -811,18 +855,6 @@ const ProductListScreen = () => {
   );
 
   const screenTitle = getTitle(params);
-  const hasScopedCatalogRequest = Boolean(
-    params?.keyword
-      || params?.gender
-      || params?.categoryId
-      || params?.brandId
-      || params?.minPrice !== undefined
-      || params?.maxPrice !== undefined
-      || params?.isSale
-      || params?.isNew
-      || params?.sort,
-  );
-  const showDiscoveryExperience = !hasScopedCatalogRequest;
   const headerTitle = showDiscoveryExperience ? DISCOVERY_TITLE : screenTitle;
   const selectedGenderLabel = appliedFilters.gender
     ? genderLabels[appliedFilters.gender].toLocaleUpperCase('vi-VN')
@@ -897,11 +929,7 @@ const ProductListScreen = () => {
         </TouchableOpacity>
 
         <View style={styles.titleBlock}>
-          <ShopNameLogo compact />
-          <Text
-            style={[styles.title, showDiscoveryExperience && styles.discoveryHeaderTitle]}
-            numberOfLines={1}
-          >
+          <Text style={styles.title} numberOfLines={1}>
             {headerTitle}
           </Text>
         </View>
@@ -1003,12 +1031,14 @@ const ProductListScreen = () => {
           </>
         ) : null}
 
-        <View style={styles.catalogHeading}>
+        <View style={styles.catalogHeading} onLayout={handleCatalogHeadingLayout}>
           <View style={styles.catalogHeadingCopy}>
             <Text style={styles.sectionEyebrow}>{selectedGenderLabel}</Text>
-            <Text style={styles.catalogTitle}>{showDiscoveryExperience ? 'Những món đáng thử' : screenTitle}</Text>
+            <Text style={styles.catalogTitle}>
+              {hasScopedCatalogRequest ? screenTitle : 'Những món đáng thử'}
+            </Text>
             <Text style={styles.summaryText}>
-              {isLoading ? 'Đang chọn sản phẩm...' : `${totalItems} lựa chọn hợp gu`}
+              {isLoading ? 'Đang chọn sản phẩm...' : `${totalItems} lựa chọn`}
             </Text>
           </View>
 
@@ -1296,6 +1326,8 @@ const styles = StyleSheet.create({
   },
   header: {
     ...brandedHeaderStyles.container,
+    minHeight: 64,
+    paddingVertical: spacing.sm,
   },
   headerAction: {
     ...brandedHeaderStyles.action,
@@ -1303,19 +1335,14 @@ const styles = StyleSheet.create({
   titleBlock: {
     ...brandedHeaderStyles.titleGroup,
     alignItems: 'center',
-  },
-  brand: {
-    color: colors.brandMist,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
+    justifyContent: 'center',
   },
   title: {
     ...brandedHeaderStyles.title,
-  },
-  discoveryHeaderTitle: {
     fontSize: 20,
-    lineHeight: 25,
+    lineHeight: 26,
+    marginTop: 0,
+    textAlign: 'center',
   },
   content: {
     flex: 1,

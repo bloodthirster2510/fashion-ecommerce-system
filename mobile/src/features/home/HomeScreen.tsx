@@ -366,7 +366,11 @@ const HomeScreen = () => {
           isLoading={isProductLoading}
           error={bestSellerError}
           onRetry={loadHomeProducts}
-          onViewMore={() => navigateToProductList({ title: 'Sản phẩm bán chạy', sort: 'best_seller' })}
+          onViewMore={() => navigateToProductList({
+            title: 'Sản phẩm bán chạy',
+            sort: 'best_seller',
+            discoveryEntry: 'products',
+          })}
           onProductPress={handleProductPress}
           onCartPress={handleCartPress}
         />
