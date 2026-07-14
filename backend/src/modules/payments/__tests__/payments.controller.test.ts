@@ -3,6 +3,7 @@ import mongoose, { Types } from 'mongoose';
 import { Order } from '../../../database/models';
 import { transactionService } from '../transaction.service';
 import { handleVNPayIpn, settleVNPayPayment } from '../payments.controller';
+import { orderService } from '../../orders/order.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -33,6 +34,7 @@ jest.mock('../../orders/order.service', () => ({
   orderService: {
     getOrderById: jest.fn(),
     adjustOrderPaymentStatus: jest.fn(),
+    recordRecommendationPaymentCompleted: jest.fn(),
   },
 }));
 
@@ -44,6 +46,7 @@ jest.mock('../../audit-logs/audit-log.service', () => ({
 
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
+const mockedOrderService = orderService as jest.Mocked<typeof orderService>;
 const startSessionSpy = jest.spyOn(mongoose, 'startSession');
 
 type MockSession = {
@@ -66,6 +69,7 @@ describe('settleVNPayPayment', () => {
     };
     startSessionSpy.mockResolvedValue(mockSession as never);
     mockedOrder.updateOne.mockResolvedValue({ matchedCount: 1 } as never);
+    mockedOrderService.recordRecommendationPaymentCompleted.mockResolvedValue({} as never);
   });
 
   it('fails closed when VNPay callback amount is missing', async () => {
@@ -104,6 +108,7 @@ describe('settleVNPayPayment', () => {
     });
     expect(mockedTransactionService.resolveTransaction).not.toHaveBeenCalled();
     expect(mockedOrder.updateOne).not.toHaveBeenCalled();
+    expect(mockedOrderService.recordRecommendationPaymentCompleted).not.toHaveBeenCalled();
     expect(startSessionSpy).not.toHaveBeenCalled();
   });
 
@@ -161,6 +166,9 @@ describe('settleVNPayPayment', () => {
       { session: mockSession },
     );
     expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+    expect(mockedOrderService.recordRecommendationPaymentCompleted).toHaveBeenCalledWith(
+      orderId.toString(),
+    );
     expect(result).toMatchObject({
       rspCode: '00',
       transactionStatus: 'success',

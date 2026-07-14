@@ -183,10 +183,19 @@ describe('loyalty + voucher order integration', () => {
     await orderService.updateOrderStatus(createdOrder._id.toString(), { status: 'packed' });
     await orderService.updateOrderStatus(createdOrder._id.toString(), { status: 'shipping' });
     const deliveredOrder = await orderService.updateOrderStatus(createdOrder._id.toString(), { status: 'delivered' });
+    const persistedDeliveredOrder = await Order.findById(createdOrder._id).lean();
 
     expect(deliveredOrder.status).toBe('delivered');
     expect(deliveredOrder.paymentStatus).toBe('paid');
-    expect(deliveredOrder.loyaltyPointsAwarded).toBe(410);
+    expect({
+      returnedPoints: deliveredOrder.loyaltyPointsAwarded,
+      persistedPoints: persistedDeliveredOrder?.loyaltyPointsAwarded,
+      persistedStatus: persistedDeliveredOrder?.status,
+    }).toEqual({
+      returnedPoints: 410,
+      persistedPoints: 410,
+      persistedStatus: 'delivered',
+    });
 
     const [persistedUser, persistedCoupon, usage, history] = await Promise.all([
       User.findById(userId).lean(),

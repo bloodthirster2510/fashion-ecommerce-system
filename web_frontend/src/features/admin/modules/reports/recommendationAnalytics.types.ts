@@ -7,11 +7,21 @@ export type RecommendationMetricSnapshot = {
   impressions: number
   clicks: number
   addToCarts: number
-  purchases: number
+  ordersCreated: number
+  paymentsCompleted: number
+  ordersCancelled: number
+  ordersReturned: number
+  reversedPayments: number
+  netPayments: number
+  grossAttributedRevenue: number
+  reversedAttributedRevenue: number
+  netAttributedRevenue: number
   ctr: number
   clickToCartRate: number
-  cartToPurchaseRate: number
-  purchaseRate: number
+  cartToOrderRate: number
+  orderToPaymentRate: number
+  paymentRate: number
+  netPaymentRate: number
   fallbackRate: number
 }
 
@@ -62,7 +72,10 @@ export type RecommendationTopProduct = {
   context: RecommendationContext[]
   clicks: number
   addToCarts: number
-  purchases: number
+  ordersCreated: number
+  paymentsCompleted: number
+  netPayments: number
+  netAttributedRevenue: number
 }
 
 export type RecommendationRecentRequest = {
@@ -75,7 +88,15 @@ export type RecommendationRecentRequest = {
   impressions: number
   clicks: number
   addToCarts: number
-  purchases: number
+  ordersCreated: number
+  paymentsCompleted: number
+  ordersCancelled: number
+  ordersReturned: number
+  reversedPayments: number
+  netPayments: number
+  grossAttributedRevenue: number
+  reversedAttributedRevenue: number
+  netAttributedRevenue: number
   ctr: number
 }
 
@@ -97,7 +118,9 @@ export type RecommendationAnalytics = {
     impressionsPercent: number | null
     clicksPercent: number | null
     addToCartsPercent: number | null
-    purchasesPercent: number | null
+    ordersCreatedPercent: number | null
+    paymentsCompletedPercent: number | null
+    netAttributedRevenuePercent: number | null
     ctrPercent: number | null
     fallbackRatePercent: number | null
   }

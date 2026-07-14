@@ -323,9 +323,20 @@ describe('orderService', () => {
     const order = {
       _id: new Types.ObjectId(),
       orderCode: 'FSORDER',
+      user_id: new Types.ObjectId(userId),
       paymentMethod: 'COD',
       paymentStatus: 'pending',
       status: 'confirmed',
+      order_list: [{
+        _id: new Types.ObjectId(),
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 2,
+        priceAtPurchased: 180000,
+        recommendationRequestId: 'rec_123',
+      }],
     };
 
     const pricing = buildPricingResult();
@@ -420,12 +431,19 @@ describe('orderService', () => {
       { session: mockSession },
     );
     expect(mockedCartService.deleteCartItems).toHaveBeenCalledWith(userId, [cartItemId.toString()]);
-    expect(mockedInteractionService.recordPurchaseInteractions).toHaveBeenCalled();
+    expect(mockedInteractionService.recordPurchaseInteractions).not.toHaveBeenCalled();
     expect(mockedRecommendationService.recordRecommendationConversionEvent).toHaveBeenCalledWith({
       userId,
       requestId: 'rec_123',
       recommendedProductId: productId.toString(),
-      eventType: 'purchase',
+      eventType: 'order_created',
+      orderId: order._id.toString(),
+      orderCode: 'FSORDER',
+      orderStatus: 'confirmed',
+      orderPaymentStatus: 'pending',
+      quantity: 2,
+      attributedAmount: 360000,
+      reversesPayment: false,
     });
     expect(result).toBe(order);
   });
@@ -740,6 +758,7 @@ describe('orderService', () => {
     const couponId = new Types.ObjectId('665000000000000000000090');
     const order = {
       _id: orderId,
+      orderCode: 'FSCANCELLED',
       user_id: new Types.ObjectId(userId),
       couponId,
       status: 'confirmed',
@@ -747,11 +766,14 @@ describe('orderService', () => {
       paymentStatus: 'paid',
       order_list: [
         {
+          _id: new Types.ObjectId('665000000000000000000051'),
           productId,
           variantId,
           colorVariantId,
           size: 'M',
           quantity: 2,
+          priceAtPurchased: 180000,
+          recommendationRequestId: 'rec_cancel_123',
         },
       ],
       save: jest.fn(),
@@ -819,6 +841,19 @@ describe('orderService', () => {
       userId,
       {},
     );
+    expect(mockedRecommendationService.recordRecommendationConversionEvent).toHaveBeenCalledWith({
+      userId,
+      requestId: 'rec_cancel_123',
+      recommendedProductId: productId.toString(),
+      eventType: 'order_cancelled',
+      orderId: orderId.toString(),
+      orderCode: 'FSCANCELLED',
+      orderStatus: 'cancelled',
+      orderPaymentStatus: 'paid',
+      quantity: 2,
+      attributedAmount: 360000,
+      reversesPayment: true,
+    });
     expect(result).toBe(order);
   });
 
@@ -1254,6 +1289,49 @@ describe('orderService', () => {
     expect(result).toBe(adjustedOrder);
   });
 
+  it('records a paid return as a negative recommendation conversion', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000068');
+    const order = {
+      _id: orderId,
+      orderCode: 'FSRETURNED',
+      user_id: new Types.ObjectId(userId),
+      status: 'return_approved',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      loyaltyPointsAwarded: 0,
+      order_list: [{
+        _id: new Types.ObjectId('665000000000000000000069'),
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 1,
+        priceAtPurchased: 180000,
+        recommendationRequestId: 'rec_return_123',
+      }],
+      save: jest.fn(),
+    };
+    order.save.mockResolvedValue(order as never);
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    const result = await orderService.updateOrderStatus(orderId.toString(), { status: 'returned' });
+
+    expect(result).toBe(order);
+    expect(mockedRecommendationService.recordRecommendationConversionEvent).toHaveBeenCalledWith({
+      userId,
+      requestId: 'rec_return_123',
+      recommendedProductId: productId.toString(),
+      eventType: 'order_returned',
+      orderId: orderId.toString(),
+      orderCode: 'FSRETURNED',
+      orderStatus: 'returned',
+      orderPaymentStatus: 'paid',
+      quantity: 1,
+      attributedAmount: 180000,
+      reversesPayment: true,
+    });
+  });
+
   it('rejects a pending return request and restores the delivered status', async () => {
     const orderId = new Types.ObjectId('665000000000000000000056');
     const order = {
@@ -1444,7 +1522,16 @@ describe('orderService', () => {
       shipping: {
         status: 'quoted',
       },
-      order_list: [],
+      order_list: [{
+        _id: new Types.ObjectId('665000000000000000000074'),
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 2,
+        priceAtPurchased: 180000,
+        recommendationRequestId: 'rec_paid_123',
+      }],
       save: jest.fn(),
     };
     order.save.mockResolvedValue(order as never);
@@ -1474,6 +1561,27 @@ describe('orderService', () => {
       paymentStatus: 'pending',
       shippingStatus: 'quoted',
     });
+    expect(mockedRecommendationService.recordRecommendationConversionEvent).toHaveBeenCalledWith({
+      userId,
+      requestId: 'rec_paid_123',
+      recommendedProductId: productId.toString(),
+      eventType: 'payment_completed',
+      orderId: orderId.toString(),
+      orderCode: 'FSPAYMENT',
+      orderStatus: 'confirmed',
+      orderPaymentStatus: 'paid',
+      quantity: 2,
+      attributedAmount: 360000,
+      reversesPayment: false,
+    });
+    expect(mockedInteractionService.recordPurchaseInteractions).toHaveBeenCalledWith(
+      userId,
+      [expect.objectContaining({
+        productId: productId.toString(),
+        quantity: 2,
+      })],
+      { orderId: orderId.toString(), orderCode: 'FSPAYMENT' },
+    );
   });
 
   it('allows a paid returned COD order to be marked refunded after manual reconciliation', async () => {
@@ -1613,6 +1721,7 @@ describe('orderService', () => {
     const orderId = new Types.ObjectId('665000000000000000000058');
     const order = {
       _id: orderId,
+      orderCode: 'FSCODDELIVERED',
       user_id: new Types.ObjectId(userId),
       status: 'shipping',
       deliveredAt: null,
@@ -1621,7 +1730,16 @@ describe('orderService', () => {
       shipping: {
         status: 'delivering',
       },
-      order_list: [],
+      order_list: [{
+        _id: new Types.ObjectId('665000000000000000000059'),
+        productId,
+        variantId,
+        colorVariantId,
+        size: 'M',
+        quantity: 1,
+        priceAtPurchased: 180000,
+        recommendationRequestId: 'rec_cod_paid_123',
+      }],
       save: jest.fn(),
     };
     order.save.mockResolvedValue(order as never);
@@ -1634,6 +1752,16 @@ describe('orderService', () => {
     expect(order.deliveredAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
+    expect(mockedRecommendationService.recordRecommendationConversionEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'rec_cod_paid_123',
+        eventType: 'payment_completed',
+        orderId: orderId.toString(),
+        orderPaymentStatus: 'paid',
+        attributedAmount: 180000,
+      }),
+    );
+    expect(mockedInteractionService.recordPurchaseInteractions).toHaveBeenCalled();
     expect(result).toBe(order);
   });
 

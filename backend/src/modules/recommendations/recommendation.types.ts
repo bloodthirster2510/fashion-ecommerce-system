@@ -71,7 +71,17 @@ export interface RecommendationConversionEventInput {
   sessionId?: string | null;
   requestId?: string | null;
   recommendedProductId: string;
-  eventType: Extract<RecommendationEventType, 'add_to_cart' | 'purchase'>;
+  eventType: Extract<
+    RecommendationEventType,
+    'add_to_cart' | 'order_created' | 'payment_completed' | 'order_cancelled' | 'order_returned'
+  >;
+  orderId?: string | null;
+  orderCode?: string | null;
+  orderStatus?: string | null;
+  orderPaymentStatus?: string | null;
+  quantity?: number | null;
+  attributedAmount?: number | null;
+  reversesPayment?: boolean;
 }
 
 export interface RegisterRecommendationRequestInput {

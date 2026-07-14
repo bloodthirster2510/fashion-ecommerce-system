@@ -13,6 +13,10 @@ export const RECOMMENDATION_EVENT_TYPES = [
   'click',
   'add_to_cart',
   'purchase',
+  'order_created',
+  'payment_completed',
+  'order_cancelled',
+  'order_returned',
 ] as const;
 
 export type RecommendationEventType = (typeof RECOMMENDATION_EVENT_TYPES)[number];
@@ -29,6 +33,14 @@ export interface IRecommendationEvent extends Document {
   reasonCodes: string[];
   eventType: RecommendationEventType;
   requestId: string;
+  schemaVersion: number;
+  orderId?: Types.ObjectId | null;
+  orderCode?: string | null;
+  orderStatus?: string | null;
+  orderPaymentStatus?: string | null;
+  quantity?: number | null;
+  attributedAmount?: number | null;
+  reversesPayment: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -54,6 +66,14 @@ const recommendationEventSchema = new Schema<IRecommendationEvent>(
       required: true,
     },
     requestId: { type: String, required: true, trim: true, maxlength: 120 },
+    schemaVersion: { type: Number, required: true, min: 1, default: 1 },
+    orderId: { type: Schema.Types.ObjectId, ref: 'Order', default: null },
+    orderCode: { type: String, trim: true, maxlength: 100, default: null },
+    orderStatus: { type: String, trim: true, maxlength: 40, default: null },
+    orderPaymentStatus: { type: String, trim: true, maxlength: 40, default: null },
+    quantity: { type: Number, min: 1, default: null },
+    attributedAmount: { type: Number, min: 0, default: null },
+    reversesPayment: { type: Boolean, required: true, default: false },
   },
   { timestamps: true },
 );

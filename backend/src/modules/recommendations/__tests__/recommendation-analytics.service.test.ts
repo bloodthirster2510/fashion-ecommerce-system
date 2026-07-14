@@ -2,6 +2,7 @@ import {
   calculateAnalyticsChangePercent,
   calculateAnalyticsRate,
   normalizeRecommendationAnalyticsQuery,
+  toMetricSnapshot,
 } from '../recommendation-analytics.service';
 
 jest.mock('../../../database/models', () => ({
@@ -41,6 +42,37 @@ describe('recommendation analytics helpers', () => {
     expect(result.range.from.toISOString()).toBe('2026-07-01T00:00:00.000Z');
     expect(result.range.to.toISOString()).toBe('2026-07-10T23:59:59.999Z');
     expect(result.range.previousTo.getTime()).toBe(result.range.from.getTime() - 1);
+  });
+
+  it('separates legacy order creation from paid and net attribution', () => {
+    const metrics = toMetricSnapshot(
+      { requests: 5, recommendations: 10, fallbackRequests: 1 },
+      [
+        { _id: 'impression', count: 10, amount: 0, reversedCount: 0, reversedAmount: 0 },
+        { _id: 'add_to_cart', count: 4, amount: 0, reversedCount: 0, reversedAmount: 0 },
+        { _id: 'purchase', count: 2, amount: 0, reversedCount: 0, reversedAmount: 0 },
+        { _id: 'order_created', count: 1, amount: 0, reversedCount: 0, reversedAmount: 0 },
+        { _id: 'payment_completed', count: 2, amount: 360000, reversedCount: 0, reversedAmount: 0 },
+        { _id: 'order_cancelled', count: 1, amount: 180000, reversedCount: 1, reversedAmount: 180000 },
+        { _id: 'order_returned', count: 1, amount: 180000, reversedCount: 0, reversedAmount: 0 },
+      ],
+    );
+
+    expect(metrics.ordersCreated).toBe(3);
+    expect(metrics.paymentsCompleted).toBe(2);
+    expect(metrics.reversedPayments).toBe(1);
+    expect(metrics.netPayments).toBe(1);
+    expect(metrics.grossAttributedRevenue).toBe(360000);
+    expect(metrics.netAttributedRevenue).toBe(180000);
+    expect(metrics.cartToOrderRate).toBe(0.75);
+    expect(metrics.orderToPaymentRate).toBe(0.6667);
+    expect(metrics.netPaymentRate).toBe(0.1);
+
+    const reversalOnlyWindow = toMetricSnapshot(undefined, [
+      { _id: 'order_returned', count: 1, amount: 180000, reversedCount: 1, reversedAmount: 180000 },
+    ]);
+    expect(reversalOnlyWindow.netPayments).toBe(-1);
+    expect(reversalOnlyWindow.netAttributedRevenue).toBe(-180000);
   });
 
   it('rejects invalid filters before querying MongoDB', () => {

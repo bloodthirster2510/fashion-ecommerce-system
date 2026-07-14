@@ -33,7 +33,15 @@ type EventCounts = {
   impressions: number;
   clicks: number;
   addToCarts: number;
-  purchases: number;
+  ordersCreated: number;
+  paymentsCompleted: number;
+  ordersCancelled: number;
+  ordersReturned: number;
+  reversedPayments: number;
+  netPayments: number;
+  grossAttributedRevenue: number;
+  reversedAttributedRevenue: number;
+  netAttributedRevenue: number;
 };
 
 type MetricSnapshot = EventCounts & {
@@ -42,8 +50,10 @@ type MetricSnapshot = EventCounts & {
   fallbackRequests: number;
   ctr: number;
   clickToCartRate: number;
-  cartToPurchaseRate: number;
-  purchaseRate: number;
+  cartToOrderRate: number;
+  orderToPaymentRate: number;
+  paymentRate: number;
+  netPaymentRate: number;
   fallbackRate: number;
 };
 
@@ -56,6 +66,9 @@ type RequestSummaryRow = {
 type EventSummaryRow = {
   _id: RecommendationEventType;
   count: number;
+  amount: number;
+  reversedCount: number;
+  reversedAmount: number;
 };
 
 type SegmentRequestRow = RequestSummaryRow & {
@@ -72,6 +85,9 @@ type SegmentEventRow = {
     eventType: RecommendationEventType;
   };
   count: number;
+  amount: number;
+  reversedCount: number;
+  reversedAmount: number;
   avgRank: number | null;
   avgScore: number | null;
 };
@@ -88,6 +104,9 @@ type TrendEventRow = {
     eventType: RecommendationEventType;
   };
   count: number;
+  amount: number;
+  reversedCount: number;
+  reversedAmount: number;
 };
 
 type CoverageRow = {
@@ -131,7 +150,10 @@ type TopProductRow = {
   context: RecommendationContext[];
   clicks: number;
   addToCarts: number;
-  purchases: number;
+  ordersCreated: number;
+  paymentsCompleted: number;
+  netPayments: number;
+  netAttributedRevenue: number;
 };
 
 type RecentRequestDocument = {
@@ -149,6 +171,9 @@ type RecentRequestEventRow = {
     eventType: RecommendationEventType;
   };
   count: number;
+  amount: number;
+  reversedCount: number;
+  reversedAmount: number;
 };
 
 const DEFAULT_DAYS = 30;
@@ -157,19 +182,58 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const RECENT_REQUEST_LIMIT = 12;
 
-const EVENT_COUNT_KEYS: Record<RecommendationEventType, keyof EventCounts> = {
-  impression: 'impressions',
-  click: 'clicks',
-  add_to_cart: 'addToCarts',
-  purchase: 'purchases',
-};
-
 const emptyEventCounts = (): EventCounts => ({
   impressions: 0,
   clicks: 0,
   addToCarts: 0,
-  purchases: 0,
+  ordersCreated: 0,
+  paymentsCompleted: 0,
+  ordersCancelled: 0,
+  ordersReturned: 0,
+  reversedPayments: 0,
+  netPayments: 0,
+  grossAttributedRevenue: 0,
+  reversedAttributedRevenue: 0,
+  netAttributedRevenue: 0,
 });
+
+const applyEventSummary = (counts: EventCounts, row: EventSummaryRow) => {
+  switch (row._id) {
+    case 'impression':
+      counts.impressions += row.count;
+      break;
+    case 'click':
+      counts.clicks += row.count;
+      break;
+    case 'add_to_cart':
+      counts.addToCarts += row.count;
+      break;
+    case 'purchase':
+    case 'order_created':
+      // purchase is the v1 event written at order creation.
+      counts.ordersCreated += row.count;
+      break;
+    case 'payment_completed':
+      counts.paymentsCompleted += row.count;
+      counts.grossAttributedRevenue += row.amount;
+      break;
+    case 'order_cancelled':
+      counts.ordersCancelled += row.count;
+      counts.reversedPayments += row.reversedCount;
+      counts.reversedAttributedRevenue += row.reversedAmount;
+      break;
+    case 'order_returned':
+      counts.ordersReturned += row.count;
+      counts.reversedPayments += row.reversedCount;
+      counts.reversedAttributedRevenue += row.reversedAmount;
+      break;
+  }
+
+  counts.netPayments = counts.paymentsCompleted - counts.reversedPayments;
+  counts.netAttributedRevenue = (
+    counts.grossAttributedRevenue - counts.reversedAttributedRevenue
+  );
+};
 
 export const calculateAnalyticsRate = (numerator: number, denominator: number) => {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
@@ -294,29 +358,44 @@ const buildEventFilter = (range: Pick<AnalyticsRange, 'from' | 'to'>, filters: A
   ...(filters.algorithmVersion ? { algorithmVersion: filters.algorithmVersion } : {}),
 });
 
-const toMetricSnapshot = (
+const refreshMetricRates = (metrics: MetricSnapshot) => {
+  metrics.ctr = calculateAnalyticsRate(metrics.clicks, metrics.impressions);
+  metrics.clickToCartRate = calculateAnalyticsRate(metrics.addToCarts, metrics.clicks);
+  metrics.cartToOrderRate = calculateAnalyticsRate(metrics.ordersCreated, metrics.addToCarts);
+  metrics.orderToPaymentRate = calculateAnalyticsRate(
+    metrics.paymentsCompleted,
+    metrics.ordersCreated,
+  );
+  metrics.paymentRate = calculateAnalyticsRate(metrics.paymentsCompleted, metrics.impressions);
+  metrics.netPaymentRate = calculateAnalyticsRate(metrics.netPayments, metrics.impressions);
+  metrics.fallbackRate = calculateAnalyticsRate(metrics.fallbackRequests, metrics.requests);
+};
+
+export const toMetricSnapshot = (
   requestSummary: RequestSummaryRow | undefined,
   eventRows: EventSummaryRow[],
 ): MetricSnapshot => {
   const counts = emptyEventCounts();
-  eventRows.forEach((row) => {
-    counts[EVENT_COUNT_KEYS[row._id]] = row.count;
-  });
+  eventRows.forEach((row) => applyEventSummary(counts, row));
 
   const requests = requestSummary?.requests ?? 0;
   const fallbackRequests = requestSummary?.fallbackRequests ?? 0;
-
-  return {
+  const metrics: MetricSnapshot = {
     requests,
     recommendations: requestSummary?.recommendations ?? 0,
     fallbackRequests,
     ...counts,
-    ctr: calculateAnalyticsRate(counts.clicks, counts.impressions),
-    clickToCartRate: calculateAnalyticsRate(counts.addToCarts, counts.clicks),
-    cartToPurchaseRate: calculateAnalyticsRate(counts.purchases, counts.addToCarts),
-    purchaseRate: calculateAnalyticsRate(counts.purchases, counts.impressions),
-    fallbackRate: calculateAnalyticsRate(fallbackRequests, requests),
+    ctr: 0,
+    clickToCartRate: 0,
+    cartToOrderRate: 0,
+    orderToPaymentRate: 0,
+    paymentRate: 0,
+    netPaymentRate: 0,
+    fallbackRate: 0,
   };
+
+  refreshMetricRates(metrics);
+  return metrics;
 };
 
 const collectMetricSnapshot = async (
@@ -341,7 +420,17 @@ const collectMetricSnapshot = async (
     ]),
     RecommendationEvent.aggregate<EventSummaryRow>([
       { $match: eventFilter },
-      { $group: { _id: '$eventType', count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: '$eventType',
+          count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ['$attributedAmount', 0] } },
+          reversedCount: { $sum: { $cond: ['$reversesPayment', 1, 0] } },
+          reversedAmount: {
+            $sum: { $cond: ['$reversesPayment', { $ifNull: ['$attributedAmount', 0] }, 0] },
+          },
+        },
+      },
     ]),
   ]);
 
@@ -377,6 +466,11 @@ const collectSegments = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filte
             eventType: '$eventType',
           },
           count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ['$attributedAmount', 0] } },
+          reversedCount: { $sum: { $cond: ['$reversesPayment', 1, 0] } },
+          reversedAmount: {
+            $sum: { $cond: ['$reversesPayment', { $ifNull: ['$attributedAmount', 0] }, 0] },
+          },
           avgRank: { $avg: '$rank' },
           avgScore: { $avg: '$score' },
         },
@@ -412,29 +506,18 @@ const collectSegments = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filte
       avgClickRank: null,
       avgClickScore: null,
     };
-    const countKey = EVENT_COUNT_KEYS[row._id.eventType];
-    current.metrics[countKey] = row.count;
+    applyEventSummary(current.metrics, {
+      _id: row._id.eventType,
+      count: row.count,
+      amount: row.amount,
+      reversedCount: row.reversedCount,
+      reversedAmount: row.reversedAmount,
+    });
     if (row._id.eventType === 'click') {
       current.avgClickRank = row.avgRank === null ? null : Math.round(row.avgRank * 10) / 10;
       current.avgClickScore = row.avgScore === null ? null : Math.round(row.avgScore * 1000) / 1000;
     }
-    current.metrics.ctr = calculateAnalyticsRate(current.metrics.clicks, current.metrics.impressions);
-    current.metrics.clickToCartRate = calculateAnalyticsRate(
-      current.metrics.addToCarts,
-      current.metrics.clicks,
-    );
-    current.metrics.cartToPurchaseRate = calculateAnalyticsRate(
-      current.metrics.purchases,
-      current.metrics.addToCarts,
-    );
-    current.metrics.purchaseRate = calculateAnalyticsRate(
-      current.metrics.purchases,
-      current.metrics.impressions,
-    );
-    current.metrics.fallbackRate = calculateAnalyticsRate(
-      current.metrics.fallbackRequests,
-      current.metrics.requests,
-    );
+    refreshMetricRates(current.metrics);
     segments.set(key, current);
   });
 
@@ -484,6 +567,11 @@ const collectTrend = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filters:
             eventType: '$eventType',
           },
           count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ['$attributedAmount', 0] } },
+          reversedCount: { $sum: { $cond: ['$reversesPayment', 1, 0] } },
+          reversedAmount: {
+            $sum: { $cond: ['$reversesPayment', { $ifNull: ['$attributedAmount', 0] }, 0] },
+          },
         },
       },
     ]),
@@ -493,17 +581,20 @@ const collectTrend = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filters:
     const current = buckets.get(row._id) ?? toMetricSnapshot(undefined, []);
     current.requests = row.requests;
     current.fallbackRequests = row.fallbackRequests;
-    current.fallbackRate = calculateAnalyticsRate(row.fallbackRequests, row.requests);
+    refreshMetricRates(current);
     buckets.set(row._id, current);
   });
 
   eventRows.forEach((row) => {
     const current = buckets.get(row._id.day) ?? toMetricSnapshot(undefined, []);
-    current[EVENT_COUNT_KEYS[row._id.eventType]] = row.count;
-    current.ctr = calculateAnalyticsRate(current.clicks, current.impressions);
-    current.clickToCartRate = calculateAnalyticsRate(current.addToCarts, current.clicks);
-    current.cartToPurchaseRate = calculateAnalyticsRate(current.purchases, current.addToCarts);
-    current.purchaseRate = calculateAnalyticsRate(current.purchases, current.impressions);
+    applyEventSummary(current, {
+      _id: row._id.eventType,
+      count: row.count,
+      amount: row.amount,
+      reversedCount: row.reversedCount,
+      reversedAmount: row.reversedAmount,
+    });
+    refreshMetricRates(current);
     buckets.set(row._id.day, current);
   });
 
@@ -744,7 +835,17 @@ const collectTopProducts = async (
   {
     $match: {
       ...buildEventFilter(range, filters),
-      eventType: { $in: ['click', 'add_to_cart', 'purchase'] },
+      eventType: {
+        $in: [
+          'click',
+          'add_to_cart',
+          'purchase',
+          'order_created',
+          'payment_completed',
+          'order_cancelled',
+          'order_returned',
+        ],
+      },
     },
   },
   {
@@ -753,7 +854,49 @@ const collectTopProducts = async (
       context: { $addToSet: '$context' },
       clicks: { $sum: { $cond: [{ $eq: ['$eventType', 'click'] }, 1, 0] } },
       addToCarts: { $sum: { $cond: [{ $eq: ['$eventType', 'add_to_cart'] }, 1, 0] } },
-      purchases: { $sum: { $cond: [{ $eq: ['$eventType', 'purchase'] }, 1, 0] } },
+      ordersCreated: {
+        $sum: { $cond: [{ $in: ['$eventType', ['purchase', 'order_created']] }, 1, 0] },
+      },
+      paymentsCompleted: {
+        $sum: { $cond: [{ $eq: ['$eventType', 'payment_completed'] }, 1, 0] },
+      },
+      reversedPayments: {
+        $sum: {
+          $cond: [
+            {
+              $and: [
+                { $in: ['$eventType', ['order_cancelled', 'order_returned']] },
+                '$reversesPayment',
+              ],
+            },
+            1,
+            0,
+          ],
+        },
+      },
+      grossAttributedRevenue: {
+        $sum: {
+          $cond: [
+            { $eq: ['$eventType', 'payment_completed'] },
+            { $ifNull: ['$attributedAmount', 0] },
+            0,
+          ],
+        },
+      },
+      reversedAttributedRevenue: {
+        $sum: {
+          $cond: [
+            {
+              $and: [
+                { $in: ['$eventType', ['order_cancelled', 'order_returned']] },
+                '$reversesPayment',
+              ],
+            },
+            { $ifNull: ['$attributedAmount', 0] },
+            0,
+          ],
+        },
+      },
     },
   },
   { $lookup: { from: 'products', localField: '_id', foreignField: '_id', as: 'product' } },
@@ -767,10 +910,15 @@ const collectTopProducts = async (
       context: 1,
       clicks: 1,
       addToCarts: 1,
-      purchases: 1,
+      ordersCreated: 1,
+      paymentsCompleted: 1,
+      netPayments: { $subtract: ['$paymentsCompleted', '$reversedPayments'] },
+      netAttributedRevenue: {
+        $subtract: ['$grossAttributedRevenue', '$reversedAttributedRevenue'],
+      },
     },
   },
-  { $sort: { purchases: -1, addToCarts: -1, clicks: -1, name: 1 } },
+  { $sort: { paymentsCompleted: -1, ordersCreated: -1, addToCarts: -1, clicks: -1, name: 1 } },
   { $limit: 8 },
 ]);
 
@@ -798,13 +946,24 @@ const collectRecentRequests = async (
           eventType: '$eventType',
         },
         count: { $sum: 1 },
+        amount: { $sum: { $ifNull: ['$attributedAmount', 0] } },
+        reversedCount: { $sum: { $cond: ['$reversesPayment', 1, 0] } },
+        reversedAmount: {
+          $sum: { $cond: ['$reversesPayment', { $ifNull: ['$attributedAmount', 0] }, 0] },
+        },
       },
     },
   ]);
   const countsByRequest = new Map<string, EventCounts>();
   eventRows.forEach((row) => {
     const counts = countsByRequest.get(row._id.requestId) ?? emptyEventCounts();
-    counts[EVENT_COUNT_KEYS[row._id.eventType]] = row.count;
+    applyEventSummary(counts, {
+      _id: row._id.eventType,
+      count: row.count,
+      amount: row.amount,
+      reversedCount: row.reversedCount,
+      reversedAmount: row.reversedAmount,
+    });
     countsByRequest.set(row._id.requestId, counts);
   });
 
@@ -828,7 +987,15 @@ const getComparison = (current: MetricSnapshot, previous: MetricSnapshot) => ({
   impressionsPercent: calculateAnalyticsChangePercent(current.impressions, previous.impressions),
   clicksPercent: calculateAnalyticsChangePercent(current.clicks, previous.clicks),
   addToCartsPercent: calculateAnalyticsChangePercent(current.addToCarts, previous.addToCarts),
-  purchasesPercent: calculateAnalyticsChangePercent(current.purchases, previous.purchases),
+  ordersCreatedPercent: calculateAnalyticsChangePercent(current.ordersCreated, previous.ordersCreated),
+  paymentsCompletedPercent: calculateAnalyticsChangePercent(
+    current.paymentsCompleted,
+    previous.paymentsCompleted,
+  ),
+  netAttributedRevenuePercent: calculateAnalyticsChangePercent(
+    current.netAttributedRevenue,
+    previous.netAttributedRevenue,
+  ),
   ctrPercent: calculateAnalyticsChangePercent(current.ctr, previous.ctr),
   fallbackRatePercent: calculateAnalyticsChangePercent(current.fallbackRate, previous.fallbackRate),
 });

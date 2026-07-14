@@ -81,6 +81,14 @@ type VNPaySettlementResult = {
   paymentStatus?: OrderPaymentStatus;
 };
 
+const recordPaidRecommendationAttributionBestEffort = async (orderId: string) => {
+  try {
+    await orderService.recordRecommendationPaymentCompleted(orderId);
+  } catch (error) {
+    console.error('Failed to record paid recommendation attribution:', error);
+  }
+};
+
 export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySettlementResult> => {
   if (!result.isValidSignature) {
     return { rspCode: '97', message: 'Invalid signature' };
@@ -112,6 +120,7 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   if (!transaction) {
     const latest = await transactionService.findLatestByOrderId(orderId);
     if (latest?.status === 'success') {
+      await recordPaidRecommendationAttributionBestEffort(orderId);
       return {
         rspCode: '02',
         message: 'Order already confirmed',
@@ -137,6 +146,9 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   const canRecoverSuccessfulAttempt = result.isSuccess &&
     ['expired', 'failed'].includes(transaction.status);
   if (transaction.status !== 'pending' && !canRecoverSuccessfulAttempt) {
+    if (transaction.status === 'success') {
+      await recordPaidRecommendationAttributionBestEffort(orderId);
+    }
     return {
       rspCode: transaction.status === 'success' ? '02' : '00',
       message: 'Transaction already resolved',
@@ -235,6 +247,9 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   }
 
   if (!resolvedTransaction) {
+    if (isSuccess && order.paymentStatus === 'paid') {
+      await recordPaidRecommendationAttributionBestEffort(orderId);
+    }
     return {
       rspCode: '00',
       message: 'Transaction already resolved',
@@ -243,6 +258,10 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
       transactionId: transaction._id.toString(),
       paymentStatus: order.paymentStatus,
     };
+  }
+
+  if (isSuccess && paymentStatus === 'paid') {
+    await recordPaidRecommendationAttributionBestEffort(orderId);
   }
 
   return {

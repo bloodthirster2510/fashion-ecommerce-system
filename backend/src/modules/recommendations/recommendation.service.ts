@@ -1367,11 +1367,13 @@ const findSourceRecommendationEvent = async ({
   sessionId,
   requestId,
   recommendedProductId,
+  orderId,
 }: {
   userId?: Types.ObjectId | null;
   sessionId?: string | null;
   requestId: string;
   recommendedProductId: Types.ObjectId;
+  orderId?: Types.ObjectId | null;
 }) => {
   const filter = {
     ...(userId && sessionId
@@ -1385,7 +1387,16 @@ const findSourceRecommendationEvent = async ({
     recommendedProductId,
   };
 
+  const orderCreatedEvent = orderId
+    ? await RecommendationEvent.findOne({
+        ...filter,
+        orderId,
+        eventType: 'order_created',
+      }).sort({ createdAt: -1 })
+    : null;
+
   return (
+    orderCreatedEvent ??
     await RecommendationEvent.findOne({ ...filter, eventType: 'add_to_cart' }).sort({ createdAt: -1 }) ??
     await RecommendationEvent.findOne({ ...filter, eventType: 'click' }).sort({ createdAt: -1 }) ??
     await RecommendationEvent.findOne({ ...filter, eventType: 'impression' }).sort({ createdAt: -1 })
@@ -1393,7 +1404,17 @@ const findSourceRecommendationEvent = async ({
 };
 
 const recordRecommendationConversionEvent = async (input: RecommendationConversionEventInput) => {
-  if (input.eventType !== 'add_to_cart' && input.eventType !== 'purchase') {
+  const lifecycleEventTypes = [
+    'order_created',
+    'payment_completed',
+    'order_cancelled',
+    'order_returned',
+  ] as const;
+  const isLifecycleEvent = lifecycleEventTypes.includes(
+    input.eventType as (typeof lifecycleEventTypes)[number],
+  );
+
+  if (input.eventType !== 'add_to_cart' && !isLifecycleEvent) {
     throw new RecommendationServiceError('Invalid conversion eventType', 400);
   }
 
@@ -1405,27 +1426,44 @@ const recordRecommendationConversionEvent = async (input: RecommendationConversi
   const recommendedProductId = assertObjectId(input.recommendedProductId, 'recommendedProductId');
   const userId = input.userId ? assertObjectId(input.userId, 'userId') : null;
   const sessionId = normalizeSessionId(input.sessionId);
+  const orderId = input.orderId ? assertObjectId(input.orderId, 'orderId') : null;
+  if (isLifecycleEvent && !orderId) {
+    throw new RecommendationServiceError('orderId is required for lifecycle events', 400);
+  }
+
   const sourceEvent = await findSourceRecommendationEvent({
     userId,
     sessionId,
     requestId,
     recommendedProductId,
+    orderId,
   });
 
   if (!sourceEvent) {
     return null;
   }
 
-  const eventFilter = {
-    requestId,
-    recommendedProductId,
-    eventType: input.eventType,
-  };
+  const eventFilter = isLifecycleEvent
+    ? { orderId, recommendedProductId, eventType: input.eventType }
+    : { requestId, recommendedProductId, eventType: input.eventType };
   const existingEvent = await RecommendationEvent.findOne(eventFilter)
     .select('_id')
     .lean<{ _id: Types.ObjectId } | null>();
 
   if (existingEvent) {
+    if (isLifecycleEvent && input.reversesPayment) {
+      await RecommendationEvent.updateOne(
+        { _id: existingEvent._id },
+        {
+          $set: {
+            reversesPayment: true,
+            orderStatus: input.orderStatus?.trim() || null,
+            orderPaymentStatus: input.orderPaymentStatus?.trim() || null,
+          },
+        },
+      );
+    }
+
     return {
       recorded: false,
       eventId: existingEvent._id.toString(),
@@ -1446,6 +1484,24 @@ const recordRecommendationConversionEvent = async (input: RecommendationConversi
       reasonCodes: sourceEvent.reasonCodes ?? [],
       eventType: input.eventType,
       requestId,
+      ...(isLifecycleEvent
+        ? {
+            schemaVersion: 2,
+            orderId,
+            orderCode: input.orderCode?.trim() || null,
+            orderStatus: input.orderStatus?.trim() || null,
+            orderPaymentStatus: input.orderPaymentStatus?.trim() || null,
+            quantity: Number.isInteger(input.quantity) && Number(input.quantity) > 0
+              ? Number(input.quantity)
+              : 1,
+            attributedAmount: typeof input.attributedAmount === 'number'
+              && Number.isFinite(input.attributedAmount)
+              && input.attributedAmount >= 0
+              ? Number(input.attributedAmount)
+              : 0,
+            reversesPayment: Boolean(input.reversesPayment),
+          }
+        : {}),
     });
   } catch (error) {
     if (!isDuplicateKeyError(error)) {

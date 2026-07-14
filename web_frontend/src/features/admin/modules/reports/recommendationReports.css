@@ -267,6 +267,7 @@
 .admin-rec-trend-legend .is-impression { color: #2563eb; }
 .admin-rec-trend-legend .is-click { color: #0e9f6e; }
 .admin-rec-trend-legend .is-cart { color: #b7791f; }
+.admin-rec-trend-legend .is-order { color: #7c3aed; }
 .admin-rec-trend-legend .is-purchase { color: #c2410c; }
 
 .admin-rec-trend {
@@ -289,7 +290,7 @@
 .admin-rec-trend article div {
   min-height: 180px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(4px, 1fr));
+  grid-template-columns: repeat(5, minmax(4px, 1fr));
   align-items: end;
   gap: 3px;
   padding: 8px;
@@ -305,6 +306,7 @@
 .admin-rec-trend i.is-impression { background: #2563eb; }
 .admin-rec-trend i.is-click { background: #0e9f6e; }
 .admin-rec-trend i.is-cart { background: #b7791f; }
+.admin-rec-trend i.is-order { background: #7c3aed; }
 .admin-rec-trend i.is-purchase { background: #c2410c; }
 
 .admin-rec-trend span {

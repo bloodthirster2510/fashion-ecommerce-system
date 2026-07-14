@@ -25,6 +25,7 @@ jest.mock('../../../database/models', () => ({
   RecommendationEvent: {
     create: jest.fn(),
     findOne: jest.fn(),
+    updateOne: jest.fn(),
   },
   RecommendationRequest: {
     create: jest.fn(),
@@ -32,7 +33,16 @@ jest.mock('../../../database/models', () => ({
   },
   UserProductInteraction: {},
   RECOMMENDATION_CONTEXTS: ['home', 'product_detail_similar', 'cart'],
-  RECOMMENDATION_EVENT_TYPES: ['impression', 'click', 'add_to_cart', 'purchase'],
+  RECOMMENDATION_EVENT_TYPES: [
+    'impression',
+    'click',
+    'add_to_cart',
+    'purchase',
+    'order_created',
+    'payment_completed',
+    'order_cancelled',
+    'order_returned',
+  ],
 }));
 
 jest.mock('../../interactions/interaction.service', () => ({
@@ -55,6 +65,7 @@ jest.mock('../../interactions/interaction.service', () => ({
 const mockedRecommendationEvent = RecommendationEvent as unknown as {
   create: jest.Mock;
   findOne: jest.Mock;
+  updateOne: jest.Mock;
 };
 const mockedRecommendationRequest = RecommendationRequest as unknown as {
   create: jest.Mock;
@@ -380,5 +391,107 @@ describe('recommendationService event integrity', () => {
       }),
     );
     expect(result).toEqual({ recorded: true, eventId: eventId.toString() });
+  });
+
+  it('records payment completion against the original request and order', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000030');
+    const sourceEvent = {
+      sessionId,
+      context: 'home',
+      sourceProductId: null,
+      algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
+      score: 0.42,
+      rank: 1,
+      reasonCodes: ['same_category'],
+    };
+    mockedRecommendationEvent.findOne.mockImplementation((filter: { eventType: string }) => {
+      if (filter.eventType === 'order_created') {
+        return { sort: jest.fn().mockResolvedValue(sourceEvent) };
+      }
+
+      return {
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+      };
+    });
+
+    const result = await recommendationService.recordRecommendationConversionEvent({
+      userId: userId.toString(),
+      requestId,
+      recommendedProductId: productId.toString(),
+      eventType: 'payment_completed',
+      orderId: orderId.toString(),
+      orderCode: 'FSORDER',
+      orderStatus: 'confirmed',
+      orderPaymentStatus: 'paid',
+      quantity: 2,
+      attributedAmount: 360000,
+    });
+
+    expect(mockedRecommendationEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      userId,
+      sessionId,
+      requestId,
+      recommendedProductId: productId,
+      eventType: 'payment_completed',
+      schemaVersion: 2,
+      orderId,
+      orderCode: 'FSORDER',
+      orderStatus: 'confirmed',
+      orderPaymentStatus: 'paid',
+      quantity: 2,
+      attributedAmount: 360000,
+      reversesPayment: false,
+    }));
+    expect(result).toEqual({ recorded: true, eventId: eventId.toString() });
+  });
+
+  it('upgrades an existing cancellation to a paid reversal without duplicating it', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000031');
+    const sourceEvent = {
+      sessionId,
+      context: 'home',
+      sourceProductId: null,
+      algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
+      score: 0.42,
+      rank: 1,
+      reasonCodes: ['same_category'],
+    };
+    mockedRecommendationEvent.findOne.mockImplementation((filter: { eventType: string }) => {
+      if (filter.eventType === 'order_created') {
+        return { sort: jest.fn().mockResolvedValue(sourceEvent) };
+      }
+
+      return {
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ _id: eventId }),
+        }),
+      };
+    });
+
+    const result = await recommendationService.recordRecommendationConversionEvent({
+      userId: userId.toString(),
+      requestId,
+      recommendedProductId: productId.toString(),
+      eventType: 'order_cancelled',
+      orderId: orderId.toString(),
+      orderStatus: 'cancelled',
+      orderPaymentStatus: 'paid',
+      reversesPayment: true,
+    });
+
+    expect(mockedRecommendationEvent.updateOne).toHaveBeenCalledWith(
+      { _id: eventId },
+      {
+        $set: {
+          reversesPayment: true,
+          orderStatus: 'cancelled',
+          orderPaymentStatus: 'paid',
+        },
+      },
+    );
+    expect(mockedRecommendationEvent.create).not.toHaveBeenCalled();
+    expect(result).toEqual({ recorded: false, eventId: eventId.toString() });
   });
 });

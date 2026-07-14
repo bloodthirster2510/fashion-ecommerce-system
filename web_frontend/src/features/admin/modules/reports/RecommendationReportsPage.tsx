@@ -35,7 +35,7 @@ import './recommendationReports.css'
 
 type MetricKey = keyof Pick<
   RecommendationMetricSnapshot,
-  'requests' | 'impressions' | 'clicks' | 'addToCarts' | 'purchases'
+  'requests' | 'impressions' | 'clicks' | 'addToCarts' | 'ordersCreated' | 'paymentsCompleted' | 'netAttributedRevenue'
 >
 
 type CssVars = CSSProperties & Record<`--${string}`, string>
@@ -59,6 +59,12 @@ const defaultFilters = (): RecommendationAnalyticsFilters => ({
 })
 
 const formatNumber = (value = 0) => new Intl.NumberFormat('vi-VN').format(value)
+
+const formatCurrency = (value = 0) => new Intl.NumberFormat('vi-VN', {
+  style: 'currency',
+  currency: 'VND',
+  maximumFractionDigits: 0,
+}).format(value)
 
 const formatPercent = (value = 0, maximumFractionDigits = 1) =>
   `${(value * 100).toLocaleString('vi-VN', { maximumFractionDigits })}%`
@@ -168,7 +174,8 @@ function FunnelPanel({ summary }: { summary: RecommendationMetricSnapshot }) {
     { label: 'Impression', count: summary.impressions, rate: 1, helper: 'Sản phẩm thật sự được nhìn thấy' },
     { label: 'Click', count: summary.clicks, rate: summary.ctr, helper: 'CTR từ impression' },
     { label: 'Add to cart', count: summary.addToCarts, rate: summary.clickToCartRate, helper: 'Từ click sang giỏ' },
-    { label: 'Purchase', count: summary.purchases, rate: summary.cartToPurchaseRate, helper: 'Từ giỏ sang mua' },
+    { label: 'Order created', count: summary.ordersCreated, rate: summary.cartToOrderRate, helper: 'Từ giỏ sang tạo đơn' },
+    { label: 'Payment completed', count: summary.paymentsCompleted, rate: summary.orderToPaymentRate, helper: 'Từ đơn sang thanh toán thật' },
   ]
 
   return (
@@ -199,7 +206,13 @@ function FunnelPanel({ summary }: { summary: RecommendationMetricSnapshot }) {
 
 function TrendPanel({ analytics }: { analytics: RecommendationAnalytics }) {
   const maxValue = Math.max(
-    ...analytics.trend.flatMap((point) => [point.impressions, point.clicks, point.addToCarts, point.purchases]),
+    ...analytics.trend.flatMap((point) => [
+      point.impressions,
+      point.clicks,
+      point.addToCarts,
+      point.ordersCreated,
+      point.paymentsCompleted,
+    ]),
     1,
   )
 
@@ -216,7 +229,8 @@ function TrendPanel({ analytics }: { analytics: RecommendationAnalytics }) {
         <span className="is-impression">Impression</span>
         <span className="is-click">Click</span>
         <span className="is-cart">Giỏ</span>
-        <span className="is-purchase">Mua</span>
+        <span className="is-order">Tạo đơn</span>
+        <span className="is-purchase">Đã thanh toán</span>
       </div>
       <div className="admin-rec-trend">
         {analytics.trend.map((point) => (
@@ -225,7 +239,8 @@ function TrendPanel({ analytics }: { analytics: RecommendationAnalytics }) {
               <i className="is-impression" style={{ height: `${Math.max(2, (point.impressions / maxValue) * 100)}%` }} />
               <i className="is-click" style={{ height: `${Math.max(2, (point.clicks / maxValue) * 100)}%` }} />
               <i className="is-cart" style={{ height: `${Math.max(2, (point.addToCarts / maxValue) * 100)}%` }} />
-              <i className="is-purchase" style={{ height: `${Math.max(2, (point.purchases / maxValue) * 100)}%` }} />
+              <i className="is-order" style={{ height: `${Math.max(2, (point.ordersCreated / maxValue) * 100)}%` }} />
+              <i className="is-purchase" style={{ height: `${Math.max(2, (point.paymentsCompleted / maxValue) * 100)}%` }} />
             </div>
             <span>{formatDate(point.date)}</span>
           </article>
@@ -307,7 +322,8 @@ function SegmentTable({ segments }: { segments: RecommendationSegment[] }) {
               <th>Request</th>
               <th>CTR</th>
               <th>Click → giỏ</th>
-              <th>Giỏ → mua</th>
+              <th>Giỏ → đơn</th>
+              <th>Đơn → paid</th>
               <th>Fallback</th>
               <th>Rank click</th>
             </tr>
@@ -320,13 +336,14 @@ function SegmentTable({ segments }: { segments: RecommendationSegment[] }) {
                 <td>{formatNumber(segment.metrics.requests)}</td>
                 <td><strong>{formatPercent(segment.metrics.ctr)}</strong><span>{formatNumber(segment.metrics.clicks)}/{formatNumber(segment.metrics.impressions)}</span></td>
                 <td>{formatPercent(segment.metrics.clickToCartRate)}</td>
-                <td>{formatPercent(segment.metrics.cartToPurchaseRate)}</td>
+                <td>{formatPercent(segment.metrics.cartToOrderRate)}</td>
+                <td>{formatPercent(segment.metrics.orderToPaymentRate)}</td>
                 <td>{formatPercent(segment.metrics.fallbackRate)}</td>
                 <td>{segment.avgClickRank ? `#${segment.avgClickRank}` : '-'}</td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={8}>Chưa có segment recommendation trong kỳ này.</td>
+                <td colSpan={9}>Chưa có segment recommendation trong kỳ này.</td>
               </tr>
             )}
           </tbody>
@@ -483,11 +500,25 @@ export function RecommendationReportsPage() {
               tone="warning"
             />
             <KpiCard
-              label="Giỏ → mua"
-              value={formatPercent(analytics.summary.cartToPurchaseRate)}
-              meta={`${formatNumber(analytics.summary.purchases)} purchase`}
+              label="Giỏ → tạo đơn"
+              value={formatPercent(analytics.summary.cartToOrderRate)}
+              meta={`${formatNumber(analytics.summary.ordersCreated)} lượt tạo đơn`}
               icon={<PackageCheck />}
               tone="success"
+            />
+            <KpiCard
+              label="Đơn → thanh toán"
+              value={formatPercent(analytics.summary.orderToPaymentRate)}
+              meta={`${formatNumber(analytics.summary.paymentsCompleted)} lượt paid`}
+              icon={<PackageCheck />}
+              tone="success"
+            />
+            <KpiCard
+              label="Doanh thu attribution ròng"
+              value={formatCurrency(analytics.summary.netAttributedRevenue)}
+              meta={`${formatCurrency(analytics.summary.grossAttributedRevenue)} gross · ${formatCurrency(analytics.summary.reversedAttributedRevenue)} đảo`}
+              icon={<TrendingUp />}
+              tone="accent"
             />
           </KpiGrid>
 
@@ -564,10 +595,10 @@ export function RecommendationReportsPage() {
                       <strong>{product.name}</strong>
                       <span>{product.context.map((context) => contextLabels[context]).join(', ')}</span>
                     </div>
-                    <small>{formatNumber(product.clicks)} click · {formatNumber(product.addToCarts)} giỏ · {formatNumber(product.purchases)} mua</small>
+                    <small>{formatNumber(product.clicks)} click · {formatNumber(product.ordersCreated)} đơn · {formatNumber(product.paymentsCompleted)} paid · {formatCurrency(product.netAttributedRevenue)} net</small>
                   </article>
                 )) : (
-                  <p>Chưa có click/add-to-cart/purchase từ recommendation trong kỳ này.</p>
+                  <p>Chưa có click/order/payment từ recommendation trong kỳ này.</p>
                 )}
               </div>
             </section>
@@ -591,7 +622,7 @@ export function RecommendationReportsPage() {
                     <em className={request.fallbackUsed ? 'is-fallback' : 'is-primary'}>
                       {request.fallbackUsed ? 'Fallback' : `${request.itemCount} item`}
                     </em>
-                    <b>{formatNumber(request.impressions)} view · {formatNumber(request.clicks)} click · {formatNumber(request.purchases)} mua</b>
+                    <b>{formatNumber(request.impressions)} view · {formatNumber(request.ordersCreated)} đơn · {formatNumber(request.paymentsCompleted)} paid</b>
                   </article>
                 )) : (
                   <p>Chưa có request recommendation trong kỳ này.</p>
