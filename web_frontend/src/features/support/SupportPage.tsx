@@ -19,6 +19,7 @@ import {
 import { useCustomerSupportRealtime } from './supportSocket'
 import type { FaqArticle, SupportCategory, SupportMessage, SupportSummary, SupportTicket, SupportTicketType, TicketDetail } from './support.types'
 import './support.css'
+import { useStorefrontSettings } from '../storefront-settings/storefrontSettings.context'
 
 const topics: Array<[string, string]> = [['orders', 'Đơn hàng'], ['shipping', 'Giao hàng'], ['returns', 'Đổi trả'], ['payments', 'Thanh toán'], ['promotions', 'Voucher'], ['loyalty', 'Thành viên'], ['account', 'Tài khoản'], ['other', 'Khác']]
 const typeLabels: Array<[SupportTicketType, string]> = [['question', 'Câu hỏi'], ['issue', 'Sự cố'], ['complaint', 'Khiếu nại'], ['feedback', 'Góp ý'], ['suggestion', 'Đề xuất']]
@@ -103,6 +104,9 @@ function SupportHome(props: {
   onSearch: (value: string) => void; onTopic: (value: string) => void; onExpand: (id: string | null) => void; onReload: () => void;
   onVote: (id: string, value: 'helpful' | 'not_helpful') => Promise<void>;
 }) {
+  const { settings } = useStorefrontSettings()
+  const { contact } = settings
+
   return <div className="customer-support-stack"><header className="customer-support-heading"><h1>Hỗ trợ khách hàng</h1><span>Tìm câu trả lời nhanh hoặc gửi yêu cầu để shop hỗ trợ đúng vấn đề.</span></header>
     <section className="customer-support-search"><input value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Bạn cần hỗ trợ vấn đề gì?" /><button type="button" onClick={props.onReload}>Tìm kiếm</button></section>
     {props.error && <div className="customer-support-error" role="alert">{props.error}</div>}
@@ -110,7 +114,7 @@ function SupportHome(props: {
     <section className="customer-support-panel"><div className="customer-support-section-title"><div><h2>Câu hỏi thường gặp</h2><span>Nhấn vào câu hỏi để xem hướng dẫn.</span></div></div>{props.loading ? <p>Đang tải...</p> : props.faqs.length ? props.faqs.map((faq) => <article className="customer-support-faq" key={faq._id}><button type="button" aria-expanded={props.expandedFaq === faq._id} onClick={() => props.onExpand(props.expandedFaq === faq._id ? null : faq._id)}><strong>{faq.question}</strong><span>{props.expandedFaq === faq._id ? '−' : '+'}</span></button>{props.expandedFaq === faq._id && <><p>{faq.answer}</p>{props.loggedIn && <div className="customer-support-vote" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}><span>Câu trả lời này hữu ích?</span><button style={{ width: 'auto', padding: '6px 10px', border: '1px solid #d5e0e5', borderRadius: 8 }} type="button" onClick={() => void props.onVote(faq._id, 'helpful')}>Có ({faq.helpfulCount})</button><button style={{ width: 'auto', padding: '6px 10px', border: '1px solid #d5e0e5', borderRadius: 8 }} type="button" onClick={() => void props.onVote(faq._id, 'not_helpful')}>Chưa ({faq.notHelpfulCount})</button></div>}</>}</article>) : <p>Chưa tìm thấy câu trả lời phù hợp.</p>}</section>
     {props.loggedIn ? <section className="customer-support-panel"><div className="customer-support-section-title"><div><h2>Yêu cầu của tôi</h2><span>Theo dõi phản hồi mới từ shop.</span></div>{props.summary?.total ? <b>{props.summary.total}</b> : null}</div><div className="customer-support-ticket-list">{props.tickets.map((ticket) => <button type="button" key={ticket._id} onClick={() => navigate(`/account/support/tickets/${ticket._id}`)}><span><strong>{ticket.ticketCode}</strong>{ticket.subject}</span><em>{statusLabels[ticket.status]}</em></button>)}</div><button className="customer-support-primary" type="button" onClick={() => navigate('/account/support/new')}>Gửi yêu cầu hỗ trợ</button></section>
       : <section className="customer-support-panel customer-support-login"><h2>Bạn cần shop hỗ trợ riêng?</h2><p>Đăng nhập để tạo và theo dõi ticket. FAQ vẫn luôn xem được mà không cần tài khoản.</p><a href="/account">Đăng nhập / Tài khoản</a></section>}
-    <section className="customer-support-contact"><div><h2>Liên hệ với chúng tôi</h2><p>Hotline: 0123 456 789</p><p>Email: cuahang@gmail.com</p><p>Giờ hỗ trợ: 8:30 – 21:45 mỗi ngày</p></div><button type="button" onClick={() => navigate(props.loggedIn ? '/account/support/new' : '/support/feedback')}>Gửi góp ý</button></section>
+    <section className="customer-support-contact"><div><h2>Liên hệ với chúng tôi</h2>{contact.phone ? <p>Hotline: <a href={`tel:${contact.phone.replace(/[^0-9+]/g, '')}`}>{contact.phone}</a></p> : null}{contact.email ? <p>Email: <a href={`mailto:${contact.email}`}>{contact.email}</a></p> : null}{contact.hours ? <p>Giờ hỗ trợ: {contact.hours}</p> : null}{contact.address ? <p>Địa chỉ: {contact.mapUrl ? <a href={contact.mapUrl} target="_blank" rel="noreferrer">{contact.address}</a> : contact.address}</p> : null}</div><button type="button" onClick={() => navigate(props.loggedIn ? '/account/support/new' : '/support/feedback')}>Gửi góp ý</button></section>
   </div>
 }
 

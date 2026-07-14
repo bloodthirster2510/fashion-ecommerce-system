@@ -78,6 +78,9 @@ const RecommendationReportsPage = lazy(() =>
 const AdminDashboardPage = lazy(() =>
   import('../modules/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })),
 )
+const StorefrontSettingsPage = lazy(() =>
+  import('../modules/settings/StorefrontSettingsPage').then((module) => ({ default: module.StorefrontSettingsPage })),
+)
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -501,6 +504,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'reports') {
       return <RecommendationReportsPage />
+    }
+
+    if (renderedSection === 'settings') {
+      return <StorefrontSettingsPage />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)

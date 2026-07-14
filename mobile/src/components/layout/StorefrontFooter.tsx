@@ -3,12 +3,8 @@ import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
 import { policyUrls, STOREFRONT_URL } from '../../config/policies';
-
-type SocialLink = {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  url: string;
-};
+import { useStorefrontSettings } from '../../features/storefrontSettings/StorefrontSettingsProvider';
+import type { StorefrontSocialPlatform } from '../../features/storefrontSettings/storefrontSettings.types';
 
 const supportLinks = [
   { label: 'Hướng dẫn đặt hàng', url: `${STOREFRONT_URL}/support?topic=orders` },
@@ -18,19 +14,20 @@ const supportLinks = [
   { label: 'Tiếp nhận khiếu nại', url: policyUrls.complaints },
 ];
 
-const socialLinkCandidates: SocialLink[] = [
-  { icon: 'facebook', label: 'Facebook', url: process.env.EXPO_PUBLIC_FACEBOOK_URL?.trim() || '' },
-  { icon: 'instagram', label: 'Instagram', url: process.env.EXPO_PUBLIC_INSTAGRAM_URL?.trim() || '' },
-  { icon: 'alpha-t-circle', label: 'TikTok', url: process.env.EXPO_PUBLIC_TIKTOK_URL?.trim() || '' },
-];
-
-const socialLinks = socialLinkCandidates.filter((item) => Boolean(item.url));
-
-const shopPhone = process.env.EXPO_PUBLIC_SHOP_PHONE?.trim();
-const shopEmail = process.env.EXPO_PUBLIC_SHOP_EMAIL?.trim();
-const shopHours = process.env.EXPO_PUBLIC_SHOP_HOURS?.trim();
+const socialIconByPlatform: Record<StorefrontSocialPlatform, keyof typeof MaterialCommunityIcons.glyphMap> = {
+  facebook: 'facebook',
+  instagram: 'instagram',
+  tiktok: 'music-note',
+  youtube: 'youtube',
+  zalo: 'chat-processing-outline',
+  other: 'link-variant',
+};
 
 const StorefrontFooter = () => {
+  const { settings } = useStorefrontSettings();
+  const { identity, contact } = settings;
+  const socialLinks = settings.socials.filter((item) => item.enabled && item.url);
+
   return (
     <View style={styles.footer}>
       <View style={styles.brandRow}>
@@ -38,24 +35,29 @@ const StorefrontFooter = () => {
           <MaterialCommunityIcons name="hanger" size={22} color={colors.brandDark} />
         </View>
         <View style={styles.brandCopy}>
-          <Text style={styles.brandName}>FASHIONISTA</Text>
-          <Text style={styles.brandTagline}>Mặc đúng gu. Tự tin theo cách của bạn.</Text>
+          <Text style={styles.brandName}>{identity.name}</Text>
+          {identity.tagline ? <Text style={styles.brandTagline}>{identity.tagline}</Text> : null}
         </View>
       </View>
 
-      {(shopPhone || shopEmail || shopHours) ? (
+      {(contact.phone || contact.email || contact.hours || contact.address) ? (
         <View style={styles.contactRow}>
-          {shopPhone ? (
-            <TouchableOpacity onPress={() => void Linking.openURL(`tel:${shopPhone}`)}>
-              <Text style={styles.contactText}>{shopPhone}</Text>
+          {contact.phone ? (
+            <TouchableOpacity onPress={() => void Linking.openURL(`tel:${contact.phone.replace(/[^0-9+]/g, '')}`)}>
+              <Text style={styles.contactText}>{contact.phone}</Text>
             </TouchableOpacity>
           ) : null}
-          {shopEmail ? (
-            <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${shopEmail}`)}>
-              <Text style={styles.contactText}>{shopEmail}</Text>
+          {contact.email ? (
+            <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${contact.email}`)}>
+              <Text style={styles.contactText}>{contact.email}</Text>
             </TouchableOpacity>
           ) : null}
-          {shopHours ? <Text style={styles.contactText}>{shopHours}</Text> : null}
+          {contact.hours ? <Text style={styles.contactText}>{contact.hours}</Text> : null}
+          {contact.address ? (
+            <TouchableOpacity disabled={!contact.mapUrl} onPress={() => contact.mapUrl ? void Linking.openURL(contact.mapUrl) : undefined}>
+              <Text style={styles.contactText}>{contact.address}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
 
@@ -93,20 +95,20 @@ const StorefrontFooter = () => {
           <View style={styles.socialRow}>
             {socialLinks.map((item) => (
               <TouchableOpacity
-                key={item.label}
+                key={`${item.platform}-${item.url}`}
                 style={styles.socialButton}
                 accessibilityLabel={item.label}
                 activeOpacity={0.8}
                 onPress={() => void Linking.openURL(item.url)}
               >
-                <MaterialCommunityIcons name={item.icon} size={16} color={colors.brandDark} />
+                <MaterialCommunityIcons name={socialIconByPlatform[item.platform]} size={16} color={colors.brandDark} />
               </TouchableOpacity>
             ))}
           </View>
         ) : null}
       </View>
 
-      <Text style={styles.copyright}>© {new Date().getFullYear()} FASHIONISTA · All rights reserved</Text>
+      <Text style={styles.copyright}>© {new Date().getFullYear()} {identity.name} · All rights reserved</Text>
     </View>
   );
 };

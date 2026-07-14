@@ -21,6 +21,7 @@ import userRouter from '../modules/users/user.routes';
 import supportRouter from '../modules/support/support.routes';
 import customerNotificationSummaryRouter from '../modules/notifications/customer-notification-summary.routes';
 import virtualTryOnRouter from '../modules/virtual-try-on/virtual-try-on.route';
+import { storefrontSettingsRouter } from '../modules/storefront-settings/storefront-settings.route';
 
 const router = Router();
 
@@ -46,5 +47,6 @@ router.use('/users', userRouter);
 router.use('/support', supportRouter);
 router.use('/notifications', customerNotificationSummaryRouter);
 router.use('/virtual-try-on', virtualTryOnRouter);
+router.use('/storefront', storefrontSettingsRouter);
 
 export default router;

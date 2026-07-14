@@ -27,6 +27,7 @@ export * from './support-canned-response.model';
 export * from './transaction.model';
 export * from './support-message.model';
 export * from './support-ticket.model';
+export * from './storefront-settings.model';
 export * from './user.model';
 export * from './user-product-interaction.model';
 export * from './virtual-try-on-asset.model';

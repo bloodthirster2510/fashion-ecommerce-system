@@ -3,10 +3,13 @@ import { Button, Dropdown, Input, type MenuProps } from 'antd'
 import {
   ClockCircleOutlined,
   DownOutlined,
+  EnvironmentOutlined,
   FacebookFilled,
   HeartOutlined,
   InstagramOutlined,
+  LinkOutlined,
   MailOutlined,
+  MessageOutlined,
   PhoneOutlined,
   SearchOutlined,
   ShopOutlined,
@@ -20,6 +23,8 @@ import { catalogService } from '../features/catalog/catalog.service'
 import type { CatalogCategory, CategoryGender } from '../features/catalog/catalog.types'
 import { LoginButton } from '../features/auth/components/LoginButton'
 import shopNameImage from '../assets/images/ShopName.png'
+import { useStorefrontSettings } from '../features/storefront-settings/storefrontSettings.context'
+import type { StorefrontSocialPlatform } from '../features/storefront-settings/storefrontSettings.types'
 
 type MainLayoutProps = {
   children: ReactNode
@@ -52,17 +57,14 @@ const supportLinks = [
   { label: 'Điều khoản sử dụng', href: '/policies/terms' },
   { label: 'Tiếp nhận khiếu nại', href: '/policies/complaints' },
 ]
-const shopContact = {
-  phone: import.meta.env.VITE_SHOP_PHONE?.trim(),
-  email: import.meta.env.VITE_SHOP_EMAIL?.trim(),
-  hours: import.meta.env.VITE_SHOP_HOURS?.trim(),
-}
-const socialLinks = [
-  { label: 'Facebook', href: import.meta.env.VITE_FACEBOOK_URL?.trim(), Icon: FacebookFilled },
-  { label: 'Instagram', href: import.meta.env.VITE_INSTAGRAM_URL?.trim(), Icon: InstagramOutlined },
-  { label: 'TikTok', href: import.meta.env.VITE_TIKTOK_URL?.trim(), Icon: TikTokOutlined },
-  { label: 'YouTube', href: import.meta.env.VITE_YOUTUBE_URL?.trim(), Icon: YoutubeFilled },
-].filter((link): link is typeof link & { href: string } => Boolean(link.href))
+const socialIconByPlatform = {
+  facebook: FacebookFilled,
+  instagram: InstagramOutlined,
+  tiktok: TikTokOutlined,
+  youtube: YoutubeFilled,
+  zalo: MessageOutlined,
+  other: LinkOutlined,
+} satisfies Record<StorefrontSocialPlatform, typeof FacebookFilled>
 type CategoryMenuGroup = {
   parent: CatalogCategory
   children: CatalogCategory[]
@@ -123,6 +125,7 @@ const buildCategoryMenu = (categories: CatalogCategory[], gender: ApparelGender)
 
 function Header() {
   const dispatch = useAppDispatch()
+  const { settings } = useStorefrontSettings()
   const currentUser = useAppSelector((state) => state.auth.currentUser)
   const cart = useAppSelector((state) => state.cart.data)
   const [categories, setCategories] = useState<CatalogCategory[]>([])
@@ -209,8 +212,8 @@ function Header() {
   return (
     <header className="site-header">
       <div className="header-main">
-        <a className="brand" href="/" aria-label="Trang chủ Fashionista">
-          <img src={shopNameImage} alt="CD Shop" />
+        <a className="brand" href="/" aria-label={`Trang chủ ${settings.identity.name}`}>
+          <img src={shopNameImage} alt={settings.identity.name} />
         </a>
 
         <form className="search" action="/products" method="get" role="search">
@@ -303,41 +306,51 @@ function Header() {
 }
 
 function Footer() {
+  const { settings } = useStorefrontSettings()
+  const { identity, contact } = settings
+  const socialLinks = settings.socials.filter((social) => social.enabled && social.url)
+
   return (
     <footer className="site-footer">
       <div className="footer-grid">
         <section className="footer-about">
-          <a className="footer-logo" href="/" aria-label="Trang chủ CD Shop">
-            <img src={shopNameImage} alt="CD Shop" />
+          <a className="footer-logo" href="/" aria-label={`Trang chủ ${identity.name}`}>
+            <img src={shopNameImage} alt={identity.name} />
           </a>
-          <h2>Về CDShop</h2>
-          <p>
-            CDShop mang đến các lựa chọn thời trang nam nữ dễ mặc, hiện đại và phù hợp cho nhiều dịp hằng ngày.
-          </p>
+          <h2>Về {identity.name}</h2>
+          <p>{identity.description}</p>
         </section>
 
         <section className="footer-contact">
           <h2>Giới thiệu</h2>
           <p>
             <ShopOutlined aria-hidden="true" />
-            <span>Cửa hàng thời trang</span>
+            <span>{identity.legalName || identity.name}</span>
           </p>
-          {shopContact.phone ? (
+          {contact.phone ? (
             <p>
               <PhoneOutlined aria-hidden="true" />
-              <span>{shopContact.phone}</span>
+              <a href={`tel:${contact.phone.replace(/[^0-9+]/g, '')}`}>{contact.phone}</a>
             </p>
           ) : null}
-          {shopContact.email ? (
+          {contact.email ? (
             <p>
               <MailOutlined aria-hidden="true" />
-              <span>{shopContact.email}</span>
+              <a href={`mailto:${contact.email}`}>{contact.email}</a>
             </p>
           ) : null}
-          {shopContact.hours ? (
+          {contact.hours ? (
             <p>
               <ClockCircleOutlined aria-hidden="true" />
-              <span>{shopContact.hours}</span>
+              <span>{contact.hours}</span>
+            </p>
+          ) : null}
+          {contact.address ? (
+            <p>
+              <EnvironmentOutlined aria-hidden="true" />
+              {contact.mapUrl
+                ? <a href={contact.mapUrl} target="_blank" rel="noreferrer">{contact.address}</a>
+                : <span>{contact.address}</span>}
             </p>
           ) : null}
         </section>
@@ -358,11 +371,10 @@ function Footer() {
             <>
               <h2>Cộng đồng</h2>
               <div className="social-list" aria-label="Mạng xã hội">
-                {socialLinks.map(({ label, href, Icon }) => (
-                  <a key={label} href={href} aria-label={label} target="_blank" rel="noreferrer">
-                    <Icon aria-hidden="true" />
-                  </a>
-                ))}
+                {socialLinks.map((social) => {
+                  const Icon = socialIconByPlatform[social.platform]
+                  return <a key={`${social.platform}-${social.url}`} href={social.url} aria-label={social.label} title={social.label} target="_blank" rel="noreferrer"><Icon aria-hidden="true" /></a>
+                })}
               </div>
             </>
           ) : null}

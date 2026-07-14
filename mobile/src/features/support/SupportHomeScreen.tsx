@@ -12,6 +12,7 @@ import type { FaqArticle, SupportSummary } from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import { requestSupportPushToken } from './supportNotifications';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 
 type Nav = StackNavigationProp<RootStackParamList, 'SupportHome'>;
 
@@ -23,15 +24,14 @@ const topics = [
 export default function SupportHomeScreen() {
   const navigation = useNavigation<Nav>();
   const { runWithAuth } = useAuth();
+  const { settings } = useStorefrontSettings();
+  const { contact } = settings;
   const [search, setSearch] = React.useState('');
   const [faqs, setFaqs] = React.useState<FaqArticle[]>([]);
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const [summary, setSummary] = React.useState<SupportSummary | null>(null);
   const [error, setError] = React.useState('');
   const [notificationMessage, setNotificationMessage] = React.useState('');
-  const shopPhone = process.env.EXPO_PUBLIC_SHOP_PHONE?.trim() || '0123 456 789';
-  const shopEmail = process.env.EXPO_PUBLIC_SHOP_EMAIL?.trim() || 'cuahang@gmail.com';
-  const shopHours = process.env.EXPO_PUBLIC_SHOP_HOURS?.trim() || '8:30 – 21:45 mỗi ngày';
 
   const load = React.useCallback(() => {
     supportApi.listFaqs(search).then((result) => setFaqs(result.items.slice(0, 6))).catch(() => setError('Không thể tải câu hỏi thường gặp.'));
@@ -75,12 +75,13 @@ export default function SupportHomeScreen() {
           <Text style={s.secondaryText}>Bật thông báo phản hồi</Text>
         </TouchableOpacity>
         {notificationMessage ? <Text style={s.success}>{notificationMessage}</Text> : null}
-        <View style={s.card}>
+        {contact.phone || contact.email || contact.hours || contact.address ? <View style={s.card}>
             <Text style={s.cardTitle}>Liên hệ trực tiếp</Text>
-            {shopPhone ? <TouchableOpacity onPress={() => void Linking.openURL(`tel:${shopPhone}`)}><Text style={s.muted}>Hotline: {shopPhone}</Text></TouchableOpacity> : null}
-            {shopEmail ? <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${shopEmail}`)}><Text style={s.muted}>Email: {shopEmail}</Text></TouchableOpacity> : null}
-            {shopHours ? <Text style={s.muted}>Giờ hỗ trợ: {shopHours}</Text> : null}
-        </View>
+            {contact.phone ? <TouchableOpacity onPress={() => void Linking.openURL(`tel:${contact.phone.replace(/[^0-9+]/g, '')}`)}><Text style={s.muted}>Hotline: {contact.phone}</Text></TouchableOpacity> : null}
+            {contact.email ? <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${contact.email}`)}><Text style={s.muted}>Email: {contact.email}</Text></TouchableOpacity> : null}
+            {contact.hours ? <Text style={s.muted}>Giờ hỗ trợ: {contact.hours}</Text> : null}
+            {contact.address ? <TouchableOpacity disabled={!contact.mapUrl} onPress={() => contact.mapUrl ? void Linking.openURL(contact.mapUrl) : undefined}><Text style={s.muted}>Địa chỉ: {contact.address}</Text></TouchableOpacity> : null}
+        </View> : null}
       </ScrollView>
     </SafeAreaView>
   );

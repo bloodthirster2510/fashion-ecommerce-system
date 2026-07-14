@@ -11,6 +11,7 @@ import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator
 import { AuthProvider } from './features/auth/AuthContext';
 import { subscribeToSupportNotifications } from './features/support/supportNotifications';
 import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
+import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -84,17 +85,19 @@ const App = () => {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer
-        ref={navigationRef}
-        onReady={resetRootToHome}
-        onUnhandledAction={handleUnhandledNavigationAction}
-      >
-        <AuthProvider>
-          <CustomerNotificationProvider>
-            <AppNavigator />
-          </CustomerNotificationProvider>
-        </AuthProvider>
-      </NavigationContainer>
+      <StorefrontSettingsProvider>
+        <NavigationContainer
+          ref={navigationRef}
+          onReady={resetRootToHome}
+          onUnhandledAction={handleUnhandledNavigationAction}
+        >
+          <AuthProvider>
+            <CustomerNotificationProvider>
+              <AppNavigator />
+            </CustomerNotificationProvider>
+          </AuthProvider>
+        </NavigationContainer>
+      </StorefrontSettingsProvider>
     </SafeAreaProvider>
   );
 };

@@ -22,7 +22,8 @@ export type AuditLogAction =
   | 'support_ticket.auto_close'
   | 'review.moderation'
   | 'review.reply'
-  | 'review.reply_delete';
+  | 'review.reply_delete'
+  | 'storefront_settings.update';
 
 export interface IAuditLog extends Document {
   actorId?: Types.ObjectId | null;
@@ -71,6 +72,7 @@ const auditLogSchema = new Schema<IAuditLog>(
         'review.moderation',
         'review.reply',
         'review.reply_delete',
+        'storefront_settings.update',
       ],
       required: true,
     },

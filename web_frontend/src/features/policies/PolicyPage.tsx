@@ -1,32 +1,20 @@
 import { MainLayout } from '../../layouts/MainLayout'
 import { LEGAL_POLICY_VERSION } from './policy.constants'
+import { useStorefrontSettings } from '../storefront-settings/storefrontSettings.context'
 import './policy.css'
 
 type PolicySection = { title: string; paragraphs: string[] }
 type PolicyDocument = { title: string; summary: string; sections: PolicySection[] }
 
-const shopIdentity = {
-  legalName: import.meta.env.VITE_SHOP_LEGAL_NAME?.trim() || 'CDShop',
-  taxCode: import.meta.env.VITE_SHOP_TAX_CODE?.trim(),
-  address: import.meta.env.VITE_SHOP_ADDRESS?.trim(),
-  phone: import.meta.env.VITE_SHOP_PHONE?.trim(),
-  email: import.meta.env.VITE_SHOP_EMAIL?.trim(),
-}
-
-const shopIdentitySummary = [
-  shopIdentity.legalName,
-  shopIdentity.taxCode ? `Mã số thuế: ${shopIdentity.taxCode}` : null,
-  shopIdentity.address ? `Địa chỉ: ${shopIdentity.address}` : null,
-  shopIdentity.phone ? `Điện thoại: ${shopIdentity.phone}` : null,
-  shopIdentity.email ? `Email: ${shopIdentity.email}` : null,
-].filter(Boolean).join('. ')
+const SHOP_IDENTITY_TOKEN = '[[SHOP_IDENTITY]]'
+const SHOP_EMAIL_TOKEN = '[[SHOP_EMAIL]]'
 
 const policies: Record<string, PolicyDocument> = {
   terms: {
     title: 'Điều khoản sử dụng và giao dịch',
     summary: 'Các điều kiện áp dụng khi tạo tài khoản, đặt hàng và sử dụng dịch vụ của CDShop.',
     sections: [
-      { title: 'Chủ thể bán hàng và liên hệ', paragraphs: [`${shopIdentitySummary}. Khách hàng cũng có thể gửi yêu cầu và theo dõi phản hồi tại Trung tâm hỗ trợ của CDShop.`] },
+      { title: 'Chủ thể bán hàng và liên hệ', paragraphs: [`${SHOP_IDENTITY_TOKEN}. Khách hàng cũng có thể gửi yêu cầu và theo dõi phản hồi tại Trung tâm hỗ trợ của CDShop.`] },
       { title: 'Tài khoản khách hàng', paragraphs: ['Khách hàng cung cấp thông tin chính xác, bảo vệ thông tin đăng nhập và thông báo cho CDShop khi phát hiện truy cập trái phép.'] },
       { title: 'Đặt hàng và xác nhận', paragraphs: ['Đơn hàng được hình thành sau khi hệ thống xác nhận mã đơn. Nội dung đơn, sản phẩm, giá, phí, địa chỉ, phương thức thanh toán và trạng thái xử lý được lưu tại tài khoản để khách hàng truy cập lại.', 'CDShop có thể liên hệ để xác minh thông tin hoặc hủy đơn khi sản phẩm hết hàng, thông tin giao nhận không hợp lệ hoặc có dấu hiệu gian lận. Đơn đã thanh toán bị hủy được chuyển sang quy trình hoàn tiền tương ứng.'] },
       { title: 'Giá và thanh toán', paragraphs: ['Giá sản phẩm, giảm giá, thuế và phí giao hàng được hiển thị trước khi khách xác nhận đặt hàng. Phương thức đang hỗ trợ là COD và VNPay. Trạng thái thanh toán VNPay được xác nhận bằng kết quả từ cổng thanh toán.'] },
@@ -46,7 +34,7 @@ const policies: Record<string, PolicyDocument> = {
       { title: 'Thời hạn lưu giữ', paragraphs: ['Dữ liệu tài khoản được giữ trong thời gian tài khoản hoạt động và đến khi yêu cầu xóa được xử lý. Dữ liệu đơn hàng, thanh toán, hoàn tiền, hóa đơn và khiếu nại được giữ đến khi hoàn tất nghĩa vụ hợp đồng, giải quyết tranh chấp và hết thời hạn lưu theo pháp luật kế toán, thuế hoặc quy định liên quan.', 'Lịch sử tương tác dùng cho gợi ý và nhật ký kỹ thuật chỉ được giữ trong thời gian còn cần cho mục đích đã thông báo; sau đó phải được xóa hoặc ẩn danh, trừ trường hợp pháp luật yêu cầu tiếp tục lưu.'] },
       { title: 'Quyền của khách hàng', paragraphs: ['Khách hàng có thể xem, cập nhật thông tin tài khoản và gửi yêu cầu được biết, truy cập, chỉnh sửa, hạn chế xử lý, phản đối, rút lại sự đồng ý hoặc xóa dữ liệu qua trang Hỗ trợ. Việc rút lại sự đồng ý không làm mất tính hợp pháp của hoạt động xử lý đã thực hiện và có thể không áp dụng cho dữ liệu phải lưu theo pháp luật.'] },
       { title: 'Bảo mật và sự cố', paragraphs: ['CDShop áp dụng kiểm soát truy cập, mã hóa thông tin nhạy cảm và nhật ký quản trị. Sự cố ảnh hưởng đến dữ liệu cá nhân sẽ được xử lý và thông báo theo quy định áp dụng.'] },
-      { title: 'Đầu mối dữ liệu cá nhân', paragraphs: [`Yêu cầu về dữ liệu được tiếp nhận tại Trung tâm hỗ trợ${shopIdentity.email ? ` hoặc email ${shopIdentity.email}` : ''}. CDShop sẽ xác minh danh tính người yêu cầu trước khi cung cấp, sửa hoặc xóa dữ liệu.`] },
+      { title: 'Đầu mối dữ liệu cá nhân', paragraphs: [`Yêu cầu về dữ liệu được tiếp nhận tại Trung tâm hỗ trợ${SHOP_EMAIL_TOKEN}. CDShop sẽ xác minh danh tính người yêu cầu trước khi cung cấp, sửa hoặc xóa dữ liệu.`] },
     ],
   },
   shipping: {
@@ -84,21 +72,33 @@ const policies: Record<string, PolicyDocument> = {
 }
 
 export function PolicyPage({ policyKey }: { policyKey: keyof typeof policies }) {
+  const { settings } = useStorefrontSettings()
   const policy = policies[policyKey]
+  const shopIdentitySummary = [
+    settings.identity.legalName || settings.identity.name,
+    settings.identity.taxCode ? `Mã số thuế: ${settings.identity.taxCode}` : null,
+    settings.contact.address ? `Địa chỉ: ${settings.contact.address}` : null,
+    settings.contact.phone ? `Điện thoại: ${settings.contact.phone}` : null,
+    settings.contact.email ? `Email: ${settings.contact.email}` : null,
+  ].filter(Boolean).join('. ')
+  const resolveText = (value: string) => value
+    .replaceAll(SHOP_IDENTITY_TOKEN, shopIdentitySummary)
+    .replaceAll(SHOP_EMAIL_TOKEN, settings.contact.email ? ` hoặc email ${settings.contact.email}` : '')
+    .replaceAll('CDShop', settings.identity.name)
 
   return (
     <MainLayout>
       <main className="policy-page">
         <header>
           <p>Phiên bản {LEGAL_POLICY_VERSION}</p>
-          <h1>{policy.title}</h1>
-          <span>{policy.summary}</span>
+          <h1>{resolveText(policy.title)}</h1>
+          <span>{resolveText(policy.summary)}</span>
         </header>
         <article>
           {policy.sections.map((section) => (
             <section key={section.title}>
-              <h2>{section.title}</h2>
-              {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+              <h2>{resolveText(section.title)}</h2>
+              {section.paragraphs.map((paragraph) => <p key={paragraph}>{resolveText(paragraph)}</p>)}
             </section>
           ))}
         </article>

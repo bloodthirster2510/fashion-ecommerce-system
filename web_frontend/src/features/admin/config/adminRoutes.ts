@@ -59,6 +59,7 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'support',
   'virtualTryOn',
   'reports',
+  'settings',
 ]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
