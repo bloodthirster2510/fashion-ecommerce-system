@@ -26,9 +26,13 @@ import { emitVirtualTryOnJobEvent } from '../realtime/virtual-try-on.gateway';
 import { interactionService } from '../interactions/interaction.service';
 import {
   buildVirtualTryOnPrompt,
+  buildVirtualTryOnVideoPrompt,
   contextPresetPreviews,
   createVirtualTryOnProvider,
+  createVirtualTryOnVideoProvider,
+  getVirtualTryOnVideoConfiguration,
   VirtualTryOnProviderError,
+  VirtualTryOnVideoProviderError,
   type VirtualTryOnContextPresetPreview,
   type VirtualTryOnProviderBinaryOutput,
   type VirtualTryOnSourceImageProfile,
@@ -78,8 +82,11 @@ const MAX_LIMIT = 50;
 const MAX_SELECTED_ITEMS = Number(process.env.VIRTUAL_TRY_ON_MAX_SELECTED_ITEMS || 4);
 const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
+const VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 const DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY = 5;
+const DEFAULT_MAX_VIDEO_JOBS_PER_USER_PER_DAY = 3;
+const DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER = 1;
 const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
   'NO_PERSON_DETECTED',
   'BODY_NOT_VISIBLE',
@@ -356,6 +363,44 @@ const getGeneratedImageUrls = (job: Pick<IVirtualTryOnJob, 'generatedImageUrl' |
   return job.generatedImageUrl ? [job.generatedImageUrl] : [];
 };
 
+const getPositiveIntegerEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+};
+
+const getVideoCapabilities = () => {
+  const configuration = getVirtualTryOnVideoConfiguration();
+  const available = ENABLE_VIDEO && configuration.ready;
+  return {
+    enabled: ENABLE_VIDEO,
+    available,
+    reasonCode: available
+      ? null
+      : !ENABLE_VIDEO
+        ? 'VIDEO_GENERATION_DISABLED'
+        : configuration.issues[0] || 'VIDEO_PROVIDER_CONFIG_MISSING',
+    provider: configuration.provider,
+    model: configuration.model,
+    durationSeconds: configuration.durationSeconds,
+    resolution: configuration.resolution,
+    generateAudio: configuration.generateAudio,
+  };
+};
+
+const getEffectiveVideoStatus = (job: IVirtualTryOnJob) => {
+  if (job.videoStatus) return job.videoStatus;
+  if (job.outputMode === 'image') return 'not_requested' as const;
+  if (job.generatedVideoUrl) return 'succeeded' as const;
+  if (job.status === 'failed' || job.status === 'canceled') return 'canceled' as const;
+  return 'queued' as const;
+};
+
+const getEffectiveProcessingStage = (job: IVirtualTryOnJob) => {
+  if (job.processingStage) return job.processingStage;
+  if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'canceled') return 'completed' as const;
+  return job.status === 'queued' ? 'queued' as const : 'image_generation' as const;
+};
+
 const serializeJob = async (job: IVirtualTryOnJob) => {
   const sourceAsset = await VirtualTryOnAsset.findOne({
     _id: job.sourceAssetId,
@@ -365,6 +410,7 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     _id: job._id.toString(),
     status: job.status,
     progress: job.progress,
+    processingStage: getEffectiveProcessingStage(job),
     sourceAsset: sourceAsset ? serializeAsset(sourceAsset) : null,
     sourceImageUrl: job.sourceImageUrlSnapshot,
     selectedItems: job.selectedItems.map((item) => ({
@@ -386,6 +432,15 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     generatedImageUrl: job.generatedImageUrl,
     generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
+    videoStatus: getEffectiveVideoStatus(job),
+    videoProgress: job.videoProgress ?? 0,
+    videoSourceImageUrl: job.videoSourceImageUrlSnapshot ?? null,
+    videoProvider: job.videoProvider ?? null,
+    videoProviderJobId: job.videoProviderJobId ?? null,
+    videoErrorCode: job.videoErrorCode ?? null,
+    videoErrorMessage: job.videoErrorMessage ?? null,
+    videoStartedAt: job.videoStartedAt?.toISOString() ?? null,
+    videoCompletedAt: job.videoCompletedAt?.toISOString() ?? null,
     provider: job.provider,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
@@ -403,9 +458,14 @@ const emitJob = (job: IVirtualTryOnJob, type: 'queued' | 'processing' | 'progres
     jobId: job._id.toString(),
     status: job.status,
     progress: job.progress,
+    processingStage: getEffectiveProcessingStage(job),
     generatedImageUrl: job.generatedImageUrl,
     generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
+    videoStatus: getEffectiveVideoStatus(job),
+    videoProgress: job.videoProgress ?? 0,
+    videoErrorCode: job.videoErrorCode,
+    videoErrorMessage: job.videoErrorMessage,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
   });
@@ -415,7 +475,7 @@ const updateJobStatus = async (
   jobId: string,
   update: Partial<Pick<
     IVirtualTryOnJob,
-    'status' | 'progress' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedImageAssetIds' | 'generatedImageUrls' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
+    'status' | 'progress' | 'processingStage' | 'generatedImageAssetId' | 'generatedImageUrl' | 'generatedImageAssetIds' | 'generatedImageUrls' | 'generatedVideoAssetId' | 'generatedVideoUrl' | 'videoStatus' | 'videoProgress' | 'videoSourceImageAssetId' | 'videoSourceImageUrlSnapshot' | 'videoProvider' | 'videoProviderJobId' | 'videoProviderMetadata' | 'videoErrorCode' | 'videoErrorMessage' | 'videoStartedAt' | 'videoCompletedAt' | 'providerJobId' | 'errorCode' | 'errorMessage' | 'startedAt' | 'completedAt' | 'providerMetadata'
   >>,
   eventType: 'queued' | 'processing' | 'progress' | 'succeeded' | 'failed' | 'canceled',
 ) => {
@@ -428,13 +488,11 @@ const updateJobStatus = async (
   return job;
 };
 
-type VirtualTryOnProviderResult = {
+type VirtualTryOnImageResult = {
   generatedImageUrl: string;
   generatedImageAssetId?: Types.ObjectId | null;
   generatedImageUrls: string[];
   generatedImageAssetIds?: Types.ObjectId[];
-  generatedVideoUrl?: string | null;
-  generatedVideoAssetId?: Types.ObjectId | null;
   providerJobId?: string | null;
   providerMetadata?: Record<string, unknown>;
 };
@@ -519,7 +577,7 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
     sourceImageUrl: job.sourceImageUrlSnapshot,
     sourceImageProfile,
     outfitMode: job.outfitMode,
-    outputMode: job.outputMode,
+    outputMode: 'image' as const,
     garments,
     context: {
       preset: job.contextPreset,
@@ -531,7 +589,7 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
   };
 };
 
-const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<VirtualTryOnProviderResult> => {
+const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<VirtualTryOnImageResult> => {
   const provider = createVirtualTryOnProvider(PROVIDER);
   const providerResult = await provider.generate(buildProviderInput(job));
 
@@ -559,27 +617,14 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
     throw new VirtualTryOnProviderError('Provider did not return a generated image', 502, 'PROVIDER_OUTPUT_MISSING');
   }
 
-  let generatedVideoUrl = providerResult.videoUrl ?? null;
-  let generatedVideoAssetId: Types.ObjectId | null = null;
-  if (providerResult.video) {
-    const persistedVideo = await persistGeneratedOutput(job, 'generated_video', providerResult.video);
-    generatedVideoUrl = persistedVideo.url;
-    generatedVideoAssetId = persistedVideo.assetId;
-  }
-
   return {
     generatedImageUrl,
     generatedImageAssetId,
     generatedImageUrls,
     generatedImageAssetIds,
-    generatedVideoUrl,
-    generatedVideoAssetId,
     providerJobId: providerResult.providerJobId ?? null,
     providerMetadata: {
       ...(providerResult.metadata ?? {}),
-      outputMode: job.outputMode,
-      videoRequested: job.outputMode === 'image_and_video',
-      videoReturned: Boolean(generatedVideoUrl),
       imageCount: generatedImageUrls.length,
     },
   };
@@ -592,40 +637,255 @@ const delay = (ms: number) => {
   });
 };
 
+const updateActiveVideoJob = async (
+  jobId: string,
+  update: Parameters<typeof updateJobStatus>[1],
+  eventType: Parameters<typeof updateJobStatus>[2],
+) => {
+  const job = await VirtualTryOnJob.findOneAndUpdate(
+    {
+      _id: jobId,
+      deletedAt: null,
+      status: 'processing',
+      videoStatus: { $ne: 'canceled' },
+    },
+    update,
+    { new: true },
+  );
+  if (job) emitJob(job, eventType);
+  return job;
+};
+
+const getVideoProviderError = (error: unknown) => {
+  if (error instanceof VirtualTryOnVideoProviderError) return error;
+  return new VirtualTryOnVideoProviderError(
+    error instanceof Error ? error.message : 'Không thể tạo video lúc này',
+  );
+};
+
+const runVideoStage = async (jobId: string) => {
+  try {
+    let job = await VirtualTryOnJob.findOne({
+      _id: jobId,
+      deletedAt: null,
+      status: 'processing',
+      outputMode: 'image_and_video',
+      videoStatus: { $in: ['queued', 'processing'] },
+    });
+    if (!job) return;
+
+    const videoConfiguration = getVirtualTryOnVideoConfiguration();
+    if (!ENABLE_VIDEO) {
+      throw new VirtualTryOnVideoProviderError(
+        'Tính năng sinh video đang tắt',
+        503,
+        'VIDEO_GENERATION_DISABLED',
+      );
+    }
+    if (!videoConfiguration.ready) {
+      throw new VirtualTryOnVideoProviderError(
+        'Cấu hình workflow sinh video chưa sẵn sàng',
+        503,
+        'VIDEO_PROVIDER_CONFIG_MISSING',
+      );
+    }
+
+    const sourceImageUrl = job.videoSourceImageUrlSnapshot || getGeneratedImageUrls(job)[0];
+    if (!sourceImageUrl) {
+      throw new VirtualTryOnVideoProviderError(
+        'Không tìm thấy ảnh phối đồ để tạo video',
+        422,
+        'VIDEO_SOURCE_IMAGE_MISSING',
+      );
+    }
+
+    const provider = createVirtualTryOnVideoProvider(VIDEO_PROVIDER);
+    let providerJobId = job.videoProviderJobId || null;
+    let providerMetadata = { ...(job.videoProviderMetadata || {}) };
+
+    if (!providerJobId) {
+      const videoPrompt = buildVirtualTryOnVideoPrompt({
+        preset: job.contextPreset,
+        customPrompt: job.contextPrompt,
+      });
+      job = await updateActiveVideoJob(
+        jobId,
+        {
+          processingStage: 'video_generation',
+          progress: 70,
+          videoStatus: 'processing',
+          videoProgress: 10,
+          videoStartedAt: job.videoStartedAt || new Date(),
+          videoProvider: VIDEO_PROVIDER,
+          videoErrorCode: null,
+          videoErrorMessage: null,
+        },
+        'progress',
+      );
+      if (!job) return;
+
+      const submission = await provider.submit({
+        jobId: job._id.toString(),
+        userId: job.userId.toString(),
+        sourceImageUrl,
+        prompt: videoPrompt.prompt,
+        negativePrompt: videoPrompt.negativePrompt,
+        durationSeconds: videoConfiguration.durationSeconds,
+        resolution: videoConfiguration.resolution,
+        generateAudio: videoConfiguration.generateAudio,
+      });
+      providerJobId = submission.providerJobId;
+      providerMetadata = {
+        ...providerMetadata,
+        ...(submission.metadata || {}),
+        prompt: videoPrompt.prompt,
+        negativePrompt: videoPrompt.negativePrompt,
+      };
+      job = await updateActiveVideoJob(
+        jobId,
+        {
+          progress: 75,
+          videoProgress: 25,
+          videoProviderJobId: providerJobId,
+          videoProviderMetadata: providerMetadata,
+        },
+        'progress',
+      );
+      if (!job) return;
+    }
+
+    const providerResult = await provider.waitForResult(providerJobId);
+    job = await updateActiveVideoJob(
+      jobId,
+      {
+        processingStage: 'video_persisting',
+        progress: 97,
+        videoProgress: 90,
+      },
+      'progress',
+    );
+    if (!job) return;
+
+    let generatedVideoUrl = providerResult.videoUrl ?? null;
+    let generatedVideoAssetId: Types.ObjectId | null = null;
+    if (providerResult.video) {
+      const persistedVideo = await persistGeneratedOutput(job, 'generated_video', providerResult.video);
+      generatedVideoUrl = persistedVideo.url;
+      generatedVideoAssetId = persistedVideo.assetId;
+    }
+    if (!generatedVideoUrl) {
+      throw new VirtualTryOnVideoProviderError(
+        'Provider không trả video',
+        502,
+        'VIDEO_OUTPUT_MISSING',
+      );
+    }
+
+    await updateActiveVideoJob(
+      jobId,
+      {
+        status: 'succeeded',
+        progress: 100,
+        processingStage: 'completed',
+        generatedVideoAssetId,
+        generatedVideoUrl,
+        videoStatus: 'succeeded',
+        videoProgress: 100,
+        videoProviderMetadata: {
+          ...providerMetadata,
+          ...(providerResult.metadata || {}),
+        },
+        videoCompletedAt: new Date(),
+        completedAt: new Date(),
+      },
+      'succeeded',
+    );
+  } catch (error) {
+    const providerError = getVideoProviderError(error);
+    console.error('Virtual try-on video stage failed:', providerError);
+    await updateActiveVideoJob(
+      jobId,
+      {
+        status: 'succeeded',
+        progress: 100,
+        processingStage: 'completed',
+        videoStatus: 'failed',
+        videoProgress: 100,
+        videoErrorCode: providerError.errorCode,
+        videoErrorMessage: providerError.message,
+        videoCompletedAt: new Date(),
+        completedAt: new Date(),
+      },
+      'succeeded',
+    );
+  }
+};
+
 const runProviderJob = async (jobId: string) => {
   try {
     await delay(350);
     let job = await updateJobStatus(
       jobId,
-      { status: 'processing', progress: 25, startedAt: new Date() },
+      {
+        status: 'processing',
+        progress: 25,
+        processingStage: 'image_generation',
+        startedAt: new Date(),
+      },
       'processing',
     );
     if (!job) return;
 
     await delay(900);
-    job = await updateJobStatus(jobId, { status: 'processing', progress: 62 }, 'progress');
+    job = await updateJobStatus(
+      jobId,
+      { status: 'processing', progress: 55, processingStage: 'image_generation' },
+      'progress',
+    );
     if (!job) return;
 
     const providerResult = await generateVirtualTryOnResult(job);
 
-    await delay(900);
-    await updateJobStatus(
+    const imageReadyJob = await updateJobStatus(
       jobId,
       {
-        status: 'succeeded',
-        progress: 100,
+        status: 'processing',
+        progress: 65,
+        processingStage: 'image_persisting',
         generatedImageAssetId: providerResult.generatedImageAssetId ?? null,
         generatedImageUrl: providerResult.generatedImageUrl,
         generatedImageAssetIds: providerResult.generatedImageAssetIds ?? [],
         generatedImageUrls: providerResult.generatedImageUrls,
-        generatedVideoAssetId: providerResult.generatedVideoAssetId ?? null,
-        generatedVideoUrl: providerResult.generatedVideoUrl ?? null,
         providerJobId: providerResult.providerJobId ?? null,
-        providerMetadata: providerResult.providerMetadata ?? {},
-        completedAt: new Date(),
+        providerMetadata: {
+          ...(job.providerMetadata || {}),
+          ...(providerResult.providerMetadata ?? {}),
+        },
+        videoStatus: job.outputMode === 'image_and_video' ? 'queued' : 'not_requested',
+        videoProgress: 0,
+        videoSourceImageAssetId: providerResult.generatedImageAssetId ?? null,
+        videoSourceImageUrlSnapshot: providerResult.generatedImageUrl,
+        videoProvider: job.outputMode === 'image_and_video' ? VIDEO_PROVIDER : null,
       },
-      'succeeded',
+      'progress',
     );
+    if (!imageReadyJob) return;
+
+    if (imageReadyJob.outputMode === 'image') {
+      await updateJobStatus(
+        jobId,
+        {
+          status: 'succeeded',
+          progress: 100,
+          processingStage: 'completed',
+          completedAt: new Date(),
+        },
+        'succeeded',
+      );
+      return;
+    }
+
+    await runVideoStage(jobId);
   } catch (error) {
     console.error('Virtual try-on provider worker failed:', error);
     const serviceError = error instanceof VirtualTryOnServiceError
@@ -638,6 +898,9 @@ const runProviderJob = async (jobId: string) => {
       {
         status: 'failed',
         progress: 100,
+        processingStage: 'completed',
+        videoStatus: 'canceled',
+        videoProgress: 100,
         errorCode: serviceError?.errorCode ?? 'UNKNOWN',
         errorMessage: serviceError?.message ?? 'Không thể tạo kết quả phối đồ lúc này.',
         completedAt: new Date(),
@@ -649,6 +912,11 @@ const runProviderJob = async (jobId: string) => {
 
 const enqueueJob = (jobId: string) => {
   const timer = setTimeout(() => { void runProviderJob(jobId); }, 0);
+  timer.unref?.();
+};
+
+const enqueueVideoJob = (jobId: string) => {
+  const timer = setTimeout(() => { void runVideoStage(jobId); }, 0);
   timer.unref?.();
 };
 
@@ -1323,7 +1591,14 @@ const validateCreateJobInput = (input: CreateVirtualTryOnJobInput) => {
     throw new VirtualTryOnServiceError('Kiểu kết quả không hợp lệ', 400);
   }
   if (outputMode === 'image_and_video' && !ENABLE_VIDEO) {
-    throw new VirtualTryOnServiceError('Tạo video chưa được bật', 400);
+    throw new VirtualTryOnServiceError('Tạo video chưa được bật', 400, 'VIDEO_GENERATION_DISABLED');
+  }
+  if (outputMode === 'image_and_video' && !getVirtualTryOnVideoConfiguration().ready) {
+    throw new VirtualTryOnServiceError(
+      'Cấu hình sinh video chưa sẵn sàng',
+      503,
+      'VIDEO_PROVIDER_CONFIG_MISSING',
+    );
   }
 
   return {
@@ -1426,7 +1701,10 @@ const deleteAsset = async (userId: string, assetId: string) => {
   asset.deletedAt = new Date();
   await asset.save();
 
-  deleteFromCloudinary(asset.publicId).catch((error) => {
+  const cleanup = asset.type === 'generated_video'
+    ? deleteFromCloudinary(asset.publicId, 'video')
+    : deleteFromCloudinary(asset.publicId);
+  cleanup.catch((error) => {
     console.warn('Virtual try-on asset Cloudinary cleanup failed:', error);
   });
 
@@ -1458,6 +1736,47 @@ const getActiveJobCount = (userId: string) =>
     status: { $in: ['queued', 'processing'] },
   });
 
+const ensureVideoJobCapacity = async (userObjectId: Types.ObjectId) => {
+  const { start, end } = getLocalDayRange();
+  const [dailyCount, activeCount] = await Promise.all([
+    VirtualTryOnJob.countDocuments({
+      userId: userObjectId,
+      deletedAt: null,
+      outputMode: 'image_and_video',
+      createdAt: { $gte: start, $lt: end },
+    }),
+    VirtualTryOnJob.countDocuments({
+      userId: userObjectId,
+      deletedAt: null,
+      outputMode: 'image_and_video',
+      videoStatus: { $in: ['queued', 'processing'] },
+    }),
+  ]);
+  const maxPerDay = getPositiveIntegerEnv(
+    'VIRTUAL_TRY_ON_MAX_VIDEO_JOBS_PER_USER_PER_DAY',
+    DEFAULT_MAX_VIDEO_JOBS_PER_USER_PER_DAY,
+  );
+  const maxConcurrent = getPositiveIntegerEnv(
+    'VIRTUAL_TRY_ON_MAX_CONCURRENT_VIDEO_JOBS_PER_USER',
+    DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER,
+  );
+
+  if (dailyCount >= maxPerDay) {
+    throw new VirtualTryOnServiceError(
+      `Bạn đã dùng hết ${maxPerDay} lượt sinh video hôm nay`,
+      429,
+      'VIDEO_DAILY_LIMIT_REACHED',
+    );
+  }
+  if (activeCount >= maxConcurrent) {
+    throw new VirtualTryOnServiceError(
+      'Bạn đang có video khác được xử lý',
+      409,
+      'ACTIVE_VIDEO_JOB_EXISTS',
+    );
+  }
+};
+
 const createJob = async (
   userId: string,
   input: CreateVirtualTryOnJobInput,
@@ -1481,6 +1800,9 @@ const createJob = async (
   }
 
   const promptValidation = await validatePromptForCreateJob(userObjectId, input.contextPrompt);
+  if (normalized.outputMode === 'image_and_video') {
+    await ensureVideoJobCapacity(userObjectId);
+  }
   const activeJobCount = await getActiveJobCount(userId);
   const maxConcurrent = Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1);
   if (activeJobCount >= maxConcurrent) {
@@ -1504,6 +1826,10 @@ const createJob = async (
     outputMode: normalized.outputMode,
     status: 'queued',
     progress: 0,
+    processingStage: 'queued',
+    videoStatus: normalized.outputMode === 'image_and_video' ? 'queued' : 'not_requested',
+    videoProgress: 0,
+    videoProvider: normalized.outputMode === 'image_and_video' ? VIDEO_PROVIDER : null,
     provider: PROVIDER,
     idempotencyKey: idempotencyKey || null,
     providerMetadata: {
@@ -1611,12 +1937,34 @@ const retryJob = async (userId: string, jobId: string) => {
     throw new VirtualTryOnServiceError('Chỉ có thể thử lại yêu cầu đã lỗi hoặc đã hủy', 400);
   }
 
+  if (job.outputMode === 'image_and_video' && !getVideoCapabilities().available) {
+    throw new VirtualTryOnServiceError(
+      'Tính năng sinh video chưa sẵn sàng',
+      503,
+      getVideoCapabilities().reasonCode || 'VIDEO_PROVIDER_CONFIG_MISSING',
+    );
+  }
+
   job.status = 'queued';
   job.progress = 0;
+  job.processingStage = 'queued';
+  job.generatedImageAssetId = null;
   job.generatedImageAssetIds = [];
   job.generatedImageUrls = [];
   job.generatedImageUrl = null;
+  job.generatedVideoAssetId = null;
   job.generatedVideoUrl = null;
+  job.videoStatus = job.outputMode === 'image_and_video' ? 'queued' : 'not_requested';
+  job.videoProgress = 0;
+  job.videoSourceImageAssetId = null;
+  job.videoSourceImageUrlSnapshot = null;
+  job.videoProvider = job.outputMode === 'image_and_video' ? VIDEO_PROVIDER : null;
+  job.videoProviderJobId = null;
+  job.videoProviderMetadata = {};
+  job.videoErrorCode = null;
+  job.videoErrorMessage = null;
+  job.videoStartedAt = null;
+  job.videoCompletedAt = null;
   job.errorCode = null;
   job.errorMessage = null;
   job.startedAt = null;
@@ -1629,17 +1977,126 @@ const retryJob = async (userId: string, jobId: string) => {
   return serializeJob(job);
 };
 
+const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
+  const capabilities = getVideoCapabilities();
+  if (!capabilities.available) {
+    throw new VirtualTryOnServiceError(
+      'Tính năng sinh video chưa sẵn sàng',
+      503,
+      capabilities.reasonCode || 'VIDEO_PROVIDER_CONFIG_MISSING',
+    );
+  }
+
+  const job = await VirtualTryOnJob.findOne({
+    ...filter,
+    deletedAt: null,
+    outputMode: 'image_and_video',
+    videoStatus: { $in: ['failed', 'canceled'] },
+  });
+  if (!job || getGeneratedImageUrls(job).length === 0) {
+    throw new VirtualTryOnServiceError(
+      'Chỉ có thể thử lại video đã lỗi hoặc đã hủy sau khi ảnh phối đồ hoàn tất',
+      400,
+      'VIDEO_RETRY_NOT_ALLOWED',
+    );
+  }
+
+  const activeVideoCount = await VirtualTryOnJob.countDocuments({
+    _id: { $ne: job._id },
+    userId: job.userId,
+    deletedAt: null,
+    videoStatus: { $in: ['queued', 'processing'] },
+  });
+  const maxConcurrent = getPositiveIntegerEnv(
+    'VIRTUAL_TRY_ON_MAX_CONCURRENT_VIDEO_JOBS_PER_USER',
+    DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER,
+  );
+  if (activeVideoCount >= maxConcurrent) {
+    throw new VirtualTryOnServiceError(
+      'Tài khoản đang có video khác được xử lý',
+      409,
+      'ACTIVE_VIDEO_JOB_EXISTS',
+    );
+  }
+
+  job.status = 'processing';
+  job.progress = 70;
+  job.processingStage = 'video_generation';
+  job.generatedVideoAssetId = null;
+  job.generatedVideoUrl = null;
+  job.videoStatus = 'queued';
+  job.videoProgress = 0;
+  job.videoSourceImageAssetId = job.videoSourceImageAssetId || job.generatedImageAssetId || null;
+  job.videoSourceImageUrlSnapshot = job.videoSourceImageUrlSnapshot || getGeneratedImageUrls(job)[0];
+  job.videoProvider = VIDEO_PROVIDER;
+  job.videoProviderJobId = null;
+  job.videoProviderMetadata = {};
+  job.videoErrorCode = null;
+  job.videoErrorMessage = null;
+  job.videoStartedAt = null;
+  job.videoCompletedAt = null;
+  job.completedAt = null;
+  await job.save();
+
+  emitJob(job, 'queued');
+  enqueueVideoJob(job._id.toString());
+  return job;
+};
+
+const retryVideo = async (userId: string, jobId: string) => {
+  const job = await retryVideoJobForFilter({
+    _id: toObjectId(jobId, 'job id'),
+    userId: toObjectId(userId, 'user id'),
+  });
+  return serializeJob(job);
+};
+
 const cancelJob = async (userId: string, jobId: string) => {
+  const jobObjectId = toObjectId(jobId, 'job id');
+  const userObjectId = toObjectId(userId, 'user id');
+  const activeJob = await VirtualTryOnJob.findOne({
+    _id: jobObjectId,
+    userId: userObjectId,
+    deletedAt: null,
+    status: { $in: ['queued', 'processing'] },
+  });
+  if (
+    activeJob
+    && activeJob.outputMode === 'image_and_video'
+    && getGeneratedImageUrls(activeJob).length > 0
+  ) {
+    const videoCanceledJob = await VirtualTryOnJob.findOneAndUpdate(
+      { _id: activeJob._id, status: { $in: ['queued', 'processing'] } },
+      {
+        status: 'succeeded',
+        progress: 100,
+        processingStage: 'completed',
+        videoStatus: 'canceled',
+        videoProgress: 100,
+        videoCompletedAt: new Date(),
+        completedAt: new Date(),
+      },
+      { new: true },
+    );
+    if (videoCanceledJob) {
+      emitJob(videoCanceledJob, 'canceled');
+      return serializeJob(videoCanceledJob);
+    }
+  }
+
   const job = await VirtualTryOnJob.findOneAndUpdate(
     {
-      _id: toObjectId(jobId, 'job id'),
-      userId: toObjectId(userId, 'user id'),
+      _id: jobObjectId,
+      userId: userObjectId,
       deletedAt: null,
       status: { $in: ['queued', 'processing'] },
     },
     {
       status: 'canceled',
       progress: 100,
+      processingStage: 'completed',
+      videoStatus: activeJob?.outputMode === 'image_and_video' ? 'canceled' : 'not_requested',
+      videoProgress: activeJob?.outputMode === 'image_and_video' ? 100 : 0,
       completedAt: new Date(),
     },
     { new: true },
@@ -1703,6 +2160,7 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     provider: job.provider,
     providerJobId: job.providerJobId,
     sourceImageUrl: job.sourceImageUrlSnapshot,
+    processingStage: getEffectiveProcessingStage(job),
     selectedItemCount: job.selectedItems.length,
     selectedItems: job.selectedItems.map((item) => ({
       productId: item.productId.toString(),
@@ -1715,6 +2173,13 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     generatedImageUrl: job.generatedImageUrl,
     generatedImageUrls: getGeneratedImageUrls(job),
     generatedVideoUrl: job.generatedVideoUrl,
+    videoStatus: getEffectiveVideoStatus(job),
+    videoProgress: job.videoProgress ?? 0,
+    videoSourceImageUrl: job.videoSourceImageUrlSnapshot ?? null,
+    videoProvider: job.videoProvider ?? null,
+    videoProviderJobId: job.videoProviderJobId ?? null,
+    videoErrorCode: job.videoErrorCode ?? null,
+    videoErrorMessage: job.videoErrorMessage ?? null,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
     totalFinalPrice: job.selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0),
@@ -1722,6 +2187,8 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     updatedAt: job.updatedAt.toISOString(),
     startedAt: job.startedAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
+    videoStartedAt: job.videoStartedAt?.toISOString() ?? null,
+    videoCompletedAt: job.videoCompletedAt?.toISOString() ?? null,
     deletedAt: job.deletedAt?.toISOString() ?? null,
   };
 };
@@ -1817,6 +2284,10 @@ const getAdminSummary = async () => {
     succeeded,
     failed,
     canceled,
+    videoRequested,
+    videoProcessing,
+    videoSucceeded,
+    videoFailed,
     promptViolationsToday,
     promptBlocksToday,
     latestFailedJobs,
@@ -1828,6 +2299,10 @@ const getAdminSummary = async () => {
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'succeeded' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'failed' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'canceled' }),
+    VirtualTryOnJob.countDocuments({ deletedAt: null, outputMode: 'image_and_video' }),
+    VirtualTryOnJob.countDocuments({ deletedAt: null, videoStatus: { $in: ['queued', 'processing'] } }),
+    VirtualTryOnJob.countDocuments({ deletedAt: null, videoStatus: 'succeeded' }),
+    VirtualTryOnJob.countDocuments({ deletedAt: null, videoStatus: 'failed' }),
     VirtualTryOnPromptViolation.countDocuments({ createdAt: { $gte: dayStart } }),
     VirtualTryOnPromptViolation.countDocuments({ action: 'temporary_block', createdAt: { $gte: dayStart } }),
     VirtualTryOnJob.find({ deletedAt: null, status: 'failed' }).sort({ updatedAt: -1 }).limit(5),
@@ -1843,7 +2318,11 @@ const getAdminSummary = async () => {
     canceled,
     successRate: total ? Math.round((succeeded / total) * 100) : 0,
     provider: PROVIDER,
-    videoEnabled: ENABLE_VIDEO,
+    videoEnabled: getVideoCapabilities().available,
+    videoRequested,
+    videoProcessing,
+    videoSucceeded,
+    videoFailed,
     promptViolationsToday,
     promptBlocksToday,
     latestFailedJobs: await Promise.all(latestFailedJobs.map(serializeAdminJob)),
@@ -1851,16 +2330,41 @@ const getAdminSummary = async () => {
   };
 };
 
-const getAdminSettings = () => ({
-  provider: PROVIDER,
-  enabled: PROVIDER !== 'disabled',
-  videoEnabled: ENABLE_VIDEO,
-  maxSelectedItems: MAX_SELECTED_ITEMS,
-  maxConcurrentJobsPerUser: Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1),
-  sourceImageMaxMb: 5,
-  promptMaxLength: PROMPT_MAX_LENGTH,
-  promptViolationLimitPerDay: getPromptViolationLimitPerDay(),
-});
+const getAdminSettings = () => {
+  const video = getVideoCapabilities();
+  const imageEnabled = PROVIDER !== 'disabled';
+  return {
+    provider: PROVIDER,
+    enabled: imageEnabled,
+    image: {
+      enabled: imageEnabled,
+      provider: PROVIDER,
+      model: PROVIDER === 'mock'
+        ? 'mock'
+        : process.env.VIRTUAL_TRY_ON_COMFY_MODEL?.trim() || 'workflow_default',
+      aspectRatio: process.env.VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO?.trim() || '3:4',
+      resolution: PROVIDER === 'mock'
+        ? '1440×1920'
+        : process.env.VIRTUAL_TRY_ON_COMFY_RESOLUTION?.trim() || '4K',
+      outputCount: 4,
+    },
+    videoEnabled: video.available,
+    video,
+    maxSelectedItems: MAX_SELECTED_ITEMS,
+    maxConcurrentJobsPerUser: Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1),
+    maxVideoJobsPerUserPerDay: getPositiveIntegerEnv(
+      'VIRTUAL_TRY_ON_MAX_VIDEO_JOBS_PER_USER_PER_DAY',
+      DEFAULT_MAX_VIDEO_JOBS_PER_USER_PER_DAY,
+    ),
+    maxConcurrentVideoJobsPerUser: getPositiveIntegerEnv(
+      'VIRTUAL_TRY_ON_MAX_CONCURRENT_VIDEO_JOBS_PER_USER',
+      DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER,
+    ),
+    sourceImageMaxMb: 5,
+    promptMaxLength: PROMPT_MAX_LENGTH,
+    promptViolationLimitPerDay: getPromptViolationLimitPerDay(),
+  };
+};
 
 const testAdminPrompt = (input: unknown) => {
   const contextPrompt = input && typeof input === 'object' && 'contextPrompt' in input
@@ -1881,12 +2385,34 @@ const retryAdminJob = async (jobId: string) => {
     throw new VirtualTryOnServiceError('Chỉ có thể thử lại job đã lỗi hoặc đã hủy', 400);
   }
 
+  if (job.outputMode === 'image_and_video' && !getVideoCapabilities().available) {
+    throw new VirtualTryOnServiceError(
+      'Tính năng sinh video chưa sẵn sàng',
+      503,
+      getVideoCapabilities().reasonCode || 'VIDEO_PROVIDER_CONFIG_MISSING',
+    );
+  }
+
   job.status = 'queued';
   job.progress = 0;
+  job.processingStage = 'queued';
+  job.generatedImageAssetId = null;
   job.generatedImageAssetIds = [];
   job.generatedImageUrls = [];
   job.generatedImageUrl = null;
+  job.generatedVideoAssetId = null;
   job.generatedVideoUrl = null;
+  job.videoStatus = job.outputMode === 'image_and_video' ? 'queued' : 'not_requested';
+  job.videoProgress = 0;
+  job.videoSourceImageAssetId = null;
+  job.videoSourceImageUrlSnapshot = null;
+  job.videoProvider = job.outputMode === 'image_and_video' ? VIDEO_PROVIDER : null;
+  job.videoProviderJobId = null;
+  job.videoProviderMetadata = {};
+  job.videoErrorCode = null;
+  job.videoErrorMessage = null;
+  job.videoStartedAt = null;
+  job.videoCompletedAt = null;
   job.errorCode = null;
   job.errorMessage = null;
   job.startedAt = null;
@@ -1899,16 +2425,56 @@ const retryAdminJob = async (jobId: string) => {
   return serializeAdminJob(job);
 };
 
+const retryAdminVideo = async (jobId: string) => {
+  const job = await retryVideoJobForFilter({
+    _id: toObjectId(jobId, 'job id'),
+  });
+  return serializeAdminJob(job);
+};
+
 const cancelAdminJob = async (jobId: string) => {
+  const jobObjectId = toObjectId(jobId, 'job id');
+  const activeJob = await VirtualTryOnJob.findOne({
+    _id: jobObjectId,
+    deletedAt: null,
+    status: { $in: ['queued', 'processing'] },
+  });
+  if (
+    activeJob
+    && activeJob.outputMode === 'image_and_video'
+    && getGeneratedImageUrls(activeJob).length > 0
+  ) {
+    const videoCanceledJob = await VirtualTryOnJob.findOneAndUpdate(
+      { _id: activeJob._id, status: { $in: ['queued', 'processing'] } },
+      {
+        status: 'succeeded',
+        progress: 100,
+        processingStage: 'completed',
+        videoStatus: 'canceled',
+        videoProgress: 100,
+        videoCompletedAt: new Date(),
+        completedAt: new Date(),
+      },
+      { new: true },
+    );
+    if (videoCanceledJob) {
+      emitJob(videoCanceledJob, 'canceled');
+      return serializeAdminJob(videoCanceledJob);
+    }
+  }
+
   const job = await VirtualTryOnJob.findOneAndUpdate(
     {
-      _id: toObjectId(jobId, 'job id'),
+      _id: jobObjectId,
       deletedAt: null,
       status: { $in: ['queued', 'processing'] },
     },
     {
       status: 'canceled',
       progress: 100,
+      processingStage: 'completed',
+      videoStatus: activeJob?.outputMode === 'image_and_video' ? 'canceled' : 'not_requested',
+      videoProgress: activeJob?.outputMode === 'image_and_video' ? 100 : 0,
       completedAt: new Date(),
     },
     { new: true },
@@ -2150,6 +2716,26 @@ const unlockAccount = async (actorUserId: string | undefined, userId: string) =>
 
 const getContextPresetPreviews = (): VirtualTryOnContextPresetPreview[] => contextPresetPreviews;
 
+const getCapabilities = () => ({
+  imageGeneration: {
+    available: PROVIDER !== 'disabled',
+    provider: PROVIDER,
+  },
+  videoGeneration: getVideoCapabilities(),
+});
+
+export const resumePendingVirtualTryOnVideoJobs = async () => {
+  if (!getVideoCapabilities().available) return 0;
+  const jobs = await VirtualTryOnJob.find({
+    deletedAt: null,
+    status: 'processing',
+    outputMode: 'image_and_video',
+    videoStatus: { $in: ['queued', 'processing'] },
+  }).select('_id');
+  jobs.forEach((job) => enqueueVideoJob(job._id.toString()));
+  return jobs.length;
+};
+
 export const virtualTryOnService = {
   uploadAsset,
   listAssets,
@@ -2159,7 +2745,9 @@ export const virtualTryOnService = {
   getJob,
   getLatestJob,
   listJobs,
+  getCapabilities,
   retryJob,
+  retryVideo,
   cancelJob,
   deleteJob,
   listAdminJobs,
@@ -2167,6 +2755,7 @@ export const virtualTryOnService = {
   getAdminSettings,
   testAdminPrompt,
   retryAdminJob,
+  retryAdminVideo,
   cancelAdminJob,
   hideAdminJob,
   listPromptRules,

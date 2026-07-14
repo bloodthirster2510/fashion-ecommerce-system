@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   ArrowDown,
   ArrowUp,
   ExternalLink,
+  ImagePlus,
   Plus,
   RefreshCw,
   Save,
@@ -34,6 +35,8 @@ const platformLabels: Record<StorefrontSocialPlatform, string> = {
 
 let socialDraftSequence = 0
 const nextClientId = () => `social-${Date.now()}-${socialDraftSequence += 1}`
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024
+const AVATAR_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
 const toDraft = (settings: StorefrontSettings): SettingsDraft => ({
   ...settings,
@@ -99,8 +102,13 @@ export function StorefrontSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('')
 
-  const dirty = useMemo(() => Boolean(draft && baseline && snapshot(draft) !== baseline), [baseline, draft])
+  const dirty = useMemo(
+    () => Boolean(draft && baseline && (snapshot(draft) !== baseline || avatarFile)),
+    [avatarFile, baseline, draft],
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -110,6 +118,8 @@ export function StorefrontSettingsPage() {
       const nextDraft = toDraft(settings)
       setDraft(nextDraft)
       setBaseline(snapshot(nextDraft))
+      setAvatarFile(null)
+      setAvatarPreviewUrl('')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể tải cấu hình cửa hàng.')
     } finally {
@@ -120,6 +130,10 @@ export function StorefrontSettingsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => () => {
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl)
+  }, [avatarPreviewUrl])
 
   useEffect(() => {
     if (!dirty) return
@@ -142,6 +156,31 @@ export function StorefrontSettingsPage() {
       ...current,
       contact: { ...current.contact, [field]: value },
     } : current)
+  }
+
+  const selectAvatar = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!AVATAR_MIME_TYPES.has(file.type)) {
+      setError('Avatar chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.')
+      return
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      setError('Avatar không được vượt quá 5 MB.')
+      return
+    }
+
+    setError('')
+    setAvatarFile(file)
+    setAvatarPreviewUrl(URL.createObjectURL(file))
+  }
+
+  const removeAvatar = () => {
+    setAvatarFile(null)
+    setAvatarPreviewUrl('')
+    updateIdentity('avatarUrl', '')
   }
 
   const updateSocial = <K extends keyof SocialDraft>(clientId: string, field: K, value: SocialDraft[K]) => {
@@ -206,10 +245,12 @@ export function StorefrontSettingsPage() {
     setSaving(true)
     setError('')
     try {
-      const settings = await updateStorefrontSettings(toPayload(draft))
+      const settings = await updateStorefrontSettings(toPayload(draft), avatarFile)
       const nextDraft = toDraft(settings)
       setDraft(nextDraft)
       setBaseline(snapshot(nextDraft))
+      setAvatarFile(null)
+      setAvatarPreviewUrl('')
       showToast('Đã cập nhật thông tin cửa hàng.', 'success')
       window.dispatchEvent(new Event('storefront-settings:refresh'))
     } catch (caught) {
@@ -241,6 +282,7 @@ export function StorefrontSettingsPage() {
   }
 
   const enabledSocials = draft.socials.filter((social) => social.enabled && social.url.trim())
+  const displayedAvatarUrl = avatarPreviewUrl || draft.identity.avatarUrl
 
   return (
     <form className="storefront-settings-page" onSubmit={submit}>
@@ -273,6 +315,28 @@ export function StorefrontSettingsPage() {
           <section className="storefront-settings-card">
             <header><div><span>01</span><h2>Nhận diện cửa hàng</h2></div><p>Tên thương hiệu và thông tin pháp lý hiển thị cho khách hàng.</p></header>
             <div className="storefront-settings-grid">
+              <div className="storefront-avatar-field is-wide">
+                <span>Avatar cửa hàng</span>
+                <div className="storefront-avatar-editor">
+                  <div className="storefront-avatar-preview">
+                    {displayedAvatarUrl
+                      ? <img src={displayedAvatarUrl} alt="Xem trước avatar cửa hàng" />
+                      : <ImagePlus aria-hidden="true" />}
+                  </div>
+                  <div className="storefront-avatar-actions">
+                    <strong>{avatarFile?.name || (draft.identity.avatarUrl ? 'Avatar đang sử dụng' : 'Chưa có avatar')}</strong>
+                    <small>Ảnh vuông JPEG, PNG hoặc WEBP · tối đa 5 MB.</small>
+                    <div>
+                      <label className="storefront-avatar-picker">
+                        <ImagePlus aria-hidden="true" />
+                        <span>{displayedAvatarUrl ? 'Thay ảnh' : 'Chọn ảnh'}</span>
+                        <input type="file" accept="image/jpeg,image/png,image/webp" onChange={selectAvatar} />
+                      </label>
+                      {displayedAvatarUrl ? <Button variant="ghost" icon={<Trash2 />} onClick={removeAvatar}>Xóa ảnh</Button> : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
               <label><span>Tên hiển thị *</span><input required minLength={2} maxLength={80} value={draft.identity.name} onChange={(event) => updateIdentity('name', event.target.value)} /></label>
               <label><span>Tên pháp lý</span><input maxLength={160} value={draft.identity.legalName} onChange={(event) => updateIdentity('legalName', event.target.value)} /></label>
               <label><span>Mã số thuế</span><input maxLength={30} value={draft.identity.taxCode} onChange={(event) => updateIdentity('taxCode', event.target.value)} /></label>
@@ -323,7 +387,14 @@ export function StorefrontSettingsPage() {
 
         <aside className="storefront-settings-preview">
           <span>XEM TRƯỚC</span>
-          <div className="storefront-preview-brand"><strong>{draft.identity.name || 'Tên cửa hàng'}</strong><small>{draft.identity.tagline || 'Slogan của cửa hàng'}</small></div>
+          <div className="storefront-preview-brand">
+            <div className="storefront-preview-avatar">
+              {displayedAvatarUrl
+                ? <img src={displayedAvatarUrl} alt="Avatar cửa hàng" />
+                : <ImagePlus aria-hidden="true" />}
+            </div>
+            <div><strong>{draft.identity.name || 'Tên cửa hàng'}</strong><small>{draft.identity.tagline || 'Slogan của cửa hàng'}</small></div>
+          </div>
           <p>{draft.identity.description || 'Phần giới thiệu ngắn sẽ hiển thị tại đây.'}</p>
           <dl>
             {draft.contact.phone ? <div><dt>Hotline</dt><dd>{draft.contact.phone}</dd></div> : null}

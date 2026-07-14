@@ -9,6 +9,20 @@ export type VirtualTryOnJobStatus =
 
 export type VirtualTryOnOutfitMode = 'single' | 'top_bottom' | 'full_set';
 export type VirtualTryOnOutputMode = 'image' | 'image_and_video';
+export type VirtualTryOnProcessingStage =
+  | 'queued'
+  | 'image_generation'
+  | 'image_persisting'
+  | 'video_generation'
+  | 'video_persisting'
+  | 'completed';
+export type VirtualTryOnVideoStatus =
+  | 'not_requested'
+  | 'queued'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled';
 export type VirtualTryOnContextPreset =
   | 'none'
   | 'work'
@@ -51,12 +65,24 @@ export interface IVirtualTryOnJob extends Document {
   outputMode: VirtualTryOnOutputMode;
   status: VirtualTryOnJobStatus;
   progress: number;
+  processingStage: VirtualTryOnProcessingStage;
   generatedImageAssetId?: Types.ObjectId | null;
   generatedImageUrl?: string | null;
   generatedImageAssetIds?: Types.ObjectId[];
   generatedImageUrls?: string[];
   generatedVideoAssetId?: Types.ObjectId | null;
   generatedVideoUrl?: string | null;
+  videoStatus: VirtualTryOnVideoStatus;
+  videoProgress: number;
+  videoSourceImageAssetId?: Types.ObjectId | null;
+  videoSourceImageUrlSnapshot?: string | null;
+  videoProvider?: string | null;
+  videoProviderJobId?: string | null;
+  videoProviderMetadata?: Record<string, unknown>;
+  videoErrorCode?: string | null;
+  videoErrorMessage?: string | null;
+  videoStartedAt?: Date | null;
+  videoCompletedAt?: Date | null;
   provider: string;
   providerJobId?: string | null;
   providerMetadata?: Record<string, unknown>;
@@ -126,12 +152,33 @@ const virtualTryOnJobSchema = new Schema<IVirtualTryOnJob>(
       index: true,
     },
     progress: { type: Number, default: 0, min: 0, max: 100 },
+    processingStage: {
+      type: String,
+      enum: ['queued', 'image_generation', 'image_persisting', 'video_generation', 'video_persisting', 'completed'],
+      default: 'queued',
+    },
     generatedImageAssetId: { type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset', default: null },
     generatedImageUrl: { type: String, trim: true, maxlength: 800, default: null },
     generatedImageAssetIds: [{ type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset' }],
     generatedImageUrls: [{ type: String, trim: true, maxlength: 800 }],
     generatedVideoAssetId: { type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset', default: null },
     generatedVideoUrl: { type: String, trim: true, maxlength: 800, default: null },
+    videoStatus: {
+      type: String,
+      enum: ['not_requested', 'queued', 'processing', 'succeeded', 'failed', 'canceled'],
+      default: 'not_requested',
+      index: true,
+    },
+    videoProgress: { type: Number, default: 0, min: 0, max: 100 },
+    videoSourceImageAssetId: { type: Schema.Types.ObjectId, ref: 'VirtualTryOnAsset', default: null },
+    videoSourceImageUrlSnapshot: { type: String, trim: true, maxlength: 800, default: null },
+    videoProvider: { type: String, trim: true, maxlength: 80, default: null },
+    videoProviderJobId: { type: String, trim: true, maxlength: 160, default: null },
+    videoProviderMetadata: { type: Schema.Types.Mixed, default: {} },
+    videoErrorCode: { type: String, trim: true, maxlength: 80, default: null },
+    videoErrorMessage: { type: String, trim: true, maxlength: 300, default: null },
+    videoStartedAt: { type: Date, default: null },
+    videoCompletedAt: { type: Date, default: null },
     provider: { type: String, required: true, trim: true, maxlength: 80 },
     providerJobId: { type: String, trim: true, maxlength: 160, default: null },
     providerMetadata: { type: Schema.Types.Mixed, default: {} },
@@ -148,6 +195,7 @@ const virtualTryOnJobSchema = new Schema<IVirtualTryOnJob>(
 virtualTryOnJobSchema.index({ userId: 1, createdAt: -1 });
 virtualTryOnJobSchema.index({ userId: 1, status: 1, createdAt: -1 });
 virtualTryOnJobSchema.index({ status: 1, createdAt: 1 });
+virtualTryOnJobSchema.index({ videoStatus: 1, updatedAt: 1 });
 virtualTryOnJobSchema.index(
   { userId: 1, idempotencyKey: 1 },
   {

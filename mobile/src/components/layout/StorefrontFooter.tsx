@@ -2,16 +2,20 @@ import React from 'react';
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
+import { RemoteImage } from '../media/RemoteImage';
 import { policyUrls, STOREFRONT_URL } from '../../config/policies';
 import { useStorefrontSettings } from '../../features/storefrontSettings/StorefrontSettingsProvider';
 import type { StorefrontSocialPlatform } from '../../features/storefrontSettings/storefrontSettings.types';
 
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
 const supportLinks = [
-  { label: 'Hướng dẫn đặt hàng', url: `${STOREFRONT_URL}/support?topic=orders` },
-  { label: 'Chính sách giao hàng', url: policyUrls.shipping },
-  { label: 'Trả hàng và hoàn tiền', url: policyUrls.returns },
-  { label: 'Chính sách bảo mật', url: policyUrls.privacy },
-  { label: 'Tiếp nhận khiếu nại', url: policyUrls.complaints },
+  { label: 'Trung tâm hỗ trợ', icon: 'lifebuoy' as IconName, url: `${STOREFRONT_URL}/support` },
+  { label: 'Hướng dẫn đặt hàng', icon: 'cart-outline' as IconName, url: `${STOREFRONT_URL}/support?topic=orders` },
+  { label: 'Chính sách giao hàng', icon: 'truck-fast-outline' as IconName, url: policyUrls.shipping },
+  { label: 'Đổi trả & hoàn tiền', icon: 'backup-restore' as IconName, url: policyUrls.returns },
+  { label: 'Bảo mật thông tin', icon: 'shield-lock-outline' as IconName, url: policyUrls.privacy },
+  { label: 'Tiếp nhận khiếu nại', icon: 'message-alert-outline' as IconName, url: policyUrls.complaints },
 ];
 
 const socialIconByPlatform: Record<StorefrontSocialPlatform, keyof typeof MaterialCommunityIcons.glyphMap> = {
@@ -27,62 +31,140 @@ const StorefrontFooter = () => {
   const { settings } = useStorefrontSettings();
   const { identity, contact } = settings;
   const socialLinks = settings.socials.filter((item) => item.enabled && item.url);
+  const contactItems: Array<{
+    key: string;
+    label: string;
+    value: string;
+    icon: IconName;
+    url?: string;
+  }> = [
+    ...(contact.phone ? [{
+      key: 'phone',
+      label: 'Hotline',
+      value: contact.phone,
+      icon: 'phone-outline' as IconName,
+      url: `tel:${contact.phone.replace(/[^0-9+]/g, '')}`,
+    }] : []),
+    ...(contact.email ? [{
+      key: 'email',
+      label: 'Email',
+      value: contact.email,
+      icon: 'email-outline' as IconName,
+      url: `mailto:${contact.email}`,
+    }] : []),
+    ...(contact.hours ? [{
+      key: 'hours',
+      label: 'Giờ phục vụ',
+      value: contact.hours,
+      icon: 'clock-outline' as IconName,
+    }] : []),
+    ...(contact.address ? [{
+      key: 'address',
+      label: 'Cửa hàng',
+      value: contact.address,
+      icon: 'map-marker-outline' as IconName,
+      url: contact.mapUrl || undefined,
+    }] : []),
+  ];
 
   return (
     <View style={styles.footer}>
+      <View pointerEvents="none" style={styles.decorativeGlow} />
+      <View style={styles.accentBar} />
+
       <View style={styles.brandRow}>
         <View style={styles.brandMark}>
-          <MaterialCommunityIcons name="hanger" size={22} color={colors.brandDark} />
+          {identity.avatarUrl ? (
+            <RemoteImage
+              uri={identity.avatarUrl}
+              style={styles.brandAvatar}
+              resizeMode="cover"
+              recyclingKey={`storefront-avatar-${identity.avatarUrl}`}
+            />
+          ) : (
+            <MaterialCommunityIcons name="hanger" size={27} color={colors.gold} />
+          )}
         </View>
         <View style={styles.brandCopy}>
+          <Text style={styles.brandEyebrow}>CHỌN GU RIÊNG · SỐNG CHẤT RIÊNG</Text>
           <Text style={styles.brandName}>{identity.name}</Text>
           {identity.tagline ? <Text style={styles.brandTagline}>{identity.tagline}</Text> : null}
         </View>
       </View>
 
-      {(contact.phone || contact.email || contact.hours || contact.address) ? (
-        <View style={styles.contactRow}>
-          {contact.phone ? (
-            <TouchableOpacity onPress={() => void Linking.openURL(`tel:${contact.phone.replace(/[^0-9+]/g, '')}`)}>
-              <Text style={styles.contactText}>{contact.phone}</Text>
-            </TouchableOpacity>
-          ) : null}
-          {contact.email ? (
-            <TouchableOpacity onPress={() => void Linking.openURL(`mailto:${contact.email}`)}>
-              <Text style={styles.contactText}>{contact.email}</Text>
-            </TouchableOpacity>
-          ) : null}
-          {contact.hours ? <Text style={styles.contactText}>{contact.hours}</Text> : null}
-          {contact.address ? (
-            <TouchableOpacity disabled={!contact.mapUrl} onPress={() => contact.mapUrl ? void Linking.openURL(contact.mapUrl) : undefined}>
-              <Text style={styles.contactText}>{contact.address}</Text>
-            </TouchableOpacity>
-          ) : null}
+      {contactItems.length > 0 ? (
+        <View style={styles.contactList}>
+          {contactItems.map((item, index) => {
+            const content = (
+              <>
+                <View style={styles.contactIcon}>
+                  <MaterialCommunityIcons name={item.icon} size={18} color={colors.gold} />
+                </View>
+                <View style={styles.contactCopy}>
+                  <Text style={styles.contactLabel}>{item.label}</Text>
+                  <Text style={styles.contactValue} numberOfLines={2}>{item.value}</Text>
+                </View>
+                {item.url ? <MaterialCommunityIcons name="chevron-right" size={17} color={colors.brandPale} /> : null}
+              </>
+            );
+
+            return item.url ? (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.contactItem, index < contactItems.length - 1 && styles.contactItemDivider]}
+                activeOpacity={0.76}
+                accessibilityRole="link"
+                accessibilityLabel={`${item.label}: ${item.value}`}
+                onPress={() => void Linking.openURL(item.url!)}
+              >
+                {content}
+              </TouchableOpacity>
+            ) : (
+              <View key={item.key} style={[styles.contactItem, index < contactItems.length - 1 && styles.contactItemDivider]}>
+                {content}
+              </View>
+            );
+          })}
         </View>
       ) : null}
 
       <View style={styles.divider} />
 
-      <Text style={styles.sectionEyebrow}>HỖ TRỢ NHANH</Text>
+      <View style={styles.sectionHeading}>
+        <View style={styles.sectionTitleRow}>
+          <View style={styles.sectionDot} />
+          <Text style={styles.sectionEyebrow}>HỖ TRỢ NHANH</Text>
+        </View>
+        <Text style={styles.sectionHint}>Thông tin bạn cần, ngay tại đây</Text>
+      </View>
       <View style={styles.supportGrid}>
-        {supportLinks.map((item) => (
+        {supportLinks.map((item, index) => (
           <TouchableOpacity
             key={item.label}
-            style={styles.supportLink}
+            style={[styles.supportLink, index < supportLinks.length - 2 && styles.supportLinkDivider]}
             onPress={() => void Linking.openURL(item.url)}
             activeOpacity={0.76}
+            accessibilityRole="link"
+            accessibilityLabel={item.label}
           >
+            <View style={styles.supportIcon}>
+              <MaterialCommunityIcons name={item.icon} size={17} color={colors.gold} />
+            </View>
             <Text style={styles.supportLinkText} numberOfLines={2}>{item.label}</Text>
-            <MaterialCommunityIcons name="arrow-top-right" size={13} color={colors.brandPale} />
+            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brandPale} />
           </TouchableOpacity>
         ))}
       </View>
 
       <View style={styles.footerMeta}>
-        <View>
-          <Text style={styles.metaLabel}>THANH TOÁN AN TOÀN</Text>
+        <View style={styles.metaBlock}>
+          <View style={styles.metaHeading}>
+            <MaterialCommunityIcons name="shield-check-outline" size={17} color={colors.gold} />
+            <Text style={styles.metaLabel}>THANH TOÁN AN TOÀN</Text>
+          </View>
           <View style={styles.paymentRow}>
             <View style={styles.paymentChip}>
+              <MaterialCommunityIcons name="cash-multiple" size={15} color={colors.brandDark} />
               <Text style={styles.paymentText}>COD</Text>
             </View>
             <View style={styles.paymentChip}>
@@ -92,23 +174,33 @@ const StorefrontFooter = () => {
         </View>
 
         {socialLinks.length > 0 ? (
-          <View style={styles.socialRow}>
-            {socialLinks.map((item) => (
-              <TouchableOpacity
-                key={`${item.platform}-${item.url}`}
-                style={styles.socialButton}
-                accessibilityLabel={item.label}
-                activeOpacity={0.8}
-                onPress={() => void Linking.openURL(item.url)}
-              >
-                <MaterialCommunityIcons name={socialIconByPlatform[item.platform]} size={16} color={colors.brandDark} />
-              </TouchableOpacity>
-            ))}
+          <View style={styles.metaBlock}>
+            <View style={styles.metaHeading}>
+              <MaterialCommunityIcons name="account-group-outline" size={17} color={colors.gold} />
+              <Text style={styles.metaLabel}>KẾT NỐI VỚI CHÚNG TÔI</Text>
+            </View>
+            <View style={styles.socialRow}>
+              {socialLinks.map((item) => (
+                <TouchableOpacity
+                  key={`${item.platform}-${item.url}`}
+                  style={styles.socialButton}
+                  accessibilityRole="link"
+                  accessibilityLabel={item.label}
+                  activeOpacity={0.76}
+                  onPress={() => void Linking.openURL(item.url)}
+                >
+                  <MaterialCommunityIcons name={socialIconByPlatform[item.platform]} size={19} color={colors.white} />
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         ) : null}
       </View>
 
-      <Text style={styles.copyright}>© {new Date().getFullYear()} {identity.name} · All rights reserved</Text>
+      <View style={styles.copyrightRow}>
+        <MaterialCommunityIcons name="hanger" size={13} color="rgba(221,231,236,0.7)" />
+        <Text style={styles.copyright}>© {new Date().getFullYear()} {identity.name} · All rights reserved</Text>
+      </View>
     </View>
   );
 };
@@ -117,117 +209,211 @@ const styles = StyleSheet.create({
   footer: {
     backgroundColor: colors.brandDark,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xl,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xxl,
+    overflow: 'hidden',
+  },
+  decorativeGlow: {
+    position: 'absolute',
+    top: -104,
+    right: -88,
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    backgroundColor: 'rgba(107,140,168,0.18)',
+  },
+  accentBar: {
+    width: 42,
+    height: 4,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+    marginBottom: spacing.lg,
   },
   brandRow: {
-    minHeight: 46,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.lg,
   },
   brandMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.goldSoft,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    borderColor: 'rgba(246,199,107,0.5)',
+    backgroundColor: 'rgba(246,199,107,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  brandAvatar: {
+    width: '100%',
+    height: '100%',
   },
   brandCopy: {
     flex: 1,
     minWidth: 0,
   },
+  brandEyebrow: {
+    color: colors.gold,
+    fontSize: 8,
+    lineHeight: 11,
+    fontWeight: '900',
+    letterSpacing: 1.15,
+    marginBottom: spacing.xs,
+  },
   brandName: {
     color: colors.white,
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 21,
+    lineHeight: 26,
     fontWeight: '900',
-    letterSpacing: 1.1,
+    letterSpacing: 0.8,
   },
   brandTagline: {
     color: colors.brandPale,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: spacing.xs,
   },
-  contactRow: {
+  contactList: {
+    marginTop: spacing.xl,
+  },
+  contactItem: {
+    minHeight: 54,
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: spacing.md,
-    marginTop: spacing.md,
+    paddingVertical: spacing.md,
   },
-  contactText: {
-    color: colors.brandPale,
-    fontSize: 10,
-    lineHeight: 14,
+  contactItemDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(221,231,236,0.12)',
+  },
+  contactIcon: {
+    width: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  contactLabel: {
+    color: 'rgba(221,231,236,0.72)',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '800',
+    letterSpacing: 0.45,
+    textTransform: 'uppercase',
+  },
+  contactValue: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '700',
+    marginTop: 2,
   },
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    marginVertical: spacing.lg,
+    marginVertical: spacing.xl,
+  },
+  sectionHeading: {
+    marginBottom: spacing.md,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sectionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.gold,
   },
   sectionEyebrow: {
-    color: colors.gold,
-    fontSize: 9,
-    lineHeight: 12,
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '900',
-    letterSpacing: 1.1,
-    marginBottom: spacing.sm,
+    letterSpacing: 1,
+  },
+  sectionHint: {
+    color: 'rgba(221,231,236,0.68)',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    marginTop: spacing.xs,
+    marginLeft: 14,
   },
   supportGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 2,
+    columnGap: spacing.lg,
   },
   supportLink: {
-    width: '48%',
-    minHeight: 29,
+    width: '47.5%',
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.xs,
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  supportLinkDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(221,231,236,0.1)',
+  },
+  supportIcon: {
+    width: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   supportLinkText: {
     flex: 1,
     minWidth: 0,
     color: colors.white,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   footerMeta: {
-    minHeight: 44,
-    marginTop: spacing.lg,
-    paddingTop: spacing.md,
+    marginTop: spacing.xl,
+    paddingTop: spacing.xl,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.12)',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    borderTopColor: 'rgba(221,231,236,0.12)',
+    gap: spacing.lg,
+  },
+  metaBlock: {
     gap: spacing.md,
   },
-  metaLabel: {
-    color: colors.brandPale,
-    fontSize: 8,
-    lineHeight: 11,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    marginBottom: spacing.xs,
-  },
-  socialRow: {
+  metaHeading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
+  metaLabel: {
+    color: colors.brandPale,
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: '900',
+    letterSpacing: 0.85,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   socialButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.brandPale,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: 'rgba(221,231,236,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -236,26 +422,38 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   paymentChip: {
-    minWidth: 42,
-    height: 24,
+    minWidth: 58,
+    height: 32,
+    flexDirection: 'row',
+    gap: spacing.xs,
     borderRadius: radii.pill,
-    backgroundColor: colors.brandPale,
+    backgroundColor: colors.goldSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   paymentText: {
     color: colors.brandDark,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: '900',
   },
+  copyrightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
   copyright: {
-    color: 'rgba(221,231,236,0.64)',
-    fontSize: 8,
-    lineHeight: 11,
+    color: 'rgba(221,231,236,0.7)',
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: '600',
-    marginTop: spacing.md,
+    textAlign: 'center',
   },
 });
 

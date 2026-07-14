@@ -14,7 +14,6 @@ type StorefrontHeaderProps = {
   onFavoritesPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
   onSearchFocus?: () => void;
-  onImageSearchPress?: () => void;
   isAuthenticated?: boolean;
   userName?: string;
   avatarImage?: string | null;
@@ -29,7 +28,6 @@ const StorefrontHeader = ({
   onFavoritesPress,
   onSearchSubmit,
   onSearchFocus,
-  onImageSearchPress,
   isAuthenticated,
   userName,
   avatarImage,
@@ -132,14 +130,6 @@ const StorefrontHeader = ({
             onSubmitEditing={handleSearchSubmit}
           />
         )}
-        <TouchableOpacity
-          style={styles.cameraButton}
-          onPress={onImageSearchPress}
-          accessibilityLabel="Tìm kiếm bằng hình ảnh"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="camera-outline" size={23} color={colors.textMuted} />
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -230,12 +220,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
-  },
-  cameraButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
 

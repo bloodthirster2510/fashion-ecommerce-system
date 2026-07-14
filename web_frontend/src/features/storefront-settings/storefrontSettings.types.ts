@@ -11,6 +11,7 @@ export type StorefrontSocialPlatform = typeof storefrontSocialPlatforms[number]
 
 export type StorefrontIdentity = {
   name: string
+  avatarUrl: string
   legalName: string
   taxCode: string
   tagline: string

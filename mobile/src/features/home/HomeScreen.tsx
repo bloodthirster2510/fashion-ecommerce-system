@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -23,6 +23,7 @@ import { useCustomerNotifications } from '../notifications/CustomerNotificationP
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
 const virtualTryOnFeatureImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
+const homeDiscoverHeroImage = require('../../../assets/home-discover-hero-v2.png');
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
@@ -279,10 +280,6 @@ const HomeScreen = () => {
     });
   };
 
-  const handleComingSoon = (title: string) => {
-    Alert.alert(title, 'Tính năng này sẽ được bổ sung khi backend tương ứng hoàn thiện.');
-  };
-
   const handleProductPress = (product: CatalogProduct) => {
     if (product._id) {
       navigation.navigate('ProductDetail', { productId: product._id });
@@ -321,7 +318,6 @@ const HomeScreen = () => {
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
         onSearchFocus={() => navigation.navigate('Search')}
-        onImageSearchPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
@@ -338,10 +334,18 @@ const HomeScreen = () => {
         onScroll={checkRecommendationVisibility}
         scrollEventThrottle={100}
       >
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>FASHIONISTA</Text>
-          <Text style={styles.heroSubtitle}>Phong cách thời trang hiện đại</Text>
-        </View>
+        <TouchableOpacity
+          onPress={() => navigateToProductList({ title: 'Khám phá gu riêng' })}
+          activeOpacity={0.88}
+          accessibilityRole="button"
+          accessibilityLabel="Khám phá thời trang sang trọng"
+        >
+          <Image
+            source={homeDiscoverHeroImage}
+            style={styles.hero}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
 
         <View style={styles.featureStack}>
           <FeatureCard
@@ -350,13 +354,6 @@ const HomeScreen = () => {
             icon="hanger"
             imageSource={virtualTryOnFeatureImage}
             onPress={() => navigation.navigate(isAuthenticated ? 'VirtualTryOnHome' : 'Login')}
-          />
-          <FeatureCard
-            title="Tìm kiếm sản phẩm bằng hình ảnh"
-            description="Chụp hoặc tải ảnh lên để tìm sản phẩm tương tự"
-            icon="camera-iris"
-            supportingIcons={['filter-variant']}
-            onPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
           />
         </View>
 
@@ -419,25 +416,9 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   hero: {
-    minHeight: 138,
+    width: '100%',
+    height: 138,
     backgroundColor: colors.brandLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  heroTitle: {
-    color: colors.white,
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  heroSubtitle: {
-    color: colors.white,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: spacing.sm,
-    textAlign: 'center',
   },
   featureStack: {
     paddingHorizontal: spacing.md,

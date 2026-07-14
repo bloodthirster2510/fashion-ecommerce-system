@@ -1,4 +1,6 @@
 export type VirtualTryOnJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled'
+export type VirtualTryOnVideoStatus = 'not_requested' | 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled'
+export type VirtualTryOnProcessingStage = 'queued' | 'image_generation' | 'image_persisting' | 'video_generation' | 'video_persisting' | 'completed'
 
 export type AdminVirtualTryOnJob = {
   _id: string
@@ -9,6 +11,7 @@ export type AdminVirtualTryOnJob = {
   } | null
   status: VirtualTryOnJobStatus
   progress: number
+  processingStage: VirtualTryOnProcessingStage
   outfitMode: 'single' | 'top_bottom' | 'full_set'
   contextPreset: string
   contextPrompt?: string
@@ -28,6 +31,15 @@ export type AdminVirtualTryOnJob = {
   generatedImageUrl?: string | null
   generatedImageUrls?: string[]
   generatedVideoUrl?: string | null
+  videoStatus: VirtualTryOnVideoStatus
+  videoProgress: number
+  videoSourceImageUrl?: string | null
+  videoProvider?: string | null
+  videoProviderJobId?: string | null
+  videoErrorCode?: string | null
+  videoErrorMessage?: string | null
+  videoStartedAt?: string | null
+  videoCompletedAt?: string | null
   errorCode?: string | null
   errorMessage?: string | null
   totalFinalPrice: number
@@ -68,6 +80,10 @@ export type AdminVirtualTryOnSummary = {
   successRate: number
   provider: string
   videoEnabled: boolean
+  videoRequested: number
+  videoProcessing: number
+  videoSucceeded: number
+  videoFailed: number
   promptViolationsToday: number
   promptBlocksToday: number
   latestFailedJobs: AdminVirtualTryOnJob[]
@@ -77,9 +93,29 @@ export type AdminVirtualTryOnSummary = {
 export type AdminVirtualTryOnSettings = {
   provider: string
   enabled: boolean
+  image: {
+    enabled: boolean
+    provider: string
+    model: string
+    aspectRatio: string
+    resolution: string
+    outputCount: number
+  }
   videoEnabled: boolean
+  video: {
+    enabled: boolean
+    available: boolean
+    reasonCode: string | null
+    provider: string
+    model: string
+    durationSeconds: number
+    resolution: string
+    generateAudio: boolean
+  }
   maxSelectedItems: number
   maxConcurrentJobsPerUser: number
+  maxVideoJobsPerUserPerDay: number
+  maxConcurrentVideoJobsPerUser: number
   sourceImageMaxMb: number
   promptMaxLength: number
   promptViolationLimitPerDay: number

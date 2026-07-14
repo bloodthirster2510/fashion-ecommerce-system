@@ -16,10 +16,21 @@ export const getStorefrontSettings = () => isDemoMode()
   : requestAdmin<StorefrontSettings>('/admin/settings/storefront')
     .then((settings) => settings.configured ? settings : resolveStorefrontSettings(settings))
 
-export const updateStorefrontSettings = (payload: StorefrontSettingsUpdate) => {
+export const updateStorefrontSettings = (payload: StorefrontSettingsUpdate, avatarFile?: File | null) => {
   if (isDemoMode()) {
     return Promise.reject(new Error('Không thể lưu dữ liệu trong chế độ xem bố cục demo.'))
   }
+
+  if (avatarFile) {
+    const body = new FormData()
+    body.set('settings', JSON.stringify(payload))
+    body.set('avatar', avatarFile)
+    return requestAdmin<StorefrontSettings>('/admin/settings/storefront', {
+      method: 'PATCH',
+      body,
+    })
+  }
+
   return requestAdmin<StorefrontSettings>('/admin/settings/storefront', {
     method: 'PATCH',
     body: JSON.stringify(payload),

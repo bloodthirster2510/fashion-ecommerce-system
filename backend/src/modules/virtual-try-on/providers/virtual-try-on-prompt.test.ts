@@ -1,4 +1,4 @@
-import { buildVirtualTryOnPrompt } from './virtual-try-on-prompt';
+import { buildVirtualTryOnPrompt, buildVirtualTryOnVideoPrompt } from './virtual-try-on-prompt';
 import type { VirtualTryOnProviderGarment } from './virtual-try-on-provider';
 
 const garment = (overrides: Partial<VirtualTryOnProviderGarment>): VirtualTryOnProviderGarment => ({
@@ -140,5 +140,22 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('place them naturally without covering the face');
     expect(result.negativePrompt).toContain('dress split into separate top and bottom');
     expect(result.negativePrompt).toContain('accessory floating');
+  });
+});
+
+describe('buildVirtualTryOnVideoPrompt', () => {
+  it('uses the generated try-on image as an exact first frame and preserves the outfit', () => {
+    const result = buildVirtualTryOnVideoPrompt({
+      preset: 'party',
+      customPrompt: 'evening event with warm lights',
+    });
+
+    expect(result.prompt).toContain('exact first frame');
+    expect(result.prompt).toContain('small elegant pose change');
+    expect(result.prompt).toContain('outfit design, garment color, pattern, print, logo');
+    expect(result.prompt).toContain('keep the existing user scene context: evening event with warm lights');
+    expect(result.prompt).toContain('no scene cut and no wardrobe change');
+    expect(result.negativePrompt).toContain('identity change');
+    expect(result.negativePrompt).toContain('fabric melting');
   });
 });

@@ -23,6 +23,7 @@ const validInput = (overrides: Partial<StorefrontSettingsInput> = {}): Storefron
   version: 0,
   identity: {
     name: 'CD Shop',
+    avatarUrl: 'https://res.cloudinary.com/demo/image/upload/storefront/avatar.png',
     legalName: 'CD Shop Company',
     taxCode: '0123456789',
     tagline: 'Wear your style',
@@ -60,6 +61,7 @@ describe('normalizeStorefrontSettingsInput', () => {
     ['missing contact data', validInput({ contact: undefined })],
     ['missing social data', validInput({ socials: undefined })],
     ['a short shop name', validInput({ identity: { ...validInput().identity, name: 'A' } })],
+    ['a non-HTTPS avatar link', validInput({ identity: { ...validInput().identity, avatarUrl: 'http://example.com/avatar.png' } })],
     ['an invalid tax code', validInput({ identity: { ...validInput().identity, taxCode: '12 34' } })],
     ['an invalid phone number', validInput({ contact: { ...validInput().contact, phone: 'call-me' } })],
     ['an invalid email', validInput({ contact: { ...validInput().contact, email: 'not-an-email' } })],

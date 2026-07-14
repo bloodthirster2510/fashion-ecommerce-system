@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -29,6 +29,7 @@ import {
   type TryOnOutfitMode,
   type TryOnSeedItem,
   type TryOnSelectedItem,
+  type VirtualTryOnCapabilities,
 } from './virtualTryOn.types';
 import {
   allTryOnRoles,
@@ -509,6 +510,8 @@ const VirtualTryOnBuilderScreen = () => {
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
+  const [includeVideo, setIncludeVideo] = React.useState(false);
+  const [capabilities, setCapabilities] = React.useState<VirtualTryOnCapabilities | null>(null);
   const [contextPreviewLang, setContextPreviewLang] = React.useState<'vi' | 'en'>('vi');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
@@ -628,6 +631,22 @@ const VirtualTryOnBuilderScreen = () => {
       },
     });
   }, []);
+
+  React.useEffect(() => {
+    let isCurrent = true;
+    runWithAuth((token) => virtualTryOnApi.getCapabilities(token))
+      .then((nextCapabilities) => {
+        if (!isCurrent) return;
+        setCapabilities(nextCapabilities);
+        if (!nextCapabilities.videoGeneration.available) setIncludeVideo(false);
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setCapabilities(null);
+        setIncludeVideo(false);
+      });
+    return () => { isCurrent = false; };
+  }, [runWithAuth]);
 
   React.useEffect(() => {
     let isCurrent = true;
@@ -1195,17 +1214,21 @@ const VirtualTryOnBuilderScreen = () => {
       ? 'Không phù hợp'
       : submitWarningActive
       ? 'Vẫn tạo ảnh'
-      : 'Tạo ảnh'
+      : includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'
     : 'Chọn ảnh';
   const submitButtonIcon = sourceAssetId
     ? imageValidationBlocksSubmit || submitWarningActive
       ? 'alert-circle-outline'
       : 'auto-fix'
     : 'image-plus';
-  const createConfirmTitle = submitWarningActive ? imageValidationDisplay.title : 'Tạo ảnh phối đồ?';
+  const createConfirmTitle = submitWarningActive
+    ? imageValidationDisplay.title
+    : includeVideo ? 'Tạo ảnh và video phối đồ?' : 'Tạo ảnh phối đồ?';
   const createConfirmText = submitWarningActive
     ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
-    : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
+    : includeVideo
+      ? 'Hệ thống sẽ tạo 4 ảnh gợi ý trước, sau đó dùng ảnh phối đồ đầu tiên để sinh video.'
+      : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
 
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
@@ -1254,7 +1277,7 @@ const VirtualTryOnBuilderScreen = () => {
           })),
           contextPreset,
           contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
-          outputMode: 'image',
+          outputMode: includeVideo ? 'image_and_video' : 'image',
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       );
       navigation.replace('VirtualTryOnProcessing', {
@@ -1880,6 +1903,26 @@ const VirtualTryOnBuilderScreen = () => {
             </Text>
           </View>
         </View>
+        {capabilities?.videoGeneration.available ? (
+          <View style={styles.outputOptionCard}>
+            <View style={styles.outputOptionIcon}>
+              <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
+            </View>
+            <View style={styles.outputOptionCopy}>
+              <Text style={styles.outputOptionTitle}>Sinh thêm video</Text>
+              <Text style={styles.outputOptionText}>
+                Dùng cùng mô tả phía trên và ảnh phối đồ đầu tiên để tạo video {capabilities.videoGeneration.durationSeconds} giây, {capabilities.videoGeneration.resolution}.
+              </Text>
+            </View>
+            <Switch
+              value={includeVideo}
+              onValueChange={setIncludeVideo}
+              trackColor={{ false: tryOnPalette.line, true: tryOnPalette.primaryPale }}
+              thumbColor={includeVideo ? tryOnPalette.primary : colors.textMuted}
+              accessibilityLabel="Sinh thêm video phối đồ"
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -1986,7 +2029,7 @@ const VirtualTryOnBuilderScreen = () => {
                 activeOpacity={0.86}
               >
                 <Text style={[styles.confirmPrimaryText, submitWarningActive && styles.confirmPrimaryTextWarning]}>
-                  {submitWarningActive ? 'Vẫn tạo ảnh' : 'Tạo ảnh'}
+                  {submitWarningActive ? 'Vẫn tạo ảnh' : includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'}
                 </Text>
               </TouchableOpacity>
             </View>

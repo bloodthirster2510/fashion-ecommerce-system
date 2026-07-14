@@ -5,6 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -84,6 +85,65 @@ const studioPalette = {
   successSoft: '#EAF7EF',
 } as const;
 
+type GeneratedVideoCardProps = {
+  url: string;
+  isSaving: boolean;
+  isSharing: boolean;
+  onSave: () => void;
+  onShare: () => void;
+};
+
+const GeneratedVideoCard = ({ url, isSaving, isSharing, onSave, onShare }: GeneratedVideoCardProps) => {
+  const player = useVideoPlayer(url, (nextPlayer) => {
+    nextPlayer.loop = true;
+  });
+
+  return (
+    <View style={styles.videoCard}>
+      <View style={styles.videoHeader}>
+        <View>
+          <Text style={styles.videoTitle}>Video phối đồ</Text>
+          <Text style={styles.videoHint}>Sinh từ ảnh phối đồ đầu tiên</Text>
+        </View>
+        <View style={styles.videoReadyBadge}>
+          <MaterialCommunityIcons name="check" size={14} color={colors.white} />
+          <Text style={styles.videoReadyText}>Hoàn tất</Text>
+        </View>
+      </View>
+      <VideoView
+        player={player}
+        style={styles.videoPlayer}
+        nativeControls
+        contentFit="contain"
+        allowsFullscreen
+        allowsPictureInPicture
+      />
+      <View style={styles.videoActions}>
+        <TouchableOpacity
+          style={[styles.videoActionButton, (isSaving || isSharing) && styles.actionButtonDisabled]}
+          onPress={onSave}
+          disabled={isSaving || isSharing}
+          activeOpacity={0.86}
+        >
+          {isSaving ? <ActivityIndicator color={studioPalette.ink} /> : (
+            <><MaterialCommunityIcons name="download-outline" size={21} color={studioPalette.ink} /><Text style={styles.videoActionText}>Lưu video</Text></>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.videoActionButton, (isSaving || isSharing) && styles.actionButtonDisabled]}
+          onPress={onShare}
+          disabled={isSaving || isSharing}
+          activeOpacity={0.86}
+        >
+          {isSharing ? <ActivityIndicator color={studioPalette.ink} /> : (
+            <><MaterialCommunityIcons name="share-variant-outline" size={21} color={studioPalette.ink} /><Text style={styles.videoActionText}>Chia sẻ</Text></>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
 const VirtualTryOnResultScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
@@ -94,6 +154,9 @@ const VirtualTryOnResultScreen = () => {
   const [isAddingCart, setIsAddingCart] = React.useState(false);
   const [savingScope, setSavingScope] = React.useState<ImageActionScope | null>(null);
   const [sharingScope, setSharingScope] = React.useState<ImageActionScope | null>(null);
+  const [isSavingVideo, setIsSavingVideo] = React.useState(false);
+  const [isSharingVideo, setIsSharingVideo] = React.useState(false);
+  const [isRetryingVideo, setIsRetryingVideo] = React.useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
   const [previewImages, setPreviewImages] = React.useState<PreviewImage[]>([]);
@@ -286,6 +349,75 @@ const VirtualTryOnResultScreen = () => {
       Alert.alert(scope === 'all' ? 'Lưu cả bộ' : 'Lưu ảnh', partialMessage);
     } finally {
       setSavingScope(null);
+    }
+  };
+
+  const downloadVideoToCache = async () => {
+    if (!job?.generatedVideoUrl) throw new Error('Không tìm thấy video kết quả.');
+    const baseDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (!baseDirectory) throw new Error('Không tìm thấy thư mục tạm để lưu video.');
+    const extension = job.generatedVideoUrl.split('?')[0]?.toLowerCase().endsWith('.webm') ? 'webm' : 'mp4';
+    const fileUri = `${baseDirectory}fit-studio-${job._id}-${Date.now()}.${extension}`;
+    const downloaded = await FileSystem.downloadAsync(job.generatedVideoUrl, fileUri);
+    if (downloaded.status < 200 || downloaded.status >= 300) {
+      throw new Error('Không tải được video kết quả.');
+    }
+    return { uri: downloaded.uri, mimeType: extension === 'webm' ? 'video/webm' : 'video/mp4' };
+  };
+
+  const saveVideo = async () => {
+    if (!job?.generatedVideoUrl || isSavingVideo || isSharingVideo) return;
+    setIsSavingVideo(true);
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) {
+        Alert.alert('Cần quyền lưu video', 'Cho phép ứng dụng lưu video vào thư viện thiết bị.');
+        return;
+      }
+      const file = await downloadVideoToCache();
+      await MediaLibrary.saveToLibraryAsync(file.uri);
+      Alert.alert('Đã lưu video', 'Video phối đồ đã được lưu vào thư viện.');
+    } catch (error) {
+      Alert.alert('Lưu video', error instanceof Error ? error.message : 'Không thể lưu video lúc này.');
+    } finally {
+      setIsSavingVideo(false);
+    }
+  };
+
+  const shareVideo = async () => {
+    if (!job?.generatedVideoUrl || isSavingVideo || isSharingVideo) return;
+    setIsSharingVideo(true);
+    try {
+      const file = await downloadVideoToCache();
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          dialogTitle: 'Chia sẻ video phối đồ',
+          mimeType: file.mimeType,
+        });
+      } else {
+        await Share.share({ title: 'Video phối đồ', message: job.generatedVideoUrl });
+      }
+    } catch (error) {
+      Alert.alert('Chia sẻ video', error instanceof Error ? error.message : 'Không thể chia sẻ video lúc này.');
+    } finally {
+      setIsSharingVideo(false);
+    }
+  };
+
+  const retryVideo = async () => {
+    if (!job || isRetryingVideo) return;
+    setIsRetryingVideo(true);
+    try {
+      const nextJob = await runWithAuth((token) => virtualTryOnApi.retryVideo(token, job._id));
+      navigation.replace('VirtualTryOnProcessing', {
+        jobId: nextJob._id,
+        seedItems: retainedSeedItems,
+        alternativeSeedItems: retainedAlternativeSeedItems,
+      });
+    } catch (error) {
+      Alert.alert('Thử lại video', error instanceof Error ? error.message : 'Không thể thử lại video lúc này.');
+    } finally {
+      setIsRetryingVideo(false);
     }
   };
 
@@ -695,6 +827,40 @@ const VirtualTryOnResultScreen = () => {
                 </View>
               </View>
             </View>
+
+            {job.generatedVideoUrl ? (
+              <GeneratedVideoCard
+                url={job.generatedVideoUrl}
+                isSaving={isSavingVideo}
+                isSharing={isSharingVideo}
+                onSave={() => void saveVideo()}
+                onShare={() => void shareVideo()}
+              />
+            ) : job.outputMode === 'image_and_video' && ['failed', 'canceled'].includes(job.videoStatus) ? (
+              <View style={styles.videoFailureCard}>
+                <View style={styles.videoFailureIcon}>
+                  <MaterialCommunityIcons name="movie-remove-outline" size={28} color="#B42318" />
+                </View>
+                <View style={styles.videoFailureCopy}>
+                  <Text style={styles.videoFailureTitle}>
+                    {job.videoStatus === 'canceled' ? 'Đã hủy sinh video' : 'Chưa tạo được video'}
+                  </Text>
+                  <Text style={styles.videoFailureText}>
+                    {job.videoErrorMessage || '4 ảnh phối đồ vẫn được giữ nguyên. Bạn có thể thử lại riêng bước video.'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.videoRetryButton, isRetryingVideo && styles.actionButtonDisabled]}
+                  onPress={() => void retryVideo()}
+                  disabled={isRetryingVideo}
+                  activeOpacity={0.86}
+                >
+                  {isRetryingVideo ? <ActivityIndicator color={colors.white} /> : (
+                    <><MaterialCommunityIcons name="reload" size={19} color={colors.white} /><Text style={styles.videoRetryText}>Thử lại video</Text></>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Chi tiết bộ phối</Text>
@@ -1360,6 +1526,127 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  videoCard: {
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    padding: spacing.md,
+    gap: spacing.md,
+    ...shadows.card,
+  },
+  videoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  videoTitle: {
+    color: studioPalette.ink,
+    fontSize: 19,
+    lineHeight: 25,
+    fontWeight: '900',
+  },
+  videoHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  videoReadyBadge: {
+    minHeight: 30,
+    borderRadius: radii.pill,
+    backgroundColor: studioPalette.success,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  videoReadyText: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  videoPlayer: {
+    width: '100%',
+    maxWidth: 315,
+    aspectRatio: 9 / 16,
+    maxHeight: 560,
+    alignSelf: 'center',
+    borderRadius: radii.sm,
+    backgroundColor: '#101820',
+    overflow: 'hidden',
+  },
+  videoActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  videoActionButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  videoActionText: {
+    color: studioPalette.ink,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  videoFailureCard: {
+    borderRadius: radii.md,
+    backgroundColor: '#FFF6F5',
+    borderWidth: 1,
+    borderColor: '#FDA29B',
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  videoFailureIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FEE4E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoFailureCopy: {
+    gap: 4,
+  },
+  videoFailureTitle: {
+    color: '#7A271A',
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  videoFailureText: {
+    color: '#912018',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  videoRetryButton: {
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: studioPalette.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  videoRetryText: {
+    color: colors.white,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
   },
   sectionHeader: {
     flexDirection: 'row',

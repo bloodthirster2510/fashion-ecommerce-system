@@ -8,11 +8,13 @@ import {
   deleteAsset,
   deleteJob,
   getContextPresets,
+  getCapabilities,
   getJob,
   getLatestJob,
   listAssets,
   listJobs,
   retryJob,
+  retryVideo,
   uploadAsset,
   validateAsset,
 } from './virtual-try-on.controller';
@@ -25,6 +27,7 @@ router.use(requireActiveAccount);
 router.use(authorize('user'));
 
 router.get('/assets', listAssets);
+router.get('/capabilities', getCapabilities);
 router.get('/context-presets', getContextPresets);
 router.post('/assets', assetUpload, uploadAsset);
 router.post('/assets/:assetId/validate', validateAsset);
@@ -35,6 +38,7 @@ router.get('/jobs', listJobs);
 router.post('/jobs', createJob);
 router.get('/jobs/:jobId', getJob);
 router.post('/jobs/:jobId/retry', retryJob);
+router.post('/jobs/:jobId/video/retry', retryVideo);
 router.post('/jobs/:jobId/cancel', cancelJob);
 router.delete('/jobs/:jobId', deleteJob);
 

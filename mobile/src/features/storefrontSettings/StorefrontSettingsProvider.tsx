@@ -1,5 +1,6 @@
 import React from 'react';
 import * as FileSystem from 'expo-file-system/legacy';
+import { AppState } from 'react-native';
 import { apiFetch } from '../../config/api';
 import {
   storefrontSocialPlatforms,
@@ -43,6 +44,7 @@ const fallbackSettings: StorefrontSettings = {
   configured: false,
   identity: {
     name: env(process.env.EXPO_PUBLIC_SHOP_NAME) || 'FASHIONISTA',
+    avatarUrl: safeHttpsEnv(process.env.EXPO_PUBLIC_SHOP_AVATAR_URL),
     legalName: '',
     taxCode: '',
     tagline: env(process.env.EXPO_PUBLIC_SHOP_TAGLINE) || 'Mặc đúng gu. Tự tin theo cách của bạn.',
@@ -73,11 +75,12 @@ export const isStorefrontSettings = (value: unknown): value is StorefrontSetting
   const candidate = value as Partial<StorefrontSettings>;
   if (
     typeof candidate.configured !== 'boolean'
-    || !hasStringFields(candidate.identity, ['name', 'legalName', 'taxCode', 'tagline', 'description'])
+    || !hasStringFields(candidate.identity, ['name', 'avatarUrl', 'legalName', 'taxCode', 'tagline', 'description'])
     || !hasStringFields(candidate.contact, ['phone', 'email', 'hours', 'address', 'mapUrl'])
     || !Array.isArray(candidate.socials)
     || !Number.isInteger(candidate.version)
     || (candidate.updatedAt !== null && typeof candidate.updatedAt !== 'string')
+    || (Boolean(candidate.identity?.avatarUrl) && !isHttpsUrl(candidate.identity?.avatarUrl ?? ''))
     || (Boolean(candidate.contact?.mapUrl) && !isHttpsUrl(candidate.contact?.mapUrl ?? ''))
   ) return false;
 
@@ -111,6 +114,7 @@ export const resolveStorefrontSettings = (settings: StorefrontSettings): Storefr
     ...settings,
     identity: {
       name: preferValue(settings.identity.name, fallbackSettings.identity.name),
+      avatarUrl: preferValue(settings.identity.avatarUrl, fallbackSettings.identity.avatarUrl),
       legalName: preferValue(settings.identity.legalName, fallbackSettings.identity.legalName),
       taxCode: preferValue(settings.identity.taxCode, fallbackSettings.identity.taxCode),
       tagline: preferValue(settings.identity.tagline, fallbackSettings.identity.tagline),
@@ -182,6 +186,13 @@ export function StorefrontSettingsProvider({ children }: { children: React.React
       if (active) await refresh();
     })();
     return () => { active = false; };
+  }, [refresh]);
+
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refresh();
+    });
+    return () => subscription.remove();
   }, [refresh]);
 
   const value = React.useMemo(() => ({ settings, isLoading, refresh }), [isLoading, refresh, settings]);

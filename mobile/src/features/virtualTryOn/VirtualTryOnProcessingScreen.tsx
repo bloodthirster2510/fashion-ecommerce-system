@@ -17,10 +17,18 @@ import { tryOnRoleLabel } from './virtualTryOnSelection';
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 
-const steps = [
+const imageSteps = [
   'Chuẩn bị ảnh người',
   'Tách từng món đồ',
   'Tạo 4 gợi ý',
+  'Lưu kết quả',
+];
+
+const videoSteps = [
+  'Chuẩn bị ảnh người',
+  'Tạo 4 ảnh gợi ý',
+  'Chọn ảnh phối làm khung đầu',
+  'Sinh video chuyển động',
   'Lưu kết quả',
 ];
 
@@ -93,9 +101,14 @@ const VirtualTryOnProcessingScreen = () => {
           ...current,
           status: event.status,
           progress: event.progress,
+          processingStage: event.processingStage ?? current.processingStage,
           generatedImageUrl: event.generatedImageUrl ?? current.generatedImageUrl,
           generatedImageUrls: event.generatedImageUrls ?? current.generatedImageUrls,
           generatedVideoUrl: event.generatedVideoUrl ?? current.generatedVideoUrl,
+          videoStatus: event.videoStatus ?? current.videoStatus,
+          videoProgress: event.videoProgress ?? current.videoProgress,
+          videoErrorCode: event.videoErrorCode ?? current.videoErrorCode,
+          videoErrorMessage: event.videoErrorMessage ?? current.videoErrorMessage,
           errorCode: event.errorCode ?? current.errorCode,
           errorMessage: event.errorMessage ?? current.errorMessage,
         }
@@ -168,17 +181,21 @@ const VirtualTryOnProcessingScreen = () => {
 
   const rawProgress = Math.min(100, Math.max(0, Math.round(job?.progress ?? 0)));
   const isTerminalFailure = job?.status === 'failed' || job?.status === 'canceled';
+  const isVideoStage = job?.processingStage === 'video_generation' || job?.processingStage === 'video_persisting';
+  const steps = job?.outputMode === 'image_and_video' ? videoSteps : imageSteps;
   const progress = isTerminalFailure ? 0 : rawProgress;
   const progressLabel = (() => {
     switch (job?.status) {
       case 'queued':
-        return 'Đang chờ tạo ảnh';
+        return 'Đang chờ xử lý';
       case 'failed':
         return 'Tạo ảnh thất bại';
       case 'canceled':
         return 'Đã hủy';
       case 'processing':
-        return progress >= 100 ? 'Đang hoàn tất' : 'Đang xử lý';
+        return isVideoStage
+          ? job.processingStage === 'video_persisting' ? 'Đang lưu video' : 'Đang sinh video'
+          : progress >= 100 ? 'Đang hoàn tất' : 'Đang tạo ảnh phối đồ';
       default:
         return 'Đang xử lý';
     }
@@ -194,7 +211,16 @@ const VirtualTryOnProcessingScreen = () => {
       { skewX: '-18deg' },
     ],
   };
-  const activeStep = progress >= 100 ? 3 : progress >= 62 ? 2 : progress >= 25 ? 1 : 0;
+  const completedStepCount = (() => {
+    switch (job?.processingStage) {
+      case 'image_generation': return 1;
+      case 'image_persisting': return job.outputMode === 'image_and_video' ? 2 : 3;
+      case 'video_generation': return 3;
+      case 'video_persisting': return 4;
+      case 'completed': return steps.length;
+      default: return 0;
+    }
+  })();
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -211,7 +237,7 @@ const VirtualTryOnProcessingScreen = () => {
         </TouchableOpacity>
         <View style={styles.headerCopy}>
           <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Đang tạo ảnh phối đồ</Text>
+          <Text style={styles.headerTitle}>{isVideoStage ? 'Đang sinh video phối đồ' : 'Đang tạo ảnh phối đồ'}</Text>
         </View>
         <View style={styles.headerSpacer} />
       </View>
@@ -227,27 +253,33 @@ const VirtualTryOnProcessingScreen = () => {
             <View style={styles.previewCard}>
               <View style={styles.previewTop}>
                 <View style={styles.imageWrap}>
-                  {job?.sourceImageUrl ? (
-                    <RemoteImage uri={job.sourceImageUrl} style={styles.image} recyclingKey={job._id} />
+                  {(isVideoStage ? job?.videoSourceImageUrl || job?.generatedImageUrl : job?.sourceImageUrl) ? (
+                    <RemoteImage
+                      uri={(isVideoStage ? job?.videoSourceImageUrl || job?.generatedImageUrl : job?.sourceImageUrl)!}
+                      style={styles.image}
+                      recyclingKey={`${job?._id}-${isVideoStage ? 'video-source' : 'source'}`}
+                    />
                   ) : (
                     <MaterialCommunityIcons name="image-outline" size={44} color={studioPalette.ink} />
                   )}
                 </View>
                 <View style={styles.previewCopy}>
                   <Text style={styles.kickerText}>
-                    {job?.status === 'failed' ? 'Thất bại' : job?.status === 'canceled' ? 'Đã hủy' : 'Đang phối đồ'}
+                    {job?.status === 'failed' ? 'Thất bại' : job?.status === 'canceled' ? 'Đã hủy' : isVideoStage ? 'Ảnh đã sẵn sàng' : 'Đang phối đồ'}
                   </Text>
                   <Text style={styles.title}>
                     {job?.status === 'failed'
                       ? 'Chưa tạo được ảnh phối đồ'
                       : job?.status === 'canceled'
                         ? 'Đã hủy tạo ảnh'
-                        : 'Đang tạo 4 ảnh gợi ý'}
+                        : isVideoStage ? 'Đang tạo chuyển động từ ảnh phối' : 'Đang tạo 4 ảnh gợi ý'}
                   </Text>
                   <Text style={styles.subtitle}>
                     {isTerminalFailure
                       ? 'Bạn có thể thử lại hoặc đổi ảnh bất cứ lúc nào.'
-                      : 'Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.'}
+                      : isVideoStage
+                        ? 'Video chỉ dùng ảnh phối đồ đã sinh làm khung hình đầu; ảnh gốc không được gửi sang bước này.'
+                        : 'Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.'}
                   </Text>
                 </View>
               </View>
@@ -277,7 +309,7 @@ const VirtualTryOnProcessingScreen = () => {
                   contentContainerStyle={styles.processingItemList}
                 >
                   {job.selectedItems.map((item, index) => {
-                    const itemDone = activeStep >= 1 && !isTerminalFailure;
+                    const itemDone = completedStepCount >= 2 && !isTerminalFailure;
                     return (
                       <View key={`${item.productId}-${item.colorVariantId}-${index}`} style={styles.processingItemCard}>
                         <RemoteImage
@@ -308,7 +340,8 @@ const VirtualTryOnProcessingScreen = () => {
 
             <View style={styles.stepsCard}>
               {steps.map((step, index) => {
-                const done = index <= activeStep && !isTerminalFailure;
+                const done = index < completedStepCount && !isTerminalFailure;
+                const active = index === completedStepCount && !isTerminalFailure;
                 return (
                   <View key={step} style={styles.stepRow}>
                     <View style={[styles.stepDot, done && styles.stepDotDone]}>
@@ -316,7 +349,7 @@ const VirtualTryOnProcessingScreen = () => {
                     </View>
                     <View style={styles.stepCopy}>
                       <Text style={[styles.stepText, done && styles.stepTextDone]}>{step}</Text>
-                      <Text style={styles.stepMeta}>{done ? 'Đã xong' : index === activeStep + 1 ? 'Sắp tới' : 'Đang chờ'}</Text>
+                      <Text style={styles.stepMeta}>{done ? 'Đã xong' : active ? 'Đang xử lý' : 'Đang chờ'}</Text>
                     </View>
                   </View>
                 );
@@ -382,7 +415,7 @@ const VirtualTryOnProcessingScreen = () => {
             {job && ['queued', 'processing'].includes(job.status) ? (
               <TouchableOpacity style={styles.cancelButton} onPress={cancel} activeOpacity={0.86}>
                 <MaterialCommunityIcons name="close" size={18} color={studioPalette.ink} />
-                <Text style={styles.cancelText}>Hủy yêu cầu</Text>
+                <Text style={styles.cancelText}>{isVideoStage ? 'Hủy video, giữ lại ảnh' : 'Hủy yêu cầu'}</Text>
               </TouchableOpacity>
             ) : null}
           </>

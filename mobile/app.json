@@ -63,7 +63,8 @@
       ],
       "expo-secure-store",
       "expo-font",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-video"
     ]
   }
 }

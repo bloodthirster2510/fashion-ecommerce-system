@@ -141,7 +141,7 @@
 .admin-vto-status-card.is-muted.is-active { border-color: #cbd3da; color: #637081; background: #f1f4f6; }
 .admin-vto-status-card:hover { background: #f5f8fa; }
 
-.admin-vto-layout { display: grid; grid-template-columns: minmax(0,1fr) 318px; gap: 12px; align-items: start; }
+.admin-vto-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; align-items: start; }
 .admin-vto-main,
 .admin-vto-panel { border: 1px solid #dfe6eb; border-radius: 8px; background: #fff; box-shadow: 0 1px 3px rgba(31,45,61,.06); }
 .admin-vto-main { min-width: 0; overflow: hidden; }
@@ -214,7 +214,15 @@
 .admin-vto-empty { min-height: 220px; display: grid; place-items: center; align-content: center; gap: 8px; color: #728091; }
 .admin-vto-empty strong { color: var(--admin-text); }
 
-.admin-vto-side { display: grid; gap: 10px; }
+.admin-vto-side { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
+.admin-vto-settings-panel { grid-column: 1 / -1; }
+.admin-vto-config-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.admin-vto-config-group { min-width: 0; padding: 11px; border: 1px solid #e2e8ed; border-radius: 8px; background: #fbfcfd; }
+.admin-vto-config-group h3 { margin: 0 0 10px; font-size: 12px; line-height: 1.3; }
+.admin-vto-config-group.is-image h3 { color: #276348; }
+.admin-vto-config-group.is-video h3 { color: #315f83; }
+.admin-vto-config-group.is-policy h3 { color: #74500c; }
+.admin-vto-rule-tools { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(300px,.75fr); gap: 12px; align-items: start; }
 .admin-vto-panel { padding: 12px; }
 .admin-vto-panel h2 { margin: 0 0 10px; color: var(--admin-text); font-size: 14px; line-height: 1.2; }
 .admin-vto-panel dl { display: grid; gap: 6px; margin: 0; }
@@ -329,13 +337,17 @@
 .admin-vto-drawer-items em { color: var(--admin-accent-dark); font-size: 12px; font-style: normal; font-weight: 900; }
 
 @media (max-width: 1180px) {
-  .admin-vto-layout { grid-template-columns: 1fr; }
-  .admin-vto-side { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .admin-vto-config-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .admin-vto-config-group.is-policy { grid-column: 1 / -1; }
   .admin-vto-command-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 920px) {
   .admin-vto-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .admin-vto-side { grid-template-columns: 1fr; }
+  .admin-vto-settings-panel { grid-column: auto; }
+  .admin-vto-config-grid { grid-template-columns: 1fr; }
+  .admin-vto-config-group.is-policy { grid-column: auto; }
+  .admin-vto-rule-tools { grid-template-columns: 1fr; }
   .admin-vto-toolbar { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {

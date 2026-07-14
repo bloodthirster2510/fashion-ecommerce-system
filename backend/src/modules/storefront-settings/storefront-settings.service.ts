@@ -111,6 +111,7 @@ const getDefaultSettings = (): StorefrontSettingsView => ({
   configured: false,
   identity: {
     name: envValue('SHOP_NAME') || 'FASHIONISTA',
+    avatarUrl: safeEnvUrl('SHOP_AVATAR_URL'),
     legalName: envValue('SHOP_LEGAL_NAME'),
     taxCode: envValue('SHOP_TAX_CODE'),
     tagline: envValue('SHOP_TAGLINE'),
@@ -140,6 +141,7 @@ const serialize = (value: Record<string, unknown>, configured = true): Storefron
     configured,
     identity: {
       name: identity.name,
+      avatarUrl: identity.avatarUrl || '',
       legalName: identity.legalName || '',
       taxCode: identity.taxCode || '',
       tagline: identity.tagline || '',
@@ -195,6 +197,7 @@ export const normalizeStorefrontSettingsInput = (input: StorefrontSettingsInput)
 
   const identity: IStorefrontIdentity = {
     name: requiredString(input.identity.name, 'Tên cửa hàng', 2, 80),
+    avatarUrl: httpsUrl(input.identity.avatarUrl, 'Ảnh đại diện cửa hàng'),
     legalName: optionalString(input.identity.legalName, 'Tên pháp lý', 160),
     taxCode: optionalString(input.identity.taxCode, 'Mã số thuế', 30),
     tagline: optionalString(input.identity.tagline, 'Slogan', 160),

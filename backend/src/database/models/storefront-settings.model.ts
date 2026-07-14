@@ -13,6 +13,7 @@ export type StorefrontSocialPlatform = typeof storefrontSocialPlatforms[number];
 
 export interface IStorefrontIdentity {
   name: string;
+  avatarUrl: string;
   legalName: string;
   taxCode: string;
   tagline: string;
@@ -49,6 +50,7 @@ export interface IStorefrontSettings extends Document {
 const identitySchema = new Schema<IStorefrontIdentity>(
   {
     name: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
+    avatarUrl: { type: String, default: '', trim: true, maxlength: 1000 },
     legalName: { type: String, default: '', trim: true, maxlength: 160 },
     taxCode: { type: String, default: '', trim: true, maxlength: 30 },
     tagline: { type: String, default: '', trim: true, maxlength: 160 },

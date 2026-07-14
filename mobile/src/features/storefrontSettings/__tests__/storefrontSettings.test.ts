@@ -9,7 +9,7 @@ const settings = (
   overrides: Partial<StorefrontSettings> = {},
 ): StorefrontSettings => ({
   configured,
-  identity: { name: 'Configured Shop', legalName: '', taxCode: '', tagline: '', description: '' },
+  identity: { name: 'Configured Shop', avatarUrl: '', legalName: '', taxCode: '', tagline: '', description: '' },
   contact: { phone: '', email: '', hours: '', address: '', mapUrl: '' },
   socials: [
     { platform: 'facebook', label: 'Facebook', url: 'https://facebook.com/shop', enabled: false, sortOrder: 0 },
@@ -54,6 +54,7 @@ describe('resolveStorefrontSettings', () => {
     const result = resolveStorefrontSettings(settings(false, {
       identity: {
         name: 'Server Shop',
+        avatarUrl: 'https://res.cloudinary.com/demo/image/upload/avatar.png',
         legalName: '',
         taxCode: '',
         tagline: 'Server tagline',
@@ -101,6 +102,10 @@ describe('isStorefrontSettings', () => {
     ['an incomplete contact', { ...settings(true), contact: { phone: '0900000000' } }],
     ['a fractional version', { ...settings(true), version: 1.5 }],
     ['an invalid update timestamp', { ...settings(true), updatedAt: 123 }],
+    ['a non-HTTPS avatar link', {
+      ...settings(true),
+      identity: { ...settings(true).identity, avatarUrl: 'http://example.com/avatar.png' },
+    }],
     ['a non-HTTPS map link', {
       ...settings(true),
       contact: { ...settings(true).contact, mapUrl: 'http://maps.example.com' },

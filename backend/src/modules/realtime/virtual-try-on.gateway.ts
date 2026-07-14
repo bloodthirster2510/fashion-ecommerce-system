@@ -2,7 +2,12 @@ import type { Server as HttpServer } from 'http';
 import type { Socket } from 'socket.io';
 import { Server } from 'socket.io';
 import { Types } from 'mongoose';
-import { VirtualTryOnJob, type VirtualTryOnJobStatus } from '../../database/models';
+import {
+  VirtualTryOnJob,
+  type VirtualTryOnJobStatus,
+  type VirtualTryOnProcessingStage,
+  type VirtualTryOnVideoStatus,
+} from '../../database/models';
 import { isCorsOriginAllowed } from '../../middlewares/security.middleware';
 import { verifyAccessToken, type JwtPayload } from '../../utils/jwt';
 
@@ -11,9 +16,14 @@ export type VirtualTryOnRealtimeEvent = {
   jobId: string;
   status: VirtualTryOnJobStatus;
   progress: number;
+  processingStage?: VirtualTryOnProcessingStage;
   generatedImageUrl?: string | null;
   generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
+  videoStatus?: VirtualTryOnVideoStatus;
+  videoProgress?: number;
+  videoErrorCode?: string | null;
+  videoErrorMessage?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
   at: string;

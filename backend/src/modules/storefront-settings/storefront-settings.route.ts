@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, requireActiveAccount } from '../../middlewares/auth.middleware';
 import { authorize } from '../../middlewares/role.middleware';
+import { upload, withMulterErrorHandling } from '../../middlewares/upload.middleware';
 import {
   getAdminStorefrontSettings,
   getPublicStorefrontSettings,
@@ -14,6 +15,10 @@ storefrontSettingsRouter.get('/settings', getPublicStorefrontSettings);
 
 adminStorefrontSettingsRouter.use(authenticate, requireActiveAccount, authorize('admin'));
 adminStorefrontSettingsRouter.get('/', getAdminStorefrontSettings);
-adminStorefrontSettingsRouter.patch('/', updateAdminStorefrontSettings);
+adminStorefrontSettingsRouter.patch(
+  '/',
+  withMulterErrorHandling(upload.single('avatar')),
+  updateAdminStorefrontSettings,
+);
 
 export { adminStorefrontSettingsRouter, storefrontSettingsRouter };

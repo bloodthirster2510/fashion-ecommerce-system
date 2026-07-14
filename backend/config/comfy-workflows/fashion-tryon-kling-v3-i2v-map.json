@@ -1,0 +1,14 @@
+{
+  "inputs": {
+    "sourceImage": "1.inputs.image",
+    "prompt": "2.inputs.prompt",
+    "duration": "2.inputs.duration",
+    "resolution": "2.inputs.resolution",
+    "generateAudio": "2.inputs.generate_audio",
+    "model": "2.inputs.model_name",
+    "aspectRatio": "2.inputs.aspect_ratio"
+  },
+  "outputs": {
+    "videoNodeIds": ["5"]
+  }
+}

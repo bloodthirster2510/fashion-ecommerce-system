@@ -20,6 +20,14 @@ export type VirtualTryOnAsset = {
 export type TryOnItemRole = 'top' | 'bottom' | 'dress' | 'shoes' | 'accessory' | 'outerwear';
 export type TryOnOutfitMode = 'single' | 'top_bottom' | 'full_set';
 export type TryOnContextPreset = 'none' | 'work' | 'casual' | 'party' | 'travel' | 'sport' | 'date' | 'custom';
+export type TryOnProcessingStage =
+  | 'queued'
+  | 'image_generation'
+  | 'image_persisting'
+  | 'video_generation'
+  | 'video_persisting'
+  | 'completed';
+export type TryOnVideoStatus = 'not_requested' | 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled';
 
 export const TRY_ON_ACTIVE_ITEM_LIMIT = 4;
 export const TRY_ON_QUEUE_LIMIT = 8;
@@ -101,6 +109,7 @@ export type VirtualTryOnJob = {
   _id: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
+  processingStage: TryOnProcessingStage;
   sourceAsset: VirtualTryOnAsset | null;
   sourceImageUrl: string;
   selectedItems: TryOnSelectedItem[];
@@ -111,6 +120,15 @@ export type VirtualTryOnJob = {
   generatedImageUrl?: string | null;
   generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
+  videoStatus: TryOnVideoStatus;
+  videoProgress: number;
+  videoSourceImageUrl?: string | null;
+  videoProvider?: string | null;
+  videoProviderJobId?: string | null;
+  videoErrorCode?: string | null;
+  videoErrorMessage?: string | null;
+  videoStartedAt?: string | null;
+  videoCompletedAt?: string | null;
   provider: string;
   errorCode?: string | null;
   errorMessage?: string | null;
@@ -119,6 +137,23 @@ export type VirtualTryOnJob = {
   updatedAt: string;
   startedAt?: string | null;
   completedAt?: string | null;
+};
+
+export type VirtualTryOnCapabilities = {
+  imageGeneration: {
+    available: boolean;
+    provider: string;
+  };
+  videoGeneration: {
+    enabled: boolean;
+    available: boolean;
+    reasonCode: string | null;
+    provider: string;
+    model: string;
+    durationSeconds: number;
+    resolution: string;
+    generateAudio: boolean;
+  };
 };
 
 export type PaginatedResponse<T> = {

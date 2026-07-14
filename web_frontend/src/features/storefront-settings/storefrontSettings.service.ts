@@ -43,6 +43,7 @@ export const fallbackStorefrontSettings: StorefrontSettings = {
   configured: false,
   identity: {
     name: fallbackName,
+    avatarUrl: safeHttpsEnv(import.meta.env.VITE_SHOP_AVATAR_URL),
     legalName: fallbackLegalName,
     taxCode: env(import.meta.env.VITE_SHOP_TAX_CODE),
     tagline: env(import.meta.env.VITE_SHOP_TAGLINE) || 'Mặc đúng gu. Tự tin theo cách của bạn.',
@@ -83,6 +84,7 @@ export const resolveStorefrontSettings = (settings: StorefrontSettings): Storefr
     ...settings,
     identity: {
       name: resolvedName,
+      avatarUrl: preferValue(settings.identity.avatarUrl, fallbackStorefrontSettings.identity.avatarUrl),
       legalName: settings.identity.legalName.trim() || env(import.meta.env.VITE_SHOP_LEGAL_NAME) || resolvedName,
       taxCode: preferValue(settings.identity.taxCode, fallbackStorefrontSettings.identity.taxCode),
       tagline: preferValue(settings.identity.tagline, fallbackStorefrontSettings.identity.tagline),
@@ -110,11 +112,12 @@ export const isStorefrontSettings = (value: unknown): value is StorefrontSetting
   const candidate = value as Partial<StorefrontSettings>
   if (
     typeof candidate.configured !== 'boolean'
-    || !hasStringFields(candidate.identity, ['name', 'legalName', 'taxCode', 'tagline', 'description'])
+    || !hasStringFields(candidate.identity, ['name', 'avatarUrl', 'legalName', 'taxCode', 'tagline', 'description'])
     || !hasStringFields(candidate.contact, ['phone', 'email', 'hours', 'address', 'mapUrl'])
     || !Array.isArray(candidate.socials)
     || !Number.isInteger(candidate.version)
     || (candidate.updatedAt !== null && typeof candidate.updatedAt !== 'string')
+    || (Boolean(candidate.identity?.avatarUrl) && !isHttpsUrl(candidate.identity?.avatarUrl ?? ''))
     || (Boolean(candidate.contact?.mapUrl) && !isHttpsUrl(candidate.contact?.mapUrl ?? ''))
   ) return false
 

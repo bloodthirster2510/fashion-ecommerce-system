@@ -13,6 +13,7 @@ export type StorefrontSettings = {
   configured: boolean;
   identity: {
     name: string;
+    avatarUrl: string;
     legalName: string;
     taxCode: string;
     tagline: string;
