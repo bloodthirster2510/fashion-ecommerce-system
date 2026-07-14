@@ -17,7 +17,7 @@ type Props = {
 
 const tabs: Array<{ key: MainTab; label: string; icon: IconName; activeIcon: IconName }> = [
   { key: 'home', label: 'Trang chủ', icon: 'home-outline', activeIcon: 'home' },
-  { key: 'catalog', label: 'Danh mục', icon: 'view-grid-outline', activeIcon: 'view-grid' },
+  { key: 'catalog', label: 'Khám phá', icon: 'view-grid-outline', activeIcon: 'view-grid' },
   { key: 'cart', label: 'Giỏ hàng', icon: 'cart-outline', activeIcon: 'cart' },
   { key: 'profile', label: 'Tài khoản', icon: 'account-outline', activeIcon: 'account' },
 ];
