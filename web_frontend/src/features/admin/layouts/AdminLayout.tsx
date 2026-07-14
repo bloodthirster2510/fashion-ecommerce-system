@@ -75,6 +75,9 @@ const VirtualTryOnManagementPage = lazy(() =>
 const RecommendationReportsPage = lazy(() =>
   import('../modules/reports/RecommendationReportsPage').then((module) => ({ default: module.RecommendationReportsPage })),
 )
+const AdminDashboardPage = lazy(() =>
+  import('../modules/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })),
+)
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -156,6 +159,10 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
     return true
   }
 
+  if (route.id === 'overview') {
+    return true
+  }
+
   const requiredPermission = routePermissions[route.id]
   if (!requiredPermission || requiredPermission === 'admin') {
     return false
@@ -174,7 +181,7 @@ const getActiveSectionFromPath = () => {
 
   const route = getAdminRouteByPath(window.location.pathname)
 
-  return route && isImplementedRoute(route.id) ? route.id : 'orders'
+  return route && isImplementedRoute(route.id) ? route.id : 'overview'
 }
 
 const getCurrentAdminLocation = () => ({
@@ -428,6 +435,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'accounts') {
       return <ManagerListPage />
+    }
+
+    if (renderedSection === 'overview') {
+      return <AdminDashboardPage currentUser={currentUser} />
     }
 
     if (renderedSection === 'customers') {

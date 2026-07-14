@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Boxes,
-  Eye,
   Gauge,
   Layers3,
   MousePointerClick,
   PackageCheck,
   RefreshCcw,
   Search,
-  ShoppingCart,
   Sparkles,
   Target,
   TrendingUp,
@@ -17,6 +15,7 @@ import {
   Button,
   KpiCard,
   KpiGrid,
+  MetricLineChart,
   PageHeader,
 } from '../../components/ui'
 import {
@@ -87,10 +86,6 @@ const formatDateTime = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   minute: '2-digit',
 }).format(new Date(value))
 
-const rateStyle = (value: number): CssVars => ({
-  '--value': `${Math.max(0, Math.min(100, Math.round(value * 100)))}%`,
-})
-
 const widthStyle = (value: number): CssVars => ({
   '--width': `${Math.max(3, Math.min(100, Math.round(value * 100)))}%`,
 })
@@ -105,44 +100,58 @@ const getMetricChange = (
 
 const getBestSegment = (segments: RecommendationSegment[]) =>
   [...segments]
-    .filter((segment) => segment.metrics.impressions >= 5)
+    .filter((segment) => segment.metrics.impressions >= 100)
     .sort((left, right) =>
       right.metrics.ctr - left.metrics.ctr ||
       right.metrics.clicks - left.metrics.clicks,
     )[0] ?? segments[0] ?? null
 
 const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: RecommendationSegment | null) => {
-  const items: Array<{ title: string; detail: string; tone: 'good' | 'warn' | 'info' }> = []
+  const items: Array<{
+    title: string
+    detail: string
+    tone: 'good' | 'warn' | 'info'
+    actionLabel: string
+    href: string
+  }> = []
 
   if (bestSegment) {
     items.push({
       title: `${contextLabels[bestSegment.context]} nổi bật`,
       detail: `${bestSegment.algorithmVersion} đạt CTR ${formatPercent(bestSegment.metrics.ctr)} trên ${formatNumber(bestSegment.metrics.impressions)} impression.`,
       tone: 'good',
+      actionLabel: 'So sánh phiên bản',
+      href: '#rec-model-health',
     })
   }
 
-  if (analytics.summary.fallbackRate >= 0.15) {
+  if (analytics.summary.fallbackRate >= 0.15 && analytics.summary.requests >= 50) {
     items.push({
       title: 'Fallback cần theo dõi',
       detail: `${formatPercent(analytics.summary.fallbackRate)} request đang dùng fallback; nên xem lại dữ liệu hành vi hoặc catalog thiếu tín hiệu.`,
       tone: 'warn',
+      actionLabel: 'Kiểm tra mô hình',
+      href: '#rec-model-health',
     })
   }
 
-  if (analytics.diversity.averageCategoryDiversityAt10 < 0.45 && analytics.diversity.requestsSampled > 0) {
+  if (analytics.diversity.averageCategoryDiversityAt10 < 0.45 && analytics.diversity.requestsSampled >= 20) {
     items.push({
       title: 'Diversity danh mục thấp',
       detail: `Top 10 trung bình chỉ đạt ${formatPercent(analytics.diversity.averageCategoryDiversityAt10)} unique category/item.`,
       tone: 'warn',
+      actionLabel: 'Xem diversity',
+      href: '#rec-model-health',
     })
   }
 
-  if (analytics.search.zeroResultRate >= 0.2 && analytics.search.totalSearches > 0) {
+  if (analytics.search.zeroResultRate >= 0.2 && analytics.search.totalSearches >= 50) {
     items.push({
       title: 'Search có nhiều truy vấn trống',
       detail: `${formatPercent(analytics.search.zeroResultRate)} lượt search không có kết quả; top keyword bên dưới giúp ưu tiên synonym/catalog.`,
       tone: 'warn',
+      actionLabel: 'Xem từ khóa',
+      href: '#rec-search',
     })
   }
 
@@ -151,6 +160,22 @@ const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: Recomm
       title: 'Click chưa sang giỏ',
       detail: 'Có click recommendation nhưng chưa có add-to-cart attribution trong kỳ này.',
       tone: 'info',
+      actionLabel: 'Xem funnel',
+      href: '#rec-performance',
+    })
+  }
+
+  if (
+    analytics.comparison.netAttributedRevenuePercent !== null &&
+    analytics.comparison.netAttributedRevenuePercent < -15 &&
+    analytics.summary.paymentsCompleted >= 5
+  ) {
+    items.push({
+      title: 'Doanh thu từ gợi ý đang giảm',
+      detail: `Doanh thu attribution ròng giảm ${Math.abs(analytics.comparison.netAttributedRevenuePercent).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}% so với kỳ trước.`,
+      tone: 'warn',
+      actionLabel: 'Xem điểm rơi',
+      href: '#rec-performance',
     })
   }
 
@@ -205,46 +230,36 @@ function FunnelPanel({ summary }: { summary: RecommendationMetricSnapshot }) {
 }
 
 function TrendPanel({ analytics }: { analytics: RecommendationAnalytics }) {
-  const maxValue = Math.max(
-    ...analytics.trend.flatMap((point) => [
-      point.impressions,
-      point.clicks,
-      point.addToCarts,
-      point.ordersCreated,
-      point.paymentsCompleted,
-    ]),
-    1,
-  )
+  const [metric, setMetric] = useState<'ctr' | 'impressions' | 'paymentsCompleted'>('ctr')
+  const metricConfig = {
+    ctr: { label: 'CTR', format: (value: number) => formatPercent(value) },
+    impressions: { label: 'Impression', format: (value: number) => formatNumber(Math.round(value)) },
+    paymentsCompleted: { label: 'Đơn paid', format: (value: number) => formatNumber(Math.round(value)) },
+  }[metric]
+  const points = analytics.trend.map((point) => ({
+    label: formatDate(point.date),
+    value: point[metric],
+  }))
 
   return (
     <section className="admin-rec-panel admin-rec-trend-panel">
-      <header>
+      <header className="admin-rec-trend-heading">
         <div>
-          <span>Daily signal</span>
-          <strong>Nhịp tương tác theo ngày</strong>
+          <span>Daily performance</span>
+          <strong>Xu hướng hiệu quả theo ngày</strong>
         </div>
-        <TrendingUp aria-hidden="true" />
+        <div className="admin-rec-metric-switch" role="group" aria-label="Chọn chỉ số xu hướng">
+          <button type="button" className={metric === 'ctr' ? 'is-active' : ''} onClick={() => setMetric('ctr')}>CTR</button>
+          <button type="button" className={metric === 'impressions' ? 'is-active' : ''} onClick={() => setMetric('impressions')}>View</button>
+          <button type="button" className={metric === 'paymentsCompleted' ? 'is-active' : ''} onClick={() => setMetric('paymentsCompleted')}>Paid</button>
+        </div>
       </header>
-      <div className="admin-rec-trend-legend">
-        <span className="is-impression">Impression</span>
-        <span className="is-click">Click</span>
-        <span className="is-cart">Giỏ</span>
-        <span className="is-order">Tạo đơn</span>
-        <span className="is-purchase">Đã thanh toán</span>
+      <div className="admin-rec-trend-summary">
+        <strong>{metricConfig.format(analytics.summary[metric])}</strong>
+        <span>{metricConfig.label} trong kỳ đã chọn</span>
       </div>
-      <div className="admin-rec-trend">
-        {analytics.trend.map((point) => (
-          <article key={point.date} title={`${formatDate(point.date)} · CTR ${formatPercent(point.ctr)}`}>
-            <div>
-              <i className="is-impression" style={{ height: `${Math.max(2, (point.impressions / maxValue) * 100)}%` }} />
-              <i className="is-click" style={{ height: `${Math.max(2, (point.clicks / maxValue) * 100)}%` }} />
-              <i className="is-cart" style={{ height: `${Math.max(2, (point.addToCarts / maxValue) * 100)}%` }} />
-              <i className="is-order" style={{ height: `${Math.max(2, (point.ordersCreated / maxValue) * 100)}%` }} />
-              <i className="is-purchase" style={{ height: `${Math.max(2, (point.paymentsCompleted / maxValue) * 100)}%` }} />
-            </div>
-            <span>{formatDate(point.date)}</span>
-          </article>
-        ))}
+      <div className="admin-rec-chart-scroll">
+        <MetricLineChart points={points} ariaLabel={`${metricConfig.label} recommendation theo ngày`} formatValue={metricConfig.format} />
       </div>
     </section>
   )
@@ -279,6 +294,11 @@ function CoverageList({ title, group }: { title: string; group: RecommendationCo
 }
 
 function DiversityPanel({ analytics }: { analytics: RecommendationAnalytics }) {
+  const metrics = [
+    { label: 'Danh mục trong top 10', value: analytics.diversity.averageCategoryDiversityAt10 },
+    { label: 'Thương hiệu trong top 10', value: analytics.diversity.averageBrandDiversityAt10 },
+  ]
+
   return (
     <section className="admin-rec-panel admin-rec-diversity-panel">
       <header>
@@ -288,15 +308,13 @@ function DiversityPanel({ analytics }: { analytics: RecommendationAnalytics }) {
         </div>
         <Layers3 aria-hidden="true" />
       </header>
-      <div className="admin-rec-gauge-row">
-        <div className="admin-rec-gauge" style={rateStyle(analytics.diversity.averageCategoryDiversityAt10)}>
-          <strong>{formatPercent(analytics.diversity.averageCategoryDiversityAt10)}</strong>
-          <span>Danh mục</span>
-        </div>
-        <div className="admin-rec-gauge is-brand" style={rateStyle(analytics.diversity.averageBrandDiversityAt10)}>
-          <strong>{formatPercent(analytics.diversity.averageBrandDiversityAt10)}</strong>
-          <span>Thương hiệu</span>
-        </div>
+      <div className="admin-rec-diversity-metrics">
+        {metrics.map((metric) => (
+          <article key={metric.label}>
+            <div><span>{metric.label}</span><strong>{formatPercent(metric.value)}</strong></div>
+            <i aria-hidden="true"><em style={widthStyle(metric.value)} /></i>
+          </article>
+        ))}
       </div>
       <p>{formatNumber(analytics.diversity.requestsSampled)} request có đủ dữ liệu sản phẩm để tính diversity.</p>
     </section>
@@ -396,9 +414,9 @@ export function RecommendationReportsPage() {
   return (
     <section className="admin-ui-page admin-rec-page" aria-busy={loading}>
       <PageHeader
-        title="Báo cáo gợi ý"
-        description="Theo dõi funnel recommendation, coverage catalog, diversity và search baseline trước khi nâng cấp thuật toán."
-        breadcrumbs={['Báo cáo', 'Recommendation']}
+        title="Gợi ý & tìm kiếm"
+        description="Đánh giá giá trị kinh doanh, hành vi tìm kiếm và sức khỏe thuật toán trên cùng một luồng phân tích."
+        breadcrumbs={['Báo cáo', 'Gợi ý & tìm kiếm']}
         actions={(
           <Button
             variant="primary"
@@ -472,168 +490,175 @@ export function RecommendationReportsPage() {
         <>
           <KpiGrid>
             <KpiCard
-              label="Recommendation request"
-              value={formatNumber(analytics.summary.requests)}
-              meta={formatChange(getMetricChange(analytics, 'requests'))}
-              icon={<Sparkles />}
+              label="Doanh thu có tương tác gợi ý"
+              value={formatCurrency(analytics.summary.netAttributedRevenue)}
+              meta={`${formatChange(getMetricChange(analytics, 'netAttributedRevenue'))} so với kỳ trước`}
+              icon={<TrendingUp />}
               tone="accent"
             />
             <KpiCard
-              label="Impression"
-              value={formatNumber(analytics.summary.impressions)}
-              meta={formatChange(getMetricChange(analytics, 'impressions'))}
-              icon={<Eye />}
-              tone="info"
+              label="Đơn paid từ gợi ý"
+              value={formatNumber(analytics.summary.paymentsCompleted)}
+              meta={`${formatChange(getMetricChange(analytics, 'paymentsCompleted'))} so với kỳ trước`}
+              icon={<PackageCheck />}
+              tone="success"
             />
             <KpiCard
               label="CTR"
               value={formatPercent(analytics.summary.ctr)}
-              meta={formatChange(analytics.comparison.ctrPercent)}
+              meta={`${formatNumber(analytics.summary.clicks)}/${formatNumber(analytics.summary.impressions)} lượt hiển thị`}
               icon={<MousePointerClick />}
-              tone="success"
+              tone="info"
             />
             <KpiCard
-              label="Click → giỏ"
-              value={formatPercent(analytics.summary.clickToCartRate)}
-              meta={`${formatNumber(analytics.summary.addToCarts)} lượt thêm giỏ`}
-              icon={<ShoppingCart />}
+              label="Fallback rate"
+              value={formatPercent(analytics.summary.fallbackRate)}
+              meta={`${formatNumber(analytics.summary.fallbackRequests)}/${formatNumber(analytics.summary.requests)} request`}
+              icon={<Sparkles />}
               tone="warning"
-            />
-            <KpiCard
-              label="Giỏ → tạo đơn"
-              value={formatPercent(analytics.summary.cartToOrderRate)}
-              meta={`${formatNumber(analytics.summary.ordersCreated)} lượt tạo đơn`}
-              icon={<PackageCheck />}
-              tone="success"
-            />
-            <KpiCard
-              label="Đơn → thanh toán"
-              value={formatPercent(analytics.summary.orderToPaymentRate)}
-              meta={`${formatNumber(analytics.summary.paymentsCompleted)} lượt paid`}
-              icon={<PackageCheck />}
-              tone="success"
-            />
-            <KpiCard
-              label="Doanh thu attribution ròng"
-              value={formatCurrency(analytics.summary.netAttributedRevenue)}
-              meta={`${formatCurrency(analytics.summary.grossAttributedRevenue)} gross · ${formatCurrency(analytics.summary.reversedAttributedRevenue)} đảo`}
-              icon={<TrendingUp />}
-              tone="accent"
             />
           </KpiGrid>
 
           <section className="admin-rec-insight-strip">
             {insightItems.length ? insightItems.map((item) => (
               <article key={item.title} className={`is-${item.tone}`}>
-                <strong>{item.title}</strong>
-                <span>{item.detail}</span>
+                <div>
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <a href={item.href}>{item.actionLabel} <span aria-hidden="true">→</span></a>
               </article>
             )) : (
               <article className="is-info">
-                <strong>Chưa đủ tín hiệu</strong>
-                <span>Cần thêm impression/click mới để dashboard tạo insight tự động.</span>
+                <div>
+                  <strong>Chưa đủ tín hiệu đáng tin cậy</strong>
+                  <span>Insight chỉ xuất hiện khi có đủ request, impression hoặc search để tránh kết luận từ mẫu quá nhỏ.</span>
+                </div>
               </article>
             )}
           </section>
 
-          <div className="admin-rec-main-grid">
-            <FunnelPanel summary={analytics.summary} />
-            <TrendPanel analytics={analytics} />
-          </div>
+          <section id="rec-performance" className="admin-rec-section-block">
+            <header className="admin-rec-section-heading">
+              <span>01 · Hiệu quả kinh doanh</span>
+              <div><h2>Từ hiển thị đến thanh toán</h2><p>Nhìn điểm rơi theo từng bước và theo dõi một chỉ số có cùng thang đo theo thời gian.</p></div>
+            </header>
+            <div className="admin-rec-main-grid">
+              <FunnelPanel summary={analytics.summary} />
+              <TrendPanel analytics={analytics} />
+            </div>
+          </section>
 
-          <SegmentTable segments={analytics.segments} />
-
-          <div className="admin-rec-main-grid">
-            <CoverageList title="Coverage danh mục" group={analytics.coverage.categories} />
-            <CoverageList title="Coverage thương hiệu" group={analytics.coverage.brands} />
-          </div>
-
-          <div className="admin-rec-secondary-grid">
-            <DiversityPanel analytics={analytics} />
-            <section className="admin-rec-panel admin-rec-search-panel">
-              <header>
-                <div>
-                  <span>Search report</span>
-                  <strong>Ý định tìm kiếm</strong>
+          <section className="admin-rec-section-block">
+            <header className="admin-rec-section-heading">
+              <span>02 · Merchandising</span>
+              <div><h2>Nhu cầu tìm kiếm và sản phẩm tạo giá trị</h2><p>Ưu tiên khoảng trống catalog và nhận diện sản phẩm kéo chuyển đổi từ recommendation.</p></div>
+            </header>
+            <div className="admin-rec-main-grid">
+              <section id="rec-search" className="admin-rec-panel admin-rec-search-panel">
+                <header>
+                  <div>
+                    <span>Search demand</span>
+                    <strong>Ý định tìm kiếm</strong>
+                  </div>
+                  <Search aria-hidden="true" />
+                </header>
+                <div className="admin-rec-search-stats">
+                  <div><span>Tổng search</span><strong>{formatNumber(analytics.search.totalSearches)}</strong></div>
+                  <div><span>Click kết quả</span><strong>{formatNumber(analytics.search.searchResultClicks)}</strong></div>
+                  <div><span>Không kết quả</span><strong>{formatPercent(analytics.search.zeroResultRate)}</strong></div>
+                  <div><span>Kết quả TB</span><strong>{analytics.search.averageResultCount}</strong></div>
                 </div>
-                <Search aria-hidden="true" />
-              </header>
-              <div className="admin-rec-search-stats">
-                <div><span>Tổng search</span><strong>{formatNumber(analytics.search.totalSearches)}</strong></div>
-                <div><span>Click kết quả</span><strong>{formatNumber(analytics.search.searchResultClicks)}</strong></div>
-                <div><span>Không kết quả</span><strong>{formatPercent(analytics.search.zeroResultRate)}</strong></div>
-                <div><span>Avg result</span><strong>{analytics.search.averageResultCount}</strong></div>
-              </div>
-              <div className="admin-rec-ranked-list">
-                {analytics.search.topKeywords.length ? analytics.search.topKeywords.map((keyword) => (
-                  <article key={keyword.keyword}>
-                    <span>{keyword.keyword}</span>
-                    <i aria-hidden="true"><em style={widthStyle(keyword.count / topKeywordMaximum)} /></i>
-                    <small>{formatNumber(keyword.count)} lượt</small>
-                  </article>
-                )) : (
-                  <p>Chưa có keyword search trong kỳ này.</p>
-                )}
-              </div>
-            </section>
-          </div>
-
-          <div className="admin-rec-main-grid">
-            <section className="admin-rec-panel admin-rec-products-panel">
-              <header>
-                <div>
-                  <span>Top product</span>
-                  <strong>Sản phẩm kéo chuyển đổi</strong>
+                <div className="admin-rec-ranked-list">
+                  {analytics.search.topKeywords.length ? analytics.search.topKeywords.map((keyword) => (
+                    <article key={keyword.keyword}>
+                      <span>{keyword.keyword}</span>
+                      <i aria-hidden="true"><em style={widthStyle(keyword.count / topKeywordMaximum)} /></i>
+                      <small>{formatNumber(keyword.count)} lượt</small>
+                    </article>
+                  )) : (
+                    <p>Chưa có keyword search trong kỳ này.</p>
+                  )}
                 </div>
-                <PackageCheck aria-hidden="true" />
-              </header>
-              <div className="admin-rec-product-list">
-                {analytics.topProducts.length ? analytics.topProducts.map((product) => (
-                  <article key={product.productId}>
-                    {product.image ? <img src={product.image} alt="" /> : <span className="admin-rec-product-fallback" />}
+              </section>
+
+              <section className="admin-rec-panel admin-rec-products-panel">
+                <header>
+                  <div>
+                    <span>Top product</span>
+                    <strong>Sản phẩm kéo chuyển đổi</strong>
+                  </div>
+                  <PackageCheck aria-hidden="true" />
+                </header>
+                <div className="admin-rec-product-list">
+                  {analytics.topProducts.length ? analytics.topProducts.map((product) => (
+                    <article key={product.productId}>
+                      {product.image ? <img src={product.image} alt="" /> : <span className="admin-rec-product-fallback" />}
+                      <div>
+                        <strong>{product.name}</strong>
+                        <span>{product.context.map((context) => contextLabels[context]).join(', ')}</span>
+                      </div>
+                      <small>{formatNumber(product.clicks)} click · {formatNumber(product.ordersCreated)} đơn · {formatNumber(product.paymentsCompleted)} paid · {formatCurrency(product.netAttributedRevenue)} net</small>
+                    </article>
+                  )) : (
+                    <p>Chưa có click/order/payment từ recommendation trong kỳ này.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div className="admin-rec-main-grid">
+              <CoverageList title="Coverage danh mục" group={analytics.coverage.categories} />
+              <CoverageList title="Coverage thương hiệu" group={analytics.coverage.brands} />
+            </div>
+          </section>
+
+          <details id="rec-model-health" className="admin-rec-technical">
+            <summary>
+              <div>
+                <span>03 · Dành cho quản trị kỹ thuật</span>
+                <strong>Sức khỏe thuật toán & chẩn đoán request</strong>
+                <small>Algorithm version, fallback, diversity và attribution gần nhất.</small>
+              </div>
+              <span className="admin-rec-technical-toggle">Mở chi tiết <b aria-hidden="true">+</b></span>
+            </summary>
+            <div className="admin-rec-technical-body">
+              <SegmentTable segments={analytics.segments} />
+              <div className="admin-rec-secondary-grid">
+                <DiversityPanel analytics={analytics} />
+                <section className="admin-rec-panel admin-rec-requests-panel">
+                  <header>
                     <div>
-                      <strong>{product.name}</strong>
-                      <span>{product.context.map((context) => contextLabels[context]).join(', ')}</span>
+                      <span>Request diagnostics</span>
+                      <strong>Attribution gần nhất</strong>
                     </div>
-                    <small>{formatNumber(product.clicks)} click · {formatNumber(product.ordersCreated)} đơn · {formatNumber(product.paymentsCompleted)} paid · {formatCurrency(product.netAttributedRevenue)} net</small>
-                  </article>
-                )) : (
-                  <p>Chưa có click/order/payment từ recommendation trong kỳ này.</p>
-                )}
+                    <MousePointerClick aria-hidden="true" />
+                  </header>
+                  <div className="admin-rec-request-list">
+                    {analytics.recentRequests.length ? analytics.recentRequests.map((request) => (
+                      <article key={request.requestId}>
+                        <div>
+                          <strong>{request.requestId}</strong>
+                          <span>{contextLabels[request.context]} · {request.algorithmVersion}</span>
+                        </div>
+                        <small>{formatDateTime(request.createdAt)}</small>
+                        <em className={request.fallbackUsed ? 'is-fallback' : 'is-primary'}>
+                          {request.fallbackUsed ? 'Fallback' : `${request.itemCount} item`}
+                        </em>
+                        <b>{formatNumber(request.impressions)} view · {formatNumber(request.ordersCreated)} đơn · {formatNumber(request.paymentsCompleted)} paid</b>
+                      </article>
+                    )) : (
+                      <p>Chưa có request recommendation trong kỳ này.</p>
+                    )}
+                  </div>
+                </section>
               </div>
-            </section>
-
-            <section className="admin-rec-panel admin-rec-requests-panel">
-              <header>
-                <div>
-                  <span>Request diagnostics</span>
-                  <strong>Attribution gần nhất</strong>
-                </div>
-                <MousePointerClick aria-hidden="true" />
-              </header>
-              <div className="admin-rec-request-list">
-                {analytics.recentRequests.length ? analytics.recentRequests.map((request) => (
-                  <article key={request.requestId}>
-                    <div>
-                      <strong>{request.requestId}</strong>
-                      <span>{contextLabels[request.context]} · {request.algorithmVersion}</span>
-                    </div>
-                    <small>{formatDateTime(request.createdAt)}</small>
-                    <em className={request.fallbackUsed ? 'is-fallback' : 'is-primary'}>
-                      {request.fallbackUsed ? 'Fallback' : `${request.itemCount} item`}
-                    </em>
-                    <b>{formatNumber(request.impressions)} view · {formatNumber(request.ordersCreated)} đơn · {formatNumber(request.paymentsCompleted)} paid</b>
-                  </article>
-                )) : (
-                  <p>Chưa có request recommendation trong kỳ này.</p>
-                )}
-              </div>
-            </section>
-          </div>
+            </div>
+          </details>
 
           <footer className="admin-rec-footnote">
             <MiniDelta value={analytics.comparison.fallbackRatePercent} />
-            <span>Cập nhật {formatDateTime(analytics.generatedAt)} · dữ liệu chỉ đọc từ tracking hiện có.</span>
+            <span>Cập nhật {formatDateTime(analytics.generatedAt)} · Attribution thể hiện mối liên hệ, không phải doanh thu tăng thêm do gợi ý.</span>
           </footer>
         </>
       ) : (

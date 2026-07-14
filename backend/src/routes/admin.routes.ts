@@ -18,9 +18,11 @@ import notificationSummaryRouter from '../modules/admin/notifications/notificati
 import adminSupportRouter from '../modules/admin/support/admin-support.routes';
 import adminVirtualTryOnRouter from '../modules/virtual-try-on/virtual-try-on.admin.route';
 import adminRecommendationRouter from '../modules/recommendations/recommendation.admin.route';
+import dashboardRouter from '../modules/admin/dashboard/dashboard.routes';
 
 const adminRouter = Router();
 
+adminRouter.use('/dashboard', dashboardRouter);
 adminRouter.use('/brands', adminBrandRouter);
 adminRouter.use('/categories', adminCategoryRouter);
 adminRouter.use('/products', adminProductRouter);

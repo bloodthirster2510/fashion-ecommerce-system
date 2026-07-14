@@ -242,6 +242,69 @@
   font-weight: 650;
 }
 
+.admin-ui-line-chart {
+  width: 100%;
+  min-height: 240px;
+}
+
+.admin-ui-line-chart svg {
+  width: 100%;
+  min-width: 540px;
+  height: 268px;
+  overflow: visible;
+}
+
+.admin-ui-line-chart__grid {
+  stroke: #e8edf3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.admin-ui-line-chart__y-label,
+.admin-ui-line-chart__x-label {
+  fill: var(--admin-text-subtle);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.admin-ui-line-chart__y-label {
+  text-anchor: end;
+}
+
+.admin-ui-line-chart__x-label {
+  text-anchor: middle;
+}
+
+.admin-ui-line-chart__line {
+  fill: none;
+  stroke: var(--admin-chart-color, #2563eb);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.admin-ui-line-chart__dot {
+  fill: #fff;
+  stroke: var(--admin-chart-color, #2563eb);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.admin-ui-line-chart__hit {
+  fill: transparent;
+}
+
+.admin-ui-line-chart-empty {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  color: var(--admin-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .admin-ui-filter-bar {
   display: flex;
   align-items: flex-end;
