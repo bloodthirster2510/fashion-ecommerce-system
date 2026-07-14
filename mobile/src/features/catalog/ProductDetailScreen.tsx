@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -16,9 +15,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
-import ShopNameLogo from '../../components/branding/ShopNameLogo';
-import ColorSwatch from '../../components/ui/ColorSwatch';
-import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
+import { resolveColorSwatch } from '../../components/ui/ColorSwatch';
+import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi, type CartResponse } from '../cart/cartApi';
@@ -199,7 +197,6 @@ const ProductDetailScreen = () => {
   const [selectedSize, setSelectedSize] = React.useState<string>();
   const [selectedImage, setSelectedImage] = React.useState<string>();
   const [quantity, setQuantity] = React.useState(1);
-  const [searchTerm, setSearchTerm] = React.useState('');
   const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
@@ -436,23 +433,6 @@ const ProductDetailScreen = () => {
       return Math.max(1, Math.min(maxPurchasableQuantity, current));
     });
   }, [maxPurchasableQuantity]);
-
-  const handleSearchSubmit = () => {
-    const keyword = searchTerm.trim();
-
-    if (keyword) {
-      recordInteraction({
-        actionType: 'search',
-        source: 'search',
-        metadata: { keyword, fromProductId: productId },
-      });
-
-      navigation.navigate('ProductList', {
-        title: `Tìm kiếm: ${keyword}`,
-        keyword,
-      });
-    }
-  };
 
   const handleBreadcrumbCategoryPress = (category: ProductCategoryBreadcrumbItem) => {
     navigation.navigate('ProductList', {
@@ -736,11 +716,15 @@ const ProductDetailScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
         </TouchableOpacity>
 
-        <View style={styles.headerBrand}>
-          <ShopNameLogo compact />
-        </View>
-
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => navigation.navigate('Search')}
+            activeOpacity={0.82}
+            accessibilityLabel="Tìm kiếm sản phẩm"
+          >
+            <MaterialCommunityIcons name="magnify" size={22} color={colors.white} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}
             onPress={handleFavoritePress}
@@ -762,29 +746,7 @@ const ProductDetailScreen = () => {
           >
             <MaterialCommunityIcons name="shopping-outline" size={22} color={colors.white} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-            activeOpacity={0.82}
-            accessibilityLabel="Tài khoản"
-          >
-            <MaterialCommunityIcons name="account-outline" size={22} color={colors.white} />
-          </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.searchRow}>
-        <MaterialCommunityIcons name="magnify" size={20} color={colors.textMuted} />
-        <TextInput
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          onSubmitEditing={handleSearchSubmit}
-          returnKeyType="search"
-          placeholder="Bạn muốn tìm gì?"
-          placeholderTextColor={colors.textMuted}
-          style={styles.searchInput}
-        />
-        <MaterialCommunityIcons name="camera-outline" size={20} color={colors.textMuted} />
       </View>
     </View>
   );
@@ -992,20 +954,32 @@ const ProductDetailScreen = () => {
               {selectedColor ? <Text style={styles.selectorHint}>{selectedColor.color}</Text> : null}
             </View>
 
-            <View style={styles.swatchRow}>
+            <View style={styles.colorChipRow}>
               {selectedVariant?.colors.map((color) => {
                 const isActive = color._id === selectedColorId;
+                const swatchColor = resolveColorSwatch(color.color, color.colorCode).hex;
 
                 return (
-                  <ColorSwatch
+                  <TouchableOpacity
                     key={color._id}
-                    label={color.color}
-                    colorCode={color.colorCode}
-                    imageUri={color.image}
-                    selected={isActive}
+                    style={[styles.colorChip, isActive && styles.colorChipActive]}
                     onPress={() => handleColorPress(color)}
+                    activeOpacity={0.78}
+                    accessibilityRole="button"
                     accessibilityLabel={`Chọn màu ${color.color}`}
-                  />
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    <View style={[styles.colorChipDot, { backgroundColor: swatchColor }]} />
+                    <Text
+                      style={[styles.colorChipText, isActive && styles.colorChipTextActive]}
+                      numberOfLines={1}
+                    >
+                      {color.color}
+                    </Text>
+                    {isActive ? (
+                      <MaterialCommunityIcons name="check" size={16} color={colors.brandDark} />
+                    ) : null}
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -1164,41 +1138,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   headerTop: {
-    ...brandedHeaderStyles.container,
-    minHeight: 76,
-    paddingVertical: spacing.sm,
+    minHeight: 52,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerIcon: {
-    ...brandedHeaderStyles.action,
-  },
-  headerBrand: {
-    ...brandedHeaderStyles.titleGroup,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   headerActions: {
-    minWidth: 132,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.xs,
-  },
-  searchRow: {
-    minHeight: 42,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    ...shadows.card,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: 42,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 0,
-    color: colors.text,
-    fontSize: 13,
   },
   content: {
     flex: 1,
@@ -1471,10 +1430,48 @@ const styles = StyleSheet.create({
   disabledChip: {
     opacity: 0.45,
   },
-  swatchRow: {
+  colorChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  colorChip: {
+    minWidth: 72,
+    minHeight: 40,
+    maxWidth: '100%',
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.field,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  colorChipActive: {
+    borderColor: colors.brandLight,
+    backgroundColor: colors.brandSoft,
+  },
+  colorChipDot: {
+    width: 16,
+    height: 16,
+    flexShrink: 0,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  colorChipText: {
+    flexShrink: 1,
+    color: colors.textBody,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  colorChipTextActive: {
+    color: colors.brandDark,
+    fontWeight: '800',
   },
   sizeGuide: {
     color: colors.action,
