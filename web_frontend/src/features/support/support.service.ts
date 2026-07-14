@@ -27,7 +27,7 @@ export const createGuestFeedback = async (payload: {
 export const verifyGuestFeedback = async (token: string) =>
   parsePublic<{ verified: true; ticketCode: string }>(await axiosClient.fetch(`/support/guest-feedback/verify?token=${encodeURIComponent(token)}`))
 
-export const listMyTickets = () => requestCustomer<Paginated<SupportTicket>>('/support/tickets?page=1&limit=50')
+export const listMyTickets = () => requestCustomer<Paginated<SupportTicket>>('/support/tickets?page=1&limit=100')
 export const getMyTicket = (id: string) => requestCustomer<TicketDetail>(`/support/tickets/${id}`)
 export const getMySupportSummary = () => requestCustomer<SupportSummary>('/support/summary')
 export const voteFaq = (id: string, value: 'helpful' | 'not_helpful') =>
@@ -41,11 +41,19 @@ const addFiles = (data: FormData, files: File[]) => files.slice(0, 3).forEach((f
 export const createMyTicket = (payload: {
   type: SupportTicketType; category: SupportCategory; subject: string; body: string; requiresReply: boolean;
   orderId?: string; couponCode?: string; files: File[];
+  contextSource?: 'support_home' | 'order_detail' | 'payment_result' | 'coupon' | 'loyalty' | 'error_screen' | 'footer';
+  contextErrorCode?: string;
 }) => {
   const data = new FormData()
   data.set('type', payload.type); data.set('category', payload.category); data.set('subject', payload.subject)
   data.set('body', payload.body); data.set('requiresReply', String(payload.requiresReply))
-  data.set('context', JSON.stringify({ source: 'support_home', appPlatform: 'web' }))
+  data.set('context', JSON.stringify({
+    source: payload.contextSource ?? 'support_home',
+    appPlatform: 'web',
+    appVersion: import.meta.env.VITE_APP_VERSION,
+    screen: window.location.pathname,
+    errorCode: payload.contextErrorCode,
+  }))
   if (payload.orderId) data.set('orderId', payload.orderId)
   if (payload.couponCode) data.set('couponCode', payload.couponCode)
   addFiles(data, payload.files)

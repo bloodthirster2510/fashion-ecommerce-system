@@ -13,6 +13,7 @@ import { sendResetPasswordEmail } from '../../utils/email';
 import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 import { LEGAL_POLICY_VERSION } from './legal-policy';
+import { PushToken } from '../../database/models/push-token.model';
 
 const SALT_ROUNDS = 10;
 const DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS = 60_000;
@@ -282,7 +283,10 @@ export const loginAdminUser = async (identifier: string, password: string) => {
 };
 
 export const logoutUser = async (userId: string) => {
-  await User.updateOne({ _id: userId }, { $set: { refreshToken: null } });
+  await Promise.all([
+    User.updateOne({ _id: userId }, { $set: { refreshToken: null } }),
+    PushToken.updateMany({ userId, isActive: true }, { $set: { isActive: false } }),
+  ]);
 };
 
 export const logoutWithAccessToken = async (token: string) => {

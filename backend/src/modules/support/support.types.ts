@@ -55,6 +55,8 @@ export type AdminTicketQuery = PaginationQuery & {
   assignedTo?: string;
   requiresReply?: boolean;
   hasOrder?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export type UpdateSupportTicketInput = {

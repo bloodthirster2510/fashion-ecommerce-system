@@ -27,6 +27,7 @@ export function FaqEditorDialog({
         <label>Câu trả lời<textarea rows={7} value={form.answer} onChange={(event) => onFormChange({ ...form, answer: event.target.value })} /></label>
         <label>Chủ đề<select value={form.category} onChange={(event) => onFormChange({ ...form, category: event.target.value as FaqCategory })}>{Object.entries(categoryLabels).filter(([key]) => !['product', 'app_website', 'service'].includes(key)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>Từ khóa<input value={form.keywords.join(', ')} onChange={(event) => onFormChange({ ...form, keywords: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="đơn hàng, giao hàng" /></label>
+        <label>Thứ tự hiển thị<input type="number" min={0} max={100000} value={form.sortOrder} onChange={(event) => onFormChange({ ...form, sortOrder: Number(event.target.value) || 0 })} /></label>
         <label className="admin-support-check"><input type="checkbox" checked={form.isPublished} onChange={(event) => onFormChange({ ...form, isPublished: event.target.checked })} /> Xuất bản cho khách hàng</label>
         <footer><button type="button" onClick={onClose}>Hủy</button><button type="button" disabled={submitting || form.question.trim().length < 5 || form.answer.trim().length < 10} onClick={() => void onSave()}>{submitting ? 'Đang lưu...' : 'Lưu FAQ'}</button></footer>
       </section>

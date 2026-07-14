@@ -17,6 +17,7 @@ jest.mock('../admin-support.controller', () => {
     getTicket: ok,
     listFaqs: ok,
     listCannedResponses: ok,
+    listAssignees: ok,
     listTickets: ok,
     markTicketRead: ok,
     reorderFaqs: ok,
@@ -73,6 +74,7 @@ describe('admin support route permissions', () => {
     mockStaffPermissions(['support.reply']);
 
     await expect(request('/tickets')).resolves.toMatchObject({ status: 204 });
+    await expect(request('/assignees')).resolves.toMatchObject({ status: 204 });
     await expect(request('/analytics')).resolves.toMatchObject({ status: 403 });
     await expect(request('/canned-responses')).resolves.toMatchObject({ status: 403 });
     await expect(request('/faqs')).resolves.toMatchObject({ status: 403 });

@@ -23,12 +23,18 @@ export type SupportTicket = {
   status: SupportTicketStatus
   priority: SupportPriority
   requiresReply: boolean
-  orderId?: string | { _id: string; orderCode: string; status: string; totalAmount: number } | null
+  orderId?: string | { _id: string; orderCode: string; status: string; paymentMethod?: string; paymentStatus?: string; totalAmount: number; shipping?: unknown } | null
   couponCode?: string | null
   context?: { source: string; appPlatform?: string; appVersion?: string; screen?: string; errorCode?: string } | null
   assignedTo?: string | SupportPerson | null
   lastMessageAt: string
   lastMessageSender: 'customer' | 'staff'
+  customerLastReadAt?: string | null
+  staffLastReadAt?: string | null
+  firstResponseAt?: string | null
+  resolvedAt?: string | null
+  closedAt?: string | null
+  reopenDeadline?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -36,7 +42,7 @@ export type SupportTicket = {
 export type SupportMessage = {
   _id: string
   senderType: 'customer' | 'staff'
-  senderId: string | SupportPerson
+  senderId: string | SupportPerson | null
   body: string
   attachments: Array<{ url: string; publicId: string; mimeType: string; size: number }>
   isInternal: boolean

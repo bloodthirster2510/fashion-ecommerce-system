@@ -128,6 +128,8 @@ export type RootStackParamList = {
     category?: SupportCategory;
     orderId?: string;
     couponCode?: string;
+    contextSource?: 'support_home' | 'order_detail' | 'payment_result' | 'coupon' | 'loyalty' | 'error_screen' | 'footer';
+    errorCode?: string;
   } | undefined;
   SupportTicketList: undefined;
   SupportTicketDetail: { ticketId: string };

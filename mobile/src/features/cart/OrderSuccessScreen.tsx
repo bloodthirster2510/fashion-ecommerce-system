@@ -377,6 +377,19 @@ const OrderSuccessScreen = () => {
                 )}
                 <Text style={styles.secondaryButtonText}>Thanh toán lại</Text>
               </Pressable>
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => navigation.navigate('SupportTicketCreate', {
+                  type: 'issue',
+                  category: 'payments',
+                  orderId,
+                  contextSource: 'payment_result',
+                  errorCode: latestPaymentStatus,
+                })}
+              >
+                <MaterialCommunityIcons name="lifebuoy" size={20} color={colors.brand} />
+                <Text style={styles.secondaryButtonText}>Cần hỗ trợ thanh toán</Text>
+              </Pressable>
             </>
           ) : null}
           <Pressable style={styles.secondaryButton} onPress={handleDismiss}>

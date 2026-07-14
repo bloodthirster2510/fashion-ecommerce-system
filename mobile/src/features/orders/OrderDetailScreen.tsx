@@ -584,6 +584,7 @@ const OrderDetailScreen = () => {
       type: 'issue',
       category: 'orders',
       orderId: order._id,
+      contextSource: 'order_detail',
     });
   };
 

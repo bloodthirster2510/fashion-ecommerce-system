@@ -1,5 +1,6 @@
 import { apiFetch } from '../../config/api';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import type { ApiResponse } from '../auth/types';
 import type {
   FaqArticle,
@@ -45,19 +46,24 @@ export const supportApi = {
   },
   voteFaq: (token: string, id: string, value: 'helpful' | 'not_helpful') =>
     request<FaqArticle>(`/support/faqs/${id}/vote`, token, { method: 'POST', body: JSON.stringify({ value }) }),
-  listTickets: (token: string) => request<Pagination<SupportTicket>>('/support/tickets?page=1&limit=50', token),
+  listTickets: (token: string) => request<Pagination<SupportTicket>>('/support/tickets?page=1&limit=100', token),
   getTicket: (token: string, id: string) => request<SupportTicketDetail>(`/support/tickets/${id}`, token),
   getSummary: (token: string) => request<SupportSummary>('/support/summary', token),
   createTicket: (token: string, payload: {
     type: SupportTicketType; category: SupportCategory; subject: string; body: string;
     requiresReply: boolean; orderId?: string; couponCode?: string; images: SupportImage[];
+    contextSource?: 'support_home' | 'order_detail' | 'payment_result' | 'coupon' | 'loyalty' | 'error_screen' | 'footer';
+    screen?: string; errorCode?: string;
   }) => {
     const form = new FormData();
     form.append('type', payload.type); form.append('category', payload.category); form.append('subject', payload.subject);
     form.append('body', payload.body); form.append('requiresReply', String(payload.requiresReply));
     form.append('context', JSON.stringify({
-      source: payload.orderId ? 'order_detail' : 'support_home',
+      source: payload.contextSource ?? (payload.orderId ? 'order_detail' : 'support_home'),
       appPlatform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'web' ? 'web' : 'android',
+      appVersion: Constants.expoConfig?.version,
+      screen: payload.screen ?? 'SupportTicketCreate',
+      errorCode: payload.errorCode,
     }));
     if (payload.orderId) form.append('orderId', payload.orderId);
     if (payload.couponCode) form.append('couponCode', payload.couponCode);

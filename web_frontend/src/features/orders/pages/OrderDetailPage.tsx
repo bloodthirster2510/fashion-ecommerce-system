@@ -242,7 +242,7 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
                 </aside>
               </div>
 
-              <section className="order-help-card"><h2><ShoppingOutlined /> Cần trợ giúp?</h2><a href={`/support?topic=orders&orderId=${order._id}`}>Vấn đề đơn hàng <span>›</span></a><a href="/policies/shipping">Thông tin giao hàng <span>›</span></a><a href="/policies/returns">Trả hàng <span>›</span></a></section>
+              <section className="order-help-card"><h2><ShoppingOutlined /> Cần trợ giúp?</h2><a href={`/account/support/new?category=orders&orderId=${order._id}&source=order_detail`}>Vấn đề đơn hàng <span>›</span></a>{order.paymentStatus !== 'paid' && <a href={`/account/support/new?category=payments&orderId=${order._id}&source=payment_result&errorCode=${order.paymentStatus}`}>Vấn đề thanh toán <span>›</span></a>}<a href="/policies/shipping">Thông tin giao hàng <span>›</span></a><a href="/policies/returns">Trả hàng <span>›</span></a></section>
 
               <Modal
                 title={orderAction === 'cancel' ? 'Hủy đơn hàng' : 'Yêu cầu trả hàng'}

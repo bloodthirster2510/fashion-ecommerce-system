@@ -11,13 +11,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
+import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, MembershipResponse, MembershipTier } from './accountApi';
 import { getMembershipTierVisualConfig } from './membershipVisual';
 
 const MembershipScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList, 'Membership'>>();
   const { session, runWithAuth } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MembershipResponse | null>(null);
@@ -270,6 +272,10 @@ const MembershipScreen = () => {
             Điểm tích lũy được tính từ tất cả các đơn hàng đã hoàn thành. Hạng thẻ sẽ được cập nhật tự động khi đạt điều kiện.
           </Text>
         </View>
+        <TouchableOpacity style={styles.supportButton} onPress={() => navigation.navigate('SupportTicketCreate', { category: 'loyalty', contextSource: 'loyalty' })}>
+          <MaterialCommunityIcons name="lifebuoy" size={20} color={colors.white} />
+          <Text style={styles.supportButtonText}>Cần hỗ trợ về điểm hoặc hạng?</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -280,6 +286,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#6b899e',
   },
+  supportButton: {
+    minHeight: 48,
+    marginTop: spacing.md,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  supportButtonText: { color: colors.white, fontWeight: '800' },
   header: {
     height: 56,
     flexDirection: 'row',

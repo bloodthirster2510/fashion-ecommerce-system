@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { validateUploadedImageContent } from '../upload.middleware';
+import { validateUploadedImageContent, withMulterErrorHandling, type MulterRequest } from '../upload.middleware';
 
 const pngBuffer = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -44,6 +44,22 @@ describe('upload middleware image sniffing', () => {
     await expect(validateUploadedImageContent(req)).resolves.toMatchObject({
       message: 'Uploaded image content must match JPEG, PNG, or WEBP',
     });
+  });
+
+  it('returns the file-filter validation error before calling the route handler', () => {
+    const wrapped = withMulterErrorHandling((req, _res, next) => {
+      (req as MulterRequest).fileValidationError = new Error('Only JPEG, PNG, and WEBP images are allowed');
+      next();
+    });
+    const json = jest.fn();
+    const status = jest.fn().mockReturnValue({ json });
+    const next = jest.fn();
+
+    wrapped({} as Request, { status } as never, next);
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({ message: 'Only JPEG, PNG, and WEBP images are allowed' });
+    expect(next).not.toHaveBeenCalled();
   });
 });
 

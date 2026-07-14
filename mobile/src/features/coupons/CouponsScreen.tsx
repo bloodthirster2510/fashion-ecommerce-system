@@ -284,6 +284,10 @@ const CouponsScreen = () => {
               <Text style={styles.emptyText}>Ưu đãi mới sẽ xuất hiện tại đây khi được mở.</Text>
             </View>
           )}
+          <TouchableOpacity style={styles.supportButton} onPress={() => navigation.navigate('SupportTicketCreate', { category: 'promotions', contextSource: 'coupon' })}>
+            <MaterialCommunityIcons name="lifebuoy" size={20} color={colors.brand} />
+            <Text style={styles.supportButtonText}>Cần hỗ trợ về voucher?</Text>
+          </TouchableOpacity>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -329,6 +333,17 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     paddingBottom: spacing.xxl,
   },
+  supportButton: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.brand,
+    borderRadius: radii.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  supportButtonText: { color: colors.brand, fontWeight: '800' },
   categoryTabs: {
     gap: spacing.sm,
     paddingRight: spacing.lg,

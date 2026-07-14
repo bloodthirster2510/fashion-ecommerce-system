@@ -37,7 +37,17 @@ export const listTickets = async (req: Request, res: Response) => {
       assignedTo: typeof req.query.assignedTo === 'string' ? req.query.assignedTo : undefined,
       requiresReply: booleanQuery(req.query.requiresReply),
       hasOrder: booleanQuery(req.query.hasOrder),
+      dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
+      dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
     }));
+  } catch (caught) {
+    return handleError(res, caught);
+  }
+};
+
+export const listAssignees = async (_req: Request, res: Response) => {
+  try {
+    return ok(res, await adminSupportService.listSupportAssignees());
   } catch (caught) {
     return handleError(res, caught);
   }

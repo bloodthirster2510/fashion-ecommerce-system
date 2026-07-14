@@ -1,11 +1,13 @@
 import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword, clearAuthRequestThrottleForTests } from '../auth.service';
 import { LEGAL_POLICY_VERSION } from '../legal-policy';
 import { User } from '../../../database/models/user.model';
+import { PushToken } from '../../../database/models/push-token.model';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
 jest.mock('../../../database/models/user.model');
+jest.mock('../../../database/models/push-token.model');
 jest.mock('bcryptjs');
 jest.mock('jsonwebtoken');
 jest.mock('../../../utils/email', () => ({
@@ -341,6 +343,10 @@ describe('Auth Service', () => {
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: 'user123' },
         { $set: { refreshToken: null } },
+      );
+      expect(PushToken.updateMany).toHaveBeenCalledWith(
+        { userId: 'user123', isActive: true },
+        { $set: { isActive: false } },
       );
       expect(mockUser.save).not.toHaveBeenCalled();
     });
