@@ -4,7 +4,7 @@ import type {
 } from '../../database/models/recommendation-event.model';
 import type { ProductListItem } from '../catalog/products/product.types';
 
-export const RECOMMENDATION_ALGORITHM_VERSION = 'v3_cart_complementary';
+export const RECOMMENDATION_ALGORITHM_VERSION = 'v4_cart_outfit_sequence';
 
 export type RecommendationReasonCode =
   | 'same_category'

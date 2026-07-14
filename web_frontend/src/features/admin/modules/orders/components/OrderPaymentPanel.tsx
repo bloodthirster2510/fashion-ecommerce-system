@@ -28,7 +28,7 @@ export function OrderPaymentPanel({
 }: OrderPaymentPanelProps) {
   return (
     <>
-      <section className="admin-drawer-section admin-order-section-side admin-order-section-payments">
+      <section className="admin-drawer-section admin-order-section-main admin-order-section-payments">
         <div className="admin-section-inline-heading">
           <h3>Lượt thanh toán</h3>
           <div className="admin-drawer-actions">

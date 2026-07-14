@@ -34,6 +34,7 @@ export interface RecordCartInteractionInput {
 export interface RecordPurchaseInteractionItem {
   sourceId?: string;
   productId: string;
+  recommendationRequestId?: string | null;
   variantId?: string;
   colorVariantId?: string;
   size?: string;

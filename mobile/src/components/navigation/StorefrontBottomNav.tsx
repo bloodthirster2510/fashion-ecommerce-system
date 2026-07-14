@@ -29,7 +29,7 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
 
   const openTab = (tab: MainTab) => {
     if (tab === 'home') navigation.navigate('Home');
-    if (tab === 'catalog') navigation.navigate('ProductList', { title: 'Danh mục sản phẩm' });
+    if (tab === 'catalog') navigation.navigate('ProductList', { title: 'Khám phá gu riêng' });
     if (tab === 'cart') navigation.navigate('Cart');
     if (tab === 'profile') navigation.navigate(isAuthenticated ? 'Profile' : 'Login');
   };

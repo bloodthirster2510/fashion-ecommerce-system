@@ -1,11 +1,12 @@
 import type { AdminOrder, AdminOrderStatus } from '../orderAdminApi'
 import type { OrderQueueKey, OrderTab } from '../orderTypes'
-import { emptyOperationalSummary, formatDate } from '../orderPresentation'
+import { emptyOperationalSummary, formatDate, hasRejectedReturnRequest } from '../orderPresentation'
 
 export const getOrderRowClass = (order: AdminOrder) => {
   if (shouldWarnPaymentBeforeShipping(order) || order.paymentStatus === 'failed') {
     return 'admin-order-row is-payment-risk'
   }
+  if (hasRejectedReturnRequest(order)) return 'admin-order-row is-exception'
   if (order.status === 'delivered' || order.status === 'completed') return 'admin-order-row is-complete'
   if (order.status === 'shipping') return 'admin-order-row is-shipping'
   if (order.status === 'packed') return 'admin-order-row is-packed'
@@ -63,7 +64,7 @@ export const getOrderQueue = (order: AdminOrder): OrderQueueKey | null => {
   if (needsRefundReview(order)) return 'refund'
   if (needsReasonReview(order)) return 'review'
   if (isPaymentDeadlineSoon(order)) return 'payment-deadline'
-  if (isBlockedOrder(order)) return null
+  if (isBlockedOrder(order)) return 'blocked'
   if (order.status === 'confirmed') return 'packing'
   if (order.status === 'packed') return 'handoff'
   if (order.status === 'shipping') return 'delivery'
@@ -78,7 +79,7 @@ export const getQueueCount = (
 ) => {
   if (queue === 'refund') return operationalSummary.refunds
   if (queue === 'review') return operationalSummary.returnRequests
-  if (queue === 'blocked') return operationalSummary.paymentRisk
+  if (queue === 'blocked') return operationalSummary.paymentOverdueRisk ?? operationalSummary.paymentRisk
   if (queue === 'payment-deadline') return operationalSummary.paymentDeadlineSoon ?? 0
   if (queue === 'packing') return operationalSummary.packingReady ?? 0
   if (queue === 'handoff') return operationalSummary.handoffReady ?? 0

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, shadows, spacing } from '../../theme';
 import { RemoteImage } from '../../components/media/RemoteImage';
@@ -7,6 +7,7 @@ import type { CatalogProduct } from './catalogApi';
 
 type ProductCardProps = {
   product: CatalogProduct;
+  animationIndex?: number;
   onPress?: (product: CatalogProduct) => void;
   onCartPress?: (product: CatalogProduct) => void;
 };
@@ -17,80 +18,163 @@ const formatCurrency = (value: number) => {
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
-const ProductCard = ({ product, onPress, onCartPress }: ProductCardProps) => {
+const ProductCard = ({ product, animationIndex, onPress, onCartPress }: ProductCardProps) => {
   const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
   const originalPrice = product.originalPrice ?? product.price;
+  const shouldAnimateEntrance = animationIndex !== undefined && animationIndex < 6;
+  const entrance = React.useRef(new Animated.Value(shouldAnimateEntrance ? 0 : 1)).current;
+  const pressScale = React.useRef(new Animated.Value(1)).current;
+  const productGender = product.category?.gender;
+  const genderLabel = productGender === 'male' ? 'NAM' : productGender === 'female' ? 'NỮ' : 'UNISEX';
+  const genderIcon = productGender === 'male'
+    ? 'gender-male'
+    : productGender === 'female'
+      ? 'gender-female'
+      : 'gender-male-female';
+
+  React.useEffect(() => {
+    if (!shouldAnimateEntrance) return;
+
+    const animation = Animated.timing(entrance, {
+      toValue: 1,
+      delay: (animationIndex ?? 0) * 65,
+      duration: 340,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+
+    animation.start();
+    return () => animation.stop();
+  }, [animationIndex, entrance, shouldAnimateEntrance]);
+
+  const animatePress = (toValue: number) => {
+    Animated.spring(pressScale, {
+      toValue,
+      speed: 28,
+      bounciness: 1,
+      useNativeDriver: true,
+    }).start();
+  };
 
   return (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => onPress?.(product)}
-      activeOpacity={0.86}
-      accessibilityLabel={`Xem ${product.name}`}
+    <Animated.View
+      style={[
+        styles.animatedShell,
+        {
+          opacity: entrance,
+          transform: [
+            { translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+            { scale: pressScale },
+          ],
+        },
+      ]}
     >
-      <View style={styles.imageWrap}>
-        {imageUri ? (
-          <RemoteImage uri={imageUri} style={styles.image} recyclingKey={product._id} />
-        ) : (
-          <View style={styles.placeholder}>
-            <MaterialCommunityIcons name="tshirt-crew-outline" size={36} color={colors.brand} />
-          </View>
-        )}
-
-        <View style={styles.badgeRow}>
-          {product.isNew ? (
-            <View style={styles.newBadge}>
-              <Text style={styles.newBadgeText}>Hàng mới</Text>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => onPress?.(product)}
+        onPressIn={() => animatePress(0.975)}
+        onPressOut={() => animatePress(1)}
+        activeOpacity={1}
+        accessibilityLabel={`Xem ${product.name}`}
+      >
+        <View style={styles.imageWrap}>
+          {imageUri ? (
+            <RemoteImage uri={imageUri} style={styles.image} recyclingKey={product._id} />
+          ) : (
+            <View style={styles.placeholder}>
+              <MaterialCommunityIcons name="tshirt-crew-outline" size={40} color={colors.brand} />
             </View>
-          ) : null}
-          {product.isSale ? (
-            <View style={styles.saleBadge}>
-              <Text style={styles.saleBadgeText}>Sale</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
+          )}
 
-      <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={2}>
-          {product.name}
-        </Text>
-
-        <View style={styles.priceRow}>
-          <View style={styles.priceCopy}>
-            <Text style={styles.price}>{formatCurrency(product.finalPrice)}</Text>
+          <View style={styles.badgeRow}>
+            {product.isNew ? (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>NEW</Text>
+              </View>
+            ) : null}
             {product.isSale ? (
-              <Text style={styles.originalPrice}>{formatCurrency(originalPrice)}</Text>
+              <View style={styles.saleBadge}>
+                <Text style={styles.saleBadgeText}>
+                  {product.discount > 0 ? `-${Math.round(product.discount)}%` : 'SALE'}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={styles.info}>
+          <View style={styles.productMetaRow}>
+            {productGender ? (
+              <View style={[
+                styles.genderBadge,
+                productGender === 'female' && styles.genderBadgeFemale,
+              ]}>
+                <MaterialCommunityIcons
+                  name={genderIcon}
+                  size={11}
+                  color={productGender === 'female' ? '#9B4C55' : colors.brandDark}
+                />
+                <Text style={[
+                  styles.genderBadgeText,
+                  productGender === 'female' && styles.genderBadgeTextFemale,
+                ]}>
+                  {genderLabel}
+                </Text>
+              </View>
+            ) : <View />}
+            {product.averageRating > 0 ? (
+              <View style={styles.rating}>
+                <MaterialCommunityIcons name="star" size={11} color={colors.goldDark} />
+                <Text style={styles.ratingText}>{product.averageRating.toFixed(1)}</Text>
+              </View>
             ) : null}
           </View>
 
-          <TouchableOpacity
-            style={[styles.cartButton, !product.isAvailable && styles.cartButtonDisabled]}
-            onPress={() => onCartPress?.(product)}
-            disabled={!product.isAvailable}
-            activeOpacity={0.82}
-            accessibilityLabel={`Thêm ${product.name} vào giỏ hàng`}
-          >
-            <MaterialCommunityIcons name="cart-outline" size={18} color={colors.white} />
-          </TouchableOpacity>
+          <Text style={styles.name} numberOfLines={2}>
+            {product.name}
+          </Text>
+
+          <View style={styles.priceRow}>
+            <View style={styles.priceCopy}>
+              <Text style={styles.price}>{formatCurrency(product.finalPrice)}</Text>
+              {product.isSale ? (
+                <Text style={styles.originalPrice}>{formatCurrency(originalPrice)}</Text>
+              ) : null}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.cartButton, !product.isAvailable && styles.cartButtonDisabled]}
+              onPress={() => onCartPress?.(product)}
+              disabled={!product.isAvailable}
+              activeOpacity={0.82}
+              accessibilityLabel={`Thêm ${product.name} vào giỏ hàng`}
+            >
+              <MaterialCommunityIcons name="shopping-outline" size={18} color={colors.white} />
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
+  animatedShell: {
+    flex: 1,
+  },
   card: {
     flex: 1,
     minWidth: 0,
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#E9EEF1',
     backgroundColor: colors.surface,
     overflow: 'hidden',
     ...shadows.card,
   },
   imageWrap: {
     width: '100%',
-    aspectRatio: 1,
+    aspectRatio: 0.86,
     backgroundColor: colors.brandSoft,
   },
   image: {
@@ -116,22 +200,22 @@ const styles = StyleSheet.create({
   },
   newBadge: {
     minHeight: 22,
-    borderRadius: radii.xs,
-    backgroundColor: colors.white,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandDark,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
   newBadgeText: {
-    color: colors.black,
+    color: colors.white,
     fontSize: 10,
     lineHeight: 14,
     fontWeight: '800',
   },
   saleBadge: {
     minHeight: 22,
-    borderRadius: radii.xs,
-    backgroundColor: colors.danger,
+    borderRadius: radii.pill,
+    backgroundColor: colors.coral,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
@@ -143,16 +227,56 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   info: {
-    minHeight: 88,
+    minHeight: 120,
     padding: spacing.md,
     justifyContent: 'space-between',
   },
+  productMetaRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  genderBadge: {
+    minHeight: 20,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  genderBadgeFemale: {
+    backgroundColor: '#F8E9E7',
+  },
+  genderBadgeText: {
+    color: colors.brandDark,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  genderBadgeTextFemale: {
+    color: '#9B4C55',
+  },
+  rating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  ratingText: {
+    color: colors.textMuted,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '800',
+  },
   name: {
     minHeight: 36,
-    color: colors.black,
+    color: colors.brandDark,
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   priceRow: {
     minHeight: 34,
@@ -167,7 +291,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   price: {
-    color: colors.black,
+    color: colors.brandDark,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '800',
@@ -180,10 +304,10 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   cartButton: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.xs,
-    backgroundColor: colors.brand,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.brandDark,
     alignItems: 'center',
     justifyContent: 'center',
   },

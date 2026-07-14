@@ -11,6 +11,7 @@ import type {
   AdminTransaction,
 } from './orderAdminApi'
 import type { ShippingSimulationStatus } from './orderTypes'
+import { OrderActionsPanel } from './components/OrderActionsPanel'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
 import { OrderLineItemsPanel } from './components/OrderLineItemsPanel'
 import { OrderOverviewPanel } from './components/OrderOverviewPanel'
@@ -18,13 +19,13 @@ import { OrderPaymentPanel } from './components/OrderPaymentPanel'
 import { OrderRefundMethodsPanel } from './components/OrderRefundMethodsPanel'
 import { OrderReturnPanel } from './components/OrderReturnPanel'
 import { OrderShippingPanel } from './components/OrderShippingPanel'
+import { OrderStatusPill } from './components/OrderStatusPill'
 import {
-  getOrderPillClass,
   getPaymentPillClass,
   getReturnWindowStatus,
+  hasRejectedReturnRequest,
   nextStatusOptions,
   paymentStatusLabels,
-  statusLabels,
 } from './orderPresentation'
 import {
   getOrderAttention,
@@ -35,15 +36,49 @@ import {
 
 const AUDIT_LOG_PAGE_SIZE = 3
 type OrderDrawerTab = 'overview' | 'items' | 'payment' | 'shipping' | 'return' | 'history'
+type OrderDrawerTabTone = 'danger' | 'warning'
 
 const orderDrawerTabs: Array<{ key: OrderDrawerTab; label: string }> = [
   { key: 'overview', label: 'Tổng quan' },
   { key: 'items', label: 'Sản phẩm' },
-  { key: 'payment', label: 'Thanh toán' },
+  { key: 'payment', label: 'Thanh toán & xử lý' },
   { key: 'shipping', label: 'Giao hàng' },
   { key: 'return', label: 'Trả/Hoàn' },
-  { key: 'history', label: 'Nhật ký & xử lý' },
+  { key: 'history', label: 'Nhật ký' },
 ]
+
+const orderNeedsRefundHandling = (order: AdminOrder) =>
+  order.paymentStatus === 'paid' && (order.status === 'cancelled' || order.status === 'returned')
+
+const getDrawerTabTone = (order: AdminOrder, tab: OrderDrawerTab): OrderDrawerTabTone | null => {
+  if (tab === 'payment' && (shouldWarnPaymentBeforeShipping(order) || order.paymentStatus === 'failed')) {
+    return 'danger'
+  }
+
+  if (tab === 'payment' && (order.status === 'confirmed' || order.status === 'delivered')) {
+    return 'warning'
+  }
+
+  if (tab === 'shipping') {
+    if (order.shipping?.status === 'failed') return 'danger'
+    if (order.status === 'packed' || order.status === 'shipping') return 'warning'
+  }
+
+  if (tab === 'return') {
+    if (hasRejectedReturnRequest(order) || orderNeedsRefundHandling(order)) return 'danger'
+    if (order.status === 'return_requested' || order.status === 'return_approved') return 'warning'
+  }
+
+  return null
+}
+
+const getDefaultDrawerTab = (order: AdminOrder): OrderDrawerTab => {
+  if (getDrawerTabTone(order, 'payment') === 'danger') return 'payment'
+  if (getDrawerTabTone(order, 'return')) return 'return'
+  if (getDrawerTabTone(order, 'shipping')) return 'shipping'
+  if (getDrawerTabTone(order, 'payment')) return 'payment'
+  return 'overview'
+}
 
 export function OrderDetailDrawer({
   canAdjustPayments,
@@ -100,15 +135,15 @@ export function OrderDetailDrawer({
   onCopyReference: (value: string, label: string) => void
   onRevealRefundAccount: (method: AdminCustomerPaymentMethod) => void
 }) {
-  const [activeDrawerTab, setActiveDrawerTab] = useState<OrderDrawerTab>('overview')
+  const [activeDrawerTab, setActiveDrawerTab] = useState<OrderDrawerTab>(() => getDefaultDrawerTab(order))
   const [visibleAuditLogCount, setVisibleAuditLogCount] = useState(AUDIT_LOG_PAGE_SIZE)
-  const statusOptions = nextStatusOptions[order.status] ?? []
-  const hasPendingReturnRequest = order.status === 'return_requested' && order.returnRequest?.status === 'requested'
-  const needsRefundHandling =
-    order.paymentStatus === 'paid' && (order.status === 'cancelled' || order.status === 'returned')
+  const statusOptions = (nextStatusOptions[order.status] ?? []).filter((status) => status !== 'returned')
+  const hasRejectedReturn = hasRejectedReturnRequest(order)
+  const needsRefundHandling = orderNeedsRefundHandling(order)
   const attention = getOrderAttention(order)
   const returnWindowStatus = getReturnWindowStatus(order)
   const paymentDeadlineStatus = getPaymentDeadlineStatus(order)
+  const defaultDrawerTab = getDefaultDrawerTab(order)
   const visibleAuditLogs = useMemo(
     () => auditLogs.slice(0, visibleAuditLogCount),
     [auditLogs, visibleAuditLogCount],
@@ -120,8 +155,8 @@ export function OrderDetailDrawer({
   }, [order._id, auditLogs.length])
 
   useEffect(() => {
-    setActiveDrawerTab('overview')
-  }, [order._id])
+    setActiveDrawerTab(defaultDrawerTab)
+  }, [defaultDrawerTab, order._id])
 
   return (
     <div className="admin-drawer-layer" role="dialog" aria-modal="true" aria-labelledby="admin-order-title">
@@ -148,7 +183,7 @@ export function OrderDetailDrawer({
             </div>
           </div>
           <div className="admin-order-drawer-status">
-            <span className={getOrderPillClass(order.status)}>{statusLabels[order.status]}</span>
+            <OrderStatusPill order={order} />
             <span className={getPaymentPillClass(order.paymentStatus)}>{paymentStatusLabels[order.paymentStatus]}</span>
             {returnWindowStatus ? (
               <span className={returnWindowStatus.className}>{returnWindowStatus.label}</span>
@@ -164,7 +199,14 @@ export function OrderDetailDrawer({
 
         {isLoading ? <div className="admin-drawer-loading">Đang tải chi tiết...</div> : null}
 
-        {attention ? (
+        {hasRejectedReturn ? (
+          <div className="admin-order-attention-callout is-danger" role="status">
+            <strong>Yêu cầu trả hàng đã bị từ chối</strong>
+            <span>
+              Đơn vẫn giữ trạng thái vận chuyển hiện tại. Xem lý do xử lý trong mục Trả/Hoàn; không tạo hoàn tiền từ quyết định này.
+            </span>
+          </div>
+        ) : attention ? (
           <div className={`admin-order-attention-callout is-${attention.tone}`} role="status">
             <strong>{attention.label}</strong>
             <span>{attention.helper}</span>
@@ -178,17 +220,25 @@ export function OrderDetailDrawer({
         ) : null}
 
         <nav className="admin-order-drawer-tabs" aria-label="Nhóm thông tin đơn hàng">
-          {orderDrawerTabs.map((tab) => (
-            <button
-              className={activeDrawerTab === tab.key ? 'is-active' : ''}
-              type="button"
-              key={tab.key}
-              aria-current={activeDrawerTab === tab.key ? 'page' : undefined}
-              onClick={() => setActiveDrawerTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {orderDrawerTabs.map((tab) => {
+            const tone = getDrawerTabTone(order, tab.key)
+
+            return (
+              <button
+                className={activeDrawerTab === tab.key ? 'is-active' : ''}
+                type="button"
+                key={tab.key}
+                aria-current={activeDrawerTab === tab.key ? 'page' : undefined}
+                title={tone === 'danger' ? 'Có vấn đề cần xem' : tone === 'warning' ? 'Có bước cần xử lý' : undefined}
+                onClick={() => setActiveDrawerTab(tab.key)}
+              >
+                <span className="admin-order-tab-content">
+                  {tab.label}
+                  {tone ? <span className={`admin-order-tab-dot is-${tone}`} aria-hidden="true" /> : null}
+                </span>
+              </button>
+            )
+          })}
         </nav>
 
         <div className="admin-order-drawer-body">
@@ -197,7 +247,14 @@ export function OrderDetailDrawer({
         ) : null}
 
         {activeDrawerTab === 'return' ? (
-          <OrderReturnPanel needsRefundHandling={needsRefundHandling} order={order} />
+          <OrderReturnPanel
+            canUpdateOrders={canUpdateOrders}
+            isActionLoading={isActionLoading}
+            needsRefundHandling={needsRefundHandling}
+            order={order}
+            onReviewReturnRequest={onReviewReturnRequest}
+            onStatusUpdate={onStatusUpdate}
+          />
         ) : null}
 
         {activeDrawerTab === (needsRefundHandling ? 'return' : 'payment') ? (
@@ -236,33 +293,35 @@ export function OrderDetailDrawer({
         ) : null}
 
         {activeDrawerTab === 'payment' ? (
-          <OrderPaymentPanel
-            canAdjustPayments={canAdjustPayments}
-            isActionLoading={isActionLoading}
-            order={order}
-            transactions={transactions}
-            onAdjustPaymentStatus={onAdjustPaymentStatus}
-            onReconcileVNPay={onReconcileVNPay}
-            onRefresh={onRefresh}
-          />
+          <>
+            <OrderActionsPanel
+              canUpdateOrders={canUpdateOrders}
+              isActionLoading={isActionLoading}
+              order={order}
+              statusOptions={statusOptions}
+              onStatusUpdate={onStatusUpdate}
+            />
+            <OrderPaymentPanel
+              canAdjustPayments={canAdjustPayments}
+              isActionLoading={isActionLoading}
+              order={order}
+              transactions={transactions}
+              onAdjustPaymentStatus={onAdjustPaymentStatus}
+              onReconcileVNPay={onReconcileVNPay}
+              onRefresh={onRefresh}
+            />
+          </>
         ) : null}
 
         {activeDrawerTab === 'history' ? (
           <OrderHistoryPanel
             auditLogPageSize={AUDIT_LOG_PAGE_SIZE}
             auditLogs={auditLogs}
-            canUpdateOrders={canUpdateOrders}
             hasMoreAuditLogs={hasMoreAuditLogs}
-            hasPendingReturnRequest={hasPendingReturnRequest}
-            isActionLoading={isActionLoading}
-            order={order}
-            statusOptions={statusOptions}
             visibleAuditLogCount={visibleAuditLogCount}
             visibleAuditLogs={visibleAuditLogs}
             onLoadMoreAuditLogs={() => setVisibleAuditLogCount((current) => current + AUDIT_LOG_PAGE_SIZE)}
             onRefresh={onRefresh}
-            onReviewReturnRequest={onReviewReturnRequest}
-            onStatusUpdate={onStatusUpdate}
           />
         ) : null}
         </div>

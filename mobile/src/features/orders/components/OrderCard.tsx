@@ -37,6 +37,7 @@ export function OrderCard({
   const canConfirmDelivery = canConfirmReceived(order);
   const requiresPayment = orderNeedsPaymentAction(order);
   const requiresUserAction = orderNeedsUserAction(order);
+  const hasExceptionalStatus = displayState.tone === 'danger';
   const deadlineRemaining = order.paymentDeadlineAt
     ? new Date(order.paymentDeadlineAt).getTime() - Date.now()
     : null;
@@ -52,6 +53,7 @@ export function OrderCard({
         styles.orderCard,
         requiresUserAction && styles.orderCardAttention,
         requiresPayment && styles.orderCardNeedsPayment,
+        hasExceptionalStatus && styles.orderCardDanger,
       ]}
       activeOpacity={0.84}
       onPress={() => onOpen(order)}
@@ -75,7 +77,9 @@ export function OrderCard({
           <Text style={styles.orderDate}>Đặt ngày {formatDate(order.createdAt)}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: displayState.backgroundColor }]}>
-          {requiresUserAction ? <View style={[styles.statusBadgeDot, { backgroundColor: displayState.color }]} /> : null}
+          {requiresUserAction || hasExceptionalStatus ? (
+            <View style={[styles.statusBadgeDot, { backgroundColor: displayState.color }]} />
+          ) : null}
           <Text style={[styles.statusBadgeText, { color: displayState.color }]}>{displayState.label}</Text>
         </View>
       </View>
@@ -168,6 +172,11 @@ const styles = StyleSheet.create({
   orderCardAttention: {
     borderWidth: 1,
     borderColor: colors.borderStrong,
+  },
+  orderCardDanger: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: '#FFF9F9',
   },
   orderHeader: {
     flexDirection: 'row',

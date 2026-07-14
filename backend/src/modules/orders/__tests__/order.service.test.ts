@@ -1578,6 +1578,7 @@ describe('orderService', () => {
       userId,
       [expect.objectContaining({
         productId: productId.toString(),
+        recommendationRequestId: 'rec_paid_123',
         quantity: 2,
       })],
       { orderId: orderId.toString(), orderCode: 'FSPAYMENT' },

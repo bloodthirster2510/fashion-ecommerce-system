@@ -2,6 +2,8 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Modal,
   Pressable,
   ScrollView,
@@ -29,6 +31,7 @@ import {
 import ProductCard from './ProductCard';
 import ShopNameLogo from '../../components/branding/ShopNameLogo';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
+import { RemoteImage } from '../../components/media/RemoteImage';
 import {
   interactionApi,
   type InteractionPayload,
@@ -81,6 +84,7 @@ const PRODUCT_PAGE_LIMIT = 16;
 const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
+const DISCOVERY_TITLE = 'Khám phá gu riêng';
 
 const emptyAvailableFilters: ProductListResponse['filters'] = {
   brands: [],
@@ -128,6 +132,8 @@ const toArray = (value?: string | string[]) => {
 };
 
 const toQueryArray = (value: string[]) => (value.length ? value : undefined);
+
+const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const normalizeFilters = (filters: ProductListFilters): ProductListFilters => ({
   ...filters,
@@ -316,6 +322,9 @@ const ProductListScreen = () => {
   const [error, setError] = React.useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = React.useState(false);
+  const [discoveryImages, setDiscoveryImages] = React.useState({ male: '', female: '' });
+  const heroReveal = React.useRef(new Animated.Value(0)).current;
+  const garmentFloat = React.useRef(new Animated.Value(0)).current;
 
   const routeFilterKey = React.useMemo(
     () =>
@@ -346,6 +355,39 @@ const ProductListScreen = () => {
     setDraftFilters(nextFilters);
     scrollToTop(false);
   }, [params, routeFilterKey, scrollToTop]);
+
+  React.useEffect(() => {
+    const revealAnimation = Animated.timing(heroReveal, {
+      toValue: 1,
+      duration: 460,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    const floatAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(garmentFloat, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(garmentFloat, {
+          toValue: 0,
+          duration: 1500,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    revealAnimation.start();
+    floatAnimation.start();
+
+    return () => {
+      revealAnimation.stop();
+      floatAnimation.stop();
+    };
+  }, [garmentFloat, heroReveal]);
 
   const categorySelectionGroups = React.useMemo(
     () => getCategorySelectionGroups(appliedFilters.categoryId, availableFilters.categories, params?.title),
@@ -581,6 +623,27 @@ const ProductListScreen = () => {
 
   React.useEffect(() => loadProducts(1), [loadProducts]);
 
+  React.useEffect(() => {
+    setDiscoveryImages((current) => {
+      const next = { ...current };
+
+      (['male', 'female'] as const).forEach((gender) => {
+        if (next[gender]) return;
+
+        const productImage = products.find(
+          (product) => product.category?.gender === gender && isRemoteImage(product.image),
+        )?.image;
+        const categoryImage = availableFilters.categories.find(
+          (category) => category.gender === gender && isRemoteImage(category.image),
+        )?.image;
+
+        next[gender] = productImage?.trim() ?? categoryImage?.trim() ?? '';
+      });
+
+      return next.male === current.male && next.female === current.female ? current : next;
+    });
+  }, [availableFilters.categories, products]);
+
   const openFilterSheet = () => {
     setDraftFilters(appliedFilters);
     setIsFilterSheetVisible(true);
@@ -610,6 +673,14 @@ const ProductListScreen = () => {
     },
     [availableFilters.categories],
   );
+
+  const selectDiscoveryGender = React.useCallback((gender?: CatalogGender) => {
+    updateAppliedFilters((current) => ({
+      ...current,
+      gender: current.gender === gender ? undefined : gender,
+      categoryId: [],
+    }));
+  }, [updateAppliedFilters]);
 
   const toggleDraftValues = (key: MultiFilterKey, values: string[]) => {
     setDraftFilters((current) => {
@@ -740,6 +811,78 @@ const ProductListScreen = () => {
   );
 
   const screenTitle = getTitle(params);
+  const hasScopedCatalogRequest = Boolean(
+    params?.keyword
+      || params?.gender
+      || params?.categoryId
+      || params?.brandId
+      || params?.minPrice !== undefined
+      || params?.maxPrice !== undefined
+      || params?.isSale
+      || params?.isNew
+      || params?.sort,
+  );
+  const showDiscoveryExperience = !hasScopedCatalogRequest;
+  const headerTitle = showDiscoveryExperience ? DISCOVERY_TITLE : screenTitle;
+  const selectedGenderLabel = appliedFilters.gender
+    ? genderLabels[appliedFilters.gender].toLocaleUpperCase('vi-VN')
+    : 'MỌI PHONG CÁCH';
+
+  const renderGenderSpotlight = (gender: 'male' | 'female') => {
+    const isMale = gender === 'male';
+    const active = appliedFilters.gender === gender;
+    const imageUri = discoveryImages[gender];
+    const label = isMale ? 'NAM' : 'NỮ';
+
+    return (
+      <TouchableOpacity
+        key={gender}
+        style={[
+          styles.genderCard,
+          isMale ? styles.genderCardMale : styles.genderCardFemale,
+          active && styles.genderCardActive,
+        ]}
+        onPress={() => selectDiscoveryGender(gender)}
+        accessibilityRole="button"
+        accessibilityState={{ selected: active }}
+        accessibilityLabel={`Xem thời trang ${label.toLocaleLowerCase('vi-VN')}`}
+        activeOpacity={0.88}
+      >
+        <View style={styles.genderCardCopy}>
+          <View style={[styles.genderIcon, !isMale && styles.genderIconFemale]}>
+            <MaterialCommunityIcons
+              name={isMale ? 'gender-male' : 'gender-female'}
+              size={15}
+              color={isMale ? colors.white : '#9B4C55'}
+            />
+          </View>
+          <Text style={[styles.genderLabel, !isMale && styles.genderLabelFemale]}>{label}</Text>
+          <Text style={[styles.genderCaption, !isMale && styles.genderCaptionFemale]}>
+            {isMale ? 'Gọn · chất · hiện đại' : 'Mềm · nổi bật · tự tin'}
+          </Text>
+          <View style={[styles.genderArrow, !isMale && styles.genderArrowFemale]}>
+            <MaterialCommunityIcons
+              name={active ? 'check' : 'arrow-top-right'}
+              size={14}
+              color={isMale ? colors.brandDark : '#9B4C55'}
+            />
+          </View>
+        </View>
+
+        <View style={styles.genderImageFrame}>
+          {imageUri ? (
+            <RemoteImage uri={imageUri} style={styles.genderImage} recyclingKey={`discovery-${gender}`} />
+          ) : (
+            <MaterialCommunityIcons
+              name="tshirt-crew"
+              size={44}
+              color={isMale ? 'rgba(255,255,255,0.5)' : 'rgba(155,76,85,0.35)'}
+            />
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -755,8 +898,11 @@ const ProductListScreen = () => {
 
         <View style={styles.titleBlock}>
           <ShopNameLogo compact />
-          <Text style={styles.title} numberOfLines={1}>
-            {screenTitle}
+          <Text
+            style={[styles.title, showDiscoveryExperience && styles.discoveryHeaderTitle]}
+            numberOfLines={1}
+          >
+            {headerTitle}
           </Text>
         </View>
 
@@ -778,10 +924,103 @@ const ProductListScreen = () => {
         onScroll={handleCatalogScroll}
         scrollEventThrottle={16}
       >
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryText}>
-            {isLoading ? 'Đang tải sản phẩm...' : `${totalItems} sản phẩm phù hợp`}
-          </Text>
+        {showDiscoveryExperience ? (
+          <>
+            <Animated.View
+              style={[
+                styles.discoveryHero,
+                {
+                  opacity: heroReveal,
+                  transform: [{
+                    translateY: heroReveal.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
+                  }],
+                },
+              ]}
+            >
+              <View style={styles.heroGlow} />
+              <View style={styles.heroDot} />
+              <View style={styles.heroCopy}>
+                <View style={styles.heroEyebrow}>
+                  <MaterialCommunityIcons name="star-four-points" size={11} color={colors.gold} />
+                  <Text style={styles.heroEyebrowText}>LOOKBOOK 2026</Text>
+                </View>
+                <Text style={styles.heroTitle}>Gu riêng.{"\n"}Chất riêng.</Text>
+                <Text style={styles.heroSubtitle}>Chọn đúng vibe, tìm đúng món dành cho bạn.</Text>
+              </View>
+
+              <View style={styles.garmentStage} pointerEvents="none">
+                <View style={styles.garmentBackCard}>
+                  <MaterialCommunityIcons name="hanger" size={45} color="rgba(255,255,255,0.5)" />
+                </View>
+                <Animated.View
+                  style={[
+                    styles.garmentFrontCard,
+                    {
+                      transform: [{
+                        translateY: garmentFloat.interpolate({ inputRange: [0, 1], outputRange: [3, -5] }),
+                      }, { rotate: '7deg' }],
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="tshirt-crew" size={55} color={colors.brandDark} />
+                  <View style={styles.garmentTag}>
+                    <Text style={styles.garmentTagText}>NEW</Text>
+                  </View>
+                </Animated.View>
+                <MaterialCommunityIcons
+                  name="star-four-points-outline"
+                  size={18}
+                  color={colors.gold}
+                  style={styles.garmentSparkle}
+                />
+              </View>
+            </Animated.View>
+
+            <View style={styles.audienceSection}>
+              <View style={styles.audienceHeading}>
+                <View>
+                  <Text style={styles.sectionEyebrow}>CHỌN TỦ ĐỒ</Text>
+                  <Text style={styles.audienceTitle}>Bạn đang tìm đồ cho ai?</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.allStylesButton, !appliedFilters.gender && styles.allStylesButtonActive]}
+                  onPress={() => selectDiscoveryGender(undefined)}
+                  activeOpacity={0.82}
+                >
+                  <Text style={[
+                    styles.allStylesButtonText,
+                    !appliedFilters.gender && styles.allStylesButtonTextActive,
+                  ]}>
+                    Tất cả
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.genderGrid}>
+                {renderGenderSpotlight('male')}
+                {renderGenderSpotlight('female')}
+              </View>
+            </View>
+          </>
+        ) : null}
+
+        <View style={styles.catalogHeading}>
+          <View style={styles.catalogHeadingCopy}>
+            <Text style={styles.sectionEyebrow}>{selectedGenderLabel}</Text>
+            <Text style={styles.catalogTitle}>{showDiscoveryExperience ? 'Những món đáng thử' : screenTitle}</Text>
+            <Text style={styles.summaryText}>
+              {isLoading ? 'Đang chọn sản phẩm...' : `${totalItems} lựa chọn hợp gu`}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.filterButton} onPress={openFilterSheet} activeOpacity={0.82}>
+            <MaterialCommunityIcons name="tune-variant" size={18} color={colors.brandDark} />
+            <Text style={styles.filterButtonText}>Lọc</Text>
+            {activeFilterCount ? (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -812,47 +1051,32 @@ const ProductListScreen = () => {
           })}
         </ScrollView>
 
-        <View style={styles.filterToolbar}>
-          <TouchableOpacity style={styles.filterButton} onPress={openFilterSheet} activeOpacity={0.82}>
-            <MaterialCommunityIcons name="tune-variant" size={18} color={colors.brand} />
-            <Text style={styles.filterButtonText}>Bộ lọc</Text>
-            {activeFilterCount ? (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
-
-          {activeChips.length ? (
-            <TouchableOpacity style={styles.clearFilterButton} onPress={clearAppliedFilters} activeOpacity={0.82}>
-              <Text style={styles.clearFilterText}>Xóa tất cả</Text>
-            </TouchableOpacity>
-          ) : null}
-
+        {activeChips.length ? (
+          <View style={styles.activeFiltersPanel}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.activeChipRow}
           >
-            {activeChips.length ? (
-              activeChips.map((chip) => (
-                <TouchableOpacity
-                  key={chip.id}
-                  style={styles.activeChip}
-                  onPress={chip.onRemove}
-                  activeOpacity={0.82}
-                >
-                  <Text style={styles.activeChipText} numberOfLines={1}>
-                    {chip.label}
-                  </Text>
-                  <MaterialCommunityIcons name="close" size={15} color={colors.brand} />
-                </TouchableOpacity>
-              ))
-            ) : (
-              <Text style={styles.filterHint}>Chọn nhiều bộ lọc để tìm đúng món hơn</Text>
-            )}
+            {activeChips.map((chip) => (
+              <TouchableOpacity
+                key={chip.id}
+                style={styles.activeChip}
+                onPress={chip.onRemove}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.activeChipText} numberOfLines={1}>
+                  {chip.label}
+                </Text>
+                <MaterialCommunityIcons name="close" size={15} color={colors.brandDark} />
+              </TouchableOpacity>
+            ))}
           </ScrollView>
-        </View>
+            <TouchableOpacity style={styles.clearFilterButton} onPress={clearAppliedFilters} activeOpacity={0.82}>
+              <Text style={styles.clearFilterText}>Xóa</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {isLoading ? (
           <View style={styles.statePanel}>
@@ -884,10 +1108,11 @@ const ProductListScreen = () => {
         ) : (
           <>
             <View style={styles.grid}>
-              {products.map((product) => (
+              {products.map((product, index) => (
                 <View key={product._id} style={styles.gridItem}>
                   <ProductCard
                     product={product}
+                    animationIndex={index}
                     onPress={handleProductPress}
                     onCartPress={handleCartPress}
                   />
@@ -1088,6 +1313,10 @@ const styles = StyleSheet.create({
   title: {
     ...brandedHeaderStyles.title,
   },
+  discoveryHeaderTitle: {
+    fontSize: 20,
+    lineHeight: 25,
+  },
   content: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1096,25 +1325,301 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     paddingBottom: spacing.xxl,
   },
-  summaryRow: {
-    minHeight: 28,
+  discoveryHero: {
+    position: 'relative',
+    minHeight: 152,
+    borderRadius: 22,
+    backgroundColor: colors.brandDark,
+    overflow: 'hidden',
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+    ...shadows.card,
+  },
+  heroGlow: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    right: -58,
+    top: -68,
+    backgroundColor: 'rgba(246,199,107,0.14)',
+  },
+  heroDot: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    right: 142,
+    bottom: 22,
+    backgroundColor: colors.coral,
+  },
+  heroCopy: {
+    width: '60%',
+    zIndex: 2,
+  },
+  heroEyebrow: {
+    alignSelf: 'flex-start',
+    minHeight: 22,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  heroEyebrowText: {
+    color: colors.gold,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  heroTitle: {
+    color: colors.white,
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '900',
+    letterSpacing: -0.8,
+    marginTop: spacing.sm,
+  },
+  heroSubtitle: {
+    maxWidth: 185,
+    color: colors.brandPale,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: spacing.xs,
+  },
+  garmentStage: {
+    position: 'absolute',
+    width: 126,
+    height: 132,
+    right: 8,
+    bottom: 8,
+  },
+  garmentBackCard: {
+    position: 'absolute',
+    width: 80,
+    height: 104,
+    right: 31,
+    top: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(84,119,146,0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-10deg' }],
+  },
+  garmentFrontCard: {
+    position: 'absolute',
+    width: 84,
+    height: 108,
+    right: 4,
+    top: 15,
+    borderRadius: 18,
+    backgroundColor: colors.goldSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.card,
+  },
+  garmentTag: {
+    position: 'absolute',
+    right: -4,
+    top: 10,
+    minWidth: 34,
+    height: 18,
+    borderRadius: radii.pill,
+    backgroundColor: colors.coral,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  summaryText: {
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 18,
+  garmentTagText: {
+    color: colors.white,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  garmentSparkle: {
+    position: 'absolute',
+    right: 4,
+    top: 0,
+  },
+  audienceSection: {
+    marginBottom: spacing.xxl,
+  },
+  audienceHeading: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  sectionEyebrow: {
+    color: colors.coral,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  audienceTitle: {
+    color: colors.brandDark,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+    marginTop: 2,
+  },
+  allStylesButton: {
+    minHeight: 32,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  allStylesButtonActive: {
+    borderColor: colors.brandDark,
+    backgroundColor: colors.brandDark,
+  },
+  allStylesButtonText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  allStylesButtonTextActive: {
+    color: colors.white,
+  },
+  genderGrid: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  genderCard: {
+    position: 'relative',
+    flex: 1,
+    minWidth: 0,
+    height: 108,
+    borderRadius: radii.md,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    overflow: 'hidden',
+  },
+  genderCardMale: {
+    backgroundColor: '#29445A',
+  },
+  genderCardFemale: {
+    backgroundColor: '#F4DFDC',
+  },
+  genderCardActive: {
+    borderColor: colors.goldDark,
+    ...shadows.card,
+  },
+  genderCardCopy: {
+    width: '60%',
+    height: '100%',
+    zIndex: 2,
+    padding: spacing.md,
+    justifyContent: 'center',
+  },
+  genderIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 3,
+  },
+  genderIconFemale: {
+    backgroundColor: 'rgba(155,76,85,0.1)',
+  },
+  genderLabel: {
+    color: colors.white,
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: '900',
+    letterSpacing: 1.3,
+  },
+  genderLabelFemale: {
+    color: '#763D46',
+  },
+  genderCaption: {
+    color: colors.brandPale,
+    fontSize: 8,
+    lineHeight: 11,
     fontWeight: '700',
+    marginTop: 2,
+  },
+  genderCaptionFemale: {
+    color: '#9B5F67',
+  },
+  genderArrow: {
+    position: 'absolute',
+    right: spacing.sm,
+    bottom: spacing.sm,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderArrowFemale: {
+    backgroundColor: 'rgba(255,255,255,0.76)',
+  },
+  genderImageFrame: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: '48%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.96,
+  },
+  genderImage: {
+    width: '100%',
+    height: '100%',
+  },
+  catalogHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  catalogHeadingCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  catalogTitle: {
+    color: colors.brandDark,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
+    letterSpacing: -0.45,
+    marginTop: 1,
+  },
+  summaryText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 2,
   },
   sortRow: {
-    minHeight: 40,
+    minHeight: 38,
     alignItems: 'center',
     gap: spacing.sm,
     paddingRight: spacing.sm,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   sortChip: {
-    minHeight: 36,
+    minHeight: 34,
     borderRadius: radii.pill,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -1126,8 +1631,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   sortChipActive: {
-    backgroundColor: colors.brand,
-    borderColor: colors.brand,
+    backgroundColor: colors.brandDark,
+    borderColor: colors.brandDark,
   },
   sortChipText: {
     color: colors.brand,
@@ -1138,27 +1643,27 @@ const styles = StyleSheet.create({
   sortChipTextActive: {
     color: colors.white,
   },
-  filterToolbar: {
-    minHeight: 48,
+  activeFiltersPanel: {
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     marginBottom: spacing.md,
   },
   filterButton: {
-    height: 38,
-    borderRadius: radii.xs,
+    minHeight: 40,
+    borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.brand,
+    borderColor: colors.brandPale,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
   },
   filterButtonText: {
-    color: colors.brand,
+    color: colors.brandDark,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
@@ -1179,15 +1684,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   clearFilterButton: {
-    height: 38,
-    borderRadius: radii.xs,
-    backgroundColor: colors.brandSoft,
-    paddingHorizontal: spacing.sm,
+    height: 34,
+    borderRadius: radii.pill,
+    backgroundColor: colors.dangerSoft,
+    paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   clearFilterText: {
-    color: colors.brand,
+    color: colors.danger,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
@@ -1202,9 +1707,9 @@ const styles = StyleSheet.create({
     maxWidth: 150,
     height: 34,
     borderRadius: radii.pill,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.brandPale,
+    borderColor: colors.border,
     paddingHorizontal: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1212,24 +1717,18 @@ const styles = StyleSheet.create({
   },
   activeChipText: {
     flexShrink: 1,
-    color: colors.brand,
+    color: colors.brandDark,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
   },
-  filterHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   gridItem: {
-    width: '47.5%',
+    width: '48.6%',
   },
   statePanel: {
     minHeight: 230,

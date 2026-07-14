@@ -188,6 +188,26 @@ export const getOrderDisplayState = (order: CustomerOrder): OrderDisplayState =>
     };
   }
 
+  if (
+    order.returnRequest?.status === 'rejected' &&
+    (order.status === 'delivered' || order.status === 'completed')
+  ) {
+    const isCompleted = order.status === 'completed';
+
+    return {
+      label: 'Trả hàng bị từ chối',
+      description: isCompleted
+        ? 'Đơn đã hoàn tất. Xem phản hồi của shop về yêu cầu trả hàng bên dưới.'
+        : 'Đơn vẫn ở trạng thái đã giao. Xem phản hồi của shop về yêu cầu trả hàng bên dưới.',
+      deliveryLine: 'Shop đã từ chối yêu cầu trả hàng.',
+      icon: 'archive-remove-outline',
+      tone: 'danger',
+      color: colors.danger,
+      backgroundColor: colors.dangerSoft,
+      requiresUserAction: false,
+    };
+  }
+
   if (order.status === 'delivered') {
     return {
       label: 'Đã giao tới bạn',

@@ -437,6 +437,7 @@ const recordRecommendationOrderLifecycle = async (
         order.order_list.map((item) => ({
           sourceId: `${orderId}:${toIdString(item._id)}`,
           productId: toIdString(item.productId),
+          recommendationRequestId: item.recommendationRequestId ?? null,
           variantId: toIdString(item.variantId),
           colorVariantId: toIdString(item.colorVariantId),
           size: item.size,

@@ -13,7 +13,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { colors, radii, spacing } from '../../theme';
 import type { RecommendationItem } from './recommendationApi';
-import { getRecommendationReasonLabel } from './recommendationUtils';
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -49,22 +48,20 @@ const RecommendationRail = ({
   onViewableItemsChanged,
 }: RecommendationRailProps) => {
   const { width } = useWindowDimensions();
-  const cardWidth = Math.min(
-    166,
-    Math.max(144, Math.round((width - spacing.md * 3) / 2.25)),
-  );
+  const cardWidth = Math.min(164, Math.max(148, Math.round(width * 0.4)));
 
   const renderItem = React.useCallback(
-    ({ item }: { item: RecommendationItem }) => {
+    ({ item, index }: { item: RecommendationItem; index: number }) => {
       const product = item.product;
       const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
       const originalPrice = product.originalPrice ?? product.price;
+      const isFeatured = index === 0;
 
       return (
         <TouchableOpacity
           style={[styles.card, { width: cardWidth }]}
           onPress={() => onProductPress(item)}
-          activeOpacity={0.84}
+          activeOpacity={0.88}
           accessibilityRole="button"
           accessibilityLabel={`Xem ${product.name}`}
         >
@@ -80,7 +77,9 @@ const RecommendationRail = ({
             <View style={styles.badgeRow}>
               {product.isSale ? (
                 <View style={styles.saleBadge}>
-                  <Text style={styles.saleBadgeText}>Sale</Text>
+                  <Text style={styles.saleBadgeText}>
+                    {product.discount > 0 ? `-${Math.round(product.discount)}%` : 'SALE'}
+                  </Text>
                 </View>
               ) : null}
               {product.isNew ? (
@@ -89,19 +88,19 @@ const RecommendationRail = ({
                 </View>
               ) : null}
             </View>
+
+            {isFeatured ? (
+              <View style={styles.featuredMark}>
+                <Text style={styles.featuredMarkText}>HỢP NHẤT</Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.cardBody}>
+            <Text style={styles.cardIndex}>{String(index + 1).padStart(2, '0')}</Text>
             <Text style={styles.productName} numberOfLines={2}>
               {product.name}
             </Text>
-
-            <View style={styles.reasonRow}>
-              <MaterialCommunityIcons name="lightbulb-outline" size={13} color={colors.brand} />
-              <Text style={styles.reasonText} numberOfLines={1}>
-                {getRecommendationReasonLabel(item)}
-              </Text>
-            </View>
 
             <View style={styles.priceRow}>
               <View style={styles.priceCopy}>
@@ -112,7 +111,9 @@ const RecommendationRail = ({
                   <Text style={styles.originalPrice}>{formatCurrency(originalPrice)}</Text>
                 ) : null}
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.textMuted} />
+              <View style={styles.openButton}>
+                <MaterialCommunityIcons name="arrow-top-right" size={15} color={colors.white} />
+              </View>
             </View>
           </View>
         </TouchableOpacity>
@@ -124,13 +125,17 @@ const RecommendationRail = ({
   return (
     <View style={styles.section}>
       <View style={styles.header}>
-        <View style={styles.titleIcon}>
-          <MaterialCommunityIcons name="star-four-points-outline" size={18} color={colors.goldDark} />
-        </View>
         <View style={styles.headingCopy}>
+          <Text style={styles.eyebrow}>GỢI Ý CÓ CHỌN LỌC</Text>
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
+        {items.length ? (
+          <View style={styles.itemCount}>
+            <Text style={styles.itemCountNumber}>{items.length}</Text>
+            <Text style={styles.itemCountLabel}>MÓN</Text>
+          </View>
+        ) : null}
       </View>
 
       <View ref={trackingRef} collapsable={false}>
@@ -181,57 +186,85 @@ const RecommendationRail = ({
 const styles = StyleSheet.create({
   section: {
     marginTop: spacing.xl,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.lg,
+    backgroundColor: '#EEF3F1',
+    borderTopWidth: 1,
+    borderTopColor: '#E1E9E6',
   },
   header: {
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
+    minHeight: 58,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  titleIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.sm,
-    backgroundColor: colors.goldSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-end',
+    gap: spacing.md,
   },
   headingCopy: {
     flex: 1,
     minWidth: 0,
   },
+  eyebrow: {
+    color: colors.coral,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    marginBottom: 2,
+  },
   title: {
-    color: colors.black,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '800',
+    color: colors.brandDark,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '900',
+    letterSpacing: -0.45,
   },
   subtitle: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  itemCount: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemCountNumber: {
+    color: colors.brandDark,
+    fontSize: 14,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  itemCountLabel: {
+    color: colors.textMuted,
+    fontSize: 6,
+    lineHeight: 8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   railContent: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   separator: {
     width: spacing.md,
   },
   card: {
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+    alignSelf: 'flex-start',
+    borderRadius: radii.md,
+    borderWidth: 0,
     backgroundColor: colors.surface,
     overflow: 'hidden',
   },
   imageWrap: {
     width: '100%',
-    aspectRatio: 1,
+    aspectRatio: 0.92,
     backgroundColor: colors.brandSoft,
   },
   image: {
@@ -255,8 +288,8 @@ const styles = StyleSheet.create({
   },
   saleBadge: {
     minHeight: 21,
-    borderRadius: radii.xs,
-    backgroundColor: colors.danger,
+    borderRadius: radii.pill,
+    backgroundColor: colors.coral,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
@@ -269,47 +302,61 @@ const styles = StyleSheet.create({
   },
   newBadge: {
     minHeight: 21,
-    borderRadius: radii.xs,
-    backgroundColor: colors.white,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandDark,
     paddingHorizontal: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
   newBadgeText: {
-    color: colors.text,
+    color: colors.white,
     fontSize: 10,
     lineHeight: 14,
     fontWeight: '800',
   },
+  featuredMark: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    minHeight: 21,
+    borderRadius: radii.pill,
+    backgroundColor: colors.gold,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featuredMarkText: {
+    color: colors.brandDark,
+    fontSize: 7,
+    lineHeight: 9,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+  },
   cardBody: {
-    minHeight: 112,
-    padding: spacing.sm,
+    position: 'relative',
+    minHeight: 106,
+    padding: spacing.md,
+  },
+  cardIndex: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.md,
+    color: colors.brandPale,
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: '900',
   },
   productName: {
     minHeight: 36,
-    color: colors.text,
+    maxWidth: '84%',
+    color: colors.brandDark,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
   },
-  reasonRow: {
-    height: 17,
-    marginTop: spacing.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  reasonText: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.brand,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-  },
   priceRow: {
     minHeight: 35,
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -319,7 +366,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   price: {
-    color: colors.text,
+    color: colors.brandDark,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '800',
@@ -329,6 +376,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
     textDecorationLine: 'line-through',
+  },
+  openButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.brandDark,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   unavailableText: {
     color: colors.danger,

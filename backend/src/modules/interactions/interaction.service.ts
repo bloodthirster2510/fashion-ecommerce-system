@@ -344,6 +344,8 @@ const recordPurchaseInteractions = async (
 
   await Promise.all(
     items.map(async (item) => {
+      const recommendationRequestId = item.recommendationRequestId?.trim() || null;
+
       if (!item.sourceId) {
         return recordInteraction({
           userId,
@@ -359,6 +361,7 @@ const recordPurchaseInteractions = async (
             colorVariantId: item.colorVariantId,
             size: item.size,
             quantity: item.quantity,
+            ...(recommendationRequestId ? { recommendationRequestId } : {}),
           },
         });
       }
@@ -375,6 +378,7 @@ const recordPurchaseInteractions = async (
         colorVariantId: item.colorVariantId,
         size: item.size,
         quantity: item.quantity,
+        ...(recommendationRequestId ? { recommendationRequestId } : {}),
       });
 
       const result = await UserProductInteraction.updateOne(
@@ -399,6 +403,17 @@ const recordPurchaseInteractions = async (
         },
         { upsert: true },
       );
+
+      if (!result.upsertedCount && recommendationRequestId) {
+        await UserProductInteraction.updateOne(
+          {
+            userId: userObjectId,
+            actionType: 'purchase',
+            'metadata.sourceId': item.sourceId,
+          },
+          { $set: { 'metadata.recommendationRequestId': recommendationRequestId } },
+        );
+      }
 
       return {
         recorded: Boolean(result.upsertedCount),

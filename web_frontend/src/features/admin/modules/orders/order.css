@@ -893,6 +893,29 @@
   box-shadow: 0 8px 18px rgba(17, 24, 39, 0.18);
 }
 
+.admin-order-tab-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-order-tab-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(17, 24, 39, 0.12);
+}
+
+.admin-order-tab-dot.is-warning {
+  background: #d8a72a;
+}
+
+.admin-order-tab-dot.is-danger {
+  background: #d74c2f;
+}
+
 .admin-order-drawer-body {
   flex: 1;
   min-height: 0;
@@ -926,6 +949,25 @@
   order: 2;
   border-color: #d6e4ee;
   background: #f8fbfd;
+}
+
+.admin-order-process-guidance {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #d6e4ee;
+  border-radius: 8px;
+  color: #285d80;
+  background: #eef6fb;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.admin-order-process-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .admin-order-section-refund {
@@ -1137,6 +1179,57 @@
   border-left: 4px solid #9a3c64;
   border-radius: 10px;
   background: #fffafd;
+}
+
+.admin-return-request-card.is-rejected {
+  border-color: #efb5a7;
+  border-left-color: #9b351e;
+  background: #fff8f6;
+}
+
+.admin-return-review-actions {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #ebd89a;
+  border-radius: 8px;
+  color: #806018;
+  background: #fffaf0;
+}
+
+.admin-return-review-actions > strong {
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.admin-return-review-actions > button {
+  justify-self: start;
+}
+
+.admin-return-decision {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.admin-return-decision strong {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.admin-return-decision span {
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.admin-return-decision.is-rejected {
+  border-color: #efb5a7;
+  color: #9b351e;
+  background: #fff2ee;
 }
 
 .admin-return-request-card p {

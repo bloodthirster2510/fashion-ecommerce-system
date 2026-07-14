@@ -2,7 +2,7 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export type UserRole = 'admin' | 'staff' | 'user';
 export type UserGender = 'male' | 'female';
-export type AuthProviderName = 'google' | 'facebook' | 'apple';
+export type AuthProviderName = 'google' | 'facebook';
 export type StaffPermission =
   | 'products.read'
   | 'products.write'
@@ -117,7 +117,7 @@ const userAddressSchema = new Schema<IUserAddress>(
 
 const authProviderSchema = new Schema<IUserAuthProvider>(
   {
-    provider: { type: String, enum: ['google', 'facebook', 'apple'], required: true },
+    provider: { type: String, enum: ['google', 'facebook'], required: true },
     providerId: { type: String, required: true, trim: true },
   },
   { _id: false },

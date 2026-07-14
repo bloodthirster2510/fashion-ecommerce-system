@@ -145,14 +145,14 @@ const SIMILAR_SCORE_WEIGHTS = {
 };
 
 const CART_SCORE_WEIGHTS = {
-  complementaryRole: 0.55,
-  styleCompatibility: 0.20,
-  popularity: 0.15,
-  business: 0.10,
+  complementaryRole: 0.75,
+  styleCompatibility: 0.10,
+  popularity: 0.10,
+  business: 0.05,
 };
 
 const CART_ROLE_COMPATIBILITY: Record<OutfitRole, Record<OutfitRole, number>> = {
-  top: { top: 0.1, bottom: 1, dress: 0.15, set: 0.2, shoes: 0.75, accessory: 0.55, outerwear: 0.7 },
+  top: { top: 0.1, bottom: 1, dress: 0.15, set: 0.2, shoes: 0.55, accessory: 0.55, outerwear: 0.7 },
   bottom: { top: 1, bottom: 0.1, dress: 0.15, set: 0.2, shoes: 0.75, accessory: 0.5, outerwear: 0.65 },
   dress: { top: 0.2, bottom: 0.2, dress: 0.1, set: 0.15, shoes: 1, accessory: 0.7, outerwear: 0.8 },
   set: { top: 0.2, bottom: 0.2, dress: 0.15, set: 0.1, shoes: 1, accessory: 0.7, outerwear: 0.8 },

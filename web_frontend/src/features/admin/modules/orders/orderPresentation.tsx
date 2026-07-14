@@ -107,6 +107,22 @@ export const orderTabs: OrderTab[] = [
     queue: 'delivery',
   },
   {
+    key: 'blocked',
+    label: 'Chờ thanh toán',
+    helper: 'Đơn online chưa paid hoặc thanh toán lỗi, cần khách hoàn tất hoặc nhân viên đối soát.',
+    group: 'exceptions',
+    statuses: ['confirmed', 'packed', 'shipping', 'delivered'],
+    queue: 'blocked',
+  },
+  {
+    key: 'payment-deadline',
+    label: 'Thanh toán sắp quá hạn',
+    helper: 'Đơn online chưa thanh toán sẽ tự hủy khi quá hạn 3 ngày.',
+    group: 'exceptions',
+    statuses: ['confirmed'],
+    queue: 'payment-deadline',
+  },
+  {
     key: 'review',
     label: 'Xử lý trả hàng',
     helper: 'Duyệt yêu cầu mới và theo dõi các đơn đã duyệt đang chờ shop nhận lại hàng.',
@@ -122,14 +138,6 @@ export const orderTabs: OrderTab[] = [
     statuses: ['cancelled', 'returned'],
     paymentStatus: 'paid',
     queue: 'refund',
-  },
-  {
-    key: 'payment-deadline',
-    label: 'Thanh toán sắp quá hạn',
-    helper: 'Đơn online chưa thanh toán sẽ tự hủy khi quá hạn 3 ngày.',
-    group: 'exceptions',
-    statuses: ['confirmed'],
-    queue: 'payment-deadline',
   },
   {
     key: 'all',
@@ -148,8 +156,15 @@ export const orderTabGroups: Array<{
   { key: 'lookup', label: 'Tra cứu' },
 ]
 
-export const resolveInitialTabKey = (value: string | undefined, lockPaymentSection: boolean) =>
-  orderTabs.some((tab) => tab.key === value) ? value as string : lockPaymentSection ? 'packing' : 'all'
+export const resolveInitialTabKey = (
+  value: string | undefined,
+  lockPaymentSection: boolean,
+  paymentSection: PaymentSectionKey = 'all',
+) => {
+  if (orderTabs.some((tab) => tab.key === value)) return value as string
+  if (!lockPaymentSection) return 'all'
+  return paymentSection === 'online' ? 'blocked' : 'packing'
+}
 
 export const statusLabels: Record<AdminOrderStatus, string> = {
   confirmed: 'Chờ xử lý',
@@ -391,6 +406,24 @@ export const getOrderPillClass = (status: AdminOrderStatus) => {
   if (status === 'returned') return 'admin-status-pill is-refund'
   if (status === 'cancelled') return 'admin-status-pill is-blocked'
   return 'admin-status-pill is-warning'
+}
+
+export const hasRejectedReturnRequest = (order: Pick<AdminOrder, 'status' | 'returnRequest'>) =>
+  order.returnRequest?.status === 'rejected' &&
+  (order.status === 'delivered' || order.status === 'completed')
+
+export const getOrderDisplayStatus = (order: Pick<AdminOrder, 'status' | 'returnRequest'>) => {
+  if (hasRejectedReturnRequest(order)) {
+    return {
+      className: 'admin-status-pill is-blocked',
+      label: 'Trả hàng bị từ chối',
+    }
+  }
+
+  return {
+    className: getOrderPillClass(order.status),
+    label: statusLabels[order.status],
+  }
 }
 
 export const getReturnRequestPillClass = (status: AdminReturnRequestStatus) => {

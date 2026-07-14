@@ -822,12 +822,12 @@ const ProductDetailScreen = () => {
   const realAverageRating = publicReviewSummary?.averageRating ?? 0;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       {renderHeader()}
 
       <ScrollView
         style={styles.content}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 122 + insets.bottom }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={checkRecommendationVisibility}
         scrollEventThrottle={100}
@@ -1117,8 +1117,8 @@ const ProductDetailScreen = () => {
         </View>
 
         <RecommendationRail
-          title="Sản phẩm tương tự"
-          subtitle="Gần với kiểu dáng, màu sắc hoặc khoảng giá của sản phẩm này"
+          title="Phối tiếp gu này"
+          subtitle="Những lựa chọn cùng tinh thần với món bạn đang xem"
           items={recommendationItems}
           isLoading={isRecommendationLoading}
           trackingRef={recommendationSectionRef}
@@ -1204,7 +1204,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: spacing.xl,
+    paddingBottom: 0,
   },
   breadcrumb: {
     minHeight: 31,
@@ -1921,10 +1921,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     minHeight: 76,
     borderTopWidth: 1,
     borderTopColor: colors.border,

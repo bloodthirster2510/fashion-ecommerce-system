@@ -813,12 +813,34 @@ const OrderDetailScreen = () => {
     (paymentDeadlineRemainingMs === null || paymentDeadlineRemainingMs > 0);
   const usesVNPay = order.paymentMethod === 'VNPAY';
   const preferredRefundMethod = getPreferredRefundMethod(refundMethods);
+  const returnRequestStatus = order.returnRequest?.status;
+  const isReturnRejected = returnRequestStatus === 'rejected';
+  const returnRequestColor = isReturnRejected
+    ? colors.danger
+    : returnRequestStatus === 'approved'
+      ? colors.action
+      : colors.coral;
+  const returnRequestBackground = isReturnRejected
+    ? colors.dangerSoft
+    : returnRequestStatus === 'approved'
+      ? '#EAF3FF'
+      : '#FFF0EA';
+  const returnRequestIcon = isReturnRejected
+    ? 'archive-remove-outline'
+    : returnRequestStatus === 'approved'
+      ? 'archive-arrow-up-outline'
+      : 'archive-clock-outline';
   const showRefundSupport =
-    canReturn ||
-    Boolean(order.returnRequest) ||
-    order.status === 'cancelled' ||
-    order.status === 'returned' ||
-    order.paymentStatus === 'refunded';
+    order.paymentStatus === 'refunded' ||
+    (
+      !isReturnRejected &&
+      (
+        canReturn ||
+        Boolean(order.returnRequest) ||
+        order.status === 'cancelled' ||
+        order.status === 'returned'
+      )
+    );
   const showRefundAmount =
     (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded') &&
     (
@@ -831,7 +853,6 @@ const OrderDetailScreen = () => {
     if (order.paymentStatus === 'refunded') return 'Đã hoàn tiền';
     if (order.returnRequest?.status === 'requested') return 'Đang chờ shop duyệt';
     if (order.returnRequest?.status === 'approved') return 'Đã duyệt trả hàng';
-    if (order.returnRequest?.status === 'rejected') return 'Yêu cầu chưa được duyệt';
     if (order.status === 'cancelled' && order.paymentStatus === 'paid') return 'Chờ shop hoàn tiền';
     if (order.status === 'returned' && order.paymentStatus === 'paid') return 'Chờ shop hoàn tiền';
     if (canReturn) return 'Có thể gửi yêu cầu';
@@ -850,9 +871,6 @@ const OrderDetailScreen = () => {
       return usesVNPay
         ? 'Yêu cầu đã được duyệt. Hãy gửi hàng về shop; sau khi xác nhận nhận hàng, khoản hoàn sẽ được xử lý qua VNPay về phương thức thanh toán ban đầu.'
         : 'Yêu cầu đã được duyệt. Hãy gửi hàng về shop; sau khi xác nhận nhận hàng, shop sẽ hoàn tiền theo tài khoản bạn đã lưu.';
-    }
-    if (order.returnRequest?.status === 'rejected') {
-      return 'Yêu cầu chưa được duyệt. Bạn vẫn có thể tạo phiếu hỗ trợ nếu cần trao đổi thêm với shop.';
     }
     if ((order.status === 'cancelled' || order.status === 'returned') && order.paymentStatus === 'paid') {
       return usesVNPay
@@ -931,7 +949,7 @@ const OrderDetailScreen = () => {
             <Text style={styles.heroDate} numberOfLines={1}>Ngày đặt: {formatDate(order.createdAt)}</Text>
           </View>
 
-          <Text style={styles.heroDelivery}>
+          <Text style={[styles.heroDelivery, { color: displayState.color }]}>
             {displayState.deliveryLine}
           </Text>
         </View>
@@ -959,7 +977,12 @@ const OrderDetailScreen = () => {
         ) : null}
 
         {!actionState ? (
-          <View style={[styles.statusCallout, { backgroundColor: displayState.backgroundColor }]}>
+          <View
+            style={[
+              styles.statusCallout,
+              { backgroundColor: displayState.backgroundColor, borderColor: displayState.color },
+            ]}
+          >
             <MaterialCommunityIcons
               name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
               size={20}
@@ -998,19 +1021,35 @@ const OrderDetailScreen = () => {
         ) : null}
 
         {order.returnRequest ? (
-          <View style={styles.returnRequestCard}>
+          <View
+            style={[
+              styles.returnRequestCard,
+              {
+                backgroundColor: returnRequestBackground,
+                borderColor: returnRequestColor,
+              },
+            ]}
+          >
             <View style={styles.returnRequestHeader}>
-              <MaterialCommunityIcons name="archive-refresh-outline" size={22} color={colors.brand} />
+              <MaterialCommunityIcons
+                name={returnRequestIcon as keyof typeof MaterialCommunityIcons.glyphMap}
+                size={22}
+                color={returnRequestColor}
+              />
               <View style={styles.returnRequestTitleGroup}>
                 <Text style={styles.returnRequestTitle}>Yêu cầu trả hàng</Text>
-                <Text style={styles.returnRequestStatus}>
+                <Text style={[styles.returnRequestStatus, { color: returnRequestColor }]}>
                   {returnRequestStatusLabels[order.returnRequest.status] ?? order.returnRequest.status}
                 </Text>
               </View>
             </View>
+            <Text style={styles.returnRequestFieldLabel}>Lý do của bạn</Text>
             <Text style={styles.returnRequestReason}>{order.returnRequest.reason}</Text>
             {order.returnRequest.reviewReason ? (
-              <Text style={styles.returnRequestReview}>{order.returnRequest.reviewReason}</Text>
+              <View style={styles.returnRequestReviewGroup}>
+                <Text style={[styles.returnRequestFieldLabel, { color: returnRequestColor }]}>Phản hồi từ shop</Text>
+                <Text style={styles.returnRequestReview}>{order.returnRequest.reviewReason}</Text>
+              </View>
             ) : null}
             {order.returnRequest.imageUrls?.length ? (
               <View style={styles.evidenceUrlGrid}>
@@ -1018,6 +1057,17 @@ const OrderDetailScreen = () => {
                   <Image key={imageUrl} source={{ uri: imageUrl }} style={styles.evidenceUrlImage} resizeMode="cover" />
                 ))}
               </View>
+            ) : null}
+            {isReturnRejected ? (
+              <TouchableOpacity
+                style={[styles.returnRequestSupportButton, { borderColor: returnRequestColor }]}
+                onPress={() => handleSupportAction('issue')}
+                activeOpacity={0.82}
+              >
+                <MaterialCommunityIcons name="message-alert-outline" size={18} color={returnRequestColor} />
+                <Text style={[styles.returnRequestSupportButtonText, { color: returnRequestColor }]}>Trao đổi với shop</Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={returnRequestColor} />
+              </TouchableOpacity>
             ) : null}
           </View>
         ) : null}
@@ -1396,6 +1446,7 @@ const styles = StyleSheet.create({
   },
   statusCallout: {
     borderRadius: radii.sm,
+    borderWidth: 1,
     padding: spacing.md,
     flexDirection: 'row',
     gap: spacing.sm,
@@ -1447,10 +1498,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  returnRequestReview: {
+  returnRequestFieldLabel: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  returnRequestReviewGroup: {
+    gap: spacing.xs,
+  },
+  returnRequestReview: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  returnRequestSupportButton: {
+    minHeight: 42,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  returnRequestSupportButtonText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '900',
   },
   returnHelpCard: {
     borderRadius: radii.sm,

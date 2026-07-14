@@ -82,7 +82,9 @@ export function useOrderListData({
   const [keywordInput, setKeywordInput] = useState(savedLookupView?.keywordInput ?? '')
   const [keyword, setKeyword] = useState(savedLookupView?.keywordInput?.trim() ?? '')
   const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
-  const [activeTabKey, setActiveTabKey] = useState(() => resolveInitialTabKey(initialTabKey, lockPaymentSection))
+  const [activeTabKey, setActiveTabKey] = useState(() => (
+    resolveInitialTabKey(initialTabKey, lockPaymentSection, paymentSection)
+  ))
   const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>(savedLookupView?.paymentMethod ?? 'all')
   const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>(savedLookupView?.paymentStatus ?? 'all')
   const [dateFrom, setDateFrom] = useState(() => (lockPaymentSection ? '' : savedLookupView?.dateFrom ?? getDefaultLookupDateFrom()))
@@ -118,7 +120,7 @@ export function useOrderListData({
     setDateTo(currentSavedLookupView?.dateTo ?? '')
     setSort(currentSavedLookupView?.sort ?? 'created_desc')
     setVisibleColumns(normalizeVisibleColumns(currentSavedLookupView?.visibleColumns))
-    setActiveTabKey(resolveInitialTabKey(initialTabKey, lockPaymentSection))
+    setActiveTabKey(resolveInitialTabKey(initialTabKey, lockPaymentSection, paymentSection))
     setPage(1)
   }, [initialTabKey, lockPaymentSection, paymentSection])
 

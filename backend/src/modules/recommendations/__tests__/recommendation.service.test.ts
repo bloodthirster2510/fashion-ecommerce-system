@@ -147,6 +147,7 @@ describe('recommendation ranking', () => {
 
   it('prioritizes missing complementary roles over roles already in the cart', () => {
     expect(getCartComplementaryRoleScore(['top'], 'bottom')).toBe(1);
+    expect(getCartComplementaryRoleScore(['top'], 'shoes')).toBe(0.55);
     expect(getCartComplementaryRoleScore(['top', 'bottom'], 'shoes')).toBe(0.75);
     expect(getCartComplementaryRoleScore(['top', 'bottom'], 'top')).toBe(0.2);
   });
@@ -157,13 +158,30 @@ describe('recommendation ranking', () => {
       styleCompatibility: 0,
       popularity: 0,
       business: 0,
-    })).toBeCloseTo(0.55);
+    })).toBeCloseTo(0.75);
     expect(calculateCartRecommendationScore({
       complementaryRole: 0,
       styleCompatibility: 1,
       popularity: 1,
       business: 1,
-    })).toBeCloseTo(0.45);
+    })).toBeCloseTo(0.25);
+  });
+
+  it('keeps trousers ahead of shoes for a top-only cart', () => {
+    const trousersScore = calculateCartRecommendationScore({
+      complementaryRole: getCartComplementaryRoleScore(['top'], 'bottom'),
+      styleCompatibility: 0.4,
+      popularity: 0,
+      business: 0,
+    });
+    const shoesScore = calculateCartRecommendationScore({
+      complementaryRole: getCartComplementaryRoleScore(['top'], 'shoes'),
+      styleCompatibility: 1,
+      popularity: 1,
+      business: 1,
+    });
+
+    expect(trousersScore).toBeGreaterThan(shoesScore);
   });
 
   it('uses preference once in the balanced personal score', () => {

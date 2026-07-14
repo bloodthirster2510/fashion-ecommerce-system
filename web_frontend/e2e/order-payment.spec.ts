@@ -3,6 +3,23 @@ import {
   getVNPayReconcileNotice,
   getVNPayRefundNotice,
 } from '../src/features/admin/modules/orders/utils/vnpayReconcile'
+import type { AdminOrder } from '../src/features/admin/modules/orders/orderAdminApi'
+import { resolveInitialTabKey } from '../src/features/admin/modules/orders/orderPresentation'
+import { getOrderQueue } from '../src/features/admin/modules/orders/utils/orderQueue'
+
+const pendingVNPayOrder = {
+  status: 'confirmed',
+  paymentMethod: 'VNPAY',
+  paymentStatus: 'pending',
+} as AdminOrder
+
+test('pending VNPay orders stay visible in the payment queue', () => {
+  expect(getOrderQueue(pendingVNPayOrder)).toBe('blocked')
+})
+
+test('online order operations open the payment queue by default', () => {
+  expect(resolveInitialTabKey(undefined, true, 'online')).toBe('blocked')
+})
 
 test('VNPay refund request stays a warning while the gateway is processing it', () => {
   expect(getVNPayRefundNotice('pending')).toEqual({

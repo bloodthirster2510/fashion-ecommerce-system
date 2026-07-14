@@ -25,7 +25,7 @@ export function OrderOverviewPanel({
         <div className="admin-detail-card is-order">
           <span>Trạng thái đơn</span>
           <strong>
-            <OrderStatusPill status={order.status} />
+            <OrderStatusPill order={order} />
           </strong>
         </div>
         <div className="admin-detail-card is-payment">

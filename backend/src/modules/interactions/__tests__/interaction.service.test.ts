@@ -38,7 +38,10 @@ jest.mock('../../../database/models', () => ({
 }));
 
 const mockedProduct = Product as unknown as { exists: jest.Mock };
-const mockedInteraction = UserProductInteraction as unknown as { create: jest.Mock };
+const mockedInteraction = UserProductInteraction as unknown as {
+  create: jest.Mock;
+  updateOne: jest.Mock;
+};
 
 describe('interactionService', () => {
   const originalEnabled = process.env.INTERACTION_TRACKING_ENABLED;
@@ -53,6 +56,7 @@ describe('interactionService', () => {
     process.env.INTERACTION_TRACKING_ENABLED = 'true';
     mockedProduct.exists.mockResolvedValue({ _id: productId });
     mockedInteraction.create.mockResolvedValue({ _id: interactionId });
+    mockedInteraction.updateOne.mockResolvedValue({ upsertedCount: 1, upsertedId: interactionId });
   });
 
   afterAll(() => {
@@ -133,5 +137,58 @@ describe('interactionService', () => {
     ).resolves.toEqual({ recorded: false, skippedReason: 'tracking_disabled' });
 
     expect(mockedInteraction.create).not.toHaveBeenCalled();
+  });
+
+  it('persists recommendation attribution on paid purchase interactions', async () => {
+    const result = await interactionService.recordPurchaseInteractions(
+      userId.toString(),
+      [{
+        sourceId: 'order:item',
+        productId: productId.toString(),
+        recommendationRequestId: 'rec_paid_123',
+        quantity: 2,
+      }],
+      { orderId: 'order', orderCode: 'FSORDER' },
+    );
+
+    expect(mockedInteraction.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        actionType: 'purchase',
+        'metadata.sourceId': 'order:item',
+      }),
+      {
+        $setOnInsert: expect.objectContaining({
+          productId,
+          metadata: expect.objectContaining({
+            recommendationRequestId: 'rec_paid_123',
+          }),
+        }),
+      },
+      { upsert: true },
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('backfills recommendation attribution without duplicating a paid interaction', async () => {
+    mockedInteraction.updateOne
+      .mockResolvedValueOnce({ upsertedCount: 0 })
+      .mockResolvedValueOnce({ matchedCount: 1 });
+
+    const result = await interactionService.recordPurchaseInteractions(
+      userId.toString(),
+      [{
+        sourceId: 'order:item',
+        productId: productId.toString(),
+        recommendationRequestId: 'rec_paid_123',
+      }],
+    );
+
+    expect(mockedInteraction.updateOne).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ 'metadata.sourceId': 'order:item' }),
+      { $set: { 'metadata.recommendationRequestId': 'rec_paid_123' } },
+    );
+    expect(result).toBeUndefined();
   });
 });
