@@ -9,7 +9,10 @@ const AUDIT_LOG_ACTIONS: AuditLogAction[] = [
   'order.shipping_webhook',
   'payment.adjust',
   'payment.expire',
+  'payment.vnpay_reconcile',
+  'payment.vnpay_refund',
   'payment_method.status_update',
+  'storefront_settings.update',
 ];
 
 const parseString = (value: unknown) => {

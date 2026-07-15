@@ -11,6 +11,7 @@ import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator
 import { AuthProvider } from './features/auth/AuthContext';
 import { subscribeToSupportNotifications } from './features/support/supportNotifications';
 import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
+import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -78,23 +79,34 @@ const App = () => {
       if (navigationRef.isReady()) navigationRef.navigate('SupportTicketDetail', { ticketId });
     }, (orderId) => {
       if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { orderId });
+    }, ({ jobId, destination }) => {
+      if (!navigationRef.isReady()) return;
+      if (destination === 'result' && jobId) {
+        navigationRef.navigate('VirtualTryOnResult', { jobId });
+      } else if (destination === 'processing' && jobId) {
+        navigationRef.navigate('VirtualTryOnProcessing', { jobId });
+      } else {
+        navigationRef.navigate('VirtualTryOnHome');
+      }
     }).then((cleanup) => { unsubscribe = cleanup; }).catch(() => undefined);
     return () => unsubscribe?.();
   }, []);
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer
-        ref={navigationRef}
-        onReady={resetRootToHome}
-        onUnhandledAction={handleUnhandledNavigationAction}
-      >
-        <AuthProvider>
-          <CustomerNotificationProvider>
-            <AppNavigator />
-          </CustomerNotificationProvider>
-        </AuthProvider>
-      </NavigationContainer>
+      <StorefrontSettingsProvider>
+        <NavigationContainer
+          ref={navigationRef}
+          onReady={resetRootToHome}
+          onUnhandledAction={handleUnhandledNavigationAction}
+        >
+          <AuthProvider>
+            <CustomerNotificationProvider>
+              <AppNavigator />
+            </CustomerNotificationProvider>
+          </AuthProvider>
+        </NavigationContainer>
+      </StorefrontSettingsProvider>
     </SafeAreaProvider>
   );
 };

@@ -12,6 +12,7 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
+import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
@@ -35,10 +36,10 @@ const statusLabel: Record<VirtualTryOnJob['status'], string> = {
 };
 
 const getJobPreviewUrl = (job: VirtualTryOnJob) =>
-  job.generatedImageUrls?.[0] || job.generatedImageUrl || job.sourceImageUrl;
+  getGeneratedTryOnImageUrls(job)[0] || job.sourceImageUrl;
 
 const getJobImageCount = (job: VirtualTryOnJob) =>
-  job.generatedImageUrls?.length || (job.generatedImageUrl ? 1 : 0);
+  getGeneratedTryOnImageUrls(job).length;
 
 const isSourceAsset = (asset: VirtualTryOnAsset) =>
   asset.type === 'source_upload' || asset.type === 'source_camera';
@@ -419,7 +420,7 @@ const VirtualTryOnHomeScreen = () => {
   };
 
   const openJob = (job: VirtualTryOnJob) => {
-    if (job.status === 'succeeded') {
+    if (job.status === 'succeeded' && getGeneratedTryOnImageUrls(job).length > 0) {
       navigation.navigate('VirtualTryOnResult', { jobId: job._id });
       return;
     }
@@ -461,8 +462,7 @@ const VirtualTryOnHomeScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Phòng phối đồ ảo</Text>
+          <Text style={styles.headerTitle}>Phối đồ ảo</Text>
         </View>
         <TouchableOpacity
           style={styles.headerButton}
@@ -825,46 +825,33 @@ const styles = StyleSheet.create({
     backgroundColor: studioPalette.header,
   },
   header: {
-    minHeight: 82,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    minHeight: 60,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: studioPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
-    paddingHorizontal: spacing.md,
-  },
-  headerKicker: {
-    color: studioPalette.headerSoft,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    minWidth: 0,
+    paddingHorizontal: spacing.sm,
   },
   headerTitle: {
     color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
-  },
-  headerSubtitle: {
-    color: colors.brandPale,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
-    marginTop: 2,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   content: {
     flex: 1,

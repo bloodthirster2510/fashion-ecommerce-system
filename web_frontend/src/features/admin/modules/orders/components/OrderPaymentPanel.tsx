@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react'
 import type { AdminOrder, AdminOrderPaymentStatus, AdminTransaction } from '../orderAdminApi'
 import {
   formatCurrency,
@@ -12,6 +13,7 @@ type OrderPaymentPanelProps = {
   order: AdminOrder
   transactions: AdminTransaction[]
   onAdjustPaymentStatus: (status: AdminOrderPaymentStatus) => void
+  onReconcileVNPay: () => void
   onRefresh: () => void
 }
 
@@ -21,16 +23,30 @@ export function OrderPaymentPanel({
   order,
   transactions,
   onAdjustPaymentStatus,
+  onReconcileVNPay,
   onRefresh,
 }: OrderPaymentPanelProps) {
   return (
     <>
-      <section className="admin-drawer-section admin-order-section-side admin-order-section-payments">
+      <section className="admin-drawer-section admin-order-section-main admin-order-section-payments">
         <div className="admin-section-inline-heading">
           <h3>Lượt thanh toán</h3>
-          <button className="admin-link-button" type="button" onClick={onRefresh}>
-            Tải lại
-          </button>
+          <div className="admin-drawer-actions">
+            {order.paymentMethod === 'VNPAY' ? (
+              <button
+                className="admin-secondary-button"
+                type="button"
+                disabled={!canAdjustPayments || isActionLoading}
+                onClick={onReconcileVNPay}
+              >
+                <RefreshCw size={15} aria-hidden="true" />
+                Đối soát VNPay
+              </button>
+            ) : null}
+            <button className="admin-link-button" type="button" onClick={onRefresh}>
+              Tải lại
+            </button>
+          </div>
         </div>
         {transactions.length === 0 ? (
           <p className="admin-muted-text">Chưa có giao dịch cho đơn này.</p>
@@ -39,7 +55,9 @@ export function OrderPaymentPanel({
             {transactions.map((transaction) => (
               <article className="admin-payment-attempt" key={transaction._id}>
                 <header>
-                  <strong>Lượt #{transaction.attemptNo ?? '?'}</strong>
+                  <strong>
+                    {transaction.paymentDetail?.vnp_Command === 'refund' ? 'Hoàn tiền' : 'Lượt thanh toán'} #{transaction.attemptNo ?? '?'}
+                  </strong>
                   <span className={transaction.status === 'success' ? 'is-success' : transaction.status === 'pending' ? 'is-pending' : 'is-failed'}>
                     {transactionStatusLabels[transaction.status]}
                   </span>

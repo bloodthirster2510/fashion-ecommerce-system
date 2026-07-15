@@ -53,9 +53,16 @@ export const uploadToCloudinary = async (
 
 
 //Delete file from Cloudinary
-export const deleteFromCloudinary = async (publicId: string): Promise<void> => {
+export const deleteFromCloudinary = async (
+  publicId: string,
+  resourceType: CloudinaryResourceType = 'image',
+): Promise<void> => {
   try {
-    await cloudinary.uploader.destroy(publicId);
+    if (resourceType === 'video') {
+      await cloudinary.uploader.destroy(publicId, { resource_type: 'video' });
+    } else {
+      await cloudinary.uploader.destroy(publicId);
+    }
   } catch (error) {
     console.error('Error deleting from Cloudinary:', error);
     throw new Error(`Failed to delete from Cloudinary: ${error instanceof Error ? error.message : 'Unknown error'}`);

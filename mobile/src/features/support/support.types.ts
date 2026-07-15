@@ -21,9 +21,12 @@ export type SupportTicket = {
   requiresReply: boolean;
   orderId?: string | null;
   couponCode?: string | null;
+  context?: { source: string; appPlatform?: string; appVersion?: string; screen?: string; errorCode?: string } | null;
   lastMessageAt: string;
   lastMessageSender: 'customer' | 'staff';
+  reopenDeadline?: string | null;
   createdAt: string;
+  updatedAt?: string;
 };
 
 export type SupportMessage = {
@@ -36,4 +39,4 @@ export type SupportMessage = {
 
 export type SupportTicketDetail = { ticket: SupportTicket; messages: SupportMessage[] };
 export type SupportSummary = { unreadReplies: number; waitingCustomer: number; total: number };
-export type SupportImage = { uri: string; name: string; type: string };
+export type SupportImage = { uri: string; name: string; type: string; size?: number };

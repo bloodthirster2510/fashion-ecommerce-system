@@ -226,7 +226,7 @@ const createPersistentRateLimitMiddleware = ({
             resetAt: { $cond: [{ $gt: ['$resetAt', now] }, '$resetAt', nextResetAt] },
           },
         }],
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       ).lean<{ count: number; resetAt: Date }>();
 
     let bucket;

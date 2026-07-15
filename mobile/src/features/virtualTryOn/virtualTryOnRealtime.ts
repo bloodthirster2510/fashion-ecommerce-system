@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE_URLS } from '../../config/api';
+import type { TryOnProcessingStage, TryOnVideoStatus } from './virtualTryOn.types';
 
 export type VirtualTryOnRealtimeEvent = {
   type: 'queued' | 'processing' | 'progress' | 'succeeded' | 'failed' | 'canceled';
   jobId: string;
   status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled';
   progress: number;
+  processingStage?: TryOnProcessingStage;
   generatedImageUrl?: string | null;
   generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
+  videoStatus?: TryOnVideoStatus;
+  videoProgress?: number;
+  videoErrorCode?: string | null;
+  videoErrorMessage?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
   at: string;

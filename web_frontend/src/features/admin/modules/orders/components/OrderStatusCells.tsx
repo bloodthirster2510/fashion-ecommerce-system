@@ -76,7 +76,7 @@ export function OrderFulfillmentCell({ order }: { order: AdminOrder }) {
 
   return (
     <div className="admin-order-status-cell admin-order-status-cell--combined">
-      <OrderStatusPill status={order.status} />
+      <OrderStatusPill order={order} />
       <OrderProgressRail compact shippingStatus={order.shipping?.status} status={order.status} />
       <small className="admin-order-status-subline">
         <span className={getPaymentPillClass(order.paymentStatus)}>

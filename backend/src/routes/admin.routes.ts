@@ -18,9 +18,12 @@ import notificationSummaryRouter from '../modules/admin/notifications/notificati
 import adminSupportRouter from '../modules/admin/support/admin-support.routes';
 import adminVirtualTryOnRouter from '../modules/virtual-try-on/virtual-try-on.admin.route';
 import adminRecommendationRouter from '../modules/recommendations/recommendation.admin.route';
+import dashboardRouter from '../modules/admin/dashboard/dashboard.routes';
+import { adminStorefrontSettingsRouter } from '../modules/storefront-settings/storefront-settings.route';
 
 const adminRouter = Router();
 
+adminRouter.use('/dashboard', dashboardRouter);
 adminRouter.use('/brands', adminBrandRouter);
 adminRouter.use('/categories', adminCategoryRouter);
 adminRouter.use('/products', adminProductRouter);
@@ -39,6 +42,7 @@ adminRouter.use('/notifications', notificationSummaryRouter);
 adminRouter.use('/support', adminSupportRouter);
 adminRouter.use('/virtual-try-on', adminVirtualTryOnRouter);
 adminRouter.use('/recommendations', adminRecommendationRouter);
+adminRouter.use('/settings/storefront', adminStorefrontSettingsRouter);
 adminRouter.use('/', adminPaymentMethodRouter);
 
 export default adminRouter;

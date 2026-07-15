@@ -2,13 +2,14 @@ import React from 'react';
 import { Alert, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { supportApi } from './supportApi';
 import { useSupportRealtime } from './supportSocket';
-import type { SupportMessage, SupportTicket, SupportTicketDetail } from './support.types';
+import type { SupportImage, SupportMessage, SupportTicket, SupportTicketDetail } from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 
@@ -24,11 +25,14 @@ export default function SupportTicketDetailScreen() {
   const [liveMessages, setLiveMessages] = React.useState<SupportMessage[]>([]);
   const [liveTicket, setLiveTicket] = React.useState<SupportTicket | null>(null);
   const [reply, setReply] = React.useState('');
+  const [images, setImages] = React.useState<SupportImage[]>([]);
   const [error, setError] = React.useState('');
   const [sending, setSending] = React.useState(false);
   const [reopening, setReopening] = React.useState(false);
   const [staffTyping, setStaffTyping] = React.useState(false);
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendingRef = React.useRef(false);
+  const reopeningRef = React.useRef(false);
 
   const load = React.useCallback(async () => {
     try {
@@ -71,17 +75,28 @@ export default function SupportTicketDetailScreen() {
   }, [ticketId, realtime]);
 
   const send = async () => {
-    if (!reply.trim()) return;
-    setSending(true);
+    if (!reply.trim() || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
     try {
-      await runWithAuth((token) => supportApi.addMessage(token, ticketId, reply.trim(), []));
+      await runWithAuth((token) => supportApi.addMessage(token, ticketId, reply.trim(), images));
       setReply('');
+      setImages([]);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể gửi tin nhắn.');
     } finally {
-      setSending(false);
+      sendingRef.current = false; setSending(false);
     }
+  };
+
+  const chooseImages = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 3, quality: 0.85 });
+    if (result.canceled) return;
+    if (result.assets.length > 3) { setError('Chỉ được chọn tối đa 3 ảnh.'); return; }
+    if (result.assets.some((asset) => !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType || ''))) { setError('Chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.'); return; }
+    if (result.assets.some((asset) => (asset.fileSize ?? 0) > 5 * 1024 * 1024)) { setError('Mỗi ảnh phải có dung lượng không quá 5MB.'); return; }
+    setError('');
+    setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-reply-${Date.now()}-${index}.jpg`, type: asset.mimeType || 'image/jpeg', size: asset.fileSize })));
   };
 
   const close = () => Alert.alert(
@@ -91,14 +106,15 @@ export default function SupportTicketDetailScreen() {
   );
 
   const reopen = async () => {
-    setReopening(true);
+    if (reopeningRef.current) return;
+    reopeningRef.current = true; setReopening(true);
     try {
       await runWithAuth((token) => supportApi.reopenTicket(token, ticketId));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể mở lại yêu cầu.');
     } finally {
-      setReopening(false);
+      reopeningRef.current = false; setReopening(false);
     }
   };
 
@@ -106,7 +122,7 @@ export default function SupportTicketDetailScreen() {
   const messages = liveMessages.length ? liveMessages : (detail?.messages ?? []);
   const status = ticket?.status ?? 'open';
   const isClosed = status === 'closed';
-  const canReopen = status === 'resolved';
+  const canReopen = status === 'resolved' && Boolean(ticket?.reopenDeadline) && new Date(ticket?.reopenDeadline as string).getTime() >= Date.now();
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
@@ -149,7 +165,7 @@ export default function SupportTicketDetailScreen() {
               </View>
             )}
 
-            {!isClosed && !canReopen && (
+            {!isClosed && status !== 'resolved' && (
               <>
                 <TextInput
                   style={[s.input, { minHeight: 100, textAlignVertical: 'top' }]}
@@ -161,6 +177,10 @@ export default function SupportTicketDetailScreen() {
                   }}
                   placeholder="Bổ sung thông tin..."
                 />
+                <TouchableOpacity style={[s.button, s.secondaryButton]} onPress={chooseImages}>
+                  <Text style={s.secondaryText}>Chọn ảnh đính kèm ({images.length}/3)</Text>
+                </TouchableOpacity>
+                {images.length > 0 && <View style={s.imageRow}>{images.map((image) => <Image key={image.uri} source={{ uri: image.uri }} style={s.image} />)}</View>}
                 <TouchableOpacity style={s.button} disabled={sending || !reply.trim()} onPress={send}>
                   <Text style={s.buttonText}>{sending ? 'Đang gửi...' : 'Gửi tin nhắn'}</Text>
                 </TouchableOpacity>
@@ -176,6 +196,13 @@ export default function SupportTicketDetailScreen() {
                 <TouchableOpacity style={s.button} disabled={reopening} onPress={reopen}>
                   <Text style={s.buttonText}>{reopening ? 'Đang mở lại...' : 'Mở lại yêu cầu'}</Text>
                 </TouchableOpacity>
+              </View>
+            )}
+
+            {status === 'resolved' && !canReopen && (
+              <View style={s.card}>
+                <Text style={s.muted}>Thời hạn mở lại yêu cầu này đã hết. Vui lòng tạo yêu cầu mới nếu bạn vẫn cần hỗ trợ.</Text>
+                <TouchableOpacity style={s.button} onPress={() => navigation.navigate('SupportTicketCreate')}><Text style={s.buttonText}>Tạo yêu cầu mới</Text></TouchableOpacity>
               </View>
             )}
 

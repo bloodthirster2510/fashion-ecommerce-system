@@ -109,6 +109,12 @@ export const withMulterErrorHandling = (middleware: RequestHandler): RequestHand
         return;
       }
 
+      const fileValidationError = (req as MulterRequest).fileValidationError;
+      if (fileValidationError) {
+        handleMulterError(fileValidationError, res);
+        return;
+      }
+
       try {
         const contentValidationError = await validateUploadedImageContent(req);
         if (contentValidationError) {

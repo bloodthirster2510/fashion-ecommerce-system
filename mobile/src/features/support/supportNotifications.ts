@@ -50,6 +50,10 @@ export const requestSupportPushToken = async () => {
 export const subscribeToSupportNotifications = async (
   onTicket: (ticketId: string) => void,
   onOrder?: (orderId: string) => void,
+  onVirtualTryOn?: (target: {
+    jobId?: string;
+    destination: 'result' | 'processing' | 'home';
+  }) => void,
 ) => {
   // Remote push notifications are unavailable in Expo Go from SDK 53 onward.
   if (isExpoGo) return () => undefined;
@@ -71,6 +75,13 @@ export const subscribeToSupportNotifications = async (
       (data?.type === 'payment_deadline' || data?.type === 'shipping_update')
       && typeof data.orderId === 'string'
     ) onOrder?.(data.orderId);
+    if (data?.type === 'virtual_try_on' && typeof data.jobId === 'string') {
+      const destination = data.destination === 'result' ? 'result' : 'processing';
+      onVirtualTryOn?.({ jobId: data.jobId, destination });
+    }
+    if (data?.type === 'virtual_try_on_access') {
+      onVirtualTryOn?.({ destination: 'home' });
+    }
   };
   const subscription = Notifications.addNotificationResponseReceivedListener(open);
   open(await Notifications.getLastNotificationResponseAsync());

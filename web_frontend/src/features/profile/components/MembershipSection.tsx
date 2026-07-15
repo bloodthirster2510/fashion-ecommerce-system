@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Empty, Progress, Skeleton } from 'antd'
+import { Alert, Button, Empty, Progress, Skeleton } from 'antd'
 import { TrophyOutlined } from '@ant-design/icons'
 import { profileService, type UserMembership } from '../profile.service'
 import { formatPoint, getTierBenefit, getTierCondition } from '../profile.utils'
@@ -95,6 +95,7 @@ export function MembershipSection() {
           </>
         )}
       </Skeleton>
+      <Button href="/account/support/new?category=loyalty&source=loyalty">Cần hỗ trợ về điểm hoặc hạng?</Button>
     </section>
   )
 }

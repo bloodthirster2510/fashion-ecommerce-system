@@ -1,11 +1,29 @@
+import crypto from 'crypto';
+import axios from 'axios';
 import { createVNPaySecureHash } from '../../../utils/vnpay.util';
-import { verifyVNPayResponse } from '../payments.service';
+import {
+  queryVNPayTransaction,
+  refundVNPayTransaction,
+  verifyVNPayResponse,
+} from '../payments.service';
+
+jest.mock('axios', () => ({
+  __esModule: true,
+  default: {
+    post: jest.fn(),
+  },
+}));
+
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 describe('payments.service', () => {
   const previousSecret = process.env.VNPAY_HASH_SECRET;
 
   beforeEach(() => {
+    jest.clearAllMocks();
     process.env.VNPAY_HASH_SECRET = 'test-vnpay-secret';
+    process.env.VNPAY_TMN_CODE = 'TESTV210';
+    process.env.VNPAY_TRANSACTION_API_URL = 'https://sandbox.example/transaction';
   });
 
   afterAll(() => {
@@ -44,5 +62,85 @@ describe('payments.service', () => {
     });
 
     expect(result.isValidSignature).toBe(false);
+  });
+
+  it('signs QueryDr requests using the documented pipe-delimited field order', async () => {
+    mockedAxios.post.mockResolvedValue({ data: { vnp_SecureHash: '00' } });
+
+    await queryVNPayTransaction({
+      txnRef: 'FSORDERA1',
+      transactionDate: '20260618120000',
+      transactionNo: '123456',
+      ipAddr: '127.0.0.1',
+    });
+
+    const payload = mockedAxios.post.mock.calls[0][1] as Record<string, string>;
+    const signData = [
+      payload.vnp_RequestId,
+      payload.vnp_Version,
+      payload.vnp_Command,
+      payload.vnp_TmnCode,
+      payload.vnp_TxnRef,
+      payload.vnp_TransactionDate,
+      payload.vnp_CreateDate,
+      payload.vnp_IpAddr,
+      payload.vnp_OrderInfo,
+    ].join('|');
+    const expectedHash = crypto
+      .createHmac('sha512', process.env.VNPAY_HASH_SECRET!)
+      .update(signData, 'utf8')
+      .digest('hex');
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://sandbox.example/transaction',
+      expect.objectContaining({
+        vnp_Command: 'querydr',
+        vnp_TxnRef: 'FSORDERA1',
+        vnp_TransactionNo: '123456',
+        vnp_SecureHash: expectedHash,
+      }),
+      expect.objectContaining({ timeout: 15000 }),
+    );
+  });
+
+  it('sends full VNPay refunds in gateway minor units with a signed request', async () => {
+    mockedAxios.post.mockResolvedValue({ data: { vnp_SecureHash: '00' } });
+
+    await refundVNPayTransaction({
+      txnRef: 'FSORDERA1',
+      transactionDate: '20260618120000',
+      transactionNo: '123456',
+      amount: 385000,
+      createdBy: '665000000000000000000001',
+      ipAddr: '127.0.0.1',
+    });
+
+    const payload = mockedAxios.post.mock.calls[0][1] as Record<string, string>;
+    const signData = [
+      payload.vnp_RequestId,
+      payload.vnp_Version,
+      payload.vnp_Command,
+      payload.vnp_TmnCode,
+      payload.vnp_TransactionType,
+      payload.vnp_TxnRef,
+      payload.vnp_Amount,
+      payload.vnp_TransactionNo,
+      payload.vnp_TransactionDate,
+      payload.vnp_CreateBy,
+      payload.vnp_CreateDate,
+      payload.vnp_IpAddr,
+      payload.vnp_OrderInfo,
+    ].join('|');
+    const expectedHash = crypto
+      .createHmac('sha512', process.env.VNPAY_HASH_SECRET!)
+      .update(signData, 'utf8')
+      .digest('hex');
+
+    expect(payload).toEqual(expect.objectContaining({
+      vnp_Command: 'refund',
+      vnp_TransactionType: '02',
+      vnp_Amount: '38500000',
+      vnp_SecureHash: expectedHash,
+    }));
   });
 });

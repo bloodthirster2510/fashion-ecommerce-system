@@ -14,7 +14,7 @@ export function OrderProgressRail({
   shippingStatus?: string | null
   status: AdminOrderStatus
 }) {
-  const isException = status === 'cancelled' || status === 'return_requested' || status === 'returned'
+  const isException = status === 'cancelled' || status === 'return_requested' || status === 'return_approved' || status === 'returned'
   const progressPercent = getOrderProgressPercent(status, shippingStatus)
   const currentIndex = isException && status !== 'cancelled'
     ? orderFlowSteps.length - 1

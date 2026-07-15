@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
 import { useOrderRealtime } from '../orders/orderRealtime';
 import { useSupportRealtime } from '../support/supportSocket';
+import { useVirtualTryOnRealtime } from '../virtualTryOn/virtualTryOnRealtime';
 import { notificationApi, type CustomerNotificationSummary } from './notificationApi';
 
 type CustomerNotificationContextValue = {
@@ -22,6 +23,8 @@ const isSameSummary = (
   left &&
   right &&
   left.total === right.total &&
+  left.unreadCount === right.unreadCount &&
+  left.attentionTotal === right.attentionTotal &&
   left.cartItems === right.cartItems &&
   left.ordersNeedAction === right.ordersNeedAction &&
   left.support.total === right.support.total &&
@@ -80,6 +83,11 @@ export const CustomerNotificationProvider = ({ children }: { children: React.Rea
     onMessage: scheduleRealtimeRefresh,
     onUpdated: scheduleRealtimeRefresh,
     onStaffRead: scheduleRealtimeRefresh,
+  });
+  useVirtualTryOnRealtime(session?.accessToken, (event) => {
+    if (event.type === 'succeeded' || event.type === 'failed' || event.type === 'canceled') {
+      scheduleRealtimeRefresh();
+    }
   });
 
   React.useEffect(() => {

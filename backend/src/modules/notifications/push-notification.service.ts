@@ -1,8 +1,70 @@
 import { Types } from 'mongoose';
 import { PushToken } from '../../database/models';
+import { createCustomerNotificationBestEffort } from './customer-notification.service';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const expoTokenPattern = /^(ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/;
+
+type ExpoPushMessage = {
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+};
+
+const deliverExpoPush = async (
+  userId: string,
+  message: ExpoPushMessage,
+  disabled = false,
+) => {
+  if (disabled || !Types.ObjectId.isValid(userId)) return { sent: 0 };
+
+  const tokens = await PushToken.find({ userId: new Types.ObjectId(userId), isActive: true })
+    .select('token')
+    .lean<Array<{ token: string }>>();
+  if (!tokens.length) return { sent: 0 };
+
+  const response = await fetch(EXPO_PUSH_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(process.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}),
+    },
+    body: JSON.stringify(tokens.map(({ token }) => ({
+      to: token,
+      sound: 'default',
+      ...message,
+    }))),
+  });
+  if (!response.ok) throw new Error(`Expo push request failed with status ${response.status}`);
+
+  const payload = await response.json() as {
+    data?: Array<{ status?: string; details?: { error?: string } }>;
+  };
+  const invalidTokens = tokens.filter(
+    (_, index) => payload.data?.[index]?.details?.error === 'DeviceNotRegistered',
+  );
+  if (invalidTokens.length) {
+    await PushToken.updateMany(
+      { token: { $in: invalidTokens.map((item) => item.token) } },
+      { isActive: false },
+    );
+  }
+  const failed = payload.data?.filter((item) => item.status === 'error').length ?? 0;
+  return { sent: tokens.length - failed, failed };
+};
+
+export const sendCustomerPush = (input: {
+  userId: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  disabled?: boolean;
+}) => deliverExpoPush(input.userId, {
+  title: input.title,
+  body: input.body,
+  data: input.data,
+}, input.disabled);
 
 export const registerPushToken = async (
   userId: string,
@@ -18,7 +80,7 @@ export const registerPushToken = async (
   return PushToken.findOneAndUpdate(
     { token },
     { userId: new Types.ObjectId(userId), platform: input.platform, isActive: true, lastUsedAt: new Date() },
-    { upsert: true, new: true, runValidators: true },
+    { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean();
 };
 
@@ -36,41 +98,33 @@ export const sendSupportReplyPush = async (input: {
   ticketId: string;
   ticketCode: string;
   subject: string;
+  messageId?: string;
 }) => {
-  if (process.env.SUPPORT_PUSH_NOTIFICATIONS === 'false' || !Types.ObjectId.isValid(input.userId)) {
-    return { sent: 0 };
-  }
-  const tokens = await PushToken.find({ userId: new Types.ObjectId(input.userId), isActive: true })
-    .select('token')
-    .lean<Array<{ token: string }>>();
-  if (!tokens.length) return { sent: 0 };
+  if (!Types.ObjectId.isValid(input.userId)) return { sent: 0 };
+  const title = `Phản hồi ${input.ticketCode}`;
+  const body = input.subject;
+  const data = { type: 'support_reply', ticketId: input.ticketId };
 
-  const response = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(process.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}),
+  await createCustomerNotificationBestEffort({
+    userId: input.userId,
+    category: 'support',
+    type: 'support_reply',
+    title,
+    body,
+    action: {
+      type: 'support_ticket_detail',
+      label: 'Xem phản hồi',
+      entityId: input.ticketId,
     },
-    body: JSON.stringify(tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: `Phản hồi ${input.ticketCode}`,
-      body: input.subject,
-      data: { type: 'support_reply', ticketId: input.ticketId },
-    }))),
+    data: { ...data, ticketCode: input.ticketCode },
+    dedupeKey: input.messageId ? `support:${input.messageId}` : null,
   });
-  if (!response.ok) throw new Error(`Expo push request failed with status ${response.status}`);
-  const payload = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
-  const invalidTokens = tokens.filter((_, index) => payload.data?.[index]?.details?.error === 'DeviceNotRegistered');
-  if (invalidTokens.length) {
-    await PushToken.updateMany(
-      { token: { $in: invalidTokens.map((item) => item.token) } },
-      { isActive: false },
-    );
-  }
-  const failed = payload.data?.filter((item) => item.status === 'error').length ?? 0;
-  return { sent: tokens.length - failed, failed };
+
+  return deliverExpoPush(
+    input.userId,
+    { title, body, data },
+    process.env.SUPPORT_PUSH_NOTIFICATIONS === 'false',
+  );
 };
 
 export const sendPaymentDeadlineWarningPush = async (input: {
@@ -80,52 +134,47 @@ export const sendPaymentDeadlineWarningPush = async (input: {
   paymentDeadlineAt: Date;
 }) => {
   if (!Types.ObjectId.isValid(input.userId)) return { sent: 0 };
+  const title = `Đơn ${input.orderCode} sắp tự hủy`;
+  const body = 'Thanh toán ngay trong 24 giờ tới để giữ hàng.';
+  const data = {
+    type: 'payment_deadline',
+    orderId: input.orderId,
+    paymentDeadlineAt: input.paymentDeadlineAt.toISOString(),
+  };
 
-  const tokens = await PushToken.find({ userId: new Types.ObjectId(input.userId), isActive: true })
-    .select('token')
-    .lean<Array<{ token: string }>>();
-  if (!tokens.length) return { sent: 0 };
-
-  const response = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(process.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}),
-    },
-    body: JSON.stringify(tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: `Đơn ${input.orderCode} sắp tự hủy`,
-      body: 'Thanh toán ngay trong 24 giờ tới để giữ hàng.',
-      data: {
-        type: 'payment_deadline',
-        orderId: input.orderId,
-        paymentDeadlineAt: input.paymentDeadlineAt.toISOString(),
-      },
-    }))),
+  await createCustomerNotificationBestEffort({
+    userId: input.userId,
+    category: 'order',
+    type: 'payment_deadline',
+    title,
+    body,
+    action: { type: 'order_detail', label: 'Thanh toán ngay', entityId: input.orderId },
+    data: { ...data, orderCode: input.orderCode },
+    dedupeKey: `order:${input.orderId}:payment-deadline`,
   });
-  if (!response.ok) throw new Error(`Expo push request failed with status ${response.status}`);
 
-  const payload = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
-  const invalidTokens = tokens.filter((_, index) => payload.data?.[index]?.details?.error === 'DeviceNotRegistered');
-  if (invalidTokens.length) {
-    await PushToken.updateMany(
-      { token: { $in: invalidTokens.map((item) => item.token) } },
-      { isActive: false },
-    );
-  }
-  const failed = payload.data?.filter((item) => item.status === 'error').length ?? 0;
-  return { sent: tokens.length - failed, failed };
+  return deliverExpoPush(input.userId, { title, body, data });
 };
 
 export type ShippingPushMilestone = 'picked' | 'shipping' | 'delivered' | 'failed';
 
 const shippingPushCopy: Record<ShippingPushMilestone, { title: string; body: string }> = {
-  picked: { title: 'Đơn đã được lấy hàng', body: 'Đơn hàng của bạn đã được bàn giao cho đơn vị vận chuyển.' },
-  shipping: { title: 'Đơn đang trên đường', body: 'Tài xế đang giao đơn hàng đến bạn.' },
-  delivered: { title: 'Đơn đã giao đến bạn', body: 'Kiểm tra đơn và xác nhận đã nhận hàng trong 7 ngày nhé.' },
-  failed: { title: 'Giao hàng chưa thành công', body: 'Shop sẽ theo dõi và liên hệ với bạn để hỗ trợ giao lại.' },
+  picked: {
+    title: 'Đơn đã được lấy hàng',
+    body: 'Đơn hàng của bạn đã được bàn giao cho đơn vị vận chuyển.',
+  },
+  shipping: {
+    title: 'Đơn đang trên đường',
+    body: 'Tài xế đang giao đơn hàng đến bạn.',
+  },
+  delivered: {
+    title: 'Đơn đã giao đến bạn',
+    body: 'Kiểm tra đơn và xác nhận đã nhận hàng trong 7 ngày nhé.',
+  },
+  failed: {
+    title: 'Giao hàng chưa thành công',
+    body: 'Shop sẽ theo dõi và liên hệ với bạn để hỗ trợ giao lại.',
+  },
 };
 
 export const sendShippingUpdatePush = async (input: {
@@ -134,51 +183,36 @@ export const sendShippingUpdatePush = async (input: {
   orderCode: string;
   milestone: ShippingPushMilestone;
 }) => {
-  if (process.env.SHIPPING_PUSH_NOTIFICATIONS === 'false' || !Types.ObjectId.isValid(input.userId)) {
-    return { sent: 0 };
-  }
-
-  const tokens = await PushToken.find({ userId: new Types.ObjectId(input.userId), isActive: true })
-    .select('token')
-    .lean<Array<{ token: string }>>();
-  if (!tokens.length) return { sent: 0 };
-
+  if (!Types.ObjectId.isValid(input.userId)) return { sent: 0 };
   const copy = shippingPushCopy[input.milestone];
-  const response = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(process.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}),
-    },
-    body: JSON.stringify(tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: `${copy.title} · ${input.orderCode}`,
-      body: copy.body,
-      data: {
-        type: 'shipping_update',
-        orderId: input.orderId,
-        milestone: input.milestone,
-      },
-    }))),
-  });
-  if (!response.ok) throw new Error(`Expo push request failed with status ${response.status}`);
+  const title = `${copy.title} · ${input.orderCode}`;
+  const data = {
+    type: 'shipping_update',
+    orderId: input.orderId,
+    milestone: input.milestone,
+  };
 
-  const payload = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
-  const invalidTokens = tokens.filter((_, index) => payload.data?.[index]?.details?.error === 'DeviceNotRegistered');
-  if (invalidTokens.length) {
-    await PushToken.updateMany(
-      { token: { $in: invalidTokens.map((item) => item.token) } },
-      { isActive: false },
-    );
-  }
-  const failed = payload.data?.filter((item) => item.status === 'error').length ?? 0;
-  return { sent: tokens.length - failed, failed };
+  await createCustomerNotificationBestEffort({
+    userId: input.userId,
+    category: 'order',
+    type: 'shipping_update',
+    title,
+    body: copy.body,
+    action: { type: 'order_detail', label: 'Theo dõi đơn', entityId: input.orderId },
+    data: { ...data, orderCode: input.orderCode },
+    dedupeKey: `order:${input.orderId}:shipping:${input.milestone}`,
+  });
+
+  return deliverExpoPush(
+    input.userId,
+    { title, body: copy.body, data },
+    process.env.SHIPPING_PUSH_NOTIFICATIONS === 'false',
+  );
 };
 
 export const pushNotificationService = {
   registerPushToken,
+  sendCustomerPush,
   sendShippingUpdatePush,
   sendSupportReplyPush,
   sendPaymentDeadlineWarningPush,

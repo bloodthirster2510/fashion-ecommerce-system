@@ -21,7 +21,12 @@ import type {
   CreateGuestFeedbackInput,
 } from './support.types';
 import { sendGuestFeedbackVerificationEmail } from '../../utils/email';
-import { emitTicketMessage, emitTicketRead, emitTicketUpdated } from '../realtime/support.gateway';
+import {
+  emitSupportSummaryRefresh,
+  emitTicketMessage,
+  emitTicketRead,
+  emitTicketUpdated,
+} from '../realtime/support.gateway';
 
 export class SupportServiceError extends Error {
   constructor(message: string, public statusCode = 400) {
@@ -35,6 +40,29 @@ const normalizePagination = ({ page = 1, limit = 20 }: PaginationQuery) => ({
 });
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const CUSTOMER_TICKET_FIELDS = [
+  '_id', 'ticketCode', 'type', 'category', 'subject', 'status', 'requiresReply',
+  'orderId', 'couponCode', 'context', 'lastMessageAt', 'lastMessageSender',
+  'reopenDeadline', 'createdAt', 'updatedAt',
+] as const;
+const CUSTOMER_MESSAGE_FIELDS = ['_id', 'senderType', 'body', 'attachments', 'createdAt', 'updatedAt'] as const;
+
+const toPlainObject = (value: unknown): Record<string, unknown> => {
+  if (value && typeof value === 'object' && 'toObject' in value
+    && typeof (value as { toObject?: unknown }).toObject === 'function') {
+    return (value as { toObject: () => Record<string, unknown> }).toObject();
+  }
+  return (value ?? {}) as Record<string, unknown>;
+};
+
+const pickFields = (value: unknown, fields: readonly string[]) => {
+  const source = toPlainObject(value);
+  return Object.fromEntries(fields.filter((field) => source[field] !== undefined).map((field) => [field, source[field]]));
+};
+
+export const toCustomerSupportTicket = (value: unknown) => pickFields(value, CUSTOMER_TICKET_FIELDS);
+export const toCustomerSupportMessage = (value: unknown) => pickFields(value, CUSTOMER_MESSAGE_FIELDS);
 
 const assertObjectId = (value: string, name: string) => {
   if (!Types.ObjectId.isValid(value)) throw new SupportServiceError(`${name} is invalid`);
@@ -117,7 +145,11 @@ export const voteFaq = async (faqId: string, userId: string, input: VoteFaqInput
   }
 
   const counter = input.value === 'helpful' ? 'helpfulCount' : 'notHelpfulCount';
-  const updated = await FaqArticle.findByIdAndUpdate(faqObjectId, { $inc: { [counter]: 1 } }, { new: true }).lean();
+  const updated = await FaqArticle.findByIdAndUpdate(
+    faqObjectId,
+    { $inc: { [counter]: 1 } },
+    { returnDocument: 'after' },
+  ).lean();
   return updated;
 };
 
@@ -172,8 +204,9 @@ export const createTicket = async (userId: string, input: CreateSupportTicketInp
     customerLastReadAt: now,
   });
 
+  let firstMessage;
   try {
-    await SupportMessage.create({
+    firstMessage = await SupportMessage.create({
       ticketId: ticket._id,
       senderType: 'customer',
       senderId: userObjectId,
@@ -187,8 +220,16 @@ export const createTicket = async (userId: string, input: CreateSupportTicketInp
   }
 
   const result = await getCustomerTicket(ticket._id.toString(), userId);
-  emitTicketMessage(ticket._id.toString(), result.messages[result.messages.length - 1], { customerUserId: userId });
-  emitTicketUpdated(ticket._id.toString(), result.ticket, { customerUserId: userId });
+  const customerMessage = result.messages[result.messages.length - 1];
+  emitTicketMessage(ticket._id.toString(), firstMessage.toObject(), {
+    customerUserId: userId,
+    customerMessage,
+  });
+  emitTicketUpdated(ticket._id.toString(), ticket.toObject(), {
+    customerUserId: userId,
+    customerTicket: result.ticket,
+  });
+  emitSupportSummaryRefresh();
   return result;
 };
 
@@ -251,7 +292,7 @@ export const verifyGuestFeedback = async (token: string) => {
       'guestContact.verificationTokenHash': null,
       'guestContact.verificationExpiresAt': null,
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).select('+guestContact.verificationTokenHash').lean();
   if (!ticket) throw new SupportServiceError('Verification link is invalid or expired', 410);
   return { verified: true, ticketCode: ticket.ticketCode };
@@ -263,22 +304,34 @@ export const listCustomerTickets = async (userId: string, input: PaginationQuery
   const filter = { userId: userObjectId, status: { $ne: 'spam' } };
   const [items, totalItems] = await Promise.all([
     SupportTicket.find(filter)
+      .select(CUSTOMER_TICKET_FIELDS.join(' '))
       .sort({ updatedAt: -1 })
       .skip((pagination.page - 1) * pagination.limit)
       .limit(pagination.limit)
       .lean(),
     SupportTicket.countDocuments(filter),
   ]);
-  return { items, pagination: { ...pagination, totalItems, totalPages: Math.ceil(totalItems / pagination.limit) } };
+  return {
+    items: items.map(toCustomerSupportTicket),
+    pagination: { ...pagination, totalItems, totalPages: Math.ceil(totalItems / pagination.limit) },
+  };
 };
 
 export const getCustomerTicket = async (ticketId: string, userId: string) => {
   const ticketObjectId = assertObjectId(ticketId, 'ticketId');
   const userObjectId = assertObjectId(userId, 'userId');
-  const ticket = await SupportTicket.findOne({ _id: ticketObjectId, userId: userObjectId, status: { $ne: 'spam' } }).lean();
+  const ticket = await SupportTicket.findOne({ _id: ticketObjectId, userId: userObjectId, status: { $ne: 'spam' } })
+    .select(CUSTOMER_TICKET_FIELDS.join(' '))
+    .lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
-  const messages = await SupportMessage.find({ ticketId: ticketObjectId, isInternal: false }).sort({ createdAt: 1 }).lean();
-  return { ticket, messages };
+  const messages = await SupportMessage.find({ ticketId: ticketObjectId, isInternal: false })
+    .select(CUSTOMER_MESSAGE_FIELDS.join(' '))
+    .sort({ createdAt: 1 })
+    .lean();
+  return {
+    ticket: toCustomerSupportTicket(ticket),
+    messages: messages.map(toCustomerSupportMessage),
+  };
 };
 
 export const addCustomerMessage = async (ticketId: string, userId: string, input: AddSupportMessageInput) => {
@@ -300,30 +353,59 @@ export const addCustomerMessage = async (ticketId: string, userId: string, input
     attachments: input.attachments ?? [],
     isInternal: false,
   });
-  const now = new Date();
-  ticket.status = ticket.status === 'open' ? 'open' : 'in_progress';
-  ticket.requiresReply = true;
-  ticket.lastMessageAt = now;
-  ticket.lastMessageSender = 'customer';
-  ticket.customerLastReadAt = now;
-  ticket.resolvedAt = null;
-  ticket.reopenDeadline = null;
-  await ticket.save();
+  const messageAt = message.createdAt ?? new Date();
+  const nextStatus = ticket.status === 'open' ? 'open' : 'in_progress';
+  let latestTicket = await SupportTicket.findOneAndUpdate(
+    {
+      _id: ticketObjectId,
+      userId: userObjectId,
+      status: { $nin: ['closed', 'spam'] },
+      $or: [{ status: { $ne: 'resolved' } }, { reopenDeadline: { $gte: messageAt } }],
+      lastMessageAt: { $lte: messageAt },
+    },
+    {
+      status: nextStatus,
+      requiresReply: true,
+      lastMessageAt: messageAt,
+      lastMessageSender: 'customer',
+      customerLastReadAt: messageAt,
+      resolvedAt: null,
+      reopenDeadline: null,
+    },
+    { returnDocument: 'after' },
+  );
+
+  if (!latestTicket) {
+    latestTicket = await SupportTicket.findOne({ _id: ticketObjectId, userId: userObjectId });
+    const unavailable = !latestTicket
+      || latestTicket.status === 'closed'
+      || latestTicket.status === 'spam'
+      || (latestTicket.status === 'resolved'
+        && (!latestTicket.reopenDeadline || latestTicket.reopenDeadline < messageAt));
+    if (unavailable) {
+      await SupportMessage.deleteOne({ _id: message._id });
+      throw new SupportServiceError('Ticket cannot receive messages', 409);
+    }
+  }
+
   const messageObj = message.toObject();
-  emitTicketMessage(ticketId, messageObj, { customerUserId: userId });
-  emitTicketUpdated(ticketId, ticket.toObject(), { customerUserId: userId });
-  return messageObj;
+  const customerMessage = toCustomerSupportMessage(messageObj);
+  const customerTicket = toCustomerSupportTicket(latestTicket);
+  emitTicketMessage(ticketId, messageObj, { customerUserId: userId, customerMessage });
+  emitTicketUpdated(ticketId, toPlainObject(latestTicket), { customerUserId: userId, customerTicket });
+  emitSupportSummaryRefresh();
+  return customerMessage;
 };
 
 export const markCustomerRead = async (ticketId: string, userId: string) => {
   const ticket = await SupportTicket.findOneAndUpdate(
     { _id: assertObjectId(ticketId, 'ticketId'), userId: assertObjectId(userId, 'userId'), status: { $ne: 'spam' } },
     { customerLastReadAt: new Date() },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
   emitTicketRead(ticketId, 'customer');
-  return ticket;
+  return toCustomerSupportTicket(ticket);
 };
 
 export const reopenCustomerTicket = async (ticketId: string, userId: string) => {
@@ -343,11 +425,13 @@ export const reopenCustomerTicket = async (ticketId: string, userId: string) => 
       resolvedAt: null,
       reopenDeadline: null,
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket cannot be reopened', 409);
-  emitTicketUpdated(ticketId, ticket, { customerUserId: userId });
-  return ticket;
+  const customerTicket = toCustomerSupportTicket(ticket);
+  emitTicketUpdated(ticketId, ticket, { customerUserId: userId, customerTicket });
+  emitSupportSummaryRefresh();
+  return customerTicket;
 };
 
 export const closeCustomerTicket = async (ticketId: string, userId: string) => {
@@ -358,11 +442,13 @@ export const closeCustomerTicket = async (ticketId: string, userId: string) => {
       status: { $nin: ['closed', 'spam'] },
     },
     { status: 'closed', closedAt: new Date(), requiresReply: false },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket cannot be closed', 409);
-  emitTicketUpdated(ticketId, ticket, { customerUserId: userId });
-  return ticket;
+  const customerTicket = toCustomerSupportTicket(ticket);
+  emitTicketUpdated(ticketId, ticket, { customerUserId: userId, customerTicket });
+  emitSupportSummaryRefresh();
+  return customerTicket;
 };
 
 export const getCustomerSupportSummary = async (userId: string) => {

@@ -95,6 +95,7 @@ export function useOrderActions({
     executeUpdatePaymentMethodStatus,
     handleAdjustPaymentStatus,
     handleExpireStalePayments,
+    handleReconcileVNPay,
     handleRevealRefundAccount,
     handleUpdatePaymentMethodStatus,
   } = useOrderPaymentActions({
@@ -181,6 +182,7 @@ export function useOrderActions({
     handleCancelGhnShipment,
     handleCreateGhnShipment,
     handleExpireStalePayments,
+    handleReconcileVNPay,
     handleRevealRefundAccount,
     handleReviewReturnRequest,
     handleShippingUpdate,

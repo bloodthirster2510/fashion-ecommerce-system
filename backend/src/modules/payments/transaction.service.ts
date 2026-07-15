@@ -133,6 +133,135 @@ export const transactionService = {
     return Transaction.findOne({ txnRef: txnRef.toUpperCase() });
   },
 
+  findLatestSuccessfulByOrderId: async (orderId: string) => {
+    return Transaction.findOne({
+      order_id: new Types.ObjectId(orderId),
+      status: 'success',
+      gatewayProvider: 'vnpay',
+      'paymentDetail.vnp_Command': { $ne: 'refund' },
+    }).sort({ resolvedAt: -1, createdAt: -1 });
+  },
+
+  attachVNPayRequestMetadata: async ({
+    transactionId,
+    createDate,
+    ipAddr,
+  }: {
+    transactionId: string;
+    createDate: string;
+    ipAddr: string;
+  }) => Transaction.findOneAndUpdate(
+    { _id: new Types.ObjectId(transactionId), status: 'pending' },
+    {
+      $set: {
+        'paymentDetail.vnp_CreateDate': createDate,
+        'paymentDetail.vnp_IpAddr': ipAddr,
+        'paymentDetail.vnp_PaymentUrlCreatedAt': new Date(),
+      },
+    },
+    { returnDocument: 'after' },
+  ),
+
+  recordVNPayQueryResult: async ({
+    transactionId,
+    queriedAt,
+    response,
+  }: {
+    transactionId: string;
+    queriedAt: Date;
+    response: Record<string, unknown>;
+  }) => Transaction.findByIdAndUpdate(
+    transactionId,
+    {
+      $set: {
+        'paymentDetail.vnp_LastQueryAt': queriedAt,
+        'paymentDetail.vnp_LastQueryResponse': response,
+      },
+    },
+    { returnDocument: 'after' },
+  ),
+
+  findLatestVNPayRefundByOrderId: async (orderId: string) => Transaction.findOne({
+    order_id: new Types.ObjectId(orderId),
+    gatewayProvider: 'vnpay',
+    'paymentDetail.vnp_Command': 'refund',
+  }).sort({ createdAt: -1 }),
+
+  createVNPayRefundTransaction: async ({
+    userId,
+    orderId,
+    amount,
+    actorId,
+    reason,
+    originalTxnRef,
+    response,
+  }: {
+    userId: string;
+    orderId: string;
+    amount: number;
+    actorId: string;
+    reason: string;
+    originalTxnRef: string;
+    response: Record<string, unknown>;
+  }) => {
+    const latestAttempt = await transactionService.findLatestAttemptByOrderId(orderId);
+    const responseCode = String(response.vnp_ResponseCode ?? '');
+    const transactionStatus = String(response.vnp_TransactionStatus ?? '');
+    const isSuccessful = responseCode === '00' && transactionStatus === '00';
+    const isPending = responseCode === '94'
+      || (responseCode === '00' && ['01', '05', '06'].includes(transactionStatus));
+    const status: TransactionStatus = isSuccessful
+      ? 'success'
+      : isPending ? 'pending' : 'failed';
+
+    return Transaction.create({
+      user_id: new Types.ObjectId(userId),
+      order_id: new Types.ObjectId(orderId),
+      amount,
+      paymentMethod: 'VNPAY',
+      gatewayProvider: 'vnpay',
+      attemptNo: Number(latestAttempt?.attemptNo ?? 0) + 1,
+      createdBy: 'admin',
+      status,
+      resolvedAt: status === 'pending' ? null : new Date(),
+      failureReason: status === 'failed'
+        ? `VNPay refund response ${responseCode || 'unknown'} status ${transactionStatus || 'unknown'}`
+        : null,
+      gatewayTransactionId: response.vnp_TransactionNo
+        ? String(response.vnp_TransactionNo)
+        : null,
+      paymentDetail: {
+        vnp_Command: 'refund',
+        vnp_OriginalTxnRef: originalTxnRef,
+        reason,
+        actorId,
+        vnp_Response: response,
+      },
+    });
+  },
+
+  resolveVNPayRefundTransaction: async ({
+    transactionId,
+    response,
+  }: {
+    transactionId: string;
+    response: Record<string, unknown>;
+  }) => Transaction.findOneAndUpdate(
+    { _id: new Types.ObjectId(transactionId), status: 'pending' },
+    {
+      $set: {
+        status: 'success',
+        resolvedAt: new Date(),
+        failureReason: null,
+        gatewayTransactionId: response.vnp_TransactionNo
+          ? String(response.vnp_TransactionNo)
+          : null,
+        'paymentDetail.vnp_QueryResponse': response,
+      },
+    },
+    { returnDocument: 'after' },
+  ),
+
   createManualAdjustmentTransaction: async ({
     userId,
     orderId,
@@ -268,6 +397,7 @@ export const transactionService = {
     gatewayTransactionId,
     paymentDetail,
     failureReason,
+    currentStatuses,
     session,
   }: {
     transactionId: string;
@@ -275,10 +405,14 @@ export const transactionService = {
     gatewayTransactionId?: string | null;
     paymentDetail?: Record<string, unknown>;
     failureReason?: string | null;
+    currentStatuses?: TransactionStatus[];
     session?: ClientSession;
   }) => {
     return Transaction.findOneAndUpdate(
-      { _id: new Types.ObjectId(transactionId), status: 'pending' },
+      {
+        _id: new Types.ObjectId(transactionId),
+        status: currentStatuses?.length ? { $in: currentStatuses } : 'pending',
+      },
       {
         $set: {
           status,

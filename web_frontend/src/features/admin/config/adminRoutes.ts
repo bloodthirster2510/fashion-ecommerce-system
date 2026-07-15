@@ -42,9 +42,10 @@ export type AdminRouteGroup = {
 }
 
 export const ADMIN_LOGIN_PATH = '/admin/login'
-export const ADMIN_DEFAULT_PATH = '/admin/orders'
+export const ADMIN_DEFAULT_PATH = '/admin/dashboard'
 
 export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
+  'overview',
   'accounts',
   'customers',
   'loyalty',
@@ -57,6 +58,8 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'reviews',
   'support',
   'virtualTryOn',
+  'reports',
+  'settings',
 ]
 
 export const adminRouteGroups: AdminRouteGroup[] = [
@@ -77,7 +80,7 @@ const adminRouteRecords: AdminRoute[] = [
     id: 'overview',
     path: '/admin/dashboard',
     label: 'Tổng quan',
-    helper: 'Tình hình vận hành',
+    helper: 'Hiệu suất & việc cần xử lý',
     group: 'dashboard',
   },
   {
@@ -167,8 +170,8 @@ const adminRouteRecords: AdminRoute[] = [
   {
     id: 'reports',
     path: '/admin/reports',
-    label: 'Báo cáo',
-    helper: 'Doanh thu & hiệu quả',
+    label: 'Gợi ý & tìm kiếm',
+    helper: 'Hiệu quả, funnel & chất lượng thuật toán',
     group: 'insights',
   },
   {

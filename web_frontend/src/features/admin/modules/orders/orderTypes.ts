@@ -32,7 +32,7 @@ export type ShippingSimulationStatus = 'picked' | 'shipping' | 'delivered' | 'fa
 export type OrderTableColumnKey = 'customer' | 'total' | 'status' | 'createdAt'
 
 export type Notice = {
-  type: 'success' | 'error'
+  type: 'success' | 'warning' | 'error'
   message: string
   action?: {
     label: string

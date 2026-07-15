@@ -12,6 +12,8 @@ import { orderGateway } from './modules/realtime/order.gateway';
 import { virtualTryOnGateway } from './modules/realtime/virtual-try-on.gateway';
 import { shippingReconcileScheduler } from './modules/shipping/shipping-reconcile.scheduler';
 import { orderAutoCompleteScheduler } from './modules/orders/order-auto-complete.scheduler';
+import { vnpayReconcileScheduler } from './modules/payments/vnpay-reconcile.scheduler';
+import { resumePendingVirtualTryOnVideoJobs } from './modules/virtual-try-on/virtual-try-on.service';
 
 const PORT = process.env.PORT || 5000;
 
@@ -30,6 +32,11 @@ const startServer = async () => {
   supportTicketLifecycleScheduler.start();
   shippingReconcileScheduler.start();
   orderAutoCompleteScheduler.start();
+  vnpayReconcileScheduler.start();
+  const resumedVideoJobs = await resumePendingVirtualTryOnVideoJobs();
+  if (resumedVideoJobs > 0) {
+    console.log(`[virtual-try-on] Resumed ${resumedVideoJobs} pending video job(s)`);
+  }
 
   const server = http.createServer(app);
   supportGateway.attach(server);
@@ -52,6 +59,7 @@ const startServer = async () => {
     supportTicketLifecycleScheduler.stop();
     shippingReconcileScheduler.stop();
     orderAutoCompleteScheduler.stop();
+    vnpayReconcileScheduler.stop();
 
     const forceExitTimer = setTimeout(() => {
       console.error('Graceful shutdown timed out');

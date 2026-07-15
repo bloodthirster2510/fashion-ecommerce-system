@@ -10,7 +10,7 @@ import type {
 } from './virtual-try-on-provider';
 import { VirtualTryOnProviderError } from './virtual-try-on-provider';
 
-type ComfyWorkflowMap = {
+export type ComfyWorkflowMap = {
   inputs?: Record<string, string>;
   multiGarment?: {
     loadImageNodeId: string;
@@ -38,13 +38,13 @@ type ComfyPromptResponse = {
   node_errors?: unknown;
 };
 
-type ComfyOutputFile = {
+export type ComfyOutputFile = {
   filename: string;
   subfolder?: string;
   type?: string;
 };
 
-type ComfyHistoryEntry = {
+export type ComfyHistoryEntry = {
   outputs?: Record<string, Record<string, ComfyOutputFile[] | undefined>>;
   status?: unknown;
   error?: unknown;
@@ -106,7 +106,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => {
   timer.unref?.();
 });
 
-const readJsonFile = async <T>(filePath: string): Promise<T> => {
+export const readComfyJsonFile = async <T>(filePath: string): Promise<T> => {
   try {
     const content = await readFile(path.resolve(filePath), 'utf8');
     return JSON.parse(content) as T;
@@ -119,16 +119,16 @@ const readJsonFile = async <T>(filePath: string): Promise<T> => {
   }
 };
 
-const cloneJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+export const cloneComfyJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-const getOptionalEnvValue = (name: string) => {
+export const getOptionalComfyEnvValue = (name: string) => {
   const value = process.env[name]?.trim();
   return value || null;
 };
 
-const getComfyApiKey = () => getOptionalEnvValue('VIRTUAL_TRY_ON_API_KEY');
+const getComfyApiKey = () => getOptionalComfyEnvValue('VIRTUAL_TRY_ON_API_KEY');
 
-const getPositiveNumberEnv = (name: string, fallback: number) => {
+export const getPositiveComfyNumberEnv = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
@@ -210,7 +210,7 @@ const createComfySafetyBlockError = () => new VirtualTryOnProviderError(
   'PROVIDER_SAFETY_BLOCKED',
 );
 
-const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAILED'): Error => {
+export const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAILED'): Error => {
   if (!axios.isAxiosError(error)) {
     return error instanceof Error
       ? error
@@ -223,12 +223,14 @@ const createComfyRequestError = (error: unknown, errorCode = 'COMFY_REQUEST_FAIL
   const status = error.response?.status;
   const message = status === 429
     ? 'ComfyUI rate limit reached; please wait a moment and try again'
-    : `ComfyUI request failed${status ? ` with status ${status}` : ''}`;
+    : status === 402
+      ? 'ComfyUI account does not have enough credits'
+      : `ComfyUI request failed${status ? ` with status ${status}` : ''}`;
 
   return new VirtualTryOnProviderError(
     message,
-    status === 429 ? 429 : 502,
-    status === 429 ? 'COMFY_RATE_LIMITED' : errorCode,
+    status === 429 ? 429 : status === 402 ? 402 : 502,
+    status === 429 ? 'COMFY_RATE_LIMITED' : status === 402 ? 'COMFY_NO_CREDITS' : errorCode,
   );
 };
 
@@ -345,7 +347,7 @@ const toBlobPart = (buffer: Buffer) => {
   return bytes;
 };
 
-const uploadImageBinaryToComfy = async (
+export const uploadImageBinaryToComfy = async (
   client: AxiosInstance,
   input: { buffer: Buffer; mimeType: string; fileName: string },
 ) => {
@@ -365,7 +367,7 @@ const uploadImageBinaryToComfy = async (
   return response.data.name;
 };
 
-const createComfyClient = () => {
+export const createComfyClient = () => {
   const baseURL = process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL || process.env.VIRTUAL_TRY_ON_SERVICE_URL;
   if (!baseURL) {
     throw new VirtualTryOnProviderError(
@@ -393,12 +395,12 @@ const isComfyCloudClient = (client: AxiosInstance) =>
   String(client.defaults.baseURL || '').includes('cloud.comfy.org');
 
 const getComfyHistoryPath = (client: AxiosInstance, promptId: string) => {
-  const configuredPath = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_HISTORY_PATH');
+  const configuredPath = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_HISTORY_PATH');
   const template = configuredPath || (isComfyCloudClient(client) ? '/history_v2/{promptId}' : '/history/{promptId}');
   return template.replace('{promptId}', encodeURIComponent(promptId));
 };
 
-const uploadImageToComfy = async (
+export const uploadImageToComfy = async (
   client: AxiosInstance,
   input: { url: string; fileName: string },
   timeoutMs: number,
@@ -429,7 +431,7 @@ const getGarmentProcessingTimeoutMs = () => {
 };
 
 const getGarmentProcessingDebugDir = () =>
-  getOptionalEnvValue('VIRTUAL_TRY_ON_GARMENT_PROCESSING_DEBUG_DIR');
+  getOptionalComfyEnvValue('VIRTUAL_TRY_ON_GARMENT_PROCESSING_DEBUG_DIR');
 
 const sanitizeFileSegment = (value: string) =>
   value.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'item';
@@ -597,7 +599,7 @@ const prepareGarmentAssets = async (
   }
 };
 
-const setMappedInput = (
+export const setComfyMappedInput = (
   workflow: unknown,
   workflowMap: ComfyWorkflowMap,
   key: string,
@@ -658,7 +660,7 @@ export const configureMultiGarmentInputs = (
 
   garmentFileNames.forEach((fileName, index) => {
     const loadNodeId = index === 0 ? config.loadImageNodeId : String(nextNodeId++);
-    const loadNode = index === 0 ? loadTemplate : cloneJson(loadTemplate);
+    const loadNode = index === 0 ? loadTemplate : cloneComfyJson(loadTemplate);
     const nextLoadInputs = loadNode.inputs as Record<string, unknown>;
     nextLoadInputs.image = fileName;
     nodes[loadNodeId] = loadNode;
@@ -666,7 +668,7 @@ export const configureMultiGarmentInputs = (
     let outputNodeId = loadNodeId;
     if (resizeTemplate && config.resizeNodeId) {
       const resizeNodeId = index === 0 ? config.resizeNodeId : String(nextNodeId++);
-      const resizeNode = index === 0 ? resizeTemplate : cloneJson(resizeTemplate);
+      const resizeNode = index === 0 ? resizeTemplate : cloneComfyJson(resizeTemplate);
       const nextResizeInputs = resizeNode.inputs as Record<string, unknown>;
       nextResizeInputs.image = [loadNodeId, 0];
       nodes[resizeNodeId] = resizeNode;
@@ -692,8 +694,8 @@ const applyWorkflowInputs = async (
     timeoutMs,
   );
 
-  const sourceMapped = setMappedInput(workflow, workflowMap, 'sourceImage', sourceFileName)
-    || setMappedInput(workflow, workflowMap, 'personImage', sourceFileName);
+  const sourceMapped = setComfyMappedInput(workflow, workflowMap, 'sourceImage', sourceFileName)
+    || setComfyMappedInput(workflow, workflowMap, 'personImage', sourceFileName);
 
   if (!sourceMapped) {
     throw new VirtualTryOnProviderError(
@@ -733,7 +735,7 @@ const applyWorkflowInputs = async (
   } else if (preparedGarments) {
     const fileName = await uploadImageBinaryToComfy(client, preparedGarments.collage);
     garmentFileNames.push(fileName);
-    if (setMappedInput(workflow, workflowMap, 'garmentImage', fileName)) {
+    if (setComfyMappedInput(workflow, workflowMap, 'garmentImage', fileName)) {
       mappedGarmentCount += input.garments.length;
       garmentImageMapped = true;
     }
@@ -748,17 +750,17 @@ const applyWorkflowInputs = async (
     garmentFileNames.push(fileName);
 
     for (const inputKey of getGarmentInputKeys(garment)) {
-      if (setMappedInput(workflow, workflowMap, inputKey, fileName)) {
+      if (setComfyMappedInput(workflow, workflowMap, inputKey, fileName)) {
         mappedGarmentCount += 1;
         break;
       }
     }
   }
 
-  if (!multiGarmentMapped && !garmentImageMapped && garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImage', garmentFileNames[0])) {
+  if (!multiGarmentMapped && !garmentImageMapped && garmentFileNames.length && setComfyMappedInput(workflow, workflowMap, 'garmentImage', garmentFileNames[0])) {
     mappedGarmentCount += 1;
   }
-  if (!multiGarmentMapped && garmentFileNames.length && setMappedInput(workflow, workflowMap, 'garmentImages', garmentFileNames)) {
+  if (!multiGarmentMapped && garmentFileNames.length && setComfyMappedInput(workflow, workflowMap, 'garmentImages', garmentFileNames)) {
     mappedGarmentCount += garmentFileNames.length;
   }
 
@@ -776,18 +778,18 @@ const applyWorkflowInputs = async (
     multiGarmentMapped,
     input.sourceImageProfile,
   );
-  if (!setMappedInput(workflow, workflowMap, 'positivePrompt', comfyPrompt)) {
-    setMappedInput(workflow, workflowMap, 'prompt', comfyPrompt);
+  if (!setComfyMappedInput(workflow, workflowMap, 'positivePrompt', comfyPrompt)) {
+    setComfyMappedInput(workflow, workflowMap, 'prompt', comfyPrompt);
   }
-  setMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
-  if (input.seed !== undefined) setMappedInput(workflow, workflowMap, 'seed', input.seed);
+  setComfyMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
+  if (input.seed !== undefined) setComfyMappedInput(workflow, workflowMap, 'seed', input.seed);
 
-  const configuredModel = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
-  if (configuredModel) setMappedInput(workflow, workflowMap, 'model', configuredModel);
-  const configuredAspectRatio = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO');
-  if (configuredAspectRatio) setMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
-  const configuredResolution = getOptionalEnvValue('VIRTUAL_TRY_ON_COMFY_RESOLUTION');
-  if (configuredResolution) setMappedInput(workflow, workflowMap, 'resolution', configuredResolution);
+  const configuredModel = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
+  if (configuredModel) setComfyMappedInput(workflow, workflowMap, 'model', configuredModel);
+  const configuredAspectRatio = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO');
+  if (configuredAspectRatio) setComfyMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
+  const configuredResolution = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_RESOLUTION');
+  if (configuredResolution) setComfyMappedInput(workflow, workflowMap, 'resolution', configuredResolution);
   const model = getByPath(workflow, workflowMap.inputs?.model);
 
   return {
@@ -797,7 +799,7 @@ const applyWorkflowInputs = async (
   };
 };
 
-const submitPrompt = async (client: AxiosInstance, workflow: unknown) => {
+export const submitComfyPrompt = async (client: AxiosInstance, workflow: unknown) => {
   const apiKey = getComfyApiKey();
   const response = await client.post<ComfyPromptResponse>('/prompt', {
     prompt: workflow,
@@ -818,7 +820,7 @@ const submitPrompt = async (client: AxiosInstance, workflow: unknown) => {
   return response.data.prompt_id;
 };
 
-const waitForHistory = async (
+export const waitForComfyHistory = async (
   client: AxiosInstance,
   promptId: string,
   timeoutMs: number,
@@ -859,7 +861,7 @@ const waitForHistory = async (
   throw new VirtualTryOnProviderError('ComfyUI workflow timed out', 504, 'COMFY_TIMEOUT');
 };
 
-const findFirstOutputFile = (
+export const findFirstComfyOutputFile = (
   history: ComfyHistoryEntry,
   nodeIds: string[],
   outputKeys: string[],
@@ -907,7 +909,7 @@ const findOutputFiles = (
   return outputFiles;
 };
 
-const downloadComfyOutput = async (
+export const downloadComfyOutput = async (
   client: AxiosInstance,
   file: ComfyOutputFile,
   fallbackMimeType: string,
@@ -943,21 +945,21 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
         );
       }
 
-      const timeoutMs = getPositiveNumberEnv('VIRTUAL_TRY_ON_COMFY_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
-      const pollIntervalMs = getPositiveNumberEnv('VIRTUAL_TRY_ON_COMFY_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS);
-      const rateLimitBackoffMs = getPositiveNumberEnv(
+      const timeoutMs = getPositiveComfyNumberEnv('VIRTUAL_TRY_ON_COMFY_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
+      const pollIntervalMs = getPositiveComfyNumberEnv('VIRTUAL_TRY_ON_COMFY_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS);
+      const rateLimitBackoffMs = getPositiveComfyNumberEnv(
         'VIRTUAL_TRY_ON_COMFY_RATE_LIMIT_BACKOFF_MS',
         DEFAULT_RATE_LIMIT_BACKOFF_MS,
       );
       const client = createComfyClient();
       const [workflowTemplate, workflowMap] = await Promise.all([
-        readJsonFile<unknown>(workflowPath),
-        readJsonFile<ComfyWorkflowMap>(workflowMapPath),
+        readComfyJsonFile<unknown>(workflowPath),
+        readComfyJsonFile<ComfyWorkflowMap>(workflowMapPath),
       ]);
-      const workflow = cloneJson(workflowTemplate);
+      const workflow = cloneComfyJson(workflowTemplate);
       const mappedInputs = await applyWorkflowInputs(client, workflow, workflowMap, input, timeoutMs);
-      const promptId = await submitPrompt(client, workflow);
-      const history = await waitForHistory(client, promptId, timeoutMs, pollIntervalMs, rateLimitBackoffMs);
+      const promptId = await submitComfyPrompt(client, workflow);
+      const history = await waitForComfyHistory(client, promptId, timeoutMs, pollIntervalMs, rateLimitBackoffMs);
 
       const imageFiles = findOutputFiles(history, workflowMap.outputs?.imageNodeIds || [], ['images']);
       if (!imageFiles.length) {
@@ -969,7 +971,7 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
       const images = await Promise.all(imageFiles.map((imageFile) => downloadComfyOutput(client, imageFile, 'image/png')));
       const image = images[0];
       const videoFile = input.outputMode === 'image_and_video'
-        ? findFirstOutputFile(history, workflowMap.outputs?.videoNodeIds || [], ['videos', 'gifs', 'images'])
+        ? findFirstComfyOutputFile(history, workflowMap.outputs?.videoNodeIds || [], ['videos', 'gifs', 'images'])
         : null;
       const video = videoFile ? await downloadComfyOutput(client, videoFile, 'video/mp4') : null;
 

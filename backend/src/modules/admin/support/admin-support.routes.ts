@@ -13,6 +13,7 @@ import {
   getTicket,
   listFaqs,
   listCannedResponses,
+  listAssignees,
   listTickets,
   markTicketRead,
   reorderFaqs,
@@ -29,6 +30,7 @@ const supportUpload = withMulterErrorHandling(uploadMultiple.array('attachments'
 router.use(authenticate, authorize('admin', 'staff'));
 
 router.get('/summary', requirePermission('support.reply'), getSummary);
+router.get('/assignees', requirePermission('support.reply'), listAssignees);
 router.get('/tickets', requirePermission('support.reply'), listTickets);
 router.get('/tickets/:id', requirePermission('support.reply'), getTicket);
 router.post('/tickets/:id/messages', requirePermission('support.reply'), replyLimiter, supportUpload, replyTicket);

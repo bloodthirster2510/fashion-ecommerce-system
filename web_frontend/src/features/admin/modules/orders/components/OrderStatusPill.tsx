@@ -1,6 +1,8 @@
-import type { AdminOrderStatus } from '../orderAdminApi'
-import { getOrderPillClass, statusLabels } from '../orderPresentation'
+import type { AdminOrder } from '../orderAdminApi'
+import { getOrderDisplayStatus } from '../orderPresentation'
 
-export function OrderStatusPill({ status }: { status: AdminOrderStatus }) {
-  return <span className={getOrderPillClass(status)}>{statusLabels[status]}</span>
+export function OrderStatusPill({ order }: { order: AdminOrder }) {
+  const displayStatus = getOrderDisplayStatus(order)
+
+  return <span className={displayStatus.className}>{displayStatus.label}</span>
 }

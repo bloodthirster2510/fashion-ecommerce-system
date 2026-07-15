@@ -215,7 +215,11 @@ export const revokeSupportSocketAccess = (userId: string) => {
 export const emitTicketMessage = (
   ticketId: string,
   message: Partial<ISupportMessage> & { _id: string; createdAt: Date | string },
-  opts: { isInternal?: boolean; customerUserId?: string | null } = {},
+  opts: {
+    isInternal?: boolean;
+    customerUserId?: string | null;
+    customerMessage?: Record<string, unknown>;
+  } = {},
 ) => {
   const createdAtIso = message.createdAt instanceof Date ? message.createdAt.toISOString() : message.createdAt;
   const payload: SupportRealtimeEvent = {
@@ -230,16 +234,25 @@ export const emitTicketMessage = (
     supportGateway.emitToAdmin({ ...payload, scope: 'admin' });
     return;
   }
-  // Non-internal: ticket room (customer + admin viewing) + admin room (queue) — single broadcast, no duplicates
-  supportGateway.emitToTicketAndAdmin(ticketId, payload);
-  // Direct push to customer user room in case they're not subscribed to this ticket
-  if (opts.customerUserId) supportGateway.emitToUser(opts.customerUserId, { ...payload, scope: 'customer' });
+  // Use separate rooms so the customer payload can omit operational fields.
+  supportGateway.emitToAdmin({ ...payload, scope: 'admin' });
+  if (opts.customerUserId) {
+    const customerMessage = opts.customerMessage ?? message;
+    const customerCreatedAt = customerMessage.createdAt instanceof Date
+      ? customerMessage.createdAt.toISOString()
+      : typeof customerMessage.createdAt === 'string' ? customerMessage.createdAt : createdAtIso;
+    supportGateway.emitToUser(opts.customerUserId, {
+      ...payload,
+      scope: 'customer',
+      message: { ...customerMessage, createdAt: customerCreatedAt } as SupportRealtimeEvent['message'],
+    });
+  }
 };
 
 export const emitTicketUpdated = (
   ticketId: string,
   ticket: Record<string, unknown>,
-  opts: { customerUserId?: string | null } = {},
+  opts: { customerUserId?: string | null; customerTicket?: Record<string, unknown> } = {},
 ) => {
   const payload: SupportRealtimeEvent = {
     type: 'updated',
@@ -247,8 +260,14 @@ export const emitTicketUpdated = (
     ticket,
     at: new Date().toISOString(),
   };
-  supportGateway.emitToTicketAndAdmin(ticketId, payload);
-  if (opts.customerUserId) supportGateway.emitToUser(opts.customerUserId, { ...payload, scope: 'customer' });
+  supportGateway.emitToAdmin({ ...payload, scope: 'admin' });
+  if (opts.customerUserId) {
+    supportGateway.emitToUser(opts.customerUserId, {
+      ...payload,
+      scope: 'customer',
+      ticket: opts.customerTicket ?? ticket,
+    });
+  }
 };
 
 export const emitTicketRead = (ticketId: string, scope: SupportRoomScope) => {

@@ -47,6 +47,11 @@ export const retryVirtualTryOnJob = (jobId: string) =>
     method: 'POST',
   })
 
+export const retryVirtualTryOnVideo = (jobId: string) =>
+  requestAdmin<AdminVirtualTryOnJob>(`/admin/virtual-try-on/jobs/${jobId}/video/retry`, {
+    method: 'POST',
+  })
+
 export const cancelVirtualTryOnJob = (jobId: string) =>
   requestAdmin<AdminVirtualTryOnJob>(`/admin/virtual-try-on/jobs/${jobId}/cancel`, {
     method: 'POST',

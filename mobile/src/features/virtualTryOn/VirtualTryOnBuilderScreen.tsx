@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -29,6 +29,7 @@ import {
   type TryOnOutfitMode,
   type TryOnSeedItem,
   type TryOnSelectedItem,
+  type VirtualTryOnCapabilities,
 } from './virtualTryOn.types';
 import {
   allTryOnRoles,
@@ -509,6 +510,8 @@ const VirtualTryOnBuilderScreen = () => {
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
+  const [includeVideo, setIncludeVideo] = React.useState(false);
+  const [capabilities, setCapabilities] = React.useState<VirtualTryOnCapabilities | null>(null);
   const [contextPreviewLang, setContextPreviewLang] = React.useState<'vi' | 'en'>('vi');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
@@ -628,6 +631,22 @@ const VirtualTryOnBuilderScreen = () => {
       },
     });
   }, []);
+
+  React.useEffect(() => {
+    let isCurrent = true;
+    runWithAuth((token) => virtualTryOnApi.getCapabilities(token))
+      .then((nextCapabilities) => {
+        if (!isCurrent) return;
+        setCapabilities(nextCapabilities);
+        if (!nextCapabilities.videoGeneration.available) setIncludeVideo(false);
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setCapabilities(null);
+        setIncludeVideo(false);
+      });
+    return () => { isCurrent = false; };
+  }, [runWithAuth]);
 
   React.useEffect(() => {
     let isCurrent = true;
@@ -1195,17 +1214,21 @@ const VirtualTryOnBuilderScreen = () => {
       ? 'Không phù hợp'
       : submitWarningActive
       ? 'Vẫn tạo ảnh'
-      : 'Tạo ảnh'
+      : includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'
     : 'Chọn ảnh';
   const submitButtonIcon = sourceAssetId
     ? imageValidationBlocksSubmit || submitWarningActive
       ? 'alert-circle-outline'
       : 'auto-fix'
     : 'image-plus';
-  const createConfirmTitle = submitWarningActive ? imageValidationDisplay.title : 'Tạo ảnh phối đồ?';
+  const createConfirmTitle = submitWarningActive
+    ? imageValidationDisplay.title
+    : includeVideo ? 'Tạo ảnh và video phối đồ?' : 'Tạo ảnh phối đồ?';
   const createConfirmText = submitWarningActive
     ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
-    : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
+    : includeVideo
+      ? 'Hệ thống sẽ tạo 4 ảnh gợi ý trước, sau đó dùng ảnh phối đồ đầu tiên để sinh video.'
+      : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
 
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
@@ -1254,7 +1277,7 @@ const VirtualTryOnBuilderScreen = () => {
           })),
           contextPreset,
           contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
-          outputMode: 'image',
+          outputMode: includeVideo ? 'image_and_video' : 'image',
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       );
       navigation.replace('VirtualTryOnProcessing', {
@@ -1336,8 +1359,7 @@ const VirtualTryOnBuilderScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Phòng phối đồ ảo</Text>
+          <Text style={styles.headerTitle}>Tạo phối đồ</Text>
         </View>
         <View style={styles.headerSpacer} />
       </View>
@@ -1880,6 +1902,26 @@ const VirtualTryOnBuilderScreen = () => {
             </Text>
           </View>
         </View>
+        {capabilities?.videoGeneration.available ? (
+          <View style={styles.outputOptionCard}>
+            <View style={styles.outputOptionIcon}>
+              <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
+            </View>
+            <View style={styles.outputOptionCopy}>
+              <Text style={styles.outputOptionTitle}>Sinh thêm video</Text>
+              <Text style={styles.outputOptionText}>
+                Dùng cùng mô tả phía trên và ảnh phối đồ đầu tiên để tạo video {capabilities.videoGeneration.durationSeconds} giây, {capabilities.videoGeneration.resolution}.
+              </Text>
+            </View>
+            <Switch
+              value={includeVideo}
+              onValueChange={setIncludeVideo}
+              trackColor={{ false: tryOnPalette.line, true: tryOnPalette.primaryPale }}
+              thumbColor={includeVideo ? tryOnPalette.primary : colors.textMuted}
+              accessibilityLabel="Sinh thêm video phối đồ"
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -1986,7 +2028,7 @@ const VirtualTryOnBuilderScreen = () => {
                 activeOpacity={0.86}
               >
                 <Text style={[styles.confirmPrimaryText, submitWarningActive && styles.confirmPrimaryTextWarning]}>
-                  {submitWarningActive ? 'Vẫn tạo ảnh' : 'Tạo ảnh'}
+                  {submitWarningActive ? 'Vẫn tạo ảnh' : includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2407,49 +2449,40 @@ const styles = StyleSheet.create({
     backgroundColor: tryOnPalette.header,
   },
   header: {
-    minHeight: 78,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    minHeight: 60,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: tryOnPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.16)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: spacing.md,
-  },
-  headerKicker: {
-    color: tryOnPalette.headerSoft,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    paddingHorizontal: spacing.sm,
   },
   headerTitle: {
     color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   productHeaderTitle: {
     flex: 1,
     color: colors.white,
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
     textAlign: 'center',
   },
   headerSpacer: {

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Dimensions, type View } from 'react-native';
+import { Dimensions, type View, type ViewToken } from 'react-native';
+import { getUnsentVisibleRecommendationItems } from './recommendationUtils';
 
 type TrackableRecommendationItem = {
   product: {
@@ -20,11 +21,13 @@ export const useRecommendationImpressions = <T extends TrackableRecommendationIt
 }: UseRecommendationImpressionsInput<T>) => {
   const sectionRef = React.useRef<View>(null);
   const sentProductIdsRef = React.useRef(new Set<string>());
+  const visibleProductIdsRef = React.useRef(new Set<string>());
   const latestInputRef = React.useRef({ requestId, items, onImpression });
   latestInputRef.current = { requestId, items, onImpression };
 
   React.useEffect(() => {
     sentProductIdsRef.current.clear();
+    visibleProductIdsRef.current.clear();
   }, [requestId]);
 
   const checkVisibility = React.useCallback(() => {
@@ -41,15 +44,32 @@ export const useRecommendationImpressions = <T extends TrackableRecommendationIt
         return;
       }
 
-      current.items.forEach((item) => {
+      const trackableItems = getUnsentVisibleRecommendationItems(
+        current.items,
+        visibleProductIdsRef.current,
+        sentProductIdsRef.current,
+      );
+
+      trackableItems.forEach((item) => {
         const productId = item.product._id;
-        if (!sentProductIdsRef.current.has(productId)) {
-          sentProductIdsRef.current.add(productId);
-          current.onImpression(item);
-        }
+        sentProductIdsRef.current.add(productId);
+        current.onImpression(item);
       });
     });
   }, []);
+
+  const handleViewableItemsChanged = React.useCallback(({
+    viewableItems,
+  }: {
+    viewableItems: ViewToken<T>[];
+  }) => {
+    visibleProductIdsRef.current = new Set(
+      viewableItems
+        .filter((token) => token.isViewable)
+        .map((token) => token.item.product._id),
+    );
+    checkVisibility();
+  }, [checkVisibility]);
 
   React.useEffect(() => {
     const frame = requestAnimationFrame(checkVisibility);
@@ -59,5 +79,6 @@ export const useRecommendationImpressions = <T extends TrackableRecommendationIt
   return {
     recommendationSectionRef: sectionRef,
     checkRecommendationVisibility: checkVisibility,
+    handleRecommendationViewableItemsChanged: handleViewableItemsChanged,
   };
 };

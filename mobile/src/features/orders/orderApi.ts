@@ -12,6 +12,7 @@ export type OrderStatus =
   | 'completed'
   | 'cancelled'
   | 'return_requested'
+  | 'return_approved'
   | 'returned';
 
 export type OrderFilterStatus = 'all' | OrderStatus;

@@ -47,6 +47,7 @@ const orderStatusLabels: Record<string, string> = {
   completed: 'Hoàn tất',
   cancelled: 'Đã hủy',
   return_requested: 'Đang duyệt trả hàng',
+  return_approved: 'Chờ gửi hàng trả',
   returned: 'Đã trả hàng',
 }
 

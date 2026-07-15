@@ -2,6 +2,7 @@ import { ConfigProvider } from 'antd'
 import 'antd/dist/reset.css'
 import { Suspense } from 'react'
 import { Router } from './router'
+import { StorefrontSettingsProvider } from '../features/storefront-settings/StorefrontSettingsProvider'
 import './App.css'
 
 const appLoadingFallback = (
@@ -22,7 +23,9 @@ function App() {
       }}
     >
       <Suspense fallback={appLoadingFallback}>
-        <Router />
+        <StorefrontSettingsProvider>
+          <Router />
+        </StorefrontSettingsProvider>
       </Suspense>
     </ConfigProvider>
   )

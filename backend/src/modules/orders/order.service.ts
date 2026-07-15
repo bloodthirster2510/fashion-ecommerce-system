@@ -52,6 +52,12 @@ import {
   sendShippingUpdatePush,
   type ShippingPushMilestone,
 } from '../notifications/push-notification.service';
+import {
+  recordLoyaltyEarnedNotification,
+  recordOrderCreatedNotification,
+  recordOrderPaymentNotification,
+  recordOrderStatusNotification,
+} from '../notifications/customer-notification.service';
 import type {
   AdjustOrderPaymentStatusInput,
   CancelOrderInput,
@@ -215,8 +221,8 @@ const buildOperationalSummary = async (filter: Record<string, unknown>) => {
 
   const [returnRequests, refunds, paidReady, packingReady, handoffReady, deliveryConfirmations, paymentRisk, paymentDeadlineSoon] = await Promise.all([
     countWith({
-      status: 'return_requested',
-      'returnRequest.status': 'requested',
+      status: { $in: ['return_requested', 'return_approved'] },
+      'returnRequest.status': { $in: ['requested', 'approved'] },
     }),
     countWith({
       status: { $in: ['cancelled', 'returned'] },
@@ -380,6 +386,12 @@ type OrderChangeSnapshot = {
   shipping: IOrder['shipping'] | null;
 };
 
+type RecommendationOrderLifecycleEvent =
+  | 'order_created'
+  | 'payment_completed'
+  | 'order_cancelled'
+  | 'order_returned';
+
 const createOrderChangeSnapshot = (order: IOrder): OrderChangeSnapshot => ({
   status: order.status,
   paymentStatus: order.paymentStatus,
@@ -392,6 +404,73 @@ const createOrderChangeSnapshot = (order: IOrder): OrderChangeSnapshot => ({
       } as IOrder['shipping'])
     : null,
 });
+
+const recordRecommendationOrderLifecycle = async (
+  order: IOrder,
+  eventType: RecommendationOrderLifecycleEvent,
+) => {
+  const orderId = toIdString(order._id);
+  const reversesPayment = (
+    eventType === 'order_cancelled' || eventType === 'order_returned'
+  ) && (order.paymentStatus === 'paid' || order.paymentStatus === 'refunded');
+
+  await runBestEffort(
+    `Failed to record recommendation ${eventType} conversions`,
+    Promise.all(
+      order.order_list
+        .filter((item) => Boolean(item.recommendationRequestId))
+        .map((item) => recommendationService.recordRecommendationConversionEvent({
+          userId: toIdString(order.user_id),
+          requestId: item.recommendationRequestId,
+          recommendedProductId: toIdString(item.productId),
+          eventType,
+          orderId,
+          orderCode: order.orderCode,
+          orderStatus: order.status,
+          orderPaymentStatus: order.paymentStatus,
+          quantity: item.quantity,
+          attributedAmount: item.priceAtPurchased * item.quantity,
+          reversesPayment,
+        })),
+    ),
+  );
+
+  if (eventType === 'payment_completed') {
+    await runBestEffort(
+      'Failed to record paid purchase interactions',
+      interactionService.recordPurchaseInteractions(
+        toIdString(order.user_id),
+        order.order_list.map((item) => ({
+          sourceId: `${orderId}:${toIdString(item._id)}`,
+          productId: toIdString(item.productId),
+          recommendationRequestId: item.recommendationRequestId ?? null,
+          variantId: toIdString(item.variantId),
+          colorVariantId: toIdString(item.colorVariantId),
+          size: item.size,
+          quantity: item.quantity,
+        })),
+        { orderId, orderCode: order.orderCode },
+      ),
+    );
+  }
+};
+
+const recordRecommendationPaymentCompleted = async (orderId: string) => {
+  const order = await getOrderByIdOrThrow(orderId);
+  if (order.paymentStatus !== 'paid') return order;
+
+  await recordRecommendationOrderLifecycle(order, 'payment_completed');
+
+  // A gateway callback may arrive after a local timeout/cancellation. Keep the
+  // paid event for auditability and turn the negative event into a reversal.
+  if (order.status === 'cancelled') {
+    await recordRecommendationOrderLifecycle(order, 'order_cancelled');
+  } else if (order.status === 'returned') {
+    await recordRecommendationOrderLifecycle(order, 'order_returned');
+  }
+
+  return order;
+};
 
 const triggerOrderStatusChange = async (
   order: IOrder,
@@ -412,6 +491,16 @@ const triggerOrderStatusChange = async (
     }, milestone)),
   );
 
+  if (before.status !== order.status) {
+    await recordOrderStatusNotification({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      status: order.status,
+      imageUrl: order.order_list[0]?.image ?? null,
+    });
+  }
+
   if (milestone && ['picked', 'shipping', 'delivered', 'failed'].includes(milestone)) {
     await runBestEffort(
       'Failed to send shipping update push notification',
@@ -422,6 +511,39 @@ const triggerOrderStatusChange = async (
         milestone: milestone as ShippingPushMilestone,
       }),
     );
+  }
+
+  if (before.paymentStatus !== 'paid' && order.paymentStatus === 'paid') {
+    await recordRecommendationOrderLifecycle(order, 'payment_completed');
+  }
+
+  if (before.paymentStatus !== order.paymentStatus) {
+    await recordOrderPaymentNotification({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      paymentStatus: order.paymentStatus,
+      imageUrl: order.order_list[0]?.image ?? null,
+    });
+  }
+
+  if (
+    before.status !== order.status &&
+    ['delivered', 'completed'].includes(order.status) &&
+    (order.loyaltyPointsAwarded ?? 0) > 0
+  ) {
+    await recordLoyaltyEarnedNotification({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      points: order.loyaltyPointsAwarded,
+    });
+  }
+
+  if (before.status !== order.status && order.status === 'cancelled') {
+    await recordRecommendationOrderLifecycle(order, 'order_cancelled');
+  } else if (before.status !== order.status && order.status === 'returned') {
+    await recordRecommendationOrderLifecycle(order, 'order_returned');
   }
 };
 
@@ -439,6 +561,18 @@ const triggerOrderPaymentChange = async (
       shippingStatus: before.shipping?.status ?? null,
     })),
   );
+
+  if (before.paymentStatus !== 'paid' && order.paymentStatus === 'paid') {
+    await recordRecommendationOrderLifecycle(order, 'payment_completed');
+  }
+
+  await recordOrderPaymentNotification({
+    userId: order.user_id.toString(),
+    orderId: order._id.toString(),
+    orderCode: order.orderCode,
+    paymentStatus: order.paymentStatus,
+    imageUrl: order.order_list[0]?.image ?? null,
+  });
 };
 
 const toOrderItem = (item: CheckoutOrderItem) => ({
@@ -1023,24 +1157,16 @@ type SessionOptions = {
   session?: ClientSession;
 };
 
-const isMongoTransactionSupportError = (error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-
-  return /Transaction numbers are only allowed|transactions? (are|is) not supported|Only servers in a sharded cluster can start a new transaction|active transaction number/i
-    .test(message);
-};
-
-const runWithMongoTransactionFallback = async <T>(
+const runWithMongoTransaction = async <T>(
   operation: (options: SessionOptions) => Promise<T>,
 ) => {
-  let session: ClientSession | null = null;
+  const session = await mongoose.startSession();
 
   try {
-    session = await mongoose.startSession();
     let result: T | undefined;
 
     await session.withTransaction(async () => {
-      result = await operation({ session: session! });
+      result = await operation({ session });
     });
 
     if (result === undefined) {
@@ -1048,24 +1174,8 @@ const runWithMongoTransactionFallback = async <T>(
     }
 
     return result;
-  } catch (error) {
-    if (!isMongoTransactionSupportError(error)) {
-      throw error;
-    }
-
-    if (session) {
-      await session.endSession();
-      session = null;
-    }
-
-    console.warn(
-      'MongoDB transactions are unavailable; continuing checkout without a transaction. Configure MongoDB as a replica set for atomic checkout writes.',
-    );
-    return operation({});
   } finally {
-    if (session) {
-      await session.endSession();
-    }
+    await session.endSession();
   }
 };
 
@@ -1380,7 +1490,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
   let createdOrder: IOrder | null = null;
 
   try {
-    createdOrder = await runWithMongoTransactionFallback(async ({ session }) => {
+    createdOrder = await runWithMongoTransaction(async ({ session }) => {
       const sessionOptions = session ? { session } : {};
 
       for (const appliedCoupon of appliedCoupons) {
@@ -1518,36 +1628,16 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     'Failed to delete cart items after order creation',
     cartService.deleteCartItems(userId, input.cartItemIds),
   );
-  await runBestEffort(
-    'Failed to record purchase interactions',
-    interactionService.recordPurchaseInteractions(
-      userId,
-      persistedOrderItems.map((item) => ({
-        sourceId: `${toIdString(finalizedOrder._id)}:${toIdString(item._id)}`,
-        productId: toIdString(item.productId),
-        variantId: toIdString(item.variantId),
-        colorVariantId: toIdString(item.colorVariantId),
-        size: item.size,
-        quantity: item.quantity,
-      })),
-      { orderId: toIdString(finalizedOrder._id) || orderId.toString(), orderCode: finalizedOrder.orderCode },
-    ),
-  );
-  await runBestEffort(
-    'Failed to record recommendation purchase conversions',
-    Promise.all(
-      persistedOrderItems
-        .filter((item) => Boolean(item.recommendationRequestId))
-        .map((item) =>
-          recommendationService.recordRecommendationConversionEvent({
-            userId,
-            requestId: item.recommendationRequestId,
-            recommendedProductId: toIdString(item.productId),
-            eventType: 'purchase',
-          }),
-        ),
-    ),
-  );
+  const attributionOrder = finalizedOrder.order_list?.length
+    ? finalizedOrder
+    : Object.assign(finalizedOrder, { order_list: persistedOrderItems });
+  await recordRecommendationOrderLifecycle(attributionOrder, 'order_created');
+  await recordOrderCreatedNotification({
+    userId,
+    orderId: finalizedOrder._id.toString(),
+    orderCode: finalizedOrder.orderCode,
+    imageUrl: persistedOrderItems[0]?.image ?? null,
+  });
 
   return finalizedOrder;
 };
@@ -1641,6 +1731,23 @@ const adjustOrderPaymentStatus = async (
     return order;
   }
 
+  if (order.paymentStatus === 'refunded') {
+    throw new SalesServiceError('Refunded payment status is final', 409);
+  }
+
+  if (order.paymentStatus === 'paid' && input.paymentStatus !== 'refunded') {
+    throw new SalesServiceError('Paid payment status cannot be downgraded', 409);
+  }
+
+  if (input.paymentStatus === 'refunded' && (
+    order.paymentStatus !== 'paid' || !['cancelled', 'returned'].includes(order.status)
+  )) {
+    throw new SalesServiceError(
+      'Payment can only be marked refunded after a paid order is cancelled or returned',
+      409,
+    );
+  }
+
   order.paymentStatus = input.paymentStatus;
   const updatedOrder = await order.save();
 
@@ -1655,6 +1762,28 @@ const adjustOrderPaymentStatus = async (
     actorId: input.actorId,
   });
 
+  await triggerOrderPaymentChange(updatedOrder, before);
+  return updatedOrder;
+};
+
+const markVNPayRefundCompleted = async (id: string) => {
+  const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
+
+  if (order.paymentStatus === 'refunded') {
+    return order;
+  }
+
+  if (order.paymentMethod !== 'VNPAY' || order.paymentStatus !== 'paid') {
+    throw new SalesServiceError('Only paid VNPay orders can be gateway-refunded', 409);
+  }
+
+  if (!['cancelled', 'returned'].includes(order.status)) {
+    throw new SalesServiceError('Order must be cancelled or returned before refund completion', 409);
+  }
+
+  order.paymentStatus = 'refunded';
+  const updatedOrder = await order.save();
   await triggerOrderPaymentChange(updatedOrder, before);
   return updatedOrder;
 };
@@ -1729,10 +1858,12 @@ const cancelOrderForPaymentDeadline = async (orderId: string, now = new Date()) 
 
   await restockCommittedOrder(cancelledOrder);
   await rollbackCouponUsageForCancelledOrder(cancelledOrder);
-  return clawBackLoyaltyPointsForOrder(
+  const finalOrder = await clawBackLoyaltyPointsForOrder(
     cancelledOrder,
     'Order cancelled due to payment deadline exceeded',
   );
+  await recordRecommendationOrderLifecycle(finalOrder, 'order_cancelled');
+  return finalOrder;
 };
 
 const cancelOrder = async (
@@ -1883,9 +2014,9 @@ const reviewReturnRequest = async (
   const reviewedBy = toObjectId(reviewerId, 'reviewerId');
 
   if (input.decision === 'approved') {
-    assertOrderStatusTransition(order.status, 'returned');
-    assertPaymentAllowsOrderStatus(order, 'returned');
-    order.status = 'returned';
+    assertOrderStatusTransition(order.status, 'return_approved');
+    assertPaymentAllowsOrderStatus(order, 'return_approved');
+    order.status = 'return_approved';
   } else {
     order.status = order.returnRequest.previousOrderStatus === 'completed' ? 'completed' : 'delivered';
     ensureDeliveredInvoiceCode(order);
@@ -1902,10 +2033,6 @@ const reviewReturnRequest = async (
     reviewReason,
   };
 
-  if (input.decision === 'approved') {
-    return saveOrderWithLoyaltyClawback(order, 'Order returned');
-  }
-
   return order.save();
 };
 
@@ -1919,7 +2046,7 @@ const updateOrderStatus = async (
   }
 
   const order = await getOrderByIdOrThrow(id);
-  if (input.status === 'return_requested' || input.status === 'returned') {
+  if (input.status === 'return_requested' || input.status === 'return_approved') {
     throw new SalesServiceError('Use the return request review workflow for return orders', 400);
   }
 
@@ -1964,6 +2091,12 @@ const updateOrderStatus = async (
       'status_update',
       input.status === 'delivered' ? 'delivered' : undefined,
     );
+    return savedOrder;
+  }
+
+  if (input.status === 'returned') {
+    const savedOrder = await saveOrderWithLoyaltyClawback(order, 'Returned merchandise received');
+    await triggerOrderStatusChange(savedOrder, before, 'status_update');
     return savedOrder;
   }
 
@@ -2138,7 +2271,25 @@ const syncGhnShipment = async (id: string) => {
 const updateOrderShipping = async (id: string, input: UpdateOrderShippingInput) => {
   const order = await getOrderByIdOrThrow(id);
   const before = createOrderChangeSnapshot(order);
-  const nextCustomerFee = input.customerFee ?? order.shipping?.customerFee ?? order.shippingFee ?? null;
+  const currentCustomerFee = order.shipping?.customerFee ?? order.shippingFee ?? null;
+  const nextCustomerFee = input.customerFee ?? currentCustomerFee;
+  const changesCustomerTotal = typeof input.customerFee === 'number' &&
+    Number.isFinite(input.customerFee) &&
+    input.customerFee !== currentCustomerFee;
+
+  if (changesCustomerTotal) {
+    const canChangeCodTotal = order.paymentMethod === 'COD' &&
+      order.paymentStatus === 'pending' &&
+      ['confirmed', 'packed'].includes(order.status) &&
+      !order.shipping?.trackingCode;
+
+    if (!canChangeCodTotal) {
+      throw new SalesServiceError(
+        'Customer shipping fee cannot be changed after online checkout, payment, or shipment creation',
+        409,
+      );
+    }
+  }
 
   order.shipping = {
     provider: input.provider ?? order.shipping?.provider ?? null,
@@ -2372,17 +2523,8 @@ const applyGhnShippingWebhook = async (payload: unknown) => (
 const autoCompleteDeliveredOrders = async (now = new Date()) => {
   const cutoff = new Date(now.getTime() - AUTO_COMPLETE_DELIVERED_AFTER_MS);
   const orders = await Order.find({
-    $or: [
-      {
-        status: 'delivered',
-        deliveredAt: { $lte: cutoff },
-      },
-      {
-        status: 'shipping',
-        'shipping.estimatedDeliveryDate': { $lte: cutoff },
-        'shipping.status': { $nin: ['failed', 'cancelled'] },
-      },
-    ],
+    status: 'delivered',
+    deliveredAt: { $lte: cutoff },
   }).limit(AUTO_COMPLETE_BATCH_SIZE) as IOrder[];
 
   const completedOrderIds: string[] = [];
@@ -2391,12 +2533,8 @@ const autoCompleteDeliveredOrders = async (now = new Date()) => {
   for (const order of orders) {
     const before = createOrderChangeSnapshot(order);
     try {
-      const inferredDeliveredAt = order.status === 'shipping'
-        ? order.shipping?.estimatedDeliveryDate ?? cutoff
-        : order.deliveredAt ?? cutoff;
       order.status = 'completed';
       order.receivedAt = order.receivedAt ?? now;
-      order.deliveredAt = order.deliveredAt ?? inferredDeliveredAt;
       if (order.paymentMethod === 'COD') {
         order.paymentStatus = 'paid';
       }
@@ -2434,6 +2572,8 @@ export const orderService = {
   getOrderById,
   getOrderTransactions,
   adjustOrderPaymentStatus,
+  markVNPayRefundCompleted,
+  recordRecommendationPaymentCompleted,
   cancelOrder,
   confirmOrderReceived,
   requestReturn,

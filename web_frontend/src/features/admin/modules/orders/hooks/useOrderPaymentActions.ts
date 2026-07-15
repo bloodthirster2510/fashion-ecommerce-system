@@ -3,6 +3,8 @@ import { requestAdminNotificationRefresh } from '../../../notifications/notifica
 import {
   adjustOrderPaymentStatus,
   expireStalePayments,
+  reconcileVNPayOrder,
+  refundVNPayOrder,
   revealCustomerPaymentMethodAccount,
   updateCustomerPaymentMethodStatus,
   type AdminCustomerPaymentMethod,
@@ -12,6 +14,7 @@ import {
 } from '../orderAdminApi'
 import type { Notice, OrderActionDialogState } from '../orderTypes'
 import { getErrorMessage } from '../orderPresentation'
+import { getVNPayReconcileNotice, getVNPayRefundNotice } from '../utils/vnpayReconcile'
 
 type UseOrderPaymentActionsOptions = {
   canAdjustPayments: boolean
@@ -100,6 +103,16 @@ export function useOrderPaymentActions({
     setNotice(null)
 
     try {
+      if (nextStatus === 'refunded' && order.paymentMethod === 'VNPAY') {
+        const result = await refundVNPayOrder(order._id, reason.trim())
+        replaceOrderRow(result.order)
+        setNotice(getVNPayRefundNotice(result.refundStatus))
+        await refreshSelectedOrder(result.order._id)
+        await loadOrders()
+        requestAdminNotificationRefresh()
+        return
+      }
+
       const updatedOrder = await adjustOrderPaymentStatus(order._id, nextStatus, reason.trim())
       replaceOrderRow(updatedOrder)
       setNotice({ type: 'success', message: 'Đã điều chỉnh trạng thái thanh toán' })
@@ -116,6 +129,25 @@ export function useOrderPaymentActions({
   const handleAdjustPaymentStatus = async (nextStatus: AdminOrderPaymentStatus) => {
     if (!selectedOrder) return
     openActionDialog({ type: 'payment-status', order: selectedOrder, nextStatus })
+  }
+
+  const handleReconcileVNPay = async () => {
+    if (!selectedOrder || selectedOrder.paymentMethod !== 'VNPAY') return
+
+    setActionLoading(true)
+    setNotice(null)
+    try {
+      const result = await reconcileVNPayOrder(selectedOrder._id)
+      if (result.order) replaceOrderRow(result.order)
+      await refreshSelectedOrder(selectedOrder._id)
+      await loadOrders()
+      requestAdminNotificationRefresh()
+      setNotice(getVNPayReconcileNotice(result))
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const executeUpdatePaymentMethodStatus = async (
@@ -153,6 +185,7 @@ export function useOrderPaymentActions({
     executeUpdatePaymentMethodStatus,
     handleAdjustPaymentStatus,
     handleExpireStalePayments,
+    handleReconcileVNPay,
     handleRevealRefundAccount,
     handleUpdatePaymentMethodStatus,
   }

@@ -21,38 +21,74 @@ const getOnlineMetrics = async (days: number) => {
   since.setDate(since.getDate() - days);
 
   const rows = await RecommendationEvent.aggregate<{
-    _id: { context: string; eventType: string };
+    _id: { algorithmVersion: string; context: string; eventType: string };
     count: number;
+    reversedCount: number;
   }>([
     { $match: { createdAt: { $gte: since } } },
     {
       $group: {
-        _id: { context: '$context', eventType: '$eventType' },
+        _id: {
+          algorithmVersion: { $ifNull: ['$algorithmVersion', 'unknown'] },
+          context: '$context',
+          eventType: '$eventType',
+        },
         count: { $sum: 1 },
+        reversedCount: { $sum: { $cond: ['$reversesPayment', 1, 0] } },
       },
     },
-    { $sort: { '_id.context': 1, '_id.eventType': 1 } },
+    {
+      $sort: {
+        '_id.algorithmVersion': 1,
+        '_id.context': 1,
+        '_id.eventType': 1,
+      },
+    },
   ]);
-  const byContext = new Map<string, Record<string, number>>();
+  const byVersionAndContext = new Map<string, {
+    algorithmVersion: string;
+    context: string;
+    counts: Record<string, number>;
+    reversedCounts: Record<string, number>;
+  }>();
 
   rows.forEach((row) => {
-    const current = byContext.get(row._id.context) ?? {};
-    current[row._id.eventType] = row.count;
-    byContext.set(row._id.context, current);
+    const key = `${row._id.algorithmVersion}:${row._id.context}`;
+    const current = byVersionAndContext.get(key) ?? {
+      algorithmVersion: row._id.algorithmVersion,
+      context: row._id.context,
+      counts: {},
+      reversedCounts: {},
+    };
+    current.counts[row._id.eventType] = row.count;
+    current.reversedCounts[row._id.eventType] = row.reversedCount;
+    byVersionAndContext.set(key, current);
   });
 
-  return [...byContext.entries()].map(([context, counts]) => {
+  return [...byVersionAndContext.values()].map(({ algorithmVersion, context, counts, reversedCounts }) => {
     const impression = counts.impression ?? 0;
+    const ordersCreated = (counts.order_created ?? 0) + (counts.purchase ?? 0);
+    const paymentsCompleted = counts.payment_completed ?? 0;
+    const reversedPayments = (reversedCounts.order_cancelled ?? 0)
+      + (reversedCounts.order_returned ?? 0);
+    const netPayments = paymentsCompleted - reversedPayments;
 
     return {
+      algorithmVersion,
       context,
       impression,
       click: counts.click ?? 0,
       addToCart: counts.add_to_cart ?? 0,
-      purchase: counts.purchase ?? 0,
+      ordersCreated,
+      paymentsCompleted,
+      ordersCancelled: counts.order_cancelled ?? 0,
+      ordersReturned: counts.order_returned ?? 0,
+      netPayments,
       ctr: impression ? Number(((counts.click ?? 0) / impression).toFixed(4)) : 0,
       addToCartRate: impression ? Number(((counts.add_to_cart ?? 0) / impression).toFixed(4)) : 0,
-      conversionRate: impression ? Number(((counts.purchase ?? 0) / impression).toFixed(4)) : 0,
+      orderConversionRate: impression ? Number((ordersCreated / impression).toFixed(4)) : 0,
+      paymentConversionRate: impression ? Number((paymentsCompleted / impression).toFixed(4)) : 0,
+      netPaymentConversionRate: impression ? Number((netPayments / impression).toFixed(4)) : 0,
     };
   });
 };
@@ -60,6 +96,7 @@ const getOnlineMetrics = async (days: number) => {
 const evaluateSimilarFromOrders = async (orderLimit: number, k: number) => {
   const orders = await Order.find({
     status: { $nin: ['cancelled', 'returned'] },
+    paymentStatus: 'paid',
     'order_list.1': { $exists: true },
   })
     .select('orderCode order_list.productId createdAt')

@@ -1,5 +1,5 @@
 import { SupportMessage, SupportTicket } from '../../../database/models';
-import { addCustomerMessage, createGuestFeedback, createTicket, getCustomerTicket } from '../support.service';
+import { addCustomerMessage, createGuestFeedback, createTicket, getCustomerTicket, toCustomerSupportMessage, toCustomerSupportTicket } from '../support.service';
 
 jest.mock('../../../database/models', () => ({
   Coupon: { exists: jest.fn() },
@@ -7,8 +7,8 @@ jest.mock('../../../database/models', () => ({
   FaqVote: {},
   FAQ_CATEGORIES: ['orders', 'shipping', 'returns', 'payments', 'promotions', 'loyalty', 'account', 'other'],
   Order: { exists: jest.fn() },
-  SupportMessage: { find: jest.fn(), create: jest.fn() },
-  SupportTicket: { findOne: jest.fn(), create: jest.fn(), deleteOne: jest.fn() },
+  SupportMessage: { find: jest.fn(), create: jest.fn(), deleteOne: jest.fn() },
+  SupportTicket: { findOne: jest.fn(), findOneAndUpdate: jest.fn(), findById: jest.fn(), create: jest.fn(), deleteOne: jest.fn() },
   SUPPORT_CATEGORIES: ['orders', 'shipping', 'returns', 'payments', 'promotions', 'loyalty', 'account', 'product', 'app_website', 'service', 'other'],
   SUPPORT_TICKET_TYPES: ['question', 'issue', 'complaint', 'feedback', 'suggestion'],
 }));
@@ -33,10 +33,12 @@ describe('support service security and state rules', () => {
 
   it('scopes customer ticket reads by both ticket id and user id and hides internal notes', async () => {
     const ticketLean = jest.fn().mockResolvedValue({ _id: ticketId, userId, status: 'open' });
-    mockedTicket.findOne.mockReturnValue({ lean: ticketLean } as never);
+    const ticketSelect = jest.fn().mockReturnValue({ lean: ticketLean });
+    mockedTicket.findOne.mockReturnValue({ select: ticketSelect } as never);
     const messageLean = jest.fn().mockResolvedValue([]);
     const sort = jest.fn().mockReturnValue({ lean: messageLean });
-    mockedMessage.find.mockReturnValue({ sort } as never);
+    const messageSelect = jest.fn().mockReturnValue({ sort });
+    mockedMessage.find.mockReturnValue({ select: messageSelect } as never);
 
     await getCustomerTicket(ticketId, userId);
 
@@ -70,5 +72,30 @@ describe('support service security and state rules', () => {
       name: 'Guest User', email: 'guest@example.com', type: 'question' as 'feedback', category: 'other',
       subject: 'Need private support', body: 'Please help me with my account.', website: '',
     })).rejects.toMatchObject({ message: 'Guest submission must be feedback or suggestion' });
+  });
+
+  it('removes internal operations and staff identity from customer DTOs', () => {
+    expect(toCustomerSupportTicket({
+      _id: ticketId,
+      ticketCode: 'SUP-1',
+      subject: 'Need help',
+      priority: 'urgent',
+      assignedTo: userId,
+      staffLastReadAt: new Date(),
+    })).toEqual({ _id: ticketId, ticketCode: 'SUP-1', subject: 'Need help' });
+
+    expect(toCustomerSupportMessage({
+      _id: '665000000000000000000003',
+      senderType: 'staff',
+      senderId: userId,
+      body: 'Reply',
+      isInternal: false,
+      createdAt: '2026-07-14T00:00:00.000Z',
+    })).toEqual({
+      _id: '665000000000000000000003',
+      senderType: 'staff',
+      body: 'Reply',
+      createdAt: '2026-07-14T00:00:00.000Z',
+    });
   });
 });

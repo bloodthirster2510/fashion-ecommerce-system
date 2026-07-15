@@ -11,4 +11,14 @@ export const orderService = {
       method: 'POST',
       body: JSON.stringify({ locale: 'vn' }),
     }),
+  cancel: (orderId: string, reason: string) =>
+    requestCustomer<CustomerOrder>(`/orders/${orderId}/cancel`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason }),
+    }),
+  requestReturn: (orderId: string, reason: string) =>
+    requestCustomer<CustomerOrder>(`/orders/${orderId}/request-return`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason }),
+    }),
 }

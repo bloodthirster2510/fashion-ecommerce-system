@@ -9,6 +9,7 @@ import type {
   SupportPriority,
   SupportSummary,
   SupportMessage,
+  SupportPerson,
   SupportTicket,
   SupportTicketDetail,
   SupportTicketList,
@@ -24,7 +25,11 @@ export type SupportFilters = {
   type?: SupportTicketType | 'all'
   category?: SupportCategory | 'all'
   priority?: SupportPriority | 'all'
-  requiresReply?: boolean
+  assignedTo?: string | 'unassigned' | 'all'
+  requiresReply?: boolean | 'all'
+  hasOrder?: boolean | 'all'
+  dateFrom?: string
+  dateTo?: string
 }
 
 const query = (filters: SupportFilters) => {
@@ -34,7 +39,11 @@ const query = (filters: SupportFilters) => {
   if (filters.type && filters.type !== 'all') params.set('type', filters.type)
   if (filters.category && filters.category !== 'all') params.set('category', filters.category)
   if (filters.priority && filters.priority !== 'all') params.set('priority', filters.priority)
-  if (filters.requiresReply !== undefined) params.set('requiresReply', String(filters.requiresReply))
+  if (filters.assignedTo && filters.assignedTo !== 'all') params.set('assignedTo', filters.assignedTo)
+  if (typeof filters.requiresReply === 'boolean') params.set('requiresReply', String(filters.requiresReply))
+  if (typeof filters.hasOrder === 'boolean') params.set('hasOrder', String(filters.hasOrder))
+  if (filters.dateFrom) params.set('dateFrom', filters.dateFrom)
+  if (filters.dateTo) params.set('dateTo', filters.dateTo)
   return params.toString()
 }
 
@@ -43,6 +52,8 @@ export const listSupportTickets = (filters: SupportFilters) =>
 
 export const getSupportTicket = (id: string) =>
   requestAdmin<SupportTicketDetail>(`/admin/support/tickets/${id}`)
+
+export const listSupportAssignees = () => requestAdmin<SupportPerson[]>('/admin/support/assignees')
 
 export const updateSupportTicket = (
   id: string,
@@ -102,3 +113,8 @@ export const updateAdminFaq = (id: string, payload: Partial<FaqPayload>) =>
 
 export const deleteAdminFaq = (id: string) =>
   requestAdmin<FaqArticle | { _id: string; deleted: true }>(`/admin/support/faqs/${id}`, { method: 'DELETE' })
+
+export const reorderAdminFaqs = (orderedIds: string[]) => requestAdmin<FaqArticle[]>('/admin/support/faqs/reorder', {
+  method: 'PATCH',
+  body: JSON.stringify({ orderedIds }),
+})

@@ -4,6 +4,7 @@ import {
   RecommendationServiceError,
   recommendationService,
 } from './recommendation.service';
+import { recommendationAnalyticsService } from './recommendation-analytics.service';
 import type { RecommendationEventInput } from './recommendation.types';
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } =>
@@ -189,6 +190,15 @@ const previewRecommendations = async (req: Request, res: Response) => {
   }
 };
 
+const getRecommendationAnalytics = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await recommendationAnalyticsService.getRecommendationAnalytics(req.query));
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const createRecommendationEvent = async (req: Request, res: Response) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
@@ -222,6 +232,7 @@ export {
   createRecommendationEvent,
   getCartRecommendations,
   getMyRecommendations,
+  getRecommendationAnalytics,
   getSimilarProducts,
   previewRecommendations,
 };

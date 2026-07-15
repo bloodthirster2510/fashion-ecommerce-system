@@ -23,8 +23,14 @@ export const cartService = {
   preview: (payload: CheckoutPayload) => requestCustomer<CheckoutPreview>('/orders/preview', {
     method: 'POST', body: JSON.stringify(payload),
   }),
-  createOrder: (payload: CheckoutPayload & { quoteVersion: string; orderNote?: string }) =>
-    requestCustomer<CreateOrderResponse>('/orders', { method: 'POST', body: JSON.stringify(payload) }),
+  createOrder: (
+    payload: CheckoutPayload & { quoteVersion: string; orderNote?: string },
+    idempotencyKey: string,
+  ) => requestCustomer<CreateOrderResponse>('/orders', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(payload),
+  }),
   createVNPayUrl: (orderId: string) => requestCustomer<{ paymentUrl: string }>(
     `/payments/vnpay/orders/${orderId}/create-payment-url`,
     { method: 'POST', body: JSON.stringify({ locale: 'vn' }) },

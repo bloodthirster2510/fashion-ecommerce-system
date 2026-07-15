@@ -7,6 +7,7 @@ import type {
   TryOnImageValidationResult,
   TryOnSelectedItem,
   VirtualTryOnAsset,
+  VirtualTryOnCapabilities,
   VirtualTryOnJob,
 } from './virtualTryOn.types';
 
@@ -141,6 +142,8 @@ const uploadAsset = (token: string, uri: string, source: 'upload' | 'camera') =>
 
 export const virtualTryOnApi = {
   uploadAsset,
+  getCapabilities: (token: string) =>
+    request<VirtualTryOnCapabilities>('/virtual-try-on/capabilities', token),
   getAssets: (token: string, params: { page?: number; limit?: number; type?: string } = {}) =>
     request<PaginatedResponse<VirtualTryOnAsset>>(`/virtual-try-on/assets${toQueryString(params)}`, token),
   deleteAsset: (token: string, assetId: string) =>
@@ -166,6 +169,10 @@ export const virtualTryOnApi = {
     request<PaginatedResponse<VirtualTryOnJob>>(`/virtual-try-on/jobs${toQueryString(params)}`, token),
   retryJob: (token: string, jobId: string) =>
     request<VirtualTryOnJob>(`/virtual-try-on/jobs/${encodeURIComponent(jobId)}/retry`, token, {
+      method: 'POST',
+    }),
+  retryVideo: (token: string, jobId: string) =>
+    request<VirtualTryOnJob>(`/virtual-try-on/jobs/${encodeURIComponent(jobId)}/video/retry`, token, {
       method: 'POST',
     }),
   cancelJob: (token: string, jobId: string) =>

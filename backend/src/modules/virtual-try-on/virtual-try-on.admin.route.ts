@@ -13,6 +13,7 @@ import {
   listPromptRules,
   lockAccount,
   retryAdminJob,
+  retryAdminVideo,
   testAdminPrompt,
   unlockAccount,
   updatePromptRule,
@@ -29,6 +30,7 @@ router.get('/settings', requirePermission('virtual_try_on.read'), getAdminSettin
 router.get('/jobs', requirePermission('virtual_try_on.read'), listAdminJobs);
 router.post('/prompt/test', requirePermission('virtual_try_on.read'), testAdminPrompt);
 router.post('/jobs/:jobId/retry', requirePermission('virtual_try_on.manage'), retryAdminJob);
+router.post('/jobs/:jobId/video/retry', requirePermission('virtual_try_on.manage'), retryAdminVideo);
 router.post('/jobs/:jobId/cancel', requirePermission('virtual_try_on.manage'), cancelAdminJob);
 router.delete('/jobs/:jobId', requirePermission('virtual_try_on.manage'), hideAdminJob);
 

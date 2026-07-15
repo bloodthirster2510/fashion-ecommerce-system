@@ -6,6 +6,7 @@ export const ORDER_STATUSES = [
   'completed',
   'cancelled',
   'return_requested',
+  'return_approved',
   'returned',
 ] as const;
 
@@ -26,7 +27,8 @@ export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   shipping: ['delivered'],
   delivered: ['completed', 'return_requested'],
   completed: ['return_requested'],
-  return_requested: ['returned'],
+  return_requested: ['return_approved'],
+  return_approved: ['returned'],
   returned: [],
   cancelled: [],
 };

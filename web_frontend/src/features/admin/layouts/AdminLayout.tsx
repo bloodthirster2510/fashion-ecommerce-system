@@ -72,6 +72,15 @@ const SupportManagementPage = lazy(() =>
 const VirtualTryOnManagementPage = lazy(() =>
   import('../modules/virtual-try-on/VirtualTryOnManagementPage').then((module) => ({ default: module.VirtualTryOnManagementPage })),
 )
+const RecommendationReportsPage = lazy(() =>
+  import('../modules/reports/RecommendationReportsPage').then((module) => ({ default: module.RecommendationReportsPage })),
+)
+const AdminDashboardPage = lazy(() =>
+  import('../modules/dashboard/AdminDashboardPage').then((module) => ({ default: module.AdminDashboardPage })),
+)
+const StorefrontSettingsPage = lazy(() =>
+  import('../modules/settings/StorefrontSettingsPage').then((module) => ({ default: module.StorefrontSettingsPage })),
+)
 
 type AdminLayoutProps = {
   currentUser: AdminUser
@@ -153,6 +162,10 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
     return true
   }
 
+  if (route.id === 'overview') {
+    return true
+  }
+
   const requiredPermission = routePermissions[route.id]
   if (!requiredPermission || requiredPermission === 'admin') {
     return false
@@ -171,7 +184,7 @@ const getActiveSectionFromPath = () => {
 
   const route = getAdminRouteByPath(window.location.pathname)
 
-  return route && isImplementedRoute(route.id) ? route.id : 'orders'
+  return route && isImplementedRoute(route.id) ? route.id : 'overview'
 }
 
 const getCurrentAdminLocation = () => ({
@@ -427,6 +440,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
       return <ManagerListPage />
     }
 
+    if (renderedSection === 'overview') {
+      return <AdminDashboardPage currentUser={currentUser} />
+    }
+
     if (renderedSection === 'customers') {
       return <CustomerListPage currentUser={currentUser} />
     }
@@ -483,6 +500,14 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'virtualTryOn') {
       return <VirtualTryOnManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'reports') {
+      return <RecommendationReportsPage />
+    }
+
+    if (renderedSection === 'settings') {
+      return <StorefrontSettingsPage />
     }
 
     const enterableRoute = enterableNavItems.find((item) => item.id === renderedSection)
@@ -728,11 +753,17 @@ const getNavNotificationBadge = (
   if (!summary) return null
 
   const badges: Partial<Record<NavId, NavNotificationBadge>> = {
+    orders: summary.orders.total > 0
+      ? { count: summary.orders.total, tone: 'danger', label: `${summary.orders.total} đơn cần xử lý` }
+      : undefined,
     ordersOnline: summary.orders.online > 0
       ? { count: summary.orders.online, tone: 'danger', label: `${summary.orders.online} đơn online cần xử lý` }
       : undefined,
     ordersCod: summary.orders.cod > 0
       ? { count: summary.orders.cod, tone: 'danger', label: `${summary.orders.cod} đơn COD cần xử lý` }
+      : undefined,
+    inventory: summary.lowStockVariants > 0
+      ? { count: summary.lowStockVariants, tone: 'warning', label: `${summary.lowStockVariants} biến thể tồn kho thấp` }
       : undefined,
     promotions: summary.expiringCoupons > 0
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }

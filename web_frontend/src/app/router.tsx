@@ -47,6 +47,9 @@ const CartPage = lazy(() =>
 const OrderDetailPage = lazy(() =>
   import('../features/orders/pages/OrderDetailPage').then((module) => ({ default: module.OrderDetailPage })),
 )
+const PolicyPage = lazy(() =>
+  import('../features/policies/PolicyPage').then((module) => ({ default: module.PolicyPage })),
+)
 
 export function Router() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>
@@ -168,6 +171,11 @@ export function Router() {
   }, [adminSession, isRestoringAdminSession, path, replacePath])
 
   if (!path.startsWith('/admin')) {
+    const policyMatch = path.match(/^\/policies\/(terms|privacy|shipping|returns|complaints)\/?$/)
+    if (policyMatch) {
+      return <PolicyPage policyKey={policyMatch[1] as 'terms' | 'privacy' | 'shipping' | 'returns' | 'complaints'} />
+    }
+
     if (path.startsWith('/support') || path.startsWith('/account/support')) {
       return <SupportPage />
     }

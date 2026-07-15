@@ -149,9 +149,25 @@ export const listJobs = async (req: Request, res: Response) => {
   }
 };
 
+export const getCapabilities = async (_req: Request, res: Response) => {
+  try {
+    return ok(res, virtualTryOnService.getCapabilities());
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 export const retryJob = async (req: Request, res: Response) => {
   try {
     return ok(res, await virtualTryOnService.retryJob(getUserId(req), req.params.jobId as string));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const retryVideo = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.retryVideo(getUserId(req), req.params.jobId as string));
   } catch (error) {
     return handleError(res, error);
   }
@@ -216,6 +232,14 @@ export const getContextPresets = async (_req: Request, res: Response) => {
 export const retryAdminJob = async (req: Request, res: Response) => {
   try {
     return ok(res, await virtualTryOnService.retryAdminJob(req.params.jobId as string));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const retryAdminVideo = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.retryAdminVideo(req.params.jobId as string));
   } catch (error) {
     return handleError(res, error);
   }

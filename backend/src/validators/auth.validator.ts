@@ -1,3 +1,5 @@
+import { LEGAL_POLICY_VERSION } from '../modules/auth/legal-policy';
+
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -63,6 +65,14 @@ export const validateRegister = (body: Record<string, unknown>): ValidationError
 
   if (!body.otpToken || typeof body.otpToken !== 'string' || body.otpToken.trim().length === 0) {
     errors.push({ field: 'otpToken', message: 'OTP chưa được xác thực' });
+  }
+
+  if (body.acceptedTerms !== true) {
+    errors.push({ field: 'acceptedTerms', message: 'Bạn cần đồng ý với điều khoản và chính sách bảo mật' });
+  }
+
+  if (body.policyVersion !== LEGAL_POLICY_VERSION) {
+    errors.push({ field: 'policyVersion', message: 'Phiên bản chính sách không hợp lệ, vui lòng tải lại trang' });
   }
 
   return errors;

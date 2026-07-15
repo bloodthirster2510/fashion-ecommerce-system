@@ -9,6 +9,9 @@ export interface RecordInteractionInput {
   userId?: string | null;
   sessionId?: string | null;
   productId?: string | null;
+  variantId?: string | null;
+  colorVariantId?: string | null;
+  size?: string | null;
   actionType: InteractionActionType;
   source?: InteractionSource;
   metadata?: InteractionMetadata;
@@ -17,7 +20,7 @@ export interface RecordInteractionInput {
 export interface RecordInteractionResult {
   recorded: boolean;
   interactionId?: string;
-  skippedReason?: 'recent_duplicate_view';
+  skippedReason?: 'recent_duplicate_view' | 'tracking_disabled';
 }
 
 export interface RecordCartInteractionInput {
@@ -31,6 +34,7 @@ export interface RecordCartInteractionInput {
 export interface RecordPurchaseInteractionItem {
   sourceId?: string;
   productId: string;
+  recommendationRequestId?: string | null;
   variantId?: string;
   colorVariantId?: string;
   size?: string;

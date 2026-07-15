@@ -81,6 +81,7 @@ export function CouponsSection() {
           </div>
         )}
       </Skeleton>
+      <Button href="/account/support/new?category=promotions&source=coupon">Cần hỗ trợ về voucher?</Button>
     </section>
   )
 }

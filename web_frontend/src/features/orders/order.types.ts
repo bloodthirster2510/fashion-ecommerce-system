@@ -3,8 +3,10 @@ export type OrderStatus =
   | 'packed'
   | 'shipping'
   | 'delivered'
+  | 'completed'
   | 'cancelled'
   | 'return_requested'
+  | 'return_approved'
   | 'returned'
 
 export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
@@ -61,6 +63,13 @@ export type CustomerOrder = {
   createdAt: string
   updatedAt: string
   deliveredAt?: string | null
+  receivedAt?: string | null
+  returnRequest?: {
+    reason: string
+    status: 'requested' | 'approved' | 'rejected'
+    requestedAt: string
+    reviewReason?: string | null
+  } | null
 }
 
 export type CustomerOrderListResponse = {

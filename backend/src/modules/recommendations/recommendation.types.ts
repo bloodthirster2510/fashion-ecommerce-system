@@ -4,7 +4,7 @@ import type {
 } from '../../database/models/recommendation-event.model';
 import type { ProductListItem } from '../catalog/products/product.types';
 
-export const RECOMMENDATION_ALGORITHM_VERSION = 'v1_hybrid_rule_based';
+export const RECOMMENDATION_ALGORITHM_VERSION = 'v4_cart_outfit_sequence';
 
 export type RecommendationReasonCode =
   | 'same_category'
@@ -15,6 +15,8 @@ export type RecommendationReasonCode =
   | 'preferred_category'
   | 'preferred_brand'
   | 'preferred_color'
+  | 'completes_outfit'
+  | 'matches_cart_style'
   | 'popular'
   | 'on_sale'
   | 'new_arrival';
@@ -69,7 +71,17 @@ export interface RecommendationConversionEventInput {
   sessionId?: string | null;
   requestId?: string | null;
   recommendedProductId: string;
-  eventType: Extract<RecommendationEventType, 'add_to_cart' | 'purchase'>;
+  eventType: Extract<
+    RecommendationEventType,
+    'add_to_cart' | 'order_created' | 'payment_completed' | 'order_cancelled' | 'order_returned'
+  >;
+  orderId?: string | null;
+  orderCode?: string | null;
+  orderStatus?: string | null;
+  orderPaymentStatus?: string | null;
+  quantity?: number | null;
+  attributedAmount?: number | null;
+  reversesPayment?: boolean;
 }
 
 export interface RegisterRecommendationRequestInput {

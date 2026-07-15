@@ -12,6 +12,7 @@ import {
   listVirtualTryOnPromptRules,
   lockVirtualTryOnAccount,
   retryVirtualTryOnJob,
+  retryVirtualTryOnVideo,
   testVirtualTryOnPrompt,
   unlockVirtualTryOnAccount,
   updateVirtualTryOnPromptRule,
@@ -71,6 +72,15 @@ const outfitModeLabels: Record<AdminVirtualTryOnJob['outfitMode'], string> = {
 const outputModeLabels: Record<AdminVirtualTryOnJob['outputMode'], string> = {
   image: 'Ảnh',
   image_and_video: 'Ảnh + video',
+}
+
+const videoStatusLabels: Record<AdminVirtualTryOnJob['videoStatus'], string> = {
+  not_requested: 'Không yêu cầu',
+  queued: 'Đang chờ',
+  processing: 'Đang sinh',
+  succeeded: 'Thành công',
+  failed: 'Lỗi',
+  canceled: 'Đã hủy',
 }
 
 const promptPolicyCategoryLabels: Record<PromptPolicyCategory, string> = {
@@ -153,8 +163,15 @@ const copyTextToClipboard = async (value: string) => {
 const getJobAgeMinutes = (job: AdminVirtualTryOnJob) =>
   Math.max(0, Math.round((Date.now() - new Date(job.createdAt).getTime()) / 60000))
 
+const isPolicyClosedJob = (job: AdminVirtualTryOnJob) =>
+  job.errorCode === 'PROVIDER_SAFETY_BLOCKED'
+
+const isPolicyClosedVideo = (job: AdminVirtualTryOnJob) =>
+  job.videoErrorCode === 'VIDEO_PROVIDER_SAFETY_BLOCKED'
+
 const getAttentionReason = (job: AdminVirtualTryOnJob) => {
   if (job.status === 'failed') return job.errorCode || 'Lỗi nhà cung cấp'
+  if (job.videoStatus === 'failed') return job.videoErrorCode || 'Lỗi sinh video'
   if (job.status === 'processing') return `Đang chạy ${job.progress}%`
   if (job.status === 'queued') return `Chờ ${getJobAgeMinutes(job)} phút`
   if (job.status === 'succeeded') return 'Cần kiểm duyệt ảnh'
@@ -247,6 +264,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const handleRetry = (job: AdminVirtualTryOnJob) =>
     runAction(() => retryVirtualTryOnJob(job._id), 'Đã đưa job vào hàng chờ xử lý lại.')
+
+  const handleRetryVideo = (job: AdminVirtualTryOnJob) =>
+    runAction(() => retryVirtualTryOnVideo(job._id), 'Đã đưa riêng bước sinh video vào hàng chờ xử lý lại.')
 
   const handleCancel = (job: AdminVirtualTryOnJob) =>
     runAction(() => cancelVirtualTryOnJob(job._id), 'Đã hủy job phối đồ.')
@@ -718,7 +738,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <td>
                           <div className="admin-vto-actions">
                             <button type="button" onClick={() => setSelectedJob(job)}>Chi tiết</button>
-                            {canManage && ['failed', 'canceled'].includes(job.status) ? (
+                            {canManage && ['failed', 'canceled'].includes(job.status) && !isPolicyClosedJob(job) ? (
                               <button type="button" disabled={actionLoading} onClick={() => void handleRetry(job)}>Chạy lại</button>
                             ) : null}
                             {canManage && ['queued', 'processing'].includes(job.status) ? (
@@ -754,41 +774,53 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         </section>
 
         <aside className="admin-vto-side">
-          <section className="admin-vto-panel admin-vto-prompt-panel">
-            <h2>Kiểm tra prompt</h2>
-            <textarea
-              value={promptInput}
-              maxLength={settings?.promptMaxLength ?? 200}
-              onChange={(event) => setPromptInput(event.target.value)}
-              placeholder="Nhập mô tả bối cảnh để kiểm tra"
-              rows={4}
-            />
-            <div className="admin-vto-prompt-actions">
-              <span>{promptInput.length}/{settings?.promptMaxLength ?? 200}</span>
-              <button type="button" disabled={promptTesting} onClick={() => void handlePromptTest()}>
-                {promptTesting ? 'Đang kiểm tra...' : 'Kiểm tra'}
-              </button>
-            </div>
-            {promptResult ? (
-              <div className={`admin-vto-prompt-result ${promptResult.allowed ? 'is-success' : 'is-error'}`}>
-                <strong>{promptResult.allowed ? 'Hợp lệ' : 'Bị chặn'}</strong>
-                <span>{promptResult.message || promptResult.reasonCode || promptResult.normalizedPrompt || 'Prompt có thể sử dụng'}</span>
-                {promptResult.matchedRule ? <code>{promptResult.matchedRule}</code> : null}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="admin-vto-panel">
+          <section className="admin-vto-panel admin-vto-settings-panel">
             <h2>Cấu hình hiện tại</h2>
-            <dl>
-              <div><dt>Nhà cung cấp</dt><dd>{settings?.provider ?? '-'}</dd></div>
-              <div><dt>Trạng thái</dt><dd>{settings?.enabled ? 'Đang bật' : 'Đang tắt'}</dd></div>
-              <div><dt>Video</dt><dd>{settings?.videoEnabled ? 'Bật' : 'Tắt'}</dd></div>
-              <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
-              <div><dt>Job đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
-              <div><dt>Prompt vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? 0}</dd></div>
-              <div><dt>Khóa sau số lần vi phạm/user/ngày</dt><dd>{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
-            </dl>
+            <div className="admin-vto-config-grid">
+              <section className="admin-vto-config-group is-image">
+                <h3>Tạo ảnh</h3>
+                <dl>
+                  <div><dt>Trạng thái</dt><dd>{settings?.image.enabled ? 'Đang bật' : 'Đang tắt'}</dd></div>
+                  <div><dt>Nhà cung cấp ảnh</dt><dd>{settings?.image.provider ?? '-'}</dd></div>
+                  <div><dt>Model ảnh</dt><dd>{settings?.image.model ?? '-'}</dd></div>
+                  <div><dt>Đầu ra ảnh</dt><dd>{settings ? `${settings.image.outputCount} ảnh · ${settings.image.aspectRatio} · ${settings.image.resolution}` : '-'}</dd></div>
+                  <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
+                  <div><dt>Job ảnh đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Ảnh nguồn tối đa</dt><dd>{settings ? `${settings.sourceImageMaxMb} MB` : '-'}</dd></div>
+                </dl>
+              </section>
+
+              <section className="admin-vto-config-group is-video">
+                <h3>Tạo video</h3>
+                <dl>
+                  <div>
+                    <dt>Trạng thái</dt>
+                    <dd>
+                      {settings?.videoEnabled
+                        ? 'Sẵn sàng'
+                        : settings?.video.enabled
+                          ? `Chưa sẵn sàng (${settings.video.reasonCode || 'thiếu cấu hình'})`
+                          : 'Đang tắt'}
+                    </dd>
+                  </div>
+                  <div><dt>Nhà cung cấp video</dt><dd>{settings?.video.provider ?? '-'}</dd></div>
+                  <div><dt>Model video</dt><dd>{settings?.video.model ?? '-'}</dd></div>
+                  <div><dt>Đầu ra video</dt><dd>{settings?.video.durationSeconds ?? '-'} giây · {settings?.video.resolution ?? '-'}</dd></div>
+                  <div><dt>Video/user/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
+                  <div><dt>Video đồng thời/user</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
+                </dl>
+              </section>
+
+              <section className="admin-vto-config-group is-policy">
+                <h3>Prompt & an toàn</h3>
+                <dl>
+                  <div><dt>Độ dài prompt tối đa</dt><dd>{settings?.promptMaxLength ?? '-'}</dd></div>
+                  <div><dt>Vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? 0}</dd></div>
+                  <div><dt>Prompt bị khóa hôm nay</dt><dd>{summary?.promptBlocksToday ?? 0}</dd></div>
+                  <div><dt>Ngưỡng khóa/user/ngày</dt><dd>{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
+                </dl>
+              </section>
+            </div>
             {!canSettings ? <p>Chỉ admin có quyền cấu hình mới chỉnh được provider/quota.</p> : null}
           </section>
 
@@ -807,6 +839,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <p>Chưa có job lỗi gần đây.</p>
             )}
           </section>
+
         </aside>
       </div>
 
@@ -836,8 +869,13 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             </section>
             {canManage ? (
               <section className="admin-vto-drawer-actions" aria-label="Thao tác quản trị job">
-                {['failed', 'canceled'].includes(selectedJob.status) ? (
+                {['failed', 'canceled'].includes(selectedJob.status) && !isPolicyClosedJob(selectedJob) ? (
                   <button type="button" disabled={actionLoading} onClick={() => void handleRetry(selectedJob)}>Chạy lại job</button>
+                ) : null}
+                {['failed', 'canceled'].includes(selectedJob.videoStatus) && generatedImages.length && !isPolicyClosedVideo(selectedJob) ? (
+                  <button type="button" disabled={actionLoading || !settings?.videoEnabled} onClick={() => void handleRetryVideo(selectedJob)}>
+                    Chạy lại riêng video
+                  </button>
                 ) : null}
                 {['queued', 'processing'].includes(selectedJob.status) ? (
                   <button type="button" disabled={actionLoading} onClick={() => void handleCancel(selectedJob)}>Hủy job</button>
@@ -916,10 +954,18 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <div><dt>Đầu ra</dt><dd>{outputModeLabels[selectedJob.outputMode]}</dd></div>
                 <div><dt>Bối cảnh</dt><dd>{contextLabels[selectedJob.contextPreset] ?? selectedJob.contextPreset}</dd></div>
                 <div><dt>Tiến trình</dt><dd>{selectedJob.progress}%</dd></div>
+                <div><dt>Giai đoạn</dt><dd>{selectedJob.processingStage}</dd></div>
+                <div><dt>Trạng thái video</dt><dd>{videoStatusLabels[selectedJob.videoStatus]} · {selectedJob.videoProgress}%</dd></div>
+                <div><dt>Video provider</dt><dd>{selectedJob.videoProvider || '-'}</dd></div>
+                <div>
+                  <dt>Mã video provider</dt>
+                  <dd>{selectedJob.videoProviderJobId || '-'}</dd>
+                </div>
                 <div><dt>Tạo lúc</dt><dd>{formatDate(selectedJob.createdAt)}</dd></div>
               </dl>
               {selectedJob.contextPrompt ? <p>{selectedJob.contextPrompt}</p> : null}
               {selectedJob.errorMessage ? <p className="admin-vto-error-text">{selectedJob.errorCode}: {selectedJob.errorMessage}</p> : null}
+              {selectedJob.videoErrorMessage ? <p className="admin-vto-error-text">{selectedJob.videoErrorCode}: {selectedJob.videoErrorMessage}</p> : null}
             </section>
             <section>
               <h3>Kiểm duyệt ảnh</h3>
@@ -949,6 +995,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <div className="admin-vto-result-preview">
                   {selectedJob.generatedVideoUrl ? <video src={selectedJob.generatedVideoUrl} controls /> : null}
                 </div>
+              ) : selectedJob.outputMode === 'image_and_video' ? (
+                <p>Video: {videoStatusLabels[selectedJob.videoStatus]}{selectedJob.videoErrorMessage ? ` — ${selectedJob.videoErrorMessage}` : ''}</p>
               ) : null}
             </section>
             <section>
@@ -974,7 +1022,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
       {activeTab === 'promptRules' ? (
         <section className="admin-vto-tab-panel">
-          <div className="admin-vto-editor-card">
+          <div className="admin-vto-rule-tools">
+            <div className="admin-vto-editor-card">
             <div className="admin-vto-tab-head">
               <h2>{editingRuleId ? 'Sửa từ khóa bị cấm' : 'Thêm từ khóa bị cấm'}</h2>
               {editingRuleId ? (
@@ -1032,6 +1081,32 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 </button>
               ) : null}
             </div>
+          </div>
+
+            <section className="admin-vto-panel admin-vto-prompt-panel">
+              <h2>Kiểm tra prompt</h2>
+              <p>Thử ngay một mô tả với danh sách từ khóa và chính sách đang bật.</p>
+              <textarea
+                value={promptInput}
+                maxLength={settings?.promptMaxLength ?? 200}
+                onChange={(event) => setPromptInput(event.target.value)}
+                placeholder="Nhập mô tả bối cảnh để kiểm tra"
+                rows={4}
+              />
+              <div className="admin-vto-prompt-actions">
+                <span>{promptInput.length}/{settings?.promptMaxLength ?? 200}</span>
+                <button type="button" disabled={promptTesting} onClick={() => void handlePromptTest()}>
+                  {promptTesting ? 'Đang kiểm tra...' : 'Kiểm tra'}
+                </button>
+              </div>
+              {promptResult ? (
+                <div className={`admin-vto-prompt-result ${promptResult.allowed ? 'is-success' : 'is-error'}`}>
+                  <strong>{promptResult.allowed ? 'Hợp lệ' : 'Bị chặn'}</strong>
+                  <span>{promptResult.message || promptResult.reasonCode || promptResult.normalizedPrompt || 'Prompt có thể sử dụng'}</span>
+                  {promptResult.matchedRule ? <code>{promptResult.matchedRule}</code> : null}
+                </div>
+              ) : null}
+            </section>
           </div>
 
           <div className="admin-vto-toolbar admin-vto-toolbar--compact">

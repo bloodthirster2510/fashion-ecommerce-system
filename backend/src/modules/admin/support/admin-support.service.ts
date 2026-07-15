@@ -16,7 +16,12 @@ import {
 import { auditLogService } from '../../audit-logs/audit-log.service';
 import { sendSupportReplyEmail } from '../../../utils/email';
 import { pushNotificationService } from '../../notifications/push-notification.service';
-import { SupportServiceError, listFaqs } from '../../support/support.service';
+import {
+  SupportServiceError,
+  listFaqs,
+  toCustomerSupportMessage,
+  toCustomerSupportTicket,
+} from '../../support/support.service';
 import { emitTicketMessage, emitTicketRead, emitTicketUpdated, emitSupportSummaryRefresh } from '../../realtime/support.gateway';
 import type {
   AdminSupportMessageInput,
@@ -56,7 +61,9 @@ export const listAdminTickets = async (input: AdminTicketQuery = {}) => {
   const normalized = pagination(input.page, input.limit);
   const filter: Record<string, unknown> = { status: { $ne: 'pending_verification' } };
   if (input.status) {
-    if (!SUPPORT_TICKET_STATUSES.includes(input.status)) throw new SupportServiceError('Status is invalid');
+    if (input.status === 'pending_verification' || !SUPPORT_TICKET_STATUSES.includes(input.status)) {
+      throw new SupportServiceError('Status is invalid');
+    }
     filter.status = input.status;
   }
   if (input.type) {
@@ -75,6 +82,24 @@ export const listAdminTickets = async (input: AdminTicketQuery = {}) => {
   else if (input.assignedTo) filter.assignedTo = objectId(input.assignedTo, 'assignedTo');
   if (typeof input.requiresReply === 'boolean') filter.requiresReply = input.requiresReply;
   if (typeof input.hasOrder === 'boolean') filter.orderId = input.hasOrder ? { $ne: null } : null;
+  if (input.dateFrom || input.dateTo) {
+    const createdAt: { $gte?: Date; $lte?: Date } = {};
+    if (input.dateFrom) {
+      const value = new Date(input.dateFrom);
+      if (Number.isNaN(value.getTime())) throw new SupportServiceError('dateFrom is invalid');
+      createdAt.$gte = value;
+    }
+    if (input.dateTo) {
+      const value = new Date(input.dateTo);
+      if (Number.isNaN(value.getTime())) throw new SupportServiceError('dateTo is invalid');
+      value.setHours(23, 59, 59, 999);
+      createdAt.$lte = value;
+    }
+    if (createdAt.$gte && createdAt.$lte && createdAt.$gte > createdAt.$lte) {
+      throw new SupportServiceError('dateFrom must not be after dateTo');
+    }
+    filter.createdAt = createdAt;
+  }
 
   if (input.search?.trim()) {
     const regex = new RegExp(escapeRegex(input.search.trim().slice(0, 100)), 'i');
@@ -121,6 +146,14 @@ export const getAdminTicket = async (ticketId: string) => {
   return { ticket, messages };
 };
 
+export const listSupportAssignees = async () => User.find({
+  isActive: true,
+  $or: [
+    { role: 'admin' },
+    { role: 'staff', permissions: 'support.reply' },
+  ],
+}).select('_id name email role').sort({ role: 1, name: 1 }).lean();
+
 export const addAdminMessage = async (
   ticketId: string,
   actor: SupportActor,
@@ -131,7 +164,8 @@ export const addAdminMessage = async (
   if (!body || body.length > 3000) throw new SupportServiceError('body must contain 1-3000 characters');
   const ticket = await SupportTicket.findById(id);
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
-  if (ticket.status === 'spam' || ticket.status === 'closed') {
+  if (ticket.status === 'pending_verification') throw new SupportServiceError('Ticket not found', 404);
+  if (ticket.status === 'spam' || ticket.status === 'closed' || ticket.status === 'resolved') {
     throw new SupportServiceError('This ticket cannot receive messages', 409);
   }
   let cannedResponseId: Types.ObjectId | null = null;
@@ -152,42 +186,71 @@ export const addAdminMessage = async (
     attachments: input.attachments ?? [],
     isInternal: Boolean(input.isInternal),
   });
-  if (cannedResponseId) await SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } });
-
+  let effectiveTicket = ticket;
   if (!input.isInternal) {
-    const now = new Date();
-    ticket.lastMessageAt = now;
-    ticket.lastMessageSender = 'staff';
-    ticket.requiresReply = false;
-    ticket.firstResponseAt = ticket.firstResponseAt ?? now;
-    if (ticket.status === 'open' || ticket.status === 'in_progress') ticket.status = 'waiting_customer';
-    await ticket.save();
+    const messageAt = message.createdAt ?? new Date();
+    const nextStatus = ticket.status === 'open' || ticket.status === 'in_progress'
+      ? 'waiting_customer'
+      : ticket.status;
+    const updatedTicket = await SupportTicket.findOneAndUpdate(
+      {
+        _id: id,
+        status: { $nin: ['pending_verification', 'spam', 'closed', 'resolved'] },
+        lastMessageAt: { $lte: messageAt },
+      },
+      {
+        $set: {
+          lastMessageAt: messageAt,
+          lastMessageSender: 'staff',
+          requiresReply: false,
+          firstResponseAt: ticket.firstResponseAt ?? messageAt,
+          status: nextStatus,
+        },
+      },
+      { returnDocument: 'after' },
+    );
 
-    const customer = ticket.userId
-      ? await User.findById(ticket.userId).select('email').lean<{ email?: string } | null>()
+    if (updatedTicket) {
+      effectiveTicket = updatedTicket;
+    } else {
+      const currentTicket = await SupportTicket.findById(id);
+      if (!currentTicket || ['pending_verification', 'spam', 'closed', 'resolved'].includes(currentTicket.status)) {
+        await SupportMessage.deleteOne({ _id: message._id });
+        throw new SupportServiceError(
+          currentTicket ? 'This ticket cannot receive messages' : 'Ticket not found',
+          currentTicket ? 409 : 404,
+        );
+      }
+      effectiveTicket = currentTicket;
+    }
+
+    const customer = effectiveTicket.userId
+      ? await User.findById(effectiveTicket.userId).select('email').lean<{ email?: string } | null>()
       : null;
-    const customerEmail = customer?.email || ticket.guestContact?.email;
+    const customerEmail = customer?.email || effectiveTicket.guestContact?.email;
     if (customerEmail) {
       await sendSupportReplyEmail({
         to: customerEmail,
-        ticketId: ticket._id.toString(),
-        ticketCode: ticket.ticketCode,
-        subject: ticket.subject,
+        ticketId: effectiveTicket._id.toString(),
+        ticketCode: effectiveTicket.ticketCode,
+        subject: effectiveTicket.subject,
         reply: body,
-        isGuest: !ticket.userId,
+        isGuest: !effectiveTicket.userId,
       });
     }
-    if (ticket.userId) {
+    if (effectiveTicket.userId) {
       await pushNotificationService.sendSupportReplyPush({
-        userId: ticket.userId.toString(),
-        ticketId: ticket._id.toString(),
-        ticketCode: ticket.ticketCode,
-        subject: ticket.subject,
+        userId: effectiveTicket.userId.toString(),
+        ticketId: effectiveTicket._id.toString(),
+        ticketCode: effectiveTicket.ticketCode,
+        subject: effectiveTicket.subject,
+        messageId: message._id.toString(),
       }).catch((error) => {
         console.error('Failed to send support reply push:', error instanceof Error ? error.message : String(error));
       });
     }
   }
+  if (cannedResponseId) await SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } });
 
   await auditLogService.recordAuditLogBestEffort({
     actorId: actor.userId,
@@ -198,9 +261,17 @@ export const addAdminMessage = async (
     metadata: { messageId: message._id.toString(), isInternal: Boolean(input.isInternal) },
   });
   const messageObj = message.toObject();
-  emitTicketMessage(ticketId, messageObj, { isInternal: Boolean(input.isInternal), customerUserId: ticket.userId?.toString() ?? null });
+  emitTicketMessage(ticketId, messageObj, {
+    isInternal: Boolean(input.isInternal),
+    customerUserId: effectiveTicket.userId?.toString() ?? null,
+    customerMessage: toCustomerSupportMessage(messageObj),
+  });
   if (!input.isInternal) {
-    emitTicketUpdated(ticketId, ticket.toObject(), { customerUserId: ticket.userId?.toString() ?? null });
+    const ticketObj = effectiveTicket.toObject();
+    emitTicketUpdated(ticketId, ticketObj, {
+      customerUserId: effectiveTicket.userId?.toString() ?? null,
+      customerTicket: toCustomerSupportTicket(ticketObj),
+    });
     emitSupportSummaryRefresh();
   }
   return messageObj;
@@ -213,6 +284,7 @@ export const updateAdminTicket = async (
 ) => {
   const ticket = await SupportTicket.findById(objectId(ticketId, 'ticketId'));
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
+  if (ticket.status === 'pending_verification') throw new SupportServiceError('Ticket not found', 404);
   const before = {
     status: ticket.status,
     priority: ticket.priority,
@@ -227,6 +299,9 @@ export const updateAdminTicket = async (
       throw new SupportServiceError(`Cannot transition ticket from ${ticket.status} to ${input.status}`, 409);
     }
     if (input.status === 'spam' && actor.role !== 'admin') throw new SupportServiceError('Only admin can mark spam', 403);
+    if (input.status === 'waiting_customer' && ticket.lastMessageSender !== 'staff') {
+      throw new SupportServiceError('Reply to the customer before setting waiting customer', 409);
+    }
     ticket.status = input.status;
     const now = new Date();
     if (input.status === 'resolved') {
@@ -242,6 +317,7 @@ export const updateAdminTicket = async (
       ticket.resolvedAt = null;
       ticket.closedAt = null;
       ticket.reopenDeadline = null;
+      ticket.requiresReply = ticket.lastMessageSender === 'customer';
     }
   }
 
@@ -262,6 +338,14 @@ export const updateAdminTicket = async (
       ticket.assignedTo = assigneeId;
     }
   }
+  if (
+    !input.status
+    && input.assignedTo !== undefined
+    && input.assignedTo !== null
+    && ticket.status === 'open'
+  ) {
+    ticket.status = 'in_progress';
+  }
   await ticket.save();
 
   const after = {
@@ -280,16 +364,19 @@ export const updateAdminTicket = async (
     after,
   });
   const ticketObj = ticket.toObject();
-  emitTicketUpdated(ticketId, ticketObj, { customerUserId: ticket.userId?.toString() ?? null });
+  emitTicketUpdated(ticketId, ticketObj, {
+    customerUserId: ticket.userId?.toString() ?? null,
+    customerTicket: toCustomerSupportTicket(ticketObj),
+  });
   if (before.status !== after.status) emitSupportSummaryRefresh();
   return ticketObj;
 };
 
 export const markAdminRead = async (ticketId: string) => {
-  const ticket = await SupportTicket.findByIdAndUpdate(
-    objectId(ticketId, 'ticketId'),
+  const ticket = await SupportTicket.findOneAndUpdate(
+    { _id: objectId(ticketId, 'ticketId'), status: { $ne: 'pending_verification' } },
     { staffLastReadAt: new Date() },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
   emitTicketRead(ticketId, 'admin');
@@ -401,7 +488,7 @@ export const updateCannedResponse = async (id: string, actor: SupportActor, inpu
   const updated = await SupportCannedResponse.findByIdAndUpdate(
     objectId(id, 'cannedResponseId'),
     { ...cleanCannedResponse(input, true), updatedBy: objectId(actor.userId, 'actorId') },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
   if (!updated) throw new SupportServiceError('Canned response not found', 404);
   return updated;
@@ -452,7 +539,7 @@ export const updateFaq = async (faqId: string, actor: SupportActor, input: Parti
   const updated = await FaqArticle.findByIdAndUpdate(
     objectId(faqId, 'faqId'),
     { ...cleanFaqPayload(input as FaqPayload, true), updatedBy: objectId(actor.userId, 'actorId') },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
   if (!updated) throw new SupportServiceError('FAQ not found', 404);
   return updated;
@@ -492,6 +579,7 @@ export const adminSupportService = {
   getAdminTicket,
   listAdminFaqs,
   listAdminTickets,
+  listSupportAssignees,
   listCannedResponses,
   markAdminRead,
   reorderFaqs,

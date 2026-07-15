@@ -10,6 +10,7 @@ import {
 } from '../../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
 import { virtualTryOnService } from '../virtual-try-on.service';
+import { interactionService } from '../../interactions/interaction.service';
 
 jest.mock('axios', () => ({
   __esModule: true,
@@ -53,6 +54,21 @@ jest.mock('../../realtime/virtual-try-on.gateway', () => ({
   emitVirtualTryOnJobEvent: jest.fn(),
 }));
 
+jest.mock('../../interactions/interaction.service', () => ({
+  interactionService: {
+    recordInteractionBestEffort: jest.fn().mockResolvedValue(null),
+  },
+}));
+
+jest.mock('../../notifications/customer-notification.service', () => ({
+  recordVirtualTryOnAccessNotification: jest.fn().mockResolvedValue(null),
+  recordVirtualTryOnOutcomeNotification: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../../notifications/push-notification.service', () => ({
+  sendCustomerPush: jest.fn().mockResolvedValue({ sent: 0 }),
+}));
+
 jest.mock('../../../utils/cloudinary.util', () => ({
   deleteFromCloudinary: jest.fn(),
   uploadToCloudinary: jest.fn(),
@@ -83,6 +99,7 @@ const mockedVirtualTryOnAccountLock = VirtualTryOnAccountLock as unknown as {
 const mockedVirtualTryOnPromptRule = VirtualTryOnPromptRule as unknown as {
   find: jest.Mock;
 };
+const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
 
 const userId = '665000000000000000000020';
 const sourceAssetId = new Types.ObjectId('665000000000000000000101');
@@ -286,6 +303,19 @@ describe('virtualTryOnService image validation', () => {
     expect(result._id).toBe(jobId.toString());
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
     expect(mockedProduct.find).toHaveBeenCalled();
+    expect(mockedInteractionService.recordInteractionBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        productId: productId.toString(),
+        variantId: variantId.toString(),
+        colorVariantId: colorVariantId.toString(),
+        size: 'M',
+        actionType: 'try_on',
+        source: 'virtual_try_on',
+        metadata: expect.objectContaining({ virtualTryOnJobId: jobId.toString() }),
+      }),
+      'Failed to record virtual try-on interaction',
+    );
     expect(console.warn).toHaveBeenCalledWith(
       'Virtual try-on source image validation warning:',
       expect.objectContaining({ reasonCode: 'IMAGE_POLICY_BLOCKED' }),
@@ -450,6 +480,47 @@ describe('virtualTryOnService image validation', () => {
     expect(result.reasonCode).toBe('BODY_NOT_VISIBLE');
     expect(result.safetyFlags).toEqual([]);
     expect(result.supportedModes).toEqual(expect.arrayContaining(['top', 'outerwear', 'accessory']));
+  });
+
+  it('keeps provider safety failures terminal for user and admin job retries', async () => {
+    const closedJob = {
+      _id: jobId,
+      status: 'failed',
+      outputMode: 'image',
+      errorCode: 'PROVIDER_SAFETY_BLOCKED',
+    };
+    mockedVirtualTryOnJob.findOne.mockResolvedValue(closedJob);
+
+    await expect(virtualTryOnService.retryJob(userId, jobId.toString())).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'POLICY_VIOLATION_JOB_CLOSED',
+    });
+    await expect(virtualTryOnService.retryAdminJob(jobId.toString())).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'POLICY_VIOLATION_JOB_CLOSED',
+    });
+  });
+
+  it('keeps video safety failures terminal while preserving generated images', async () => {
+    const closedVideoJob = {
+      _id: jobId,
+      status: 'succeeded',
+      outputMode: 'image_and_video',
+      generatedImageUrl: 'https://example.com/generated.png',
+      generatedImageUrls: ['https://example.com/generated.png'],
+      videoStatus: 'failed',
+      videoErrorCode: 'VIDEO_PROVIDER_SAFETY_BLOCKED',
+    };
+    mockedVirtualTryOnJob.findOne.mockResolvedValue(closedVideoJob);
+
+    await expect(virtualTryOnService.retryVideo(userId, jobId.toString())).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'POLICY_VIOLATION_JOB_CLOSED',
+    });
+    await expect(virtualTryOnService.retryAdminVideo(jobId.toString())).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'POLICY_VIOLATION_JOB_CLOSED',
+    });
   });
 
   it('rejects createJob when the selected role is outside the image body suitability', async () => {

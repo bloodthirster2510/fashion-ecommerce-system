@@ -6,7 +6,8 @@ export type FaqArticle = { _id: string; question: string; answer: string; catego
 export type SupportTicket = {
   _id: string; ticketCode: string; type: SupportTicketType; category: SupportCategory; subject: string;
   status: SupportTicketStatus; requiresReply: boolean; orderId?: string | null; couponCode?: string | null;
-  lastMessageAt: string; lastMessageSender: 'customer' | 'staff'; createdAt: string;
+  context?: { source: string; appPlatform?: 'ios' | 'android' | 'web'; appVersion?: string; screen?: string; errorCode?: string } | null;
+  lastMessageAt: string; lastMessageSender: 'customer' | 'staff'; reopenDeadline?: string | null; createdAt: string; updatedAt?: string;
 }
 export type SupportMessage = { _id: string; senderType: 'customer' | 'staff'; body: string; attachments: Array<{ url: string; publicId: string }>; createdAt: string }
 export type TicketDetail = { ticket: SupportTicket; messages: SupportMessage[] }

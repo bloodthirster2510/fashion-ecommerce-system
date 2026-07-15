@@ -1,15 +1,16 @@
 import type { AdminOrder, AdminOrderStatus } from '../orderAdminApi'
 import type { OrderQueueKey, OrderTab } from '../orderTypes'
-import { emptyOperationalSummary, formatDate } from '../orderPresentation'
+import { emptyOperationalSummary, formatDate, hasRejectedReturnRequest } from '../orderPresentation'
 
 export const getOrderRowClass = (order: AdminOrder) => {
   if (shouldWarnPaymentBeforeShipping(order) || order.paymentStatus === 'failed') {
     return 'admin-order-row is-payment-risk'
   }
+  if (hasRejectedReturnRequest(order)) return 'admin-order-row is-exception'
   if (order.status === 'delivered' || order.status === 'completed') return 'admin-order-row is-complete'
   if (order.status === 'shipping') return 'admin-order-row is-shipping'
   if (order.status === 'packed') return 'admin-order-row is-packed'
-  if (order.status === 'cancelled' || order.status === 'returned' || order.status === 'return_requested') {
+  if (order.status === 'cancelled' || order.status === 'returned' || order.status === 'return_requested' || order.status === 'return_approved') {
     return 'admin-order-row is-exception'
   }
   return 'admin-order-row is-processing'
@@ -52,7 +53,8 @@ export const needsRefundReview = (order: AdminOrder) =>
   (order.status === 'cancelled' || order.status === 'returned') && order.paymentStatus === 'paid'
 
 export const needsReasonReview = (order: AdminOrder) =>
-  order.status === 'return_requested' && order.returnRequest?.status === 'requested'
+  (order.status === 'return_requested' && order.returnRequest?.status === 'requested') ||
+  (order.status === 'return_approved' && order.returnRequest?.status === 'approved')
 
 export const isBlockedOrder = (order: AdminOrder) =>
   shouldWarnPaymentBeforeShipping(order) ||
@@ -62,7 +64,7 @@ export const getOrderQueue = (order: AdminOrder): OrderQueueKey | null => {
   if (needsRefundReview(order)) return 'refund'
   if (needsReasonReview(order)) return 'review'
   if (isPaymentDeadlineSoon(order)) return 'payment-deadline'
-  if (isBlockedOrder(order)) return null
+  if (isBlockedOrder(order)) return 'blocked'
   if (order.status === 'confirmed') return 'packing'
   if (order.status === 'packed') return 'handoff'
   if (order.status === 'shipping') return 'delivery'
@@ -77,7 +79,7 @@ export const getQueueCount = (
 ) => {
   if (queue === 'refund') return operationalSummary.refunds
   if (queue === 'review') return operationalSummary.returnRequests
-  if (queue === 'blocked') return operationalSummary.paymentRisk
+  if (queue === 'blocked') return operationalSummary.paymentOverdueRisk ?? operationalSummary.paymentRisk
   if (queue === 'payment-deadline') return operationalSummary.paymentDeadlineSoon ?? 0
   if (queue === 'packing') return operationalSummary.packingReady ?? 0
   if (queue === 'handoff') return operationalSummary.handoffReady ?? 0
@@ -101,7 +103,7 @@ export const getTabCount = (
 }
 
 export type AdminOrderAttention = {
-  kind: 'return' | 'refund' | 'paid-ready' | 'payment-risk' | 'new' | 'packed' | 'delivery'
+  kind: 'return' | 'return-inbound' | 'refund' | 'paid-ready' | 'payment-risk' | 'new' | 'packed' | 'delivery'
   tone: 'danger' | 'warning' | 'info' | 'success'
   label: string
   helper: string
@@ -114,6 +116,15 @@ export const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null
       tone: 'warning',
       label: 'Cần duyệt trả hàng',
       helper: 'Kiểm tra lý do, minh chứng và mốc 7 ngày từ lúc giao.',
+    }
+  }
+
+  if (order.status === 'return_approved' && order.returnRequest?.status === 'approved') {
+    return {
+      kind: 'return-inbound',
+      tone: 'info',
+      label: 'Chờ nhận hàng trả',
+      helper: 'Yêu cầu đã duyệt; chỉ đánh dấu đã trả khi shop thực tế nhận và kiểm tra hàng.',
     }
   }
 
@@ -176,12 +187,13 @@ export const getOrderAttentionRank = (order: AdminOrder) => {
 
   const ranks: Record<AdminOrderAttention['kind'], number> = {
     return: 0,
-    refund: 1,
-    'payment-risk': 2,
-    'paid-ready': 3,
-    new: 4,
-    packed: 5,
-    delivery: 6,
+    'return-inbound': 1,
+    refund: 2,
+    'payment-risk': 3,
+    'paid-ready': 4,
+    new: 5,
+    packed: 6,
+    delivery: 7,
   }
 
   return ranks[attention.kind] ?? 8

@@ -22,6 +22,11 @@ import {
   getSearchHistory,
   removeSearchHistory,
 } from './searchHistory';
+import { useAuth } from '../auth/AuthContext';
+import {
+  interactionApi,
+  type InteractionPayload,
+} from '../recommendation/interactionApi';
 
 type SearchNavigationProp = StackNavigationProp<RootStackParamList, 'Search'>;
 
@@ -58,6 +63,7 @@ const mergeSuggestions = (primary: string[], secondary: string[], limit = 10) =>
 
 const SearchScreen = () => {
   const navigation = useNavigation<SearchNavigationProp>();
+  const { isAuthenticated, runWithAuth } = useAuth();
   const [query, setQuery] = React.useState('');
   const [history, setHistory] = React.useState<string[]>([]);
   const inputRef = React.useRef<TextInput>(null);
@@ -68,6 +74,16 @@ const SearchScreen = () => {
   }, []);
 
   const { result, isLoading } = useSuggest(query);
+
+  const recordInteraction = React.useCallback((payload: InteractionPayload) => {
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) =>
+        interactionApi.recordInteraction(payload, accessToken)).catch(() => undefined);
+      return;
+    }
+
+    void interactionApi.recordInteraction(payload).catch(() => undefined);
+  }, [isAuthenticated, runWithAuth]);
 
   const handleSearch = async (keyword: string) => {
     const trimmed = keyword.trim();
@@ -104,7 +120,18 @@ const SearchScreen = () => {
     <TouchableOpacity
       key={product._id}
       style={styles.productRow}
-      onPress={() => navigation.navigate('ProductDetail', { productId: product._id })}
+      onPress={() => {
+        recordInteraction({
+          productId: product._id,
+          actionType: 'search_result_click',
+          source: 'search',
+          metadata: {
+            keyword: query.trim(),
+            surface: 'search_suggestions',
+          },
+        });
+        navigation.navigate('ProductDetail', { productId: product._id });
+      }}
       activeOpacity={0.82}
     >
       <View style={styles.productImageWrap}>

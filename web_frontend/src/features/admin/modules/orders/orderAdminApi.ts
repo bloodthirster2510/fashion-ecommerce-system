@@ -8,6 +8,7 @@ export type AdminOrderStatus =
   | 'completed'
   | 'cancelled'
   | 'return_requested'
+  | 'return_approved'
   | 'returned'
 
 export type AdminOrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK'
@@ -196,6 +197,23 @@ export type ExpireStalePaymentsResponse = {
   policy: string
 }
 
+export type VNPayReconcileResponse = {
+  gateway: Record<string, string | boolean>
+  reconciliationStatus: 'paid' | 'refunded' | 'pending_refund' | 'unchanged'
+  settlement?: {
+    paymentStatus?: AdminOrderPaymentStatus
+    transactionStatus?: AdminTransaction['status']
+  } | null
+  order?: AdminOrder | null
+}
+
+export type VNPayRefundResponse = {
+  order: AdminOrder
+  refundTransaction: AdminTransaction
+  gateway: Record<string, string | boolean>
+  refundStatus: 'pending' | 'completed' | 'failed'
+}
+
 export type AdminAuditLog = {
   _id: string
   actorId?: string | null
@@ -204,8 +222,12 @@ export type AdminAuditLog = {
     | 'order.status_update'
     | 'order.shipping_update'
     | 'order.shipping_webhook'
+    | 'order.shipping_reconcile'
+    | 'order.auto_complete_delivered'
     | 'payment.adjust'
     | 'payment.expire'
+    | 'payment.vnpay_reconcile'
+    | 'payment.vnpay_refund'
     | 'payment_method.status_update'
     | 'payment_method.account_reveal'
   targetType: string
@@ -382,6 +404,21 @@ export const adjustOrderPaymentStatus = (
     method: 'PATCH',
     body: JSON.stringify({ paymentStatus, reason }),
   })
+
+export const reconcileVNPayOrder = (orderId: string) =>
+  requestAdmin<VNPayReconcileResponse>(
+    `/admin/payments/orders/${encodeURIComponent(orderId)}/vnpay/reconcile`,
+    { method: 'POST' },
+  )
+
+export const refundVNPayOrder = (orderId: string, reason: string) =>
+  requestAdmin<VNPayRefundResponse>(
+    `/admin/payments/orders/${encodeURIComponent(orderId)}/vnpay/refund`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  )
 
 export const listAuditLogs = (filters: {
   targetType?: string

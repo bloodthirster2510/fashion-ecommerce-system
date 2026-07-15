@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -16,25 +15,23 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
-import ShopNameLogo from '../../components/branding/ShopNameLogo';
-import ColorSwatch from '../../components/ui/ColorSwatch';
-import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
+import { resolveColorSwatch } from '../../components/ui/ColorSwatch';
+import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi, type CartResponse } from '../cart/cartApi';
 import { favoritesApi } from '../favorites/favoritesApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import {
   catalogApi,
-  CatalogProduct,
   CatalogProductDetail,
   ProductCategoryBreadcrumbItem,
   ProductDetailColor,
   ProductDetailVariant,
 } from './catalogApi';
-import ProductCard from './ProductCard';
 import ProductReviewsSection from '../reviews/ProductReviewsSection';
 import type { PublicReviewList } from '../reviews/review.types';
 
@@ -186,7 +183,6 @@ const ProductDetailScreen = () => {
   const { isAuthenticated, session, runWithAuth } = useAuth();
   const { productId } = route.params;
   const [product, setProduct] = React.useState<CatalogProductDetail | null>(null);
-  const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
   const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
   const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
   const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
@@ -201,7 +197,6 @@ const ProductDetailScreen = () => {
   const [selectedSize, setSelectedSize] = React.useState<string>();
   const [selectedImage, setSelectedImage] = React.useState<string>();
   const [quantity, setQuantity] = React.useState(1);
-  const [searchTerm, setSearchTerm] = React.useState('');
   const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
@@ -280,6 +275,7 @@ const ProductDetailScreen = () => {
   const {
     recommendationSectionRef,
     checkRecommendationVisibility,
+    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
@@ -292,7 +288,6 @@ const ProductDetailScreen = () => {
     setIsLoading(true);
     setIsRecommendationLoading(false);
     setError(null);
-    setRecommendations([]);
     setRecommendationItems([]);
     setRecommendationRequestId(null);
     setRecommendationAlgorithmVersion(undefined);
@@ -310,8 +305,8 @@ const ProductDetailScreen = () => {
         setIsRecommendationLoading(true);
 
         const recommendationPromise = isAuthenticated
-          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 4, accessToken))
-          : recommendationApi.getSimilarProducts(detail._id, 4);
+          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 8, accessToken))
+          : recommendationApi.getSimilarProducts(detail._id, 8);
 
         recommendationPromise
           .then((response) => {
@@ -319,7 +314,6 @@ const ProductDetailScreen = () => {
               setRecommendationItems(response.items);
               setRecommendationRequestId(response.requestId);
               setRecommendationAlgorithmVersion(response.algorithmVersion);
-              setRecommendations(response.items.map((item) => item.product));
             }
           })
           .catch(() => {
@@ -327,7 +321,6 @@ const ProductDetailScreen = () => {
               setRecommendationItems([]);
               setRecommendationRequestId(null);
               setRecommendationAlgorithmVersion(undefined);
-              setRecommendations([]);
             }
           })
           .finally(() => {
@@ -440,23 +433,6 @@ const ProductDetailScreen = () => {
       return Math.max(1, Math.min(maxPurchasableQuantity, current));
     });
   }, [maxPurchasableQuantity]);
-
-  const handleSearchSubmit = () => {
-    const keyword = searchTerm.trim();
-
-    if (keyword) {
-      recordInteraction({
-        actionType: 'search',
-        source: 'search',
-        metadata: { keyword, fromProductId: productId },
-      });
-
-      navigation.navigate('ProductList', {
-        title: `Tìm kiếm: ${keyword}`,
-        keyword,
-      });
-    }
-  };
 
   const handleBreadcrumbCategoryPress = (category: ProductCategoryBreadcrumbItem) => {
     navigation.navigate('ProductList', {
@@ -600,16 +576,12 @@ const ProductDetailScreen = () => {
     }
   };
 
-  const handleRecommendationProductPress = (nextProduct: CatalogProduct) => {
-    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === nextProduct._id);
+  const handleRecommendationProductPress = (item: RecommendationItem) => {
+    recordRecommendationEvent(item, 'click');
 
-    if (item) {
-      recordRecommendationEvent(item, 'click');
-    }
-
-    if (nextProduct._id) {
+    if (item.product._id) {
       navigation.navigate('ProductDetail', {
-        productId: nextProduct._id,
+        productId: item.product._id,
         recommendationRequestId: recommendationRequestId ?? undefined,
       });
     }
@@ -744,23 +716,22 @@ const ProductDetailScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
         </TouchableOpacity>
 
-        <View style={styles.headerBrand}>
-          <ShopNameLogo compact />
-        </View>
-
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={styles.headerIcon}
-            onPress={handleFavoritePress}
-            disabled={isFavoriteLoading}
+            onPress={() => navigation.navigate('Search')}
             activeOpacity={0.82}
-            accessibilityLabel={isFavorited ? 'Bỏ yêu thích' : 'Yêu thích'}
+            accessibilityLabel="Tìm kiếm sản phẩm"
           >
-            {isFavoriteLoading ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <MaterialCommunityIcons name={isFavorited ? 'heart' : 'heart-outline'} size={22} color={colors.white} />
-            )}
+            <MaterialCommunityIcons name="magnify" size={22} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
+            activeOpacity={0.82}
+            accessibilityLabel="Sản phẩm yêu thích"
+          >
+            <MaterialCommunityIcons name="heart-outline" size={22} color={colors.white} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}
@@ -770,29 +741,7 @@ const ProductDetailScreen = () => {
           >
             <MaterialCommunityIcons name="shopping-outline" size={22} color={colors.white} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIcon}
-            onPress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-            activeOpacity={0.82}
-            accessibilityLabel="Tài khoản"
-          >
-            <MaterialCommunityIcons name="account-outline" size={22} color={colors.white} />
-          </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.searchRow}>
-        <MaterialCommunityIcons name="magnify" size={20} color={colors.textMuted} />
-        <TextInput
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          onSubmitEditing={handleSearchSubmit}
-          returnKeyType="search"
-          placeholder="Bạn muốn tìm gì?"
-          placeholderTextColor={colors.textMuted}
-          style={styles.searchInput}
-        />
-        <MaterialCommunityIcons name="camera-outline" size={20} color={colors.textMuted} />
       </View>
     </View>
   );
@@ -830,12 +779,12 @@ const ProductDetailScreen = () => {
   const realAverageRating = publicReviewSummary?.averageRating ?? 0;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       {renderHeader()}
 
       <ScrollView
         style={styles.content}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 122 + insets.bottom }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={checkRecommendationVisibility}
         scrollEventThrottle={100}
@@ -1000,20 +949,32 @@ const ProductDetailScreen = () => {
               {selectedColor ? <Text style={styles.selectorHint}>{selectedColor.color}</Text> : null}
             </View>
 
-            <View style={styles.swatchRow}>
+            <View style={styles.colorChipRow}>
               {selectedVariant?.colors.map((color) => {
                 const isActive = color._id === selectedColorId;
+                const swatchColor = resolveColorSwatch(color.color, color.colorCode).hex;
 
                 return (
-                  <ColorSwatch
+                  <TouchableOpacity
                     key={color._id}
-                    label={color.color}
-                    colorCode={color.colorCode}
-                    imageUri={color.image}
-                    selected={isActive}
+                    style={[styles.colorChip, isActive && styles.colorChipActive]}
                     onPress={() => handleColorPress(color)}
+                    activeOpacity={0.78}
+                    accessibilityRole="button"
                     accessibilityLabel={`Chọn màu ${color.color}`}
-                  />
+                    accessibilityState={{ selected: isActive }}
+                  >
+                    <View style={[styles.colorChipDot, { backgroundColor: swatchColor }]} />
+                    <Text
+                      style={[styles.colorChipText, isActive && styles.colorChipTextActive]}
+                      numberOfLines={1}
+                    >
+                      {color.color}
+                    </Text>
+                    {isActive ? (
+                      <MaterialCommunityIcons name="check" size={16} color={colors.brandDark} />
+                    ) : null}
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -1124,37 +1085,15 @@ const ProductDetailScreen = () => {
           <ProductReviewsSection productId={product._id} onSummaryChange={handleReviewSummaryChange} />
         </View>
 
-        <View
-          ref={recommendationSectionRef}
-          collapsable={false}
-          style={styles.recommendationSection}
-        >
-          <Text style={styles.sectionTitle}>Sản phẩm tương tự</Text>
-
-          {isRecommendationLoading ? (
-            <View style={styles.recommendationState}>
-              <ActivityIndicator color={colors.brand} />
-              <Text style={styles.recommendationStateText}>Đang tìm sản phẩm phù hợp</Text>
-            </View>
-          ) : recommendations.length ? (
-            <View style={styles.recommendationGrid}>
-              {recommendations.map((item) => (
-                <View key={item._id} style={styles.recommendationItem}>
-                  <ProductCard
-                    product={item}
-                    onPress={handleRecommendationProductPress}
-                    onCartPress={handleRecommendationProductPress}
-                  />
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.recommendationState}>
-              <MaterialCommunityIcons name="hanger" size={24} color={colors.brand} />
-              <Text style={styles.recommendationStateText}>Chưa có sản phẩm gợi ý phù hợp</Text>
-            </View>
-          )}
-        </View>
+        <RecommendationRail
+          title="Phối tiếp gu này"
+          subtitle="Những lựa chọn cùng tinh thần với món bạn đang xem"
+          items={recommendationItems}
+          isLoading={isRecommendationLoading}
+          trackingRef={recommendationSectionRef}
+          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
+          onProductPress={handleRecommendationProductPress}
+        />
 
         <StorefrontFooter />
       </ScrollView>
@@ -1194,47 +1133,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   headerTop: {
-    ...brandedHeaderStyles.container,
-    minHeight: 76,
-    paddingVertical: spacing.sm,
+    minHeight: 52,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerIcon: {
-    ...brandedHeaderStyles.action,
-  },
-  headerBrand: {
-    ...brandedHeaderStyles.titleGroup,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   headerActions: {
-    minWidth: 132,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.xs,
-  },
-  searchRow: {
-    minHeight: 42,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    ...shadows.card,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: 42,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 0,
-    color: colors.text,
-    fontSize: 13,
   },
   content: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: spacing.xl,
+    paddingBottom: 0,
   },
   breadcrumb: {
     minHeight: 31,
@@ -1501,10 +1425,48 @@ const styles = StyleSheet.create({
   disabledChip: {
     opacity: 0.45,
   },
-  swatchRow: {
+  colorChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  colorChip: {
+    minWidth: 72,
+    minHeight: 40,
+    maxWidth: '100%',
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.field,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  colorChipActive: {
+    borderColor: colors.brandLight,
+    backgroundColor: colors.brandSoft,
+  },
+  colorChipDot: {
+    width: 16,
+    height: 16,
+    flexShrink: 0,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  colorChipText: {
+    flexShrink: 1,
+    color: colors.textBody,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  colorChipTextActive: {
+    color: colors.brandDark,
+    fontWeight: '800',
   },
   sizeGuide: {
     color: colors.action,
@@ -1844,34 +1806,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.xs,
   },
-  recommendationSection: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
-  },
-  recommendationGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  recommendationItem: {
-    width: '47.5%',
-  },
-  recommendationState: {
-    minHeight: 112,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  recommendationStateText: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
   addCartFeedback: {
     position: 'absolute',
     left: spacing.md,
@@ -1979,10 +1913,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     minHeight: 76,
     borderTopWidth: 1,
     borderTopColor: colors.border,

@@ -10,8 +10,10 @@ const statusLabels: Record<OrderStatus, string> = {
   packed: 'Đã đóng gói',
   shipping: 'Đang giao',
   delivered: 'Đã giao',
+  completed: 'Hoàn tất',
   cancelled: 'Đã hủy',
   return_requested: 'Yêu cầu trả hàng',
+  return_approved: 'Chờ gửi hàng trả',
   returned: 'Đã trả hàng',
 }
 
@@ -20,8 +22,10 @@ const statusClasses: Record<OrderStatus, string> = {
   packed: 'processing',
   shipping: 'shipping',
   delivered: 'delivered',
+  completed: 'delivered',
   cancelled: 'cancelled',
   return_requested: 'returning',
+  return_approved: 'returning',
   returned: 'returned',
 }
 

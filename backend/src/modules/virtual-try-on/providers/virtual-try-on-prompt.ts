@@ -378,3 +378,41 @@ export const buildVirtualTryOnPrompt = (input: {
 
   return { prompt, negativePrompt };
 };
+
+const videoMotionByPreset: Record<VirtualTryOnContextPreset, string> = {
+  none: 'the person makes a subtle natural weight shift and a small shoulder turn',
+  work: 'the person calmly adjusts posture with a small confident shoulder turn',
+  casual: 'the person makes a relaxed weight shift and a gentle natural turn',
+  party: 'the person makes a small elegant pose change with restrained fabric movement',
+  travel: 'the person shifts naturally while a very light breeze moves the fabric',
+  sport: 'the person makes one controlled light athletic movement without changing position',
+  date: 'the person makes a soft natural pose change with a slight friendly expression',
+  custom: 'the person makes a subtle natural weight shift and a small shoulder turn',
+};
+
+const videoNegativePrompt = [
+  'identity change, face change, body shape change, skin tone change',
+  'wardrobe change, garment color change, pattern change, logo change',
+  'missing garment, extra garment, fabric melting, texture morphing',
+  'flicker, jitter, frame warping, duplicated limbs, extra fingers',
+  'deformed hands, deformed face, camera cut, scene transition',
+  'background replacement, sudden zoom, text overlay, watermark',
+  'nudity, explicit content',
+].join(', ');
+
+export const buildVirtualTryOnVideoPrompt = (input: {
+  preset: VirtualTryOnContextPreset;
+  customPrompt?: string;
+}) => {
+  const contextPrompt = input.customPrompt?.trim();
+  const prompt = [
+    'Use the input image as the exact first frame of one continuous five-second fashion showcase',
+    videoMotionByPreset[input.preset],
+    'fabric moves gently and realistically with the body',
+    'preserve the same person identity, face, hair, body proportions, skin tone, outfit design, garment color, pattern, print, logo, seams, accessories, shoes, background, lighting, and camera framing from the input image',
+    'no scene cut and no wardrobe change',
+    contextPrompt ? `keep the existing user scene context: ${contextPrompt}` : '',
+  ].filter(Boolean).join('. ');
+
+  return { prompt, negativePrompt: videoNegativePrompt };
+};

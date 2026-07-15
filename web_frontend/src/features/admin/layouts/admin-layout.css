@@ -8,6 +8,16 @@
   text-align: left;
 }
 
+@media (min-width: 721px) {
+  html:has(.admin-layout),
+  body:has(.admin-layout),
+  #root:has(.admin-layout) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+
 .admin-layout {
   height: 100svh;
   min-height: 100svh;
@@ -28,6 +38,7 @@
   padding: 20px 14px;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   border-right: 1px solid #223446;
   color: #edf4f8;
   background: #283f53;
@@ -424,9 +435,12 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overflow: clip;
 }
 
 .admin-topbar {
+  position: relative;
+  z-index: 20;
   min-height: var(--admin-topbar-h);
   flex: 0 0 auto;
   display: flex;
@@ -775,6 +789,7 @@
   flex: 1;
   padding: 24px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .admin-content-loading {

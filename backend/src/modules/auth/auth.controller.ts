@@ -227,7 +227,7 @@ export const socialLogin = async (req: Request, res: Response) => {
     return res.status(400).json({ message: 'provider và idToken là bắt buộc' });
   }
 
-  if (!['google', 'facebook', 'apple'].includes(provider)) {
+  if (!['google', 'facebook'].includes(provider)) {
     return res.status(400).json({ message: 'Provider không hợp lệ' });
   }
 

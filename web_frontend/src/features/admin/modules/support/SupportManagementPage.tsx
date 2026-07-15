@@ -10,9 +10,11 @@ import {
   getSupportTicket,
   listAdminFaqs,
   listCannedResponses,
+  listSupportAssignees,
   listSupportTickets,
   markSupportTicketRead,
   replySupportTicket,
+  reorderAdminFaqs,
   updateAdminFaq,
   updateCannedResponse,
   updateSupportTicket,
@@ -27,6 +29,7 @@ import type {
   CannedResponsePayload,
   SupportCategory,
   SupportPriority,
+  SupportPerson,
   SupportSummary,
   SupportAnalytics,
   SupportTicket,
@@ -122,6 +125,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [ticketPagination, setTicketPagination] = useState({ page: 1, limit: 20, totalItems: 0, totalPages: 1 })
   const [summary, setSummary] = useState<SupportSummary | null>(null)
+  const [assignees, setAssignees] = useState<SupportPerson[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<SupportTicketDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -133,6 +137,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const [submitting, setSubmitting] = useState(false)
   const [faqs, setFaqs] = useState<FaqArticle[]>([])
   const [faqSearch, setFaqSearch] = useState('')
+  const [faqCategory, setFaqCategory] = useState<FaqCategory | 'all'>('all')
   const [faqForm, setFaqForm] = useState<FaqPayload>(emptyFaq)
   const [editingFaq, setEditingFaq] = useState<FaqArticle | null>(null)
   const [faqEditorOpen, setFaqEditorOpen] = useState(false)
@@ -145,6 +150,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const [dateTo, setDateTo] = useState('')
   const [customerTypingTicketId, setCustomerTypingTicketId] = useState<string | null>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const submittingRef = useRef(false)
 
   const loadTickets = useCallback(async () => {
     setLoading(true)
@@ -175,11 +181,11 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
   const loadFaqs = useCallback(async () => {
     try {
-      setFaqs((await listAdminFaqs(faqSearch)).items)
+      setFaqs((await listAdminFaqs(faqSearch, faqCategory)).items)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể tải FAQ.')
     }
-  }, [faqSearch])
+  }, [faqCategory, faqSearch])
 
   const loadCanned = useCallback(async () => {
     try { setCannedResponses(await listCannedResponses()) }
@@ -192,6 +198,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   }, [dateFrom, dateTo])
 
   useEffect(() => { if (tab === 'tickets') void loadTickets() }, [loadTickets, tab])
+  useEffect(() => { void listSupportAssignees().then(setAssignees).catch(() => {}) }, [])
   useEffect(() => { if (tab === 'faqs') void loadFaqs() }, [loadFaqs, tab])
   useEffect(() => { if (canManage && (tab === 'canned' || tab === 'tickets')) void loadCanned() }, [canManage, loadCanned, tab])
   useEffect(() => { if (tab === 'analytics') void loadAnalytics() }, [loadAnalytics, tab])
@@ -274,8 +281,8 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   ]
 
   const mutateTicket = async (payload: Parameters<typeof updateSupportTicket>[1]) => {
-    if (!selectedId) return
-    setSubmitting(true)
+    if (!selectedId || submittingRef.current) return
+    submittingRef.current = true; setSubmitting(true)
     try {
       await updateSupportTicket(selectedId, payload)
       await Promise.all([loadDetail(selectedId), loadTickets()])
@@ -283,13 +290,13 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể cập nhật ticket.')
     } finally {
-      setSubmitting(false)
+      submittingRef.current = false; setSubmitting(false)
     }
   }
 
   const sendReply = async () => {
-    if (!selectedId || !reply.trim()) return
-    setSubmitting(true)
+    if (!selectedId || !reply.trim() || submittingRef.current) return
+    submittingRef.current = true; setSubmitting(true)
     try {
       await replySupportTicket(selectedId, reply.trim(), isInternal, replyFiles, selectedCannedId || undefined)
       setReply('')
@@ -300,7 +307,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể gửi phản hồi.')
     } finally {
-      setSubmitting(false)
+      submittingRef.current = false; setSubmitting(false)
     }
   }
 
@@ -314,7 +321,8 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   }
 
   const saveFaq = async () => {
-    setSubmitting(true)
+    if (submittingRef.current) return
+    submittingRef.current = true; setSubmitting(true)
     try {
       if (editingFaq) await updateAdminFaq(editingFaq._id, faqForm)
       else await createAdminFaq(faqForm)
@@ -323,12 +331,13 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể lưu FAQ.')
     } finally {
-      setSubmitting(false)
+      submittingRef.current = false; setSubmitting(false)
     }
   }
 
   const saveCanned = async () => {
-    setSubmitting(true)
+    if (submittingRef.current) return
+    submittingRef.current = true; setSubmitting(true)
     try {
       if (editingCannedId) await updateCannedResponse(editingCannedId, cannedForm)
       else await createCannedResponse(cannedForm)
@@ -337,7 +346,25 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
       await loadCanned()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể lưu mẫu trả lời.')
-    } finally { setSubmitting(false) }
+    } finally { submittingRef.current = false; setSubmitting(false) }
+  }
+
+  const moveFaq = async (faqId: string, direction: -1 | 1) => {
+    const index = faqs.findIndex((faq) => faq._id === faqId)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= faqs.length) return
+    const next = [...faqs]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    setFaqs(next)
+    try { await reorderAdminFaqs(next.map((faq) => faq._id)); await loadFaqs() }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể đổi thứ tự FAQ.'); await loadFaqs() }
+  }
+
+  const handleReplyFiles = (files: File[]) => {
+    if (files.length > 3) { setError('Chỉ được đính kèm tối đa 3 ảnh.'); return }
+    if (files.some((file) => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) { setError('Chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.'); return }
+    if (files.some((file) => file.size > 5 * 1024 * 1024)) { setError('Mỗi ảnh phải có dung lượng không quá 5MB.'); return }
+    setReplyFiles(files)
   }
 
   return (
@@ -361,6 +388,8 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             statusLabels={statusLabels}
             priorityLabels={priorityLabels}
             categoryLabels={categoryLabels}
+            typeLabels={typeLabels}
+            assignees={assignees}
             onFiltersChange={(updater) => setFilters(updater)}
             onReset={() => setFilters({ page: 1, status: 'all' })}
             onRefresh={() => void loadTickets()}
@@ -377,6 +406,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             canManage={canManage}
             canMarkSpam={canMarkSpam}
             currentUserId={currentUser._id}
+            assignees={assignees}
             reply={reply}
             isInternal={isInternal}
             selectedCannedId={selectedCannedId}
@@ -400,7 +430,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             }}
             onReplyChange={handleReplyChange}
             onInternalChange={setIsInternal}
-            onFilesChange={setReplyFiles}
+            onFilesChange={handleReplyFiles}
             onSendReply={sendReply}
           />
         </>
@@ -408,11 +438,14 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
         <SupportFaqPanel
           faqs={faqs}
           faqSearch={faqSearch}
+          faqCategory={faqCategory}
           categoryLabels={categoryLabels}
           onSearchChange={setFaqSearch}
+          onCategoryChange={setFaqCategory}
           onCreate={() => openFaqEditor()}
           onEdit={openFaqEditor}
           onDelete={(faqId) => void deleteAdminFaq(faqId).then(loadFaqs)}
+          onMove={moveFaq}
         />
       ) : tab === 'analytics' ? (
         <SupportAnalyticsPanel

@@ -15,6 +15,28 @@ export class GHNServiceError extends Error {
   }
 }
 
+export const GHN_MAX_WEIGHT_GRAMS = 50_000;
+export const GHN_MAX_INSURANCE_VALUE = 5_000_000;
+export const GHN_MAX_COD_AMOUNT = 50_000_000;
+
+const assertGhnPackageLimits = (data: { weight: number; codAmount?: number }) => {
+  if (!Number.isFinite(data.weight) || data.weight <= 0 || data.weight > GHN_MAX_WEIGHT_GRAMS) {
+    throw new GHNServiceError(`GHN package weight must be between 1 and ${GHN_MAX_WEIGHT_GRAMS} grams`, 400);
+  }
+
+  if (
+    data.codAmount !== undefined &&
+    (!Number.isFinite(data.codAmount) || data.codAmount < 0 || data.codAmount > GHN_MAX_COD_AMOUNT)
+  ) {
+    throw new GHNServiceError(`GHN COD amount cannot exceed ${GHN_MAX_COD_AMOUNT} VND`, 400);
+  }
+};
+
+const normalizeInsuranceValue = (value?: number) => Math.min(
+  GHN_MAX_INSURANCE_VALUE,
+  Math.max(0, Math.round(value ?? 0)),
+);
+
 const getRequiredEnv = (name: string) => {
   const value = process.env[name];
 
@@ -155,6 +177,7 @@ export const GHNService = {
     serviceTypeId?: number;
   }) {
     try {
+      assertGhnPackageLimits(data);
       const response = await getGhnClient({ includeShopId: true }).post('/v2/shipping-order/fee', {
         from_district_id: getShopDistrictId(),
         from_ward_code: getShopWardCode(),
@@ -170,7 +193,7 @@ export const GHNService = {
         width: data.width || 20,
         height: data.height || 10,
 
-        insurance_value: data.insuranceValue || 0,
+        insurance_value: normalizeInsuranceValue(data.insuranceValue),
       });
 
       return response.data;
@@ -202,8 +225,10 @@ export const GHNService = {
     }[];
   }) {
     try {
+      assertGhnPackageLimits(data);
       const response = await getGhnClient({ includeShopId: true }).post('/v2/shipping-order/create', {
-        payment_type_id: 2,
+        // The storefront already includes shipping in the customer-facing order total.
+        payment_type_id: 1,
         required_note: 'CHOXEMHANGKHONGTHU',
         note: 'Cho khách xem hàng, không cho thử',
 
@@ -229,7 +254,7 @@ export const GHNService = {
         width: data.width || 20,
         height: data.height || 10,
 
-        insurance_value: data.insuranceValue || 0,
+        insurance_value: normalizeInsuranceValue(data.insuranceValue),
         ...(data.serviceId
           ? { service_id: data.serviceId }
           : { service_type_id: data.serviceTypeId || 2 }),

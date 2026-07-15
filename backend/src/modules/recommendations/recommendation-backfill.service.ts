@@ -205,6 +205,7 @@ const backfillCarts = async (options: BackfillOptions): Promise<BackfillResult> 
 const backfillOrders = async (options: BackfillOptions): Promise<BackfillResult> => {
   const query = Order.find({
     status: { $nin: ['cancelled', 'returned'] },
+    paymentStatus: 'paid',
     'order_list.0': { $exists: true },
   })
     .select('_id user_id orderCode order_list.productId order_list.variantId order_list.colorVariantId order_list.size order_list.quantity createdAt')

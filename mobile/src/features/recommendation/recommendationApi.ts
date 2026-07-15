@@ -19,6 +19,8 @@ export type RecommendationReasonCode =
   | 'preferred_category'
   | 'preferred_brand'
   | 'preferred_color'
+  | 'completes_outfit'
+  | 'matches_cart_style'
   | 'popular'
   | 'on_sale'
   | 'new_arrival';

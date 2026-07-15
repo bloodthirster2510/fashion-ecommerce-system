@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -12,9 +12,9 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { catalogApi, CatalogCategory, CatalogGender, CatalogProduct } from '../catalog/catalogApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
+import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import CategoryDrawer from './components/CategoryDrawer';
-import CategoryRail, { CategoryRailItem } from './components/CategoryRail';
 import FeatureCard from './components/FeatureCard';
 import ProductSection from './components/ProductSection';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
@@ -22,33 +22,22 @@ import { useCustomerNotifications } from '../notifications/CustomerNotificationP
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
 const virtualTryOnFeatureImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
+const homeDiscoverHeroImage = require('../../../assets/home-discover-hero-v2.png');
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
-  const { isAuthenticated, session, runWithAuth } = useAuth();
+  const { isAuthenticated, runWithAuth } = useAuth();
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
   const [isCategoryDrawerVisible, setIsCategoryDrawerVisible] = React.useState(false);
   const [categories, setCategories] = React.useState<CatalogCategory[]>([]);
   const [isCategoryLoading, setIsCategoryLoading] = React.useState(false);
   const [bestSellers, setBestSellers] = React.useState<CatalogProduct[]>([]);
-  const [recommendations, setRecommendations] = React.useState<CatalogProduct[]>([]);
   const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
   const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
   const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
   const [isProductLoading, setIsProductLoading] = React.useState(true);
   const [bestSellerError, setBestSellerError] = React.useState<string | null>(null);
   const [recommendationError, setRecommendationError] = React.useState<string | null>(null);
-
-  const availableCategoryGenders = React.useMemo(
-    () => new Set(categories.map((category) => category.gender)),
-    [categories],
-  );
-
-  const shouldShowGenderShortcut = React.useCallback(
-    (gender: CatalogGender) =>
-      categories.length ? availableCategoryGenders.has(gender) : gender !== 'unisex',
-    [availableCategoryGenders, categories.length],
-  );
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
     if (isAuthenticated) {
@@ -85,6 +74,7 @@ const HomeScreen = () => {
   const {
     recommendationSectionRef,
     checkRecommendationVisibility,
+    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
@@ -129,8 +119,8 @@ const HomeScreen = () => {
     setRecommendationAlgorithmVersion(undefined);
 
     const recommendationPromise = isAuthenticated
-      ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(4, accessToken))
-      : recommendationApi.getPersonalRecommendations(4);
+      ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(10, accessToken))
+      : recommendationApi.getPersonalRecommendations(10);
 
     Promise.allSettled([catalogApi.getBestSellers(4), recommendationPromise])
       .then(([bestSellerResult, recommendationResult]) => {
@@ -147,12 +137,10 @@ const HomeScreen = () => {
           setRecommendationItems(recommendationResult.value.items);
           setRecommendationRequestId(recommendationResult.value.requestId);
           setRecommendationAlgorithmVersion(recommendationResult.value.algorithmVersion);
-          setRecommendations(recommendationResult.value.items.map((item) => item.product));
         } else {
           setRecommendationItems([]);
           setRecommendationRequestId(null);
           setRecommendationAlgorithmVersion(undefined);
-          setRecommendations([]);
           setRecommendationError('Không tải được sản phẩm gợi ý');
         }
       })
@@ -196,77 +184,6 @@ const HomeScreen = () => {
     });
   };
 
-  const quickLinks = React.useMemo<CategoryRailItem[]>(
-    () => [
-      {
-        id: 'all',
-        label: 'Tất cả',
-        icon: 'view-grid-outline',
-        isPrimary: true,
-        onPress: () => navigateToProductList({ title: 'Tất cả sản phẩm' }),
-      },
-      {
-        id: 'male',
-        label: 'Nam',
-        icon: 'gender-male',
-        onPress: () => handleGenderSelect('male'),
-      },
-      {
-        id: 'female',
-        label: 'Nữ',
-        icon: 'gender-female',
-        onPress: () => handleGenderSelect('female'),
-      },
-      ...(shouldShowGenderShortcut('unisex')
-        ? [
-            {
-              id: 'unisex',
-              label: 'Unisex',
-              icon: 'gender-male-female' as const,
-              onPress: () => handleGenderSelect('unisex'),
-            },
-          ]
-        : []),
-      {
-        id: 'new',
-        label: 'Hàng mới',
-        icon: 'new-box',
-        onPress: () => navigateToProductList({ title: 'Hàng mới', isNew: true, sort: 'newest' }),
-      },
-      {
-        id: 'sale',
-        label: 'Đang sale',
-        icon: 'sale',
-        onPress: () => navigateToProductList({ title: 'Đang sale', isSale: true, sort: 'newest' }),
-      },
-      {
-        id: 'best-seller',
-        label: 'Bán chạy',
-        icon: 'fire',
-        onPress: () => navigateToProductList({ title: 'Bán chạy', sort: 'best_seller' }),
-      },
-      {
-        id: 'polo',
-        label: 'Áo polo',
-        icon: 'tshirt-crew-outline',
-        onPress: () => navigateToProductList({ title: 'Áo polo', keyword: 'Áo polo' }),
-      },
-      {
-        id: 'dress-pants',
-        label: 'Quần âu',
-        icon: 'briefcase-outline',
-        onPress: () => navigateToProductList({ title: 'Quần âu', keyword: 'Quần âu' }),
-      },
-      {
-        id: 'sport',
-        label: 'Thể thao',
-        icon: 'run',
-        onPress: () => navigateToProductList({ title: 'Đồ thể thao', keyword: 'thể thao' }),
-      },
-    ],
-    [navigation, shouldShowGenderShortcut],
-  );
-
   const handleSearchSubmit = (keyword: string) => {
     recordInteraction({
       actionType: 'search',
@@ -278,10 +195,6 @@ const HomeScreen = () => {
       title: `Tìm kiếm: ${keyword}`,
       keyword,
     });
-  };
-
-  const handleComingSoon = (title: string) => {
-    Alert.alert(title, 'Tính năng này sẽ được bổ sung khi backend tương ứng hoàn thiện.');
   };
 
   const handleProductPress = (product: CatalogProduct) => {
@@ -301,29 +214,15 @@ const HomeScreen = () => {
     Alert.alert('Giỏ hàng', 'Bạn mở chi tiết sản phẩm để chọn màu, size và số lượng trước nha.');
   };
 
-  const handleRecommendationProductPress = (product: CatalogProduct) => {
-    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === product._id);
+  const handleRecommendationProductPress = (item: RecommendationItem) => {
+    recordRecommendationEvent(item, 'click');
 
-    if (item) {
-      recordRecommendationEvent(item, 'click');
-    }
-
-    if (product._id) {
+    if (item.product._id) {
       navigation.navigate('ProductDetail', {
-        productId: product._id,
+        productId: item.product._id,
         recommendationRequestId: recommendationRequestId ?? undefined,
       });
     }
-  };
-
-  const handleRecommendationCartPress = (product: CatalogProduct) => {
-    const item = recommendationItems.find((recommendationItem) => recommendationItem.product._id === product._id);
-
-    if (item) {
-      recordRecommendationEvent(item, 'click');
-    }
-
-    handleCartPress(product);
   };
 
   return (
@@ -332,19 +231,11 @@ const HomeScreen = () => {
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         menuIcon="filter-variant"
         menuAccessibilityLabel="Mở bộ lọc sản phẩm"
-        onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
+        onCartPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
         onSearchFocus={() => navigation.navigate('Search')}
-        onImageSearchPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
-        isAuthenticated={isAuthenticated}
-        userName={session?.user.name}
-        avatarImage={session?.user.avatarImage}
-        profileBadgeCount={notificationSummary?.total ?? 0}
-      />
-      <CategoryRail
-        visible
-        items={quickLinks}
+        cartBadgeCount={notificationSummary?.cartItems ?? 0}
       />
       <ScrollView
         style={styles.content}
@@ -353,10 +244,18 @@ const HomeScreen = () => {
         onScroll={checkRecommendationVisibility}
         scrollEventThrottle={100}
       >
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>FASHIONISTA</Text>
-          <Text style={styles.heroSubtitle}>Phong cách thời trang hiện đại</Text>
-        </View>
+        <TouchableOpacity
+          onPress={() => navigateToProductList({ title: 'Khám phá gu riêng' })}
+          activeOpacity={0.88}
+          accessibilityRole="button"
+          accessibilityLabel="Khám phá thời trang sang trọng"
+        >
+          <Image
+            source={homeDiscoverHeroImage}
+            style={styles.hero}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
 
         <View style={styles.featureStack}>
           <FeatureCard
@@ -366,13 +265,6 @@ const HomeScreen = () => {
             imageSource={virtualTryOnFeatureImage}
             onPress={() => navigation.navigate(isAuthenticated ? 'VirtualTryOnHome' : 'Login')}
           />
-          <FeatureCard
-            title="Tìm kiếm sản phẩm bằng hình ảnh"
-            description="Chụp hoặc tải ảnh lên để tìm sản phẩm tương tự"
-            icon="camera-iris"
-            supportingIcons={['filter-variant']}
-            onPress={() => handleComingSoon('Tìm kiếm bằng hình ảnh')}
-          />
         </View>
 
         <ProductSection
@@ -381,23 +273,26 @@ const HomeScreen = () => {
           isLoading={isProductLoading}
           error={bestSellerError}
           onRetry={loadHomeProducts}
-          onViewMore={() => navigateToProductList({ title: 'Sản phẩm bán chạy', sort: 'best_seller' })}
+          onViewMore={() => navigateToProductList({
+            title: 'Sản phẩm bán chạy',
+            sort: 'best_seller',
+            discoveryEntry: 'products',
+          })}
           onProductPress={handleProductPress}
           onCartPress={handleCartPress}
         />
 
-        <View ref={recommendationSectionRef} collapsable={false}>
-        <ProductSection
-          title="Bạn cũng có thể thích"
-          products={recommendations}
+        <RecommendationRail
+          title="Dành cho bạn"
+          subtitle={isAuthenticated ? 'Dựa trên những sản phẩm bạn đã quan tâm' : 'Những lựa chọn đang được yêu thích'}
+          items={recommendationItems}
           isLoading={isProductLoading}
           error={recommendationError}
           onRetry={loadHomeProducts}
-          onViewMore={() => navigateToProductList({ title: 'Bạn cũng có thể thích', sort: 'newest' })}
+          trackingRef={recommendationSectionRef}
+          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
           onProductPress={handleRecommendationProductPress}
-          onCartPress={handleRecommendationCartPress}
         />
-        </View>
 
         <View style={styles.footerGap}>
           <StorefrontFooter />
@@ -431,25 +326,9 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   hero: {
-    minHeight: 138,
+    width: '100%',
+    height: 138,
     backgroundColor: colors.brandLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  heroTitle: {
-    color: colors.white,
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  heroSubtitle: {
-    color: colors.white,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: spacing.sm,
-    textAlign: 'center',
   },
   featureStack: {
     paddingHorizontal: spacing.md,

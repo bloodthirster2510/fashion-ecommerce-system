@@ -15,6 +15,7 @@ import SearchScreen from '../features/search/SearchScreen';
 import CheckoutScreen from '../features/checkout/CheckoutScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
+import NotificationsScreen from '../features/notifications/NotificationsScreen';
 import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
 import OrderListScreen from '../features/orders/OrderListScreen';
 import OrderDetailScreen from '../features/orders/OrderDetailScreen';
@@ -50,6 +51,7 @@ export type RootStackParamList = {
     isSale?: boolean;
     isNew?: boolean;
     sort?: 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'rating_desc';
+    discoveryEntry?: 'products';
   } | undefined;
   Search: undefined;
   ProductDetail: {
@@ -70,6 +72,7 @@ export type RootStackParamList = {
     paymentMethod?: 'COD' | 'VNPAY' | 'MOMO';
   } | undefined;
   Favorites: undefined;
+  Notifications: undefined;
   Profile: undefined;
   EditProfile: undefined;
   PaymentMethods: undefined;
@@ -128,6 +131,8 @@ export type RootStackParamList = {
     category?: SupportCategory;
     orderId?: string;
     couponCode?: string;
+    contextSource?: 'support_home' | 'order_detail' | 'payment_result' | 'coupon' | 'loyalty' | 'error_screen' | 'footer';
+    errorCode?: string;
   } | undefined;
   SupportTicketList: undefined;
   SupportTicketDetail: { ticketId: string };
@@ -161,6 +166,7 @@ const AppNavigator = () => {
       <Stack.Screen name="Checkout" component={CheckoutScreen} />
       <Stack.Screen name="Coupons" component={CouponsScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
