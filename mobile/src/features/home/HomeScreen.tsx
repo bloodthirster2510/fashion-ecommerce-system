@@ -26,7 +26,7 @@ const homeDiscoverHeroImage = require('../../../assets/home-discover-hero-v2.png
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
-  const { isAuthenticated, session, runWithAuth } = useAuth();
+  const { isAuthenticated, runWithAuth } = useAuth();
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
   const [isCategoryDrawerVisible, setIsCategoryDrawerVisible] = React.useState(false);
   const [categories, setCategories] = React.useState<CatalogCategory[]>([]);
@@ -231,14 +231,10 @@ const HomeScreen = () => {
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         menuIcon="filter-variant"
         menuAccessibilityLabel="Mở bộ lọc sản phẩm"
-        onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
         onSearchFocus={() => navigation.navigate('Search')}
-        isAuthenticated={isAuthenticated}
-        userName={session?.user.name}
-        avatarImage={session?.user.avatarImage}
         cartBadgeCount={notificationSummary?.cartItems ?? 0}
       />
       <ScrollView

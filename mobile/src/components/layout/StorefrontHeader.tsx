@@ -1,7 +1,8 @@
 import React from 'react';
-import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
+import ShopNameLogo from '../branding/ShopNameLogo';
 
 type HeaderIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
@@ -9,14 +10,10 @@ type StorefrontHeaderProps = {
   onMenuPress?: () => void;
   menuIcon?: HeaderIconName;
   menuAccessibilityLabel?: string;
-  onProfilePress?: () => void;
   onFavoritesPress?: () => void;
   onCartPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
   onSearchFocus?: () => void;
-  isAuthenticated?: boolean;
-  userName?: string;
-  avatarImage?: string | null;
   cartBadgeCount?: number;
 };
 
@@ -24,25 +21,13 @@ const StorefrontHeader = ({
   onMenuPress,
   menuIcon = 'menu',
   menuAccessibilityLabel = 'Mở menu',
-  onProfilePress,
   onFavoritesPress,
   onCartPress,
   onSearchSubmit,
   onSearchFocus,
-  isAuthenticated,
-  userName,
-  avatarImage,
   cartBadgeCount = 0,
 }: StorefrontHeaderProps) => {
   const [searchTerm, setSearchTerm] = React.useState('');
-  const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
-  const avatarUri = avatarImage?.trim();
-  const userInitial = userName?.trim().charAt(0).toUpperCase() || 'U';
-  const canShowAvatar = Boolean(avatarUri && /^https?:\/\//i.test(avatarUri) && !avatarLoadFailed);
-
-  React.useEffect(() => {
-    setAvatarLoadFailed(false);
-  }, [avatarUri]);
 
   const handleSearchSubmit = () => {
     const keyword = searchTerm.trim();
@@ -63,6 +48,8 @@ const StorefrontHeader = ({
         >
           <MaterialCommunityIcons name={menuIcon} size={26} color={colors.white} />
         </TouchableOpacity>
+
+        <ShopNameLogo header />
 
         {onSearchFocus ? (
           <TouchableOpacity
@@ -111,28 +98,6 @@ const StorefrontHeader = ({
                 <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
               </View>
             ) : null}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.iconButton, isAuthenticated && styles.profileButton]}
-            onPress={onProfilePress}
-            accessibilityLabel="Tài khoản"
-            activeOpacity={0.8}
-          >
-            {isAuthenticated ? (
-              canShowAvatar ? (
-                <Image
-                  key={avatarUri}
-                  source={{ uri: avatarUri }}
-                  style={styles.avatarImage}
-                  resizeMode="cover"
-                  onError={() => setAvatarLoadFailed(true)}
-                />
-              ) : (
-                <Text style={styles.avatarInitial}>{userInitial}</Text>
-              )
-            ) : (
-              <MaterialCommunityIcons name="account-outline" size={25} color={colors.white} />
-            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -183,22 +148,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     lineHeight: 10,
     fontWeight: '900',
-  },
-  profileButton: {
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    backgroundColor: colors.brandSoft,
-  },
-  avatarImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  avatarInitial: {
-    color: colors.brandDark,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
   },
   searchRow: {
     flex: 1,

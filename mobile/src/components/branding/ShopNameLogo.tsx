@@ -3,13 +3,14 @@ import { Image, StyleSheet, View } from 'react-native';
 
 type ShopNameLogoProps = {
   compact?: boolean;
+  header?: boolean;
 };
 
 const shopNameImage = require('../../../assets/ShopName.png');
 
-export default function ShopNameLogo({ compact = false }: ShopNameLogoProps) {
+export default function ShopNameLogo({ compact = false, header = false }: ShopNameLogoProps) {
   return (
-    <View style={compact ? styles.compactFrame : styles.frame}>
+    <View style={header ? styles.headerFrame : compact ? styles.compactFrame : styles.frame}>
       <Image
         accessibilityLabel="CDSHOP"
         resizeMode="cover"
@@ -29,6 +30,11 @@ const styles = StyleSheet.create({
   compactFrame: {
     width: 120,
     height: 40,
+    overflow: 'hidden',
+  },
+  headerFrame: {
+    width: 76,
+    height: 36,
     overflow: 'hidden',
   },
   image: {
