@@ -239,7 +239,7 @@ const NotificationsScreen = () => {
           {imageUri && !hasPromotionBanner ? (
             <RemoteImage uri={imageUri} style={styles.notificationImage} recyclingKey={item._id} />
           ) : (
-            <View style={[styles.notificationIcon, { backgroundColor: presentation.background }]}> 
+            <View style={[styles.notificationIcon, { backgroundColor: presentation.background }]}>
               <MaterialCommunityIcons name={presentation.icon} size={23} color={presentation.color} />
             </View>
           )}
