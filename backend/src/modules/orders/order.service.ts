@@ -52,6 +52,12 @@ import {
   sendShippingUpdatePush,
   type ShippingPushMilestone,
 } from '../notifications/push-notification.service';
+import {
+  recordLoyaltyEarnedNotification,
+  recordOrderCreatedNotification,
+  recordOrderPaymentNotification,
+  recordOrderStatusNotification,
+} from '../notifications/customer-notification.service';
 import type {
   AdjustOrderPaymentStatusInput,
   CancelOrderInput,
@@ -485,6 +491,16 @@ const triggerOrderStatusChange = async (
     }, milestone)),
   );
 
+  if (before.status !== order.status) {
+    await recordOrderStatusNotification({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      status: order.status,
+      imageUrl: order.order_list[0]?.image ?? null,
+    });
+  }
+
   if (milestone && ['picked', 'shipping', 'delivered', 'failed'].includes(milestone)) {
     await runBestEffort(
       'Failed to send shipping update push notification',
@@ -499,6 +515,29 @@ const triggerOrderStatusChange = async (
 
   if (before.paymentStatus !== 'paid' && order.paymentStatus === 'paid') {
     await recordRecommendationOrderLifecycle(order, 'payment_completed');
+  }
+
+  if (before.paymentStatus !== order.paymentStatus) {
+    await recordOrderPaymentNotification({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      paymentStatus: order.paymentStatus,
+      imageUrl: order.order_list[0]?.image ?? null,
+    });
+  }
+
+  if (
+    before.status !== order.status &&
+    ['delivered', 'completed'].includes(order.status) &&
+    (order.loyaltyPointsAwarded ?? 0) > 0
+  ) {
+    await recordLoyaltyEarnedNotification({
+      userId: order.user_id.toString(),
+      orderId: order._id.toString(),
+      orderCode: order.orderCode,
+      points: order.loyaltyPointsAwarded,
+    });
   }
 
   if (before.status !== order.status && order.status === 'cancelled') {
@@ -526,6 +565,14 @@ const triggerOrderPaymentChange = async (
   if (before.paymentStatus !== 'paid' && order.paymentStatus === 'paid') {
     await recordRecommendationOrderLifecycle(order, 'payment_completed');
   }
+
+  await recordOrderPaymentNotification({
+    userId: order.user_id.toString(),
+    orderId: order._id.toString(),
+    orderCode: order.orderCode,
+    paymentStatus: order.paymentStatus,
+    imageUrl: order.order_list[0]?.image ?? null,
+  });
 };
 
 const toOrderItem = (item: CheckoutOrderItem) => ({
@@ -1585,6 +1632,12 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
     ? finalizedOrder
     : Object.assign(finalizedOrder, { order_list: persistedOrderItems });
   await recordRecommendationOrderLifecycle(attributionOrder, 'order_created');
+  await recordOrderCreatedNotification({
+    userId,
+    orderId: finalizedOrder._id.toString(),
+    orderCode: finalizedOrder.orderCode,
+    imageUrl: persistedOrderItems[0]?.image ?? null,
+  });
 
   return finalizedOrder;
 };

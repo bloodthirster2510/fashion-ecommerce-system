@@ -727,16 +727,11 @@ const ProductDetailScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}
-            onPress={handleFavoritePress}
-            disabled={isFavoriteLoading}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
             activeOpacity={0.82}
-            accessibilityLabel={isFavorited ? 'Bỏ yêu thích' : 'Yêu thích'}
+            accessibilityLabel="Sản phẩm yêu thích"
           >
-            {isFavoriteLoading ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <MaterialCommunityIcons name={isFavorited ? 'heart' : 'heart-outline'} size={22} color={colors.white} />
-            )}
+            <MaterialCommunityIcons name="heart-outline" size={22} color={colors.white} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}

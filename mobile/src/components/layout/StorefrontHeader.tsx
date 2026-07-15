@@ -2,7 +2,6 @@ import React from 'react';
 import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../../theme';
-import ShopNameLogo from '../branding/ShopNameLogo';
 
 type HeaderIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
@@ -12,12 +11,13 @@ type StorefrontHeaderProps = {
   menuAccessibilityLabel?: string;
   onProfilePress?: () => void;
   onFavoritesPress?: () => void;
+  onCartPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
   onSearchFocus?: () => void;
   isAuthenticated?: boolean;
   userName?: string;
   avatarImage?: string | null;
-  profileBadgeCount?: number;
+  cartBadgeCount?: number;
 };
 
 const StorefrontHeader = ({
@@ -26,12 +26,13 @@ const StorefrontHeader = ({
   menuAccessibilityLabel = 'Mở menu',
   onProfilePress,
   onFavoritesPress,
+  onCartPress,
   onSearchSubmit,
   onSearchFocus,
   isAuthenticated,
   userName,
   avatarImage,
-  profileBadgeCount = 0,
+  cartBadgeCount = 0,
 }: StorefrontHeaderProps) => {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [avatarLoadFailed, setAvatarLoadFailed] = React.useState(false);
@@ -51,12 +52,6 @@ const StorefrontHeader = ({
     }
   };
 
-  const handleSearchRowPress = () => {
-    if (onSearchFocus) {
-      onSearchFocus();
-    }
-  };
-
   return (
     <View style={styles.header}>
       <View style={styles.topRow}>
@@ -69,9 +64,31 @@ const StorefrontHeader = ({
           <MaterialCommunityIcons name={menuIcon} size={26} color={colors.white} />
         </TouchableOpacity>
 
-        <View style={styles.brand}>
-          <ShopNameLogo />
-        </View>
+        {onSearchFocus ? (
+          <TouchableOpacity
+            style={styles.searchRow}
+            onPress={onSearchFocus}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Mở tìm kiếm"
+          >
+            <MaterialCommunityIcons name="magnify" size={21} color={colors.textMuted} />
+            <Text style={styles.searchPlaceholder} numberOfLines={1}>Tìm sản phẩm</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.searchRow}>
+            <MaterialCommunityIcons name="magnify" size={21} color={colors.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              placeholder="Tìm sản phẩm"
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="search"
+              onSubmitEditing={handleSearchSubmit}
+            />
+          </View>
+        )}
 
         <View style={styles.actions}>
           <TouchableOpacity
@@ -83,9 +100,22 @@ const StorefrontHeader = ({
             <MaterialCommunityIcons name="heart-outline" size={25} color={colors.white} />
           </TouchableOpacity>
           <TouchableOpacity
+            style={styles.iconButton}
+            onPress={onCartPress}
+            accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="shopping-outline" size={25} color={colors.white} />
+            {cartBadgeCount > 0 ? (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.iconButton, isAuthenticated && styles.profileButton]}
             onPress={onProfilePress}
-            accessibilityLabel={profileBadgeCount > 0 ? `Tài khoản, ${profileBadgeCount} việc cần chú ý` : 'Tài khoản'}
+            accessibilityLabel="Tài khoản"
             activeOpacity={0.8}
           >
             {isAuthenticated ? (
@@ -103,33 +133,8 @@ const StorefrontHeader = ({
             ) : (
               <MaterialCommunityIcons name="account-outline" size={25} color={colors.white} />
             )}
-            {profileBadgeCount > 0 ? <View style={styles.notificationDot} /> : null}
           </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.searchRow}>
-        <MaterialCommunityIcons name="magnify" size={23} color={colors.textMuted} />
-        {onSearchFocus ? (
-          <TouchableOpacity
-            style={styles.searchFakeInput}
-            onPress={handleSearchRowPress}
-            activeOpacity={0.8}
-            accessibilityLabel="Mở tìm kiếm"
-          >
-            <Text style={styles.searchPlaceholder}>Bạn tìm gì hôm nay?</Text>
-          </TouchableOpacity>
-        ) : (
-          <TextInput
-            style={styles.searchInput}
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            placeholder="Bạn tìm gì hôm nay?"
-            placeholderTextColor={colors.textMuted}
-            returnKeyType="search"
-            onSubmitEditing={handleSearchSubmit}
-          />
-        )}
       </View>
     </View>
   );
@@ -139,24 +144,17 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
+    paddingVertical: spacing.sm,
   },
   topRow: {
-    height: 50,
+    minHeight: 36,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  brand: {
-    flex: 1,
-    alignItems: 'flex-start',
-    paddingLeft: spacing.xs,
-  },
   actions: {
-    minWidth: 84,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: spacing.md,
+    gap: spacing.xs,
   },
   iconButton: {
     width: 36,
@@ -166,16 +164,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
-  notificationDot: {
+  cartBadge: {
     position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
+    top: -5,
+    right: -4,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
     backgroundColor: colors.coral,
     borderWidth: 1.5,
     borderColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadgeText: {
+    color: colors.white,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
   },
   profileButton: {
     borderWidth: 1,
@@ -194,13 +201,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   searchRow: {
+    flex: 1,
+    minWidth: 0,
     minHeight: 36,
-    marginTop: spacing.sm,
+    marginHorizontal: spacing.xs,
     borderRadius: radii.xs,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: spacing.sm,
   },
   searchInput: {
     flex: 1,
@@ -210,13 +219,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 13,
   },
-  searchFakeInput: {
-    flex: 1,
-    minHeight: 36,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
   searchPlaceholder: {
+    flex: 1,
+    marginLeft: spacing.xs,
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',

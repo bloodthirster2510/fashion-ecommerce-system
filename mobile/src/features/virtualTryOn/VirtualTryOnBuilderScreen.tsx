@@ -1359,8 +1359,7 @@ const VirtualTryOnBuilderScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Phòng phối đồ ảo</Text>
+          <Text style={styles.headerTitle}>Tạo phối đồ</Text>
         </View>
         <View style={styles.headerSpacer} />
       </View>
@@ -2450,49 +2449,40 @@ const styles = StyleSheet.create({
     backgroundColor: tryOnPalette.header,
   },
   header: {
-    minHeight: 78,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    minHeight: 60,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: tryOnPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.16)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: spacing.md,
-  },
-  headerKicker: {
-    color: tryOnPalette.headerSoft,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    paddingHorizontal: spacing.sm,
   },
   headerTitle: {
     color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   productHeaderTitle: {
     flex: 1,
     color: colors.white,
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
     textAlign: 'center',
   },
   headerSpacer: {

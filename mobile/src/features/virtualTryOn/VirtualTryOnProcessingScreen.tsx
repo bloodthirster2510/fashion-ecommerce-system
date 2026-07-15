@@ -12,6 +12,7 @@ import { RemoteImage } from '../../components/media/RemoteImage';
 import { virtualTryOnApi } from './virtualTryOnApi';
 import { useVirtualTryOnRealtime } from './virtualTryOnRealtime';
 import type { VirtualTryOnJob } from './virtualTryOn.types';
+import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { tryOnRoleLabel } from './virtualTryOnSelection';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
@@ -54,11 +55,22 @@ const VirtualTryOnProcessingScreen = () => {
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const progressGlow = React.useRef(new Animated.Value(0)).current;
+  const hasOpenedResult = React.useRef(false);
 
   const jobId = route.params.jobId;
   const retainedSeedItems = route.params.seedItems;
   const retainedAlternativeSeedItems = route.params.alternativeSeedItems;
   const isProviderSafetyBlocked = job?.status === 'failed' && job.errorCode === 'PROVIDER_SAFETY_BLOCKED';
+
+  const openResult = React.useCallback((nextJobId: string) => {
+    if (hasOpenedResult.current) return;
+    hasOpenedResult.current = true;
+    navigation.replace('VirtualTryOnResult', {
+      jobId: nextJobId,
+      seedItems: retainedSeedItems,
+      alternativeSeedItems: retainedAlternativeSeedItems,
+    });
+  }, [navigation, retainedSeedItems, retainedAlternativeSeedItems]);
 
   const returnToBuilder = React.useCallback(() => {
     navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
@@ -74,12 +86,8 @@ const VirtualTryOnProcessingScreen = () => {
       .then((nextJob) => {
         if (!isCurrent) return;
         setJob(nextJob);
-        if (nextJob.status === 'succeeded') {
-          navigation.replace('VirtualTryOnResult', {
-            jobId: nextJob._id,
-            seedItems: retainedSeedItems,
-            alternativeSeedItems: retainedAlternativeSeedItems,
-          });
+        if (nextJob.status === 'succeeded' && getGeneratedTryOnImageUrls(nextJob).length > 0) {
+          openResult(nextJob._id);
         }
       })
       .catch((error: unknown) => {
@@ -92,7 +100,7 @@ const VirtualTryOnProcessingScreen = () => {
       });
 
     return () => { isCurrent = false; };
-  }, [jobId, navigation, retainedSeedItems, retainedAlternativeSeedItems, runWithAuth]);
+  }, [jobId, openResult, runWithAuth]);
 
   const realtime = useVirtualTryOnRealtime(session?.accessToken, (event) => {
     if (event.jobId !== jobId) return;
@@ -102,23 +110,25 @@ const VirtualTryOnProcessingScreen = () => {
           status: event.status,
           progress: event.progress,
           processingStage: event.processingStage ?? current.processingStage,
-          generatedImageUrl: event.generatedImageUrl ?? current.generatedImageUrl,
+          generatedImageUrl: event.generatedImageUrl !== undefined ? event.generatedImageUrl : current.generatedImageUrl,
           generatedImageUrls: event.generatedImageUrls ?? current.generatedImageUrls,
-          generatedVideoUrl: event.generatedVideoUrl ?? current.generatedVideoUrl,
+          generatedVideoUrl: event.generatedVideoUrl !== undefined ? event.generatedVideoUrl : current.generatedVideoUrl,
           videoStatus: event.videoStatus ?? current.videoStatus,
           videoProgress: event.videoProgress ?? current.videoProgress,
-          videoErrorCode: event.videoErrorCode ?? current.videoErrorCode,
-          videoErrorMessage: event.videoErrorMessage ?? current.videoErrorMessage,
-          errorCode: event.errorCode ?? current.errorCode,
-          errorMessage: event.errorMessage ?? current.errorMessage,
+          videoErrorCode: event.videoErrorCode !== undefined ? event.videoErrorCode : current.videoErrorCode,
+          videoErrorMessage: event.videoErrorMessage !== undefined ? event.videoErrorMessage : current.videoErrorMessage,
+          errorCode: event.errorCode !== undefined ? event.errorCode : current.errorCode,
+          errorMessage: event.errorMessage !== undefined ? event.errorMessage : current.errorMessage,
         }
       : current);
-    if (event.status === 'succeeded') {
-      navigation.replace('VirtualTryOnResult', {
-        jobId,
-        seedItems: retainedSeedItems,
-        alternativeSeedItems: retainedAlternativeSeedItems,
-      });
+    if (
+      event.status === 'succeeded'
+      && (
+        getGeneratedTryOnImageUrls(event).length > 0
+        || (job ? getGeneratedTryOnImageUrls(job).length > 0 : false)
+      )
+    ) {
+      openResult(jobId);
     }
   });
 
@@ -180,7 +190,8 @@ const VirtualTryOnProcessingScreen = () => {
   };
 
   const rawProgress = Math.min(100, Math.max(0, Math.round(job?.progress ?? 0)));
-  const isTerminalFailure = job?.status === 'failed' || job?.status === 'canceled';
+  const isResultMissing = job?.status === 'succeeded' && getGeneratedTryOnImageUrls(job).length === 0;
+  const isTerminalFailure = job?.status === 'failed' || job?.status === 'canceled' || isResultMissing;
   const isVideoStage = job?.processingStage === 'video_generation' || job?.processingStage === 'video_persisting';
   const steps = job?.outputMode === 'image_and_video' ? videoSteps : imageSteps;
   const progress = isTerminalFailure ? 0 : rawProgress;
@@ -192,6 +203,8 @@ const VirtualTryOnProcessingScreen = () => {
         return 'Tạo ảnh thất bại';
       case 'canceled':
         return 'Đã hủy';
+      case 'succeeded':
+        return isResultMissing ? 'Không tìm thấy ảnh kết quả' : 'Đã hoàn tất';
       case 'processing':
         return isVideoStage
           ? job.processingStage === 'video_persisting' ? 'Đang lưu video' : 'Đang sinh video'
@@ -236,8 +249,7 @@ const VirtualTryOnProcessingScreen = () => {
           <MaterialCommunityIcons name="close" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>{isVideoStage ? 'Đang sinh video phối đồ' : 'Đang tạo ảnh phối đồ'}</Text>
+          <Text style={styles.headerTitle}>{isVideoStage ? 'Đang tạo video' : 'Đang tạo ảnh'}</Text>
         </View>
         <View style={styles.headerSpacer} />
       </View>
@@ -265,21 +277,25 @@ const VirtualTryOnProcessingScreen = () => {
                 </View>
                 <View style={styles.previewCopy}>
                   <Text style={styles.kickerText}>
-                    {job?.status === 'failed' ? 'Thất bại' : job?.status === 'canceled' ? 'Đã hủy' : isVideoStage ? 'Ảnh đã sẵn sàng' : 'Đang phối đồ'}
+                    {job?.status === 'failed' || isResultMissing ? 'Thất bại' : job?.status === 'canceled' ? 'Đã hủy' : isVideoStage ? 'Ảnh đã sẵn sàng' : 'Đang phối đồ'}
                   </Text>
                   <Text style={styles.title}>
-                    {job?.status === 'failed'
-                      ? 'Chưa tạo được ảnh phối đồ'
-                      : job?.status === 'canceled'
-                        ? 'Đã hủy tạo ảnh'
-                        : isVideoStage ? 'Đang tạo chuyển động từ ảnh phối' : 'Đang tạo 4 ảnh gợi ý'}
+                    {isResultMissing
+                      ? 'Kết quả trả về thiếu ảnh phối đồ'
+                      : job?.status === 'failed'
+                        ? 'Chưa tạo được ảnh phối đồ'
+                        : job?.status === 'canceled'
+                          ? 'Đã hủy tạo ảnh'
+                          : isVideoStage ? 'Đang tạo chuyển động từ ảnh phối' : 'Đang tạo 4 ảnh gợi ý'}
                   </Text>
                   <Text style={styles.subtitle}>
-                    {isTerminalFailure
-                      ? 'Bạn có thể thử lại hoặc đổi ảnh bất cứ lúc nào.'
-                      : isVideoStage
-                        ? 'Video chỉ dùng ảnh phối đồ đã sinh làm khung hình đầu; ảnh gốc không được gửi sang bước này.'
-                        : 'Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.'}
+                    {isResultMissing
+                      ? 'Ứng dụng sẽ không dùng ảnh gốc thay cho kết quả. Bạn hãy tạo lại yêu cầu phối đồ.'
+                      : isTerminalFailure
+                        ? 'Bạn có thể thử lại hoặc đổi ảnh bất cứ lúc nào.'
+                        : isVideoStage
+                          ? 'Video chỉ dùng ảnh phối đồ đã sinh làm khung hình đầu; ảnh gốc không được gửi sang bước này.'
+                          : 'Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.'}
                   </Text>
                 </View>
               </View>
@@ -356,27 +372,31 @@ const VirtualTryOnProcessingScreen = () => {
               })}
             </View>
 
-            {job?.status === 'failed' ? (
+            {job?.status === 'failed' || isResultMissing ? (
               <View style={styles.errorCard}>
                 <Text style={styles.errorTitle}>
-                  {isProviderSafetyBlocked ? 'AI đã từ chối ảnh này' : 'Có lỗi xảy ra'}
+                  {isResultMissing ? 'Kết quả không đầy đủ' : isProviderSafetyBlocked ? 'AI đã từ chối ảnh này' : 'Có lỗi xảy ra'}
                 </Text>
                 <Text style={styles.errorText}>
-                  {job.errorMessage || (isProviderSafetyBlocked
-                    ? 'Bạn đổi ảnh người hoặc ảnh sản phẩm phù hợp hơn rồi tạo lại nhé.'
-                    : 'Bạn thử lại sau ít phút nhé.')}
+                  {isResultMissing
+                    ? 'Hệ thống báo hoàn tất nhưng không trả ảnh phối đồ hợp lệ.'
+                    : job.errorMessage || (isProviderSafetyBlocked
+                      ? 'Bạn đổi ảnh người hoặc ảnh sản phẩm phù hợp hơn rồi tạo lại nhé.'
+                      : 'Bạn thử lại sau ít phút nhé.')}
                 </Text>
                 <TouchableOpacity
                   style={styles.retryButton}
-                  onPress={isProviderSafetyBlocked ? returnToBuilder : retry}
+                  onPress={isProviderSafetyBlocked || isResultMissing ? returnToBuilder : retry}
                   activeOpacity={0.86}
                 >
                   <MaterialCommunityIcons
-                    name={isProviderSafetyBlocked ? 'image-refresh-outline' : 'reload'}
+                    name={isProviderSafetyBlocked || isResultMissing ? 'image-refresh-outline' : 'reload'}
                     size={20}
                     color={colors.white}
                   />
-                  <Text style={styles.retryText}>{isProviderSafetyBlocked ? 'Đổi ảnh' : 'Thử lại'}</Text>
+                  <Text style={styles.retryText}>
+                    {isProviderSafetyBlocked ? 'Đổi ảnh' : isResultMissing ? 'Tạo lại' : 'Thử lại'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -431,40 +451,33 @@ const styles = StyleSheet.create({
     backgroundColor: studioPalette.header,
   },
   header: {
-    minHeight: 82,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    minHeight: 60,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: studioPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: spacing.md,
-  },
-  headerKicker: {
-    color: studioPalette.headerSoft,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    paddingHorizontal: spacing.sm,
   },
   headerTitle: {
     color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   headerSpacer: {
     width: 40,

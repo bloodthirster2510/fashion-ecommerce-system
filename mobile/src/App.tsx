@@ -79,6 +79,15 @@ const App = () => {
       if (navigationRef.isReady()) navigationRef.navigate('SupportTicketDetail', { ticketId });
     }, (orderId) => {
       if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { orderId });
+    }, ({ jobId, destination }) => {
+      if (!navigationRef.isReady()) return;
+      if (destination === 'result' && jobId) {
+        navigationRef.navigate('VirtualTryOnResult', { jobId });
+      } else if (destination === 'processing' && jobId) {
+        navigationRef.navigate('VirtualTryOnProcessing', { jobId });
+      } else {
+        navigationRef.navigate('VirtualTryOnHome');
+      }
     }).then((cleanup) => { unsubscribe = cleanup; }).catch(() => undefined);
     return () => unsubscribe?.();
   }, []);

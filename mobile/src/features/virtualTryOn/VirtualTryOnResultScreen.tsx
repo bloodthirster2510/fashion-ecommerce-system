@@ -16,6 +16,7 @@ import { useAuth } from '../auth/AuthContext';
 import { cartApi, type CartResponse } from '../cart/cartApi';
 import { virtualTryOnApi } from './virtualTryOnApi';
 import type { TryOnSeedItem, TryOnSelectedItem, VirtualTryOnJob } from './virtualTryOn.types';
+import { getGeneratedTryOnImageUrls, getTryOnVideoPresentation } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
 import { tryOnRoleLabel } from './virtualTryOnSelection';
 
@@ -91,12 +92,28 @@ type GeneratedVideoCardProps = {
   isSharing: boolean;
   onSave: () => void;
   onShare: () => void;
+  onPlaybackError: () => void;
 };
 
-const GeneratedVideoCard = ({ url, isSaving, isSharing, onSave, onShare }: GeneratedVideoCardProps) => {
+const GeneratedVideoCard = ({
+  url,
+  isSaving,
+  isSharing,
+  onSave,
+  onShare,
+  onPlaybackError,
+}: GeneratedVideoCardProps) => {
   const player = useVideoPlayer(url, (nextPlayer) => {
     nextPlayer.loop = true;
   });
+
+  React.useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status }) => {
+      if (status === 'error') onPlaybackError();
+    });
+    if (player.status === 'error') onPlaybackError();
+    return () => subscription.remove();
+  }, [onPlaybackError, player]);
 
   return (
     <View style={styles.videoCard}>
@@ -157,6 +174,7 @@ const VirtualTryOnResultScreen = () => {
   const [isSavingVideo, setIsSavingVideo] = React.useState(false);
   const [isSharingVideo, setIsSharingVideo] = React.useState(false);
   const [isRetryingVideo, setIsRetryingVideo] = React.useState(false);
+  const [playbackFailedVideoUrl, setPlaybackFailedVideoUrl] = React.useState<string | null>(null);
   const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
   const [previewImages, setPreviewImages] = React.useState<PreviewImage[]>([]);
@@ -188,19 +206,28 @@ const VirtualTryOnResultScreen = () => {
     return () => { isCurrent = false; };
   }, [jobId, runWithAuth]);
 
-  const fallbackImageUrl = job?.generatedImageUrl || job?.sourceImageUrl || '';
   const resultImageUrls = React.useMemo(() => {
     if (!job) return [];
-    if (job.generatedImageUrls?.length) return job.generatedImageUrls;
-    return fallbackImageUrl ? [fallbackImageUrl] : [];
-  }, [fallbackImageUrl, job]);
-  const activeImageUrl = resultImageUrls[activeImageIndex] || resultImageUrls[0] || fallbackImageUrl;
+    return getGeneratedTryOnImageUrls(job);
+  }, [job]);
+  const activeImageUrl = resultImageUrls[activeImageIndex] || resultImageUrls[0] || '';
+  const videoPresentation = React.useMemo(
+    () => job ? getTryOnVideoPresentation(job) : { status: 'not_requested' as const, url: null },
+    [job],
+  );
+  const isVideoPlaybackFailed = Boolean(
+    videoPresentation.url && playbackFailedVideoUrl === videoPresentation.url,
+  );
+  const isVideoPolicyBlocked = job?.videoErrorCode === 'VIDEO_PROVIDER_SAFETY_BLOCKED';
+  const handleVideoPlaybackError = React.useCallback(() => {
+    if (videoPresentation.url) setPlaybackFailedVideoUrl(videoPresentation.url);
+  }, [videoPresentation.url]);
   const resultPreviewImages = React.useMemo<PreviewImage[]>(() => resultImageUrls.map((url, index) => ({
     uri: url,
     label: `Kết quả ${index + 1}`,
     recyclingKey: `${job?._id ?? 'result'}-preview-${index}`,
-    resizeMode: job?.generatedImageUrl ? 'contain' : 'cover',
-  })), [job?._id, job?.generatedImageUrl, resultImageUrls]);
+    resizeMode: 'contain',
+  })), [job?._id, resultImageUrls]);
 
   React.useEffect(() => {
     setActiveImageIndex(0);
@@ -353,12 +380,12 @@ const VirtualTryOnResultScreen = () => {
   };
 
   const downloadVideoToCache = async () => {
-    if (!job?.generatedVideoUrl) throw new Error('Không tìm thấy video kết quả.');
+    if (!job || !videoPresentation.url) throw new Error('Không tìm thấy video kết quả.');
     const baseDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
     if (!baseDirectory) throw new Error('Không tìm thấy thư mục tạm để lưu video.');
-    const extension = job.generatedVideoUrl.split('?')[0]?.toLowerCase().endsWith('.webm') ? 'webm' : 'mp4';
+    const extension = videoPresentation.url.split('?')[0]?.toLowerCase().endsWith('.webm') ? 'webm' : 'mp4';
     const fileUri = `${baseDirectory}fit-studio-${job._id}-${Date.now()}.${extension}`;
-    const downloaded = await FileSystem.downloadAsync(job.generatedVideoUrl, fileUri);
+    const downloaded = await FileSystem.downloadAsync(videoPresentation.url, fileUri);
     if (downloaded.status < 200 || downloaded.status >= 300) {
       throw new Error('Không tải được video kết quả.');
     }
@@ -366,7 +393,7 @@ const VirtualTryOnResultScreen = () => {
   };
 
   const saveVideo = async () => {
-    if (!job?.generatedVideoUrl || isSavingVideo || isSharingVideo) return;
+    if (!videoPresentation.url || isSavingVideo || isSharingVideo) return;
     setIsSavingVideo(true);
     try {
       const permission = await MediaLibrary.requestPermissionsAsync(true);
@@ -385,7 +412,7 @@ const VirtualTryOnResultScreen = () => {
   };
 
   const shareVideo = async () => {
-    if (!job?.generatedVideoUrl || isSavingVideo || isSharingVideo) return;
+    if (!videoPresentation.url || isSavingVideo || isSharingVideo) return;
     setIsSharingVideo(true);
     try {
       const file = await downloadVideoToCache();
@@ -395,7 +422,7 @@ const VirtualTryOnResultScreen = () => {
           mimeType: file.mimeType,
         });
       } else {
-        await Share.share({ title: 'Video phối đồ', message: job.generatedVideoUrl });
+        await Share.share({ title: 'Video phối đồ', message: videoPresentation.url });
       }
     } catch (error) {
       Alert.alert('Chia sẻ video', error instanceof Error ? error.message : 'Không thể chia sẻ video lúc này.');
@@ -554,8 +581,7 @@ const VirtualTryOnResultScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerKicker}>Fit Studio</Text>
-          <Text style={styles.headerTitle}>Kết quả phối đồ</Text>
+          <Text style={styles.headerTitle}>Kết quả</Text>
         </View>
         <TouchableOpacity
           style={styles.headerButton}
@@ -726,14 +752,14 @@ const VirtualTryOnResultScreen = () => {
                       uri={url}
                       style={styles.resultImage}
                       recyclingKey={`${job._id}-result-${index}`}
-                      resizeMode={job.generatedImageUrl ? 'contain' : 'cover'}
+                      resizeMode="contain"
                     />
                     <View style={styles.resultOverlay}>
                       <View style={styles.contextBadge}>
                         <MaterialCommunityIcons name="map-marker-radius-outline" size={17} color={studioPalette.ink} />
                         <Text style={styles.contextText}>{contextPresetLabel(job.contextPreset) || 'Phối đồ'}</Text>
                       </View>
-                      {job.generatedImageUrl ? (
+                      {resultImageUrls.length ? (
                         <View style={styles.mockBadge}>
                           <Text style={styles.mockText}>{index + 1}/{resultImageUrls.length}</Text>
                         </View>
@@ -828,37 +854,55 @@ const VirtualTryOnResultScreen = () => {
               </View>
             </View>
 
-            {job.generatedVideoUrl ? (
+            {videoPresentation.status === 'succeeded' && videoPresentation.url && !isVideoPlaybackFailed ? (
               <GeneratedVideoCard
-                url={job.generatedVideoUrl}
+                url={videoPresentation.url}
                 isSaving={isSavingVideo}
                 isSharing={isSharingVideo}
                 onSave={() => void saveVideo()}
                 onShare={() => void shareVideo()}
+                onPlaybackError={handleVideoPlaybackError}
               />
-            ) : job.outputMode === 'image_and_video' && ['failed', 'canceled'].includes(job.videoStatus) ? (
+            ) : isVideoPlaybackFailed || videoPresentation.status === 'failed' || videoPresentation.status === 'canceled' ? (
               <View style={styles.videoFailureCard}>
                 <View style={styles.videoFailureIcon}>
                   <MaterialCommunityIcons name="movie-remove-outline" size={28} color="#B42318" />
                 </View>
                 <View style={styles.videoFailureCopy}>
                   <Text style={styles.videoFailureTitle}>
-                    {job.videoStatus === 'canceled' ? 'Đã hủy sinh video' : 'Chưa tạo được video'}
+                    {isVideoPlaybackFailed
+                      ? 'Không phát được video'
+                      : isVideoPolicyBlocked
+                        ? 'AI đã từ chối tạo video'
+                        : videoPresentation.status === 'canceled' ? 'Đã hủy sinh video' : 'Chưa tạo được video'}
                   </Text>
                   <Text style={styles.videoFailureText}>
-                    {job.videoErrorMessage || '4 ảnh phối đồ vẫn được giữ nguyên. Bạn có thể thử lại riêng bước video.'}
+                    {isVideoPlaybackFailed
+                      ? 'Thiết bị chưa tải hoặc phát được video này. Bộ ảnh phối đồ vẫn hiển thị bình thường.'
+                      : job.videoErrorMessage || 'Bộ ảnh phối đồ vẫn được giữ nguyên. Bạn có thể thử lại riêng bước video.'}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.videoRetryButton, isRetryingVideo && styles.actionButtonDisabled]}
-                  onPress={() => void retryVideo()}
-                  disabled={isRetryingVideo}
-                  activeOpacity={0.86}
-                >
-                  {isRetryingVideo ? <ActivityIndicator color={colors.white} /> : (
-                    <><MaterialCommunityIcons name="reload" size={19} color={colors.white} /><Text style={styles.videoRetryText}>Thử lại video</Text></>
-                  )}
-                </TouchableOpacity>
+                {!isVideoPolicyBlocked ? (
+                  <TouchableOpacity
+                    style={[styles.videoRetryButton, isRetryingVideo && styles.actionButtonDisabled]}
+                    onPress={() => {
+                      if (isVideoPlaybackFailed) {
+                        setPlaybackFailedVideoUrl(null);
+                        return;
+                      }
+                      void retryVideo();
+                    }}
+                    disabled={isRetryingVideo}
+                    activeOpacity={0.86}
+                  >
+                    {isRetryingVideo ? <ActivityIndicator color={colors.white} /> : (
+                      <>
+                        <MaterialCommunityIcons name="reload" size={19} color={colors.white} />
+                        <Text style={styles.videoRetryText}>{isVideoPlaybackFailed ? 'Tải lại video' : 'Thử lại video'}</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : null}
 
@@ -1066,40 +1110,33 @@ const styles = StyleSheet.create({
     backgroundColor: studioPalette.header,
   },
   header: {
-    minHeight: 82,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    minHeight: 60,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: studioPalette.header,
     flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: spacing.md,
-  },
-  headerKicker: {
-    color: studioPalette.headerSoft,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    paddingHorizontal: spacing.sm,
   },
   headerTitle: {
     color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   loadingWrap: {
     flex: 1,

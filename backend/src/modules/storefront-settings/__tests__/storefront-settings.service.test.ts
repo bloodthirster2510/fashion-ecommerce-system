@@ -217,7 +217,7 @@ describe('storefrontSettingsService', () => {
         $set: expect.objectContaining({ updatedBy: expect.any(Types.ObjectId) }),
         $inc: { version: 1 },
       }),
-      { new: true, runValidators: true },
+      { returnDocument: 'after', runValidators: true },
     );
   });
 

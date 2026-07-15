@@ -8,8 +8,10 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 import { virtualTryOnApi } from './virtualTryOnApi';
 import type { VirtualTryOnJob } from './virtualTryOn.types';
+import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHistory'>;
 
@@ -36,14 +38,15 @@ const formatDate = (value: string) => {
 };
 
 const getJobPreviewUrl = (job: VirtualTryOnJob) =>
-  job.generatedImageUrls?.[0] || job.generatedImageUrl || job.sourceImageUrl;
+  getGeneratedTryOnImageUrls(job)[0] || job.sourceImageUrl;
 
 const getJobImageCount = (job: VirtualTryOnJob) =>
-  job.generatedImageUrls?.length || (job.generatedImageUrl ? 1 : 0);
+  getGeneratedTryOnImageUrls(job).length;
 
 const VirtualTryOnHistoryScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { runWithAuth } = useAuth();
+  const { refresh: refreshNotifications } = useCustomerNotifications();
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
 
@@ -69,7 +72,7 @@ const VirtualTryOnHistoryScreen = () => {
   useFocusEffect(React.useCallback(() => loadJobs(), [loadJobs]));
 
   const openJob = (job: VirtualTryOnJob) => {
-    if (job.status === 'succeeded') {
+    if (job.status === 'succeeded' && getGeneratedTryOnImageUrls(job).length > 0) {
       navigation.navigate('VirtualTryOnResult', { jobId: job._id });
       return;
     }
@@ -84,7 +87,10 @@ const VirtualTryOnHistoryScreen = () => {
         style: 'destructive',
         onPress: () => {
           runWithAuth((token) => virtualTryOnApi.deleteJob(token, job._id))
-            .then(() => setJobs((current) => current.filter((item) => item._id !== job._id)))
+            .then(() => {
+              setJobs((current) => current.filter((item) => item._id !== job._id));
+              void refreshNotifications();
+            })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : 'Không thể xóa kết quả.';
               Alert.alert('Phối đồ ảo', message);
@@ -161,27 +167,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   header: {
-    minHeight: 70,
+    minHeight: 60,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.brand,
     flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.14)',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     flex: 1,
     color: colors.white,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
     textAlign: 'center',
   },
   headerSpacer: {

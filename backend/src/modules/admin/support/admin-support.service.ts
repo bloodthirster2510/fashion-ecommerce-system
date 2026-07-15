@@ -207,7 +207,7 @@ export const addAdminMessage = async (
           status: nextStatus,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     if (updatedTicket) {
@@ -244,6 +244,7 @@ export const addAdminMessage = async (
         ticketId: effectiveTicket._id.toString(),
         ticketCode: effectiveTicket.ticketCode,
         subject: effectiveTicket.subject,
+        messageId: message._id.toString(),
       }).catch((error) => {
         console.error('Failed to send support reply push:', error instanceof Error ? error.message : String(error));
       });
@@ -375,7 +376,7 @@ export const markAdminRead = async (ticketId: string) => {
   const ticket = await SupportTicket.findOneAndUpdate(
     { _id: objectId(ticketId, 'ticketId'), status: { $ne: 'pending_verification' } },
     { staffLastReadAt: new Date() },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
   emitTicketRead(ticketId, 'admin');
@@ -487,7 +488,7 @@ export const updateCannedResponse = async (id: string, actor: SupportActor, inpu
   const updated = await SupportCannedResponse.findByIdAndUpdate(
     objectId(id, 'cannedResponseId'),
     { ...cleanCannedResponse(input, true), updatedBy: objectId(actor.userId, 'actorId') },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
   if (!updated) throw new SupportServiceError('Canned response not found', 404);
   return updated;
@@ -538,7 +539,7 @@ export const updateFaq = async (faqId: string, actor: SupportActor, input: Parti
   const updated = await FaqArticle.findByIdAndUpdate(
     objectId(faqId, 'faqId'),
     { ...cleanFaqPayload(input as FaqPayload, true), updatedBy: objectId(actor.userId, 'actorId') },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
   if (!updated) throw new SupportServiceError('FAQ not found', 404);
   return updated;

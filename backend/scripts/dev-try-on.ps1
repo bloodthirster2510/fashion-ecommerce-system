@@ -10,6 +10,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8Encoding
+$OutputEncoding = $utf8Encoding
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $pythonVenvRoot = if ($PythonVenvRoot.Trim()) {
@@ -133,6 +136,9 @@ function Start-DevJob {
     param($WorkingDirectory, $Executable, $Arguments, $Environment)
 
     $ErrorActionPreference = 'Stop'
+    $utf8Encoding = [System.Text.UTF8Encoding]::new($false)
+    [Console]::OutputEncoding = $utf8Encoding
+    $OutputEncoding = $utf8Encoding
     Set-Location $WorkingDirectory
     foreach ($key in $Environment.Keys) {
       [Environment]::SetEnvironmentVariable($key, [string]$Environment[$key], 'Process')
@@ -234,11 +240,6 @@ if (-not $NoBackend) {
     if (-not $npm) { $npm = 'npm' }
 
     $backendEnv = @{}
-    if (-not $NoImageValidation) {
-      $backendEnv['IMAGE_VALIDATION_PROVIDER'] = 'custom_model'
-      $backendEnv['IMAGE_VALIDATION_CUSTOM_MODEL_URL'] = 'http://127.0.0.1:7001/validate-image'
-      $backendEnv['IMAGE_VALIDATION_FAIL_OPEN'] = 'false'
-    }
     if (-not $NoGarmentProcessing) {
       $backendEnv['VIRTUAL_TRY_ON_GARMENT_PROCESSING_URL'] = 'http://127.0.0.1:7002/prepare-collage'
     }

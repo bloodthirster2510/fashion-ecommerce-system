@@ -8,7 +8,7 @@ import { colors, shadows, spacing } from '../../theme';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useCustomerNotifications } from '../../features/notifications/CustomerNotificationProvider';
 
-type MainTab = 'home' | 'catalog' | 'cart' | 'profile';
+type MainTab = 'home' | 'catalog' | 'notifications' | 'profile';
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 type Props = {
@@ -18,7 +18,7 @@ type Props = {
 const tabs: Array<{ key: MainTab; label: string; icon: IconName; activeIcon: IconName }> = [
   { key: 'home', label: 'Trang chủ', icon: 'home-outline', activeIcon: 'home' },
   { key: 'catalog', label: 'Khám phá', icon: 'view-grid-outline', activeIcon: 'view-grid' },
-  { key: 'cart', label: 'Giỏ hàng', icon: 'cart-outline', activeIcon: 'cart' },
+  { key: 'notifications', label: 'Thông báo', icon: 'bell-outline', activeIcon: 'bell' },
   { key: 'profile', label: 'Tài khoản', icon: 'account-outline', activeIcon: 'account' },
 ];
 
@@ -30,7 +30,7 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
   const openTab = (tab: MainTab) => {
     if (tab === 'home') navigation.navigate('Home');
     if (tab === 'catalog') navigation.navigate('ProductList', { title: 'Khám phá gu riêng' });
-    if (tab === 'cart') navigation.navigate('Cart');
+    if (tab === 'notifications') navigation.navigate(isAuthenticated ? 'Notifications' : 'Login');
     if (tab === 'profile') navigation.navigate(isAuthenticated ? 'Profile' : 'Login');
   };
 
@@ -39,7 +39,7 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
       <View style={styles.row}>
         {tabs.map((tab, index) => {
           const active = activeTab === tab.key;
-          const badgeCount = tab.key === 'cart' ? summary?.cartItems ?? 0 : 0;
+          const badgeCount = tab.key === 'notifications' ? summary?.unreadCount ?? summary?.total ?? 0 : 0;
 
           return (
             <React.Fragment key={tab.key}>

@@ -145,7 +145,11 @@ export const voteFaq = async (faqId: string, userId: string, input: VoteFaqInput
   }
 
   const counter = input.value === 'helpful' ? 'helpfulCount' : 'notHelpfulCount';
-  const updated = await FaqArticle.findByIdAndUpdate(faqObjectId, { $inc: { [counter]: 1 } }, { new: true }).lean();
+  const updated = await FaqArticle.findByIdAndUpdate(
+    faqObjectId,
+    { $inc: { [counter]: 1 } },
+    { returnDocument: 'after' },
+  ).lean();
   return updated;
 };
 
@@ -288,7 +292,7 @@ export const verifyGuestFeedback = async (token: string) => {
       'guestContact.verificationTokenHash': null,
       'guestContact.verificationExpiresAt': null,
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).select('+guestContact.verificationTokenHash').lean();
   if (!ticket) throw new SupportServiceError('Verification link is invalid or expired', 410);
   return { verified: true, ticketCode: ticket.ticketCode };
@@ -368,7 +372,7 @@ export const addCustomerMessage = async (ticketId: string, userId: string, input
       resolvedAt: null,
       reopenDeadline: null,
     },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!latestTicket) {
@@ -397,7 +401,7 @@ export const markCustomerRead = async (ticketId: string, userId: string) => {
   const ticket = await SupportTicket.findOneAndUpdate(
     { _id: assertObjectId(ticketId, 'ticketId'), userId: assertObjectId(userId, 'userId'), status: { $ne: 'spam' } },
     { customerLastReadAt: new Date() },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket not found', 404);
   emitTicketRead(ticketId, 'customer');
@@ -421,7 +425,7 @@ export const reopenCustomerTicket = async (ticketId: string, userId: string) => 
       resolvedAt: null,
       reopenDeadline: null,
     },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket cannot be reopened', 409);
   const customerTicket = toCustomerSupportTicket(ticket);
@@ -438,7 +442,7 @@ export const closeCustomerTicket = async (ticketId: string, userId: string) => {
       status: { $nin: ['closed', 'spam'] },
     },
     { status: 'closed', closedAt: new Date(), requiresReply: false },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
   if (!ticket) throw new SupportServiceError('Ticket cannot be closed', 409);
   const customerTicket = toCustomerSupportTicket(ticket);

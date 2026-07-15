@@ -110,6 +110,13 @@ jest.mock('../../notifications/push-notification.service', () => ({
   sendShippingUpdatePush: jest.fn().mockResolvedValue({ sent: 0 }),
 }));
 
+jest.mock('../../notifications/customer-notification.service', () => ({
+  recordLoyaltyEarnedNotification: jest.fn().mockResolvedValue(null),
+  recordOrderCreatedNotification: jest.fn().mockResolvedValue(null),
+  recordOrderPaymentNotification: jest.fn().mockResolvedValue(null),
+  recordOrderStatusNotification: jest.fn().mockResolvedValue(null),
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;

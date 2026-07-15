@@ -163,6 +163,12 @@ const copyTextToClipboard = async (value: string) => {
 const getJobAgeMinutes = (job: AdminVirtualTryOnJob) =>
   Math.max(0, Math.round((Date.now() - new Date(job.createdAt).getTime()) / 60000))
 
+const isPolicyClosedJob = (job: AdminVirtualTryOnJob) =>
+  job.errorCode === 'PROVIDER_SAFETY_BLOCKED'
+
+const isPolicyClosedVideo = (job: AdminVirtualTryOnJob) =>
+  job.videoErrorCode === 'VIDEO_PROVIDER_SAFETY_BLOCKED'
+
 const getAttentionReason = (job: AdminVirtualTryOnJob) => {
   if (job.status === 'failed') return job.errorCode || 'Lỗi nhà cung cấp'
   if (job.videoStatus === 'failed') return job.videoErrorCode || 'Lỗi sinh video'
@@ -732,7 +738,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <td>
                           <div className="admin-vto-actions">
                             <button type="button" onClick={() => setSelectedJob(job)}>Chi tiết</button>
-                            {canManage && ['failed', 'canceled'].includes(job.status) ? (
+                            {canManage && ['failed', 'canceled'].includes(job.status) && !isPolicyClosedJob(job) ? (
                               <button type="button" disabled={actionLoading} onClick={() => void handleRetry(job)}>Chạy lại</button>
                             ) : null}
                             {canManage && ['queued', 'processing'].includes(job.status) ? (
@@ -863,10 +869,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             </section>
             {canManage ? (
               <section className="admin-vto-drawer-actions" aria-label="Thao tác quản trị job">
-                {['failed', 'canceled'].includes(selectedJob.status) ? (
+                {['failed', 'canceled'].includes(selectedJob.status) && !isPolicyClosedJob(selectedJob) ? (
                   <button type="button" disabled={actionLoading} onClick={() => void handleRetry(selectedJob)}>Chạy lại job</button>
                 ) : null}
-                {['failed', 'canceled'].includes(selectedJob.videoStatus) && generatedImages.length ? (
+                {['failed', 'canceled'].includes(selectedJob.videoStatus) && generatedImages.length && !isPolicyClosedVideo(selectedJob) ? (
                   <button type="button" disabled={actionLoading || !settings?.videoEnabled} onClick={() => void handleRetryVideo(selectedJob)}>
                     Chạy lại riêng video
                   </button>

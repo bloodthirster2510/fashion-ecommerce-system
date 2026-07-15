@@ -304,7 +304,7 @@ const updateSettings = async (input: StorefrontSettingsInput, actorId: string) =
       },
       $inc: { version: 1 },
     },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   ).lean();
 
   if (!updated) {

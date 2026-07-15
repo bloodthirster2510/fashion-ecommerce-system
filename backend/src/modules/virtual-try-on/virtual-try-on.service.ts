@@ -25,6 +25,13 @@ import { deleteFromCloudinary, uploadToCloudinary } from '../../utils/cloudinary
 import { emitVirtualTryOnJobEvent } from '../realtime/virtual-try-on.gateway';
 import { interactionService } from '../interactions/interaction.service';
 import {
+  deleteVirtualTryOnJobNotifications,
+  recordVirtualTryOnAccessNotification,
+  recordVirtualTryOnOutcomeNotification,
+  type VirtualTryOnOutcomeNotificationInput,
+} from '../notifications/customer-notification.service';
+import { sendCustomerPush } from '../notifications/push-notification.service';
+import {
   buildVirtualTryOnPrompt,
   buildVirtualTryOnVideoPrompt,
   contextPresetPreviews,
@@ -92,6 +99,27 @@ const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>
   'BODY_NOT_VISIBLE',
   'PERSON_TOO_SMALL',
 ]);
+const terminalPolicyJobErrorCodes = new Set([
+  'PROVIDER_SAFETY_BLOCKED',
+]);
+const terminalPolicyVideoErrorCodes = new Set([
+  'VIDEO_PROVIDER_SAFETY_BLOCKED',
+]);
+
+const assertPolicyRetryAllowed = (errorCode?: string | null, scope: 'job' | 'video' = 'job') => {
+  const isPolicyViolation = scope === 'video'
+    ? terminalPolicyVideoErrorCodes.has(errorCode || '')
+    : terminalPolicyJobErrorCodes.has(errorCode || '');
+  if (!isPolicyViolation) return;
+
+  throw new VirtualTryOnServiceError(
+    scope === 'video'
+      ? 'Video đã bị đóng do vi phạm chính sách an toàn và không thể thử lại'
+      : 'Yêu cầu đã bị đóng do ảnh vi phạm chính sách an toàn và không thể thử lại',
+    403,
+    'POLICY_VIOLATION_JOB_CLOSED',
+  );
+};
 
 const allowedRoles = new Set<VirtualTryOnItemRole>([
   'top',
@@ -359,8 +387,52 @@ const serializeAsset = (asset: IVirtualTryOnAsset) => ({
 });
 
 const getGeneratedImageUrls = (job: Pick<IVirtualTryOnJob, 'generatedImageUrl' | 'generatedImageUrls'>) => {
-  if (job.generatedImageUrls?.length) return job.generatedImageUrls;
-  return job.generatedImageUrl ? [job.generatedImageUrl] : [];
+  const urls = [...(job.generatedImageUrls ?? []), job.generatedImageUrl]
+    .map((url) => url?.trim())
+    .filter((url): url is string => Boolean(url));
+
+  return [...new Set(urls)];
+};
+
+const notifyVirtualTryOnOutcomeBestEffort = async (input: VirtualTryOnOutcomeNotificationInput) => {
+  const notification = await recordVirtualTryOnOutcomeNotification(input);
+  if (!notification) return;
+
+  await sendCustomerPush({
+    userId: input.userId,
+    title: notification.title,
+    body: notification.body,
+    data: {
+      type: 'virtual_try_on',
+      jobId: input.jobId,
+      outcome: input.outcome,
+      destination: notification.action?.type === 'virtual_try_on_result' ? 'result' : 'processing',
+    },
+    disabled: process.env.VIRTUAL_TRY_ON_PUSH_NOTIFICATIONS === 'false',
+  }).catch((error) => {
+    console.warn('Failed to send virtual try-on push:', error);
+  });
+};
+
+const notifyVirtualTryOnAccessBestEffort = async (input: {
+  userId: string;
+  state: 'locked' | 'unlocked' | 'prompt_blocked';
+  eventKey: string;
+  blockedUntil?: Date | null;
+  sendPush?: boolean;
+}) => {
+  const notification = await recordVirtualTryOnAccessNotification(input);
+  if (!notification || !input.sendPush) return;
+
+  await sendCustomerPush({
+    userId: input.userId,
+    title: notification.title,
+    body: notification.body,
+    data: { type: 'virtual_try_on_access', destination: 'home', accessState: input.state },
+    disabled: process.env.VIRTUAL_TRY_ON_PUSH_NOTIFICATIONS === 'false',
+  }).catch((error) => {
+    console.warn('Failed to send virtual try-on access push:', error);
+  });
 };
 
 const getPositiveIntegerEnv = (name: string, fallback: number) => {
@@ -387,12 +459,33 @@ const getVideoCapabilities = () => {
   };
 };
 
-const getEffectiveVideoStatus = (job: IVirtualTryOnJob) => {
-  if (job.videoStatus) return job.videoStatus;
-  if (job.outputMode === 'image') return 'not_requested' as const;
-  if (job.generatedVideoUrl) return 'succeeded' as const;
-  if (job.status === 'failed' || job.status === 'canceled') return 'canceled' as const;
-  return 'queued' as const;
+const getEffectiveVideoResult = (job: IVirtualTryOnJob) => {
+  const storedUrl = job.generatedVideoUrl?.trim() || null;
+  let status = job.videoStatus || (job.outputMode === 'image' ? 'not_requested' : 'queued');
+
+  if (job.outputMode === 'image') {
+    status = 'not_requested';
+  } else if (status === 'succeeded') {
+    status = storedUrl ? 'succeeded' : 'failed';
+  } else if (status !== 'failed' && status !== 'canceled') {
+    if (job.status === 'succeeded') {
+      status = storedUrl ? 'succeeded' : 'failed';
+    } else if (job.status === 'failed' || job.status === 'canceled') {
+      status = 'canceled';
+    } else if (status === 'not_requested') {
+      status = 'queued';
+    }
+  }
+
+  const isFailed = status === 'failed';
+  return {
+    status,
+    url: status === 'succeeded' ? storedUrl : null,
+    errorCode: isFailed ? job.videoErrorCode?.trim() || 'VIDEO_OUTPUT_MISSING' : null,
+    errorMessage: isFailed
+      ? job.videoErrorMessage?.trim() || 'Không thể tạo video từ ảnh phối đồ đã sinh.'
+      : null,
+  };
 };
 
 const getEffectiveProcessingStage = (job: IVirtualTryOnJob) => {
@@ -406,6 +499,8 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     _id: job.sourceAssetId,
     userId: job.userId,
   });
+  const generatedImageUrls = getGeneratedImageUrls(job);
+  const videoResult = getEffectiveVideoResult(job);
   return {
     _id: job._id.toString(),
     status: job.status,
@@ -429,16 +524,16 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     contextPreset: job.contextPreset,
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
-    generatedImageUrl: job.generatedImageUrl,
-    generatedImageUrls: getGeneratedImageUrls(job),
-    generatedVideoUrl: job.generatedVideoUrl,
-    videoStatus: getEffectiveVideoStatus(job),
+    generatedImageUrl: generatedImageUrls[0] ?? null,
+    generatedImageUrls,
+    generatedVideoUrl: videoResult.url,
+    videoStatus: videoResult.status,
     videoProgress: job.videoProgress ?? 0,
     videoSourceImageUrl: job.videoSourceImageUrlSnapshot ?? null,
     videoProvider: job.videoProvider ?? null,
     videoProviderJobId: job.videoProviderJobId ?? null,
-    videoErrorCode: job.videoErrorCode ?? null,
-    videoErrorMessage: job.videoErrorMessage ?? null,
+    videoErrorCode: videoResult.errorCode,
+    videoErrorMessage: videoResult.errorMessage,
     videoStartedAt: job.videoStartedAt?.toISOString() ?? null,
     videoCompletedAt: job.videoCompletedAt?.toISOString() ?? null,
     provider: job.provider,
@@ -453,19 +548,21 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
 };
 
 const emitJob = (job: IVirtualTryOnJob, type: 'queued' | 'processing' | 'progress' | 'succeeded' | 'failed' | 'canceled') => {
+  const generatedImageUrls = getGeneratedImageUrls(job);
+  const videoResult = getEffectiveVideoResult(job);
   emitVirtualTryOnJobEvent(job.userId.toString(), {
     type,
     jobId: job._id.toString(),
     status: job.status,
     progress: job.progress,
     processingStage: getEffectiveProcessingStage(job),
-    generatedImageUrl: job.generatedImageUrl,
-    generatedImageUrls: getGeneratedImageUrls(job),
-    generatedVideoUrl: job.generatedVideoUrl,
-    videoStatus: getEffectiveVideoStatus(job),
+    generatedImageUrl: generatedImageUrls[0] ?? null,
+    generatedImageUrls,
+    generatedVideoUrl: videoResult.url,
+    videoStatus: videoResult.status,
     videoProgress: job.videoProgress ?? 0,
-    videoErrorCode: job.videoErrorCode,
-    videoErrorMessage: job.videoErrorMessage,
+    videoErrorCode: videoResult.errorCode,
+    videoErrorMessage: videoResult.errorMessage,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
   });
@@ -482,7 +579,7 @@ const updateJobStatus = async (
   const job = await VirtualTryOnJob.findOneAndUpdate(
     { _id: jobId, deletedAt: null, status: { $nin: ['canceled'] } },
     update,
-    { new: true },
+    { returnDocument: 'after' },
   );
   if (job) emitJob(job, eventType);
   return job;
@@ -611,7 +708,12 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
     generatedImageAssetIds.push(persistedImage.assetId);
   }
 
-  const generatedImageUrl = generatedImageUrls[0];
+  const normalizedImageUrls = [...new Set(
+    generatedImageUrls
+      .map((url) => url?.trim())
+      .filter((url): url is string => Boolean(url)),
+  )];
+  const generatedImageUrl = normalizedImageUrls[0];
   const generatedImageAssetId = generatedImageAssetIds[0] ?? null;
   if (!generatedImageUrl) {
     throw new VirtualTryOnProviderError('Provider did not return a generated image', 502, 'PROVIDER_OUTPUT_MISSING');
@@ -620,7 +722,7 @@ const generateVirtualTryOnResult = async (job: IVirtualTryOnJob): Promise<Virtua
   return {
     generatedImageUrl,
     generatedImageAssetId,
-    generatedImageUrls,
+    generatedImageUrls: normalizedImageUrls,
     generatedImageAssetIds,
     providerJobId: providerResult.providerJobId ?? null,
     providerMetadata: {
@@ -650,7 +752,7 @@ const updateActiveVideoJob = async (
       videoStatus: { $ne: 'canceled' },
     },
     update,
-    { new: true },
+    { returnDocument: 'after' },
   );
   if (job) emitJob(job, eventType);
   return job;
@@ -766,7 +868,7 @@ const runVideoStage = async (jobId: string) => {
     );
     if (!job) return;
 
-    let generatedVideoUrl = providerResult.videoUrl ?? null;
+    let generatedVideoUrl = providerResult.videoUrl?.trim() || null;
     let generatedVideoAssetId: Types.ObjectId | null = null;
     if (providerResult.video) {
       const persistedVideo = await persistGeneratedOutput(job, 'generated_video', providerResult.video);
@@ -781,7 +883,7 @@ const runVideoStage = async (jobId: string) => {
       );
     }
 
-    await updateActiveVideoJob(
+    const completedJob = await updateActiveVideoJob(
       jobId,
       {
         status: 'succeeded',
@@ -795,20 +897,35 @@ const runVideoStage = async (jobId: string) => {
           ...providerMetadata,
           ...(providerResult.metadata || {}),
         },
+        videoErrorCode: null,
+        videoErrorMessage: null,
         videoCompletedAt: new Date(),
         completedAt: new Date(),
       },
       'succeeded',
     );
+    if (completedJob) {
+      await notifyVirtualTryOnOutcomeBestEffort({
+        userId: completedJob.userId.toString(),
+        jobId: completedJob._id.toString(),
+        outcome: 'completed',
+        outputMode: completedJob.outputMode,
+        generatedImageCount: getGeneratedImageUrls(completedJob).length,
+        videoStatus: 'succeeded',
+        retryable: false,
+      });
+    }
   } catch (error) {
     const providerError = getVideoProviderError(error);
     console.error('Virtual try-on video stage failed:', providerError);
-    await updateActiveVideoJob(
+    const partialJob = await updateActiveVideoJob(
       jobId,
       {
         status: 'succeeded',
         progress: 100,
         processingStage: 'completed',
+        generatedVideoAssetId: null,
+        generatedVideoUrl: null,
         videoStatus: 'failed',
         videoProgress: 100,
         videoErrorCode: providerError.errorCode,
@@ -818,6 +935,18 @@ const runVideoStage = async (jobId: string) => {
       },
       'succeeded',
     );
+    if (partialJob) {
+      await notifyVirtualTryOnOutcomeBestEffort({
+        userId: partialJob.userId.toString(),
+        jobId: partialJob._id.toString(),
+        outcome: 'partial_video_failed',
+        outputMode: partialJob.outputMode,
+        generatedImageCount: getGeneratedImageUrls(partialJob).length,
+        videoStatus: 'failed',
+        errorCode: providerError.errorCode,
+        retryable: !terminalPolicyVideoErrorCodes.has(providerError.errorCode),
+      });
+    }
   }
 };
 
@@ -872,7 +1001,7 @@ const runProviderJob = async (jobId: string) => {
     if (!imageReadyJob) return;
 
     if (imageReadyJob.outputMode === 'image') {
-      await updateJobStatus(
+      const completedJob = await updateJobStatus(
         jobId,
         {
           status: 'succeeded',
@@ -882,6 +1011,17 @@ const runProviderJob = async (jobId: string) => {
         },
         'succeeded',
       );
+      if (completedJob) {
+        await notifyVirtualTryOnOutcomeBestEffort({
+          userId: completedJob.userId.toString(),
+          jobId: completedJob._id.toString(),
+          outcome: 'completed',
+          outputMode: completedJob.outputMode,
+          generatedImageCount: getGeneratedImageUrls(completedJob).length,
+          videoStatus: 'not_requested',
+          retryable: false,
+        });
+      }
       return;
     }
 
@@ -893,7 +1033,7 @@ const runProviderJob = async (jobId: string) => {
       : error instanceof VirtualTryOnProviderError
         ? new VirtualTryOnServiceError(error.message, error.statusCode, error.errorCode)
         : null;
-    await updateJobStatus(
+    const failedJob = await updateJobStatus(
       jobId,
       {
         status: 'failed',
@@ -907,6 +1047,20 @@ const runProviderJob = async (jobId: string) => {
       },
       'failed',
     );
+    if (failedJob) {
+      const errorCode = serviceError?.errorCode ?? 'UNKNOWN';
+      const isPolicyBlocked = terminalPolicyJobErrorCodes.has(errorCode);
+      await notifyVirtualTryOnOutcomeBestEffort({
+        userId: failedJob.userId.toString(),
+        jobId: failedJob._id.toString(),
+        outcome: isPolicyBlocked ? 'policy_blocked' : 'failed',
+        outputMode: failedJob.outputMode,
+        generatedImageCount: getGeneratedImageUrls(failedJob).length,
+        videoStatus: failedJob.videoStatus,
+        errorCode,
+        retryable: !isPolicyBlocked,
+      });
+    }
   }
 };
 
@@ -1559,6 +1713,13 @@ const validatePromptForCreateJob = async (userObjectId: Types.ObjectId, prompt?:
 
   const policyData = getPromptPolicyData({ violationCount, limit, blockedUntil });
   if (shouldBlock) {
+    await notifyVirtualTryOnAccessBestEffort({
+      userId: userObjectId.toString(),
+      state: 'prompt_blocked',
+      eventKey: `${userObjectId.toString()}:prompt:${start.toISOString()}`,
+      blockedUntil,
+      sendPush: false,
+    });
     throw new VirtualTryOnServiceError(
       `Bạn đã nhập mô tả vi phạm ${violationCount} lần hôm nay. Tính năng phối đồ ảo bị tạm khóa đến ${formatPromptBlockUntil(blockedUntil!)}.`,
       429,
@@ -1630,7 +1791,6 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
       source,
     });
     const validationWarning = getImageValidationWarning(validationResult);
-
     const asset = await VirtualTryOnAsset.create({
       userId: userObjectId,
       type: getAssetType(source),
@@ -1936,6 +2096,7 @@ const retryJob = async (userId: string, jobId: string) => {
   if (!job) {
     throw new VirtualTryOnServiceError('Chỉ có thể thử lại yêu cầu đã lỗi hoặc đã hủy', 400);
   }
+  assertPolicyRetryAllowed(job.errorCode);
 
   if (job.outputMode === 'image_and_video' && !getVideoCapabilities().available) {
     throw new VirtualTryOnServiceError(
@@ -1978,15 +2139,6 @@ const retryJob = async (userId: string, jobId: string) => {
 };
 
 const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
-  const capabilities = getVideoCapabilities();
-  if (!capabilities.available) {
-    throw new VirtualTryOnServiceError(
-      'Tính năng sinh video chưa sẵn sàng',
-      503,
-      capabilities.reasonCode || 'VIDEO_PROVIDER_CONFIG_MISSING',
-    );
-  }
-
   const job = await VirtualTryOnJob.findOne({
     ...filter,
     deletedAt: null,
@@ -1998,6 +2150,16 @@ const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
       'Chỉ có thể thử lại video đã lỗi hoặc đã hủy sau khi ảnh phối đồ hoàn tất',
       400,
       'VIDEO_RETRY_NOT_ALLOWED',
+    );
+  }
+  assertPolicyRetryAllowed(job.videoErrorCode, 'video');
+
+  const capabilities = getVideoCapabilities();
+  if (!capabilities.available) {
+    throw new VirtualTryOnServiceError(
+      'Tính năng sinh video chưa sẵn sàng',
+      503,
+      capabilities.reasonCode || 'VIDEO_PROVIDER_CONFIG_MISSING',
     );
   }
 
@@ -2076,7 +2238,7 @@ const cancelJob = async (userId: string, jobId: string) => {
         videoCompletedAt: new Date(),
         completedAt: new Date(),
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (videoCanceledJob) {
       emitJob(videoCanceledJob, 'canceled');
@@ -2099,7 +2261,7 @@ const cancelJob = async (userId: string, jobId: string) => {
       videoProgress: activeJob?.outputMode === 'image_and_video' ? 100 : 0,
       completedAt: new Date(),
     },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!job) {
@@ -2118,12 +2280,14 @@ const deleteJob = async (userId: string, jobId: string) => {
       deletedAt: null,
     },
     { deletedAt: new Date() },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!job) {
     throw new VirtualTryOnServiceError('Yêu cầu phối đồ không tồn tại', 404);
   }
+
+  await deleteVirtualTryOnJobNotifications(userId, jobId);
 
   return serializeJob(job);
 };
@@ -2141,6 +2305,8 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
   const user = await User.findById(job.userId)
     .select('_id name email')
     .lean<{ _id: Types.ObjectId; name?: string; email?: string } | null>();
+  const generatedImageUrls = getGeneratedImageUrls(job);
+  const videoResult = getEffectiveVideoResult(job);
 
   return {
     _id: job._id.toString(),
@@ -2170,16 +2336,16 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
       imageSnapshot: item.imageSnapshot,
       finalPriceSnapshot: item.finalPriceSnapshot,
     })),
-    generatedImageUrl: job.generatedImageUrl,
-    generatedImageUrls: getGeneratedImageUrls(job),
-    generatedVideoUrl: job.generatedVideoUrl,
-    videoStatus: getEffectiveVideoStatus(job),
+    generatedImageUrl: generatedImageUrls[0] ?? null,
+    generatedImageUrls,
+    generatedVideoUrl: videoResult.url,
+    videoStatus: videoResult.status,
     videoProgress: job.videoProgress ?? 0,
     videoSourceImageUrl: job.videoSourceImageUrlSnapshot ?? null,
     videoProvider: job.videoProvider ?? null,
     videoProviderJobId: job.videoProviderJobId ?? null,
-    videoErrorCode: job.videoErrorCode ?? null,
-    videoErrorMessage: job.videoErrorMessage ?? null,
+    videoErrorCode: videoResult.errorCode,
+    videoErrorMessage: videoResult.errorMessage,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
     totalFinalPrice: job.selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0),
@@ -2384,6 +2550,7 @@ const retryAdminJob = async (jobId: string) => {
   if (!job) {
     throw new VirtualTryOnServiceError('Chỉ có thể thử lại job đã lỗi hoặc đã hủy', 400);
   }
+  assertPolicyRetryAllowed(job.errorCode);
 
   if (job.outputMode === 'image_and_video' && !getVideoCapabilities().available) {
     throw new VirtualTryOnServiceError(
@@ -2455,10 +2622,20 @@ const cancelAdminJob = async (jobId: string) => {
         videoCompletedAt: new Date(),
         completedAt: new Date(),
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (videoCanceledJob) {
       emitJob(videoCanceledJob, 'canceled');
+      await notifyVirtualTryOnOutcomeBestEffort({
+        userId: videoCanceledJob.userId.toString(),
+        jobId: videoCanceledJob._id.toString(),
+        outcome: 'admin_canceled',
+        outputMode: videoCanceledJob.outputMode,
+        generatedImageCount: getGeneratedImageUrls(videoCanceledJob).length,
+        videoStatus: 'canceled',
+        errorCode: 'ADMIN_CANCELED',
+        retryable: true,
+      });
       return serializeAdminJob(videoCanceledJob);
     }
   }
@@ -2477,7 +2654,7 @@ const cancelAdminJob = async (jobId: string) => {
       videoProgress: activeJob?.outputMode === 'image_and_video' ? 100 : 0,
       completedAt: new Date(),
     },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!job) {
@@ -2485,6 +2662,16 @@ const cancelAdminJob = async (jobId: string) => {
   }
 
   emitJob(job, 'canceled');
+  await notifyVirtualTryOnOutcomeBestEffort({
+    userId: job.userId.toString(),
+    jobId: job._id.toString(),
+    outcome: 'admin_canceled',
+    outputMode: job.outputMode,
+    generatedImageCount: getGeneratedImageUrls(job).length,
+    videoStatus: job.videoStatus,
+    errorCode: 'ADMIN_CANCELED',
+    retryable: true,
+  });
   return serializeAdminJob(job);
 };
 
@@ -2495,7 +2682,7 @@ const hideAdminJob = async (jobId: string) => {
       deletedAt: null,
     },
     { deletedAt: new Date() },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!job) {
@@ -2613,7 +2800,7 @@ const deletePromptRule = async (actorUserId: string | undefined, ruleId: string)
   const rule = await VirtualTryOnPromptRule.findOneAndUpdate(
     { _id: toObjectId(ruleId, 'rule id'), deletedAt: null },
     { deletedAt: new Date(), updatedBy: getActorObjectId(actorUserId) },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!rule) {
@@ -2688,8 +2875,15 @@ const lockAccount = async (actorUserId: string | undefined, input: LockAccountIn
       unlockedAt: null,
       lockedAt: new Date(),
     },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
   );
+
+  await notifyVirtualTryOnAccessBestEffort({
+    userId: userId.toString(),
+    state: 'locked',
+    eventKey: `${lock._id.toString()}:locked:${lock.lockedAt?.getTime() ?? Date.now()}`,
+    sendPush: true,
+  });
 
   return serializeAccountLock(lock);
 };
@@ -2704,12 +2898,19 @@ const unlockAccount = async (actorUserId: string | undefined, userId: string) =>
       unlockedBy: getActorObjectId(actorUserId),
       unlockedAt: new Date(),
     },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!lock) {
     throw new VirtualTryOnServiceError('User chưa bị khóa tính năng phối đồ ảo', 404);
   }
+
+  await notifyVirtualTryOnAccessBestEffort({
+    userId: userObjectId.toString(),
+    state: 'unlocked',
+    eventKey: `${lock._id.toString()}:unlocked:${lock.unlockedAt?.getTime() ?? Date.now()}`,
+    sendPush: true,
+  });
 
   return serializeAccountLock(lock);
 };

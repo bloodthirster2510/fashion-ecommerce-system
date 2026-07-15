@@ -15,7 +15,6 @@ import { recommendationApi, type RecommendationItem } from '../recommendation/re
 import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import CategoryDrawer from './components/CategoryDrawer';
-import CategoryRail, { CategoryRailItem } from './components/CategoryRail';
 import FeatureCard from './components/FeatureCard';
 import ProductSection from './components/ProductSection';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
@@ -39,17 +38,6 @@ const HomeScreen = () => {
   const [isProductLoading, setIsProductLoading] = React.useState(true);
   const [bestSellerError, setBestSellerError] = React.useState<string | null>(null);
   const [recommendationError, setRecommendationError] = React.useState<string | null>(null);
-
-  const availableCategoryGenders = React.useMemo(
-    () => new Set(categories.map((category) => category.gender)),
-    [categories],
-  );
-
-  const shouldShowGenderShortcut = React.useCallback(
-    (gender: CatalogGender) =>
-      categories.length ? availableCategoryGenders.has(gender) : gender !== 'unisex',
-    [availableCategoryGenders, categories.length],
-  );
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
     if (isAuthenticated) {
@@ -196,77 +184,6 @@ const HomeScreen = () => {
     });
   };
 
-  const quickLinks = React.useMemo<CategoryRailItem[]>(
-    () => [
-      {
-        id: 'all',
-        label: 'Tất cả',
-        icon: 'view-grid-outline',
-        isPrimary: true,
-        onPress: () => navigateToProductList({ title: 'Tất cả sản phẩm' }),
-      },
-      {
-        id: 'male',
-        label: 'Nam',
-        icon: 'gender-male',
-        onPress: () => handleGenderSelect('male'),
-      },
-      {
-        id: 'female',
-        label: 'Nữ',
-        icon: 'gender-female',
-        onPress: () => handleGenderSelect('female'),
-      },
-      ...(shouldShowGenderShortcut('unisex')
-        ? [
-            {
-              id: 'unisex',
-              label: 'Unisex',
-              icon: 'gender-male-female' as const,
-              onPress: () => handleGenderSelect('unisex'),
-            },
-          ]
-        : []),
-      {
-        id: 'new',
-        label: 'Hàng mới',
-        icon: 'new-box',
-        onPress: () => navigateToProductList({ title: 'Hàng mới', isNew: true, sort: 'newest' }),
-      },
-      {
-        id: 'sale',
-        label: 'Đang sale',
-        icon: 'sale',
-        onPress: () => navigateToProductList({ title: 'Đang sale', isSale: true, sort: 'newest' }),
-      },
-      {
-        id: 'best-seller',
-        label: 'Bán chạy',
-        icon: 'fire',
-        onPress: () => navigateToProductList({ title: 'Bán chạy', sort: 'best_seller' }),
-      },
-      {
-        id: 'polo',
-        label: 'Áo polo',
-        icon: 'tshirt-crew-outline',
-        onPress: () => navigateToProductList({ title: 'Áo polo', keyword: 'Áo polo' }),
-      },
-      {
-        id: 'dress-pants',
-        label: 'Quần âu',
-        icon: 'briefcase-outline',
-        onPress: () => navigateToProductList({ title: 'Quần âu', keyword: 'Quần âu' }),
-      },
-      {
-        id: 'sport',
-        label: 'Thể thao',
-        icon: 'run',
-        onPress: () => navigateToProductList({ title: 'Đồ thể thao', keyword: 'thể thao' }),
-      },
-    ],
-    [navigation, shouldShowGenderShortcut],
-  );
-
   const handleSearchSubmit = (keyword: string) => {
     recordInteraction({
       actionType: 'search',
@@ -316,16 +233,13 @@ const HomeScreen = () => {
         menuAccessibilityLabel="Mở bộ lọc sản phẩm"
         onProfilePress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
+        onCartPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
         onSearchFocus={() => navigation.navigate('Search')}
         isAuthenticated={isAuthenticated}
         userName={session?.user.name}
         avatarImage={session?.user.avatarImage}
-        profileBadgeCount={notificationSummary?.total ?? 0}
-      />
-      <CategoryRail
-        visible
-        items={quickLinks}
+        cartBadgeCount={notificationSummary?.cartItems ?? 0}
       />
       <ScrollView
         style={styles.content}
