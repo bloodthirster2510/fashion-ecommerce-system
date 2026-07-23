@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
 import { Alert, Button, Empty, Image, Input, Modal, Skeleton, message } from 'antd'
 import {
   CheckOutlined,
@@ -15,6 +16,7 @@ import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
 import { catalogService } from '../../catalog/catalog.service'
 import { orderService } from '../order.service'
+import { useOrderRealtime } from '../orderRealtime'
 import type { CustomerOrder, OrderItem, OrderStatus, PaymentStatusResult } from '../order.types'
 import '../order.css'
 
@@ -39,34 +41,123 @@ const formatDate = (value?: string | null, includeTime = false) => {
 const isObjectIdText = (value?: string) => Boolean(value && /^[a-f\d]{24}$/i.test(value))
 
 export function OrderDetailPage({ orderId }: { orderId: string }) {
-  const [order, setOrder] = useState<CustomerOrder | null>(null)
-  const [payment, setPayment] = useState<PaymentStatusResult | null>(null)
+  return (
+    <QueryClientProvider client={customerOrderDetailMutationClient}>
+      <OrderDetailContent orderId={orderId} />
+    </QueryClientProvider>
+  )
+}
+
+const customerOrderDetailMutationClient = new QueryClient()
+type CustomerOrderLoadMode = 'loading' | 'refresh' | 'silent'
+
+// Lấy câu báo lỗi dễ hiểu để hiển thị trên trang chi tiết đơn.
+const getErrorMessage = (error: unknown, fallback: string) => (
+  error instanceof Error ? error.message : fallback
+)
+
+type DetailMutationInput = {
+  orderId: string
+  mode?: CustomerOrderLoadMode
+}
+
+// Quản lý việc tải chi tiết đơn và tình trạng thanh toán.
+function useCustomerOrderDetailMutation() {
+  const [orderDetail, setOrderDetail] = useState<CustomerOrder | null>(null)
+  const [detailPayment, setDetailPayment] = useState<PaymentStatusResult | null>(null)
+  const [detailError, setDetailError] = useState('')
+  const [mode, setMode] = useState<CustomerOrderLoadMode>('loading')
+  const [hasLoaded, setHasLoaded] = useState(false)
+
+  const { isPending, mutateAsync } = useMutation({
+    mutationFn: async ({ orderId, mode: nextMode = 'loading' }: DetailMutationInput) => {
+      const [order, payment] = await Promise.all([
+        orderService.getById(orderId),
+        orderService.getPaymentStatus(orderId),
+      ])
+
+      return { order, payment, mode: nextMode }
+    },
+    onMutate: ({ mode: nextMode = 'loading' }) => {
+      setMode(nextMode)
+      if (nextMode !== 'silent') setDetailError('')
+    },
+    onSuccess: ({ order, payment }) => {
+      setOrderDetail(order)
+      setDetailPayment(payment)
+      setDetailError('')
+    },
+    onError: (error, { mode: nextMode = 'loading' }) => {
+      if (nextMode !== 'silent') {
+        setDetailError(getErrorMessage(error, 'Không thể tải thông tin đơn hàng.'))
+      }
+    },
+    onSettled: () => {
+      setHasLoaded(true)
+    },
+  })
+
+  const loadOrderDetailAsync = useCallback(async (
+    orderId: string,
+    nextMode: CustomerOrderLoadMode = 'loading',
+  ) => {
+    const { order, payment } = await mutateAsync({ orderId, mode: nextMode })
+    return { order, payment }
+  }, [mutateAsync])
+
+  return {
+    orderDetail,
+    setOrderDetail,
+    detailPayment,
+    detailError,
+    detailLoading: !hasLoaded || (isPending && mode === 'loading'),
+    loadOrderDetailAsync,
+  }
+}
+
+// Hiển thị toàn bộ thông tin của một đơn hàng cụ thể.
+function OrderDetailContent({ orderId }: { orderId: string }) {
+  const {
+    orderDetail: order,
+    setOrderDetail: setOrder,
+    detailPayment: payment,
+    detailError: error,
+    detailLoading: loading,
+    loadOrderDetailAsync,
+  } = useCustomerOrderDetailMutation()
   const [fitTypeLabelByItemId, setFitTypeLabelByItemId] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
   const [paying, setPaying] = useState(false)
   const [orderAction, setOrderAction] = useState<'cancel' | 'return' | null>(null)
   const [actionReason, setActionReason] = useState('')
   const [actionSubmitting, setActionSubmitting] = useState(false)
-  const [error, setError] = useState('')
 
-  const loadOrder = useCallback(async () => {
-    setLoading(true)
-    setError('')
+  // Tải lại đơn hàng khi mở trang hoặc khi có cập nhật trạng thái.
+  const loadOrder = useCallback(async (mode: CustomerOrderLoadMode = 'loading') => {
     try {
-      const [orderData, paymentData] = await Promise.all([
-        orderService.getById(orderId),
-        orderService.getPaymentStatus(orderId),
-      ])
-      setOrder(orderData)
-      setPayment(paymentData)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải thông tin đơn hàng.')
-    } finally {
-      setLoading(false)
+      await loadOrderDetailAsync(orderId, mode)
+    } catch {
+      // Lỗi đã được lưu để hiển thị ngay trên trang.
     }
-  }, [orderId])
+  }, [loadOrderDetailAsync, orderId])
 
   useEffect(() => { void loadOrder() }, [loadOrder])
+
+  const orderRealtime = useOrderRealtime((event) => {
+    if (event.orderId === orderId) void loadOrder('silent')
+  })
+
+  useEffect(() => {
+    orderRealtime.subscribeOrder(orderId)
+    return () => orderRealtime.unsubscribeOrder(orderId)
+  }, [orderId, orderRealtime])
+
+  useEffect(() => {
+    const handle = window.setInterval(() => {
+      void loadOrder('silent')
+    }, orderRealtime.connected ? 30_000 : 12_000)
+
+    return () => window.clearInterval(handle)
+  }, [loadOrder, orderRealtime.connected])
 
   useEffect(() => {
     const itemsNeedingLabels = order?.order_list.filter((item) => isObjectIdText(item.fitType)) ?? []

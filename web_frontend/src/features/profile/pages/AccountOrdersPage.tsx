@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
 import { Alert, Button, Empty, Modal, Segmented, Skeleton, Spin, Tag, message } from 'antd'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { requestCustomer } from '../../../services/customerHttp'
@@ -167,34 +168,167 @@ const writeClipboardText = async (value: string) => {
 }
 
 export function AccountOrdersPage() {
-  const user = useAppSelector((state) => state.auth.currentUser)
+  return (
+    <QueryClientProvider client={customerOrdersMutationClient}>
+      <AccountOrdersContent />
+    </QueryClientProvider>
+  )
+}
+
+const customerOrdersMutationClient = new QueryClient()
+type CustomerOrderLoadMode = 'loading' | 'refresh' | 'silent'
+
+// Lấy câu báo lỗi dễ hiểu để hiển thị cho khách hàng.
+const getErrorMessage = (error: unknown, fallback: string) => (
+  error instanceof Error ? error.message : fallback
+)
+
+// Quản lý việc tải danh sách đơn hàng của khách.
+function useCustomerOrderListMutation() {
   const [orders, setOrders] = useState<CustomerOrder[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+  const [mode, setMode] = useState<CustomerOrderLoadMode>('loading')
+  const [hasLoaded, setHasLoaded] = useState(false)
+
+  const { isPending, mutateAsync } = useMutation({
+    mutationFn: async (nextMode: CustomerOrderLoadMode = 'loading') => {
+      const result = await requestCustomer<CustomerOrderListResponse>('/orders/me?page=1&limit=100')
+      return { result, mode: nextMode }
+    },
+    onMutate: (nextMode = 'loading') => {
+      setMode(nextMode)
+    },
+    onSuccess: ({ result }) => {
+      setOrders(result.items)
+    },
+    onSettled: () => {
+      setHasLoaded(true)
+    },
+  })
+
+  const loadOrdersAsync = useCallback(async (nextMode: CustomerOrderLoadMode = 'loading') => {
+    const { result } = await mutateAsync(nextMode)
+    return result
+  }, [mutateAsync])
+
+  return {
+    orders,
+    isLoading: !hasLoaded || (isPending && mode === 'loading'),
+    isRefreshing: isPending && mode === 'refresh',
+    loadOrdersAsync,
+  }
+}
+
+type DetailMutationInput = {
+  orderId: string
+  mode?: CustomerOrderLoadMode
+}
+
+// Quản lý việc tải chi tiết đơn và tình trạng thanh toán.
+function useCustomerOrderDetailMutation() {
+  const [orderDetail, setOrderDetail] = useState<CustomerOrder | null>(null)
+  const [detailPayment, setDetailPayment] = useState<PaymentStatusResult | null>(null)
+  const [detailError, setDetailError] = useState('')
+  const [mode, setMode] = useState<CustomerOrderLoadMode>('loading')
+  const [hasLoaded, setHasLoaded] = useState(false)
+
+  const { isPending, mutate, mutateAsync } = useMutation({
+    mutationFn: async ({ orderId, mode: nextMode = 'loading' }: DetailMutationInput) => {
+      const [order, payment] = await Promise.all([
+        orderService.getById(orderId),
+        orderService.getPaymentStatus(orderId),
+      ])
+
+      return { order, payment, mode: nextMode }
+    },
+    onMutate: ({ mode: nextMode = 'loading' }) => {
+      setMode(nextMode)
+      if (nextMode !== 'silent') setDetailError('')
+    },
+    onSuccess: ({ order, payment }) => {
+      setOrderDetail(order)
+      setDetailPayment(payment)
+      setDetailError('')
+    },
+    onError: (error, { mode: nextMode = 'loading' }) => {
+      if (nextMode !== 'silent') {
+        setDetailError(getErrorMessage(error, 'Không thể tải chi tiết đơn hàng.'))
+        setOrderDetail(null)
+        setDetailPayment(null)
+      }
+    },
+    onSettled: () => {
+      setHasLoaded(true)
+    },
+  })
+
+  const loadOrderDetail = useCallback((orderId: string, nextMode: CustomerOrderLoadMode = 'loading') => {
+    mutate({ orderId, mode: nextMode })
+  }, [mutate])
+
+  const loadOrderDetailAsync = useCallback(async (
+    orderId: string,
+    nextMode: CustomerOrderLoadMode = 'loading',
+  ) => {
+    const { order, payment } = await mutateAsync({ orderId, mode: nextMode })
+    return { order, payment }
+  }, [mutateAsync])
+
+  const clearOrderDetail = useCallback(() => {
+    setOrderDetail(null)
+    setDetailPayment(null)
+    setDetailError('')
+    setHasLoaded(false)
+  }, [])
+
+  return {
+    orderDetail,
+    setOrderDetail,
+    detailPayment,
+    setDetailPayment,
+    detailLoading: !hasLoaded || (isPending && mode === 'loading'),
+    detailError,
+    clearOrderDetail,
+    loadOrderDetail,
+    loadOrderDetailAsync,
+  }
+}
+
+// Hiển thị trang quản lý đơn hàng trong tài khoản khách.
+function AccountOrdersContent() {
+  const user = useAppSelector((state) => state.auth.currentUser)
   const [filter, setFilter] = useState<'all' | 'needs-payment' | 'active' | 'shipping' | 'completed'>('all')
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
-  const [orderDetail, setOrderDetail] = useState<CustomerOrder | null>(null)
-  const [detailPayment, setDetailPayment] = useState<PaymentStatusResult | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [detailError, setDetailError] = useState('')
+  const {
+    orders,
+    isLoading: loading,
+    isRefreshing: refreshing,
+    loadOrdersAsync,
+  } = useCustomerOrderListMutation()
+  const {
+    orderDetail,
+    setOrderDetail,
+    detailPayment,
+    setDetailPayment,
+    detailLoading,
+    detailError,
+    clearOrderDetail,
+    loadOrderDetail,
+    loadOrderDetailAsync,
+  } = useCustomerOrderDetailMutation()
 
-  const load = useCallback(async (quiet = false) => {
-    if (!quiet) setRefreshing(true)
-
+  // Tải lại danh sách đơn theo kiểu phù hợp: lần đầu, bấm tải lại, hoặc cập nhật nền.
+  const load = useCallback(async (mode: CustomerOrderLoadMode = 'refresh') => {
     try {
-      const result = await requestCustomer<CustomerOrderListResponse>('/orders/me?page=1&limit=100')
-      setOrders(result.items)
+      await loadOrdersAsync(mode)
     } catch (error) {
-      if (!quiet) {
+      if (mode !== 'silent') {
         message.error(error instanceof Error ? error.message : 'Không thể tải đơn hàng')
       }
-    } finally {
-      setLoading(false)
-      if (!quiet) setRefreshing(false)
     }
-  }, [])
+  }, [loadOrdersAsync])
 
+  // Sao chép mã đơn, mã hóa đơn hoặc mã vận đơn.
   const copyReference = useCallback(async (value: string, label: string) => {
     if (!value) return
 
@@ -205,49 +339,32 @@ export function AccountOrdersPage() {
     }
   }, [])
 
-  const loadOrderDetail = useCallback(async (orderId: string) => {
+  // Mở popup chi tiết và tải thông tin mới nhất của đơn.
+  const openOrderDetail = useCallback((orderId: string) => {
     setSelectedOrderId(orderId)
-    setDetailLoading(true)
-    setDetailError('')
+    loadOrderDetail(orderId)
+  }, [loadOrderDetail])
 
-    try {
-      const [nextOrderDetail, nextPaymentDetail] = await Promise.all([
-        orderService.getById(orderId),
-        orderService.getPaymentStatus(orderId),
-      ])
-
-      setOrderDetail(nextOrderDetail)
-      setDetailPayment(nextPaymentDetail)
-    } catch (error) {
-      setDetailError(error instanceof Error ? error.message : 'Không thể tải chi tiết đơn hàng.')
-      setOrderDetail(null)
-      setDetailPayment(null)
-    } finally {
-      setDetailLoading(false)
-    }
-  }, [])
-
+  // Đóng popup chi tiết và dọn dữ liệu đang xem.
   const closeOrderDetail = () => {
     setSelectedOrderId(null)
-    setOrderDetail(null)
-    setDetailPayment(null)
-    setDetailError('')
+    clearOrderDetail()
   }
 
   const orderRealtime = useOrderRealtime((event) => {
-    void load(true)
+    void load('silent')
     if (selectedOrderId && event.orderId === selectedOrderId) {
-      void loadOrderDetail(selectedOrderId)
+      loadOrderDetail(selectedOrderId, 'silent')
     }
   })
 
   useEffect(() => {
-    void load(true)
+    void load('loading')
   }, [load])
 
   useEffect(() => {
     const refreshVisibleOrders = () => {
-      if (document.visibilityState === 'visible') void load(true)
+      if (document.visibilityState === 'visible') void load('silent')
     }
 
     const handle = window.setInterval(refreshVisibleOrders, orderRealtime.connected ? 30_000 : 12_000)
@@ -269,7 +386,7 @@ export function AccountOrdersPage() {
         setDetailPayment(await orderService.getPaymentStatus(orderId).catch(() => detailPayment))
       }
       message.success('Đã xác nhận nhận hàng. Bạn có thể đánh giá từng sản phẩm.')
-      await load()
+      await load('refresh')
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'Không thể xác nhận nhận hàng.')
     }
@@ -280,17 +397,17 @@ export function AccountOrdersPage() {
       if (attempt > 0) await wait(2500)
       const paymentStatus = await orderService.getPaymentStatus(orderId)
       if (paymentStatus.paymentStatus === 'paid') {
-        await load(true)
+        await load('silent')
         if (selectedOrderId === orderId) {
-          await loadOrderDetail(orderId)
+          await loadOrderDetailAsync(orderId, 'silent')
         }
         return true
       }
     }
 
-    await load(true)
+    await load('silent')
     if (selectedOrderId === orderId) {
-      await loadOrderDetail(orderId)
+      await loadOrderDetailAsync(orderId, 'silent')
     }
     return false
   }
@@ -315,7 +432,7 @@ export function AccountOrdersPage() {
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'Không thể mở thanh toán VNPay.')
-      await load(true)
+      await load('silent')
     } finally {
       setPayingOrderId(null)
     }
@@ -460,7 +577,7 @@ export function AccountOrdersPage() {
                             Đã nhận hàng
                           </Button>
                         ) : null}
-                        <Button onClick={() => void loadOrderDetail(order._id)}>
+                        <Button onClick={() => openOrderDetail(order._id)}>
                           Xem chi tiết
                         </Button>
                         </div>
@@ -502,7 +619,7 @@ export function AccountOrdersPage() {
                   type="error"
                   showIcon
                   message={detailError}
-                  action={selectedOrderId ? <Button size="small" onClick={() => void loadOrderDetail(selectedOrderId)}>Thử lại</Button> : undefined}
+                  action={selectedOrderId ? <Button size="small" onClick={() => loadOrderDetail(selectedOrderId)}>Thử lại</Button> : undefined}
                 />
               ) : null}
 
