@@ -1,64 +1,41 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Empty, Segmented, Spin, Tag, message } from 'antd'
+import { Alert, Button, Empty, Modal, Segmented, Skeleton, Spin, Tag, message } from 'antd'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { requestCustomer } from '../../../services/customerHttp'
 import { ProfileSidebar } from '../components/ProfileSidebar'
 import { useAppSelector } from '../../../app/hooks'
-import { paymentService } from '../payment.service'
+import { orderService } from '../../orders/order.service'
+import { useOrderRealtime } from '../../orders/orderRealtime'
+import type {
+  CustomerOrder,
+  CustomerOrderListResponse,
+  OrderPaymentMethod,
+  OrderPaymentStatus,
+  OrderStatus,
+  PaymentStatusResult,
+} from '../../orders/order.types'
 import '../profile.css'
 
-type OrderItem = {
-  _id: string
-  productId: string
-  name: string
-  image: string
-  color: string
-  size: string
-  quantity: number
-}
-
-type Order = {
-  _id: string
-  orderCode: string
-  invoiceCode?: string | null
-  status: string
-  paymentMethod: string
-  paymentStatus: string
-  paymentDeadlineAt?: string | null
-  deliveredAt?: string | null
-  receivedAt?: string | null
-  shipping?: {
-    provider?: string | null
-    status?: string | null
-    trackingCode?: string | null
-    estimatedDeliveryDate?: string | null
-  } | null
-  totalAmount: number
-  createdAt: string
-  updatedAt?: string
-  order_list: OrderItem[]
-}
-
-const orderStatusLabels: Record<string, string> = {
-  confirmed: 'Chờ xử lý',
-  packed: 'Đang chuẩn bị',
-  shipping: 'Đang giao',
-  delivered: 'Đã giao tới bạn',
+const orderStatusLabels: Record<OrderStatus, string> = {
+  confirmed: 'Đã xác nhận',
+  packed: 'Đã đóng gói',
+  shipping: 'Đang giao hàng',
+  delivered: 'Đã giao',
   completed: 'Hoàn tất',
   cancelled: 'Đã hủy',
-  return_requested: 'Đang duyệt trả hàng',
-  return_approved: 'Chờ gửi hàng trả',
+  return_requested: 'Đang yêu cầu trả hàng',
+  return_approved: 'Yêu cầu trả đã duyệt',
   returned: 'Đã trả hàng',
 }
 
-const paymentStatusLabels: Record<string, string> = {
+const paymentStatusLabels: Record<OrderPaymentStatus, string> = {
   pending: 'Chờ thanh toán',
   paid: 'Đã thanh toán',
   failed: 'Thanh toán thất bại',
   refunded: 'Đã hoàn tiền',
 }
 
-const paymentMethodLabels: Record<string, string> = {
+const paymentMethodLabels: Record<OrderPaymentMethod, string> = {
   COD: 'Thanh toán khi nhận hàng',
   VNPAY: 'VNPay',
   MOMO: 'MoMo',
@@ -79,11 +56,7 @@ const shippingStatusLabels: Record<string, string> = {
   cancelled: 'Đã hủy vận chuyển',
 }
 
-type OrderList = {
-  items: Order[]
-  pagination: { totalItems: number }
-}
-
+const progressStatuses: OrderStatus[] = ['confirmed', 'packed', 'shipping', 'delivered', 'completed']
 const money = (value: number) => `${new Intl.NumberFormat('vi-VN').format(value)}đ`
 const closedPaymentActionStatuses = new Set(['completed', 'cancelled', 'returned'])
 const paymentActionStatuses = new Set(['pending', 'failed'])
@@ -121,12 +94,12 @@ const getShippingStatusLabel = (status?: string | null) => {
   return shippingStatusLabels[status] ?? status
 }
 
-const orderNeedsPaymentAction = (order: Order) =>
+const orderNeedsPaymentAction = (order: CustomerOrder) =>
   order.paymentMethod === 'VNPAY' &&
   paymentActionStatuses.has(order.paymentStatus) &&
   !closedPaymentActionStatuses.has(order.status)
 
-const getOrderAlert = (order: Order) => {
+const getOrderAlert = (order: CustomerOrder) => {
   if (orderNeedsPaymentAction(order)) {
     return {
       type: order.paymentStatus === 'failed' ? 'error' : 'warning',
@@ -160,6 +133,18 @@ const getOrderAlert = (order: Order) => {
   return null
 }
 
+const getNetShipping = (order: CustomerOrder) => Math.max(0, order.shippingFee - order.shippingDiscountAmount)
+
+const getShippingAddressLine = (order: CustomerOrder) => (
+  [order.shippingAddress.streetName, order.shippingAddress.ward, order.shippingAddress.district, order.shippingAddress.province]
+    .filter(Boolean)
+    .join(', ')
+)
+
+const isStoppedOrderStatus = (status: OrderStatus) => (
+  ['cancelled', 'return_requested', 'return_approved', 'returned'].includes(status)
+)
+
 const writeClipboardText = async (value: string) => {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value)
@@ -183,17 +168,22 @@ const writeClipboardText = async (value: string) => {
 
 export function AccountOrdersPage() {
   const user = useAppSelector((state) => state.auth.currentUser)
-  const [orders, setOrders] = useState<Order[]>([])
+  const [orders, setOrders] = useState<CustomerOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [filter, setFilter] = useState<'all' | 'needs-payment' | 'active' | 'shipping' | 'completed'>('all')
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [orderDetail, setOrderDetail] = useState<CustomerOrder | null>(null)
+  const [detailPayment, setDetailPayment] = useState<PaymentStatusResult | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setRefreshing(true)
 
     try {
-      const result = await requestCustomer<OrderList>('/orders/me?page=1&limit=100')
+      const result = await requestCustomer<CustomerOrderListResponse>('/orders/me?page=1&limit=100')
       setOrders(result.items)
     } catch (error) {
       if (!quiet) {
@@ -215,6 +205,42 @@ export function AccountOrdersPage() {
     }
   }, [])
 
+  const loadOrderDetail = useCallback(async (orderId: string) => {
+    setSelectedOrderId(orderId)
+    setDetailLoading(true)
+    setDetailError('')
+
+    try {
+      const [nextOrderDetail, nextPaymentDetail] = await Promise.all([
+        orderService.getById(orderId),
+        orderService.getPaymentStatus(orderId),
+      ])
+
+      setOrderDetail(nextOrderDetail)
+      setDetailPayment(nextPaymentDetail)
+    } catch (error) {
+      setDetailError(error instanceof Error ? error.message : 'Không thể tải chi tiết đơn hàng.')
+      setOrderDetail(null)
+      setDetailPayment(null)
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
+  const closeOrderDetail = () => {
+    setSelectedOrderId(null)
+    setOrderDetail(null)
+    setDetailPayment(null)
+    setDetailError('')
+  }
+
+  const orderRealtime = useOrderRealtime((event) => {
+    void load(true)
+    if (selectedOrderId && event.orderId === selectedOrderId) {
+      void loadOrderDetail(selectedOrderId)
+    }
+  })
+
   useEffect(() => {
     void load(true)
   }, [load])
@@ -224,7 +250,7 @@ export function AccountOrdersPage() {
       if (document.visibilityState === 'visible') void load(true)
     }
 
-    const handle = window.setInterval(refreshVisibleOrders, 20_000)
+    const handle = window.setInterval(refreshVisibleOrders, orderRealtime.connected ? 30_000 : 12_000)
     window.addEventListener('focus', refreshVisibleOrders)
     document.addEventListener('visibilitychange', refreshVisibleOrders)
 
@@ -233,11 +259,15 @@ export function AccountOrdersPage() {
       window.removeEventListener('focus', refreshVisibleOrders)
       document.removeEventListener('visibilitychange', refreshVisibleOrders)
     }
-  }, [load])
+  }, [load, orderRealtime.connected])
 
   const confirmReceived = async (orderId: string) => {
     try {
-      await requestCustomer(`/orders/${orderId}/confirm-received`, { method: 'PATCH' })
+      const updatedOrder = await requestCustomer<CustomerOrder>(`/orders/${orderId}/confirm-received`, { method: 'PATCH' })
+      if (selectedOrderId === orderId) {
+        setOrderDetail(updatedOrder)
+        setDetailPayment(await orderService.getPaymentStatus(orderId).catch(() => detailPayment))
+      }
       message.success('Đã xác nhận nhận hàng. Bạn có thể đánh giá từng sản phẩm.')
       await load()
     } catch (error) {
@@ -248,21 +278,27 @@ export function AccountOrdersPage() {
   const refreshOrderPayment = async (orderId: string) => {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       if (attempt > 0) await wait(2500)
-      const paymentStatus = await paymentService.getOrderPaymentStatus(orderId)
+      const paymentStatus = await orderService.getPaymentStatus(orderId)
       if (paymentStatus.paymentStatus === 'paid') {
         await load(true)
+        if (selectedOrderId === orderId) {
+          await loadOrderDetail(orderId)
+        }
         return true
       }
     }
 
     await load(true)
+    if (selectedOrderId === orderId) {
+      await loadOrderDetail(orderId)
+    }
     return false
   }
 
-  const retryVNPayPayment = async (order: Order) => {
+  const retryVNPayPayment = async (order: CustomerOrder) => {
     try {
       setPayingOrderId(order._id)
-      const paymentData = await paymentService.createVNPayUrlFromOrder(order._id)
+      const paymentData = await orderService.createVNPayUrl(order._id)
       const popup = window.open(paymentData.paymentUrl, '_blank', 'noopener,noreferrer')
 
       if (!popup) {
@@ -292,6 +328,9 @@ export function AccountOrdersPage() {
     if (filter === 'completed') return ['completed', 'cancelled', 'returned'].includes(order.status)
     return true
   })
+  const detailActiveStep = orderDetail ? progressStatuses.indexOf(orderDetail.status) : -1
+  const detailTotalDiscount = (orderDetail?.couponDiscountAmount || 0) + (orderDetail?.membershipDiscountAmount || 0)
+  const detailNetShipping = orderDetail ? getNetShipping(orderDetail) : 0
 
   return (
     <MainLayout>
@@ -421,6 +460,9 @@ export function AccountOrdersPage() {
                             Đã nhận hàng
                           </Button>
                         ) : null}
+                        <Button onClick={() => void loadOrderDetail(order._id)}>
+                          Xem chi tiết
+                        </Button>
                         </div>
                       </footer>
                     </article>
@@ -433,6 +475,126 @@ export function AccountOrdersPage() {
               type="info"
               message="VNPay cần được thanh toán trước khi shop đóng gói/giao hàng. COD được ghi nhận đã thanh toán khi đơn vị vận chuyển báo giao thành công."
             />
+
+            <Modal
+              className="account-order-detail-modal"
+              title={orderDetail ? `Chi tiết đơn ${orderDetail.orderCode}` : 'Chi tiết đơn hàng'}
+              open={Boolean(selectedOrderId)}
+              width={960}
+              footer={[
+                <Button key="close" onClick={closeOrderDetail}>Đóng</Button>,
+                orderDetail ? <Button key="open-page" href={`/orders/${orderDetail._id}`}>Mở trang chi tiết</Button> : null,
+                orderDetail && detailPayment?.canPayNow ? (
+                  <Button key="pay" type="primary" loading={payingOrderId === orderDetail._id} onClick={() => void retryVNPayPayment(orderDetail)}>
+                    {orderDetail.paymentStatus === 'failed' ? 'Thanh toán lại' : 'Thanh toán VNPay'}
+                  </Button>
+                ) : null,
+                orderDetail?.status === 'delivered' ? (
+                  <Button key="received" type="primary" onClick={() => void confirmReceived(orderDetail._id)}>
+                    Đã nhận hàng
+                  </Button>
+                ) : null,
+              ].filter(Boolean)}
+              onCancel={closeOrderDetail}
+            >
+              {detailError ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={detailError}
+                  action={selectedOrderId ? <Button size="small" onClick={() => void loadOrderDetail(selectedOrderId)}>Thử lại</Button> : undefined}
+                />
+              ) : null}
+
+              <Skeleton active loading={detailLoading} paragraph={{ rows: 10 }}>
+                {orderDetail ? (
+                  <div className="account-order-detail">
+                    <header className="account-order-detail-header">
+                      <div>
+                        <strong>{orderStatusLabels[orderDetail.status]}</strong>
+                        <span>Ngày đặt: {formatDateTime(orderDetail.createdAt)}</span>
+                        {orderDetail.shipping.estimatedDeliveryDate ? (
+                          <span>Dự kiến giao: {formatDate(orderDetail.shipping.estimatedDeliveryDate)}</span>
+                        ) : null}
+                      </div>
+                      <span className={`order-payment-badge ${orderDetail.paymentStatus}`}>
+                        {paymentStatusLabels[orderDetail.paymentStatus]}
+                      </span>
+                    </header>
+
+                    <section className={`account-order-progress ${isStoppedOrderStatus(orderDetail.status) ? 'is-stopped' : ''}`}>
+                      {isStoppedOrderStatus(orderDetail.status) ? (
+                        <div className="account-order-stopped">
+                          <b>{orderStatusLabels[orderDetail.status]}</b>
+                          <span>Cập nhật {formatDateTime(orderDetail.updatedAt)}</span>
+                        </div>
+                      ) : progressStatuses.map((status, index) => {
+                        const completed = index <= detailActiveStep
+                        return (
+                          <div className={`account-order-progress-step ${completed ? 'completed' : ''}`} key={status}>
+                            <span>{completed ? '✓' : index + 1}</span>
+                            <b>{orderStatusLabels[status]}</b>
+                            <small>{completed ? formatDateTime(index === 0 ? orderDetail.createdAt : orderDetail.updatedAt) : 'Đang cập nhật'}</small>
+                          </div>
+                        )
+                      })}
+                    </section>
+
+                    <div className="account-order-detail-grid">
+                      <section className="account-order-detail-products">
+                        {orderDetail.order_list.map((item) => (
+                          <article className="account-order-detail-product" key={item._id}>
+                            <img src={item.image} alt="" />
+                            <div>
+                              <strong>{item.name}</strong>
+                              <span>{[item.color, `Size ${item.size}`, item.fitType, item.sku].filter(Boolean).join(' · ')}</span>
+                            </div>
+                            <b>{money(item.priceAtPurchased)} × {item.quantity}</b>
+                          </article>
+                        ))}
+                      </section>
+
+                      <aside className="account-order-detail-summary">
+                        <h2>Tóm tắt đơn hàng</h2>
+                        <p><span>Tạm tính</span><b>{money(orderDetail.subTotal)}</b></p>
+                        {orderDetail.couponDiscountAmount > 0 ? <p><span>Giảm giá {orderDetail.couponCode ? `(${orderDetail.couponCode})` : ''}</span><b>-{money(orderDetail.couponDiscountAmount)}</b></p> : null}
+                        {orderDetail.membershipDiscountAmount > 0 ? <p><span>Ưu đãi thành viên {orderDetail.appliedMembershipDiscountPercent ? `(${orderDetail.appliedMembershipDiscountPercent}%)` : ''}</span><b>-{money(orderDetail.membershipDiscountAmount)}</b></p> : null}
+                        {detailTotalDiscount === 0 ? <p><span>Giảm giá</span><b>{money(0)}</b></p> : null}
+                        <p><span>Phí giao hàng</span><b>{detailNetShipping === 0 ? 'Miễn phí' : money(detailNetShipping)}</b></p>
+                        {orderDetail.taxAmount > 0 ? <p><span>Thuế</span><b>+{money(orderDetail.taxAmount)}</b></p> : null}
+                        <div><span>Tổng cộng</span><strong>{money(orderDetail.totalAmount)}</strong></div>
+                      </aside>
+                    </div>
+
+                    <div className="account-order-detail-info">
+                      <section>
+                        <h2>Thanh toán</h2>
+                        <strong>{paymentMethodLabels[orderDetail.paymentMethod]}</strong>
+                        <span>{paymentStatusLabels[orderDetail.paymentStatus]}</span>
+                        {orderDetail.paymentDeadlineAt && orderNeedsPaymentAction(orderDetail) ? <small>Hạn thanh toán: {formatDateTime(orderDetail.paymentDeadlineAt)}</small> : null}
+                        {detailPayment?.latestTransaction?.failureReason ? <small>{detailPayment.latestTransaction.failureReason}</small> : null}
+                      </section>
+                      <section>
+                        <h2>Giao hàng</h2>
+                        <strong>{orderDetail.shippingAddress.customerName}</strong>
+                        <span>{orderDetail.shippingAddress.phoneNumber}</span>
+                        <p>{getShippingAddressLine(orderDetail)}</p>
+                        <small>{orderDetail.shipping.provider || 'Đang cập nhật'} · {getShippingStatusLabel(orderDetail.shipping.status)}</small>
+                        {orderDetail.shipping.trackingCode ? <small>Mã vận đơn: {orderDetail.shipping.trackingCode}</small> : null}
+                      </section>
+                    </div>
+
+                    {(orderDetail.orderNote || orderDetail.cancellation || orderDetail.returnRequest) ? (
+                      <section className="account-order-detail-note">
+                        {orderDetail.orderNote ? <p><b>Ghi chú:</b> {orderDetail.orderNote}</p> : null}
+                        {orderDetail.cancellation ? <p><b>Lý do hủy:</b> {orderDetail.cancellation.reason || 'Đang cập nhật'} · {formatDateTime(orderDetail.cancellation.cancelledAt)}</p> : null}
+                        {orderDetail.returnRequest ? <p><b>Yêu cầu trả hàng:</b> {orderDetail.returnRequest.reason} · {orderDetail.returnRequest.reviewReason || orderDetail.returnRequest.status}</p> : null}
+                      </section>
+                    ) : null}
+                  </div>
+                ) : null}
+              </Skeleton>
+            </Modal>
           </section>
         </div>
       </main>

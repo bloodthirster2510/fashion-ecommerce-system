@@ -52,6 +52,7 @@ export type CustomerOrder = {
   status: OrderStatus
   paymentMethod: OrderPaymentMethod
   paymentStatus: OrderPaymentStatus
+  paymentDeadlineAt?: string | null
   shipping: {
     provider?: string | null
     status?: string | null
@@ -69,6 +70,13 @@ export type CustomerOrder = {
     status: 'requested' | 'approved' | 'rejected'
     requestedAt: string
     reviewReason?: string | null
+  } | null
+  cancellation?: {
+    kind?: 'customer' | 'admin' | 'shipping' | 'payment-timeout' | null
+    reason?: string | null
+    imageUrls?: string[]
+    cancelledAt: string
+    actorRole?: 'user' | 'admin' | 'staff' | 'system' | null
   } | null
 }
 

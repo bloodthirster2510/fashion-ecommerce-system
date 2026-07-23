@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, Divider, Form, Input, Modal, Select, Space, me
 import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { tokenService } from '../../../services/tokenService'
 import { setCurrentUser } from '../../auth/auth.slice'
+import type { AuthUser } from '../../auth/auth.types'
 import {
   profileService,
   type GhnDistrict,
@@ -13,6 +14,8 @@ import {
 import type { PasswordFormValues, ProfileFormValues } from '../profile.types'
 import { formatDateForInput, getAddressFormValues, passwordPattern } from '../profile.utils'
 import { AddressManagerModal } from './AddressManagerModal'
+
+const isFormValidationError = (value: unknown) => Boolean(value && typeof value === 'object' && 'errorFields' in value)
 
 export function ProfileInfoSection() {
   const dispatch = useAppDispatch()
@@ -34,13 +37,32 @@ export function ProfileInfoSection() {
   const [isLoadingNewAddressWards, setIsLoadingNewAddressWards] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [isSavingAddress, setIsSavingAddress] = useState(false)
   const [isSavingNewAddress, setIsSavingNewAddress] = useState(false)
   const [isChangingPassword, setIsChangingPassword] = useState(false)
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false)
   const [isAddAddressModalOpen, setIsAddAddressModalOpen] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [isEditingAddress, setIsEditingAddress] = useState(false)
   const [pendingAddressId, setPendingAddressId] = useState('')
   const [error, setError] = useState('')
+
+  const applyProfileFormValues = useCallback((user: AuthUser) => {
+    profileForm.setFieldsValue({
+      name: user.name,
+      phone: user.phone,
+      gender: user.gender || 'male',
+      dateOfBirth: formatDateForInput(user.dateOfBirth),
+      email: user.email,
+    })
+    profileForm.setFields([
+      { name: 'name', errors: [] },
+      { name: 'phone', errors: [] },
+      { name: 'gender', errors: [] },
+      { name: 'dateOfBirth', errors: [] },
+      { name: 'email', errors: [] },
+    ])
+  }, [profileForm])
 
   const applyDefaultAddress = useCallback(async (address: UserAddress | null) => {
     setDefaultAddress(address)
@@ -92,13 +114,7 @@ export function ProfileInfoSection() {
         tokenService.setCurrentUser(user)
         dispatch(setCurrentUser(user))
         setAddresses(accountAddresses)
-        profileForm.setFieldsValue({
-          name: user.name,
-          phone: user.phone,
-          gender: user.gender || 'male',
-          dateOfBirth: formatDateForInput(user.dateOfBirth),
-          email: user.email,
-        })
+        applyProfileFormValues(user)
         await applyDefaultAddress(selectedAddress)
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Không thể tải thông tin tài khoản.')
@@ -108,7 +124,7 @@ export function ProfileInfoSection() {
     }
 
     void loadAccount()
-  }, [applyDefaultAddress, dispatch, profileForm])
+  }, [applyDefaultAddress, applyProfileFormValues, dispatch])
 
   const handleProvinceChange = async (provinceId: number) => {
     profileForm.setFieldsValue({ districtId: undefined, wardCode: undefined })
@@ -184,17 +200,39 @@ export function ProfileInfoSection() {
     setNewAddressWards([])
   }
 
-  const handleProfileSubmit = async (values: ProfileFormValues) => {
+  const handleProfileSubmit = async () => {
     setIsSavingProfile(true)
     setError('')
 
     try {
+      const values = await profileForm.validateFields(['name', 'phone', 'gender', 'dateOfBirth'])
       const updatedUser = await profileService.updateMe({
         name: values.name.trim(),
         phone: values.phone.trim(),
         gender: values.gender,
         dateOfBirth: values.dateOfBirth,
       })
+
+      tokenService.setCurrentUser(updatedUser)
+      dispatch(setCurrentUser(updatedUser))
+      applyProfileFormValues(updatedUser)
+      setIsEditingProfile(false)
+      message.success('Cập nhật thông tin cá nhân thành công.')
+    } catch (saveError) {
+      if (!isFormValidationError(saveError)) {
+        setError(saveError instanceof Error ? saveError.message : 'Không thể cập nhật thông tin cá nhân.')
+      }
+    } finally {
+      setIsSavingProfile(false)
+    }
+  }
+
+  const handleAddressSubmit = async () => {
+    setIsSavingAddress(true)
+    setError('')
+
+    try {
+      const values = await profileForm.validateFields(['streetName', 'provinceId', 'districtId', 'wardCode'])
 
       if (defaultAddress?._id && values.streetName && values.provinceId && values.districtId && values.wardCode) {
         const selectedProvince = provinces.find((item) => item.ProvinceID === values.provinceId)
@@ -220,16 +258,43 @@ export function ProfileInfoSection() {
         const nextDefaultAddress = updatedAddresses.find((item) => item.isDefault) || updatedAddresses[0] || null
         setAddresses(updatedAddresses)
         await applyDefaultAddress(nextDefaultAddress)
+        setIsEditingAddress(false)
+        message.success('Cập nhật địa chỉ giao hàng thành công.')
+      } else {
+        setError('Vui lòng thêm địa chỉ giao hàng trước khi cập nhật.')
       }
-
-      tokenService.setCurrentUser(updatedUser)
-      dispatch(setCurrentUser(updatedUser))
-      setIsEditingAddress(false)
-      message.success('Cập nhật thông tin thành công.')
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Không thể cập nhật thông tin.')
+      if (!isFormValidationError(saveError)) {
+        setError(saveError instanceof Error ? saveError.message : 'Không thể cập nhật địa chỉ giao hàng.')
+      }
     } finally {
-      setIsSavingProfile(false)
+      setIsSavingAddress(false)
+    }
+  }
+
+  const handleCancelProfileEdit = () => {
+    if (currentUser) {
+      applyProfileFormValues(currentUser)
+    }
+    setError('')
+    setIsEditingProfile(false)
+  }
+
+  const handleCancelAddressEdit = () => {
+    void applyDefaultAddress(defaultAddress)
+    profileForm.setFields([
+      { name: 'streetName', errors: [] },
+      { name: 'provinceId', errors: [] },
+      { name: 'districtId', errors: [] },
+      { name: 'wardCode', errors: [] },
+    ])
+    setError('')
+    setIsEditingAddress(false)
+  }
+
+  const clearBlankPasswordError = (fieldName: keyof PasswordFormValues) => {
+    if (!passwordForm.getFieldValue(fieldName)) {
+      passwordForm.setFields([{ name: fieldName, errors: [] }])
     }
   }
 
@@ -342,19 +407,19 @@ export function ProfileInfoSection() {
             requiredMark={false}
             className="account-form"
             disabled={isLoading}
-            onFinish={handleProfileSubmit}
           >
             <div className="account-form-grid">
               <Form.Item label="Họ và tên" name="name" rules={[{ required: true, message: 'Vui lòng nhập họ tên.' }]}>
-                <Input placeholder="Nguyễn Văn A" />
+                <Input disabled={!isEditingProfile} placeholder="Nguyễn Văn A" />
               </Form.Item>
 
               <Form.Item label="Số điện thoại" name="phone" rules={[{ required: true, message: 'Vui lòng nhập số điện thoại.' }]}>
-                <Input placeholder="0123456789" />
+                <Input disabled={!isEditingProfile} placeholder="0123456789" />
               </Form.Item>
 
               <Form.Item label="Giới tính" name="gender" rules={[{ required: true, message: 'Vui lòng chọn giới tính.' }]}>
                 <Select
+                  disabled={!isEditingProfile}
                   placeholder="Chọn giới tính"
                   options={[
                     { value: 'male', label: 'Nam' },
@@ -364,13 +429,30 @@ export function ProfileInfoSection() {
               </Form.Item>
 
               <Form.Item label="Năm sinh" name="dateOfBirth" rules={[{ required: true, message: 'Vui lòng nhập ngày sinh.' }]}>
-                <Input type="date" />
+                <Input disabled={!isEditingProfile} type="date" />
               </Form.Item>
             </div>
 
             <Form.Item label="Email" name="email">
               <Input disabled placeholder="email@example.com" />
             </Form.Item>
+
+            <Space wrap>
+              {isEditingProfile ? (
+                <>
+                  <Button type="primary" htmlType="button" loading={isSavingProfile} onClick={() => void handleProfileSubmit()}>
+                    Lưu
+                  </Button>
+                  <Button htmlType="button" onClick={handleCancelProfileEdit}>
+                    Hủy
+                  </Button>
+                </>
+              ) : (
+                <Button type="primary" htmlType="button" disabled={isLoading} onClick={() => setIsEditingProfile(true)}>
+                  Cập nhật thông tin
+                </Button>
+              )}
+            </Space>
 
             <Divider />
 
@@ -440,26 +522,24 @@ export function ProfileInfoSection() {
                   />
                 </Form.Item>
               </div>
-            </section>
 
-            <Space wrap>
-              <Button type="primary" htmlType="button" disabled={isEditingAddress} onClick={() => setIsEditingAddress(true)}>
-                Cập nhật thông tin
-              </Button>
-              {isEditingAddress ? (
-                <>
-                  <Button type="primary" htmlType="submit" loading={isSavingProfile}>
-                    Lưu
+              <Space wrap>
+                {isEditingAddress ? (
+                  <>
+                    <Button type="primary" htmlType="button" loading={isSavingAddress} onClick={() => void handleAddressSubmit()}>
+                      Lưu
+                    </Button>
+                    <Button htmlType="button" onClick={handleCancelAddressEdit}>
+                      Hủy
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="primary" htmlType="button" disabled={isLoading || !defaultAddress} onClick={() => setIsEditingAddress(true)}>
+                    Cập nhật địa chỉ
                   </Button>
-                  <Button htmlType="button" onClick={() => {
-                    void applyDefaultAddress(defaultAddress)
-                    setIsEditingAddress(false)
-                  }}>
-                    Hủy
-                  </Button>
-                </>
-              ) : null}
-            </Space>
+                )}
+              </Space>
+            </section>
           </Form>
         </section>
 
@@ -480,7 +560,11 @@ export function ProfileInfoSection() {
             </Form.Item>
 
             <Form.Item label="Mật khẩu hiện tại" name="currentPassword" rules={[{ required: true, message: 'Vui lòng nhập mật khẩu hiện tại.' }]}>
-              <Input.Password placeholder="Nhập mật khẩu hiện tại" />
+              <Input.Password
+                placeholder="Nhập mật khẩu hiện tại"
+                onBlur={() => clearBlankPasswordError('currentPassword')}
+                onFocus={() => clearBlankPasswordError('currentPassword')}
+              />
             </Form.Item>
 
             <div className="account-form-grid">
@@ -495,7 +579,11 @@ export function ProfileInfoSection() {
                   },
                 ]}
               >
-                <Input.Password placeholder="Nhập mật khẩu mới" />
+                <Input.Password
+                  placeholder="Nhập mật khẩu mới"
+                  onBlur={() => clearBlankPasswordError('newPassword')}
+                  onFocus={() => clearBlankPasswordError('newPassword')}
+                />
               </Form.Item>
 
               <Form.Item
@@ -515,7 +603,11 @@ export function ProfileInfoSection() {
                   }),
                 ]}
               >
-                <Input.Password placeholder="Nhập lại mật khẩu mới" />
+                <Input.Password
+                  placeholder="Nhập lại mật khẩu mới"
+                  onBlur={() => clearBlankPasswordError('confirmPassword')}
+                  onFocus={() => clearBlankPasswordError('confirmPassword')}
+                />
               </Form.Item>
             </div>
 
