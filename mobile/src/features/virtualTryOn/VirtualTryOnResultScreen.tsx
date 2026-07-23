@@ -182,6 +182,7 @@ const VirtualTryOnResultScreen = () => {
   const [previewSyncsResult, setPreviewSyncsResult] = React.useState(false);
   const resultScrollRef = React.useRef<ScrollView>(null);
   const previewScrollRef = React.useRef<ScrollView>(null);
+  const imageActionInFlightRef = React.useRef(false);
 
   const jobId = route.params.jobId;
   const retainedSeedItems = route.params.seedItems;
@@ -290,8 +291,9 @@ const VirtualTryOnResultScreen = () => {
   };
 
   const shareActiveImage = async () => {
-    if (!activeImageUrl || !job || savingScope || sharingScope) return;
+    if (!activeImageUrl || !job || savingScope || sharingScope || imageActionInFlightRef.current) return;
 
+    imageActionInFlightRef.current = true;
     setSharingScope('active');
     try {
       const file = await downloadImageToCache(activeImageUrl, activeImageIndex);
@@ -312,19 +314,20 @@ const VirtualTryOnResultScreen = () => {
       Alert.alert('Chia sẻ ảnh', message);
     } finally {
       setSharingScope(null);
+      imageActionInFlightRef.current = false;
     }
   };
 
   const shareAllImages = async () => {
-    if (!job || !resultImageUrls.length || savingScope || sharingScope) return;
+    if (!job || !resultImageUrls.length || savingScope || sharingScope || imageActionInFlightRef.current) return;
 
+    imageActionInFlightRef.current = true;
     setSharingScope('all');
     try {
       const links = resultImageUrls
         .map((url, index) => `Ảnh ${index + 1}: ${url}`)
         .join('\n');
       await Share.share({
-        title: 'Bộ ảnh phối đồ',
         message: resultImageUrls.length > 1
           ? `Bộ ${resultImageUrls.length} ảnh phối đồ của tôi:\n\n${links}`
           : `Ảnh phối đồ của tôi: ${resultImageUrls[0]}`,
@@ -334,11 +337,12 @@ const VirtualTryOnResultScreen = () => {
       Alert.alert('Chia sẻ cả bộ', message);
     } finally {
       setSharingScope(null);
+      imageActionInFlightRef.current = false;
     }
   };
 
   const saveImages = async (scope: ImageActionScope) => {
-    if (!job || savingScope || sharingScope) return;
+    if (!job || savingScope || sharingScope || imageActionInFlightRef.current) return;
 
     const images = scope === 'all'
       ? resultImageUrls.map((url, index) => ({ url, index }))
@@ -347,6 +351,7 @@ const VirtualTryOnResultScreen = () => {
         : [];
     if (!images.length) return;
 
+    imageActionInFlightRef.current = true;
     setSavingScope(scope);
     let savedCount = 0;
     try {
@@ -361,13 +366,6 @@ const VirtualTryOnResultScreen = () => {
         await MediaLibrary.saveToLibraryAsync(file.uri);
         savedCount += 1;
       }
-
-      Alert.alert(
-        scope === 'all' ? 'Đã lưu cả bộ' : 'Đã lưu ảnh',
-        scope === 'all'
-          ? `${savedCount} ảnh đã được lưu vào thư viện.`
-          : `Ảnh ${activeImageIndex + 1} đã được lưu vào thư viện.`,
-      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể lưu ảnh lúc này.';
       const partialMessage = savedCount > 0
@@ -376,6 +374,7 @@ const VirtualTryOnResultScreen = () => {
       Alert.alert(scope === 'all' ? 'Lưu cả bộ' : 'Lưu ảnh', partialMessage);
     } finally {
       setSavingScope(null);
+      imageActionInFlightRef.current = false;
     }
   };
 
@@ -403,7 +402,6 @@ const VirtualTryOnResultScreen = () => {
       }
       const file = await downloadVideoToCache();
       await MediaLibrary.saveToLibraryAsync(file.uri);
-      Alert.alert('Đã lưu video', 'Video phối đồ đã được lưu vào thư viện.');
     } catch (error) {
       Alert.alert('Lưu video', error instanceof Error ? error.message : 'Không thể lưu video lúc này.');
     } finally {

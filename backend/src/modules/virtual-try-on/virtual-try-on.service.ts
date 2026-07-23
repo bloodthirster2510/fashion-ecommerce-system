@@ -1149,14 +1149,9 @@ const imageValidationCapabilityRequiredRegions: Record<ImageValidationCapability
 };
 
 const getSelectionCapabilityModes = (
-  outfitMode: VirtualTryOnOutfitMode,
+  _outfitMode: VirtualTryOnOutfitMode,
   itemRoles: VirtualTryOnItemRole[],
 ): ImageValidationCapabilityMode[] => {
-  if (outfitMode === 'full_set') {
-    return itemRoles.includes('shoes') ? ['full_set', 'shoes'] : ['full_set'];
-  }
-  if (outfitMode === 'top_bottom') return ['top_bottom'];
-
   return Array.from(new Set(itemRoles.map((role) => role as ImageValidationCapabilityMode)));
 };
 
@@ -1509,15 +1504,6 @@ const warnSourceImageForJob = async (
   const warning = getImageValidationWarning(result);
 
   if (warning) {
-    if (jobBlockingImageValidationReasonCodes.has(warning.reasonCode)) {
-      throw new VirtualTryOnServiceError(
-        warning.message,
-        422,
-        warning.reasonCode,
-        { reasonCode: warning.reasonCode, message: warning.message },
-      );
-    }
-
     console.warn('Virtual try-on source image validation warning:', {
       assetId: sourceAsset._id.toString(),
       reasonCode: warning.reasonCode,

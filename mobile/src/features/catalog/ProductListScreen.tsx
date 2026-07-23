@@ -79,7 +79,7 @@ type CategorySelectionGroup = {
   categoryIds: string[];
 };
 
-const PRODUCT_PAGE_LIMIT = 16;
+const PRODUCT_PAGE_LIMIT = 30;
 const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;

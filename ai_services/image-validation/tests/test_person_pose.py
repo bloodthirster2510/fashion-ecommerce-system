@@ -67,3 +67,14 @@ def test_full_set_with_shoes_requires_ankles():
     )
 
     assert visibility == "partial"
+
+
+def test_full_set_bottom_and_shoes_does_not_require_upper_body():
+    visibility = _estimate_body_visibility(
+        keypoints("left_hip", "left_knee", "right_ankle"),
+        "full_set",
+        ["bottom", "shoes"],
+        0.25,
+    )
+
+    assert visibility == "good"

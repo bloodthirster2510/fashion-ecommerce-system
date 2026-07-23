@@ -31,7 +31,7 @@ describe('virtualTryOnSelection', () => {
     const mode = getPrefillOutfitMode([topA, topB, bottom]);
     const normalized = normalizeSelectionForMode([topA, topB, bottom], mode);
 
-    expect(mode).toBe('top_bottom');
+    expect(mode).toBe('full_set');
     expect(normalized.items.map((entry) => entry.productId)).toEqual(['top-a', 'bottom']);
     expect(normalized.skipped.map((entry) => entry.productId)).toEqual(['top-b']);
   });
@@ -51,9 +51,9 @@ describe('virtualTryOnSelection', () => {
     const topA = item('top-a', 'top');
     const topB = item('top-b', 'top');
     const bottom = item('bottom', 'bottom');
-    const topSlot = getOutfitSlots('top_bottom')[0];
+    const topSlot = getOutfitSlots('full_set')[0];
 
-    const selected = selectItemForSlot([topA, bottom], topB, topSlot, 'top_bottom');
+    const selected = selectItemForSlot([topA, bottom], topB, topSlot, 'full_set');
 
     expect(selected.map((entry) => entry.productId)).toEqual(['bottom', 'top-b']);
   });

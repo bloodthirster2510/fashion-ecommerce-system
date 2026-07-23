@@ -81,12 +81,6 @@ def _required_regions_for_request(
     item_roles: list[ItemRole] | None,
 ) -> set[BodyRegion]:
     roles = set(item_roles or [])
-    if outfit_mode in {"top_bottom", "full_set"}:
-        required_regions: set[BodyRegion] = {"upper", "hips", "legs"}
-        if "shoes" in roles:
-            required_regions.add("feet")
-        return required_regions
-
     required_regions = set()
     if roles.intersection({"top", "outerwear", "accessory"}):
         required_regions.add("upper")
@@ -97,7 +91,10 @@ def _required_regions_for_request(
     if "shoes" in roles:
         required_regions.update({"legs", "feet"})
     if not required_regions:
-        required_regions.update({"upper", "hips"})
+        if outfit_mode in {"top_bottom", "full_set"}:
+            required_regions.update({"upper", "hips", "legs"})
+        else:
+            required_regions.update({"upper", "hips"})
     return required_regions
 
 

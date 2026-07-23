@@ -153,11 +153,6 @@ export const selectItemForSlot = (
 
 export const getSuggestedOutfitMode = (items: TryOnSelectedItem[]): TryOnOutfitMode => {
   if (items.length <= 1) return 'single';
-
-  const hasTop = items.some((item) => item.role === 'top' || item.role === 'outerwear');
-  const hasBottom = items.some((item) => item.role === 'bottom');
-  if (items.length === 2 && hasTop && hasBottom) return 'top_bottom';
-
   return 'full_set';
 };
 

@@ -121,9 +121,8 @@ const outfitModes: Array<{
   description: string;
   icon: FashionIconName;
 }> = [
-  { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm', icon: 'tshirt-crew' },
-  { key: 'top_bottom', label: 'Áo + quần', description: 'Cần đủ áo và quần', icon: 'tshirt-v' },
-  { key: 'full_set', label: 'Nhiều món', description: 'Tạo bộ phối', icon: 'hanger' },
+  { key: 'single', label: 'Một món', description: 'Thử nhanh 1 sản phẩm bất kỳ', icon: 'tshirt-crew' },
+  { key: 'full_set', label: 'Nhiều món', description: 'Chọn 2-4 món bất kỳ trong áo, quần, giày/dép', icon: 'hanger' },
 ];
 
 const contextOptions = contextPresets;
@@ -154,7 +153,6 @@ const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode,
 
 const imageValidationCapabilityPriority: TryOnImageValidationCapabilityMode[] = [
   'full_set',
-  'top_bottom',
   'top',
   'bottom',
   'dress',
@@ -163,14 +161,9 @@ const imageValidationCapabilityPriority: TryOnImageValidationCapabilityMode[] = 
 ];
 
 const getSelectionCapabilityModes = (
-  outfitMode: TryOnOutfitMode,
+  _outfitMode: TryOnOutfitMode,
   selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>,
 ): TryOnImageValidationCapabilityMode[] => {
-  if (outfitMode === 'full_set') {
-    return selectedItems.some((item) => item.role === 'shoes') ? ['full_set', 'shoes'] : ['full_set'];
-  }
-  if (outfitMode === 'top_bottom') return ['top_bottom'];
-
   return Array.from(new Set(selectedItems.map((item) => item.role as TryOnImageValidationCapabilityMode)));
 };
 
@@ -1011,15 +1004,8 @@ const VirtualTryOnBuilderScreen = () => {
 
   const selectedSlotCount = visibleOutfitSlots.filter((slot) => getSelectedItemForSlot(slot)).length;
 
-  const hasTopSlot = selectedItems.some((item) => item.role === 'top' || item.role === 'outerwear');
-  const hasBottomSlot = selectedItems.some((item) => item.role === 'bottom');
-  const hasRequiredTopBottom =
-    outfitMode !== 'top_bottom' ||
-    (hasTopSlot && hasBottomSlot);
-
   const canSubmit =
     selectedItems.length > 0 &&
-    hasRequiredTopBottom &&
     (outfitMode !== 'full_set' || selectedItems.length >= 2);
   const imageValidationRoleKey = selectedItems.map((item) => item.role).join(',');
   const imageValidationScanKey = sourceAssetId && canSubmit
@@ -1241,19 +1227,12 @@ const VirtualTryOnBuilderScreen = () => {
       return 'Có cảnh báo';
     }
 
-    if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
-      const missing = !hasTopSlot ? 'áo' : 'quần';
-      return `Còn thiếu ${missing}`;
-    }
-
     if (outfitMode === 'full_set' && selectedItems.length < 2) {
       return 'Cần 2 món';
     }
 
     if (outfitMode === 'full_set') {
-      return hasOptionalLayerItem
-        ? `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món`
-        : `${selectedSlotCount}/3 món chính`;
+      return `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món`;
     }
 
     return `${selectedSlotCount}/${outfitSlots.length} món`;
@@ -1310,11 +1289,6 @@ const VirtualTryOnBuilderScreen = () => {
 
     if (!selectedItems.length) {
       Alert.alert('Chọn sản phẩm', 'Chọn ít nhất một sản phẩm.');
-      return;
-    }
-
-    if (outfitMode === 'top_bottom' && !hasRequiredTopBottom) {
-      Alert.alert('Chọn áo và quần', 'Cần đủ áo và quần.');
       return;
     }
 
@@ -2316,11 +2290,26 @@ const VirtualTryOnBuilderScreen = () => {
           <Pressable style={styles.filterBackdrop} onPress={() => setIsProductFilterVisible(false)} />
           <View style={styles.filterSheet}>
             <View style={styles.filterSheetHeader}>
-              <TouchableOpacity onPress={() => setIsProductFilterVisible(false)} activeOpacity={0.82}>
-                <Text style={styles.filterSheetCancel}>Đóng</Text>
-              </TouchableOpacity>
               <Text style={styles.filterSheetTitle}>Lọc sản phẩm</Text>
-              <TouchableOpacity onPress={resetProductFilters} activeOpacity={0.82}>
+              <TouchableOpacity
+                style={styles.filterSheetCloseButton}
+                onPress={() => setIsProductFilterVisible(false)}
+                activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng bộ lọc"
+              >
+                <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.filterSheetToolbar}>
+              <TouchableOpacity
+                style={styles.filterSheetResetButton}
+                onPress={resetProductFilters}
+                activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel="Đặt lại bộ lọc"
+              >
+                <MaterialCommunityIcons name="restore" size={17} color={colors.brand} />
                 <Text style={styles.filterSheetReset}>Đặt lại</Text>
               </TouchableOpacity>
             </View>
@@ -4143,27 +4132,51 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   filterSheetHeader: {
-    minHeight: 42,
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    paddingHorizontal: 44,
   },
-  filterSheetCancel: {
-    color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '800',
+  filterSheetCloseButton: {
+    position: 'absolute',
+    right: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterSheetTitle: {
     color: colors.text,
     fontSize: 18,
     lineHeight: 24,
     fontWeight: '900',
+    textAlign: 'center',
+  },
+  filterSheetToolbar: {
+    minHeight: 34,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  filterSheetResetButton: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.field,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   filterSheetReset: {
     color: colors.brand,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   filterGroupTitle: {

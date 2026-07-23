@@ -482,6 +482,78 @@ describe('virtualTryOnService image validation', () => {
     expect(result.supportedModes).toEqual(expect.arrayContaining(['top', 'outerwear', 'accessory']));
   });
 
+  it('allows full-set creation with bottom and shoes when the lower body is visible', async () => {
+    process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
+    process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        allowed: false,
+        reasonCode: 'BODY_NOT_VISIBLE',
+        message: 'Ảnh chưa đủ vùng cho full set',
+        personCount: 1,
+        mainPersonScore: 0.94,
+        bodyVisibility: 'partial',
+        quality: { blur: 'ok', brightness: 'ok', resolution: 'ok' },
+        safetyFlags: [],
+        visibleRegions: ['hips', 'legs', 'feet'],
+        supportedModes: ['bottom', 'shoes'],
+        blockedModes: {
+          full_set: {
+            reasonCode: 'BODY_NOT_VISIBLE',
+            message: 'Ảnh chưa thấy rõ phần thân trên',
+            missingRegions: ['upper'],
+          },
+        },
+        recommendedMode: 'bottom',
+        capabilities: [
+          {
+            mode: 'bottom',
+            allowed: true,
+            reasonCode: null,
+            message: null,
+            requiredRegions: ['hips', 'legs'],
+            missingRegions: [],
+          },
+          {
+            mode: 'shoes',
+            allowed: true,
+            reasonCode: null,
+            message: null,
+            requiredRegions: ['legs', 'feet'],
+            missingRegions: [],
+          },
+          {
+            mode: 'full_set',
+            allowed: false,
+            reasonCode: 'BODY_NOT_VISIBLE',
+            message: 'Ảnh chưa thấy rõ phần thân trên',
+            requiredRegions: ['upper', 'hips', 'legs'],
+            missingRegions: ['upper'],
+          },
+        ],
+      },
+    });
+
+    const result = await virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      outfitMode: 'full_set',
+      selectedItems: [
+        { ...createJobInput.selectedItems[0], role: 'bottom' },
+        { ...createJobInput.selectedItems[0], role: 'shoes' },
+      ],
+    });
+
+    expect(result._id).toBe(jobId.toString());
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledWith(expect.objectContaining({
+      outfitMode: 'full_set',
+      selectedItems: expect.arrayContaining([
+        expect.objectContaining({ role: 'bottom' }),
+        expect.objectContaining({ role: 'shoes' }),
+      ]),
+    }));
+  });
+
   it('keeps provider safety failures terminal for user and admin job retries', async () => {
     const closedJob = {
       _id: jobId,
