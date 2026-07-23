@@ -56,6 +56,25 @@ const getRefreshedAccessToken = async () => {
   return refreshPromise
 }
 
+export const getOptionalCustomerAccessToken = async (): Promise<string | null> => {
+  const accessToken = tokenService.getAccessToken()
+  if (accessToken) {
+    return accessToken
+  }
+
+  if (!tokenService.getCurrentUser()) {
+    return null
+  }
+
+  try {
+    return await getRefreshedAccessToken()
+  } catch {
+    return null
+  }
+}
+
+export const getRefreshedCustomerAccessToken = getRefreshedAccessToken
+
 const fetchWithToken = async (path: string, init?: RequestInit, accessToken = getAccessToken()) => {
   const headers = new Headers(init?.headers)
   headers.set('Authorization', `Bearer ${accessToken}`)
