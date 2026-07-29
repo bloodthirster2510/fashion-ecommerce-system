@@ -77,9 +77,4 @@ export const supportApi = {
   markRead: (token: string, id: string) => request<SupportTicket>(`/support/tickets/${id}/read`, token, { method: 'PATCH' }),
   closeTicket: (token: string, id: string) => request<SupportTicket>(`/support/tickets/${id}/close`, token, { method: 'PATCH' }),
   reopenTicket: (token: string, id: string) => request<SupportTicket>(`/support/tickets/${id}/reopen`, token, { method: 'PATCH' }),
-  registerPushToken: (token: string, pushToken: string, platform: 'ios' | 'android') =>
-    request('/support/push-token', token, {
-      method: 'POST',
-      body: JSON.stringify({ token: pushToken, platform }),
-    }),
 };

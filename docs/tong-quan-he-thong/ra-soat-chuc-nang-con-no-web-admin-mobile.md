@@ -20,13 +20,15 @@ Kết quả triển khai ngày 29/07/2026:
 - **P0-01 đã hoàn tất phần code và test tự động:** có resolver `auto`, adapter `mock`/Twilio/eSMS, timeout/retry/lỗi chuẩn hóa và UI phân biệt `mock`/`real`. Còn thiếu smoke test bằng credential sandbox và thiết bị thật.
 - **P0-02 đã hoàn tất phần code và test tự động:** email có `auto`/mock/SMTP, mock token và outbox, deep link mobile, rollback khi gửi lỗi và guard bắt buộc đổi mật khẩu. Còn thiếu smoke test SMTP thật.
 - **P0-03 đã hoàn tất phần code, test tự động và GHN sandbox smoke:** có collection/import/review/backfill mapping, queue riêng trên admin, form sửa mapping theo đơn và guard không cho gọi tạo vận đơn khi địa chỉ chưa xác minh. Còn phải import bộ mapping production cho toàn bộ vùng bán hàng trước khi mở thật.
+- **P1-01 đã hoàn tất phần code và test tự động:** social login dùng resolver `auto`, ẩn provider thiếu cấu hình và có redirect scheme cho development build. Còn thiếu credential cùng device smoke thật.
+- **P1-02 đã hoàn tất phần code và test tự động:** push có resolver `auto`, opt-in/cài đặt chung, preference theo loại, token refresh/revoke và deep-link foreground/background/killed. Còn thiếu EAS device smoke thật.
 
 Các khoản nợ còn ưu tiên:
 
 1. Seed mapping GHN trong repo vẫn chỉ có 12 phường/xã; cần import bộ mapping production đã đối chiếu qua công cụ mới trước khi mở toàn bộ 34 tỉnh, thành.
 2. OTP SMS cần smoke test sandbox cho cả đăng ký và khôi phục trước khi chốt production-ready.
 3. Email reset cần smoke test bằng SMTP thật và xác nhận deep link trên development build/thiết bị thật.
-4. Đăng nhập Google/Facebook có UI nhưng mobile thiếu client ID; push notification đã có EAS Project ID nhưng điểm đăng ký token còn quá hẹp.
+4. Social login và push notification đã hoàn tất guard/config trong code; còn phải cấu hình OAuth thật và chạy smoke test push trên Android/iOS development build.
 5. Search mobile đã được backend tự ghi nhận qua API catalog, nhưng lịch sử local chưa đồng bộ với tài khoản và số liệu có thể bị đếm lặp khi filter/sort tải lại trang đầu.
 6. Admin khách hàng còn ba tab giữ chỗ; cấu hình provider/quota phối đồ ảo mới chỉ đọc, chưa sửa được.
 
@@ -255,20 +257,24 @@ Quy tắc an toàn:
 - [ ] Cấu hình `EXPO_PUBLIC_GOOGLE_CLIENT_ID` và `EXPO_PUBLIC_FACEBOOK_APP_ID` thật trong từng EAS environment; Google client ID phải khớp `GOOGLE_CLIENT_ID` và Facebook app phải khớp `FACEBOOK_APP_ID` ở backend.
 - [ ] Khai báo redirect URI tương ứng trong Google/Facebook console và smoke test đăng nhập trên Android/iOS development build. OAuth custom scheme không được nghiệm thu bằng Expo Go.
 
-### P1-02 — Push notification chưa sẵn sàng và điểm đăng ký quá hẹp
+### P1-02 — Push notification chung trên mobile
 
-- `EXPO_PUBLIC_EAS_PROJECT_ID` không có trong `.env`, nhưng `mobile/app.json` đã có `extra.EAS_PROJECT_ID` và `extra.eas.projectId`; code hiện đọc cả hai fallback này.
-- `EXPO_ACCESS_TOKEN` backend hiện thiếu, nhưng code chỉ cần token này khi dự án Expo bật Push Security; không nên xem việc thiếu token là lỗi mặc định.
-- Việc xin quyền/đăng ký push chỉ xảy ra khi người dùng vào màn Hỗ trợ và bấm “Bật thông báo phản hồi”.
-- Vì token dùng chung cho support, shipping, payment deadline và virtual try-on, người không vào Hỗ trợ sẽ không nhận các push còn lại.
+**Đã thực hiện**
 
-**Cần làm**
+- [x] Resolver `auto` đọc EAS Project ID từ env hoặc Expo config; `disabled`, web, Expo Go hoặc thiếu project ID đều bỏ qua remote push mà không ảnh hưởng notification center/realtime.
+- [x] Chuyển opt-in khỏi màn Hỗ trợ sang màn `Cài đặt thông báo`, truy cập được từ Tài khoản và Trung tâm thông báo.
+- [x] Lưu opt-in và preference theo thiết bị trong SecureStore; hỗ trợ sáu nhóm `order`, `promotion`, `support`, `account`, `virtual_try_on`, `system`.
+- [x] Backend lưu preference trên từng Expo token và lọc trước khi gửi; endpoint chung là `POST/DELETE /api/notifications/push-token`, alias cũ của support vẫn tương thích.
+- [x] Tự lấy lại token khi app active, nghe sự kiện Expo đổi token, đăng ký token mới trước rồi vô hiệu token cũ; logout vẫn vô hiệu toàn bộ token đang active.
+- [x] Không tự xin quyền trong silent refresh. Chỉ hành động opt-in rõ ràng của người dùng mới mở permission prompt.
+- [x] Tạo Android notification channel trước khi xin quyền/đăng ký token.
+- [x] Push tap được ánh xạ tập trung sang support ticket, order detail và virtual try-on; response lúc navigation chưa ready được giữ lại, cold-start response được clear và identifier được chống xử lý lặp.
+- [x] Unit test cover resolver, preference filtering, token validation, silent permission, live response và killed-state response.
 
-- Thêm resolver `auto`: thiếu EAS config thì bỏ qua đăng ký remote push nhưng vẫn giữ notification center/realtime trong app; đủ config thì bật remote push.
-- Xác nhận EAS project theo từng môi trường; chỉ cấu hình Expo access token khi Push Security được bật.
-- Chuyển opt-in push sang onboarding/cài đặt thông báo chung.
-- Cho phép bật/tắt theo loại thông báo và xử lý refresh token push.
-- Test nhận push + mở đúng màn từ trạng thái foreground/background/killed.
+**Còn lại trước production**
+
+- [ ] Xác nhận EAS project/credential push cho từng development/preview/production environment. Chỉ thêm `EXPO_ACCESS_TOKEN` ở backend nếu dự án bật Expo Push Security.
+- [ ] Smoke test nhận push và mở đúng màn trên Android/iOS development build ở foreground, background và killed; Expo Go không dùng để nghiệm thu.
 
 ### P1-03 — Search history đã có tracking nhưng chưa đồng bộ và chống đếm lặp
 
@@ -376,7 +382,7 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 ### P2-04 — Thiếu test ở lớp UI
 
 - Admin có khoảng 178 file trong feature nhưng không có unit/component test đặt cùng module.
-- Mobile có 31 screen nhưng 8 test file hiện chủ yếu phủ API failover, auth/config, presentation/settings và helper phối đồ.
+- Mobile có 32 screen nhưng 9 test file hiện chủ yếu phủ API failover, auth/push config, presentation/settings và helper phối đồ.
 - Chưa có test screen cho auth, checkout, push, support, review và navigation guard.
 
 Ưu tiên test reducer/helper/component có nhiều nhánh; không cần snapshot toàn trang.
@@ -389,9 +395,9 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `web_frontend: npm run lint` | Qua |
 | `web_frontend: npm run test:e2e` | 13/13 qua |
 | `mobile: npm run typecheck` | Qua |
-| `mobile: npm test` | 8 suite, 42 test qua |
+| `mobile: npm test` | 9 suite, 47 test qua |
 | `backend: npm run build` | Qua |
-| `backend: npm test` | 76 suite, 709 test qua |
+| `backend: npm test` | 77 suite, 714 test qua |
 
 Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI provider hoạt động ngoài đời. GHN đã smoke qua sandbox; SMS vẫn cần credential sandbox, email vẫn cần SMTP thật và deep-link device test.
 
@@ -409,8 +415,8 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI
 
 ### Đợt 2 — Hoàn tất tích hợp mobile đang lộ trên UI
 
-1. Resolver `auto` cho social login.
-2. Resolver `auto` cho push notification chung.
+1. [x] Resolver `auto` cho social login.
+2. [x] Resolver `auto` cho push notification chung.
 3. Search tracking từ khóa.
 4. Khôi phục image validation service.
 

@@ -18,6 +18,7 @@ import CheckoutScreen from '../features/checkout/CheckoutScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
 import NotificationsScreen from '../features/notifications/NotificationsScreen';
+import NotificationSettingsScreen from '../features/notifications/NotificationSettingsScreen';
 import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
 import OrderListScreen from '../features/orders/OrderListScreen';
 import OrderDetailScreen from '../features/orders/OrderDetailScreen';
@@ -75,6 +76,7 @@ export type RootStackParamList = {
   } | undefined;
   Favorites: undefined;
   Notifications: undefined;
+  NotificationSettings: undefined;
   Profile: undefined;
   EditProfile: undefined;
   PaymentMethods: undefined;
@@ -187,6 +189,7 @@ const AppNavigator = () => {
       <Stack.Screen name="Coupons" component={CouponsScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />

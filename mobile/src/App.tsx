@@ -9,8 +9,13 @@ import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
 import { AuthProvider } from './features/auth/AuthContext';
-import { subscribeToSupportNotifications } from './features/support/supportNotifications';
 import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
+import { PushNotificationProvider } from './features/notifications/PushNotificationProvider';
+import {
+  pushNotificationCapability,
+  subscribeToPushNotifications,
+  type PushNavigationTarget,
+} from './features/notifications/pushNotifications';
 import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
 import { getUrlParam, parsePasswordResetLink } from './features/auth/passwordResetLink';
 
@@ -40,6 +45,7 @@ const handleUnhandledNavigationAction = (action: NavigationAction) => {
 
 const App = () => {
   const pendingUrlRef = React.useRef<string | null>(null);
+  const pendingPushTargetRef = React.useRef<PushNavigationTarget | null>(null);
 
   const handleDeepLink = React.useCallback((url: string | null) => {
     if (!url) return;
@@ -63,12 +69,34 @@ const App = () => {
     }
   }, []);
 
+  const openPushTarget = React.useCallback((target: PushNavigationTarget) => {
+    if (!navigationRef.isReady()) {
+      pendingPushTargetRef.current = target;
+      return;
+    }
+
+    if (target.screen === 'SupportTicketDetail') {
+      navigationRef.navigate('SupportTicketDetail', target.params);
+    } else if (target.screen === 'OrderDetail') {
+      navigationRef.navigate('OrderDetail', target.params);
+    } else if (target.screen === 'VirtualTryOnResult') {
+      navigationRef.navigate('VirtualTryOnResult', target.params);
+    } else if (target.screen === 'VirtualTryOnProcessing') {
+      navigationRef.navigate('VirtualTryOnProcessing', target.params);
+    } else {
+      navigationRef.navigate('VirtualTryOnHome');
+    }
+  }, []);
+
   const handleNavigationReady = React.useCallback(() => {
     resetRootToHome();
     const pendingUrl = pendingUrlRef.current;
     pendingUrlRef.current = null;
     if (pendingUrl) handleDeepLink(pendingUrl);
-  }, [handleDeepLink]);
+    const pendingPushTarget = pendingPushTargetRef.current;
+    pendingPushTargetRef.current = null;
+    if (pendingPushTarget) openPushTarget(pendingPushTarget);
+  }, [handleDeepLink, openPushTarget]);
 
   React.useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => {
@@ -89,23 +117,15 @@ const App = () => {
   }, [handleDeepLink]);
 
   React.useEffect(() => {
+    if (!pushNotificationCapability.remoteEnabled) return;
     let unsubscribe: (() => void) | undefined;
-    subscribeToSupportNotifications((ticketId) => {
-      if (navigationRef.isReady()) navigationRef.navigate('SupportTicketDetail', { ticketId });
-    }, (orderId) => {
-      if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { orderId });
-    }, ({ jobId, destination }) => {
-      if (!navigationRef.isReady()) return;
-      if (destination === 'result' && jobId) {
-        navigationRef.navigate('VirtualTryOnResult', { jobId });
-      } else if (destination === 'processing' && jobId) {
-        navigationRef.navigate('VirtualTryOnProcessing', { jobId });
-      } else {
-        navigationRef.navigate('VirtualTryOnHome');
-      }
-    }).then((cleanup) => { unsubscribe = cleanup; }).catch(() => undefined);
+    subscribeToPushNotifications(openPushTarget)
+      .then((cleanup) => {
+        unsubscribe = cleanup;
+      })
+      .catch(() => undefined);
     return () => unsubscribe?.();
-  }, []);
+  }, [openPushTarget]);
 
   return (
     <SafeAreaProvider>
@@ -116,9 +136,11 @@ const App = () => {
           onUnhandledAction={handleUnhandledNavigationAction}
         >
           <AuthProvider>
-            <CustomerNotificationProvider>
-              <AppNavigator />
-            </CustomerNotificationProvider>
+            <PushNotificationProvider>
+              <CustomerNotificationProvider>
+                <AppNavigator />
+              </CustomerNotificationProvider>
+            </PushNotificationProvider>
           </AuthProvider>
         </NavigationContainer>
       </StorefrontSettingsProvider>

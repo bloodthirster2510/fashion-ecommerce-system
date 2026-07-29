@@ -402,6 +402,7 @@ const notifyVirtualTryOnOutcomeBestEffort = async (input: VirtualTryOnOutcomeNot
     userId: input.userId,
     title: notification.title,
     body: notification.body,
+    category: 'virtual_try_on',
     data: {
       type: 'virtual_try_on',
       jobId: input.jobId,
@@ -428,6 +429,7 @@ const notifyVirtualTryOnAccessBestEffort = async (input: {
     userId: input.userId,
     title: notification.title,
     body: notification.body,
+    category: 'virtual_try_on',
     data: { type: 'virtual_try_on_access', destination: 'home', accessState: input.state },
     disabled: process.env.VIRTUAL_TRY_ON_PUSH_NOTIFICATIONS === 'false',
   }).catch((error) => {

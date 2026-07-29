@@ -336,11 +336,11 @@ const NotificationsScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerActionButton}
-            onPress={() => navigation.navigate('SupportHome')}
+            onPress={() => navigation.navigate('NotificationSettings')}
             activeOpacity={0.78}
-            accessibilityLabel="Hỗ trợ"
+            accessibilityLabel="Cài đặt thông báo"
           >
-            <MaterialCommunityIcons name="message-processing-outline" size={25} color={colors.brandDark} />
+            <MaterialCommunityIcons name="bell-cog-outline" size={25} color={colors.brandDark} />
           </TouchableOpacity>
         </View>
       </View>
