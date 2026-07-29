@@ -63,6 +63,7 @@ export interface IVirtualTryOnJob extends Document {
   contextPreset: VirtualTryOnContextPreset;
   contextPrompt?: string;
   outputMode: VirtualTryOnOutputMode;
+  videoDurationSeconds?: number | null;
   status: VirtualTryOnJobStatus;
   progress: number;
   processingStage: VirtualTryOnProcessingStage;
@@ -145,6 +146,7 @@ const virtualTryOnJobSchema = new Schema<IVirtualTryOnJob>(
       enum: ['image', 'image_and_video'],
       default: 'image',
     },
+    videoDurationSeconds: { type: Number, min: 5, max: 12, default: null },
     status: {
       type: String,
       enum: ['queued', 'processing', 'succeeded', 'failed', 'canceled'],

@@ -84,4 +84,36 @@ describe('virtual try-on video provider', () => {
       else process.env.VIRTUAL_TRY_ON_MOCK_VIDEO_URL = previousMockVideoUrl;
     }
   });
+
+  it.each([
+    ['4', 5],
+    ['9', 9],
+    ['13', 12],
+  ])('clamps the configured default duration %s to %i seconds', (configured, expected) => {
+    const previousDuration = process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS;
+    process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS = configured;
+
+    try {
+      expect(getVirtualTryOnVideoConfiguration()).toEqual(expect.objectContaining({
+        durationSeconds: expected,
+        minDurationSeconds: 5,
+        maxDurationSeconds: 12,
+      }));
+    } finally {
+      if (previousDuration === undefined) delete process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS;
+      else process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS = previousDuration;
+    }
+  });
+
+  it('uses eight seconds when the configured duration is blank', () => {
+    const previousDuration = process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS;
+    process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS = '';
+
+    try {
+      expect(getVirtualTryOnVideoConfiguration().durationSeconds).toBe(8);
+    } finally {
+      if (previousDuration === undefined) delete process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS;
+      else process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS = previousDuration;
+    }
+  });
 });

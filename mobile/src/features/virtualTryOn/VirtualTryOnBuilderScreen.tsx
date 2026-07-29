@@ -106,6 +106,102 @@ const tryOnPalette = {
   successSoft: '#EAF7EF',
 } as const;
 
+const VIDEO_DURATION_MIN_SECONDS = 5;
+const VIDEO_DURATION_MAX_SECONDS = 12;
+const VIDEO_DURATION_DEFAULT_SECONDS = 8;
+const VIDEO_DURATION_THUMB_SIZE = 22;
+
+const clampVideoDuration = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.round(value)));
+
+const VideoDurationSlider = ({
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) => {
+  const trackRef = React.useRef<View>(null);
+  const trackLeftRef = React.useRef(0);
+  const [trackWidth, setTrackWidth] = React.useState(0);
+  const range = Math.max(1, max - min);
+  const progress = (clampVideoDuration(value, min, max) - min) / range;
+  const usableWidth = Math.max(0, trackWidth - VIDEO_DURATION_THUMB_SIZE);
+  const thumbLeft = usableWidth * progress;
+
+  const updateFromPageX = React.useCallback((pageX: number, left = trackLeftRef.current, width = trackWidth) => {
+    const nextUsableWidth = Math.max(1, width - VIDEO_DURATION_THUMB_SIZE);
+    const nextProgress = Math.min(
+      1,
+      Math.max(0, (pageX - left - VIDEO_DURATION_THUMB_SIZE / 2) / nextUsableWidth),
+    );
+    onChange(clampVideoDuration(min + nextProgress * range, min, max));
+  }, [max, min, onChange, range, trackWidth]);
+
+  const beginSliding = React.useCallback((pageX: number) => {
+    trackRef.current?.measureInWindow((left, _top, width) => {
+      trackLeftRef.current = left;
+      setTrackWidth(width);
+      updateFromPageX(pageX, left, width);
+    });
+  }, [updateFromPageX]);
+
+  return (
+    <View style={styles.videoDurationControl}>
+      <View style={styles.videoDurationHeader}>
+        <View style={styles.videoDurationTitleRow}>
+          <MaterialCommunityIcons name="timer-outline" size={18} color={tryOnPalette.primary} />
+          <Text style={styles.videoDurationLabel}>Thời lượng video</Text>
+        </View>
+        <View style={styles.videoDurationValueBadge}>
+          <Text style={styles.videoDurationValue}>{value} giây</Text>
+        </View>
+      </View>
+      <View
+        ref={trackRef}
+        style={styles.videoDurationTrackTouch}
+        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(event) => beginSliding(event.nativeEvent.pageX)}
+        onResponderMove={(event) => updateFromPageX(event.nativeEvent.pageX)}
+        onResponderTerminationRequest={() => false}
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel="Thời lượng video"
+        accessibilityHint="Vuốt hoặc chạm để chọn thời lượng từ 5 đến 12 giây"
+        accessibilityValue={{ min, max, now: value, text: `${value} giây` }}
+        accessibilityActions={[
+          { name: 'decrement', label: 'Giảm một giây' },
+          { name: 'increment', label: 'Tăng một giây' },
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'decrement') {
+            onChange(clampVideoDuration(value - 1, min, max));
+          } else if (event.nativeEvent.actionName === 'increment') {
+            onChange(clampVideoDuration(value + 1, min, max));
+          }
+        }}
+      >
+        <View style={styles.videoDurationRail} />
+        <View
+          pointerEvents="none"
+          style={[styles.videoDurationFill, { width: thumbLeft }]}
+        />
+        <View pointerEvents="none" style={[styles.videoDurationThumb, { left: thumbLeft }]} />
+      </View>
+      <View style={styles.videoDurationBounds}>
+        <Text style={styles.videoDurationBoundText}>{min} giây</Text>
+        <Text style={styles.videoDurationBoundText}>{max} giây</Text>
+      </View>
+    </View>
+  );
+};
+
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -240,8 +336,8 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh ít trang phục.',
-    message: 'Ảnh có thể bị từ chối.\nBạn vẫn có thể tiếp tục.',
+    title: 'Ảnh có thể không phù hợp.',
+    message: 'Bạn vẫn có thể tiếp tục.',
   },
   VALIDATION_PROVIDER_FAILED: {
     title: 'Chưa kiểm tra được ảnh.',
@@ -388,7 +484,7 @@ const getImageValidationReasonTitle = (reasonCode?: string | null) => {
   if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
   if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
   if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này.';
-  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh ít trang phục.';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh có thể không phù hợp.';
   if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
   return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
 };
@@ -504,6 +600,7 @@ const VirtualTryOnBuilderScreen = () => {
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
   const [includeVideo, setIncludeVideo] = React.useState(false);
+  const [videoDurationSeconds, setVideoDurationSeconds] = React.useState(VIDEO_DURATION_DEFAULT_SECONDS);
   const [capabilities, setCapabilities] = React.useState<VirtualTryOnCapabilities | null>(null);
   const [contextPreviewLang, setContextPreviewLang] = React.useState<'vi' | 'en'>('vi');
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -631,6 +728,11 @@ const VirtualTryOnBuilderScreen = () => {
       .then((nextCapabilities) => {
         if (!isCurrent) return;
         setCapabilities(nextCapabilities);
+        setVideoDurationSeconds(clampVideoDuration(
+          nextCapabilities.videoGeneration.durationSeconds,
+          nextCapabilities.videoGeneration.minDurationSeconds ?? VIDEO_DURATION_MIN_SECONDS,
+          nextCapabilities.videoGeneration.maxDurationSeconds ?? VIDEO_DURATION_MAX_SECONDS,
+        ));
         if (!nextCapabilities.videoGeneration.available) setIncludeVideo(false);
       })
       .catch(() => {
@@ -1213,7 +1315,7 @@ const VirtualTryOnBuilderScreen = () => {
   const createConfirmText = submitWarningActive
     ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
     : includeVideo
-      ? 'Hệ thống sẽ tạo 4 ảnh gợi ý trước, sau đó dùng ảnh phối đồ đầu tiên để sinh video.'
+      ? `Hệ thống sẽ tạo 4 ảnh gợi ý trước, sau đó dùng ảnh phối đồ đầu tiên để sinh video ${videoDurationSeconds} giây.`
       : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
 
   const footerLabel = (() => {
@@ -1257,6 +1359,7 @@ const VirtualTryOnBuilderScreen = () => {
           contextPreset,
           contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
           outputMode: includeVideo ? 'image_and_video' : 'image',
+          videoDurationSeconds: includeVideo ? videoDurationSeconds : undefined,
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
       );
       navigation.replace('VirtualTryOnProcessing', {
@@ -1877,23 +1980,33 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
         </View>
         {capabilities?.videoGeneration.available ? (
-          <View style={styles.outputOptionCard}>
-            <View style={styles.outputOptionIcon}>
-              <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
+          <View style={[styles.outputOptionCard, styles.videoOutputOptionCard]}>
+            <View style={styles.videoOutputOptionHeader}>
+              <View style={styles.outputOptionIcon}>
+                <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
+              </View>
+              <View style={styles.outputOptionCopy}>
+                <Text style={styles.outputOptionTitle}>Sinh thêm video</Text>
+                <Text style={styles.outputOptionText}>
+                  Dùng cùng mô tả phía trên và ảnh phối đồ đầu tiên để tạo video {capabilities.videoGeneration.resolution}.
+                </Text>
+              </View>
+              <Switch
+                value={includeVideo}
+                onValueChange={setIncludeVideo}
+                trackColor={{ false: tryOnPalette.line, true: tryOnPalette.primaryPale }}
+                thumbColor={includeVideo ? tryOnPalette.primary : colors.textMuted}
+                accessibilityLabel="Sinh thêm video phối đồ"
+              />
             </View>
-            <View style={styles.outputOptionCopy}>
-              <Text style={styles.outputOptionTitle}>Sinh thêm video</Text>
-              <Text style={styles.outputOptionText}>
-                Dùng cùng mô tả phía trên và ảnh phối đồ đầu tiên để tạo video {capabilities.videoGeneration.durationSeconds} giây, {capabilities.videoGeneration.resolution}.
-              </Text>
-            </View>
-            <Switch
-              value={includeVideo}
-              onValueChange={setIncludeVideo}
-              trackColor={{ false: tryOnPalette.line, true: tryOnPalette.primaryPale }}
-              thumbColor={includeVideo ? tryOnPalette.primary : colors.textMuted}
-              accessibilityLabel="Sinh thêm video phối đồ"
-            />
+            {includeVideo ? (
+              <VideoDurationSlider
+                value={videoDurationSeconds}
+                min={capabilities.videoGeneration.minDurationSeconds ?? VIDEO_DURATION_MIN_SECONDS}
+                max={capabilities.videoGeneration.maxDurationSeconds ?? VIDEO_DURATION_MAX_SECONDS}
+                onChange={setVideoDurationSeconds}
+              />
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -3722,6 +3835,94 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '700',
     marginTop: 2,
+  },
+  videoOutputOptionCard: {
+    minHeight: 0,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+  },
+  videoOutputOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  videoDurationControl: {
+    borderTopWidth: 1,
+    borderTopColor: tryOnPalette.line,
+    paddingTop: spacing.md,
+  },
+  videoDurationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  videoDurationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  videoDurationLabel: {
+    color: tryOnPalette.ink,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  videoDurationValueBadge: {
+    minWidth: 62,
+    borderRadius: 999,
+    backgroundColor: tryOnPalette.primarySoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    alignItems: 'center',
+  },
+  videoDurationValue: {
+    color: tryOnPalette.primaryDark,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  videoDurationTrackTouch: {
+    height: 38,
+    justifyContent: 'center',
+    marginTop: spacing.xs,
+  },
+  videoDurationRail: {
+    position: 'absolute',
+    left: VIDEO_DURATION_THUMB_SIZE / 2,
+    right: VIDEO_DURATION_THUMB_SIZE / 2,
+    top: 16.5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: tryOnPalette.primaryPale,
+  },
+  videoDurationFill: {
+    position: 'absolute',
+    left: VIDEO_DURATION_THUMB_SIZE / 2,
+    top: 16.5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: tryOnPalette.primary,
+  },
+  videoDurationThumb: {
+    position: 'absolute',
+    top: 8,
+    width: VIDEO_DURATION_THUMB_SIZE,
+    height: VIDEO_DURATION_THUMB_SIZE,
+    borderRadius: VIDEO_DURATION_THUMB_SIZE / 2,
+    backgroundColor: tryOnPalette.surface,
+    borderWidth: 6,
+    borderColor: tryOnPalette.primary,
+    ...shadows.card,
+  },
+  videoDurationBounds: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  videoDurationBoundText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
   },
   footer: {
     position: 'absolute',

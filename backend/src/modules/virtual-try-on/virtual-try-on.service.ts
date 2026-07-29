@@ -454,6 +454,8 @@ const getVideoCapabilities = () => {
     provider: configuration.provider,
     model: configuration.model,
     durationSeconds: configuration.durationSeconds,
+    minDurationSeconds: configuration.minDurationSeconds,
+    maxDurationSeconds: configuration.maxDurationSeconds,
     resolution: configuration.resolution,
     generateAudio: configuration.generateAudio,
   };
@@ -524,6 +526,7 @@ const serializeJob = async (job: IVirtualTryOnJob) => {
     contextPreset: job.contextPreset,
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
+    videoDurationSeconds: job.videoDurationSeconds ?? null,
     generatedImageUrl: generatedImageUrls[0] ?? null,
     generatedImageUrls,
     generatedVideoUrl: videoResult.url,
@@ -832,7 +835,7 @@ const runVideoStage = async (jobId: string) => {
         sourceImageUrl,
         prompt: videoPrompt.prompt,
         negativePrompt: videoPrompt.negativePrompt,
-        durationSeconds: videoConfiguration.durationSeconds,
+        durationSeconds: job.videoDurationSeconds ?? videoConfiguration.durationSeconds,
         resolution: videoConfiguration.resolution,
         generateAudio: videoConfiguration.generateAudio,
       });
@@ -1747,10 +1750,27 @@ const validateCreateJobInput = (input: CreateVirtualTryOnJobInput) => {
       'VIDEO_PROVIDER_CONFIG_MISSING',
     );
   }
+  const videoConfiguration = getVirtualTryOnVideoConfiguration();
+  const videoDurationSeconds = input.videoDurationSeconds ?? videoConfiguration.durationSeconds;
+  if (
+    outputMode === 'image_and_video'
+    && (
+      !Number.isInteger(videoDurationSeconds)
+      || videoDurationSeconds < videoConfiguration.minDurationSeconds
+      || videoDurationSeconds > videoConfiguration.maxDurationSeconds
+    )
+  ) {
+    throw new VirtualTryOnServiceError(
+      `Thời lượng video phải từ ${videoConfiguration.minDurationSeconds} đến ${videoConfiguration.maxDurationSeconds} giây`,
+      400,
+      'VIDEO_DURATION_INVALID',
+    );
+  }
 
   return {
     contextPreset,
     outputMode,
+    videoDurationSeconds: outputMode === 'image_and_video' ? videoDurationSeconds : null,
   };
 };
 
@@ -1970,6 +1990,7 @@ const createJob = async (
     contextPreset: normalized.contextPreset,
     contextPrompt: promptValidation.normalizedPrompt || undefined,
     outputMode: normalized.outputMode,
+    videoDurationSeconds: normalized.videoDurationSeconds,
     status: 'queued',
     progress: 0,
     processingStage: 'queued',
@@ -2309,6 +2330,7 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     contextPreset: job.contextPreset,
     contextPrompt: job.contextPrompt,
     outputMode: job.outputMode,
+    videoDurationSeconds: job.videoDurationSeconds ?? null,
     provider: job.provider,
     providerJobId: job.providerJobId,
     sourceImageUrl: job.sourceImageUrlSnapshot,

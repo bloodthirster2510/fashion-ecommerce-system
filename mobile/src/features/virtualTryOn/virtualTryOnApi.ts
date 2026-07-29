@@ -41,6 +41,7 @@ type CreateJobPayload = {
   contextPreset: TryOnContextPreset;
   contextPrompt?: string;
   outputMode: 'image' | 'image_and_video';
+  videoDurationSeconds?: number;
 };
 
 type ValidateAssetPayload = {

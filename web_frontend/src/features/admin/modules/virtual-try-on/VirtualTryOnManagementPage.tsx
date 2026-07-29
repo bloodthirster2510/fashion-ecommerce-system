@@ -805,7 +805,16 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   </div>
                   <div><dt>Nhà cung cấp video</dt><dd>{settings?.video.provider ?? '-'}</dd></div>
                   <div><dt>Model video</dt><dd>{settings?.video.model ?? '-'}</dd></div>
-                  <div><dt>Đầu ra video</dt><dd>{settings?.video.durationSeconds ?? '-'} giây · {settings?.video.resolution ?? '-'}</dd></div>
+                  <div>
+                    <dt>Đầu ra video</dt>
+                    <dd>
+                      Mặc định {settings?.video.durationSeconds ?? '-'} giây
+                      {' · '}
+                      {settings?.video.minDurationSeconds ?? '-'}–{settings?.video.maxDurationSeconds ?? '-'} giây
+                      {' · '}
+                      {settings?.video.resolution ?? '-'}
+                    </dd>
+                  </div>
                   <div><dt>Video/user/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
                   <div><dt>Video đồng thời/user</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
                 </dl>
@@ -952,6 +961,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   </dd>
                 </div>
                 <div><dt>Đầu ra</dt><dd>{outputModeLabels[selectedJob.outputMode]}</dd></div>
+                {selectedJob.outputMode === 'image_and_video' ? (
+                  <div><dt>Thời lượng video</dt><dd>{selectedJob.videoDurationSeconds ?? '-'} giây</dd></div>
+                ) : null}
                 <div><dt>Bối cảnh</dt><dd>{contextLabels[selectedJob.contextPreset] ?? selectedJob.contextPreset}</dd></div>
                 <div><dt>Tiến trình</dt><dd>{selectedJob.progress}%</dd></div>
                 <div><dt>Giai đoạn</dt><dd>{selectedJob.processingStage}</dd></div>

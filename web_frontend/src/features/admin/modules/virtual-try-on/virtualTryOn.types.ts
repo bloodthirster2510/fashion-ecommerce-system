@@ -16,6 +16,7 @@ export type AdminVirtualTryOnJob = {
   contextPreset: string
   contextPrompt?: string
   outputMode: 'image' | 'image_and_video'
+  videoDurationSeconds?: number | null
   provider: string
   providerJobId?: string | null
   sourceImageUrl?: string | null
@@ -109,6 +110,8 @@ export type AdminVirtualTryOnSettings = {
     provider: string
     model: string
     durationSeconds: number
+    minDurationSeconds: number
+    maxDurationSeconds: number
     resolution: string
     generateAudio: boolean
   }

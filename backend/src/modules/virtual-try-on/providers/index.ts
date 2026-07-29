@@ -85,6 +85,10 @@ const configuredFileExists = (filePath?: string) => Boolean(
   filePath?.trim() && existsSync(path.resolve(filePath.trim())),
 );
 
+const VIDEO_DURATION_MIN_SECONDS = 5;
+const VIDEO_DURATION_MAX_SECONDS = 12;
+const VIDEO_DURATION_DEFAULT_SECONDS = 8;
+
 export const getVirtualTryOnVideoConfiguration = () => {
   const provider = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
   const normalizedProvider = normalizeProviderName(provider);
@@ -110,13 +114,24 @@ export const getVirtualTryOnVideoConfiguration = () => {
     issues.push('VIDEO_PROVIDER_NOT_CONFIGURED');
   }
 
-  const durationSeconds = Math.max(1, Number(process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS) || 5);
+  const configuredDurationValue = process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS?.trim();
+  const configuredDurationSeconds = configuredDurationValue
+    ? Number(configuredDurationValue)
+    : Number.NaN;
+  const durationSeconds = Number.isFinite(configuredDurationSeconds)
+    ? Math.min(
+        VIDEO_DURATION_MAX_SECONDS,
+        Math.max(VIDEO_DURATION_MIN_SECONDS, Math.round(configuredDurationSeconds)),
+      )
+    : VIDEO_DURATION_DEFAULT_SECONDS;
   return {
     provider,
     ready: issues.length === 0,
     issues,
     model: process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim() || 'kling-v3-omni',
     durationSeconds,
+    minDurationSeconds: VIDEO_DURATION_MIN_SECONDS,
+    maxDurationSeconds: VIDEO_DURATION_MAX_SECONDS,
     resolution: process.env.VIRTUAL_TRY_ON_VIDEO_RESOLUTION?.trim() || '720p',
     generateAudio: process.env.VIRTUAL_TRY_ON_VIDEO_GENERATE_AUDIO === 'true',
   };

@@ -134,8 +134,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'alert-octagon-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Nên kiểm tra',
-      title: 'Ảnh ít trang phục.',
-      message: 'Ảnh có thể bị từ chối.\nBạn vẫn có thể tiếp tục.',
+      title: 'Ảnh có thể không phù hợp.',
+      message: 'Bạn vẫn có thể tiếp tục.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',

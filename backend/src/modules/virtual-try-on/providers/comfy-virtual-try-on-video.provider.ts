@@ -103,7 +103,7 @@ const applyVideoWorkflowInputs = async (
     workflow,
     workflowMap,
     'duration',
-    getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_DURATION') || input.durationSeconds,
+    input.durationSeconds,
   );
   setComfyMappedInput(
     workflow,

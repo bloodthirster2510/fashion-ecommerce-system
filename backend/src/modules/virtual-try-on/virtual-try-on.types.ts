@@ -23,6 +23,7 @@ export type CreateVirtualTryOnJobInput = {
   contextPreset?: VirtualTryOnContextPreset;
   contextPrompt?: string;
   outputMode?: VirtualTryOnOutputMode;
+  videoDurationSeconds?: number;
 };
 
 export type ValidateVirtualTryOnAssetInput = {

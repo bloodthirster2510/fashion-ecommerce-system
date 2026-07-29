@@ -117,6 +117,7 @@ export type VirtualTryOnJob = {
   contextPreset: TryOnContextPreset;
   contextPrompt?: string;
   outputMode: 'image' | 'image_and_video';
+  videoDurationSeconds?: number | null;
   generatedImageUrl?: string | null;
   generatedImageUrls?: string[];
   generatedVideoUrl?: string | null;
@@ -151,6 +152,8 @@ export type VirtualTryOnCapabilities = {
     provider: string;
     model: string;
     durationSeconds: number;
+    minDurationSeconds: number;
+    maxDurationSeconds: number;
     resolution: string;
     generateAudio: boolean;
   };
