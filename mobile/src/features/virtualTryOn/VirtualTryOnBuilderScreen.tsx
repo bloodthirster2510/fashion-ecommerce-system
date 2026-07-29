@@ -9,6 +9,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import ColorSwatch from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
+import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import {
   catalogApi,
   type CatalogProduct,
@@ -105,6 +106,7 @@ const tryOnPalette = {
   success: '#198754',
   successSoft: '#EAF7EF',
 } as const;
+const PRODUCT_PAGE_SIZE = 30;
 
 const VIDEO_DURATION_MIN_SECONDS = 5;
 const VIDEO_DURATION_MAX_SECONDS = 12;
@@ -612,6 +614,8 @@ const VirtualTryOnBuilderScreen = () => {
   const [isProductFilterVisible, setIsProductFilterVisible] = React.useState(false);
   const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [productPagination, setProductPagination] = React.useState<PageInfo | null>(null);
+  const [isLoadingMoreProducts, setIsLoadingMoreProducts] = React.useState(false);
   const [isPrefilling, setIsPrefilling] = React.useState(false);
   const [prefillNotice, setPrefillNotice] = React.useState('');
   const [queueItems, setQueueItems] = React.useState<TryOnSelectedItem[]>([]);
@@ -750,9 +754,11 @@ const VirtualTryOnBuilderScreen = () => {
     let isCurrent = true;
     setIsLoading(true);
     catalogApi
-      .getProducts({ page: 1, limit: 60, sort: 'newest' })
+      .getProducts({ page: 1, limit: PRODUCT_PAGE_SIZE, sort: 'newest' })
       .then((response) => {
-        if (isCurrent) setProducts(response.items);
+        if (!isCurrent) return;
+        setProducts(response.items);
+        setProductPagination(response.pagination);
       })
       .catch(() => {
         if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách.');
@@ -763,6 +769,27 @@ const VirtualTryOnBuilderScreen = () => {
 
     return () => { isCurrent = false; };
   }, []);
+
+  const loadMoreProducts = React.useCallback(async () => {
+    if (isLoadingMoreProducts || !hasNextPage(productPagination)) return;
+    setIsLoadingMoreProducts(true);
+    try {
+      const response = await catalogApi.getProducts({
+        page: (productPagination?.page ?? 0) + 1,
+        limit: PRODUCT_PAGE_SIZE,
+        sort: 'newest',
+      });
+      setProducts((current) => mergePageItems(current, response.items));
+      setProductPagination(response.pagination);
+    } catch (caught) {
+      Alert.alert(
+        'Không thể tải thêm sản phẩm',
+        caught instanceof Error ? caught.message : 'Bạn thử lại sau nhé.',
+      );
+    } finally {
+      setIsLoadingMoreProducts(false);
+    }
+  }, [isLoadingMoreProducts, productPagination]);
 
   React.useEffect(() => {
     if (!incomingSeedKey || lastPrefillKeyRef.current === incomingSeedKey) return;
@@ -2267,6 +2294,23 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với phần này.</Text>
               </View>
             )}
+            {hasNextPage(productPagination) ? (
+              <TouchableOpacity
+                style={styles.productLoadMoreButton}
+                disabled={isLoadingMoreProducts}
+                onPress={() => void loadMoreProducts()}
+                activeOpacity={0.84}
+              >
+                {isLoadingMoreProducts ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="chevron-down" size={19} color={colors.white} />
+                    <Text style={styles.productLoadMoreText}>Tải thêm sản phẩm</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -3884,6 +3928,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '800',
+  },
+  productLoadMoreButton: {
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: tryOnPalette.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+  },
+  productLoadMoreText: {
+    color: colors.white,
+    fontWeight: '900',
   },
   videoDurationValueBadge: {
     minWidth: 62,

@@ -58,24 +58,3 @@ export type MyReviewList = {
   items: MyReview[];
   pagination: { page: number; limit: number; totalItems: number; totalPages: number };
 };
-
-export type EligibleReviewItem = {
-  orderId: string;
-  orderItemId: string;
-  orderCode: string;
-  canReview: boolean;
-  reason: 'PRODUCT_UNAVAILABLE' | 'ALREADY_REVIEWED' | null;
-  review: {
-    _id: string;
-    rating: number;
-    comment: string;
-    status: 'pending' | 'visible' | 'hidden';
-    moderationReasons: string[];
-    createdAt: string;
-  } | null;
-};
-
-export type EligibleReviewItemsResponse = {
-  items: EligibleReviewItem[];
-  pagination: { page: number; limit: number; totalItems: number; totalPages: number };
-};

@@ -396,7 +396,13 @@ Quy tắc an toàn:
 
 ### P2-03 — Một số danh sách mobile đang tải cố định tối đa 100 mục
 
-Các màn support ticket, review của tôi và một số picker gọi `page=1&limit=100`, chưa có cursor/load more/pull-to-refresh đồng nhất. Dữ liệu nhỏ vẫn chạy, nhưng sẽ mất mục cũ khi tài khoản dùng lâu.
+**Đã thực hiện**
+
+- [x] Chuẩn hóa API support ticket, FAQ và đánh giá cá nhân nhận `page/limit`; màn hình tải 20 mục/trang, gộp theo `_id` để không trùng dữ liệu.
+- [x] Thêm tải thêm và pull-to-refresh cho danh sách ticket, FAQ, đánh giá cá nhân và lịch sử phối đồ; lỗi tải thêm không làm mất trang đã có.
+- [x] Phân trang kho ảnh phòng phối đồ và bộ chọn sản phẩm; các giới hạn còn lại chỉ dùng cho khối preview có chủ ý như sản phẩm gợi ý hoặc 8 job gần nhất.
+- [x] Bỏ request eligibility `page=1&limit=100` ở chi tiết đơn; chỉ kiểm tra đúng các item thuộc đơn hiện tại, đồng thời vẫn nhận diện review đã có khi sản phẩm ngừng bán.
+- [x] Thêm helper gộp trang/kiểm tra trang kế tiếp cùng unit test và test contract query phân trang của mobile API.
 
 ### P2-04 — Thiếu test ở lớp UI
 
@@ -414,10 +420,10 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `web_frontend: npm run lint` | Qua |
 | `web_frontend: npm run test:e2e` | 14/14 qua |
 | `mobile: npm run typecheck` | Qua |
-| `mobile: npm test` | 10 suite, 50 test qua |
+| `mobile: npm test` | 12 suite, 54 test qua |
 | `backend: npm run build` | Qua |
 | `backend: npm run lint` | Qua |
-| `backend: npm test` | 83 suite, 753 test qua |
+| `backend: npm test` | 83 suite, 754 test qua |
 | `backend: npm run test:e2e` | 2 suite, 5 test API-backed qua |
 | `ai_services/image-validation: python -m pytest` | 25 test qua |
 

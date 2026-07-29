@@ -1,5 +1,14 @@
 import React from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -12,8 +21,11 @@ import { useCustomerNotifications } from '../notifications/CustomerNotificationP
 import { virtualTryOnApi } from './virtualTryOnApi';
 import type { VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
+import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHistory'>;
+type LoadMode = 'initial' | 'refresh' | 'more';
+const PAGE_SIZE = 20;
 
 const statusLabel: Record<VirtualTryOnJob['status'], string> = {
   queued: 'Đang chờ',
@@ -48,28 +60,48 @@ const VirtualTryOnHistoryScreen = () => {
   const { runWithAuth } = useAuth();
   const { refresh: refreshNotifications } = useCustomerNotifications();
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
+  const [pagination, setPagination] = React.useState<PageInfo | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const requestSequenceRef = React.useRef(0);
 
-  const loadJobs = React.useCallback(() => {
-    let isCurrent = true;
-    setIsLoading(true);
-    runWithAuth((token) => virtualTryOnApi.getJobs(token, { limit: 30 }))
-      .then((response) => {
-        if (isCurrent) setJobs(response.items);
-      })
-      .catch((error: unknown) => {
-        if (!isCurrent) return;
-        const message = error instanceof Error ? error.message : 'Không tải được lịch sử phối đồ.';
-        Alert.alert('Phối đồ ảo', message);
-      })
-      .finally(() => {
-        if (isCurrent) setIsLoading(false);
-      });
+  const loadJobs = React.useCallback(async (mode: LoadMode = 'initial', page = 1) => {
+    if (mode === 'refresh') setIsRefreshing(true);
+    else if (mode === 'more') setIsLoadingMore(true);
+    else setIsLoading(true);
+    if (mode !== 'more') setError('');
 
-    return () => { isCurrent = false; };
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
+    try {
+      const response = await runWithAuth((token) => virtualTryOnApi.getJobs(token, {
+        page,
+        limit: PAGE_SIZE,
+      }));
+      if (requestSequenceRef.current !== requestSequence) return;
+      setJobs((current) => mode === 'more' ? mergePageItems(current, response.items) : response.items);
+      setPagination(response.pagination);
+    } catch (caught) {
+      if (requestSequenceRef.current !== requestSequence) return;
+      const message = caught instanceof Error ? caught.message : 'Không tải được lịch sử phối đồ.';
+      if (mode === 'more') Alert.alert('Không thể tải thêm kết quả', message);
+      else setError(message);
+    } finally {
+      if (requestSequenceRef.current !== requestSequence) return;
+      setIsLoading(false);
+      setIsRefreshing(false);
+      setIsLoadingMore(false);
+    }
   }, [runWithAuth]);
 
-  useFocusEffect(React.useCallback(() => loadJobs(), [loadJobs]));
+  useFocusEffect(React.useCallback(() => {
+    void loadJobs();
+    return () => {
+      requestSequenceRef.current += 1;
+    };
+  }, [loadJobs]));
 
   const openJob = (job: VirtualTryOnJob) => {
     if (job.status === 'succeeded' && getGeneratedTryOnImageUrls(job).length > 0) {
@@ -87,9 +119,8 @@ const VirtualTryOnHistoryScreen = () => {
         style: 'destructive',
         onPress: () => {
           runWithAuth((token) => virtualTryOnApi.deleteJob(token, job._id))
-            .then(() => {
-              setJobs((current) => current.filter((item) => item._id !== job._id));
-              void refreshNotifications();
+            .then(async () => {
+              await Promise.all([loadJobs('refresh'), refreshNotifications()]);
             })
             .catch((error: unknown) => {
               const message = error instanceof Error ? error.message : 'Không thể xóa kết quả.';
@@ -110,45 +141,76 @@ const VirtualTryOnHistoryScreen = () => {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => void loadJobs('refresh')}
+            tintColor={colors.brand}
+          />
+        )}
+      >
         {isLoading ? (
           <ActivityIndicator color={colors.brand} style={styles.loading} />
+        ) : error ? (
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={36} color={colors.danger} />
+            <Text style={styles.emptyTitle}>Chưa tải được lịch sử</Text>
+            <Text style={styles.emptyText}>{error}</Text>
+            <TouchableOpacity style={styles.loadMoreButton} onPress={() => void loadJobs()}>
+              <Text style={styles.loadMoreText}>Thử lại</Text>
+            </TouchableOpacity>
+          </View>
         ) : jobs.length ? (
-          jobs.map((job) => {
-            const imageCount = getJobImageCount(job);
+          <>
+            {jobs.map((job) => {
+              const imageCount = getJobImageCount(job);
 
-            return (
-              <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
-                <View style={styles.imageWrap}>
-                  <RemoteImage
-                    uri={getJobPreviewUrl(job)}
-                    style={styles.image}
-                    recyclingKey={`${job._id}-${job.status}`}
-                  />
-                  {imageCount > 1 ? (
-                    <View style={styles.imageCountBadge}>
-                      <Text style={styles.imageCountText}>{imageCount} ảnh</Text>
+              return (
+                <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
+                  <View style={styles.imageWrap}>
+                    <RemoteImage
+                      uri={getJobPreviewUrl(job)}
+                      style={styles.image}
+                      recyclingKey={`${job._id}-${job.status}`}
+                    />
+                    {imageCount > 1 ? (
+                      <View style={styles.imageCountBadge}>
+                        <Text style={styles.imageCountText}>{imageCount} ảnh</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.copy}>
+                    <View style={styles.titleRow}>
+                      <Text style={styles.title} numberOfLines={2}>
+                        {job.selectedItems.map((item) => item.nameSnapshot).join(' + ')}
+                      </Text>
+                      <TouchableOpacity style={styles.deleteButton} onPress={() => deleteJob(job)}>
+                        <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.textMuted} />
+                      </TouchableOpacity>
                     </View>
-                  ) : null}
-                </View>
-                <View style={styles.copy}>
-                  <View style={styles.titleRow}>
-                    <Text style={styles.title} numberOfLines={2}>
-                      {job.selectedItems.map((item) => item.nameSnapshot).join(' + ')}
-                    </Text>
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => deleteJob(job)}>
-                      <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.textMuted} />
-                    </TouchableOpacity>
+                    <View style={styles.metaRow}>
+                      <Text style={styles.badge}>{statusLabel[job.status]}</Text>
+                      <Text style={styles.date}>{formatDate(job.createdAt)}</Text>
+                    </View>
+                    <Text style={styles.price}>{job.totalFinalPrice ? `${job.selectedItems.length} món - ${job.totalFinalPrice.toLocaleString('vi-VN')}đ` : `${job.selectedItems.length} món`}</Text>
                   </View>
-                  <View style={styles.metaRow}>
-                    <Text style={styles.badge}>{statusLabel[job.status]}</Text>
-                    <Text style={styles.date}>{formatDate(job.createdAt)}</Text>
-                  </View>
-                  <Text style={styles.price}>{job.totalFinalPrice ? `${job.selectedItems.length} món - ${job.totalFinalPrice.toLocaleString('vi-VN')}đ` : `${job.selectedItems.length} món`}</Text>
-                </View>
+                </TouchableOpacity>
+              );
+            })}
+            {hasNextPage(pagination) ? (
+              <TouchableOpacity
+                style={styles.loadMoreButton}
+                disabled={isLoadingMore}
+                onPress={() => void loadJobs('more', (pagination?.page ?? 0) + 1)}
+              >
+                {isLoadingMore ? <ActivityIndicator color={colors.white} /> : <Text style={styles.loadMoreText}>Tải thêm kết quả</Text>}
               </TouchableOpacity>
-            );
-          })
+            ) : null}
+          </>
         ) : (
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="hanger" size={36} color={colors.brand} />
@@ -310,6 +372,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
+  },
+  loadMoreButton: {
+    minHeight: 46,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  loadMoreText: {
+    color: colors.white,
+    fontWeight: '900',
   },
 });
 

@@ -9,6 +9,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { colors, radii, shadows, spacing } from '../../theme';
+import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
@@ -17,6 +18,7 @@ import { contextPresetLabel } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
+const ASSET_PAGE_SIZE = 20;
 
 const formatDate = (value: string) => {
   try {
@@ -243,6 +245,8 @@ const VirtualTryOnHomeScreen = () => {
   const { isAuthenticated, runWithAuth } = useAuth();
   const [latestAsset, setLatestAsset] = React.useState<VirtualTryOnAsset | null>(null);
   const [assetLibrary, setAssetLibrary] = React.useState<VirtualTryOnAsset[]>([]);
+  const [assetPagination, setAssetPagination] = React.useState<PageInfo | null>(null);
+  const [isLoadingMoreAssets, setIsLoadingMoreAssets] = React.useState(false);
   const [latestJob, setLatestJob] = React.useState<VirtualTryOnJob | null>(null);
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -308,6 +312,7 @@ const VirtualTryOnHomeScreen = () => {
     if (!isAuthenticated) {
       setLatestAsset(null);
       setAssetLibrary([]);
+      setAssetPagination(null);
       setLatestJob(null);
       setJobs([]);
       return;
@@ -317,13 +322,14 @@ const VirtualTryOnHomeScreen = () => {
     setIsLoading(true);
     runWithAuth(async (token) => {
       const [assetsResponse, latest, jobsResponse] = await Promise.all([
-        virtualTryOnApi.getAssets(token, { limit: 20 }),
+        virtualTryOnApi.getAssets(token, { page: 1, limit: ASSET_PAGE_SIZE }),
         virtualTryOnApi.getLatestJob(token),
         virtualTryOnApi.getJobs(token, { limit: 8 }),
       ]);
       if (!isCurrent) return;
       const sourceAssets = assetsResponse.items.filter(isSourceAsset);
       setAssetLibrary(sourceAssets);
+      setAssetPagination(assetsResponse.pagination);
       setLatestAsset((current) => (
         current && sourceAssets.some((asset) => asset._id === current._id)
           ? current
@@ -345,6 +351,26 @@ const VirtualTryOnHomeScreen = () => {
   }, [isAuthenticated, runWithAuth]);
 
   useFocusEffect(React.useCallback(() => loadDashboard(), [loadDashboard]));
+
+  const loadMoreAssets = React.useCallback(async () => {
+    if (isLoadingMoreAssets || !hasNextPage(assetPagination)) return;
+    setIsLoadingMoreAssets(true);
+    try {
+      const response = await runWithAuth((token) => virtualTryOnApi.getAssets(token, {
+        page: (assetPagination?.page ?? 0) + 1,
+        limit: ASSET_PAGE_SIZE,
+      }));
+      setAssetLibrary((current) => mergePageItems(current, response.items.filter(isSourceAsset)));
+      setAssetPagination(response.pagination);
+    } catch (caught) {
+      Alert.alert(
+        'Không thể tải thêm ảnh',
+        caught instanceof Error ? caught.message : 'Bạn thử lại sau nhé.',
+      );
+    } finally {
+      setIsLoadingMoreAssets(false);
+    }
+  }, [assetPagination, isLoadingMoreAssets, runWithAuth]);
 
   React.useEffect(() => {
     if (pendingSeedItems.length && !latestAsset && assetLibrary.length) {
@@ -744,6 +770,24 @@ const VirtualTryOnHomeScreen = () => {
                   </TouchableOpacity>
                 );
               })}
+              {hasNextPage(assetPagination) ? (
+                <TouchableOpacity
+                  style={styles.assetLoadMoreButton}
+                  onPress={() => void loadMoreAssets()}
+                  disabled={isLoadingMoreAssets}
+                  activeOpacity={0.84}
+                  accessibilityLabel="Tải thêm ảnh trong kho"
+                >
+                  {isLoadingMoreAssets ? (
+                    <ActivityIndicator color={studioPalette.primary} />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="chevron-right" size={24} color={studioPalette.primary} />
+                      <Text style={styles.assetLoadMoreText}>Tải thêm</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : null}
             </ScrollView>
           </View>
         ) : null}
@@ -1339,6 +1383,22 @@ const styles = StyleSheet.create({
     borderColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  assetLoadMoreButton: {
+    width: 82,
+    height: 104,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    backgroundColor: studioPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  assetLoadMoreText: {
+    color: studioPalette.primary,
+    fontSize: 12,
+    fontWeight: '900',
   },
   inlineLoading: {
     borderRadius: radii.sm,

@@ -13,7 +13,11 @@ import type {
   SupportTicketType,
 } from './support.types';
 
-type Pagination<T> = { items: T[]; pagination: { page: number; totalItems: number; totalPages: number } };
+type Pagination<T> = {
+  items: T[];
+  pagination: { page: number; limit: number; totalItems: number; totalPages: number };
+};
+type PageQuery = { page?: number; limit?: number };
 
 export class SupportApiError extends Error {
   status?: number;
@@ -38,15 +42,24 @@ const appendImages = (form: FormData, images: SupportImage[]) => images.forEach(
 });
 
 export const supportApi = {
-  listFaqs: (search = '', category?: string) => {
-    const params = new URLSearchParams({ page: '1', limit: '50' });
+  listFaqs: (search = '', category?: string, query: PageQuery = {}) => {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      limit: String(query.limit ?? 20),
+    });
     if (search.trim()) params.set('search', search.trim());
     if (category) params.set('category', category);
     return request<Pagination<FaqArticle>>(`/support/faqs?${params.toString()}`);
   },
   voteFaq: (token: string, id: string, value: 'helpful' | 'not_helpful') =>
     request<FaqArticle>(`/support/faqs/${id}/vote`, token, { method: 'POST', body: JSON.stringify({ value }) }),
-  listTickets: (token: string) => request<Pagination<SupportTicket>>('/support/tickets?page=1&limit=100', token),
+  listTickets: (token: string, query: PageQuery = {}) => {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      limit: String(query.limit ?? 20),
+    });
+    return request<Pagination<SupportTicket>>(`/support/tickets?${params.toString()}`, token);
+  },
   getTicket: (token: string, id: string) => request<SupportTicketDetail>(`/support/tickets/${id}`, token),
   getSummary: (token: string) => request<SupportSummary>('/support/summary', token),
   createTicket: (token: string, payload: {
