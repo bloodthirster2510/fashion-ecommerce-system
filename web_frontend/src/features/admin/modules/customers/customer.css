@@ -274,6 +274,216 @@
   padding-top: 16px;
 }
 
+.admin-customer-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #9f2f2f;
+  background: #fff0f0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-customer-order-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-customer-order-summary div {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-customer-order-summary span {
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-customer-order-summary strong {
+  color: var(--admin-text);
+  font-size: 14px;
+}
+
+.admin-customer-order-list,
+.admin-customer-note-list,
+.admin-customer-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-customer-order {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+}
+
+.admin-customer-order > div:first-child,
+.admin-customer-order__status {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-customer-order > div:first-child span,
+.admin-customer-order a,
+.admin-customer-order__status strong {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-customer-order__status {
+  justify-items: end;
+}
+
+.admin-customer-order a {
+  grid-column: 1 / -1;
+  width: fit-content;
+  color: var(--admin-accent-dark);
+}
+
+.admin-customer-timeline__item {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.admin-customer-timeline__item > span {
+  width: fit-content;
+  height: fit-content;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #31536b;
+  background: #eaf3f8;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.admin-customer-timeline__item > span.is-audit {
+  color: #724d21;
+  background: #fff4d9;
+}
+
+.admin-customer-timeline__item > span.is-order {
+  color: #27603f;
+  background: #e6f5ec;
+}
+
+.admin-customer-timeline__item div {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-customer-timeline__item p,
+.admin-customer-timeline__item time {
+  margin: 0;
+  color: var(--admin-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-customer-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-customer-pagination span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-customer-note-form {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-customer-note-form label {
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.admin-customer-note-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fbfcfd;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.admin-customer-note-form > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-customer-note {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.admin-customer-note p {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--admin-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-customer-note footer,
+.admin-customer-note footer div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-customer-note footer {
+  justify-content: space-between;
+}
+
+.admin-customer-note footer span,
+.admin-customer-note footer button {
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-customer-note footer button {
+  padding: 0;
+  border: 0;
+  color: var(--admin-accent-dark);
+  background: transparent;
+  cursor: pointer;
+}
+
+.admin-customer-note footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 @media (max-width: 720px) {
   .admin-drawer-actions {
     align-items: stretch;
@@ -281,6 +491,14 @@
   }
 
   .admin-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-customer-order-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-customer-timeline__item {
     grid-template-columns: 1fr;
   }
 

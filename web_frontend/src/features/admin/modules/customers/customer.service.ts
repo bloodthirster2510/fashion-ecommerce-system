@@ -5,6 +5,8 @@ import type {
   ManagedUserList,
   ManagedUserRole,
   ManagedUserSummary,
+  ManagedCustomerInsights,
+  ManagedCustomerNote,
 } from './customer.types'
 
 type ManagedUserApiResponse = Omit<ManagedUser, 'isActive'> & {
@@ -88,7 +90,61 @@ export const updateManagedUserRole = (id: string, role: ManagedUserRole) =>
     body: JSON.stringify({ role }),
   }).then(normalizeManagedUserStatus)
 
+export type PasswordResetDeliveryInfo = {
+  mode: 'mock' | 'real'
+  provider: 'mock' | 'smtp'
+  testToken?: string
+  testUrl?: string
+}
+
 export const forceManagedUserPasswordReset = (id: string) =>
-  requestAdmin<null>(`/admin/users/${id}/force-password-reset`, {
+  requestAdmin<PasswordResetDeliveryInfo>(`/admin/users/${id}/force-password-reset`, {
     method: 'POST',
   })
+
+export const getManagedCustomerInsights = (
+  id: string,
+  activityPage = 1,
+  activityLimit = 20,
+) => {
+  const params = new URLSearchParams({
+    activityPage: String(activityPage),
+    activityLimit: String(activityLimit),
+  })
+  return requestAdmin<ManagedCustomerInsights>(
+    `/admin/users/${encodeURIComponent(id)}/insights?${params.toString()}`,
+  )
+}
+
+export const listManagedCustomerNotes = (id: string) =>
+  requestAdmin<ManagedCustomerNote[]>(
+    `/admin/users/${encodeURIComponent(id)}/notes?limit=100`,
+  )
+
+export const createManagedCustomerNote = (id: string, content: string) =>
+  requestAdmin<ManagedCustomerNote>(
+    `/admin/users/${encodeURIComponent(id)}/notes`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    },
+  )
+
+export const updateManagedCustomerNote = (
+  id: string,
+  noteId: string,
+  content: string,
+) =>
+  requestAdmin<ManagedCustomerNote>(
+    `/admin/users/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    },
+  )
+
+export const deleteManagedCustomerNote = (id: string, noteId: string) =>
+  requestAdmin<{ deleted: true }>(
+    `/admin/users/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`,
+    { method: 'DELETE' },
+  )

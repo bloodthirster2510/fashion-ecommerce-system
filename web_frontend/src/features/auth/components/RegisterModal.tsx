@@ -146,8 +146,12 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
       const phone = await form.validateFields(['phone']).then((values) => values.phone)
       setIsSendingOtp(true)
       setRegisterError('')
-      await authService.sendOtp(phone.trim())
-      message.success('Mã OTP đã được gửi.')
+      const delivery = await authService.sendOtp(phone.trim())
+      message.success(
+        delivery.mode === 'mock'
+          ? `Chế độ thử nghiệm — nếu số điện thoại có thể đăng ký, dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}.`
+          : 'Nếu số điện thoại có thể đăng ký, nhà cung cấp SMS đã tiếp nhận yêu cầu gửi OTP.',
+      )
     } catch (error) {
       if (error instanceof Error) setRegisterError(error.message)
     } finally {

@@ -7,6 +7,9 @@ export type ResolvedGhnArea = {
   districtId: number | null;
   wardCode: string | null;
   status: 'mapped' | 'missing' | 'manual';
+  confidence: 'exact' | 'manual' | 'legacy' | null;
+  verifiedAt: Date | null;
+  source: 'explicit' | 'legacy' | 'mapping' | 'managed' | 'missing';
 };
 
 export const resolveGhnArea = (address?: ShippingAddressForQuote | null): ResolvedGhnArea => {
@@ -17,6 +20,9 @@ export const resolveGhnArea = (address?: ShippingAddressForQuote | null): Resolv
       districtId: null,
       wardCode: null,
       status: 'missing',
+      confidence: null,
+      verifiedAt: null,
+      source: 'missing',
     };
   }
 
@@ -28,5 +34,28 @@ export const resolveGhnArea = (address?: ShippingAddressForQuote | null): Resolv
     districtId: resolvedGhnFields.ghnDistrictId,
     wardCode: resolvedGhnFields.ghnWardCode,
     status: resolvedGhnFields.ghnMappingStatus,
+    confidence: resolvedGhnFields.ghnMappingConfidence,
+    verifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    source: resolvedGhnFields.source,
+  };
+};
+
+export const resolveManagedGhnArea = async (
+  address?: ShippingAddressForQuote | null,
+): Promise<ResolvedGhnArea> => {
+  if (!address) return resolveGhnArea(address);
+
+  const resolvedGhnFields =
+    await shippingAreaMappingService.resolveStoredGhnFieldsWithManagedMapping(address);
+
+  return {
+    provider: 'GHN',
+    provinceId: resolvedGhnFields.ghnProvinceId,
+    districtId: resolvedGhnFields.ghnDistrictId,
+    wardCode: resolvedGhnFields.ghnWardCode,
+    status: resolvedGhnFields.ghnMappingStatus,
+    confidence: resolvedGhnFields.ghnMappingConfidence,
+    verifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    source: resolvedGhnFields.source,
   };
 };

@@ -27,14 +27,17 @@ $env:IMAGE_VALIDATION_YOLO_POSE_MODEL="models/yolo11n-pose.pt"
 ## Backend configuration
 
 ```env
-IMAGE_VALIDATION_PROVIDER=custom_model
+IMAGE_VALIDATION_PROVIDER=auto
 IMAGE_VALIDATION_CUSTOM_MODEL_URL=http://127.0.0.1:7001/validate-image
+IMAGE_VALIDATION_CUSTOM_MODEL_HEALTH_URL=http://127.0.0.1:7001/health
 IMAGE_VALIDATION_CUSTOM_MODEL_TIMEOUT_MS=15000
+IMAGE_VALIDATION_HEALTH_TIMEOUT_MS=2000
 IMAGE_VALIDATION_FAIL_OPEN=false
 ```
 
-For local development, `IMAGE_VALIDATION_FAIL_OPEN=true` can keep try-on usable if the
-Python service is down. Production should keep it `false`.
+`auto` selects `custom_model` when its URL is configured and otherwise uses `mock`
+in development/test. Production never falls back to mock and always forces
+fail-closed, even if `IMAGE_VALIDATION_FAIL_OPEN=true` is accidentally set.
 
 ## API
 

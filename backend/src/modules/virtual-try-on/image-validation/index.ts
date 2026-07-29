@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { createCustomModelImageValidationProvider } from './custom-model-image-validation.provider';
 import {
   createDisabledImageValidationProvider,
@@ -39,11 +40,155 @@ const providerNames: readonly ImageValidationProviderName[] = [
   'custom_model',
 ];
 
+export type ImageValidationProviderResolution = {
+  requestedProvider: string;
+  provider: ImageValidationProviderName;
+  configured: boolean;
+  fallback: boolean;
+  failOpen: boolean;
+};
+
+export type ImageValidationProviderHealth = ImageValidationProviderResolution & {
+  available: boolean;
+  reasonCode: string | null;
+  latencyMs: number | null;
+  checkedAt: string;
+};
+
+const getCustomModelUrl = () => process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL?.trim() || null;
+
+export const isImageValidationFailOpen = () =>
+  process.env.NODE_ENV !== 'production' &&
+  process.env.IMAGE_VALIDATION_FAIL_OPEN === 'true';
+
+export const getImageValidationProviderResolution = (): ImageValidationProviderResolution => {
+  const requestedProvider = process.env.IMAGE_VALIDATION_PROVIDER?.trim().toLowerCase() || 'auto';
+  const customModelConfigured = Boolean(getCustomModelUrl());
+
+  if (providerNames.includes(requestedProvider as ImageValidationProviderName)) {
+    const provider = requestedProvider as ImageValidationProviderName;
+    return {
+      requestedProvider,
+      provider,
+      configured:
+        provider === 'disabled' ||
+        provider === 'mock' ||
+        (provider === 'custom_model' && customModelConfigured),
+      fallback: false,
+      failOpen: isImageValidationFailOpen(),
+    };
+  }
+
+  if (customModelConfigured) {
+    return {
+      requestedProvider,
+      provider: 'custom_model',
+      configured: true,
+      fallback: false,
+      failOpen: isImageValidationFailOpen(),
+    };
+  }
+
+  const useMockFallback = process.env.NODE_ENV !== 'production';
+  return {
+    requestedProvider,
+    provider: useMockFallback ? 'mock' : 'custom_model',
+    configured: useMockFallback,
+    fallback: useMockFallback,
+    failOpen: isImageValidationFailOpen(),
+  };
+};
+
 export const getConfiguredImageValidationProviderName = (): ImageValidationProviderName => {
-  const configured = process.env.IMAGE_VALIDATION_PROVIDER?.trim();
-  return providerNames.includes(configured as ImageValidationProviderName)
-    ? configured as ImageValidationProviderName
-    : 'custom_model';
+  return getImageValidationProviderResolution().provider;
+};
+
+const getCustomModelHealthUrl = () => {
+  const configuredHealthUrl = process.env.IMAGE_VALIDATION_CUSTOM_MODEL_HEALTH_URL?.trim();
+  if (configuredHealthUrl) return configuredHealthUrl;
+
+  const endpoint = getCustomModelUrl();
+  if (!endpoint) return null;
+  try {
+    const healthUrl = new URL(endpoint);
+    healthUrl.pathname = healthUrl.pathname.endsWith('/validate-image')
+      ? `${healthUrl.pathname.slice(0, -'/validate-image'.length)}/health`
+      : `${healthUrl.pathname.replace(/\/$/, '')}/health`;
+    healthUrl.search = '';
+    healthUrl.hash = '';
+    return healthUrl.toString();
+  } catch {
+    return null;
+  }
+};
+
+const getHealthTimeoutMs = () => {
+  const timeoutMs = Number(process.env.IMAGE_VALIDATION_HEALTH_TIMEOUT_MS);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2_000;
+};
+
+export const checkImageValidationProviderHealth = async (): Promise<ImageValidationProviderHealth> => {
+  const resolution = getImageValidationProviderResolution();
+  const base = {
+    ...resolution,
+    checkedAt: new Date().toISOString(),
+  };
+
+  if (resolution.provider === 'disabled') {
+    return {
+      ...base,
+      available: false,
+      reasonCode: 'IMAGE_VALIDATION_DISABLED',
+      latencyMs: null,
+    };
+  }
+  if (resolution.provider === 'mock') {
+    return {
+      ...base,
+      available: true,
+      reasonCode: resolution.fallback ? 'USING_MOCK_FALLBACK' : null,
+      latencyMs: 0,
+    };
+  }
+  if (resolution.provider !== 'custom_model') {
+    return {
+      ...base,
+      available: false,
+      reasonCode: 'IMAGE_VALIDATION_PROVIDER_NOT_IMPLEMENTED',
+      latencyMs: null,
+    };
+  }
+
+  const healthUrl = getCustomModelHealthUrl();
+  if (!resolution.configured || !healthUrl) {
+    return {
+      ...base,
+      available: false,
+      reasonCode: 'IMAGE_VALIDATION_URL_MISSING',
+      latencyMs: null,
+    };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const response = await axios.get<{ status?: unknown }>(healthUrl, {
+      timeout: getHealthTimeoutMs(),
+    });
+    const available = response.data?.status === 'ok';
+    return {
+      ...base,
+      available,
+      reasonCode: available ? null : 'IMAGE_VALIDATION_HEALTH_INVALID',
+      latencyMs: Date.now() - startedAt,
+    };
+  } catch {
+    return {
+      ...base,
+      available: false,
+      reasonCode: 'IMAGE_VALIDATION_UNREACHABLE',
+      latencyMs: Date.now() - startedAt,
+    };
+  }
 };
 
 const createUnimplementedProvider = (name: ImageValidationProviderName): ImageValidationProvider => ({

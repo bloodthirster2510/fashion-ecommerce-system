@@ -61,4 +61,14 @@ describe('SearchHistory model', () => {
       expect.objectContaining({ expireAfterSeconds: DEFAULT_SEARCH_HISTORY_TTL_SECONDS }),
     ]);
   });
+
+  it('uses a partial unique index for idempotent event ids', () => {
+    expect(SearchHistory.schema.indexes()).toContainEqual([
+      { eventId: 1 },
+      expect.objectContaining({
+        unique: true,
+        partialFilterExpression: { eventId: { $type: 'string' } },
+      }),
+    ]);
+  });
 });

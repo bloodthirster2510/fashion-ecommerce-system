@@ -3,6 +3,7 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 export type AuditLogAction =
   | 'order.status_update'
   | 'order.shipping_update'
+  | 'order.shipping_mapping_update'
   | 'order.shipping_webhook'
   | 'order.shipping_reconcile'
   | 'order.auto_complete_delivered'
@@ -12,6 +13,8 @@ export type AuditLogAction =
   | 'payment.vnpay_refund'
   | 'payment_method.status_update'
   | 'payment_method.account_reveal'
+  | 'shipping_mapping.import'
+  | 'shipping_mapping.review'
   | 'membership_ranking.create'
   | 'membership_ranking.update'
   | 'membership_ranking.status_update'
@@ -23,6 +26,13 @@ export type AuditLogAction =
   | 'review.moderation'
   | 'review.reply'
   | 'review.reply_delete'
+  | 'customer.status_update'
+  | 'customer.password_reset_requested'
+  | 'customer_note.create'
+  | 'customer_note.update'
+  | 'customer_note.delete'
+  | 'virtual_try_on.settings_update'
+  | 'virtual_try_on.settings_rollback'
   | 'storefront_settings.update';
 
 export interface IAuditLog extends Document {
@@ -52,6 +62,7 @@ const auditLogSchema = new Schema<IAuditLog>(
       enum: [
         'order.status_update',
         'order.shipping_update',
+        'order.shipping_mapping_update',
         'order.shipping_webhook',
         'order.shipping_reconcile',
         'order.auto_complete_delivered',
@@ -61,6 +72,8 @@ const auditLogSchema = new Schema<IAuditLog>(
         'payment.vnpay_refund',
         'payment_method.status_update',
         'payment_method.account_reveal',
+        'shipping_mapping.import',
+        'shipping_mapping.review',
         'membership_ranking.create',
         'membership_ranking.update',
         'membership_ranking.status_update',
@@ -72,6 +85,13 @@ const auditLogSchema = new Schema<IAuditLog>(
         'review.moderation',
         'review.reply',
         'review.reply_delete',
+        'customer.status_update',
+        'customer.password_reset_requested',
+        'customer_note.create',
+        'customer_note.update',
+        'customer_note.delete',
+        'virtual_try_on.settings_update',
+        'virtual_try_on.settings_rollback',
         'storefront_settings.update',
       ],
       required: true,

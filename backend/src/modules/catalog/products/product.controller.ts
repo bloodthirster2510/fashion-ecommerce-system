@@ -253,6 +253,14 @@ const trackKeywordSearch = (
   void searchHistoryService.recordSearchBestEffort({
     userId: req.user?.userId,
     sessionId,
+    eventId: parseString(req.query.searchEventId),
+    source: parseString(req.query.searchSource) as
+      | 'catalog'
+      | 'mobile_manual'
+      | 'mobile_history'
+      | 'mobile_suggestion'
+      | 'api'
+      | undefined,
     searchType: 'keyword',
     keyword: query.keyword,
     resultProducts: products.items.map((product, index) => ({

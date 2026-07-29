@@ -18,6 +18,7 @@ import CategoryDrawer from './components/CategoryDrawer';
 import FeatureCard from './components/FeatureCard';
 import ProductSection from './components/ProductSection';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
+import { addSearchHistory, createSearchEventId } from '../search/searchHistory';
 
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -185,6 +186,7 @@ const HomeScreen = () => {
   };
 
   const handleSearchSubmit = (keyword: string) => {
+    void addSearchHistory(keyword);
     recordInteraction({
       actionType: 'search',
       source: 'search',
@@ -194,6 +196,8 @@ const HomeScreen = () => {
     navigation.navigate('ProductList', {
       title: `Tìm kiếm: ${keyword}`,
       keyword,
+      searchEventId: createSearchEventId(),
+      searchSource: 'mobile_manual',
     });
   };
 

@@ -21,6 +21,7 @@ import { locationApi, type ProvinceApiItem, type WardApiItem } from '../location
 import { LocationPicker } from '../../../components/ui/LocationPicker';
 import { colors, sharedStyles } from '../../../theme';
 import { LEGAL_POLICY_VERSION, policyUrls } from '../../../config/policies';
+import { buildDateOfBirth, buildManualWardCode, getDayOptions } from '../registerValidation';
 
 type AuthNavigationProp = StackNavigationProp<RootStackParamList>;
 type Gender = 'male' | 'female';
@@ -83,20 +84,6 @@ const yearOptions: SelectOption[] = Array.from({ length: 88 }, (_, index) => {
 const isInlineSelectId = (id?: string) =>
   id === 'gender' || id === 'birthDay' || id === 'birthMonth' || id === 'birthYear';
 
-const getDayOptions = (month: string, year: string): SelectOption[] => {
-  const numericMonth = Number(month);
-  const numericYear = Number(year) || currentYear;
-  const dayCount = numericMonth ? new Date(numericYear, numericMonth, 0).getDate() : 31;
-
-  return Array.from({ length: dayCount }, (_, index) => {
-    const value = String(index + 1);
-    return { label: value, value };
-  });
-};
-
-const buildManualWardCode = (provinceCode: string, wardName: string) =>
-  `manual-${provinceCode || 'unknown'}-${wardName.trim().replace(/\s+/g, '-').toLowerCase()}`;
-
 const RegisterScreen = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -123,6 +110,7 @@ const RegisterScreen = () => {
   const [otpToken, setOtpToken] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpDeliveryMessage, setOtpDeliveryMessage] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -240,6 +228,7 @@ const RegisterScreen = () => {
   const resetOtpState = () => {
     setOtp('');
     setOtpToken('');
+    setOtpDeliveryMessage('');
   };
 
   const handlePhoneChange = (value: string) => {
@@ -247,35 +236,8 @@ const RegisterScreen = () => {
     if (otpToken) resetOtpState();
   };
 
-  const buildDateOfBirth = () => {
-    const day = Number(birthDay);
-    const month = Number(birthMonth);
-    const year = Number(birthYear);
-
-    if (!day || !month || !year) return null;
-
-    const date = new Date(Date.UTC(year, month - 1, day));
-    const isValidDate =
-      date.getUTCFullYear() === year &&
-      date.getUTCMonth() === month - 1 &&
-      date.getUTCDate() === day;
-
-    if (!isValidDate) return null;
-
-    const today = new Date();
-    let age = today.getFullYear() - year;
-    const birthdayHasPassed =
-      today.getMonth() + 1 > month ||
-      (today.getMonth() + 1 === month && today.getDate() >= day);
-    if (!birthdayHasPassed) age -= 1;
-
-    if (age < 13 || age > 100) return null;
-
-    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  };
-
   const getFieldError = (field: RegisterField) => {
-    const dateOfBirth = buildDateOfBirth();
+    const dateOfBirth = buildDateOfBirth(birthDay, birthMonth, birthYear);
     const receiverName = customerName.trim() || name.trim();
     const receiverPhone = addressPhone.trim() || phone.trim();
     const requiredFieldErrors: Partial<Record<RegisterField, string>> = {
@@ -473,8 +435,14 @@ const RegisterScreen = () => {
     setGeneralError('');
     try {
       setOtpLoading(true);
-      await authApi.sendOtp(phone.trim());
+      const delivery = await authApi.sendOtp(phone.trim());
+      setOtpDeliveryMessage(
+        delivery.mode === 'mock'
+          ? `Chế độ thử nghiệm — nếu số điện thoại có thể đăng ký, dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}`
+          : `Nếu số điện thoại có thể đăng ký, ${delivery.provider === 'esms' ? 'eSMS' : 'Twilio'} đã tiếp nhận yêu cầu gửi OTP.`,
+      );
     } catch (error) {
+      setOtpDeliveryMessage('');
       setGeneralError(error instanceof Error ? error.message : 'Không thể gửi mã OTP');
     } finally {
       setOtpLoading(false);
@@ -508,7 +476,7 @@ const RegisterScreen = () => {
   const handleRegister = async () => {
     setSubmitted(true);
     setGeneralError('');
-    const dateOfBirth = buildDateOfBirth();
+    const dateOfBirth = buildDateOfBirth(birthDay, birthMonth, birthYear);
     const receiverName = customerName.trim() || name.trim();
     const receiverPhone = addressPhone.trim() || phone.trim();
 
@@ -790,6 +758,7 @@ const RegisterScreen = () => {
           >
             <Text style={styles.outlineButtonText}>{otpLoading ? 'Đang gửi OTP...' : 'Gửi mã OTP qua SMS'}</Text>
           </TouchableOpacity>
+          {otpDeliveryMessage ? <Text style={styles.otpDeliveryText}>{otpDeliveryMessage}</Text> : null}
 
           <View style={styles.otpContainer}>
             <Text style={styles.label}>Mã OTP</Text>
@@ -1167,6 +1136,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: colors.success,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  otpDeliveryText: {
+    marginTop: 8,
+    color: colors.textMuted,
+    fontSize: 13,
     fontWeight: '600',
   },
   dateRow: {

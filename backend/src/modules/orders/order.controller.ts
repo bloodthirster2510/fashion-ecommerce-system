@@ -7,6 +7,9 @@ import { SalesServiceError } from '../sales/sales.helpers';
 import { orderService } from './order.service';
 import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from './order.constants';
 import type {
+  BulkOrderGhnAction,
+  BulkOrderGhnInput,
+  BulkUpdateOrderStatusInput,
   CancelOrderInput,
   CreateOrderInput,
   OrderListQueryInput,
@@ -15,6 +18,7 @@ import type {
   RequestReturnInput,
   ReviewReturnRequestInput,
   SimulatedShippingWebhookInput,
+  UpdateOrderGhnMappingInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -26,6 +30,8 @@ const ORDER_LIST_SORTS = [
   'total_asc',
   'payment_deadline_asc',
 ] as const;
+const MAX_BULK_ORDER_COUNT = 100;
+const MAX_BULK_GHN_ORDER_COUNT = 20;
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   return (
@@ -84,6 +90,14 @@ const parseStringList = (value: unknown): string[] => {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+};
+
+const parseOptionalBoolean = (value: unknown, fieldName: string) => {
+  const normalized = parseString(value)?.toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw new SalesServiceError(`Invalid ${fieldName}`, 400);
 };
 
 const parsePositiveInteger = (value: unknown, fieldName: string) => {
@@ -246,10 +260,53 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   from: parseDate(req.query.dateFrom ?? req.query.from, 'dateFrom'),
   to: parseDateTo(req.query.dateTo ?? req.query.to, 'dateTo'),
   paymentDeadlineBefore: parseDate(req.query.paymentDeadlineBefore, 'paymentDeadlineBefore'),
+  shippingFallback: parseOptionalBoolean(req.query.shippingFallback, 'shippingFallback'),
   sort: parseOrderListSort(req.query.sort),
   page: parsePositiveInteger(req.query.page, 'page'),
   limit: parsePositiveInteger(req.query.limit, 'limit'),
 });
+
+const parseBulkOrderIds = (value: unknown, maxOrderCount = MAX_BULK_ORDER_COUNT) => {
+  if (!Array.isArray(value)) {
+    throw new SalesServiceError('orderIds must be an array', 400);
+  }
+
+  const orderIds = Array.from(new Set(
+    value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ));
+
+  if (orderIds.length === 0) {
+    throw new SalesServiceError('At least one orderId is required', 400);
+  }
+
+  if (orderIds.length > maxOrderCount) {
+    throw new SalesServiceError(`A batch cannot exceed ${maxOrderCount} orders`, 400);
+  }
+
+  return orderIds;
+};
+
+const parseRequiredReason = (value: unknown) => {
+  const reason = parseString(value);
+  if (!reason) {
+    throw new SalesServiceError('reason is required', 400);
+  }
+  if (reason.length > 500) {
+    throw new SalesServiceError('reason cannot exceed 500 characters', 400);
+  }
+  return reason;
+};
+
+const parseBulkGhnAction = (value: unknown): BulkOrderGhnAction => {
+  const action = parseString(value);
+  if (action !== 'create' && action !== 'sync') {
+    throw new SalesServiceError('action must be create or sync', 400);
+  }
+  return action;
+};
 
 const getUserId = (req: Request) => req.user!.userId;
 const getUserRole = (req: Request) => req.user?.role;
@@ -343,11 +400,13 @@ const recordOrderShippingUpdateAudit = async ({
   beforeOrder,
   order,
   reason,
+  metadata,
 }: {
   req: Request;
   beforeOrder: Awaited<ReturnType<typeof orderService.getOrderById>>;
   order: Awaited<ReturnType<typeof orderService.updateOrderShipping>>;
   reason: string;
+  metadata?: Record<string, unknown>;
 }) => {
   await auditLogService.recordAuditLogBestEffort({
     actorId: req.user?.userId ?? null,
@@ -367,8 +426,117 @@ const recordOrderShippingUpdateAudit = async ({
       provider: order.shipping?.provider ?? null,
       trackingCode: order.shipping?.trackingCode ?? null,
       shippingStatus: order.shipping?.status ?? null,
+      ...metadata,
     },
   });
+};
+
+const applyAdminOrderStatusUpdate = async ({
+  req,
+  orderId,
+  input,
+  metadata,
+}: {
+  req: Request;
+  orderId: string;
+  input: UpdateOrderStatusInput;
+  metadata?: Record<string, unknown>;
+}) => {
+  const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), orderId);
+  const order = input.status === 'cancelled'
+    ? await orderService.cancelOrder(
+      getUserId(req),
+      getUserRole(req),
+      orderId,
+      input as CancelOrderInput,
+    )
+    : await orderService.updateOrderStatus(orderId, input);
+
+  await auditLogService.recordAuditLogBestEffort({
+    actorId: req.user?.userId ?? null,
+    actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+    action: 'order.status_update',
+    targetType: 'Order',
+    targetId: order._id.toString(),
+    reason: input.reason ?? null,
+    before: {
+      status: beforeOrder.status,
+      paymentStatus: beforeOrder.paymentStatus,
+    },
+    after: {
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+    },
+    metadata: {
+      orderCode: order.orderCode,
+      ...metadata,
+    },
+  });
+
+  return order;
+};
+
+const toCsvCell = (value: unknown) => {
+  if (value === null || value === undefined) return '""';
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : '""';
+  }
+
+  const text = value instanceof Date ? value.toISOString() : String(value);
+  const formulaSafeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${formulaSafeText.replace(/"/g, '""')}"`;
+};
+
+const buildOrdersCsv = (
+  orders: Awaited<ReturnType<typeof orderService.getOrdersForExport>>['items'],
+) => {
+  const headers = [
+    'Mã đơn',
+    'Mã hóa đơn',
+    'Khách hàng',
+    'Số điện thoại',
+    'Sản phẩm',
+    'Ngày tạo',
+    'Trạng thái đơn',
+    'Phương thức thanh toán',
+    'Trạng thái thanh toán',
+    'Tạm tính',
+    'Phí vận chuyển',
+    'Giảm giá',
+    'Tổng thanh toán',
+    'Đơn vị vận chuyển',
+    'Mã vận đơn',
+    'URL nhãn vận chuyển',
+  ];
+  const rows = orders.map((order) => {
+    const productSummary = order.order_list
+      .map((item: { quantity: number; name: string }) => `${item.quantity}x ${item.name}`)
+      .join(' | ');
+    const totalDiscount = (order.couponDiscountAmount ?? 0)
+      + (order.shippingDiscountAmount ?? 0)
+      + (order.membershipDiscountAmount ?? 0);
+
+    return [
+      order.orderCode,
+      order.invoiceCode ?? '',
+      order.shippingAddress?.customerName ?? '',
+      order.shippingAddress?.phoneNumber ?? '',
+      productSummary,
+      order.createdAt,
+      order.status,
+      order.paymentMethod,
+      order.paymentStatus,
+      order.subTotal,
+      order.shippingFee,
+      totalDiscount,
+      order.totalAmount,
+      order.shipping?.provider ?? '',
+      order.shipping?.trackingCode ?? '',
+      order.shipping?.labelUrl ?? '',
+    ].map(toCsvCell).join(',');
+  });
+
+  return `\uFEFF${[headers.map(toCsvCell).join(','), ...rows].join('\r\n')}`;
 };
 
 const createOrder = async (req: Request, res: Response) => {
@@ -421,6 +589,22 @@ const getOrders = async (req: Request, res: Response) => {
   try {
     const orders = await orderService.getOrders(parseOrderListQuery(req));
     return ok(res, orders);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const exportOrdersCsv = async (req: Request, res: Response) => {
+  try {
+    const result = await orderService.getOrdersForExport(parseOrderListQuery(req));
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="orders-${timestamp}.csv"`);
+    res.setHeader('X-Export-Total', String(result.totalItems));
+    res.setHeader('X-Export-Truncated', String(result.truncated));
+    return res.status(200).send(buildOrdersCsv(result.items));
   } catch (e: unknown) {
     const { statusCode, message, errorCode, data } = getErrorResponse(e);
     return errorResponse(res, message, statusCode, { errorCode, data });
@@ -608,35 +792,134 @@ const updateOrderStatus = async (req: Request, res: Response) => {
       return errorResponse(res, 'status is required', 400);
     }
 
-    const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
-    const order = input.status === 'cancelled'
-      ? await orderService.cancelOrder(
-        getUserId(req),
-        getUserRole(req),
-        req.params.id as string,
-        input as CancelOrderInput,
-      )
-      : await orderService.updateOrderStatus(req.params.id as string, input);
-    await auditLogService.recordAuditLogBestEffort({
-      actorId: req.user?.userId ?? null,
-      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
-      action: 'order.status_update',
-      targetType: 'Order',
-      targetId: order._id.toString(),
-      reason: typeof req.body?.reason === 'string' ? req.body.reason : null,
-      before: {
-        status: beforeOrder.status,
-        paymentStatus: beforeOrder.paymentStatus,
-      },
-      after: {
-        status: order.status,
-        paymentStatus: order.paymentStatus,
-      },
-      metadata: {
-        orderCode: order.orderCode,
-      },
+    const order = await applyAdminOrderStatusUpdate({
+      req,
+      orderId: req.params.id as string,
+      input,
     });
     return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const bulkUpdateOrderStatus = async (req: Request, res: Response) => {
+  try {
+    const status = parseStatus(req.body?.status);
+    if (!status) {
+      throw new SalesServiceError('status is required', 400);
+    }
+
+    const input: BulkUpdateOrderStatusInput = {
+      orderIds: parseBulkOrderIds(req.body?.orderIds),
+      status,
+      reason: parseRequiredReason(req.body?.reason),
+    };
+    const batchId = crypto.randomUUID();
+    const results: Array<{
+      orderId: string;
+      success: boolean;
+      order?: unknown;
+      message?: string;
+      errorCode?: string;
+      statusCode?: number;
+    }> = [];
+
+    for (const orderId of input.orderIds) {
+      try {
+        const order = await applyAdminOrderStatusUpdate({
+          req,
+          orderId,
+          input: {
+            status: input.status,
+            reason: input.reason,
+          },
+          metadata: { bulk: true, batchId },
+        });
+        results.push({ orderId, success: true, order });
+      } catch (error: unknown) {
+        const failure = getErrorResponse(error);
+        results.push({
+          orderId,
+          success: false,
+          message: failure.message,
+          errorCode: failure.errorCode,
+          statusCode: failure.statusCode,
+        });
+      }
+    }
+
+    const succeededCount = results.filter((result) => result.success).length;
+    return ok(res, {
+      batchId,
+      requestedCount: input.orderIds.length,
+      succeededCount,
+      failedCount: input.orderIds.length - succeededCount,
+      results,
+    });
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const bulkProcessGhnShipments = async (req: Request, res: Response) => {
+  try {
+    const input: BulkOrderGhnInput = {
+      orderIds: parseBulkOrderIds(req.body?.orderIds, MAX_BULK_GHN_ORDER_COUNT),
+      action: parseBulkGhnAction(req.body?.action),
+      reason: parseRequiredReason(req.body?.reason),
+    };
+    const batchId = crypto.randomUUID();
+    const results: Array<{
+      orderId: string;
+      success: boolean;
+      order?: unknown;
+      message?: string;
+      errorCode?: string;
+      statusCode?: number;
+    }> = [];
+
+    for (const orderId of input.orderIds) {
+      try {
+        const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), orderId);
+        const order = input.action === 'create'
+          ? await orderService.createGhnShipment(orderId)
+          : (await orderService.syncGhnShipment(orderId)).order;
+
+        await recordOrderShippingUpdateAudit({
+          req,
+          beforeOrder,
+          order,
+          reason: input.reason,
+          metadata: {
+            bulk: true,
+            batchId,
+            ghnAction: input.action,
+          },
+        });
+        results.push({ orderId, success: true, order });
+      } catch (error: unknown) {
+        const failure = getErrorResponse(error);
+        results.push({
+          orderId,
+          success: false,
+          message: failure.message,
+          errorCode: failure.errorCode,
+          statusCode: failure.statusCode,
+        });
+      }
+    }
+
+    const succeededCount = results.filter((result) => result.success).length;
+    return ok(res, {
+      batchId,
+      requestedCount: input.orderIds.length,
+      succeededCount,
+      failedCount: input.orderIds.length - succeededCount,
+      results,
+    });
   } catch (e: unknown) {
     const { statusCode, message, errorCode, data } = getErrorResponse(e);
     return errorResponse(res, message, statusCode, { errorCode, data });
@@ -693,6 +976,46 @@ const updateOrderShipping = async (req: Request, res: Response) => {
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
+  }
+};
+
+const updateOrderGhnMapping = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(
+      getUserId(req),
+      getUserRole(req),
+      req.params.id as string,
+    );
+    const body = req.body as UpdateOrderGhnMappingInput;
+    const order = await orderService.updateOrderGhnMapping(
+      req.params.id as string,
+      body,
+      req.user?.userId,
+    );
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'order.shipping_mapping_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: typeof body.note === 'string' ? body.note : 'Verified GHN address mapping',
+      before: {
+        shippingAddress: beforeOrder.shippingAddress ?? null,
+      },
+      after: {
+        shippingAddress: order.shippingAddress ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        applyToFutureAddresses: body.applyToFutureAddresses !== false,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
   }
 };
 
@@ -825,6 +1148,8 @@ const handleGhnShippingWebhook = async (req: Request, res: Response) => {
 };
 
 export {
+  bulkProcessGhnShipments,
+  bulkUpdateOrderStatus,
   cancelOrder,
   cancelGhnShipment,
   confirmOrderReceived,
@@ -834,6 +1159,7 @@ export {
   getOrderById,
   getOrderTransactions,
   getOrders,
+  exportOrdersCsv,
   handleGhnShippingWebhook,
   handleSimulatedShippingWebhook,
   previewCheckout,
@@ -842,5 +1168,6 @@ export {
   simulateShippingWebhook,
   syncGhnShipment,
   updateOrderShipping,
+  updateOrderGhnMapping,
   updateOrderStatus,
 };

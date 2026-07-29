@@ -1,4 +1,4 @@
-import type { SearchHistoryType } from '../../database/models';
+import type { SearchHistorySource, SearchHistoryType } from '../../database/models';
 
 export interface SearchHistoryResultProductInput {
   productId: string;
@@ -10,6 +10,8 @@ export interface SearchHistoryResultProductInput {
 export interface RecordSearchHistoryInput {
   userId?: string | null;
   sessionId?: string | null;
+  eventId?: string | null;
+  source?: SearchHistorySource | null;
   searchType: SearchHistoryType;
   keyword?: string | null;
   imageUrl?: string | null;
@@ -26,4 +28,15 @@ export interface ListSearchHistoryInput {
 export interface TopSearchKeywordsInput {
   since?: Date;
   limit?: number;
+}
+
+export interface SyncSearchHistoryInput {
+  userId: string;
+  sessionId?: string | null;
+  limit?: number;
+}
+
+export interface DeleteSearchHistoryInput {
+  userId: string;
+  keyword?: string | null;
 }

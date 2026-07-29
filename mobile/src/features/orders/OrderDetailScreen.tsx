@@ -224,15 +224,23 @@ const OrderDetailScreen = () => {
       try {
         const response = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
         setOrder(response);
-        // Lấy danh sách order item đã đánh giá để hiển thị đúng trạng thái nút review.
+        // Chỉ kiểm tra các item của đơn hiện tại thay vì tải trang đầu của toàn bộ
+        // lịch sử eligibility, vốn làm sai trạng thái với các đơn cũ.
         try {
-          const eligibleItems = await runWithAuth((accessToken) => reviewApi.listEligibleItems(accessToken));
-          const reviewed = new Set(
-            eligibleItems.items
-              .filter((item) => item.review)
-              .map((item) => item.orderItemId),
-          );
-          setReviewedItemIds(reviewed);
+          const orderItemIds = response.status === 'completed' && response.paymentStatus === 'paid'
+            ? response.order_list.flatMap((item) => item._id ? [item._id] : [])
+            : [];
+          const eligibilityResults = await runWithAuth((accessToken) => Promise.all(
+            orderItemIds.map(async (orderItemId) => ({
+              orderItemId,
+              eligibility: await reviewApi.getEligibility(accessToken, response._id, orderItemId),
+            })),
+          ));
+          setReviewedItemIds(new Set(
+            eligibilityResults
+              .filter(({ eligibility }) => Boolean(eligibility.reviewId))
+              .map(({ orderItemId }) => orderItemId),
+          ));
         } catch {
           // Eligibility là dữ liệu phụ; không chặn hiển thị đơn nếu tải thất bại.
           setReviewedItemIds(new Set());

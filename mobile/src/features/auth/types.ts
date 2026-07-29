@@ -25,6 +25,8 @@ export type UserAddressPayload = {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: string | null;
   isDefault: boolean;
 };
 
@@ -50,6 +52,7 @@ export type SessionUser = {
   role: string;
   avatarImage?: string | null;
   profileCompleted: boolean;
+  mustChangePassword: boolean;
 };
 
 export type AuthSession = {
@@ -57,6 +60,23 @@ export type AuthSession = {
   refreshToken: string;
   user: SessionUser;
 };
+
+export type OtpDeliveryInfo = {
+  mode: 'mock' | 'real';
+  provider: 'mock' | 'twilio' | 'esms';
+  testOtp?: string;
+};
+
+export type EmailDeliveryInfo = {
+  mode: 'mock' | 'real';
+  provider: 'mock' | 'smtp';
+  testToken?: string;
+  testUrl?: string;
+};
+
+export type PasswordRecoveryResult =
+  | { method: 'email'; delivery?: EmailDeliveryInfo }
+  | { method: 'phone'; delivery?: OtpDeliveryInfo };
 
 export class AuthApiError extends Error {
   errors?: ApiValidationError[];

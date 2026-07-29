@@ -49,6 +49,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
   { id: 'vouchers', icon: 'ticket-percent-outline', label: 'Voucher & Ưu đãi' },
   { id: 'payment', icon: 'credit-card-outline', label: 'Phương thức thanh toán' },
+  { id: 'notification-settings', icon: 'bell-cog-outline', label: 'Cài đặt thông báo' },
   { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ' },
 ];
 
@@ -190,6 +191,10 @@ const ProfileScreen = () => {
     }
     if (item.id === 'payment') {
       navigation.navigate('PaymentMethods');
+      return;
+    }
+    if (item.id === 'notification-settings') {
+      navigation.navigate('NotificationSettings');
       return;
     }
     if (item.id === 'support') {

@@ -4,6 +4,7 @@ import {
   CustomerNotificationServiceError,
   customerNotificationService,
 } from './customer-notification.service';
+import { pushNotificationService } from './push-notification.service';
 
 const parseString = (value: unknown) => {
   if (Array.isArray(value)) return parseString(value[0]);
@@ -55,6 +56,37 @@ export const markAllMyNotificationsRead = async (req: Request, res: Response) =>
   try {
     if (!req.user?.userId) return errorResponse(res, 'Authentication required', 401);
     return ok(res, await customerNotificationService.markAllRead(req.user.userId));
+  } catch (error) {
+    return respondWithError(res, error);
+  }
+};
+
+export const registerMyPushToken = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.userId) return errorResponse(res, 'Authentication required', 401);
+    return ok(res, await pushNotificationService.registerPushToken(req.user.userId, req.body));
+  } catch (error) {
+    const statusCode = error && typeof error === 'object' && 'statusCode' in error
+      ? Number((error as { statusCode?: number }).statusCode) || 400
+      : 500;
+    return errorResponse(
+      res,
+      error instanceof Error ? error.message : 'Unable to register push token',
+      statusCode,
+    );
+  }
+};
+
+export const unregisterMyPushToken = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.userId) return errorResponse(res, 'Authentication required', 401);
+    return ok(
+      res,
+      await pushNotificationService.unregisterPushToken(
+        req.user.userId,
+        parseString(req.body?.token) ?? '',
+      ),
+    );
   } catch (error) {
     return respondWithError(res, error);
   }

@@ -16,6 +16,9 @@ describe('resolveGhnArea', () => {
       districtId: 1484,
       wardCode: '1A0107',
       status: 'mapped',
+      confidence: 'manual',
+      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      source: 'mapping',
     });
   });
 
@@ -34,6 +37,9 @@ describe('resolveGhnArea', () => {
       districtId: 1572,
       wardCode: '550108',
       status: 'mapped',
+      confidence: 'manual',
+      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      source: 'mapping',
     });
   });
 
@@ -52,10 +58,13 @@ describe('resolveGhnArea', () => {
       districtId: 1572,
       wardCode: '550108',
       status: 'mapped',
+      confidence: 'manual',
+      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      source: 'mapping',
     });
   });
 
-  it('keeps explicit GHN codes as manual data', () => {
+  it('records explicit GHN codes as a verified manual mapping', () => {
     const result = resolveGhnArea({
       province: 'Thành phố Cần Thơ',
       provinceCode: '92',
@@ -65,6 +74,8 @@ describe('resolveGhnArea', () => {
       ghnDistrictId: 1572,
       ghnWardCode: '550109',
       ghnMappingStatus: 'manual',
+      ghnMappingConfidence: 'manual',
+      ghnMappingVerifiedAt: '2026-07-29T00:00:00.000Z',
       streetName: '365 Tran Minh Son',
     });
 
@@ -73,7 +84,10 @@ describe('resolveGhnArea', () => {
       provinceId: 220,
       districtId: 1572,
       wardCode: '550109',
-      status: 'manual',
+      status: 'mapped',
+      confidence: 'manual',
+      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      source: 'explicit',
     });
   });
 });

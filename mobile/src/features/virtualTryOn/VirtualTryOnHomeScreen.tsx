@@ -9,6 +9,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { colors, radii, shadows, spacing } from '../../theme';
+import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
@@ -17,6 +18,7 @@ import { contextPresetLabel } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
+const ASSET_PAGE_SIZE = 20;
 
 const formatDate = (value: string) => {
   try {
@@ -44,8 +46,19 @@ const getJobImageCount = (job: VirtualTryOnJob) =>
 const isSourceAsset = (asset: VirtualTryOnAsset) =>
   asset.type === 'source_upload' || asset.type === 'source_camera';
 
-const isNoPersonAsset = (asset: VirtualTryOnAsset | null) =>
-  asset?.validationWarning?.reasonCode === 'NO_PERSON_DETECTED';
+const blockingSourceImageReasonCodes = new Set([
+  'NO_PERSON_DETECTED',
+  'MULTIPLE_PEOPLE_DETECTED',
+  'PERSON_TOO_SMALL',
+  'IMAGE_POLICY_BLOCKED',
+  'VALIDATION_PROVIDER_FAILED',
+]);
+
+const isBlockedSourceAsset = (asset: VirtualTryOnAsset | null) =>
+  Boolean(
+    asset?.validationWarning?.reasonCode &&
+    blockingSourceImageReasonCodes.has(asset.validationWarning.reasonCode),
+  );
 
 const getUploadAssetErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError) {
@@ -66,6 +79,7 @@ const getUploadAssetErrorAlert = (error: unknown) => {
     if (
       error.errorCode === 'NO_PERSON_DETECTED' ||
       error.errorCode === 'MULTIPLE_PEOPLE_DETECTED' ||
+      error.errorCode === 'PERSON_TOO_SMALL' ||
       error.errorCode === 'BODY_NOT_VISIBLE'
     ) {
       return {
@@ -82,6 +96,13 @@ const getUploadAssetErrorAlert = (error: unknown) => {
       return {
         title: 'Ảnh chưa đủ rõ',
         message: error.message,
+      };
+    }
+
+    if (error.errorCode === 'VALIDATION_PROVIDER_FAILED') {
+      return {
+        title: 'Chưa kiểm tra được ảnh',
+        message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
       };
     }
   }
@@ -133,9 +154,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'IMAGE_POLICY_BLOCKED') {
     return {
       icon: 'alert-octagon-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Nên kiểm tra',
-      title: 'Ảnh có thể không phù hợp.',
-      message: 'Bạn vẫn có thể tiếp tục.',
+      label: 'Cần đổi ảnh',
+      title: 'Ảnh không phù hợp.',
+      message: 'Ảnh bị chặn bởi chính sách an toàn. Hãy chọn ảnh khác.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -157,9 +178,33 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Nên kiểm tra',
-      title: 'Ảnh cần rõ người hơn.',
-      message: 'Ảnh có thể nhận sai người.\nBạn có thể đổi ảnh hoặc tiếp tục.',
+      label: 'Cần đổi ảnh',
+      title: 'Ảnh có nhiều người.',
+      message: 'Hãy chọn ảnh chỉ có một người chính để thử đồ.',
+      color: colors.goldDark,
+      softColor: colors.goldSoft,
+      borderColor: 'rgba(201,151,52,0.28)',
+    };
+  }
+
+  if (warning.reasonCode === 'VALIDATION_PROVIDER_FAILED') {
+    return {
+      icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+      label: 'Chưa thể dùng',
+      title: 'Chưa kiểm tra được ảnh.',
+      message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
+      color: colors.goldDark,
+      softColor: colors.goldSoft,
+      borderColor: 'rgba(201,151,52,0.28)',
+    };
+  }
+
+  if (warning.reasonCode === 'PERSON_TOO_SMALL') {
+    return {
+      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+      label: 'Cần đổi ảnh',
+      title: 'Người trong ảnh quá nhỏ.',
+      message: 'Hãy chọn ảnh chụp gần hơn để nhìn rõ người mặc.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -169,9 +214,7 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   return {
     icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
     label: 'Nên kiểm tra',
-    title: warning.reasonCode === 'VALIDATION_PROVIDER_FAILED'
-      ? 'Chưa kiểm tra được ảnh.'
-      : 'Ảnh có thể chưa tối ưu.',
+    title: 'Ảnh có thể chưa tối ưu.',
     message: 'Bạn vẫn có thể tiếp tục.',
     color: colors.goldDark,
     softColor: colors.goldSoft,
@@ -202,6 +245,8 @@ const VirtualTryOnHomeScreen = () => {
   const { isAuthenticated, runWithAuth } = useAuth();
   const [latestAsset, setLatestAsset] = React.useState<VirtualTryOnAsset | null>(null);
   const [assetLibrary, setAssetLibrary] = React.useState<VirtualTryOnAsset[]>([]);
+  const [assetPagination, setAssetPagination] = React.useState<PageInfo | null>(null);
+  const [isLoadingMoreAssets, setIsLoadingMoreAssets] = React.useState(false);
   const [latestJob, setLatestJob] = React.useState<VirtualTryOnJob | null>(null);
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -267,6 +312,7 @@ const VirtualTryOnHomeScreen = () => {
     if (!isAuthenticated) {
       setLatestAsset(null);
       setAssetLibrary([]);
+      setAssetPagination(null);
       setLatestJob(null);
       setJobs([]);
       return;
@@ -276,13 +322,14 @@ const VirtualTryOnHomeScreen = () => {
     setIsLoading(true);
     runWithAuth(async (token) => {
       const [assetsResponse, latest, jobsResponse] = await Promise.all([
-        virtualTryOnApi.getAssets(token, { limit: 20 }),
+        virtualTryOnApi.getAssets(token, { page: 1, limit: ASSET_PAGE_SIZE }),
         virtualTryOnApi.getLatestJob(token),
         virtualTryOnApi.getJobs(token, { limit: 8 }),
       ]);
       if (!isCurrent) return;
       const sourceAssets = assetsResponse.items.filter(isSourceAsset);
       setAssetLibrary(sourceAssets);
+      setAssetPagination(assetsResponse.pagination);
       setLatestAsset((current) => (
         current && sourceAssets.some((asset) => asset._id === current._id)
           ? current
@@ -304,6 +351,26 @@ const VirtualTryOnHomeScreen = () => {
   }, [isAuthenticated, runWithAuth]);
 
   useFocusEffect(React.useCallback(() => loadDashboard(), [loadDashboard]));
+
+  const loadMoreAssets = React.useCallback(async () => {
+    if (isLoadingMoreAssets || !hasNextPage(assetPagination)) return;
+    setIsLoadingMoreAssets(true);
+    try {
+      const response = await runWithAuth((token) => virtualTryOnApi.getAssets(token, {
+        page: (assetPagination?.page ?? 0) + 1,
+        limit: ASSET_PAGE_SIZE,
+      }));
+      setAssetLibrary((current) => mergePageItems(current, response.items.filter(isSourceAsset)));
+      setAssetPagination(response.pagination);
+    } catch (caught) {
+      Alert.alert(
+        'Không thể tải thêm ảnh',
+        caught instanceof Error ? caught.message : 'Bạn thử lại sau nhé.',
+      );
+    } finally {
+      setIsLoadingMoreAssets(false);
+    }
+  }, [assetPagination, isLoadingMoreAssets, runWithAuth]);
 
   React.useEffect(() => {
     if (pendingSeedItems.length && !latestAsset && assetLibrary.length) {
@@ -433,8 +500,9 @@ const VirtualTryOnHomeScreen = () => {
       Alert.alert('Ảnh của bạn', 'Bạn hãy tải ảnh hoặc chụp ảnh trước khi phối đồ.');
       return;
     }
-    if (isNoPersonAsset(latestAsset)) {
-      Alert.alert('Cần ảnh người mặc', 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.');
+    if (isBlockedSourceAsset(latestAsset)) {
+      const readiness = getAssetReadiness(latestAsset);
+      Alert.alert(readiness.title, readiness.message);
       return;
     }
     openBuilderWithAsset(latestAsset);
@@ -453,7 +521,7 @@ const VirtualTryOnHomeScreen = () => {
         { label: 'Xem kết quả', icon: 'auto-fix', active: Boolean(pendingJob), done: false },
       ];
   const assetReadiness = getAssetReadiness(latestAsset);
-  const latestAssetNeedsPerson = isNoPersonAsset(latestAsset);
+  const latestAssetIsBlocked = isBlockedSourceAsset(latestAsset);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -612,18 +680,18 @@ const VirtualTryOnHomeScreen = () => {
           {latestAsset ? (
             <TouchableOpacity
               style={styles.heroPrimaryButton}
-              onPress={latestAssetNeedsPerson ? pickImage : continueWithLatestAsset}
+              onPress={latestAssetIsBlocked ? pickImage : continueWithLatestAsset}
               activeOpacity={0.86}
             >
               <Text style={styles.heroPrimaryText}>
-                {latestAssetNeedsPerson
-                  ? 'Đổi ảnh để tiếp tục'
+                {latestAssetIsBlocked
+                  ? 'Chọn ảnh khác để tiếp tục'
                   : pendingSeedItems.length
                     ? `Mở ${pendingSeedItems.length} món chờ thử`
                     : 'Tiếp tục phối đồ'}
               </Text>
               <MaterialCommunityIcons
-                name={latestAssetNeedsPerson ? 'upload-outline' : 'arrow-right'}
+                name={latestAssetIsBlocked ? 'upload-outline' : 'arrow-right'}
                 size={20}
                 color={colors.white}
               />
@@ -702,6 +770,24 @@ const VirtualTryOnHomeScreen = () => {
                   </TouchableOpacity>
                 );
               })}
+              {hasNextPage(assetPagination) ? (
+                <TouchableOpacity
+                  style={styles.assetLoadMoreButton}
+                  onPress={() => void loadMoreAssets()}
+                  disabled={isLoadingMoreAssets}
+                  activeOpacity={0.84}
+                  accessibilityLabel="Tải thêm ảnh trong kho"
+                >
+                  {isLoadingMoreAssets ? (
+                    <ActivityIndicator color={studioPalette.primary} />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="chevron-right" size={24} color={studioPalette.primary} />
+                      <Text style={styles.assetLoadMoreText}>Tải thêm</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : null}
             </ScrollView>
           </View>
         ) : null}
@@ -1297,6 +1383,22 @@ const styles = StyleSheet.create({
     borderColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  assetLoadMoreButton: {
+    width: 82,
+    height: 104,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: studioPalette.line,
+    backgroundColor: studioPalette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  assetLoadMoreText: {
+    color: studioPalette.primary,
+    fontSize: 12,
+    fontWeight: '900',
   },
   inlineLoading: {
     borderRadius: radii.sm,

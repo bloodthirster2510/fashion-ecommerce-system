@@ -13,27 +13,44 @@ type OrderTableProps = {
   orders: AdminOrder[]
   isLoading: boolean
   realtimeOrderId: string | null
+  selectedOrderIds: string[]
   visibleColumns?: OrderTableColumnKey[]
   onCopyReference: (value: string, label: string) => void | Promise<void>
   onOpenOrder: (order: AdminOrder) => void
+  onPageSelectionChange: (selected: boolean) => void
+  onSelectionChange: (orderId: string, selected: boolean) => void
 }
 
 export function OrderTable({
   orders,
   isLoading,
   realtimeOrderId,
+  selectedOrderIds,
   visibleColumns = defaultOrderTableColumns,
   onCopyReference,
   onOpenOrder,
+  onPageSelectionChange,
+  onSelectionChange,
 }: OrderTableProps) {
   const visibleColumnSet = new Set(visibleColumns)
-  const tableColumnCount = 2 + visibleColumns.length
+  const selectedOrderIdSet = new Set(selectedOrderIds)
+  const allPageOrdersSelected = orders.length > 0 && orders.every((order) => selectedOrderIdSet.has(order._id))
+  const tableColumnCount = 3 + visibleColumns.length
 
   return (
     <div className="admin-table-shell">
       <table className="admin-table admin-orders-table">
         <thead>
           <tr>
+            <th className="admin-order-check-cell">
+              <input
+                type="checkbox"
+                aria-label="Chọn tất cả đơn hàng trên trang"
+                checked={allPageOrdersSelected}
+                disabled={isLoading || orders.length === 0}
+                onChange={(event) => onPageSelectionChange(event.target.checked)}
+              />
+            </th>
             <th>Đơn hàng</th>
             {visibleColumnSet.has('customer') ? <th>Khách hàng</th> : null}
             {visibleColumnSet.has('total') ? <th>Tổng tiền</th> : null}
@@ -65,6 +82,14 @@ export function OrderTable({
                   className={`${getOrderRowClass(order)}${realtimeOrderId === order._id ? ' is-realtime-updated' : ''}`}
                   key={order._id}
                 >
+                  <td className="admin-order-check-cell">
+                    <input
+                      type="checkbox"
+                      aria-label={`Chọn đơn ${order.orderCode}`}
+                      checked={selectedOrderIdSet.has(order._id)}
+                      onChange={(event) => onSelectionChange(order._id, event.target.checked)}
+                    />
+                  </td>
                   <td>
                     <OrderReferenceCell order={order} onCopyReference={onCopyReference} />
                   </td>

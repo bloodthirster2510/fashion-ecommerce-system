@@ -9,6 +9,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import ColorSwatch from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
+import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import {
   catalogApi,
   type CatalogProduct,
@@ -105,6 +106,7 @@ const tryOnPalette = {
   success: '#198754',
   successSoft: '#EAF7EF',
 } as const;
+const PRODUCT_PAGE_SIZE = 30;
 
 const VIDEO_DURATION_MIN_SECONDS = 5;
 const VIDEO_DURATION_MAX_SECONDS = 12;
@@ -336,12 +338,12 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh có thể không phù hợp.',
-    message: 'Bạn vẫn có thể tiếp tục.',
+    title: 'Ảnh không phù hợp',
+    message: 'Ảnh bị chặn bởi chính sách an toàn. Hãy chọn ảnh khác.',
   },
   VALIDATION_PROVIDER_FAILED: {
-    title: 'Chưa kiểm tra được ảnh.',
-    message: 'Bạn vẫn có thể tiếp tục.',
+    title: 'Chưa kiểm tra được ảnh',
+    message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
   },
 };
 
@@ -484,7 +486,7 @@ const getImageValidationReasonTitle = (reasonCode?: string | null) => {
   if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
   if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
   if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này.';
-  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh có thể không phù hợp.';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh không phù hợp.';
   if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
   return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
 };
@@ -493,8 +495,11 @@ const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' 
 
 const imageValidationBlockingReasonCodes = new Set([
   'NO_PERSON_DETECTED',
+  'MULTIPLE_PEOPLE_DETECTED',
   'BODY_NOT_VISIBLE',
   'PERSON_TOO_SMALL',
+  'IMAGE_POLICY_BLOCKED',
+  'VALIDATION_PROVIDER_FAILED',
 ]);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
@@ -609,6 +614,8 @@ const VirtualTryOnBuilderScreen = () => {
   const [isProductFilterVisible, setIsProductFilterVisible] = React.useState(false);
   const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [productPagination, setProductPagination] = React.useState<PageInfo | null>(null);
+  const [isLoadingMoreProducts, setIsLoadingMoreProducts] = React.useState(false);
   const [isPrefilling, setIsPrefilling] = React.useState(false);
   const [prefillNotice, setPrefillNotice] = React.useState('');
   const [queueItems, setQueueItems] = React.useState<TryOnSelectedItem[]>([]);
@@ -747,9 +754,11 @@ const VirtualTryOnBuilderScreen = () => {
     let isCurrent = true;
     setIsLoading(true);
     catalogApi
-      .getProducts({ page: 1, limit: 60, sort: 'newest' })
+      .getProducts({ page: 1, limit: PRODUCT_PAGE_SIZE, sort: 'newest' })
       .then((response) => {
-        if (isCurrent) setProducts(response.items);
+        if (!isCurrent) return;
+        setProducts(response.items);
+        setProductPagination(response.pagination);
       })
       .catch(() => {
         if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách.');
@@ -760,6 +769,27 @@ const VirtualTryOnBuilderScreen = () => {
 
     return () => { isCurrent = false; };
   }, []);
+
+  const loadMoreProducts = React.useCallback(async () => {
+    if (isLoadingMoreProducts || !hasNextPage(productPagination)) return;
+    setIsLoadingMoreProducts(true);
+    try {
+      const response = await catalogApi.getProducts({
+        page: (productPagination?.page ?? 0) + 1,
+        limit: PRODUCT_PAGE_SIZE,
+        sort: 'newest',
+      });
+      setProducts((current) => mergePageItems(current, response.items));
+      setProductPagination(response.pagination);
+    } catch (caught) {
+      Alert.alert(
+        'Không thể tải thêm sản phẩm',
+        caught instanceof Error ? caught.message : 'Bạn thử lại sau nhé.',
+      );
+    } finally {
+      setIsLoadingMoreProducts(false);
+    }
+  }, [isLoadingMoreProducts, productPagination]);
 
   React.useEffect(() => {
     if (!incomingSeedKey || lastPrefillKeyRef.current === incomingSeedKey) return;
@@ -1118,6 +1148,7 @@ const VirtualTryOnBuilderScreen = () => {
       ? getUnsupportedImageValidationCapability(imageValidation.result, outfitMode, selectedItems)
       : null;
   const hasCurrentImageValidationResult = Boolean(imageValidation.result && imageValidation.key === imageValidationScanKey);
+  const imageGenerationUnavailable = capabilities?.imageGeneration.available === false;
   const imageValidationWarnsSubmit = Boolean(imageValidationScanKey) && canSubmit && (
     imageValidation.status === 'checking' ||
     (
@@ -1154,7 +1185,7 @@ const VirtualTryOnBuilderScreen = () => {
     }
     return null;
   })();
-  const imageValidationBlocksSubmit = Boolean(imageValidationHardBlockReason);
+  const imageValidationBlocksSubmit = Boolean(imageValidationHardBlockReason) || imageGenerationUnavailable;
   const imageValidationSoftWarnsSubmit =
     imageValidationWarnsSubmit &&
     !imageValidationIsCheckingSubmit &&
@@ -1227,6 +1258,19 @@ const VirtualTryOnBuilderScreen = () => {
         tone: 'idle' as const,
         title: 'Chờ chọn đồ',
         message: 'Chọn sản phẩm để kiểm tra ảnh.',
+      };
+    }
+
+    if (imageGenerationUnavailable) {
+      const validationUnavailable =
+        capabilities?.imageGeneration.reasonCode === 'IMAGE_VALIDATION_UNAVAILABLE';
+      return {
+        icon: 'alert-outline' as FashionIconName,
+        tone: 'warning' as const,
+        title: validationUnavailable ? 'Kiểm tra ảnh đang gián đoạn' : 'Phối đồ ảo đang tắt',
+        message: validationUnavailable
+          ? 'Hệ thống chưa thể xác minh ảnh an toàn. Vui lòng thử lại sau.'
+          : 'Tính năng phối đồ ảo hiện chưa sẵn sàng.',
       };
     }
 
@@ -1320,6 +1364,7 @@ const VirtualTryOnBuilderScreen = () => {
 
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
+      if (imageGenerationUnavailable) return 'Tạm gián đoạn';
       return imageValidationHardBlockReason === 'NO_PERSON_DETECTED'
         ? 'Cần ảnh người'
         : 'Không phù hợp';
@@ -2249,6 +2294,23 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với phần này.</Text>
               </View>
             )}
+            {hasNextPage(productPagination) ? (
+              <TouchableOpacity
+                style={styles.productLoadMoreButton}
+                disabled={isLoadingMoreProducts}
+                onPress={() => void loadMoreProducts()}
+                activeOpacity={0.84}
+              >
+                {isLoadingMoreProducts ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="chevron-down" size={19} color={colors.white} />
+                    <Text style={styles.productLoadMoreText}>Tải thêm sản phẩm</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -3866,6 +3928,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '800',
+  },
+  productLoadMoreButton: {
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: tryOnPalette.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+  },
+  productLoadMoreText: {
+    color: colors.white,
+    fontWeight: '900',
   },
   videoDurationValueBadge: {
     minWidth: 62,

@@ -7,6 +7,8 @@ import PaymentMethodsScreen from '../features/account/PaymentMethodsScreen';
 import LoginScreen from '../features/auth/screens/LoginScreen';
 import RegisterScreen from '../features/auth/screens/RegisterScreen';
 import ForgotPasswordScreen from '../features/auth/screens/ForgotPasswordScreen';
+import ForceChangePasswordScreen from '../features/auth/screens/ForceChangePasswordScreen';
+import { useAuth } from '../features/auth/AuthContext';
 import MembershipScreen from '../features/account/MembershipScreen';
 import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
@@ -16,6 +18,7 @@ import CheckoutScreen from '../features/checkout/CheckoutScreen';
 import CouponsScreen from '../features/coupons/CouponsScreen';
 import FavoritesScreen from '../features/favorites/FavoritesScreen';
 import NotificationsScreen from '../features/notifications/NotificationsScreen';
+import NotificationSettingsScreen from '../features/notifications/NotificationSettingsScreen';
 import OrderSuccessScreen from '../features/cart/OrderSuccessScreen';
 import OrderListScreen from '../features/orders/OrderListScreen';
 import OrderDetailScreen from '../features/orders/OrderDetailScreen';
@@ -34,12 +37,15 @@ import VirtualTryOnResultScreen from '../features/virtualTryOn/VirtualTryOnResul
 import VirtualTryOnHistoryScreen from '../features/virtualTryOn/VirtualTryOnHistoryScreen';
 import type { TryOnSeedItem } from '../features/virtualTryOn/virtualTryOn.types';
 import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
+import { resolveAppNavigatorMode } from './navigationGuard';
 
 export type RootStackParamList = {
   Home: undefined;
   ProductList: {
     title?: string;
     keyword?: string;
+    searchEventId?: string;
+    searchSource?: 'mobile_manual' | 'mobile_history' | 'mobile_suggestion';
     gender?: 'male' | 'female' | 'unisex';
     categoryId?: string | string[];
     brandId?: string | string[];
@@ -73,6 +79,7 @@ export type RootStackParamList = {
   } | undefined;
   Favorites: undefined;
   Notifications: undefined;
+  NotificationSettings: undefined;
   Profile: undefined;
   EditProfile: undefined;
   PaymentMethods: undefined;
@@ -138,7 +145,11 @@ export type RootStackParamList = {
   SupportTicketDetail: { ticketId: string };
   Login: undefined;
   Register: undefined;
-  ForgotPassword: undefined;
+  ForgotPassword: {
+    identifier?: string;
+    token?: string;
+  } | undefined;
+  ForceChangePassword: undefined;
   OrderSuccess: {
     orderId: string;
     orderCode: string;
@@ -153,6 +164,21 @@ export type RootStackParamList = {
 const Stack = createStackNavigator<RootStackParamList>();
 
 const AppNavigator = () => {
+  const { session } = useAuth();
+  const navigatorMode = resolveAppNavigatorMode(session?.user.mustChangePassword);
+
+  if (navigatorMode === 'force_change_password') {
+    return (
+      <Stack.Navigator
+        initialRouteName="ForceChangePassword"
+        screenOptions={{ headerShown: false, gestureEnabled: false }}
+      >
+        <Stack.Screen name="ForceChangePassword" component={ForceChangePasswordScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      </Stack.Navigator>
+    );
+  }
+
   return (
     <Stack.Navigator
       initialRouteName="Home"
@@ -167,6 +193,7 @@ const AppNavigator = () => {
       <Stack.Screen name="Coupons" component={CouponsScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />

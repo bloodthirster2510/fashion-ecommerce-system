@@ -179,6 +179,30 @@ describe('reviewService', () => {
     });
   });
 
+  it('reports an existing review even when the purchased product is no longer active', async () => {
+    const reviewId = new Types.ObjectId();
+    mockedProduct.findOne.mockReturnValue(query(null) as never);
+    mockedReview.findOne.mockReturnValue(query({
+      _id: reviewId,
+      moderationStatus: 'hidden',
+      moderationReasons: [],
+    }) as never);
+    mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
+
+    await expect(reviewService.getEligibility(
+      userId.toString(),
+      orderId.toString(),
+      orderItemId.toString(),
+    )).resolves.toEqual({
+      canReview: false,
+      reason: 'ALREADY_REVIEWED',
+      orderStatus: 'completed',
+      paymentStatus: 'paid',
+      reviewId: reviewId.toString(),
+      reviewStatus: 'hidden',
+    });
+  });
+
   it('rejects malformed object ids as a review validation error', async () => {
     await expect(reviewService.getEligibility(
       userId.toString(),

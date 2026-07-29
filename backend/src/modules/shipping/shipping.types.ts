@@ -17,6 +17,8 @@ export interface ShippingAddressForQuote {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: Date | string | null;
 }
 
 export interface ShippingQuoteItemInput {
@@ -64,4 +66,13 @@ export interface ShippingComparisonResult {
   note: string | null;
   options: ShippingOptionQuote[];
   shippingQuote: ShippingQuoteResult;
+  resolvedArea?: {
+    provinceId: number | null;
+    districtId: number | null;
+    wardCode: string | null;
+    status: 'mapped' | 'missing' | 'manual';
+    confidence: 'exact' | 'manual' | 'legacy' | null;
+    verifiedAt: Date | null;
+    source: 'explicit' | 'legacy' | 'mapping' | 'managed' | 'missing';
+  };
 }

@@ -16,6 +16,8 @@ export interface ShippingAddressInput {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: Date | string | null;
 }
 
 export interface CreateOrderInput {
@@ -58,6 +60,7 @@ export interface OrderListQueryInput {
   from?: Date;
   to?: Date;
   paymentDeadlineBefore?: Date;
+  shippingFallback?: boolean;
   sort?: OrderListSort;
   page?: number;
   limit?: number;
@@ -66,6 +69,20 @@ export interface OrderListQueryInput {
 export interface UpdateOrderStatusInput {
   status: OrderStatus;
   reason?: string;
+}
+
+export interface BulkUpdateOrderStatusInput {
+  orderIds: string[];
+  status: OrderStatus;
+  reason: string;
+}
+
+export type BulkOrderGhnAction = 'create' | 'sync';
+
+export interface BulkOrderGhnInput {
+  orderIds: string[];
+  action: BulkOrderGhnAction;
+  reason: string;
 }
 
 export interface AdjustOrderPaymentStatusInput {
@@ -118,6 +135,15 @@ export interface UpdateOrderShippingInput {
   estimatedDeliveryDate?: Date | null;
   rawQuote?: Record<string, unknown> | null;
   rawShipment?: Record<string, unknown> | null;
+}
+
+export interface UpdateOrderGhnMappingInput {
+  ghnProvinceId: number;
+  ghnDistrictId: number;
+  ghnWardCode: string;
+  confidence?: 'exact' | 'manual' | 'legacy';
+  note?: string;
+  applyToFutureAddresses?: boolean;
 }
 
 export type SimulatedShippingWebhookStatus = OrderShippingWebhookStatus;

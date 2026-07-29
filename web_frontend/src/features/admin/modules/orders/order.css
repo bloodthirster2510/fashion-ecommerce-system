@@ -156,6 +156,85 @@
   background: rgba(255, 255, 255, 0.62);
 }
 
+.admin-order-bulk-toolbar {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid #d8e1e9;
+  border-radius: 10px;
+  background: #f8fbfd;
+}
+
+.admin-order-bulk-summary,
+.admin-order-bulk-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.admin-order-bulk-summary {
+  justify-content: space-between;
+}
+
+.admin-order-bulk-summary span {
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
+.admin-order-bulk-fields {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.32fr) minmax(280px, 1fr);
+  gap: 10px;
+}
+
+.admin-order-bulk-fields label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.admin-order-bulk-fields label span {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.admin-order-bulk-fields input,
+.admin-order-bulk-fields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid #cfdbe5;
+  border-radius: 8px;
+  padding: 0 11px;
+  color: var(--admin-text);
+  background: #fff;
+  font: inherit;
+}
+
+.admin-order-bulk-actions {
+  justify-content: flex-end;
+}
+
+.admin-order-bulk-actions button {
+  min-height: 38px;
+}
+
+.admin-order-check-cell {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+}
+
+.admin-order-check-cell input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--admin-accent);
+  cursor: pointer;
+}
+
 .admin-orders-page .admin-drawer-layer {
   position: fixed;
   inset: 0;
@@ -1050,6 +1129,78 @@
 
 .admin-ghn-actions button {
   min-height: 36px;
+}
+
+.admin-ghn-mapping-card {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #dbe8f1;
+  border-radius: 12px;
+  background: #f8fbfd;
+}
+
+.admin-ghn-mapping-card.is-warning {
+  border-color: rgba(217, 119, 6, 0.42);
+  background: rgba(255, 247, 237, 0.72);
+}
+
+.admin-ghn-mapping-card.is-ready {
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+.admin-ghn-mapping-heading,
+.admin-ghn-mapping-codes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-ghn-mapping-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-ghn-mapping-heading span,
+.admin-ghn-mapping-codes {
+  color: #5b6f7e;
+  font-size: 0.82rem;
+}
+
+.admin-ghn-mapping-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe8f1;
+}
+
+.admin-ghn-mapping-form label {
+  display: grid;
+  gap: 6px;
+  color: #5b6f7e;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-ghn-mapping-form input,
+.admin-ghn-mapping-form select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cbd9e2;
+  border-radius: 10px;
+  background: #fff;
+  color: #102a3a;
+}
+
+.admin-ghn-mapping-note,
+.admin-ghn-mapping-form .admin-notice,
+.admin-ghn-mapping-form .admin-primary-button {
+  grid-column: 1 / -1;
 }
 
 .admin-shipping-simulator-actions button {
@@ -1965,6 +2116,19 @@
 @media (max-width: 720px) {
   .admin-orders-page .admin-table-toolbar.is-lookup {
     grid-template-columns: 1fr;
+  }
+
+  .admin-order-bulk-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-order-bulk-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-bulk-actions button {
+    width: 100%;
   }
 
   .admin-orders-page .admin-table-toolbar.is-lookup > label {

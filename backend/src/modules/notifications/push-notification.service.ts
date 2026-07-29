@@ -1,5 +1,10 @@
 import { Types } from 'mongoose';
-import { PushToken } from '../../database/models';
+import {
+  CUSTOMER_NOTIFICATION_CATEGORIES,
+  PushToken,
+  type CustomerNotificationCategory,
+  type PushNotificationPreferences,
+} from '../../database/models';
 import { createCustomerNotificationBestEffort } from './customer-notification.service';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -11,17 +16,36 @@ type ExpoPushMessage = {
   data: Record<string, unknown>;
 };
 
+const defaultPushPreferences = Object.fromEntries(
+  CUSTOMER_NOTIFICATION_CATEGORIES.map((category) => [category, true]),
+) as Record<CustomerNotificationCategory, boolean>;
+
+export const normalizePushPreferences = (value: unknown): Record<CustomerNotificationCategory, boolean> => {
+  const input = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : {};
+
+  return Object.fromEntries(
+    CUSTOMER_NOTIFICATION_CATEGORIES.map((category) => [
+      category,
+      typeof input[category] === 'boolean' ? input[category] : defaultPushPreferences[category],
+    ]),
+  ) as Record<CustomerNotificationCategory, boolean>;
+};
+
 const deliverExpoPush = async (
   userId: string,
   message: ExpoPushMessage,
   disabled = false,
+  category: CustomerNotificationCategory = 'system',
 ) => {
   if (disabled || !Types.ObjectId.isValid(userId)) return { sent: 0 };
 
   const tokens = await PushToken.find({ userId: new Types.ObjectId(userId), isActive: true })
-    .select('token')
-    .lean<Array<{ token: string }>>();
-  if (!tokens.length) return { sent: 0 };
+    .select('token preferences')
+    .lean<Array<{ token: string; preferences?: PushNotificationPreferences }>>();
+  const eligibleTokens = tokens.filter(({ preferences }) => preferences?.[category] !== false);
+  if (!eligibleTokens.length) return { sent: 0 };
 
   const response = await fetch(EXPO_PUSH_URL, {
     method: 'POST',
@@ -30,7 +54,7 @@ const deliverExpoPush = async (
       Accept: 'application/json',
       ...(process.env.EXPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}),
     },
-    body: JSON.stringify(tokens.map(({ token }) => ({
+    body: JSON.stringify(eligibleTokens.map(({ token }) => ({
       to: token,
       sound: 'default',
       ...message,
@@ -41,7 +65,7 @@ const deliverExpoPush = async (
   const payload = await response.json() as {
     data?: Array<{ status?: string; details?: { error?: string } }>;
   };
-  const invalidTokens = tokens.filter(
+  const invalidTokens = eligibleTokens.filter(
     (_, index) => payload.data?.[index]?.details?.error === 'DeviceNotRegistered',
   );
   if (invalidTokens.length) {
@@ -51,7 +75,7 @@ const deliverExpoPush = async (
     );
   }
   const failed = payload.data?.filter((item) => item.status === 'error').length ?? 0;
-  return { sent: tokens.length - failed, failed };
+  return { sent: eligibleTokens.length - failed, failed };
 };
 
 export const sendCustomerPush = (input: {
@@ -59,16 +83,17 @@ export const sendCustomerPush = (input: {
   title: string;
   body: string;
   data: Record<string, unknown>;
+  category?: CustomerNotificationCategory;
   disabled?: boolean;
 }) => deliverExpoPush(input.userId, {
   title: input.title,
   body: input.body,
   data: input.data,
-}, input.disabled);
+}, input.disabled, input.category);
 
 export const registerPushToken = async (
   userId: string,
-  input: { token?: string; platform?: string },
+  input: { token?: string; platform?: string; preferences?: unknown },
 ) => {
   if (!Types.ObjectId.isValid(userId)) throw Object.assign(new Error('Invalid user'), { statusCode: 400 });
   const token = input.token?.trim() ?? '';
@@ -79,7 +104,15 @@ export const registerPushToken = async (
 
   return PushToken.findOneAndUpdate(
     { token },
-    { userId: new Types.ObjectId(userId), platform: input.platform, isActive: true, lastUsedAt: new Date() },
+    {
+      $set: {
+        userId: new Types.ObjectId(userId),
+        platform: input.platform,
+        preferences: normalizePushPreferences(input.preferences),
+        isActive: true,
+        lastUsedAt: new Date(),
+      },
+    },
     { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean();
 };
@@ -124,6 +157,7 @@ export const sendSupportReplyPush = async (input: {
     input.userId,
     { title, body, data },
     process.env.SUPPORT_PUSH_NOTIFICATIONS === 'false',
+    'support',
   );
 };
 
@@ -153,7 +187,7 @@ export const sendPaymentDeadlineWarningPush = async (input: {
     dedupeKey: `order:${input.orderId}:payment-deadline`,
   });
 
-  return deliverExpoPush(input.userId, { title, body, data });
+  return deliverExpoPush(input.userId, { title, body, data }, false, 'order');
 };
 
 export type ShippingPushMilestone = 'picked' | 'shipping' | 'delivered' | 'failed';
@@ -207,6 +241,7 @@ export const sendShippingUpdatePush = async (input: {
     input.userId,
     { title, body: copy.body, data },
     process.env.SHIPPING_PUSH_NOTIFICATIONS === 'false',
+    'order',
   );
 };
 

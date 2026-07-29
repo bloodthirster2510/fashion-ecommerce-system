@@ -14,8 +14,10 @@ import {
   lockAccount,
   retryAdminJob,
   retryAdminVideo,
+  rollbackAdminSettings,
   testAdminPrompt,
   unlockAccount,
+  updateAdminSettings,
   updatePromptRule,
 } from './virtual-try-on.controller';
 
@@ -27,6 +29,8 @@ router.use(authorize('admin', 'staff'));
 
 router.get('/summary', requirePermission('virtual_try_on.read'), getAdminSummary);
 router.get('/settings', requirePermission('virtual_try_on.read'), getAdminSettings);
+router.patch('/settings', requirePermission('virtual_try_on.settings'), updateAdminSettings);
+router.post('/settings/rollback', requirePermission('virtual_try_on.settings'), rollbackAdminSettings);
 router.get('/jobs', requirePermission('virtual_try_on.read'), listAdminJobs);
 router.post('/prompt/test', requirePermission('virtual_try_on.read'), testAdminPrompt);
 router.post('/jobs/:jobId/retry', requirePermission('virtual_try_on.manage'), retryAdminJob);

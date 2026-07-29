@@ -1,5 +1,6 @@
 import { apiFetch } from '../../config/api';
 import type { ApiResponse } from '../auth/types';
+import type { PushNotificationPreferences } from './pushNotifications';
 
 export type CustomerNotificationSummary = {
   total: number;
@@ -84,6 +85,30 @@ export const notificationApi = {
     parse<{ updatedCount: number; readAt: string }>(await apiFetch('/notifications/read-all', {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}` },
+      retryOnTimeout: false,
+    })),
+  registerPushToken: async (
+    token: string,
+    pushToken: string,
+    platform: 'ios' | 'android',
+    preferences: PushNotificationPreferences,
+  ) => parse(await apiFetch('/notifications/push-token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ token: pushToken, platform, preferences }),
+    retryOnTimeout: false,
+  })),
+  unregisterPushToken: async (token: string, pushToken: string) =>
+    parse<{ disabled: boolean }>(await apiFetch('/notifications/push-token', {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token: pushToken }),
       retryOnTimeout: false,
     })),
 };

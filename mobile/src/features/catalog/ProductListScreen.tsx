@@ -349,6 +349,8 @@ const ProductListScreen = () => {
         isNew: params?.isNew,
         isSale: params?.isSale,
         keyword: params?.keyword,
+        searchEventId: params?.searchEventId,
+        searchSource: params?.searchSource,
         maxPrice: params?.maxPrice,
         minPrice: params?.minPrice,
         sort: params?.sort,
@@ -592,6 +594,8 @@ const ProductListScreen = () => {
 
     const productListParams = {
       keyword: params?.keyword,
+      searchEventId: params?.searchEventId,
+      searchSource: params?.searchSource,
       gender: appliedFilters.gender,
       categoryId: toQueryArray(appliedFilters.categoryId),
       brandId: toQueryArray(appliedFilters.brandId),
@@ -663,7 +667,14 @@ const ProductListScreen = () => {
     return () => {
       controller.abort();
     };
-  }, [appliedFilters, isAuthenticated, params?.keyword, runWithAuth]);
+  }, [
+    appliedFilters,
+    isAuthenticated,
+    params?.keyword,
+    params?.searchEventId,
+    params?.searchSource,
+    runWithAuth,
+  ]);
 
   React.useEffect(() => loadProducts(1), [loadProducts]);
 

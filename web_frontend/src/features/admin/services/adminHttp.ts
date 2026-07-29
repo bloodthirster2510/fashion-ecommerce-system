@@ -38,7 +38,7 @@ const fetchWithToken = async (path: string, init?: RequestInit, accessToken = ge
   })
 }
 
-export const requestAdmin = async <T>(path: string, init?: RequestInit) => {
+const fetchAdminResponse = async (path: string, init?: RequestInit) => {
   const currentAccessToken = getAccessToken()
   let response = await fetchWithToken(path, init, currentAccessToken)
 
@@ -57,6 +57,11 @@ export const requestAdmin = async <T>(path: string, init?: RequestInit) => {
     }
   }
 
+  return response
+}
+
+export const requestAdmin = async <T>(path: string, init?: RequestInit) => {
+  const response = await fetchAdminResponse(path, init)
   const result = (await response.json().catch(() => ({}))) as ApiResponse<T>
 
   if (!response.ok || result.data === undefined) {
@@ -64,4 +69,24 @@ export const requestAdmin = async <T>(path: string, init?: RequestInit) => {
   }
 
   return result.data
+}
+
+export const requestAdminFile = async (path: string, init?: RequestInit) => {
+  const response = await fetchAdminResponse(path, init)
+
+  if (!response.ok) {
+    const result = (await response.json().catch(() => ({}))) as ApiResponse<never>
+    throw new Error(result.message || 'Không thể tải tệp')
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition') ?? ''
+  const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+  const totalItems = Number(response.headers.get('X-Export-Total'))
+
+  return {
+    blob: await response.blob(),
+    filename: filenameMatch?.[1] ?? 'download',
+    totalItems: Number.isFinite(totalItems) ? totalItems : undefined,
+    truncated: response.headers.get('X-Export-Truncated') === 'true',
+  }
 }

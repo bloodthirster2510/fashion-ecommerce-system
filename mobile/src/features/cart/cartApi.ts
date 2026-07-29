@@ -78,6 +78,8 @@ export type CreateOrderPayload = {
     ghnDistrictId?: number | null;
     ghnWardCode?: string | null;
     ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+    ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+    ghnMappingVerifiedAt?: string | null;
   };
   quoteVersion: string;
   paymentMethod: CartPaymentMethod;

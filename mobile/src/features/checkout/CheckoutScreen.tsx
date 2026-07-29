@@ -28,6 +28,12 @@ import { cartApi, CartApiError, type CartItem, type CartResponse, type CheckoutP
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
 import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
+import {
+  canSubmitCheckout,
+  getCheckoutItemTitle,
+  getCheckoutValidationIssue,
+  getShippingStatusText,
+} from './checkoutPresentation';
 
 type CheckoutNavigationProp = StackNavigationProp<RootStackParamList, 'Checkout'>;
 type CheckoutRouteProp = RouteProp<RootStackParamList, 'Checkout'>;
@@ -60,8 +66,6 @@ const getErrorMessage = (error: unknown) => {
   return error instanceof Error ? error.message : 'Bạn thử lại sau nha.';
 };
 
-const getItemTitle = (item: CartItem) => item.name || `Sản phẩm ${item.sku}`;
-
 const compactAddressParts = (address: UserAddress) =>
   [address.streetName, address.ward, address.province].map((item) => item?.trim()).filter(Boolean);
 
@@ -85,6 +89,8 @@ const toShippingAddress = (address: UserAddress) => ({
   ghnDistrictId: address.ghnDistrictId ?? null,
   ghnWardCode: address.ghnWardCode ?? null,
   ghnMappingStatus: address.ghnMappingStatus ?? 'missing',
+  ghnMappingConfidence: address.ghnMappingConfidence ?? null,
+  ghnMappingVerifiedAt: address.ghnMappingVerifiedAt ?? null,
 });
 
 const hasShippingAreaCode = (address: UserAddress | null) =>
@@ -396,31 +402,26 @@ const CheckoutScreen = () => {
     : shippingComparison?.comparisonStatus === 'fallback'
       ? 'Phí tạm tính'
       : 'Giá tối ưu';
-  const shippingStatusText = isPreviewLoading
-    ? 'Đang tính phí giao hàng...'
-    : !selectedCheckoutItems.length
-    ? 'Chọn sản phẩm để tính phí giao hàng.'
-    : !selectedAddress
-    ? 'Chọn địa chỉ nhận hàng để tính phí giao hàng.'
-    : shippingComparison?.note
-    ? shippingComparison.note
-    : shippingNeedsAddressMapping
-    ? 'Địa chỉ này chưa có dữ liệu tính phí tự động, hệ thống đang dùng phí tạm tính.'
-    : shippingComparison?.comparisonStatus === 'live' || shippingComparison?.comparisonStatus === 'partial'
-    ? 'Hệ thống đã chọn giải pháp giao hàng tối ưu cho địa chỉ này.'
-    : shippingQuote?.status === 'quoted'
-    ? 'Đã tính phí theo địa chỉ nhận hàng.'
-    : 'Đang dùng phí tạm tính, shop sẽ đối soát lại khi xử lý đơn.';
+  const shippingStatusText = getShippingStatusText({
+    isPreviewLoading,
+    selectedItemCount: selectedCheckoutItems.length,
+    hasSelectedAddress: Boolean(selectedAddress),
+    comparisonNote: shippingComparison?.note,
+    needsAddressMapping: shippingNeedsAddressMapping,
+    comparisonStatus: shippingComparison?.comparisonStatus,
+    quoteStatus: shippingQuote?.status,
+  });
   const savingsAmount = couponDiscountAmount + shippingDiscountAmount + membershipDiscountAmount;
-  const canSubmit =
-    selectedCheckoutItems.length > 0 &&
-    unavailableSelectedItems.length === 0 &&
-    Boolean(selectedAddress) &&
-    Boolean(checkoutPreview?.quoteVersion) &&
-    checkoutPreviewIsCurrent &&
-    !isPreviewLoading &&
-    !isSubmitting &&
-    (paymentMethod === 'COD' || paymentMethod === 'VNPAY');
+  const canSubmit = canSubmitCheckout({
+    selectedItemCount: selectedCheckoutItems.length,
+    unavailableItemCount: unavailableSelectedItems.length,
+    hasSelectedAddress: Boolean(selectedAddress),
+    hasQuoteVersion: Boolean(checkoutPreview?.quoteVersion),
+    previewIsCurrent: checkoutPreviewIsCurrent,
+    isPreviewLoading,
+    isSubmitting,
+    paymentMethod,
+  });
 
   useEffect(() => {
     const nextCouponCode = route.params?.couponCode?.trim().toUpperCase();
@@ -531,28 +532,21 @@ const CheckoutScreen = () => {
   );
 
   const validateCheckout = () => {
-    if (!selectedAddress) {
-      showNotice({
-        tone: 'warning',
-        title: 'Thiếu địa chỉ nhận hàng',
-        message: 'Bạn chọn hoặc thêm địa chỉ trong hồ sơ trước khi đặt hàng.',
-        actionLabel: 'Mở hồ sơ',
-        onAction: () => navigation.navigate('EditProfile'),
-      });
-      return false;
-    }
+    const issue = getCheckoutValidationIssue(Boolean(selectedAddress), selectedItems);
+    if (!issue) return true;
 
-    const overStockItem = selectedItems.find((item) => item.availableQuantity !== undefined && item.quantity > item.availableQuantity);
-    if (overStockItem) {
-      showNotice({
-        tone: 'warning',
-        title: 'Không đủ tồn kho',
-        message: `${getItemTitle(overStockItem)} chỉ còn ${overStockItem.availableQuantity}.`,
-      });
-      return false;
-    }
-
-    return true;
+    showNotice({
+      tone: 'warning',
+      title: issue.title,
+      message: issue.message,
+      ...(issue.kind === 'missing_address'
+        ? {
+            actionLabel: 'Mở hồ sơ',
+            onAction: () => navigation.navigate('EditProfile'),
+          }
+        : {}),
+    });
+    return false;
   };
 
   const handleCheckout = async () => {
@@ -967,7 +961,7 @@ const CheckoutScreen = () => {
         </View>
       )}
       <View style={styles.checkoutItemCopy}>
-        <Text style={styles.checkoutItemName} numberOfLines={2}>{getItemTitle(item)}</Text>
+        <Text style={styles.checkoutItemName} numberOfLines={2}>{getCheckoutItemTitle(item)}</Text>
         {item.brand?.name ? <Text style={styles.checkoutItemBrand}>{item.brand.name}</Text> : null}
         <Text style={styles.checkoutItemVariant}>
           {[item.color, item.size].filter(Boolean).join(' · ')}

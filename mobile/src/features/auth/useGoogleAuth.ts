@@ -1,43 +1,78 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Google from 'expo-auth-session/providers/google';
 import { authApi, type AuthSession } from './authApi';
 
-export const useGoogleAuth = (onSuccess: (session: AuthSession) => void) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const onSuccessRef = useRef(onSuccess);
-  onSuccessRef.current = onSuccess;
+type GoogleAuthOptions = {
+  clientId: string;
+  redirectUri?: string;
+  onSuccess: (session: AuthSession) => void;
+  onError: (message: string) => void;
+};
 
-  const [, response, promptAsync] = Google.useIdTokenAuthRequest({
-    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '',
+export const useGoogleAuth = ({
+  clientId,
+  redirectUri,
+  onSuccess,
+  onError,
+}: GoogleAuthOptions) => {
+  const [loading, setLoading] = useState(false);
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+  const processedTokenRef = useRef('');
+  onSuccessRef.current = onSuccess;
+  onErrorRef.current = onError;
+
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    clientId,
+    redirectUri,
+    selectAccount: true,
   });
+
+  const handleGoogleToken = useCallback(async (idToken: string) => {
+    if (!idToken || processedTokenRef.current === idToken) return;
+    processedTokenRef.current = idToken;
+    let succeeded = false;
+    setLoading(true);
+    try {
+      const session = await authApi.socialLogin('google', idToken);
+      succeeded = true;
+      onSuccessRef.current(session);
+    } catch (err) {
+      onErrorRef.current(err instanceof Error ? err.message : 'Đăng nhập Google thất bại');
+    } finally {
+      if (!succeeded) processedTokenRef.current = '';
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (response?.type === 'success') {
-      const { id_token } = response.params;
-      handleGoogleToken(id_token);
+      const idToken = response.params.id_token || response.authentication?.idToken;
+      if (idToken) {
+        void handleGoogleToken(idToken);
+      } else {
+        setLoading(false);
+        onErrorRef.current('Google không trả về mã xác thực hợp lệ');
+      }
     } else if (response?.type === 'error') {
-      setError(response.error?.message || 'Đăng nhập Google thất bại');
-    }
-  }, [response]);
-
-  const handleGoogleToken = async (idToken: string) => {
-    setLoading(true);
-    setError('');
-    try {
-      const session = await authApi.socialLogin('google', idToken);
-      onSuccessRef.current(session);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Đăng nhập Google thất bại');
-    } finally {
+      setLoading(false);
+      onErrorRef.current(response.error?.message || 'Đăng nhập Google thất bại');
+    } else if (response?.type === 'cancel' || response?.type === 'dismiss') {
       setLoading(false);
     }
-  };
+  }, [handleGoogleToken, response]);
 
-  const signInWithGoogle = async () => {
-    setError('');
-    await promptAsync();
-  };
+  const signInWithGoogle = useCallback(async () => {
+    if (!request || loading) return;
+    setLoading(true);
+    try {
+      const result = await promptAsync();
+      if (result.type !== 'success') setLoading(false);
+    } catch (error) {
+      setLoading(false);
+      onErrorRef.current(error instanceof Error ? error.message : 'Không thể mở đăng nhập Google');
+    }
+  }, [loading, promptAsync, request]);
 
-  return { signInWithGoogle, loading, error };
+  return { signInWithGoogle, loading, ready: Boolean(request) };
 };

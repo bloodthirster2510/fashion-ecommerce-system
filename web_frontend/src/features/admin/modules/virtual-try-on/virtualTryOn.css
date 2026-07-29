@@ -216,12 +216,40 @@
 
 .admin-vto-side { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
 .admin-vto-settings-panel { grid-column: 1 / -1; }
-.admin-vto-config-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.admin-vto-settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.admin-vto-settings-head h2 { margin-bottom: 3px; }
+.admin-vto-settings-head p { margin: 0; }
+.admin-vto-settings-head > span,
+.admin-vto-secret-status span { border: 1px solid #dfe6eb; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 900; white-space: nowrap; }
+.admin-vto-settings-head .is-ready,
+.admin-vto-secret-status .is-ready { border-color: #b9dbc8; color: #286648; background: #f3fbf6; }
+.admin-vto-settings-head .is-offline,
+.admin-vto-secret-status .is-offline { border-color: #e7c7bd; color: #983d28; background: #fff6f3; }
+.admin-vto-config-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
 .admin-vto-config-group { min-width: 0; padding: 11px; border: 1px solid #e2e8ed; border-radius: 8px; background: #fbfcfd; }
 .admin-vto-config-group h3 { margin: 0 0 10px; font-size: 12px; line-height: 1.3; }
 .admin-vto-config-group.is-image h3 { color: #276348; }
 .admin-vto-config-group.is-video h3 { color: #315f83; }
+.admin-vto-config-group.is-validation h3 { color: #704b8c; }
 .admin-vto-config-group.is-policy h3 { color: #74500c; }
+.admin-vto-secret-status { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 10px; padding: 9px; border: 1px dashed #d8e0e7; border-radius: 8px; background: #fbfcfd; }
+.admin-vto-secret-status strong { margin-right: auto; color: #5b6b7b; font-size: 11px; }
+.admin-vto-settings-form { display: grid; gap: 10px; margin-top: 10px; padding: 11px; border: 1px solid #dfe6eb; border-radius: 8px; background: #fbfcfd; }
+.admin-vto-settings-switch { display: flex; align-items: center; gap: 8px; color: var(--admin-text); font-size: 12px; font-weight: 900; }
+.admin-vto-settings-switch input { width: 16px; height: 16px; accent-color: var(--admin-accent); }
+.admin-vto-settings-fields { display: grid; grid-template-columns: repeat(5,minmax(120px,1fr)); gap: 8px; }
+.admin-vto-settings-fields label { display: grid; gap: 5px; }
+.admin-vto-settings-fields span { color: #5f6f80; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
+.admin-vto-settings-fields input,
+.admin-vto-settings-actions select { min-width: 0; width: 100%; height: 36px; border: 1px solid #d8e0e7; border-radius: 7px; padding: 0 9px; color: var(--admin-text); background: #fff; outline: none; font: inherit; font-size: 12px; font-weight: 750; }
+.admin-vto-settings-fields input:focus,
+.admin-vto-settings-actions select:focus { border-color: var(--admin-accent); box-shadow: 0 0 0 3px rgba(95,134,162,.12); }
+.admin-vto-settings-actions { display: flex; align-items: center; gap: 8px; }
+.admin-vto-settings-actions select { max-width: 230px; }
+.admin-vto-settings-actions button { min-height: 36px; border: 1px solid var(--admin-accent); border-radius: 7px; padding: 0 14px; color: #fff; background: var(--admin-accent); cursor: pointer; font-weight: 850; }
+.admin-vto-settings-actions button.is-secondary { border-color: #d9e1e7; color: var(--admin-text); background: #fff; }
+.admin-vto-settings-actions button:disabled,
+.admin-vto-settings-actions select:disabled { cursor: not-allowed; opacity: .55; }
 .admin-vto-rule-tools { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(300px,.75fr); gap: 12px; align-items: start; }
 .admin-vto-panel { padding: 12px; }
 .admin-vto-panel h2 { margin: 0 0 10px; color: var(--admin-text); font-size: 14px; line-height: 1.2; }
@@ -339,6 +367,7 @@
 @media (max-width: 1180px) {
   .admin-vto-config-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .admin-vto-config-group.is-policy { grid-column: 1 / -1; }
+  .admin-vto-settings-fields { grid-template-columns: repeat(3,minmax(120px,1fr)); }
   .admin-vto-command-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 920px) {
@@ -347,6 +376,7 @@
   .admin-vto-settings-panel { grid-column: auto; }
   .admin-vto-config-grid { grid-template-columns: 1fr; }
   .admin-vto-config-group.is-policy { grid-column: auto; }
+  .admin-vto-settings-fields { grid-template-columns: repeat(2,minmax(120px,1fr)); }
   .admin-vto-rule-tools { grid-template-columns: 1fr; }
   .admin-vto-toolbar { grid-template-columns: 1fr 1fr; }
 }
@@ -356,6 +386,10 @@
   .admin-vto-toolbar,
   .admin-vto-copy-grid,
   .admin-vto-moderation-grid { grid-template-columns: 1fr; }
+  .admin-vto-settings-head,
+  .admin-vto-settings-actions { align-items: stretch; flex-direction: column; }
+  .admin-vto-settings-fields { grid-template-columns: 1fr; }
+  .admin-vto-settings-actions select { max-width: none; }
   .admin-vto-ops-bar { align-items: flex-start; flex-direction: column; }
 }
 

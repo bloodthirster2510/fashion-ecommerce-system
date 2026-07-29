@@ -11,6 +11,7 @@ jest.mock('../../../database/models/push-token.model');
 jest.mock('bcryptjs');
 jest.mock('jsonwebtoken');
 jest.mock('../../../utils/email', () => ({
+  getResetPasswordEmailCapability: jest.fn(),
   sendResetPasswordEmail: jest.fn(),
 }));
 jest.mock('../../../utils/sms', () => ({
@@ -20,6 +21,11 @@ jest.mock('../../../utils/sms', () => ({
 }));
 
 import { sendOtpSms, verifyOtpToken, verifyOtpCode } from '../../../utils/sms';
+import {
+  getResetPasswordEmailCapability,
+  sendResetPasswordEmail,
+} from '../../../utils/email';
+import { EmailDeliveryError } from '../../../utils/email-provider';
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -29,25 +35,56 @@ describe('Auth Service', () => {
     process.env.JWT_ACCESS_SECRET = 'test-access-secret';
     process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
     process.env.NODE_ENV = 'test';
+    process.env.SMS_PROVIDER = 'mock';
+    process.env.SMS_MOCK_OTP = '123456';
+    (getResetPasswordEmailCapability as jest.Mock).mockReturnValue({
+      mode: 'mock',
+      provider: 'mock',
+      testToken: 'mock-reset-token-0000000000000001',
+      testUrl: 'fashion-ecommerce://reset-password?identifier=test%40test.com&token=mock-reset-token-0000000000000001',
+    });
+    (sendResetPasswordEmail as jest.Mock).mockResolvedValue({
+      mode: 'mock',
+      provider: 'mock',
+      testToken: 'mock-reset-token-0000000000000001',
+      testUrl: 'fashion-ecommerce://reset-password?identifier=test%40test.com&token=mock-reset-token-0000000000000001',
+    });
+    (sendOtpSms as jest.Mock).mockResolvedValue({
+      mode: 'mock',
+      provider: 'mock',
+      testOtp: '123456',
+    });
     clearAuthRequestThrottleForTests();
   });
 
   describe('sendOtp', () => {
     it('should not reveal whether phone already exists', async () => {
       (User.findOne as jest.Mock).mockResolvedValue({ phone: '0900000000' });
-      await expect(sendOtp('0900000000')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000000')).resolves.toEqual({
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      });
       expect(sendOtpSms).not.toHaveBeenCalled();
     });
 
     it('should send OTP successfully', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
-      await expect(sendOtp('0900000000')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000000')).resolves.toEqual({
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      });
     });
 
     it('should throttle repeated OTP requests before user lookup', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
 
-      await expect(sendOtp('0900000001')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000001')).resolves.toEqual({
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      });
       await expect(sendOtp('0900000001')).rejects.toMatchObject({ status: 429 });
 
       expect(User.findOne).toHaveBeenCalledTimes(1);
@@ -376,9 +413,79 @@ describe('Auth Service', () => {
   });
 
   describe('forgotPassword', () => {
-    it('should do nothing if user not found', async () => {
+    it('should not reveal whether an email account exists', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
-      await expect(forgotPassword('test@test.com')).resolves.toBeUndefined();
+      await expect(forgotPassword('test@test.com')).resolves.toEqual({
+        method: 'email',
+        delivery: {
+          mode: 'mock',
+          provider: 'mock',
+          testToken: 'mock-reset-token-0000000000000001',
+          testUrl: expect.stringContaining('fashion-ecommerce://reset-password'),
+        },
+      });
+      expect(sendResetPasswordEmail).not.toHaveBeenCalled();
+    });
+
+    it('stores the mock token hash and returns email delivery information', async () => {
+      const user = {
+        _id: 'user-email-1',
+        email: 'test@test.com',
+        resetPasswordToken: null,
+        resetPasswordExpires: null,
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(user);
+
+      await expect(forgotPassword('test@test.com')).resolves.toEqual({
+        method: 'email',
+        delivery: expect.objectContaining({
+          mode: 'mock',
+          provider: 'mock',
+          testToken: 'mock-reset-token-0000000000000001',
+        }),
+      });
+      expect(User.updateOne).toHaveBeenCalledWith(
+        { _id: 'user-email-1' },
+        {
+          $set: {
+            resetPasswordToken: hashToken('mock-reset-token-0000000000000001'),
+            resetPasswordExpires: expect.any(Date),
+          },
+        },
+      );
+      expect(sendResetPasswordEmail).toHaveBeenCalledWith(
+        'test@test.com',
+        'mock-reset-token-0000000000000001',
+      );
+    });
+
+    it('restores the previous reset token when email delivery fails', async () => {
+      const previousExpiry = new Date('2026-07-29T10:00:00.000Z');
+      const user = {
+        _id: 'user-email-2',
+        email: 'test@test.com',
+        resetPasswordToken: 'previous-hash',
+        resetPasswordExpires: previousExpiry,
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(user);
+      (sendResetPasswordEmail as jest.Mock).mockRejectedValue(
+        new EmailDeliveryError('smtp unavailable', {
+          code: 'EMAIL_PROVIDER_UNAVAILABLE',
+        }),
+      );
+
+      await expect(forgotPassword('test@test.com')).rejects.toMatchObject({
+        code: 'EMAIL_PROVIDER_UNAVAILABLE',
+      });
+      expect(User.updateOne).toHaveBeenLastCalledWith(
+        { _id: 'user-email-2' },
+        {
+          $set: {
+            resetPasswordToken: 'previous-hash',
+            resetPasswordExpires: previousExpiry,
+          },
+        },
+      );
     });
 
     it('should throttle repeated phone reset requests without sending another SMS', async () => {
@@ -387,8 +494,14 @@ describe('Auth Service', () => {
         email: 'user@test.com',
       });
 
-      await expect(forgotPassword('0900000009')).resolves.toBeUndefined();
-      await expect(forgotPassword('0900000009')).resolves.toBeUndefined();
+      await expect(forgotPassword('0900000009')).resolves.toEqual({
+        method: 'phone',
+        delivery: { mode: 'mock', provider: 'mock', testOtp: '123456' },
+      });
+      await expect(forgotPassword('0900000009')).resolves.toEqual({
+        method: 'phone',
+        delivery: { mode: 'mock', provider: 'mock', testOtp: '123456' },
+      });
 
       expect(sendOtpSms).toHaveBeenCalledTimes(1);
       expect(User.findOne).toHaveBeenCalledTimes(1);

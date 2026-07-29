@@ -9,6 +9,7 @@ import type {
   AdminPaymentMethodStatus,
   AdminReturnReviewDecision,
   AdminTransaction,
+  UpdateOrderGhnMappingPayload,
 } from './orderAdminApi'
 import type { ShippingSimulationStatus } from './orderTypes'
 import { OrderActionsPanel } from './components/OrderActionsPanel'
@@ -104,6 +105,7 @@ export function OrderDetailDrawer({
   onShippingUpdate,
   onSimulateShippingStatus,
   onSyncGhnShipment,
+  onUpdateGhnMapping,
   onStatusUpdate,
   onCopyReference,
   onRevealRefundAccount,
@@ -131,6 +133,7 @@ export function OrderDetailDrawer({
   onShippingUpdate: () => void
   onSimulateShippingStatus: (status: ShippingSimulationStatus) => void
   onSyncGhnShipment: () => void
+  onUpdateGhnMapping: (payload: UpdateOrderGhnMappingPayload) => void
   onStatusUpdate: (status: AdminOrderStatus) => void
   onCopyReference: (value: string, label: string) => void
   onRevealRefundAccount: (method: AdminCustomerPaymentMethod) => void
@@ -285,6 +288,7 @@ export function OrderDetailDrawer({
             onShippingUpdate={onShippingUpdate}
             onSimulateShippingStatus={onSimulateShippingStatus}
             onSyncGhnShipment={onSyncGhnShipment}
+            onUpdateGhnMapping={onUpdateGhnMapping}
           />
         ) : null}
 

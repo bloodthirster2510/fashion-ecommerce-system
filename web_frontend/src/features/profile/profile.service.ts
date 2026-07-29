@@ -17,6 +17,8 @@ export type UserAddress = {
   ghnDistrictId?: number | null
   ghnWardCode?: string | null
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual'
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null
+  ghnMappingVerifiedAt?: string | null
   isDefault: boolean
 }
 

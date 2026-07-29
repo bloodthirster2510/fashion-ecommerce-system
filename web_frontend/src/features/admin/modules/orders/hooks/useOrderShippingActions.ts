@@ -4,8 +4,10 @@ import {
   createGhnShipment,
   simulateShippingWebhook,
   syncGhnShipment,
+  updateOrderGhnMapping,
   updateOrderShipping,
   type AdminOrder,
+  type UpdateOrderGhnMappingPayload,
 } from '../orderAdminApi'
 import type {
   Notice,
@@ -153,6 +155,29 @@ export function useOrderShippingActions({
     }
   }
 
+  const handleUpdateGhnMapping = async (payload: UpdateOrderGhnMappingPayload) => {
+    if (!selectedOrder) return
+
+    setActionLoading(true)
+    setNotice(null)
+
+    try {
+      const updatedOrder = await updateOrderGhnMapping(selectedOrder._id, payload)
+      replaceOrderRow(updatedOrder)
+      setNotice({
+        type: 'success',
+        message: 'Đã xác minh mapping GHN và đưa địa chỉ ra khỏi hàng chờ thủ công',
+      })
+      await refreshSelectedOrder(updatedOrder._id)
+      await loadOrders()
+      requestAdminNotificationRefresh()
+    } catch (error) {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const executeCancelGhnShipment = async (order: AdminOrder) => {
     setActionDialog(null)
     setActionDialogError('')
@@ -206,5 +231,6 @@ export function useOrderShippingActions({
     handleShippingUpdate,
     handleSimulateShippingStatus,
     handleSyncGhnShipment,
+    handleUpdateGhnMapping,
   }
 }

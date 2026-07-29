@@ -18,6 +18,8 @@ export type UserAddressInput = {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: GhnMappingStatus;
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: Date | string | null;
 };
 
 const trimRequired = (value: string | number) => String(value).trim();
@@ -50,6 +52,8 @@ export const normalizeUserAddressInput = (address: UserAddressInput) => {
     ghnDistrictId: resolvedGhnFields.ghnDistrictId,
     ghnWardCode: resolvedGhnFields.ghnWardCode,
     ghnMappingStatus: resolvedGhnFields.ghnMappingStatus,
+    ghnMappingConfidence: resolvedGhnFields.ghnMappingConfidence,
+    ghnMappingVerifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
     isDefault: Boolean(address.isDefault),
   };
 };

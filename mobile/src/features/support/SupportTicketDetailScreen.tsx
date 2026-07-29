@@ -12,8 +12,11 @@ import { useSupportRealtime } from './supportSocket';
 import type { SupportImage, SupportMessage, SupportTicket, SupportTicketDetail } from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
-
-const labels: Record<string, string> = { open: 'Đã tiếp nhận', in_progress: 'Đang xử lý', waiting_customer: 'Cần bạn bổ sung', resolved: 'Đã giải quyết', closed: 'Đã đóng' };
+import {
+  canReopenSupportTicket,
+  getSupportTicketStatusLabel,
+  validateSupportImageAssets,
+} from './supportPresentation';
 
 export default function SupportTicketDetailScreen() {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList, 'SupportTicketDetail'>>();
@@ -92,9 +95,8 @@ export default function SupportTicketDetailScreen() {
   const chooseImages = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 3, quality: 0.85 });
     if (result.canceled) return;
-    if (result.assets.length > 3) { setError('Chỉ được chọn tối đa 3 ảnh.'); return; }
-    if (result.assets.some((asset) => !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType || ''))) { setError('Chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.'); return; }
-    if (result.assets.some((asset) => (asset.fileSize ?? 0) > 5 * 1024 * 1024)) { setError('Mỗi ảnh phải có dung lượng không quá 5MB.'); return; }
+    const imageError = validateSupportImageAssets(result.assets);
+    if (imageError) { setError(imageError); return; }
     setError('');
     setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-reply-${Date.now()}-${index}.jpg`, type: asset.mimeType || 'image/jpeg', size: asset.fileSize })));
   };
@@ -122,7 +124,7 @@ export default function SupportTicketDetailScreen() {
   const messages = liveMessages.length ? liveMessages : (detail?.messages ?? []);
   const status = ticket?.status ?? 'open';
   const isClosed = status === 'closed';
-  const canReopen = status === 'resolved' && Boolean(ticket?.reopenDeadline) && new Date(ticket?.reopenDeadline as string).getTime() >= Date.now();
+  const canReopen = canReopenSupportTicket(status, ticket?.reopenDeadline);
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
@@ -140,7 +142,7 @@ export default function SupportTicketDetailScreen() {
             <View style={s.card}>
               <View style={s.row}>
                 <Text style={s.cardTitle}>{ticket.ticketCode}</Text>
-                <Text style={s.secondaryText}>{labels[status] ?? status}</Text>
+                <Text style={s.secondaryText}>{getSupportTicketStatusLabel(status)}</Text>
               </View>
               <Text style={s.muted}>{ticket.subject}</Text>
             </View>

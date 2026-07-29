@@ -1,5 +1,10 @@
 import crypto from 'crypto';
 import { OtpVerification } from '../database/models/otp-verification.model';
+import {
+  deliverOtpSms,
+  getSmsDeliveryCapability,
+  type SmsDeliveryResult,
+} from './sms-provider';
 
 const OTP_EXPIRY_MINUTES = 5;
 const OTP_TOKEN_EXPIRY_MINUTES = 10;
@@ -54,8 +59,9 @@ export const generateOtp = (): string => {
   return crypto.randomInt(100000, 1000000).toString();
 };
 
-export const sendOtpSms = async (phone: string) => {
-  const otp = generateOtp();
+export const sendOtpSms = async (phone: string): Promise<SmsDeliveryResult> => {
+  const capability = getSmsDeliveryCapability();
+  const otp = capability.testOtp ?? generateOtp();
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
   await OtpVerification.deleteMany({ phone, kind: 'token' });
@@ -73,18 +79,11 @@ export const sendOtpSms = async (phone: string) => {
     { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
   );
 
-  if (process.env.SMS_PROVIDER === 'twilio') {
-    try {
-    } catch (err) {
-      console.error('Failed to send SMS via Twilio:', err);
-    }
-  } else if (process.env.SMS_PROVIDER === 'esms') {
-    try {
-    } catch (err) {
-      console.error('Failed to send SMS via ESMS:', err);
-    }
-  } else if (process.env.NODE_ENV !== 'production') {
-    console.info(`OTP generated for ${phone.slice(-4).padStart(phone.length, '*')}; configure SMS_PROVIDER to deliver it.`);
+  try {
+    return await deliverOtpSms(phone, otp, expiresAt);
+  } catch (error) {
+    await OtpVerification.deleteOne({ phone, kind: 'otp' });
+    throw error;
   }
 };
 

@@ -2,8 +2,6 @@ import { apiFetch } from '../../config/api';
 import type { ApiResponse } from '../auth/types';
 import type {
   CreatedReview,
-  EligibleReviewItem,
-  EligibleReviewItemsResponse,
   MyReviewList,
   PublicReviewList,
   ReviewCriteria,
@@ -40,8 +38,6 @@ export const reviewApi = {
     const query = new URLSearchParams({ orderId, orderItemId });
     return request<ReviewEligibility>(`/reviews/eligibility?${query.toString()}`, token);
   },
-  listEligibleItems: (token: string) =>
-    request<EligibleReviewItemsResponse>('/reviews/eligible-items?page=1&limit=100&status=all', token),
   create: (token: string, input: {
     orderId: string;
     orderItemId: string;
@@ -61,7 +57,14 @@ export const reviewApi = {
     });
     return request<CreatedReview>('/reviews', token, { method: 'POST', body: form });
   },
-  listMine: (token: string) => request<MyReviewList>('/reviews/me?page=1&limit=100&sort=newest', token),
+  listMine: (token: string, query: { page?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      limit: String(query.limit ?? 20),
+      sort: 'newest',
+    });
+    return request<MyReviewList>(`/reviews/me?${params.toString()}`, token);
+  },
   update: (token: string, reviewId: string, input: {
     rating: number;
     comment: string;

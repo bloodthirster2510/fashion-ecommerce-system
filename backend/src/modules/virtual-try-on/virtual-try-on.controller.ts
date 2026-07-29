@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
+import { VirtualTryOnSettingsServiceError } from './virtual-try-on-settings.service';
 import { VirtualTryOnServiceError, virtualTryOnService } from './virtual-try-on.service';
 import type {
   CreateVirtualTryOnJobInput,
@@ -14,10 +15,17 @@ import type {
 } from './virtual-try-on.types';
 
 const handleError = (res: Response, error: unknown) => {
-  if (error instanceof VirtualTryOnServiceError) {
+  if (
+    error instanceof VirtualTryOnServiceError
+    || error instanceof VirtualTryOnSettingsServiceError
+  ) {
     return errorResponse(res, error.message, error.statusCode, {
-      ...(error.errorCode ? { errorCode: error.errorCode } : {}),
-      ...(error.data !== undefined ? { data: error.data } : {}),
+      ...(error instanceof VirtualTryOnServiceError && error.errorCode
+        ? { errorCode: error.errorCode }
+        : {}),
+      ...(error instanceof VirtualTryOnServiceError && error.data !== undefined
+        ? { data: error.data }
+        : {}),
     });
   }
 
@@ -26,6 +34,9 @@ const handleError = (res: Response, error: unknown) => {
 };
 
 const getUserId = (req: Request) => req.user!.userId;
+const getAdminActorRole = (req: Request): 'admin' | 'staff' => (
+  req.user?.role === 'admin' ? 'admin' : 'staff'
+);
 
 const getUploadFile = (req: Request) => req.file as Express.Multer.File | undefined;
 
@@ -151,7 +162,7 @@ export const listJobs = async (req: Request, res: Response) => {
 
 export const getCapabilities = async (_req: Request, res: Response) => {
   try {
-    return ok(res, virtualTryOnService.getCapabilities());
+    return ok(res, await virtualTryOnService.getCapabilities());
   } catch (error) {
     return handleError(res, error);
   }
@@ -207,7 +218,37 @@ export const getAdminSummary = async (_req: Request, res: Response) => {
 
 export const getAdminSettings = async (_req: Request, res: Response) => {
   try {
-    return ok(res, virtualTryOnService.getAdminSettings());
+    return ok(res, await virtualTryOnService.getAdminSettings());
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const updateAdminSettings = async (req: Request, res: Response) => {
+  try {
+    return ok(
+      res,
+      await virtualTryOnService.updateAdminSettings(
+        req.body,
+        getUserId(req),
+        getAdminActorRole(req),
+      ),
+    );
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const rollbackAdminSettings = async (req: Request, res: Response) => {
+  try {
+    return ok(
+      res,
+      await virtualTryOnService.rollbackAdminSettings(
+        req.body,
+        getUserId(req),
+        getAdminActorRole(req),
+      ),
+    );
   } catch (error) {
     return handleError(res, error);
   }
@@ -215,7 +256,7 @@ export const getAdminSettings = async (_req: Request, res: Response) => {
 
 export const testAdminPrompt = async (req: Request, res: Response) => {
   try {
-    return ok(res, virtualTryOnService.testAdminPrompt(req.body));
+    return ok(res, await virtualTryOnService.testAdminPrompt(req.body));
   } catch (error) {
     return handleError(res, error);
   }

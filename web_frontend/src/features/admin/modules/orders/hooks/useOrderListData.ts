@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   listOrders,
   type AdminOrder,
@@ -6,6 +6,7 @@ import {
   type AdminOrderPaymentMethod,
   type AdminOrderPaymentStatus,
   type AdminOrderStatus,
+  type OrderListFilters,
 } from '../orderAdminApi'
 import type { PaymentSectionKey } from '../orderTypes'
 import type { OrderTableColumnKey } from '../orderTypes'
@@ -48,6 +49,9 @@ const getSavedLookupView = (): OrderLookupSavedView | null => {
   }
 }
 
+const getUrlLookupKeyword = () =>
+  new URLSearchParams(window.location.search).get('keyword')?.trim() ?? ''
+
 const getDefaultLookupDateFrom = () => getRelativeDateInput(30)
 
 const normalizeVisibleColumns = (columns?: OrderTableColumnKey[]) => {
@@ -78,9 +82,12 @@ export function useOrderListData({
   paymentSection: PaymentSectionKey
 }) {
   const savedLookupView = !lockPaymentSection ? getSavedLookupView() : null
+  const initialKeyword = !lockPaymentSection
+    ? getUrlLookupKeyword() || savedLookupView?.keywordInput || ''
+    : ''
   const [orders, setOrders] = useState<AdminOrder[]>([])
-  const [keywordInput, setKeywordInput] = useState(savedLookupView?.keywordInput ?? '')
-  const [keyword, setKeyword] = useState(savedLookupView?.keywordInput?.trim() ?? '')
+  const [keywordInput, setKeywordInput] = useState(initialKeyword)
+  const [keyword, setKeyword] = useState(initialKeyword.trim())
   const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
   const [activeTabKey, setActiveTabKey] = useState(() => (
     resolveInitialTabKey(initialTabKey, lockPaymentSection, paymentSection)
@@ -100,6 +107,9 @@ export function useOrderListData({
   const [operationalSummary, setOperationalSummary] = useState(emptyOperationalSummary)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [paymentDeadlineCutoff] = useState(() => (
+    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  ))
 
   const isLookupMode = !lockPaymentSection
   const activeTab = orderTabs.find((tab) => tab.key === activeTabKey) ?? orderTabs[0]
@@ -108,14 +118,55 @@ export function useOrderListData({
   const pageTitle = lockPaymentSection ? activePaymentSection.label : 'Tra cứu đơn hàng & hóa đơn'
   const pageHelper = lockPaymentSection ? activePaymentSection.helper : 'Tìm theo mã đơn, mã hóa đơn, khách hàng hoặc sản phẩm'
 
+  const activeFilters = useMemo<OrderListFilters>(() => {
+    const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
+    const effectiveLimit = activeTab.queue ? 100 : pageSize
+    const sectionPaymentMethods = isLookupMode ? undefined : getPaymentSectionMethods(activePaymentSectionKey)
+    const selectedPaymentMethod = !isLookupMode && activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod
+
+    return {
+      keyword,
+      statuses: activeTab.statuses,
+      paymentStatus: effectivePaymentStatus,
+      paymentMethod: selectedPaymentMethod === 'all' ? undefined : selectedPaymentMethod,
+      paymentMethods: selectedPaymentMethod === 'all' ? sectionPaymentMethods : undefined,
+      paymentDeadlineBefore: activeTab.queue === 'payment-deadline'
+        ? paymentDeadlineCutoff
+        : undefined,
+      shippingFallback: activeTab.queue === 'shipping-mapping' || undefined,
+      dateFrom: isLookupMode ? dateFrom || undefined : undefined,
+      dateTo: isLookupMode ? dateTo || undefined : undefined,
+      sort: isLookupMode ? sort : undefined,
+      page: activeTab.queue ? 1 : page,
+      limit: effectiveLimit,
+    }
+  }, [
+    activePaymentSectionKey,
+    activeTab.paymentStatus,
+    activeTab.queue,
+    activeTab.statuses,
+    dateFrom,
+    dateTo,
+    isLookupMode,
+    keyword,
+    page,
+    paymentMethod,
+    paymentDeadlineCutoff,
+    paymentStatus,
+    sort,
+  ])
+
   useEffect(() => {
     const currentSavedLookupView = !lockPaymentSection ? getSavedLookupView() : null
+    const currentKeyword = !lockPaymentSection
+      ? getUrlLookupKeyword() || currentSavedLookupView?.keywordInput || ''
+      : ''
 
     setActivePaymentSectionKey(paymentSection)
     setPaymentMethod(lockPaymentSection ? paymentSection === 'cod' ? 'COD' : 'all' : currentSavedLookupView?.paymentMethod ?? 'all')
     setPaymentStatus(lockPaymentSection ? 'all' : currentSavedLookupView?.paymentStatus ?? 'all')
-    setKeywordInput(currentSavedLookupView?.keywordInput ?? '')
-    setKeyword(currentSavedLookupView?.keywordInput?.trim() ?? '')
+    setKeywordInput(currentKeyword)
+    setKeyword(currentKeyword.trim())
     setDateFrom(lockPaymentSection ? '' : currentSavedLookupView?.dateFrom ?? getDefaultLookupDateFrom())
     setDateTo(currentSavedLookupView?.dateTo ?? '')
     setSort(currentSavedLookupView?.sort ?? 'created_desc')
@@ -132,25 +183,7 @@ export function useOrderListData({
     }
 
     try {
-      const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
-      const effectiveLimit = activeTab.queue ? 100 : pageSize
-      const sectionPaymentMethods = isLookupMode ? undefined : getPaymentSectionMethods(activePaymentSectionKey)
-      const selectedPaymentMethod = !isLookupMode && activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod
-      const result = await listOrders({
-        keyword,
-        statuses: activeTab.statuses,
-        paymentStatus: effectivePaymentStatus,
-        paymentMethod: selectedPaymentMethod === 'all' ? undefined : selectedPaymentMethod,
-        paymentMethods: selectedPaymentMethod === 'all' ? sectionPaymentMethods : undefined,
-        paymentDeadlineBefore: activeTab.queue === 'payment-deadline'
-          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-          : undefined,
-        dateFrom: isLookupMode ? dateFrom || undefined : undefined,
-        dateTo: isLookupMode ? dateTo || undefined : undefined,
-        sort: isLookupMode ? sort : undefined,
-        page: activeTab.queue ? 1 : page,
-        limit: effectiveLimit,
-      })
+      const result = await listOrders(activeFilters)
 
       const orderedItems = [...result.items]
         .filter((order) => !activeTab.queue || getOrderQueue(order) === activeTab.queue)
@@ -174,7 +207,7 @@ export function useOrderListData({
         setIsLoading(false)
       }
     }
-  }, [activePaymentSectionKey, activeTab.paymentStatus, activeTab.queue, activeTab.statuses, dateFrom, dateTo, isLookupMode, keyword, page, paymentMethod, paymentStatus, setOrders, sort])
+  }, [activeFilters, activeTab.queue, setOrders])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -246,6 +279,7 @@ export function useOrderListData({
   return {
     activePaymentSection,
     activePaymentSectionKey,
+    activeFilters,
     activeTab,
     activeTabKey,
     applyLookupDateRange,

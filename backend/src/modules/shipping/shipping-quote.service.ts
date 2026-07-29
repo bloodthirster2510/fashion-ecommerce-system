@@ -7,7 +7,7 @@ import type {
   ShippingQuoteItemInput,
   ShippingQuoteResult,
 } from './shipping.types';
-import { resolveGhnArea } from './ghn-area-resolver';
+import { resolveManagedGhnArea, type ResolvedGhnArea } from './ghn-area-resolver';
 
 export const DEFAULT_SHIPPING_FEE = 25000;
 
@@ -236,23 +236,27 @@ const parseAvailableServices = (rawServices: unknown): GhnAvailableService[] => 
 const quoteGhnOptions = async (input: {
   shippingAddress?: ShippingAddressForQuote;
   items: ShippingQuoteItemInput[];
-}): Promise<{ options: ShippingOptionQuote[]; hadUnavailable: boolean }> => {
-  const ghnArea = resolveGhnArea(input.shippingAddress);
+}): Promise<{ options: ShippingOptionQuote[]; hadUnavailable: boolean; resolvedArea: ResolvedGhnArea }> => {
+  const ghnArea = await resolveManagedGhnArea(input.shippingAddress);
   const toDistrictId = ghnArea.districtId;
   const toWardCode = ghnArea.wardCode;
+  const hasVerifiedMapping =
+    ghnArea.status === 'mapped'
+    && Boolean(ghnArea.verifiedAt)
+    && Boolean(ghnArea.confidence);
 
-  if (!toDistrictId || !toWardCode) {
-    return { options: [], hadUnavailable: false };
+  if (!toDistrictId || !toWardCode || !hasVerifiedMapping) {
+    return { options: [], hadUnavailable: false, resolvedArea: ghnArea };
   }
 
   const hasValidCodes = toDistrictId > 0 && toWardCode.length > 0 && !toWardCode.includes('không áp dụng');
   if (!hasValidCodes) {
-    return { options: [], hadUnavailable: false };
+    return { options: [], hadUnavailable: false, resolvedArea: ghnArea };
   }
 
   const fromDistrictId = getShopDistrictId();
   if (!fromDistrictId) {
-    return { options: [], hadUnavailable: false };
+    return { options: [], hadUnavailable: false, resolvedArea: ghnArea };
   }
 
   const metrics = getPackageMetrics(input.items);
@@ -347,10 +351,10 @@ const quoteGhnOptions = async (input: {
     const hadUnavailable = validationErrors.length > 0
       || settledQuotes.some((option) => option.availability === 'unavailable');
 
-    return { options: availableOptions, hadUnavailable };
+    return { options: availableOptions, hadUnavailable, resolvedArea: ghnArea };
   } catch (error) {
     if (shouldFallbackToFixedFee(error)) {
-      return { options: [], hadUnavailable: true };
+      return { options: [], hadUnavailable: true, resolvedArea: ghnArea };
     }
 
     throw error;
@@ -361,7 +365,7 @@ const compareCheckout = async (input: {
   shippingAddress?: ShippingAddressForQuote;
   items: ShippingQuoteItemInput[];
 }): Promise<ShippingComparisonResult> => {
-  const { options: ghnOptions, hadUnavailable } = await quoteGhnOptions(input);
+  const { options: ghnOptions, hadUnavailable, resolvedArea } = await quoteGhnOptions(input);
   const fallbackOption = buildFallbackOption(
     'fixed_fallback',
     ghnOptions.length
@@ -402,6 +406,15 @@ const compareCheckout = async (input: {
       : null,
     options: allOptions,
     shippingQuote: toShippingQuote(recommendedOption),
+    resolvedArea: {
+      provinceId: resolvedArea.provinceId,
+      districtId: resolvedArea.districtId,
+      wardCode: resolvedArea.wardCode,
+      status: resolvedArea.status,
+      confidence: resolvedArea.confidence,
+      verifiedAt: resolvedArea.verifiedAt,
+      source: resolvedArea.source,
+    },
   };
 };
 

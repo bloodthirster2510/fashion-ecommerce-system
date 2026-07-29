@@ -46,6 +46,8 @@ export interface IUserAddress {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: Date | null;
   isDefault: boolean;
 }
 
@@ -111,6 +113,12 @@ const userAddressSchema = new Schema<IUserAddress>(
     ghnDistrictId: { type: Number, default: null, min: 1 },
     ghnWardCode: { type: String, default: null, trim: true, maxlength: 20 },
     ghnMappingStatus: { type: String, enum: ['mapped', 'missing', 'manual'], default: 'missing' },
+    ghnMappingConfidence: {
+      type: String,
+      enum: ['exact', 'manual', 'legacy'],
+      default: null,
+    },
+    ghnMappingVerifiedAt: { type: Date, default: null },
     isDefault: { type: Boolean, default: false },
   },
 );

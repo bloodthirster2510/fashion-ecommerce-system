@@ -336,6 +336,17 @@ const getEligibility = async (
       .lean<{ _id: Types.ObjectId; moderationStatus?: ReviewModerationStatus; moderationReasons?: string[] } | null>(),
   ]);
 
+  if (existingReview) {
+    return {
+      canReview: false,
+      reason: 'ALREADY_REVIEWED' as const,
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      reviewId: existingReview._id.toString(),
+      reviewStatus: existingReview.moderationStatus ?? null,
+    };
+  }
+
   if (!product) {
     return {
       canReview: false,
@@ -348,12 +359,12 @@ const getEligibility = async (
   }
 
   return {
-    canReview: !existingReview,
-    reason: existingReview ? 'ALREADY_REVIEWED' as const : null,
+    canReview: true,
+    reason: null,
     orderStatus: order.status,
     paymentStatus: order.paymentStatus,
-    reviewId: existingReview?._id.toString() ?? null,
-    reviewStatus: existingReview?.moderationStatus ?? null,
+    reviewId: null,
+    reviewStatus: null,
   };
 };
 

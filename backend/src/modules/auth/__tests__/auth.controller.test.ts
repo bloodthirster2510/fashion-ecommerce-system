@@ -1,9 +1,13 @@
 import type { Request, Response } from 'express';
-import { adminLogin, refreshToken } from '../auth.controller';
+import { adminLogin, forgotPassword, refreshToken, sendOtp } from '../auth.controller';
 import * as authService from '../auth.service';
 import { REFRESH_TOKEN_COOKIE_MODE_HEADER } from '../refresh-token-cookie';
+import { SmsDeliveryError } from '../../../utils/sms-provider';
+import { EmailDeliveryError } from '../../../utils/email-provider';
 
 jest.mock('../auth.service', () => ({
+  sendOtp: jest.fn(),
+  forgotPassword: jest.fn(),
   loginAdminUser: jest.fn(),
   refreshAccessToken: jest.fn(),
 }));
@@ -137,5 +141,79 @@ describe('auth controller refresh cookie mode', () => {
 
     expect(authService.refreshAccessToken).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('auth controller SMS delivery', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.NODE_ENV = 'test';
+  });
+
+  it('returns mock delivery information when sending a registration OTP', async () => {
+    (authService.sendOtp as jest.Mock).mockResolvedValue({
+      mode: 'mock',
+      provider: 'mock',
+      testOtp: '123456',
+    });
+    const res = createResponse();
+
+    await sendOtp(createRequest({
+      body: { phone: '0901234567' },
+      cookieMode: false,
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      message: expect.any(String),
+      data: {
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      },
+    });
+  });
+
+  it('returns the provider error contract when password recovery SMS delivery fails', async () => {
+    (authService.forgotPassword as jest.Mock).mockRejectedValue(
+      new SmsDeliveryError('provider unavailable', {
+        status: 502,
+        code: 'SMS_PROVIDER_UNAVAILABLE',
+        retryable: true,
+      }),
+    );
+    const res = createResponse();
+
+    await forgotPassword(createRequest({
+      body: { identifier: '0901234567' },
+      cookieMode: false,
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({
+      message: expect.any(String),
+      errorCode: 'SMS_PROVIDER_UNAVAILABLE',
+    });
+  });
+
+  it('returns the provider error contract when password recovery email delivery fails', async () => {
+    (authService.forgotPassword as jest.Mock).mockRejectedValue(
+      new EmailDeliveryError('provider unavailable', {
+        status: 502,
+        code: 'EMAIL_PROVIDER_UNAVAILABLE',
+      }),
+    );
+    const res = createResponse();
+
+    await forgotPassword(createRequest({
+      body: { identifier: 'customer@example.com' },
+      cookieMode: false,
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({
+      message: expect.any(String),
+      errorCode: 'EMAIL_PROVIDER_UNAVAILABLE',
+    });
   });
 });

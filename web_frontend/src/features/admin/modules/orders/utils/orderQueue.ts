@@ -7,6 +7,7 @@ export const getOrderRowClass = (order: AdminOrder) => {
     return 'admin-order-row is-payment-risk'
   }
   if (hasRejectedReturnRequest(order)) return 'admin-order-row is-exception'
+  if (needsShippingMapping(order)) return 'admin-order-row is-exception'
   if (order.status === 'delivered' || order.status === 'completed') return 'admin-order-row is-complete'
   if (order.status === 'shipping') return 'admin-order-row is-shipping'
   if (order.status === 'packed') return 'admin-order-row is-packed'
@@ -60,11 +61,31 @@ export const isBlockedOrder = (order: AdminOrder) =>
   shouldWarnPaymentBeforeShipping(order) ||
   order.paymentStatus === 'failed'
 
+export const needsShippingMapping = (order: AdminOrder) => {
+  const mappingReady =
+    order.shippingAddress.ghnMappingStatus === 'mapped'
+    && Boolean(order.shippingAddress.ghnMappingConfidence)
+    && Boolean(order.shippingAddress.ghnMappingVerifiedAt)
+    && Boolean(order.shippingAddress.ghnDistrictId)
+    && Boolean(order.shippingAddress.ghnWardCode)
+  const unresolvedFallback =
+    order.shipping?.status !== 'mapping_resolved'
+    && (
+      order.shipping?.provider === 'FIXED'
+      || order.shipping?.status === 'fallback'
+      || order.shipping?.comparisonStatus === 'fallback'
+    )
+
+  return (order.status === 'confirmed' || order.status === 'packed')
+    && (!mappingReady || unresolvedFallback)
+}
+
 export const getOrderQueue = (order: AdminOrder): OrderQueueKey | null => {
   if (needsRefundReview(order)) return 'refund'
   if (needsReasonReview(order)) return 'review'
   if (isPaymentDeadlineSoon(order)) return 'payment-deadline'
   if (isBlockedOrder(order)) return 'blocked'
+  if (needsShippingMapping(order)) return 'shipping-mapping'
   if (order.status === 'confirmed') return 'packing'
   if (order.status === 'packed') return 'handoff'
   if (order.status === 'shipping') return 'delivery'
@@ -81,6 +102,7 @@ export const getQueueCount = (
   if (queue === 'review') return operationalSummary.returnRequests
   if (queue === 'blocked') return operationalSummary.paymentOverdueRisk ?? operationalSummary.paymentRisk
   if (queue === 'payment-deadline') return operationalSummary.paymentDeadlineSoon ?? 0
+  if (queue === 'shipping-mapping') return operationalSummary.shippingMappingRequired ?? 0
   if (queue === 'packing') return operationalSummary.packingReady ?? 0
   if (queue === 'handoff') return operationalSummary.handoffReady ?? 0
   if (queue === 'delivery') return operationalSummary.deliveryConfirmations ?? summary.delivered
@@ -103,7 +125,7 @@ export const getTabCount = (
 }
 
 export type AdminOrderAttention = {
-  kind: 'return' | 'return-inbound' | 'refund' | 'paid-ready' | 'payment-risk' | 'new' | 'packed' | 'delivery'
+  kind: 'return' | 'return-inbound' | 'refund' | 'paid-ready' | 'payment-risk' | 'shipping-mapping' | 'new' | 'packed' | 'delivery'
   tone: 'danger' | 'warning' | 'info' | 'success'
   label: string
   helper: string
@@ -143,6 +165,15 @@ export const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null
       tone: 'danger',
       label: 'Cần đối soát thanh toán',
       helper: 'Chưa ghi nhận thanh toán, tạm dừng xử lý giao hàng.',
+    }
+  }
+
+  if (needsShippingMapping(order)) {
+    return {
+      kind: 'shipping-mapping',
+      tone: 'warning',
+      label: 'Cần xác minh mapping GHN',
+      helper: 'Đơn đang dùng phí tạm tính hoặc thiếu mã GHN đã xác minh. Cập nhật mapping trước khi tạo vận đơn.',
     }
   }
 
@@ -190,10 +221,11 @@ export const getOrderAttentionRank = (order: AdminOrder) => {
     'return-inbound': 1,
     refund: 2,
     'payment-risk': 3,
-    'paid-ready': 4,
-    new: 5,
-    packed: 6,
-    delivery: 7,
+    'shipping-mapping': 4,
+    'paid-ready': 5,
+    new: 6,
+    packed: 7,
+    delivery: 8,
   }
 
   return ranks[attention.kind] ?? 8

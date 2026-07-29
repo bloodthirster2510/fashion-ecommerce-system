@@ -5,5 +5,6 @@ module.exports = {
   roots: ['<rootDir>/src/e2e'],
   testMatch: ['**/*.e2e.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
+  setupFiles: ['<rootDir>/src/e2e/e2e.setup.ts'],
   testTimeout: 120000,
 };

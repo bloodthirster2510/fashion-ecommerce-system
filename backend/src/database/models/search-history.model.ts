@@ -1,8 +1,16 @@
 import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export const SEARCH_HISTORY_TYPES = ['keyword', 'image'] as const;
+export const SEARCH_HISTORY_SOURCES = [
+  'catalog',
+  'mobile_manual',
+  'mobile_history',
+  'mobile_suggestion',
+  'api',
+] as const;
 
 export type SearchHistoryType = (typeof SEARCH_HISTORY_TYPES)[number];
+export type SearchHistorySource = (typeof SEARCH_HISTORY_SOURCES)[number];
 
 export const DEFAULT_SEARCH_HISTORY_TTL_SECONDS = 90 * 24 * 60 * 60;
 export const DEFAULT_SEARCH_HISTORY_MAX_RESULT_PRODUCTS = 100;
@@ -31,8 +39,11 @@ export interface ISearchHistoryResultProduct {
 export interface ISearchHistory extends Document {
   userId?: Types.ObjectId | null;
   sessionId?: string | null;
+  eventId?: string;
+  source: SearchHistorySource;
   searchType: SearchHistoryType;
   keyword?: string | null;
+  keywordKey?: string | null;
   imageUrl?: string | null;
   resultProducts: ISearchHistoryResultProduct[];
   resultCount: number;
@@ -54,8 +65,16 @@ const searchHistorySchema = new Schema<ISearchHistory>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     sessionId: { type: String, trim: true, maxlength: 128, default: null },
+    eventId: { type: String, trim: true, maxlength: 128 },
+    source: {
+      type: String,
+      enum: SEARCH_HISTORY_SOURCES,
+      required: true,
+      default: 'catalog',
+    },
     searchType: { type: String, enum: SEARCH_HISTORY_TYPES, required: true },
     keyword: { type: String, trim: true, maxlength: 100, default: null },
+    keywordKey: { type: String, trim: true, maxlength: 100, default: null },
     imageUrl: { type: String, trim: true, maxlength: 500, default: null },
     resultProducts: {
       type: [searchHistoryResultProductSchema],
@@ -83,7 +102,14 @@ searchHistorySchema.pre('validate', function validateSearchPayload() {
 
 searchHistorySchema.index({ userId: 1, createdAt: -1 });
 searchHistorySchema.index({ sessionId: 1, createdAt: -1 });
-searchHistorySchema.index({ userId: 1, keyword: 1, createdAt: -1 });
+searchHistorySchema.index({ userId: 1, keywordKey: 1, createdAt: -1 });
+searchHistorySchema.index(
+  { eventId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { eventId: { $type: 'string' } },
+  },
+);
 searchHistorySchema.index(
   { createdAt: 1 },
   { expireAfterSeconds: getSearchHistoryTtlSeconds() },
