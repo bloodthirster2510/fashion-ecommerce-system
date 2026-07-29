@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:unit": "playwright test --config=playwright.unit.config.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:backend": "playwright test --config=playwright.backend.config.ts"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",

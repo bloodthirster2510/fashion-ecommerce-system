@@ -362,11 +362,11 @@ Quy tắc an toàn:
 - [x] Virtual try-on upload multipart → validate → job ảnh → job ảnh + video → retry riêng ảnh và video; chạy queue/provider mock thật, chỉ mock Cloudinary boundary.
 - [x] Support customer tạo ticket và admin trả lời qua HTTP; Socket.IO client xác nhận event realtime đến đúng admin/customer scope.
 - [x] Thêm `socket.io-client` ở devDependency của backend để test gateway thật, không đưa vào runtime production.
+- [x] Thêm browser E2E riêng dùng MongoDB Memory + Express thật: seed admin/customer/order, đăng nhập qua form admin, tải order từ API và bulk update `confirmed → packed`; Playwright không intercept request trong suite này.
 
 **Còn lại trước production**
 
 - [ ] Chạy lại các hành trình trên staging với VNPay/GHN sandbox, Cloudinary và AI provider thật; E2E trong CI cố ý mock đúng adapter boundary để ổn định và không tiêu tốn credential/quota.
-- [ ] Bổ sung browser E2E kết nối backend seed thật cho các màn admin/mobile-web có thể chạy trên trình duyệt; Playwright hiện vẫn chủ yếu kiểm tra layout và presentation.
 
 ## 6. Backlog P2
 
@@ -422,6 +422,7 @@ Quy tắc an toàn:
 | `web_frontend: npm run lint` | Qua |
 | `web_frontend: npm run test:unit` | 4/4 qua |
 | `web_frontend: npm run test:e2e` | 14/14 qua |
+| `web_frontend: npm run test:e2e:backend` | 1/1 browser E2E với Express/MongoDB seed thật qua |
 | `mobile: npm run typecheck` | Qua |
 | `mobile: npm test` | 18 suite, 76 test qua |
 | `backend: npm run build` | Qua |
@@ -431,6 +432,12 @@ Quy tắc an toàn:
 | `ai_services/image-validation: python -m pytest` | 25 test qua |
 
 Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI provider hoạt động ngoài đời. GHN đã smoke qua sandbox; SMS vẫn cần credential sandbox, email vẫn cần SMTP thật và deep-link device test.
+
+**Trạng thái chốt code local — 30/07/2026**
+
+- Backlog triển khai code P0, P1 và P2 đã hoàn tất; build, lint, unit test, API-backed E2E và browser E2E backend-seeded đều đã có lệnh kiểm tra riêng.
+- Các checkbox còn mở được hoãn sang giai đoạn nghiệm thu production/staging vì cần credential, deployment secret, dữ liệu mapping production, sandbox/provider ngoài hoặc thiết bị Android/iOS thật.
+- Các mục production được giữ nguyên trong tài liệu để thực hiện sau và không được hiểu là phần code local còn thiếu. Chỉ đánh dấu hoàn tất khi có bằng chứng smoke test từ đúng môi trường tương ứng.
 
 ## 8. Thứ tự thực hiện đề xuất
 

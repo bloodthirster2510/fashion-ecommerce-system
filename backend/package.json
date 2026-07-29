@@ -19,7 +19,8 @@
     "recommendations:evaluate": "npm run build && node dist/scripts/recommendation-evaluate.js",
     "virtual-try-on:backfill-assets": "npm run build && node dist/scripts/virtual-try-on-backfill-assets.js",
     "test": "jest --passWithNoTests",
-    "test:e2e": "jest --config jest.e2e.config.js --runInBand"
+    "test:e2e": "jest --config jest.e2e.config.js --runInBand",
+    "test:e2e:browser-server": "npm run build && node dist/e2e/browser-e2e-server.js"
   },
   "keywords": [],
   "author": "",

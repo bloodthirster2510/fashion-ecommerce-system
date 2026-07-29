@@ -29,9 +29,14 @@ export type ApiE2EHarness = {
   stop(): Promise<void>;
 };
 
-const listen = (server: Server) => new Promise<void>((resolve, reject) => {
+type ApiE2EHarnessOptions = {
+  databaseName?: string;
+  port?: number;
+};
+
+const listen = (server: Server, port: number) => new Promise<void>((resolve, reject) => {
   server.once('error', reject);
-  server.listen(0, '127.0.0.1', () => {
+  server.listen(port, '127.0.0.1', () => {
     server.off('error', reject);
     resolve();
   });
@@ -45,7 +50,9 @@ const closeServer = (server: Server) => new Promise<void>((resolve, reject) => {
   server.close((error) => error ? reject(error) : resolve());
 });
 
-export const startApiE2EHarness = async (): Promise<ApiE2EHarness> => {
+export const startApiE2EHarness = async (
+  options: ApiE2EHarnessOptions = {},
+): Promise<ApiE2EHarness> => {
   const configuredMongod = process.env.MONGOMS_SYSTEM_BINARY;
   const systemBinary = configuredMongod || (existsSync(WINDOWS_MONGOD) ? WINDOWS_MONGOD : undefined);
   const binaryVersion = process.env.MONGOMS_VERSION
@@ -55,10 +62,10 @@ export const startApiE2EHarness = async (): Promise<ApiE2EHarness> => {
     replSet: { count: 1, storageEngine: 'wiredTiger' },
   });
 
-  await mongoose.connect(replicaSet.getUri('fashion-ecommerce-api-e2e'));
+  await mongoose.connect(replicaSet.getUri(options.databaseName ?? 'fashion-ecommerce-api-e2e'));
   const server = http.createServer(app);
   supportGateway.attach(server);
-  await listen(server);
+  await listen(server, options.port ?? 0);
   const address = server.address();
   if (!address || typeof address === 'string') {
     throw new Error('E2E API server did not expose a TCP port');
