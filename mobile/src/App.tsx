@@ -12,18 +12,15 @@ import { AuthProvider } from './features/auth/AuthContext';
 import { subscribeToSupportNotifications } from './features/support/supportNotifications';
 import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
 import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
+import { getUrlParam, parsePasswordResetLink } from './features/auth/passwordResetLink';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-const getUrlParam = (url: string, key: string) => {
-  const match = url.match(new RegExp(`[?&]${key}=([^&]+)`));
-  return match ? decodeURIComponent(match[1]) : null;
-};
-
 const resetRootToHome = () => {
   if (!navigationRef.isReady()) return;
+  if (!navigationRef.getRootState().routeNames.includes('Home')) return;
 
   navigationRef.resetRoot({
     index: 0,
@@ -42,18 +39,36 @@ const handleUnhandledNavigationAction = (action: NavigationAction) => {
 };
 
 const App = () => {
+  const pendingUrlRef = React.useRef<string | null>(null);
+
   const handleDeepLink = React.useCallback((url: string | null) => {
-    if (!url || !url.includes('payment-return')) {
+    if (!url) return;
+
+    if (!navigationRef.isReady()) {
+      pendingUrlRef.current = url;
       return;
     }
 
-    const orderId = getUrlParam(url, 'orderId');
-    if (!orderId || !navigationRef.isReady()) {
+    if (url.includes('reset-password')) {
+      const resetPayload = parsePasswordResetLink(url);
+      if (resetPayload) {
+        navigationRef.navigate('ForgotPassword', resetPayload);
+      }
       return;
     }
 
-    navigationRef.navigate('OrderDetail', { orderId });
+    if (url.includes('payment-return')) {
+      const orderId = getUrlParam(url, 'orderId');
+      if (orderId) navigationRef.navigate('OrderDetail', { orderId });
+    }
   }, []);
+
+  const handleNavigationReady = React.useCallback(() => {
+    resetRootToHome();
+    const pendingUrl = pendingUrlRef.current;
+    pendingUrlRef.current = null;
+    if (pendingUrl) handleDeepLink(pendingUrl);
+  }, [handleDeepLink]);
 
   React.useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => {
@@ -97,7 +112,7 @@ const App = () => {
       <StorefrontSettingsProvider>
         <NavigationContainer
           ref={navigationRef}
-          onReady={resetRootToHome}
+          onReady={handleNavigationReady}
           onUnhandledAction={handleUnhandledNavigationAction}
         >
           <AuthProvider>

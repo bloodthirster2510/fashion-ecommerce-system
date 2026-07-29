@@ -3,6 +3,7 @@ import { adminLogin, forgotPassword, refreshToken, sendOtp } from '../auth.contr
 import * as authService from '../auth.service';
 import { REFRESH_TOKEN_COOKIE_MODE_HEADER } from '../refresh-token-cookie';
 import { SmsDeliveryError } from '../../../utils/sms-provider';
+import { EmailDeliveryError } from '../../../utils/email-provider';
 
 jest.mock('../auth.service', () => ({
   sendOtp: jest.fn(),
@@ -192,6 +193,27 @@ describe('auth controller SMS delivery', () => {
     expect(res.json).toHaveBeenCalledWith({
       message: expect.any(String),
       errorCode: 'SMS_PROVIDER_UNAVAILABLE',
+    });
+  });
+
+  it('returns the provider error contract when password recovery email delivery fails', async () => {
+    (authService.forgotPassword as jest.Mock).mockRejectedValue(
+      new EmailDeliveryError('provider unavailable', {
+        status: 502,
+        code: 'EMAIL_PROVIDER_UNAVAILABLE',
+      }),
+    );
+    const res = createResponse();
+
+    await forgotPassword(createRequest({
+      body: { identifier: 'customer@example.com' },
+      cookieMode: false,
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(502);
+    expect(res.json).toHaveBeenCalledWith({
+      message: expect.any(String),
+      errorCode: 'EMAIL_PROVIDER_UNAVAILABLE',
     });
   });
 });

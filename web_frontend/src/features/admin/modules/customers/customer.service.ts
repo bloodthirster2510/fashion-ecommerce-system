@@ -88,7 +88,14 @@ export const updateManagedUserRole = (id: string, role: ManagedUserRole) =>
     body: JSON.stringify({ role }),
   }).then(normalizeManagedUserStatus)
 
+export type PasswordResetDeliveryInfo = {
+  mode: 'mock' | 'real'
+  provider: 'mock' | 'smtp'
+  testToken?: string
+  testUrl?: string
+}
+
 export const forceManagedUserPasswordReset = (id: string) =>
-  requestAdmin<null>(`/admin/users/${id}/force-password-reset`, {
+  requestAdmin<PasswordResetDeliveryInfo>(`/admin/users/${id}/force-password-reset`, {
     method: 'POST',
   })

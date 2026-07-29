@@ -8,7 +8,46 @@ declare module 'express' {
   }
 }
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+type TokenAccountState = {
+  mustChangePassword?: boolean;
+  passwordChangedAt?: Date | null;
+};
+
+const getTokenAccountState = (userId: string) =>
+  User.findById(userId)
+    .select('mustChangePassword passwordChangedAt')
+    .lean<TokenAccountState | null>();
+
+const wasTokenIssuedBeforePasswordChange = (
+  payload: JwtPayload,
+  passwordChangedAt?: Date | null,
+) => {
+  if (!passwordChangedAt) return false;
+  const changedAtSeconds = Math.floor(passwordChangedAt.getTime() / 1000);
+  return typeof payload.iat !== 'number' || payload.iat < changedAtSeconds;
+};
+
+const canUseTokenWhilePasswordChangeIsRequired = (req: Request) =>
+  req.baseUrl.endsWith('/auth')
+  && ['/change-password', '/logout'].includes(req.path);
+
+const validateTokenAccountState = async (req: Request, res: Response, payload: JwtPayload) => {
+  const account = await getTokenAccountState(payload.userId);
+  if (!account || wasTokenIssuedBeforePasswordChange(payload, account.passwordChangedAt)) {
+    res.status(401).json({ message: 'Access token has been revoked' });
+    return false;
+  }
+  if (account.mustChangePassword && !canUseTokenWhilePasswordChangeIsRequired(req)) {
+    res.status(403).json({
+      message: 'Password change is required',
+      errorCode: 'MUST_CHANGE_PASSWORD',
+    });
+    return false;
+  }
+  return true;
+};
+
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -17,16 +56,23 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
 
   const token = authHeader.split(' ')[1];
 
+  let decoded: JwtPayload;
   try {
-    const decoded = verifyAccessToken(token);
-    req.user = decoded;
-    next();
+    decoded = verifyAccessToken(token);
   } catch {
     return res.status(401).json({ message: 'Invalid or expired access token' });
   }
+
+  try {
+    if (!await validateTokenAccountState(req, res, decoded)) return;
+    req.user = decoded;
+    return next();
+  } catch {
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
 };
 
-export const optionalAuthenticate = (req: Request, res: Response, next: NextFunction) => {
+export const optionalAuthenticate = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -39,11 +85,19 @@ export const optionalAuthenticate = (req: Request, res: Response, next: NextFunc
 
   const token = authHeader.split(' ')[1];
 
+  let decoded: JwtPayload;
   try {
-    req.user = verifyAccessToken(token);
-    return next();
+    decoded = verifyAccessToken(token);
   } catch {
     return res.status(401).json({ message: 'Invalid or expired access token' });
+  }
+
+  try {
+    if (!await validateTokenAccountState(req, res, decoded)) return;
+    req.user = decoded;
+    return next();
+  } catch {
+    return res.status(500).json({ message: 'Internal Server Error' });
   }
 };
 

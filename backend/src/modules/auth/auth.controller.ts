@@ -17,6 +17,7 @@ import {
 } from '../../validators/auth.validator';
 import { ok, created, noContent } from '../../utils/response';
 import { isSmsDeliveryError } from '../../utils/sms-provider';
+import { isEmailDeliveryError } from '../../utils/email-provider';
 
 const getBearerToken = (req: Request) => {
   const authHeader = req.headers.authorization;
@@ -183,6 +184,12 @@ export const forgotPassword = async (req: Request, res: Response) => {
     const result = await authService.forgotPassword(req.body.identifier);
     return ok(res, result, msg);
   } catch (err) {
+    if (isEmailDeliveryError(err)) {
+      return res.status(err.status).json({
+        message: 'Không thể gửi email khôi phục lúc này. Vui lòng thử lại sau.',
+        errorCode: err.code,
+      });
+    }
     if (isSmsDeliveryError(err)) {
       return res.status(err.status).json({
         message: 'Không thể gửi mã OTP lúc này. Vui lòng thử lại sau.',

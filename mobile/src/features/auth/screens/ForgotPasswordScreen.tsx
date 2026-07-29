@@ -13,13 +13,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../../navigation/AppNavigator';
 import { authApi } from '../authApi';
+import { useAuth } from '../AuthContext';
+import type { EmailDeliveryInfo, OtpDeliveryInfo } from '../types';
 import { colors, sharedStyles } from '../../../theme';
 
 type AuthNavigationProp = StackNavigationProp<RootStackParamList>;
+type ForgotPasswordRouteProp = RouteProp<RootStackParamList, 'ForgotPassword'>;
 type ForgotField = 'identifier' | 'resetToken' | 'otp' | 'newPassword' | 'confirmPassword';
 type RecoveryMethod = 'email' | 'phone';
 
@@ -28,16 +31,25 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const getRecoveryMessage = (
   method: RecoveryMethod,
-  delivery?: { mode: 'mock' | 'real'; provider: 'mock' | 'twilio' | 'esms'; testOtp?: string },
+  delivery?: OtpDeliveryInfo | EmailDeliveryInfo,
 ) => {
-  if (method === 'email') return 'Token khôi phục đã được gửi qua email.';
-  if (delivery?.mode === 'mock') {
-    return `Chế độ thử nghiệm — nếu tài khoản tồn tại, dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}.`;
+  if (method === 'email') {
+    const emailDelivery = delivery as EmailDeliveryInfo | undefined;
+    if (emailDelivery?.mode === 'mock') {
+      return `Chế độ thử nghiệm — nếu tài khoản tồn tại, dùng token: ${emailDelivery.testToken ?? 'xem mock outbox backend'}.`;
+    }
+    return 'Nếu tài khoản tồn tại, email khôi phục sẽ được gửi.';
+  }
+  const smsDelivery = delivery as OtpDeliveryInfo | undefined;
+  if (smsDelivery?.mode === 'mock') {
+    return `Chế độ thử nghiệm — nếu tài khoản tồn tại, dùng mã OTP: ${smsDelivery.testOtp ?? 'xem mock outbox backend'}.`;
   }
   return 'Nếu tài khoản tồn tại, yêu cầu gửi OTP đã được nhà cung cấp SMS tiếp nhận.';
 };
 
 const ForgotPasswordScreen = () => {
+  const route = useRoute<ForgotPasswordRouteProp>();
+  const { logout, session } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [method, setMethod] = useState<RecoveryMethod | null>(null);
   const [identifier, setIdentifier] = useState('');
@@ -74,6 +86,19 @@ const ForgotPasswordScreen = () => {
   });
 
   const navigation = useNavigation<AuthNavigationProp>();
+
+  React.useEffect(() => {
+    const linkedIdentifier = route.params?.identifier?.trim();
+    const linkedToken = route.params?.token?.trim();
+    if (!linkedIdentifier || !linkedToken) return;
+
+    setIdentifier(linkedIdentifier);
+    setResetToken(linkedToken);
+    setMethod('email');
+    setStep(2);
+    setSubmitted(false);
+    setSuccessMessage('Liên kết khôi phục đã được mở. Hãy tạo mật khẩu mới.');
+  }, [route.params?.identifier, route.params?.token]);
 
   const markTouched = (field: ForgotField) => {
     setTouched((current) => ({ ...current, [field]: true }));
@@ -227,7 +252,11 @@ const ForgotPasswordScreen = () => {
       setStep(2);
       setOtp('');
       setOtpToken('');
-      setResetToken('');
+      setResetToken(
+        result.method === 'email' && result.delivery?.mode === 'mock'
+          ? result.delivery.testToken ?? ''
+          : '',
+      );
       setTouched((current) => ({ ...current, otp: false, resetToken: false }));
       setSubmitted(false);
       const recoveryMessage = getRecoveryMessage(result.method, result.delivery);
@@ -287,10 +316,15 @@ const ForgotPasswordScreen = () => {
       setResetting(true);
       clearMessages();
       await authApi.resetPassword(identifier.trim(), finalToken, newPassword, confirmPassword);
+      logout();
       Alert.alert('Thành công', 'Đặt lại mật khẩu thành công', [
         {
           text: 'Đăng nhập ngay',
-          onPress: () => navigation.navigate('Login'),
+          onPress: () => {
+            setTimeout(() => {
+              navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+            }, 0);
+          },
         },
       ]);
     } catch (error) {
@@ -316,7 +350,9 @@ const ForgotPasswordScreen = () => {
   const resetToHome = () => {
     navigation.reset({
       index: 0,
-      routes: [{ name: 'Home' }],
+      routes: [{
+        name: session?.user.mustChangePassword ? 'ForceChangePassword' : 'Home',
+      }],
     });
   };
 

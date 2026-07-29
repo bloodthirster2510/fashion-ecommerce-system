@@ -94,7 +94,9 @@ describe('admin support route permissions', () => {
   });
 
   it('lets admins bypass staff permission lookups', async () => {
+    mockStaffPermissions([]);
     await expect(request('/analytics', 'admin')).resolves.toMatchObject({ status: 204 });
-    expect(mockedUser.findById).not.toHaveBeenCalled();
+    // One lookup validates token revocation state; no second lookup is needed for staff permissions.
+    expect(mockedUser.findById).toHaveBeenCalledTimes(1);
   });
 });

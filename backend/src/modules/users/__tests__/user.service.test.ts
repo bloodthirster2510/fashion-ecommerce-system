@@ -12,16 +12,32 @@ import {
   updateUserStatus,
 } from '../user.service';
 import { User } from '../../../database/models/user.model';
-import { sendResetPasswordEmail } from '../../../utils/email';
+import {
+  getResetPasswordEmailCapability,
+  sendResetPasswordEmail,
+} from '../../../utils/email';
 
 jest.mock('../../../database/models/user.model');
 jest.mock('../../../utils/email', () => ({
+  getResetPasswordEmailCapability: jest.fn(),
   sendResetPasswordEmail: jest.fn(),
 }));
 
 describe('User Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getResetPasswordEmailCapability as jest.Mock).mockReturnValue({
+      mode: 'mock',
+      provider: 'mock',
+      testToken: 'mock-reset-token-0000000000000001',
+      testUrl: 'fashion-ecommerce://reset-password?identifier=customer%40test.com&token=mock-reset-token-0000000000000001',
+    });
+    (sendResetPasswordEmail as jest.Mock).mockResolvedValue({
+      mode: 'mock',
+      provider: 'mock',
+      testToken: 'mock-reset-token-0000000000000001',
+      testUrl: 'fashion-ecommerce://reset-password?identifier=customer%40test.com&token=mock-reset-token-0000000000000001',
+    });
   });
 
   describe('getMe', () => {
@@ -329,32 +345,64 @@ describe('User Service', () => {
   describe('forcePasswordReset', () => {
     it('should revoke sessions and send a reset password token', async () => {
       const previousExpiry = new Date();
+      const previousPasswordChangedAt = new Date(Date.now() - 60_000);
       const user = {
         email: 'customer@test.com',
         refreshToken: 'hashed-refresh-token',
         resetPasswordToken: 'hashed-reset-token',
         resetPasswordExpires: previousExpiry,
         mustChangePassword: false,
-        passwordChangedAt: new Date(),
+        passwordChangedAt: previousPasswordChangedAt,
         save: jest.fn(),
       };
       (User.findOne as jest.Mock).mockResolvedValue(user);
 
-      await forcePasswordReset('u1');
+      await expect(forcePasswordReset('u1')).resolves.toMatchObject({
+        mode: 'mock',
+        provider: 'mock',
+        testToken: 'mock-reset-token-0000000000000001',
+      });
 
       expect(user.refreshToken).toBeNull();
       expect(user.resetPasswordToken).not.toBe('hashed-reset-token');
       expect(user.resetPasswordExpires).toBeInstanceOf(Date);
       expect(user.resetPasswordExpires!.getTime()).toBeGreaterThan(previousExpiry.getTime());
       expect(user.mustChangePassword).toBe(true);
-      expect(user.passwordChangedAt).toBeNull();
+      expect(user.passwordChangedAt).toBeInstanceOf(Date);
+      expect(user.passwordChangedAt!.getTime()).toBeGreaterThan(previousPasswordChangedAt.getTime());
       expect(user.save).toHaveBeenCalled();
       expect(sendResetPasswordEmail).toHaveBeenCalledTimes(1);
 
       const [email, token] = (sendResetPasswordEmail as jest.Mock).mock.calls[0];
       expect(email).toBe('customer@test.com');
-      expect(token).toMatch(/^[a-f0-9]{64}$/);
+      expect(token).toBe('mock-reset-token-0000000000000001');
       expect(user.resetPasswordToken).toBe(crypto.createHash('sha256').update(token).digest('hex'));
+    });
+
+    it('restores the previous auth state when reset email delivery fails', async () => {
+      const previousExpiry = new Date('2026-07-29T10:00:00.000Z');
+      const previousPasswordChangedAt = new Date('2026-07-20T10:00:00.000Z');
+      const user = {
+        email: 'customer@test.com',
+        refreshToken: 'hashed-refresh-token',
+        resetPasswordToken: 'hashed-reset-token',
+        resetPasswordExpires: previousExpiry,
+        mustChangePassword: false,
+        passwordChangedAt: previousPasswordChangedAt,
+        save: jest.fn(),
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(user);
+      (sendResetPasswordEmail as jest.Mock).mockRejectedValue(new Error('SMTP unavailable'));
+
+      await expect(forcePasswordReset('u1')).rejects.toThrow('SMTP unavailable');
+      expect(user).toMatchObject({
+        refreshToken: 'hashed-refresh-token',
+        resetPasswordToken: 'hashed-reset-token',
+        resetPasswordExpires: previousExpiry,
+        mustChangePassword: false,
+        passwordChangedAt: previousPasswordChangedAt,
+      });
+      expect(user.save).toHaveBeenCalledTimes(2);
     });
   });
 });

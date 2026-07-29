@@ -18,12 +18,13 @@ Kết quả triển khai ngày 29/07/2026:
 
 - **P0-04 đã hoàn tất:** helper E2E dùng chung đã theo route `/admin/dashboard`; Playwright xanh 11/11.
 - **P0-01 đã hoàn tất phần code và test tự động:** có resolver `auto`, adapter `mock`/Twilio/eSMS, timeout/retry/lỗi chuẩn hóa và UI phân biệt `mock`/`real`. Còn thiếu smoke test bằng credential sandbox và thiết bị thật.
+- **P0-02 đã hoàn tất phần code và test tự động:** email có `auto`/mock/SMTP, mock token và outbox, deep link mobile, rollback khi gửi lỗi và guard bắt buộc đổi mật khẩu. Còn thiếu smoke test SMTP thật.
 
 Các khoản nợ còn ưu tiên:
 
-1. Khôi phục/ép đổi mật khẩu qua email chưa có mock outbox/deep link và mobile còn bỏ qua cờ `mustChangePassword`.
-2. Mapping địa chỉ hành chính 2025 sang GHN mới có 12 phường/xã thuộc 2/34 tỉnh, thành.
-3. OTP SMS cần smoke test sandbox cho cả đăng ký và khôi phục trước khi chốt production-ready.
+1. Mapping địa chỉ hành chính 2025 sang GHN mới có 12 phường/xã thuộc 2/34 tỉnh, thành.
+2. OTP SMS cần smoke test sandbox cho cả đăng ký và khôi phục trước khi chốt production-ready.
+3. Email reset cần smoke test bằng SMTP thật và xác nhận deep link trên development build/thiết bị thật.
 4. Đăng nhập Google/Facebook có UI nhưng mobile thiếu client ID; push notification đã có EAS Project ID nhưng điểm đăng ký token còn quá hẹp.
 5. Search mobile đã được backend tự ghi nhận qua API catalog, nhưng lịch sử local chưa đồng bộ với tài khoản và số liệu có thể bị đếm lặp khi filter/sort tải lại trang đầu.
 6. Admin khách hàng còn ba tab giữ chỗ; cấu hình provider/quota phối đồ ảo mới chỉ đọc, chưa sửa được.
@@ -131,35 +132,44 @@ Quy tắc an toàn:
 - [ ] Khi đủ `.env`, thiết bị thật nhận được OTP đăng ký và OTP khôi phục.
 - [x] API/UI phân biệt rõ `mock` và `real`; provider thật lỗi thì không báo đã gửi thành công.
 
-### P0-02 — Khôi phục/ép đổi mật khẩu chưa kín luồng
+### P0-02 — Khôi phục/ép đổi mật khẩu
 
-**Hiện trạng**
+**Trạng thái: đã triển khai code và test tự động; chờ SMTP/device smoke test**
 
-- SMTP hiện chưa cấu hình. `sendEmail` trả `false`, nhưng chưa ghi email vào mock outbox; `forgotPassword` và `forcePasswordReset` cũng không kiểm tra kết quả giao email.
-- Mobile vẫn thông báo token đã được gửi.
-- Email reset tạo link về `FRONTEND_URL/reset-password`; mobile lại yêu cầu người dùng tự nhập token.
-- Admin có nút ép reset mật khẩu khách hàng. Backend đã trả `mustChangePassword` trong session, nhưng `SessionUser` mobile không khai báo trường này và mobile không ép người dùng vào màn đổi/reset mật khẩu.
+**Đã làm ngày 29/07/2026**
+
+- Thêm resolver `EMAIL_PROVIDER=auto|mock|smtp`; đủ nhóm SMTP thì gửi thật, thiếu credential ngoài production thì dùng mock, production thiếu cấu hình trả lỗi.
+- Mock email dùng token cố định ngoài production, ghi nội dung/link vào outbox bộ nhớ và trả token/link có điều kiện giống nhau dù tài khoản có tồn tại hay không.
+- Email SMTP chỉ được tính thành công khi provider trả message ID và có ít nhất một địa chỉ được chấp nhận; có timeout cấu hình.
+- `forgotPassword` và admin force reset rollback reset token/trạng thái xác thực nếu email delivery thất bại.
+- Email reset chứa deep link `fashion-ecommerce://reset-password`; mobile parse `identifier`/`token`, mở đúng màn và điền sẵn token.
+- `SessionUser` mobile đã có `mustChangePassword`; navigator chỉ cho vào màn đổi mật khẩu hoặc khôi phục khi cờ này bật.
+- Admin ép reset làm mất refresh token, đánh dấu thời điểm thu hồi credential và middleware từ chối access token cũ. Token đăng nhập mới chỉ được dùng cho đổi mật khẩu/logout đến khi hoàn tất.
+- Web Admin hiển thị rõ mock token hoặc trạng thái SMTP đã tiếp nhận.
 
 **Bằng chứng**
 
-- `backend/src/utils/email.ts:15`
-- `backend/src/modules/auth/auth.service.ts:325`
-- `backend/src/modules/users/user.service.ts:483`
-- `mobile/src/features/auth/types.ts:45`
+- `backend/src/utils/email-provider.ts`
+- `backend/src/utils/email.ts`
+- `backend/src/middlewares/auth.middleware.ts`
+- `backend/src/modules/auth/auth.service.ts`
+- `backend/src/modules/users/user.service.ts`
+- `mobile/src/features/auth/passwordResetLink.ts`
 - `mobile/src/features/auth/screens/ForgotPasswordScreen.tsx`
+- `mobile/src/features/auth/screens/ForceChangePasswordScreen.tsx`
+- `mobile/src/navigation/AppNavigator.tsx`
 
-**Cần làm**
+**Còn lại**
 
-- Thêm email adapter `auto`: đủ SMTP thì gửi thật, thiếu SMTP trong dev/test thì ghi mock outbox chứa link/token.
-- Bắt buộc kiểm tra kết quả theo đúng mode; production không được báo “đã gửi” nếu SMTP không nhận request.
-- Chọn một luồng thống nhất cho mobile: universal/deep link mở thẳng màn reset, hoặc email hiển thị mã ngắn có thể nhập.
-- Thêm `mustChangePassword` vào session mobile và guard navigation.
-- Với khách bị admin ép reset, cho phép hoàn tất bằng reset token; không yêu cầu mật khẩu cũ.
+- Điền credential SMTP staging và gửi thử tới hộp thư thật.
+- Xác nhận custom scheme/deep link trên Android và iOS development build.
+- Nếu triển khai trang reset cho web khách hàng, điền `PASSWORD_RESET_WEB_URL`; mặc định hiện chỉ gửi link mobile để tránh liên kết web chưa tồn tại.
 
 **Definition of Done**
 
-- Quên mật khẩu qua email chạy trọn luồng bằng mock outbox khi `.env` trống và bằng email thật khi SMTP được cấu hình.
-- Admin ép reset thì session cũ mất hiệu lực và lần đăng nhập tiếp theo không thể bỏ qua bước đặt mật khẩu mới.
+- [x] Quên mật khẩu qua email chạy trọn luồng bằng mock token/outbox khi `.env` trống.
+- [ ] Hộp thư thật nhận được link hợp lệ khi SMTP được cấu hình.
+- [x] Admin ép reset làm access/refresh token cũ mất hiệu lực và lần đăng nhập tiếp theo không thể bỏ qua bước đặt mật khẩu mới.
 
 ### P0-03 — GHN chưa phủ địa chỉ mà mobile cho phép chọn
 
@@ -353,9 +363,9 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `web_frontend: npm run lint` | Qua |
 | `web_frontend: npm run test:e2e` | 11/11 qua |
 | `mobile: npm run typecheck` | Qua |
-| `mobile: npm test` | 6 suite, 35 test qua |
+| `mobile: npm test` | 7 suite, 38 test qua |
 | `backend: npm run build` | Qua |
-| `backend: npm test` | 73 suite, 691 test qua |
+| `backend: npm test` | 75 suite, 704 test qua |
 
 Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, GHN, Expo Push hay AI provider hoạt động ngoài đời. Riêng SMS hiện mới giả lập response provider trong unit test; vẫn cần smoke test sandbox bằng credential thật.
 
@@ -366,8 +376,9 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, GHN, Expo Push h
 1. [x] P0-04 sửa E2E admin và đưa CI về xanh.
 2. [x] P0-01 triển khai adapter real/mock cho OTP SMS.
 3. [ ] P0-01 chạy sandbox smoke test trên thiết bị thật.
-4. [ ] P0-02 email mock outbox và reset/force reset password.
-5. [ ] P0-03 hoàn thiện filter/queue fallback và mapping GHN cho môi trường chạy thật.
+4. [x] P0-02 email mock outbox, deep link và reset/force reset password.
+5. [ ] P0-02 chạy SMTP/deep-link smoke test trên thiết bị thật.
+6. [ ] P0-03 hoàn thiện filter/queue fallback và mapping GHN cho môi trường chạy thật.
 
 ### Đợt 2 — Hoàn tất tích hợp mobile đang lộ trên UI
 

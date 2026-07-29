@@ -6,6 +6,7 @@ import type {
   RegisterPayload,
   AuthSession,
   OtpDeliveryInfo,
+  PasswordRecoveryResult,
 } from './types';
 import { AuthApiError } from './types';
 
@@ -58,8 +59,10 @@ export const authApi = {
   refreshToken: (refreshToken: string) =>
     post<{ accessToken: string; refreshToken: string }>('/auth/refresh-token', { refreshToken }),
   forgotPassword: (identifier: string) =>
-    post<{ method: 'email' | 'phone'; delivery?: OtpDeliveryInfo }>('/auth/forgot-password', { identifier }),
+    post<PasswordRecoveryResult>('/auth/forgot-password', { identifier }),
   resetPassword: (identifier: string, token: string, newPassword: string, confirmPassword: string) =>
     post<null>('/auth/reset-password', { identifier, token, newPassword, confirmPassword }),
+  changePassword: (accessToken: string, currentPassword: string, newPassword: string, confirmPassword: string) =>
+    post<null>('/auth/change-password', { currentPassword, newPassword, confirmPassword }, accessToken),
   socialLogin: (provider: string, idToken: string) => post<AuthSession>('/auth/social-login', { provider, idToken }),
 };

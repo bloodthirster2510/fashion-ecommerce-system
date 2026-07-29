@@ -194,8 +194,8 @@ export const updateUserRole = async (req: Request, res: Response) => {
 
 export const forcePasswordReset = async (req: Request, res: Response) => {
   try {
-    await userService.forcePasswordReset(getParam(req.params.id));
-    return ok(res, null, 'Đã yêu cầu đặt lại mật khẩu');
+    const delivery = await userService.forcePasswordReset(getParam(req.params.id));
+    return ok(res, delivery, 'Đã yêu cầu đặt lại mật khẩu');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });

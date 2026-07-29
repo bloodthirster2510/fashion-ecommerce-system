@@ -49,6 +49,9 @@ const LoginScreen = () => {
   }, [navigation]);
   const completeLogin = useCallback(async (session: AuthSession) => {
     await login(session);
+    if (session.user.mustChangePassword) {
+      return;
+    }
     navigation.reset({
       index: 0,
       routes: [{ name: session.user.profileCompleted === false ? 'EditProfile' : 'Home' }],

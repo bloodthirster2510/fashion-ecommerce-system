@@ -7,6 +7,8 @@ import PaymentMethodsScreen from '../features/account/PaymentMethodsScreen';
 import LoginScreen from '../features/auth/screens/LoginScreen';
 import RegisterScreen from '../features/auth/screens/RegisterScreen';
 import ForgotPasswordScreen from '../features/auth/screens/ForgotPasswordScreen';
+import ForceChangePasswordScreen from '../features/auth/screens/ForceChangePasswordScreen';
+import { useAuth } from '../features/auth/AuthContext';
 import MembershipScreen from '../features/account/MembershipScreen';
 import ProductListScreen from '../features/catalog/ProductListScreen';
 import ProductDetailScreen from '../features/catalog/ProductDetailScreen';
@@ -138,7 +140,11 @@ export type RootStackParamList = {
   SupportTicketDetail: { ticketId: string };
   Login: undefined;
   Register: undefined;
-  ForgotPassword: undefined;
+  ForgotPassword: {
+    identifier?: string;
+    token?: string;
+  } | undefined;
+  ForceChangePassword: undefined;
   OrderSuccess: {
     orderId: string;
     orderCode: string;
@@ -153,6 +159,20 @@ export type RootStackParamList = {
 const Stack = createStackNavigator<RootStackParamList>();
 
 const AppNavigator = () => {
+  const { session } = useAuth();
+
+  if (session?.user.mustChangePassword) {
+    return (
+      <Stack.Navigator
+        initialRouteName="ForceChangePassword"
+        screenOptions={{ headerShown: false, gestureEnabled: false }}
+      >
+        <Stack.Screen name="ForceChangePassword" component={ForceChangePasswordScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      </Stack.Navigator>
+    );
+  }
+
   return (
     <Stack.Navigator
       initialRouteName="Home"

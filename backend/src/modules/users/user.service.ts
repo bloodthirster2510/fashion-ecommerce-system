@@ -2,7 +2,10 @@ import crypto from 'crypto';
 import { User, type IUser, type IUserAddress, type UserRole } from '../../database/models/user.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
-import { sendResetPasswordEmail } from '../../utils/email';
+import {
+  getResetPasswordEmailCapability,
+  sendResetPasswordEmail,
+} from '../../utils/email';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
 const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
@@ -484,14 +487,33 @@ export const forcePasswordReset = async (id: string) => {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
-  const resetToken = crypto.randomBytes(32).toString('hex');
+  const capability = getResetPasswordEmailCapability(user.email);
+  const resetToken = capability.testToken ?? crypto.randomBytes(32).toString('hex');
   const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+  const previousAuthState = {
+    refreshToken: user.refreshToken ?? null,
+    resetPasswordToken: user.resetPasswordToken ?? null,
+    resetPasswordExpires: user.resetPasswordExpires ?? null,
+    mustChangePassword: user.mustChangePassword,
+    passwordChangedAt: user.passwordChangedAt ?? null,
+  };
 
   user.refreshToken = null;
   user.resetPasswordToken = resetTokenHash;
   user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
   user.mustChangePassword = true;
-  user.passwordChangedAt = null;
+  user.passwordChangedAt = new Date();
   await user.save();
-  await sendResetPasswordEmail(user.email, resetToken);
+
+  try {
+    return await sendResetPasswordEmail(user.email, resetToken);
+  } catch (error) {
+    user.refreshToken = previousAuthState.refreshToken;
+    user.resetPasswordToken = previousAuthState.resetPasswordToken;
+    user.resetPasswordExpires = previousAuthState.resetPasswordExpires;
+    user.mustChangePassword = previousAuthState.mustChangePassword;
+    user.passwordChangedAt = previousAuthState.passwordChangedAt;
+    await user.save();
+    throw error;
+  }
 };

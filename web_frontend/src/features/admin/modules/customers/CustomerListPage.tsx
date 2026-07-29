@@ -204,8 +204,13 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       }
 
       if (pendingAction.type === 'reset') {
-        await forceManagedUserPasswordReset(pendingAction.user._id)
-        setNotice({ type: 'success', message: 'Đã yêu cầu đổi mật khẩu' })
+        const delivery = await forceManagedUserPasswordReset(pendingAction.user._id)
+        setNotice({
+          type: 'success',
+          message: delivery.mode === 'mock'
+            ? `Mock email đã tạo. Token: ${delivery.testToken ?? 'xem mock outbox backend'}`
+            : 'SMTP đã tiếp nhận email đặt lại mật khẩu',
+        })
       }
 
       setPendingAction(null)
