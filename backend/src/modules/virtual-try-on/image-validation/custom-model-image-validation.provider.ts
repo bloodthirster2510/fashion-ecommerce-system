@@ -38,9 +38,18 @@ const readTimeoutMs = () => {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15_000;
 };
 
-const getEndpoint = () =>
-  process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL?.trim() ||
-  'http://127.0.0.1:7001/validate-image';
+const getEndpoint = () => {
+  const endpoint = process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL?.trim();
+  if (!endpoint) {
+    throw new Error('IMAGE_VALIDATION_CUSTOM_MODEL_URL is required');
+  }
+
+  const parsed = new URL(endpoint);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('IMAGE_VALIDATION_CUSTOM_MODEL_URL must use HTTP or HTTPS');
+  }
+  return endpoint;
+};
 
 const normalizeQualityLevel = (value: unknown): ImageValidationQualityLevel =>
   typeof value === 'string' && qualityLevels.includes(value as ImageValidationQualityLevel)

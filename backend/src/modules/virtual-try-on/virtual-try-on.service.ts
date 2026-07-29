@@ -45,9 +45,12 @@ import {
   type VirtualTryOnSourceImageProfile,
 } from './providers';
 import {
+  checkImageValidationProviderHealth,
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
   getImageValidationReasonMessage,
+  getImageValidationReasonStatus,
+  isImageValidationFailOpen,
   isImageValidationReasonCode,
   type ImageValidationBodyRegion,
   type ImageValidationCapability,
@@ -97,8 +100,15 @@ const VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'com
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
   'NO_PERSON_DETECTED',
+  'MULTIPLE_PEOPLE_DETECTED',
   'BODY_NOT_VISIBLE',
   'PERSON_TOO_SMALL',
+  'IMAGE_POLICY_BLOCKED',
+  'VALIDATION_PROVIDER_FAILED',
+]);
+const uploadBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
+  'IMAGE_POLICY_BLOCKED',
+  'VALIDATION_PROVIDER_FAILED',
 ]);
 const terminalPolicyJobErrorCodes = new Set([
   'PROVIDER_SAFETY_BLOCKED',
@@ -1097,8 +1107,6 @@ const findSourceAssetForUser = async (userId: string, assetId: string) => {
   return asset;
 };
 
-const shouldFailOpenImageValidation = () => process.env.IMAGE_VALIDATION_FAIL_OPEN === 'true';
-
 const getImageValidationSource = (asset: IVirtualTryOnAsset): ImageValidationInput['source'] =>
   asset.source === 'camera' ? 'camera' : 'upload';
 
@@ -1215,6 +1223,9 @@ const buildBodySuitabilityResult = (
   ) {
     return result;
   }
+  if (!result.allowed && result.reasonCode !== 'BODY_NOT_VISIBLE') {
+    return result;
+  }
 
   const hasBodyRegionData =
     result.visibleRegions.length > 0 ||
@@ -1230,13 +1241,7 @@ const buildBodySuitabilityResult = (
     ));
 
   if (!hasBodyRegionData) {
-    return applySelectionCapabilityPolicy({
-      ...result,
-      allowed: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? true : result.allowed,
-      reasonCode: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? null : result.reasonCode,
-      message: result.reasonCode === 'IMAGE_POLICY_BLOCKED' ? null : result.message,
-      safetyFlags: [],
-    }, outfitMode, itemRoles);
+    return applySelectionCapabilityPolicy(result, outfitMode, itemRoles);
   }
 
   const baseReason = getBaseBodySuitabilityReason(result);
@@ -1437,7 +1442,7 @@ const getImageValidationResultForInput = async (input: ImageValidationInput) => 
     const provider = createImageValidationProvider(providerName);
     return applyImageValidationPolicy(await provider.validate(input));
   } catch (error) {
-    if (shouldFailOpenImageValidation()) {
+    if (isImageValidationFailOpen()) {
       console.warn('Image validation failed open:', error);
       return createImageValidationFallbackResult(providerName, {
         message: 'Image validation failed open',
@@ -1464,7 +1469,23 @@ const getSourceImageValidationResult = async (
     });
   }
 
-  const { buffer, mimeType } = await downloadImageValidationBuffer(sourceAsset);
+  let downloaded: Awaited<ReturnType<typeof downloadImageValidationBuffer>>;
+  try {
+    downloaded = await downloadImageValidationBuffer(sourceAsset);
+  } catch (error) {
+    if (isImageValidationFailOpen()) {
+      console.warn('Image validation source download failed open:', error);
+      return createImageValidationFallbackResult(getConfiguredImageValidationProviderName(), {
+        message: 'Image validation failed open',
+      });
+    }
+    return createImageValidationFallbackResult(getConfiguredImageValidationProviderName(), {
+      allowed: false,
+      reasonCode: 'VALIDATION_PROVIDER_FAILED',
+      message: getImageValidationReasonMessage('VALIDATION_PROVIDER_FAILED'),
+    });
+  }
+  const { buffer, mimeType } = downloaded;
   const result = await getImageValidationResultForInput({
     imageBuffer: buffer,
     mimeType,
@@ -1499,7 +1520,7 @@ const warnSourceImageForJob = async (
   if (suitabilityWarning && jobBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
     throw new VirtualTryOnServiceError(
       suitabilityWarning.message,
-      422,
+      getImageValidationReasonStatus(suitabilityWarning.reasonCode),
       suitabilityWarning.reasonCode,
       { reasonCode: suitabilityWarning.reasonCode, message: suitabilityWarning.message },
     );
@@ -1813,6 +1834,20 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
       source,
     });
     const validationWarning = getImageValidationWarning(validationResult);
+    if (
+      validationWarning &&
+      uploadBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
+    ) {
+      throw new VirtualTryOnServiceError(
+        validationWarning.message,
+        getImageValidationReasonStatus(validationWarning.reasonCode),
+        validationWarning.reasonCode,
+        {
+          reasonCode: validationWarning.reasonCode,
+          message: validationWarning.message,
+        },
+      );
+    }
     const asset = await VirtualTryOnAsset.create({
       userId: userObjectId,
       type: getAssetType(source),
@@ -2523,7 +2558,10 @@ const getAdminSummary = async () => {
 };
 
 const getAdminSettings = async () => {
-  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  const [runtimeSettings, imageValidation] = await Promise.all([
+    virtualTryOnSettingsService.getRuntimeSettings(),
+    checkImageValidationProviderHealth(),
+  ]);
   const configuredVideo = getVideoCapabilities();
   const imageEnabled = runtimeSettings.enabled && PROVIDER !== 'disabled';
   const video = imageEnabled
@@ -2542,6 +2580,7 @@ const getAdminSettings = async () => {
     updatedAt: runtimeSettings.updatedAt?.toISOString() ?? null,
     historyVersions: runtimeSettings.historyVersions,
     secretStatus: virtualTryOnSettingsService.getSecretStatus(),
+    imageValidation,
     image: {
       enabled: imageEnabled,
       provider: PROVIDER,
@@ -2962,21 +3001,38 @@ const unlockAccount = async (actorUserId: string | undefined, userId: string) =>
 const getContextPresetPreviews = (): VirtualTryOnContextPresetPreview[] => contextPresetPreviews;
 
 const getCapabilities = async () => {
-  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
-  const imageAvailable = runtimeSettings.enabled && PROVIDER !== 'disabled';
+  const [runtimeSettings, imageValidation] = await Promise.all([
+    virtualTryOnSettingsService.getRuntimeSettings(),
+    checkImageValidationProviderHealth(),
+  ]);
+  const runtimeAvailable = runtimeSettings.enabled && PROVIDER !== 'disabled';
+  const imageValidationAllowsRequests =
+    imageValidation.available ||
+    imageValidation.failOpen ||
+    imageValidation.provider === 'disabled';
+  const imageAvailable = runtimeAvailable && imageValidationAllowsRequests;
   const video = getVideoCapabilities();
   return {
     imageGeneration: {
       available: imageAvailable,
       provider: PROVIDER,
-      ...(!imageAvailable ? { reasonCode: 'VIRTUAL_TRY_ON_DISABLED' } : {}),
+      ...(!imageAvailable
+        ? {
+          reasonCode: runtimeAvailable
+            ? 'IMAGE_VALIDATION_UNAVAILABLE'
+            : 'VIRTUAL_TRY_ON_DISABLED',
+        }
+        : {}),
     },
+    imageValidation,
     videoGeneration: imageAvailable
       ? video
       : {
         ...video,
         available: false,
-        reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
+        reasonCode: runtimeAvailable
+          ? 'IMAGE_VALIDATION_UNAVAILABLE'
+          : 'VIRTUAL_TRY_ON_DISABLED',
       },
   };
 };

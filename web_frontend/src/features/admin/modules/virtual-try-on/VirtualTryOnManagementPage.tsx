@@ -886,6 +886,40 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 </dl>
               </section>
 
+              <section className="admin-vto-config-group is-validation">
+                <h3>Kiểm tra ảnh nguồn</h3>
+                <dl>
+                  <div>
+                    <dt>Trạng thái</dt>
+                    <dd>{settings?.imageValidation.available ? 'Sẵn sàng' : 'Không sẵn sàng'}</dd>
+                  </div>
+                  <div>
+                    <dt>Provider</dt>
+                    <dd>{settings?.imageValidation.provider ?? '-'}</dd>
+                  </div>
+                  <div>
+                    <dt>Chế độ resolver</dt>
+                    <dd>
+                      {settings?.imageValidation.fallback
+                        ? 'Mock fallback'
+                        : settings?.imageValidation.requestedProvider ?? '-'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Khi provider lỗi</dt>
+                    <dd>{settings?.imageValidation.failOpen ? 'Fail-open' : 'Fail-closed'}</dd>
+                  </div>
+                  <div>
+                    <dt>Health check</dt>
+                    <dd>
+                      {settings?.imageValidation.available
+                        ? `${settings.imageValidation.latencyMs ?? 0} ms`
+                        : settings?.imageValidation.reasonCode ?? '-'}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+
               <section className="admin-vto-config-group is-policy">
                 <h3>Prompt & an toàn</h3>
                 <dl>

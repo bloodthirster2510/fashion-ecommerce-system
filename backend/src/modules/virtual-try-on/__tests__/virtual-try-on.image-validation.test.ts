@@ -290,6 +290,29 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedUploadToCloudinary).not.toHaveBeenCalled();
   });
 
+  it('reports fail-closed validation health through mobile capabilities', async () => {
+    process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
+    process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
+    mockedAxios.get.mockRejectedValueOnce(new Error('connection refused'));
+
+    const result = await virtualTryOnService.getCapabilities();
+
+    expect(result.imageGeneration).toMatchObject({
+      available: false,
+      reasonCode: 'IMAGE_VALIDATION_UNAVAILABLE',
+    });
+    expect(result.videoGeneration).toMatchObject({
+      available: false,
+      reasonCode: 'IMAGE_VALIDATION_UNAVAILABLE',
+    });
+    expect(result.imageValidation).toMatchObject({
+      provider: 'custom_model',
+      available: false,
+      failOpen: false,
+      reasonCode: 'IMAGE_VALIDATION_UNREACHABLE',
+    });
+  });
+
   it('validates source image during upload before saving it to the asset library', async () => {
     const result = await virtualTryOnService.uploadAsset(userId, uploadFile, 'upload');
 
@@ -304,27 +327,16 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedDeleteFromCloudinary).not.toHaveBeenCalled();
   });
 
-  it('returns a warning instead of rejecting source image upload when local safety check flags it', async () => {
+  it('rejects and cleans up source image upload when the safety policy flags it', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'IMAGE_POLICY_BLOCKED';
 
-    const result = await virtualTryOnService.uploadAsset(userId, uploadFile, 'upload');
+    await expect(virtualTryOnService.uploadAsset(userId, uploadFile, 'upload')).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'IMAGE_POLICY_BLOCKED',
+    });
 
-    expect(result).toEqual(expect.objectContaining({
-      url: uploadedSource.secure_url,
-      validationWarning: {
-        reasonCode: 'IMAGE_POLICY_BLOCKED',
-        message: expect.any(String),
-      },
-    }));
-    expect(mockedVirtualTryOnAsset.create).toHaveBeenCalledTimes(1);
-    expect(mockedVirtualTryOnAsset.create).toHaveBeenCalledWith(expect.objectContaining({
-      validationWarning: {
-        reasonCode: 'IMAGE_POLICY_BLOCKED',
-        message: expect.any(String),
-      },
-      validationCheckedAt: expect.any(Date),
-    }));
-    expect(mockedDeleteFromCloudinary).not.toHaveBeenCalled();
+    expect(mockedVirtualTryOnAsset.create).not.toHaveBeenCalled();
+    expect(mockedDeleteFromCloudinary).toHaveBeenCalledWith(uploadedSource.public_id);
   });
 
   it('rejects createJob when local validation does not detect a person', async () => {
@@ -339,31 +351,29 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedProduct.find).not.toHaveBeenCalled();
   });
 
-  it('creates createJob with a warning when local image safety policy flags the source image', async () => {
+  it('rejects createJob when validation detects multiple people', async () => {
+    process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'MULTIPLE_PEOPLE_DETECTED';
+
+    await expect(virtualTryOnService.createJob(userId, createJobInput)).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: 'MULTIPLE_PEOPLE_DETECTED',
+    });
+
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
+  });
+
+  it('rejects createJob when the image safety policy flags the source image', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'IMAGE_POLICY_BLOCKED';
 
-    const result = await virtualTryOnService.createJob(userId, createJobInput);
+    await expect(virtualTryOnService.createJob(userId, createJobInput)).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'IMAGE_POLICY_BLOCKED',
+    });
 
-    expect(result._id).toBe(jobId.toString());
-    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
-    expect(mockedProduct.find).toHaveBeenCalled();
-    expect(mockedInteractionService.recordInteractionBestEffort).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId,
-        productId: productId.toString(),
-        variantId: variantId.toString(),
-        colorVariantId: colorVariantId.toString(),
-        size: 'M',
-        actionType: 'try_on',
-        source: 'virtual_try_on',
-        metadata: expect.objectContaining({ virtualTryOnJobId: jobId.toString() }),
-      }),
-      'Failed to record virtual try-on interaction',
-    );
-    expect(console.warn).toHaveBeenCalledWith(
-      'Virtual try-on source image validation warning:',
-      expect.objectContaining({ reasonCode: 'IMAGE_POLICY_BLOCKED' }),
-    );
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedProduct.find).not.toHaveBeenCalled();
+    expect(mockedInteractionService.recordInteractionBestEffort).not.toHaveBeenCalled();
   });
 
   it('returns a pre-check image validation result without creating a job', async () => {
@@ -424,17 +434,15 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedProduct.find).not.toHaveBeenCalled();
   });
 
-  it('creates the job with a warning when the image validation provider throws', async () => {
+  it('fails closed when the image validation provider throws', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'VALIDATION_PROVIDER_FAILED';
 
-    const result = await virtualTryOnService.createJob(userId, createJobInput);
+    await expect(virtualTryOnService.createJob(userId, createJobInput)).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: 'VALIDATION_PROVIDER_FAILED',
+    });
 
-    expect(result._id).toBe(jobId.toString());
-    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
-    expect(console.warn).toHaveBeenCalledWith(
-      'Virtual try-on source image validation warning:',
-      expect.objectContaining({ reasonCode: 'VALIDATION_PROVIDER_FAILED' }),
-    );
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
   });
 
   it('creates the job when provider throws and fail-open is enabled', async () => {
@@ -498,7 +506,7 @@ describe('virtualTryOnService image validation', () => {
     }));
   });
 
-  it('returns body suitability in Builder validation without repeating upload safety warning', async () => {
+  it('keeps the safety policy terminal during Builder validation', async () => {
     process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
     process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
     mockedAxios.post.mockResolvedValue({
@@ -521,9 +529,8 @@ describe('virtualTryOnService image validation', () => {
     });
 
     expect(result.allowed).toBe(false);
-    expect(result.reasonCode).toBe('BODY_NOT_VISIBLE');
-    expect(result.safetyFlags).toEqual([]);
-    expect(result.supportedModes).toEqual(expect.arrayContaining(['top', 'outerwear', 'accessory']));
+    expect(result.reasonCode).toBe('IMAGE_POLICY_BLOCKED');
+    expect(result.safetyFlags).toEqual(['explicit']);
   });
 
   it('allows full-set creation with bottom and shoes when the lower body is visible', async () => {

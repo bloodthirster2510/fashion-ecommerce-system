@@ -336,12 +336,12 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh có thể không phù hợp.',
-    message: 'Bạn vẫn có thể tiếp tục.',
+    title: 'Ảnh không phù hợp',
+    message: 'Ảnh bị chặn bởi chính sách an toàn. Hãy chọn ảnh khác.',
   },
   VALIDATION_PROVIDER_FAILED: {
-    title: 'Chưa kiểm tra được ảnh.',
-    message: 'Bạn vẫn có thể tiếp tục.',
+    title: 'Chưa kiểm tra được ảnh',
+    message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
   },
 };
 
@@ -484,7 +484,7 @@ const getImageValidationReasonTitle = (reasonCode?: string | null) => {
   if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
   if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
   if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này.';
-  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh có thể không phù hợp.';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh không phù hợp.';
   if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
   return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
 };
@@ -493,8 +493,11 @@ const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' 
 
 const imageValidationBlockingReasonCodes = new Set([
   'NO_PERSON_DETECTED',
+  'MULTIPLE_PEOPLE_DETECTED',
   'BODY_NOT_VISIBLE',
   'PERSON_TOO_SMALL',
+  'IMAGE_POLICY_BLOCKED',
+  'VALIDATION_PROVIDER_FAILED',
 ]);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
@@ -1118,6 +1121,7 @@ const VirtualTryOnBuilderScreen = () => {
       ? getUnsupportedImageValidationCapability(imageValidation.result, outfitMode, selectedItems)
       : null;
   const hasCurrentImageValidationResult = Boolean(imageValidation.result && imageValidation.key === imageValidationScanKey);
+  const imageGenerationUnavailable = capabilities?.imageGeneration.available === false;
   const imageValidationWarnsSubmit = Boolean(imageValidationScanKey) && canSubmit && (
     imageValidation.status === 'checking' ||
     (
@@ -1154,7 +1158,7 @@ const VirtualTryOnBuilderScreen = () => {
     }
     return null;
   })();
-  const imageValidationBlocksSubmit = Boolean(imageValidationHardBlockReason);
+  const imageValidationBlocksSubmit = Boolean(imageValidationHardBlockReason) || imageGenerationUnavailable;
   const imageValidationSoftWarnsSubmit =
     imageValidationWarnsSubmit &&
     !imageValidationIsCheckingSubmit &&
@@ -1227,6 +1231,19 @@ const VirtualTryOnBuilderScreen = () => {
         tone: 'idle' as const,
         title: 'Chờ chọn đồ',
         message: 'Chọn sản phẩm để kiểm tra ảnh.',
+      };
+    }
+
+    if (imageGenerationUnavailable) {
+      const validationUnavailable =
+        capabilities?.imageGeneration.reasonCode === 'IMAGE_VALIDATION_UNAVAILABLE';
+      return {
+        icon: 'alert-outline' as FashionIconName,
+        tone: 'warning' as const,
+        title: validationUnavailable ? 'Kiểm tra ảnh đang gián đoạn' : 'Phối đồ ảo đang tắt',
+        message: validationUnavailable
+          ? 'Hệ thống chưa thể xác minh ảnh an toàn. Vui lòng thử lại sau.'
+          : 'Tính năng phối đồ ảo hiện chưa sẵn sàng.',
       };
     }
 
@@ -1320,6 +1337,7 @@ const VirtualTryOnBuilderScreen = () => {
 
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
+      if (imageGenerationUnavailable) return 'Tạm gián đoạn';
       return imageValidationHardBlockReason === 'NO_PERSON_DETECTED'
         ? 'Cần ảnh người'
         : 'Không phù hợp';

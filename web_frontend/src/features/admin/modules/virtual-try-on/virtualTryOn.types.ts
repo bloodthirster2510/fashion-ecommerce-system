@@ -104,6 +104,17 @@ export type AdminVirtualTryOnSettings = {
     imageEndpointConfigured: boolean
     videoWorkflowConfigured: boolean
   }
+  imageValidation: {
+    requestedProvider: string
+    provider: string
+    configured: boolean
+    fallback: boolean
+    failOpen: boolean
+    available: boolean
+    reasonCode: string | null
+    latencyMs: number | null
+    checkedAt: string
+  }
   image: {
     enabled: boolean
     provider: string

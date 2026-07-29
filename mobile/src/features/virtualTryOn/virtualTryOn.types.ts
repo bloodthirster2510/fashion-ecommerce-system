@@ -144,6 +144,18 @@ export type VirtualTryOnCapabilities = {
   imageGeneration: {
     available: boolean;
     provider: string;
+    reasonCode?: string | null;
+  };
+  imageValidation: {
+    requestedProvider: string;
+    provider: string;
+    configured: boolean;
+    fallback: boolean;
+    failOpen: boolean;
+    available: boolean;
+    reasonCode: string | null;
+    latencyMs: number | null;
+    checkedAt: string;
   };
   videoGeneration: {
     enabled: boolean;

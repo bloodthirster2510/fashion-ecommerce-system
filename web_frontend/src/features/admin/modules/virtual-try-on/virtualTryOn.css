@@ -225,11 +225,12 @@
 .admin-vto-secret-status .is-ready { border-color: #b9dbc8; color: #286648; background: #f3fbf6; }
 .admin-vto-settings-head .is-offline,
 .admin-vto-secret-status .is-offline { border-color: #e7c7bd; color: #983d28; background: #fff6f3; }
-.admin-vto-config-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.admin-vto-config-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
 .admin-vto-config-group { min-width: 0; padding: 11px; border: 1px solid #e2e8ed; border-radius: 8px; background: #fbfcfd; }
 .admin-vto-config-group h3 { margin: 0 0 10px; font-size: 12px; line-height: 1.3; }
 .admin-vto-config-group.is-image h3 { color: #276348; }
 .admin-vto-config-group.is-video h3 { color: #315f83; }
+.admin-vto-config-group.is-validation h3 { color: #704b8c; }
 .admin-vto-config-group.is-policy h3 { color: #74500c; }
 .admin-vto-secret-status { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 10px; padding: 9px; border: 1px dashed #d8e0e7; border-radius: 8px; background: #fbfcfd; }
 .admin-vto-secret-status strong { margin-right: auto; color: #5b6b7b; font-size: 11px; }

@@ -44,8 +44,19 @@ const getJobImageCount = (job: VirtualTryOnJob) =>
 const isSourceAsset = (asset: VirtualTryOnAsset) =>
   asset.type === 'source_upload' || asset.type === 'source_camera';
 
-const isNoPersonAsset = (asset: VirtualTryOnAsset | null) =>
-  asset?.validationWarning?.reasonCode === 'NO_PERSON_DETECTED';
+const blockingSourceImageReasonCodes = new Set([
+  'NO_PERSON_DETECTED',
+  'MULTIPLE_PEOPLE_DETECTED',
+  'PERSON_TOO_SMALL',
+  'IMAGE_POLICY_BLOCKED',
+  'VALIDATION_PROVIDER_FAILED',
+]);
+
+const isBlockedSourceAsset = (asset: VirtualTryOnAsset | null) =>
+  Boolean(
+    asset?.validationWarning?.reasonCode &&
+    blockingSourceImageReasonCodes.has(asset.validationWarning.reasonCode),
+  );
 
 const getUploadAssetErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError) {
@@ -66,6 +77,7 @@ const getUploadAssetErrorAlert = (error: unknown) => {
     if (
       error.errorCode === 'NO_PERSON_DETECTED' ||
       error.errorCode === 'MULTIPLE_PEOPLE_DETECTED' ||
+      error.errorCode === 'PERSON_TOO_SMALL' ||
       error.errorCode === 'BODY_NOT_VISIBLE'
     ) {
       return {
@@ -82,6 +94,13 @@ const getUploadAssetErrorAlert = (error: unknown) => {
       return {
         title: 'Ảnh chưa đủ rõ',
         message: error.message,
+      };
+    }
+
+    if (error.errorCode === 'VALIDATION_PROVIDER_FAILED') {
+      return {
+        title: 'Chưa kiểm tra được ảnh',
+        message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
       };
     }
   }
@@ -133,9 +152,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'IMAGE_POLICY_BLOCKED') {
     return {
       icon: 'alert-octagon-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Nên kiểm tra',
-      title: 'Ảnh có thể không phù hợp.',
-      message: 'Bạn vẫn có thể tiếp tục.',
+      label: 'Cần đổi ảnh',
+      title: 'Ảnh không phù hợp.',
+      message: 'Ảnh bị chặn bởi chính sách an toàn. Hãy chọn ảnh khác.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -157,9 +176,33 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Nên kiểm tra',
-      title: 'Ảnh cần rõ người hơn.',
-      message: 'Ảnh có thể nhận sai người.\nBạn có thể đổi ảnh hoặc tiếp tục.',
+      label: 'Cần đổi ảnh',
+      title: 'Ảnh có nhiều người.',
+      message: 'Hãy chọn ảnh chỉ có một người chính để thử đồ.',
+      color: colors.goldDark,
+      softColor: colors.goldSoft,
+      borderColor: 'rgba(201,151,52,0.28)',
+    };
+  }
+
+  if (warning.reasonCode === 'VALIDATION_PROVIDER_FAILED') {
+    return {
+      icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+      label: 'Chưa thể dùng',
+      title: 'Chưa kiểm tra được ảnh.',
+      message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
+      color: colors.goldDark,
+      softColor: colors.goldSoft,
+      borderColor: 'rgba(201,151,52,0.28)',
+    };
+  }
+
+  if (warning.reasonCode === 'PERSON_TOO_SMALL') {
+    return {
+      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+      label: 'Cần đổi ảnh',
+      title: 'Người trong ảnh quá nhỏ.',
+      message: 'Hãy chọn ảnh chụp gần hơn để nhìn rõ người mặc.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -169,9 +212,7 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   return {
     icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
     label: 'Nên kiểm tra',
-    title: warning.reasonCode === 'VALIDATION_PROVIDER_FAILED'
-      ? 'Chưa kiểm tra được ảnh.'
-      : 'Ảnh có thể chưa tối ưu.',
+    title: 'Ảnh có thể chưa tối ưu.',
     message: 'Bạn vẫn có thể tiếp tục.',
     color: colors.goldDark,
     softColor: colors.goldSoft,
@@ -433,8 +474,9 @@ const VirtualTryOnHomeScreen = () => {
       Alert.alert('Ảnh của bạn', 'Bạn hãy tải ảnh hoặc chụp ảnh trước khi phối đồ.');
       return;
     }
-    if (isNoPersonAsset(latestAsset)) {
-      Alert.alert('Cần ảnh người mặc', 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.');
+    if (isBlockedSourceAsset(latestAsset)) {
+      const readiness = getAssetReadiness(latestAsset);
+      Alert.alert(readiness.title, readiness.message);
       return;
     }
     openBuilderWithAsset(latestAsset);
@@ -453,7 +495,7 @@ const VirtualTryOnHomeScreen = () => {
         { label: 'Xem kết quả', icon: 'auto-fix', active: Boolean(pendingJob), done: false },
       ];
   const assetReadiness = getAssetReadiness(latestAsset);
-  const latestAssetNeedsPerson = isNoPersonAsset(latestAsset);
+  const latestAssetIsBlocked = isBlockedSourceAsset(latestAsset);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -612,18 +654,18 @@ const VirtualTryOnHomeScreen = () => {
           {latestAsset ? (
             <TouchableOpacity
               style={styles.heroPrimaryButton}
-              onPress={latestAssetNeedsPerson ? pickImage : continueWithLatestAsset}
+              onPress={latestAssetIsBlocked ? pickImage : continueWithLatestAsset}
               activeOpacity={0.86}
             >
               <Text style={styles.heroPrimaryText}>
-                {latestAssetNeedsPerson
-                  ? 'Đổi ảnh để tiếp tục'
+                {latestAssetIsBlocked
+                  ? 'Chọn ảnh khác để tiếp tục'
                   : pendingSeedItems.length
                     ? `Mở ${pendingSeedItems.length} món chờ thử`
                     : 'Tiếp tục phối đồ'}
               </Text>
               <MaterialCommunityIcons
-                name={latestAssetNeedsPerson ? 'upload-outline' : 'arrow-right'}
+                name={latestAssetIsBlocked ? 'upload-outline' : 'arrow-right'}
                 size={20}
                 color={colors.white}
               />

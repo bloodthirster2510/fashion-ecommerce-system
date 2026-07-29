@@ -11,6 +11,7 @@ import {
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
   getImageValidationReasonMessage,
+  isImageValidationFailOpen,
   isImageValidationReasonCode,
   type ImageValidationInput,
   type ImageValidationReasonCode,
@@ -42,8 +43,6 @@ const getNumberArg = (name: string) => {
 
   return Number.isInteger(value) && value > 0 ? value : undefined;
 };
-
-const shouldFailOpenImageValidation = () => process.env.IMAGE_VALIDATION_FAIL_OPEN === 'true';
 
 const getPersonScoreThreshold = () => {
   const threshold = Number(process.env.IMAGE_VALIDATION_PERSON_SCORE_THRESHOLD);
@@ -112,7 +111,7 @@ const validateAsset = async (asset: IVirtualTryOnAsset) => {
     const provider = createImageValidationProvider(providerName);
     return applyUploadImageValidationPolicy(await provider.validate(input));
   } catch (error) {
-    if (shouldFailOpenImageValidation()) {
+    if (isImageValidationFailOpen()) {
       console.warn('Image validation failed open, clearing warning for asset:', asset._id.toString(), error);
       return null;
     }

@@ -25,6 +25,7 @@ Kết quả triển khai ngày 29/07/2026:
 - **P1-03 đã hoàn tất phần code và test tự động:** search history được dedupe theo event, đồng bộ guest/account và giữ tối đa 10 từ khóa giữa server với SecureStore. Còn thiếu smoke nhiều thiết bị/offline.
 - **P1-04 đã hoàn tất phần code và test tự động:** admin khách hàng có dữ liệu thật cho đơn hàng, timeline và ghi chú nội bộ, kèm permission và audit.
 - **P1-05 đã hoàn tất phần code và test tự động:** cấu hình runtime phối đồ ảo có permission ghi riêng, optimistic concurrency, audit, rollback và không đưa secret vào DB/frontend.
+- **P1-06 đã hoàn tất phần code và test tự động:** image validation có resolver `auto`, production luôn fail-closed, không còn localhost ngầm định, health được đưa lên admin/mobile và các lỗi policy/provider/nhiều người đều bị chặn. Còn thiếu smoke provider thật cùng bộ ảnh thực tế.
 
 Các khoản nợ còn ưu tiên:
 
@@ -32,7 +33,7 @@ Các khoản nợ còn ưu tiên:
 2. OTP SMS cần smoke test sandbox cho cả đăng ký và khôi phục trước khi chốt production-ready.
 3. Email reset cần smoke test bằng SMTP thật và xác nhận deep link trên development build/thiết bị thật.
 4. Social login và push notification đã hoàn tất guard/config trong code; còn phải cấu hình OAuth thật và chạy smoke test push trên Android/iOS development build.
-5. Image validation phối đồ ảo cần hoàn thiện resolver/fail-open/fail-closed và smoke provider thật; `IMAGE_POLICY_BLOCKED` không được chỉ là cảnh báo mềm.
+5. Image validation phối đồ ảo đã hoàn thiện resolver, fail-closed và hard-block trong code; còn phải deploy/smoke provider thật, hiệu chỉnh threshold bằng bộ ảnh thực tế.
 6. Các tích hợp quan trọng vẫn thiếu API-backed E2E và smoke test permission/concurrency trên staging.
 
 ## 2. Quy ước ưu tiên
@@ -330,20 +331,23 @@ Quy tắc an toàn:
 
 ### P1-06 — Image validation của phối đồ ảo đang suy giảm
 
-**Trạng thái local khi rà soát**
+**Đã thực hiện**
 
-- Provider được chọn là `custom_model` dù nhóm cấu hình custom model chưa hoàn chỉnh.
-- URL riêng chưa cấu hình nên backend dùng mặc định `127.0.0.1:7001/validate-image`.
-- Cổng validation hiện không reachable.
-- Mobile chỉ hard-block `NO_PERSON_DETECTED`, `BODY_NOT_VISIBLE` và `PERSON_TOO_SMALL`. Lỗi provider, `MULTIPLE_PEOPLE_DETECTED` và cả `IMAGE_POLICY_BLOCKED` hiện vẫn là cảnh báo mềm cho phép tiếp tục.
-- ComfyUI tạo ảnh hiện reachable và các workflow path ảnh/video đều tồn tại khi resolve từ thư mục backend.
+- [x] Thêm resolver `IMAGE_VALIDATION_PROVIDER=auto`: dùng `custom_model` khi có URL; dev/test thiếu URL mới rơi về `mock`; production thiếu URL giữ trạng thái cấu hình lỗi và fail-closed.
+- [x] Bỏ mặc định ngầm `127.0.0.1:7001`; adapter `custom_model` yêu cầu URL HTTP(S) rõ ràng.
+- [x] Production luôn fail-closed kể cả khi vô tình đặt `IMAGE_VALIDATION_FAIL_OPEN=true`; fail-open chỉ còn là lựa chọn có chủ ý ngoài production.
+- [x] Kiểm tra `/health` của provider với timeout riêng; trả provider/resolver/latency/reason qua admin settings và mobile capabilities.
+- [x] Khi provider bắt buộc nhưng unavailable, capability tạo ảnh bị tắt với lý do `IMAGE_VALIDATION_UNAVAILABLE`.
+- [x] Backend hard-block `IMAGE_POLICY_BLOCKED`, `VALIDATION_PROVIDER_FAILED`, `MULTIPLE_PEOPLE_DETECTED` cùng các lỗi ảnh nguồn cũ; upload lỗi policy/provider xóa lại asset Cloudinary vừa tải.
+- [x] Không còn nhánh kiểm tra độ phù hợp cơ thể ghi đè kết quả policy/safety thành hợp lệ.
+- [x] Mobile chặn chọn asset/tạo job cho lỗi terminal, không còn thông báo “vẫn có thể tiếp tục”; admin hiển thị trạng thái kiểm tra ảnh nguồn.
+- [x] Thêm unit/integration test cho resolver, URL, health, fail-open/fail-closed, policy, nhiều người, dọn asset và capability outage.
 
-**Cần làm**
+**Còn lại trước production**
 
-- Resolver `auto` phải rơi về `mock` trong dev/test nếu custom model URL không được cấu hình; khi đủ `.env` thì dùng `custom_model`.
-- Khởi động/deploy image validation service và thêm health check vào capabilities/admin dashboard.
-- Chốt fail-open hay fail-closed theo môi trường; production không nên âm thầm coi lỗi provider hoặc `IMAGE_POLICY_BLOCKED` là ảnh hợp lệ.
-- Thêm test ảnh hợp lệ, không có người, nhiều người, thiếu vùng cơ thể và ảnh vi phạm.
+- [ ] Deploy image validation service trên staging, cấu hình URL/health URL bằng deployment secret và smoke từ backend container tới `/health` cùng `/validate-image`.
+- [ ] Chạy bộ ảnh thật gồm ảnh hợp lệ, không có người, nhiều người, thiếu vùng cơ thể, ảnh mờ/tối và ảnh vi phạm; hiệu chỉnh threshold trước khi mở production.
+- [ ] Device smoke Android/iOS cho trạng thái provider down, ảnh bị policy block và luồng chọn/chụp lại ảnh.
 
 ### P1-07 — Chưa có E2E thật cho các tích hợp quan trọng
 
@@ -403,10 +407,11 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `web_frontend: npm run lint` | Qua |
 | `web_frontend: npm run test:e2e` | 13/13 qua |
 | `mobile: npm run typecheck` | Qua |
-| `mobile: npm test` | 9 suite, 47 test qua |
+| `mobile: npm test` | 10 suite, 50 test qua |
 | `backend: npm run build` | Qua |
 | `backend: npm run lint` | Qua |
-| `backend: npm test` | 82 suite, 741 test qua |
+| `backend: npm test` | 83 suite, 750 test qua |
+| `ai_services/image-validation: python -m pytest` | 25 test qua |
 
 Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI provider hoạt động ngoài đời. GHN đã smoke qua sandbox; SMS vẫn cần credential sandbox, email vẫn cần SMTP thật và deep-link device test.
 
@@ -427,7 +432,7 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI
 1. [x] Resolver `auto` cho social login.
 2. [x] Resolver `auto` cho push notification chung.
 3. [x] Search tracking, dedupe và đồng bộ lịch sử từ khóa.
-4. Khôi phục image validation service.
+4. [x] Khôi phục image validation service trong code, thêm resolver/health/fail-closed và hard-block; còn smoke provider thật trên staging.
 
 ### Đợt 3 — Hoàn thiện vận hành admin
 
