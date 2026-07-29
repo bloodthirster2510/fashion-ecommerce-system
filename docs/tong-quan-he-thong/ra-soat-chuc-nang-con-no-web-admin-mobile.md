@@ -26,6 +26,7 @@ Kết quả triển khai ngày 29/07/2026:
 - **P1-04 đã hoàn tất phần code và test tự động:** admin khách hàng có dữ liệu thật cho đơn hàng, timeline và ghi chú nội bộ, kèm permission và audit.
 - **P1-05 đã hoàn tất phần code và test tự động:** cấu hình runtime phối đồ ảo có permission ghi riêng, optimistic concurrency, audit, rollback và không đưa secret vào DB/frontend.
 - **P1-06 đã hoàn tất phần code và test tự động:** image validation có resolver `auto`, production luôn fail-closed, không còn localhost ngầm định, health được đưa lên admin/mobile và các lỗi policy/provider/nhiều người đều bị chặn. Còn thiếu smoke provider thật cùng bộ ảnh thực tế.
+- **P1-07 đã hoàn tất bộ API-backed E2E:** test khởi động HTTP server, MongoDB replica set và realtime gateway thật; phủ login/cart/checkout/order, VNPay, GHN, virtual try-on và support hai chiều. Provider ngoài được mock tại adapter boundary.
 
 Các khoản nợ còn ưu tiên:
 
@@ -34,7 +35,7 @@ Các khoản nợ còn ưu tiên:
 3. Email reset cần smoke test bằng SMTP thật và xác nhận deep link trên development build/thiết bị thật.
 4. Social login và push notification đã hoàn tất guard/config trong code; còn phải cấu hình OAuth thật và chạy smoke test push trên Android/iOS development build.
 5. Image validation phối đồ ảo đã hoàn thiện resolver, fail-closed và hard-block trong code; còn phải deploy/smoke provider thật, hiệu chỉnh threshold bằng bộ ảnh thực tế.
-6. Các tích hợp quan trọng vẫn thiếu API-backed E2E và smoke test permission/concurrency trên staging.
+6. Các tích hợp quan trọng đã có API-backed E2E cô lập; vẫn cần smoke credential/provider thật và permission/concurrency trên staging.
 
 ## 2. Quy ước ưu tiên
 
@@ -349,18 +350,22 @@ Quy tắc an toàn:
 - [ ] Chạy bộ ảnh thật gồm ảnh hợp lệ, không có người, nhiều người, thiếu vùng cơ thể, ảnh mờ/tối và ảnh vi phạm; hiệu chỉnh threshold trước khi mở production.
 - [ ] Device smoke Android/iOS cho trạng thái provider down, ảnh bị policy block và luồng chọn/chụp lại ảnh.
 
-### P1-07 — Chưa có E2E thật cho các tích hợp quan trọng
+### P1-07 — E2E thật cho các tích hợp quan trọng
 
-Cần có ít nhất một kịch bản seed + API thật cho:
+**Đã thực hiện**
 
-- Admin xử lý đơn từ confirmed → packed → shipping → delivered.
-- VNPay create URL → return/IPN → reconcile → refund.
-- GHN quote → create shipment → webhook/sync → cancel.
-- Mobile đăng ký/login → cart → checkout → theo dõi đơn.
-- Virtual try-on upload → validate → ảnh; ảnh + video; retry từng phần.
-- Support mobile ↔ admin realtime.
+- [x] Thêm harness dùng HTTP server Express thật, MongoDB Memory replica set và Socket.IO gateway; request đi qua middleware auth/permission/controller/service/model như production.
+- [x] Login → cart API → preview/checkout → admin chuyển `confirmed → packed → shipping → delivered` → khách đọc lại trạng thái đơn.
+- [x] VNPay tạo payment URL → IPN có chữ ký thật → reconcile → hủy đơn → full refund; chỉ mock QueryDr/refund ở adapter gateway.
+- [x] GHN lấy quote → xác minh mapping → tạo vận đơn → sync → hủy vận đơn; chỉ mock các response sandbox ở `GHNService`.
+- [x] Virtual try-on upload multipart → validate → job ảnh → job ảnh + video → retry riêng ảnh và video; chạy queue/provider mock thật, chỉ mock Cloudinary boundary.
+- [x] Support customer tạo ticket và admin trả lời qua HTTP; Socket.IO client xác nhận event realtime đến đúng admin/customer scope.
+- [x] Thêm `socket.io-client` ở devDependency của backend để test gateway thật, không đưa vào runtime production.
 
-Các E2E admin hiện tại chủ yếu dùng demo layout; năm test order-payment chỉ kiểm tra utility thuần, chưa gọi browser/backend.
+**Còn lại trước production**
+
+- [ ] Chạy lại các hành trình trên staging với VNPay/GHN sandbox, Cloudinary và AI provider thật; E2E trong CI cố ý mock đúng adapter boundary để ổn định và không tiêu tốn credential/quota.
+- [ ] Bổ sung browser E2E kết nối backend seed thật cho các màn admin/mobile-web có thể chạy trên trình duyệt; Playwright hiện vẫn chủ yếu kiểm tra layout và presentation.
 
 ## 6. Backlog P2
 
@@ -411,6 +416,7 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `backend: npm run build` | Qua |
 | `backend: npm run lint` | Qua |
 | `backend: npm test` | 83 suite, 750 test qua |
+| `backend: npm run test:e2e` | 2 suite, 5 test API-backed qua |
 | `ai_services/image-validation: python -m pytest` | 25 test qua |
 
 Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI provider hoạt động ngoài đời. GHN đã smoke qua sandbox; SMS vẫn cần credential sandbox, email vẫn cần SMTP thật và deep-link device test.
@@ -443,7 +449,7 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI
 
 ### Đợt 4 — Tăng độ tin cậy
 
-1. API-backed E2E cho auth, order, payment, shipping, support và try-on.
+1. [x] API-backed E2E cho auth, order, payment, shipping, support và try-on.
 2. Pagination/load more mobile.
 3. Component/screen tests cho các nhánh lỗi và permission.
 
