@@ -278,16 +278,19 @@ Quy tắc an toàn:
 
 ### P1-03 — Search history đã có tracking nhưng chưa đồng bộ và chống đếm lặp
 
-- Search history hiển thị trên mobile hiện chỉ lưu tối đa 10 từ khóa trong SecureStore.
-- Mobile không cần gọi trực tiếp `POST /api/search-history`: request catalog luôn gửi `X-Session-Id`, gửi thêm access token khi đăng nhập, và `GET /api/products?keyword=...` tự ghi `SearchHistory` ở backend cho trang đầu.
-- Vì tracking gắn với request trang đầu, các lần đổi filter/sort hoặc refetch có thể ghi lặp cùng một ý định tìm kiếm.
-- Lịch sử server chưa được tải về/merge với SecureStore khi người dùng đăng nhập, nên chưa có trải nghiệm lịch sử đa thiết bị.
+**Đã thực hiện**
 
-**Cần làm**
+- [x] Mỗi thao tác tìm kiếm mới trên mobile tạo một `searchEventId` và gắn `searchSource` (`mobile_manual`, `mobile_history`, `mobile_suggestion`) vào request catalog.
+- [x] Filter, sort, refetch và retry giữ nguyên event ID; backend có unique partial index theo `eventId` để cùng một ý định chỉ được ghi một lần.
+- [x] Client cũ chưa gửi event ID được chống ghi lặp theo người dùng/session, loại tìm kiếm, source, từ khóa chuẩn hóa và cửa sổ `SEARCH_HISTORY_DEDUPE_WINDOW_MS` (mặc định 30 giây).
+- [x] Tracking vẫn chạy best-effort sau khi catalog trả kết quả; lỗi ghi lịch sử không làm lỗi request sản phẩm hoặc chặn navigation.
+- [x] Khi đăng nhập, `POST /api/search-history/sync` gắn lịch sử guest session vào tài khoản, trả danh sách từ khóa distinct mới nhất và mobile merge với tối đa 10 từ khóa trong SecureStore.
+- [x] Xóa một từ khóa hoặc toàn bộ lịch sử trên mobile đã đăng nhập cũng gọi `DELETE /api/search-history/me`, tránh dữ liệu server xuất hiện lại ở lần sync sau.
+- [x] Có unit test cho unique event ID, dedupe window, migrate guest session, merge local/server không phân biệt hoa thường và giới hạn 10 mục.
 
-- Giữ tracking best-effort hiện tại nhưng thêm `source`, `eventId`/dedupe window và phân biệt tìm kiếm mới với filter/sort/refetch.
-- Đồng bộ lịch sử server khi đăng nhập nhưng vẫn giữ local history để phản hồi nhanh/offline.
-- Không để lỗi tracking chặn navigation sang kết quả tìm kiếm.
+**Còn lại trước production**
+
+- [ ] Chạy smoke test trên Android/iOS với guest → đăng nhập, nhiều thiết bị, filter/sort/refetch và trạng thái offline; xác nhận số event analytics không tăng lặp.
 
 ### P1-04 — Admin khách hàng còn ba tab giữ chỗ
 

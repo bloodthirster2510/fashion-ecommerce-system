@@ -1,14 +1,18 @@
 import { Types } from 'mongoose';
 import {
+  SEARCH_HISTORY_SOURCES,
   SEARCH_HISTORY_TYPES,
   SearchHistory,
   getSearchHistoryMaxResultProducts,
+  type SearchHistorySource,
   type SearchHistoryType,
 } from '../../database/models';
 import type {
+  DeleteSearchHistoryInput,
   ListSearchHistoryInput,
   RecordSearchHistoryInput,
   SearchHistoryResultProductInput,
+  SyncSearchHistoryInput,
   TopSearchKeywordsInput,
 } from './search-history.types';
 
@@ -25,12 +29,16 @@ export class SearchHistoryServiceError extends Error {
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_TOP_KEYWORD_LIMIT = 20;
+const DEFAULT_DEDUPE_WINDOW_MS = 30_000;
 
 export const isSearchHistoryEnabled = () =>
   process.env.SEARCH_HISTORY_ENABLED !== 'false';
 
 const isSearchHistoryType = (value: string): value is SearchHistoryType =>
   SEARCH_HISTORY_TYPES.includes(value as SearchHistoryType);
+
+const isSearchHistorySource = (value: string): value is SearchHistorySource =>
+  SEARCH_HISTORY_SOURCES.includes(value as SearchHistorySource);
 
 const toObjectId = (value: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(value)) {
@@ -48,6 +56,16 @@ const normalizeSessionId = (value?: string | null) => {
   }
 
   return sessionId || null;
+};
+
+const normalizeEventId = (value?: string | null) => {
+  const eventId = value?.trim();
+
+  if (eventId && eventId.length > 128) {
+    throw new SearchHistoryServiceError('Invalid eventId', 400);
+  }
+
+  return eventId || null;
 };
 
 const normalizeOptionalText = (
@@ -93,6 +111,22 @@ const clampLimit = (value: number | undefined, fallback: number) => {
   return Math.min(value, MAX_LIST_LIMIT);
 };
 
+const getDedupeWindowMs = () => {
+  const configuredValue = Number(process.env.SEARCH_HISTORY_DEDUPE_WINDOW_MS);
+  return Number.isInteger(configuredValue) && configuredValue >= 0
+    ? configuredValue
+    : DEFAULT_DEDUPE_WINDOW_MS;
+};
+
+const normalizeKeywordKey = (value: string) =>
+  value.toLocaleLowerCase('vi-VN').trim().replace(/\s+/g, ' ');
+
+const isDuplicateKeyError = (error: unknown) =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  error.code === 11000;
+
 const recordSearch = async (input: RecordSearchHistoryInput) => {
   if (!isSearchHistoryEnabled()) {
     return { recorded: false, skippedReason: 'tracking_disabled' as const };
@@ -104,12 +138,19 @@ const recordSearch = async (input: RecordSearchHistoryInput) => {
 
   const userId = input.userId ? toObjectId(input.userId, 'userId') : null;
   const sessionId = normalizeSessionId(input.sessionId);
+  const eventId = normalizeEventId(input.eventId);
+  const source = input.source ?? 'catalog';
 
   if (!userId && !sessionId) {
     throw new SearchHistoryServiceError('userId or sessionId is required', 400);
   }
 
+  if (!isSearchHistorySource(source)) {
+    throw new SearchHistoryServiceError('Invalid source', 400);
+  }
+
   const keyword = normalizeOptionalText(input.keyword, 'keyword', 100);
+  const keywordKey = keyword ? normalizeKeywordKey(keyword) : null;
   const imageUrl = normalizeOptionalText(input.imageUrl, 'imageUrl', 500);
 
   if (input.searchType === 'keyword' && !keyword) {
@@ -129,15 +170,51 @@ const recordSearch = async (input: RecordSearchHistoryInput) => {
     throw new SearchHistoryServiceError('Invalid resultCount', 400);
   }
 
-  const history = await SearchHistory.create({
-    userId,
-    sessionId,
-    searchType: input.searchType,
-    keyword,
-    imageUrl,
-    resultProducts,
-    resultCount,
-  });
+  const duplicateFilter = eventId
+    ? { eventId }
+    : {
+        ...(userId ? { userId } : { userId: null, sessionId }),
+        searchType: input.searchType,
+        source,
+        ...(keywordKey ? { keywordKey } : { imageUrl }),
+        createdAt: { $gte: new Date(Date.now() - getDedupeWindowMs()) },
+      };
+  const duplicate = await SearchHistory.findOne(duplicateFilter);
+
+  if (duplicate) {
+    return {
+      recorded: false,
+      skippedReason: 'duplicate' as const,
+      searchHistoryId: duplicate._id.toString(),
+    };
+  }
+
+  let history;
+  try {
+    history = await SearchHistory.create({
+      userId,
+      sessionId,
+      ...(eventId ? { eventId } : {}),
+      source,
+      searchType: input.searchType,
+      keyword,
+      keywordKey,
+      imageUrl,
+      resultProducts,
+      resultCount,
+    });
+  } catch (error) {
+    if (eventId && isDuplicateKeyError(error)) {
+      const racedDuplicate = await SearchHistory.findOne({ eventId });
+      return {
+        recorded: false,
+        skippedReason: 'duplicate' as const,
+        ...(racedDuplicate ? { searchHistoryId: racedDuplicate._id.toString() } : {}),
+      };
+    }
+
+    throw error;
+  }
 
   return {
     recorded: true,
@@ -170,6 +247,69 @@ const listSearchHistory = async (input: ListSearchHistoryInput) => {
   }
 
   return SearchHistory.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+};
+
+const syncSearchHistory = async (input: SyncSearchHistoryInput) => {
+  const userId = toObjectId(input.userId, 'userId');
+  const sessionId = normalizeSessionId(input.sessionId);
+  const limit = clampLimit(input.limit, DEFAULT_LIST_LIMIT);
+  const migrationResult = sessionId
+    ? await SearchHistory.updateMany(
+        { userId: null, sessionId },
+        { $set: { userId } },
+      )
+    : { modifiedCount: 0 };
+  const keywords = await SearchHistory.aggregate<{
+    keyword: string;
+    lastSearchedAt: Date;
+  }>([
+    {
+      $match: {
+        userId,
+        searchType: 'keyword',
+        keyword: { $type: 'string', $ne: '' },
+      },
+    },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: { $ifNull: ['$keywordKey', { $toLower: '$keyword' }] },
+        keyword: { $first: '$keyword' },
+        lastSearchedAt: { $first: '$createdAt' },
+      },
+    },
+    { $sort: { lastSearchedAt: -1 } },
+    { $limit: limit },
+    { $project: { _id: 0, keyword: 1, lastSearchedAt: 1 } },
+  ]);
+
+  return {
+    migratedCount: migrationResult.modifiedCount ?? 0,
+    keywords,
+  };
+};
+
+const deleteSearchHistory = async (input: DeleteSearchHistoryInput) => {
+  const userId = toObjectId(input.userId, 'userId');
+  const keyword = normalizeOptionalText(input.keyword, 'keyword', 100);
+  const keywordKey = keyword ? normalizeKeywordKey(keyword) : null;
+  const filter: Record<string, unknown> = { userId, searchType: 'keyword' };
+
+  if (keywordKey) {
+    filter.$expr = {
+      $eq: [
+        {
+          $toLower: {
+            $trim: { input: '$keyword' },
+          },
+        },
+        keywordKey,
+      ],
+    };
+  }
+
+  const result = await SearchHistory.deleteMany(filter);
+  return { deletedCount: result.deletedCount ?? 0 };
 };
 
 const getTopKeywords = async (input: TopSearchKeywordsInput = {}) => {
@@ -206,5 +346,7 @@ export const searchHistoryService = {
   recordSearch,
   recordSearchBestEffort,
   listSearchHistory,
+  syncSearchHistory,
+  deleteSearchHistory,
   getTopKeywords,
 };

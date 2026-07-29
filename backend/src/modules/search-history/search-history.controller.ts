@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
-import type { SearchHistoryType } from '../../database/models';
+import type { SearchHistorySource, SearchHistoryType } from '../../database/models';
 import {
   SearchHistoryServiceError,
   searchHistoryService,
@@ -62,6 +62,8 @@ const createSearchHistory = async (req: Request, res: Response) => {
     const input: RecordSearchHistoryInput = {
       userId: req.user?.userId,
       sessionId: getSessionId(req, body),
+      eventId: parseString(body.eventId),
+      source: parseString(body.source) as SearchHistorySource | undefined,
       searchType,
       keyword: parseString(body.keyword),
       imageUrl: parseString(body.imageUrl),
@@ -97,4 +99,49 @@ const getMySearchHistory = async (req: Request, res: Response) => {
   }
 };
 
-export { createSearchHistory, getMySearchHistory };
+const syncMySearchHistory = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.userId) {
+      return errorResponse(res, 'Authentication required', 401);
+    }
+
+    const body = isRecord(req.body) ? req.body : {};
+    return ok(
+      res,
+      await searchHistoryService.syncSearchHistory({
+        userId: req.user.userId,
+        sessionId: getSessionId(req, body),
+        limit: parseNumber(req.query.limit),
+      }),
+    );
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const deleteMySearchHistory = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.userId) {
+      return errorResponse(res, 'Authentication required', 401);
+    }
+
+    return ok(
+      res,
+      await searchHistoryService.deleteSearchHistory({
+        userId: req.user.userId,
+        keyword: parseString(req.query.keyword),
+      }),
+    );
+  } catch (error) {
+    const { statusCode, message } = getErrorResponse(error);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+export {
+  createSearchHistory,
+  deleteMySearchHistory,
+  getMySearchHistory,
+  syncMySearchHistory,
+};

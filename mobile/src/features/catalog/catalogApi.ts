@@ -148,6 +148,8 @@ export type CatalogCategory = {
 
 export type ProductListParams = {
   keyword?: string;
+  searchEventId?: string;
+  searchSource?: 'mobile_manual' | 'mobile_history' | 'mobile_suggestion';
   gender?: CatalogGender;
   categoryId?: string | string[];
   brandId?: string | string[];

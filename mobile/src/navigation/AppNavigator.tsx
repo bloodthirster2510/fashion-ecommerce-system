@@ -43,6 +43,8 @@ export type RootStackParamList = {
   ProductList: {
     title?: string;
     keyword?: string;
+    searchEventId?: string;
+    searchSource?: 'mobile_manual' | 'mobile_history' | 'mobile_suggestion';
     gender?: 'male' | 'female' | 'unisex';
     categoryId?: string | string[];
     brandId?: string | string[];

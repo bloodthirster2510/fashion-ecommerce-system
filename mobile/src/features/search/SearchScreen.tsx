@@ -19,8 +19,13 @@ import { useSuggest } from './useSuggest';
 import {
   addSearchHistory,
   clearSearchHistory,
+  createSearchEventId,
+  deleteServerSearchHistory,
   getSearchHistory,
+  mergeSearchHistory,
   removeSearchHistory,
+  syncSearchHistory,
+  type MobileSearchSource,
 } from './searchHistory';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -69,9 +74,28 @@ const SearchScreen = () => {
   const inputRef = React.useRef<TextInput>(null);
 
   React.useEffect(() => {
-    void getSearchHistory().then(setHistory);
-    setTimeout(() => inputRef.current?.focus(), 150);
-  }, []);
+    let isActive = true;
+    const loadHistory = async () => {
+      const localHistory = await getSearchHistory();
+      if (isActive) setHistory(localHistory);
+
+      if (!isAuthenticated) return;
+
+      try {
+        const syncedHistory = await runWithAuth(syncSearchHistory);
+        if (isActive) setHistory(syncedHistory);
+      } catch {
+        // Local history remains available when server sync fails.
+      }
+    };
+    const focusTimer = setTimeout(() => inputRef.current?.focus(), 150);
+
+    void loadHistory();
+    return () => {
+      isActive = false;
+      clearTimeout(focusTimer);
+    };
+  }, [isAuthenticated, runWithAuth]);
 
   const { result, isLoading } = useSuggest(query);
 
@@ -85,21 +109,38 @@ const SearchScreen = () => {
     void interactionApi.recordInteraction(payload).catch(() => undefined);
   }, [isAuthenticated, runWithAuth]);
 
-  const handleSearch = async (keyword: string) => {
+  const handleSearch = (
+    keyword: string,
+    source: MobileSearchSource = 'mobile_manual',
+  ) => {
     const trimmed = keyword.trim();
     if (!trimmed) return;
-    await addSearchHistory(trimmed);
-    navigation.navigate('ProductList', { title: `Tìm kiếm: ${trimmed}`, keyword: trimmed });
+    setHistory((current) => mergeSearchHistory([trimmed], current));
+    void addSearchHistory(trimmed);
+    navigation.navigate('ProductList', {
+      title: `Tìm kiếm: ${trimmed}`,
+      keyword: trimmed,
+      searchEventId: createSearchEventId(),
+      searchSource: source,
+    });
   };
 
   const handleHistoryRemove = async (keyword: string) => {
     await removeSearchHistory(keyword);
     setHistory(await getSearchHistory());
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) =>
+        deleteServerSearchHistory(accessToken, keyword)).catch(() => undefined);
+    }
   };
 
   const handleHistoryClear = async () => {
     await clearSearchHistory();
     setHistory([]);
+    if (isAuthenticated) {
+      void runWithAuth((accessToken) =>
+        deleteServerSearchHistory(accessToken)).catch(() => undefined);
+    }
   };
 
   const hasQuery = query.trim().length >= 2;
@@ -179,7 +220,10 @@ const SearchScreen = () => {
       style={styles.keywordRow}
       onPress={() => {
         setQuery(keyword);
-        void handleSearch(keyword);
+        handleSearch(
+          keyword,
+          isHistoryKeyword ? 'mobile_history' : 'mobile_suggestion',
+        );
       }}
       activeOpacity={0.82}
     >
@@ -212,7 +256,7 @@ const SearchScreen = () => {
             placeholder="Bạn tìm gì hôm nay?"
             placeholderTextColor={colors.textSubtle}
             returnKeyType="search"
-            onSubmitEditing={() => handleSearch(query)}
+            onSubmitEditing={() => handleSearch(query, 'mobile_manual')}
             autoCorrect={false}
             autoCapitalize="none"
           />
@@ -245,7 +289,7 @@ const SearchScreen = () => {
                   style={styles.chip}
                   onPress={() => {
                     setQuery(keyword);
-                    void handleSearch(keyword);
+                    handleSearch(keyword, 'mobile_history');
                   }}
                   activeOpacity={0.82}
                 >
@@ -321,7 +365,11 @@ const SearchScreen = () => {
             <MaterialCommunityIcons name="magnify" size={32} color={colors.brand} />
             <Text style={styles.emptyTitle}>Nhấn tìm kiếm</Text>
             <Text style={styles.emptyText}>Gõ thêm ký tự hoặc nhấn Enter để tìm "{query.trim()}".</Text>
-            <TouchableOpacity style={styles.searchButton} onPress={() => handleSearch(query)} activeOpacity={0.82}>
+            <TouchableOpacity
+              style={styles.searchButton}
+              onPress={() => handleSearch(query, 'mobile_manual')}
+              activeOpacity={0.82}
+            >
               <Text style={styles.searchButtonText}>Tìm "{query.trim()}"</Text>
             </TouchableOpacity>
           </View>
