@@ -238,12 +238,22 @@ Quy tắc an toàn:
 
 ## 5. Backlog P1
 
-### P1-01 — Google/Facebook có nút nhưng mobile thiếu cấu hình
+### P1-01 — Google/Facebook social login trên mobile
 
-- Hai nút social login luôn hiển thị.
-- Backend đã có Google/Facebook credential, nhưng `mobile/.env` hiện thiếu `EXPO_PUBLIC_GOOGLE_CLIENT_ID` và `EXPO_PUBLIC_FACEBOOK_APP_ID`.
-- Cần thêm cấu hình theo dev/staging/prod, redirect URI và test trên development build.
-- Resolver `auto` chỉ hiện nút và chạy OAuth thật khi đủ nhóm credential; nếu thiếu thì ẩn nút. Mock social auth chỉ bật trong test, không tự tạo tài khoản giả ở bản production.
+**Đã thực hiện**
+
+- [x] Thêm resolver `auto`: chỉ mount và hiển thị từng provider khi public client ID đúng định dạng; thiếu hoặc còn placeholder thì ẩn toàn bộ phần social login.
+- [x] Có `EXPO_PUBLIC_SOCIAL_AUTH_MODE=disabled` để tắt chủ động theo môi trường; không có đường mock hoặc tự tạo tài khoản giả trong production.
+- [x] Khai báo public ID trong `.env.example`; mỗi EAS environment dùng giá trị riêng nhưng cùng tên biến.
+- [x] Đăng ký scheme `com.fashionshop.app` cho Google và thêm động `fb{APP_ID}` cho Facebook qua `app.config.ts`.
+- [x] Dùng redirect URI native cố định theo development build; nhận token từ cả `params` và kết quả code exchange của Expo AuthSession.
+- [x] Không khởi tạo OAuth hook với client ID rỗng; nút bị khóa trong lúc request chưa sẵn sàng và chống xử lý lặp cùng token.
+- [x] Có unit test cho thiếu cấu hình, placeholder, từng provider, redirect URI và chế độ `disabled`.
+
+**Còn lại trước production**
+
+- [ ] Cấu hình `EXPO_PUBLIC_GOOGLE_CLIENT_ID` và `EXPO_PUBLIC_FACEBOOK_APP_ID` thật trong từng EAS environment; Google client ID phải khớp `GOOGLE_CLIENT_ID` và Facebook app phải khớp `FACEBOOK_APP_ID` ở backend.
+- [ ] Khai báo redirect URI tương ứng trong Google/Facebook console và smoke test đăng nhập trên Android/iOS development build. OAuth custom scheme không được nghiệm thu bằng Expo Go.
 
 ### P1-02 — Push notification chưa sẵn sàng và điểm đăng ký quá hẹp
 
@@ -366,7 +376,7 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 ### P2-04 — Thiếu test ở lớp UI
 
 - Admin có khoảng 178 file trong feature nhưng không có unit/component test đặt cùng module.
-- Mobile có 31 screen nhưng 6 test file hiện chỉ phủ API failover, presentation/settings và helper phối đồ.
+- Mobile có 31 screen nhưng 8 test file hiện chủ yếu phủ API failover, auth/config, presentation/settings và helper phối đồ.
 - Chưa có test screen cho auth, checkout, push, support, review và navigation guard.
 
 Ưu tiên test reducer/helper/component có nhiều nhánh; không cần snapshot toàn trang.
@@ -379,7 +389,7 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `web_frontend: npm run lint` | Qua |
 | `web_frontend: npm run test:e2e` | 13/13 qua |
 | `mobile: npm run typecheck` | Qua |
-| `mobile: npm test` | 7 suite, 38 test qua |
+| `mobile: npm test` | 8 suite, 42 test qua |
 | `backend: npm run build` | Qua |
 | `backend: npm test` | 76 suite, 709 test qua |
 

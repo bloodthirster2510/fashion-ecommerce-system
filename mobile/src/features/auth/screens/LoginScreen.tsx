@@ -21,6 +21,7 @@ import { useAuth } from '../AuthContext';
 import { authApi, type AuthSession } from '../authApi';
 import { useGoogleAuth } from '../useGoogleAuth';
 import { useFacebookAuth } from '../useFacebookAuth';
+import { socialAuthConfig } from '../socialAuthConfig';
 import { colors, sharedStyles } from '../../../theme';
 import ShopNameLogo from '../../../components/branding/ShopNameLogo';
 
@@ -31,6 +32,77 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const socialIcons = {
   facebook: require('../../../../assets/social/facebook.png'),
   google: require('../../../../assets/social/google.png'),
+};
+
+type SocialLoginButtonProps = {
+  onSuccess: (session: AuthSession) => void;
+  onError: (message: string) => void;
+};
+
+const FacebookLoginButton = ({ onSuccess, onError }: SocialLoginButtonProps) => {
+  const facebookAuth = useFacebookAuth({
+    clientId: socialAuthConfig.facebook.clientId,
+    redirectUri: socialAuthConfig.facebook.redirectUri,
+    onSuccess,
+    onError,
+  });
+
+  return (
+    <TouchableOpacity
+      style={styles.facebookButton}
+      onPress={() => {
+        onError('');
+        void facebookAuth.signInWithFacebook();
+      }}
+      disabled={!facebookAuth.ready || facebookAuth.loading}
+    >
+      {facebookAuth.loading || !facebookAuth.ready ? (
+        <ActivityIndicator size="small" color="#FFFFFF" style={styles.facebookIcon} />
+      ) : (
+        <Image source={socialIcons.facebook} style={styles.facebookIcon} />
+      )}
+      <Text style={styles.facebookButtonText}>
+        {facebookAuth.loading
+          ? 'Đang đăng nhập...'
+          : facebookAuth.ready
+            ? 'Tiếp tục đăng nhập với Facebook'
+            : 'Đang chuẩn bị Facebook...'}
+      </Text>
+    </TouchableOpacity>
+  );
+};
+
+const GoogleLoginButton = ({ onSuccess, onError }: SocialLoginButtonProps) => {
+  const googleAuth = useGoogleAuth({
+    clientId: socialAuthConfig.google.clientId,
+    redirectUri: socialAuthConfig.google.redirectUri,
+    onSuccess,
+    onError,
+  });
+
+  return (
+    <TouchableOpacity
+      style={styles.googleButton}
+      onPress={() => {
+        onError('');
+        void googleAuth.signInWithGoogle();
+      }}
+      disabled={!googleAuth.ready || googleAuth.loading}
+    >
+      {googleAuth.loading || !googleAuth.ready ? (
+        <ActivityIndicator size="small" color="#0A0A0A" style={styles.googleIcon} />
+      ) : (
+        <Image source={socialIcons.google} style={styles.googleIcon} />
+      )}
+      <Text style={styles.googleButtonText}>
+        {googleAuth.loading
+          ? 'Đang đăng nhập...'
+          : googleAuth.ready
+            ? 'Tiếp tục đăng nhập với Google'
+            : 'Đang chuẩn bị Google...'}
+      </Text>
+    </TouchableOpacity>
+  );
 };
 
 const LoginScreen = () => {
@@ -68,16 +140,11 @@ const LoginScreen = () => {
       return () => subscription.remove();
     }, [resetToHome])
   );
-  const googleAuth = useGoogleAuth((session) => {
+  const completeSocialLogin = useCallback((session: AuthSession) => {
     void completeLogin(session).catch((error) => {
       setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
     });
-  });
-  const facebookAuth = useFacebookAuth((session) => {
-    void completeLogin(session).catch((error) => {
-      setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
-    });
-  });
+  }, [completeLogin]);
 
 
   const handleLogin = async () => {
@@ -158,8 +225,8 @@ const LoginScreen = () => {
               </View>
           </View>
 
-          {errorMessage || googleAuth.error || facebookAuth.error ? (
-            <Text style={styles.errorBanner}>{errorMessage || googleAuth.error || facebookAuth.error}</Text>
+          {errorMessage ? (
+            <Text style={styles.errorBanner}>{errorMessage}</Text>
           ) : null}
 
           <TouchableOpacity
@@ -179,39 +246,20 @@ const LoginScreen = () => {
               </Text>
             </TouchableOpacity>
 
-            <Text style={styles.socialLabel}>Hoặc đăng nhập bằng</Text>
+            {socialAuthConfig.enabled ? (
+              <>
+                <Text style={styles.socialLabel}>Hoặc đăng nhập bằng</Text>
 
-          <View style={styles.socialLoginContainer}>
-            <TouchableOpacity
-              style={styles.facebookButton}
-              onPress={facebookAuth.signInWithFacebook}
-              disabled={facebookAuth.loading}
-            >
-              {facebookAuth.loading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" style={styles.facebookIcon} />
-              ) : (
-                <Image source={socialIcons.facebook} style={styles.facebookIcon} />
-              )}
-              <Text style={styles.facebookButtonText}>
-                {facebookAuth.loading ? 'Đang đăng nhập...' : 'Tiếp tục đăng nhập với Facebook'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.googleButton}
-              onPress={googleAuth.signInWithGoogle}
-              disabled={googleAuth.loading}
-            >
-              {googleAuth.loading ? (
-                <ActivityIndicator size="small" color="#0A0A0A" style={styles.googleIcon} />
-              ) : (
-                <Image source={socialIcons.google} style={styles.googleIcon} />
-              )}
-              <Text style={styles.googleButtonText}>
-                {googleAuth.loading ? 'Đang đăng nhập...' : 'Tiếp tục đăng nhập với Google'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <View style={styles.socialLoginContainer}>
+                  {socialAuthConfig.facebook.enabled ? (
+                    <FacebookLoginButton onSuccess={completeSocialLogin} onError={setErrorMessage} />
+                  ) : null}
+                  {socialAuthConfig.google.enabled ? (
+                    <GoogleLoginButton onSuccess={completeSocialLogin} onError={setErrorMessage} />
+                  ) : null}
+                </View>
+              </>
+            ) : null}
 
             <View style={styles.registerContainer}>
               <Text style={styles.registerText}>Chưa có tài khoản?</Text>
