@@ -386,14 +386,13 @@ Quy tắc an toàn:
 
 ### P2-02 — Notification admin chưa phủ hết module
 
-Backend đang cố định:
+**Đã thực hiện**
 
-- `inactiveAccounts = 0`;
-- capability `accounts = false`;
-- `loyaltyApprovals = false`;
-- `reports = false`.
-
-Nếu chưa có workflow phê duyệt tương ứng thì bỏ badge/field khỏi UI. Nếu giữ, cần định nghĩa nguồn đếm, quyền xem và route đích.
+- [x] Xóa `inactiveAccounts` và các capability placeholder `accounts`, `loyaltyApprovals`, `reports` khỏi response/type/demo vì hiện không có workflow phê duyệt tương ứng.
+- [x] Giữ capability cho đúng năm hàng chờ có nguồn dữ liệu thật: orders, inventory, promotions, support và reviews.
+- [x] Bổ sung badge sidebar và mục trong chuông cho đánh giá chờ duyệt; nguồn đếm là `moderationStatus=pending`, quyền xem `reviews.read`, route đích `/admin/reviews`.
+- [x] Tổng số việc tiếp tục cộng từ các hàng chờ đã lọc theo quyền; sửa dữ liệu demo để tổng được tính từ các nhóm con, tránh lệch badge.
+- [x] Bổ sung unit test xác nhận contract không còn field giả và browser E2E cho badge/điều hướng review.
 
 ### P2-03 — Một số danh sách mobile đang tải cố định tối đa 100 mục
 

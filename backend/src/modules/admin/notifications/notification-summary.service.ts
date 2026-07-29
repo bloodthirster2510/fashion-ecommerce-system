@@ -159,20 +159,14 @@ export const getNotificationSummary = async (
     lowStockVariants,
     expiringCoupons,
     paymentDeadlineSoon,
-    // Disabled staff accounts are intentional state, not pending work. Keep
-    // this field stable until a real account-approval workflow exists.
-    inactiveAccounts: 0,
     supportOpen,
     reviewsPending,
     capabilities: {
       orders: canReadOrders,
       inventory: canReadInventory,
       promotions: canReadPromotions,
-      accounts: false,
       support: canReplySupport,
       reviews: canReadReviews,
-      loyaltyApprovals: false,
-      reports: false,
     },
     generatedAt: now,
   };

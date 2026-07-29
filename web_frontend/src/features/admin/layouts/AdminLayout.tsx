@@ -771,6 +771,9 @@ const getNavNotificationBadge = (
     support: summary.supportOpen > 0
       ? { count: summary.supportOpen, tone: 'danger', label: `${summary.supportOpen} ticket chờ phản hồi` }
       : undefined,
+    reviews: summary.reviewsPending > 0
+      ? { count: summary.reviewsPending, tone: 'warning', label: `${summary.reviewsPending} đánh giá chờ duyệt` }
+      : undefined,
   }
 
   return badges[routeId] ?? null
@@ -839,6 +842,14 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       detail: `${summary.supportOpen} ticket khách hàng đang chờ xử lý`,
       count: summary.supportOpen,
       tone: 'danger' as NotificationTone,
+    } : null,
+    summary.reviewsPending > 0 ? {
+      key: 'reviews-pending',
+      routeId: 'reviews' as NavId,
+      title: 'Đánh giá chờ duyệt',
+      detail: `${summary.reviewsPending} đánh giá cần kiểm tra trước khi hiển thị`,
+      count: summary.reviewsPending,
+      tone: 'warning' as NotificationTone,
     } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null)
 }

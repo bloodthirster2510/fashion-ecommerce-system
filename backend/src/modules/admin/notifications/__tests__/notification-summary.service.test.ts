@@ -62,18 +62,21 @@ describe('notification summary service', () => {
     expect(summary).toMatchObject({
       lowStockVariants: 3,
       expiringCoupons: 2,
-      inactiveAccounts: 0,
       supportOpen: 2,
+      reviewsPending: 1,
       paymentDeadlineSoon: 2,
     });
     expect(summary.capabilities).toMatchObject({
       orders: true,
       inventory: true,
       promotions: true,
-      accounts: false,
       support: true,
       reviews: true,
     });
+    expect(summary).not.toHaveProperty('inactiveAccounts');
+    expect(summary.capabilities).not.toHaveProperty('accounts');
+    expect(summary.capabilities).not.toHaveProperty('loyaltyApprovals');
+    expect(summary.capabilities).not.toHaveProperty('reports');
   });
 
   it('queries only sections granted to staff', async () => {
@@ -101,7 +104,8 @@ describe('notification summary service', () => {
       orders: true,
       inventory: false,
       promotions: false,
-      accounts: false,
+      support: false,
+      reviews: false,
     });
     expect(mockedInventory.aggregate).not.toHaveBeenCalled();
     expect(mockedCoupon.countDocuments).not.toHaveBeenCalled();
