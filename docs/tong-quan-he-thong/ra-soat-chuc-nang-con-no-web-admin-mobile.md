@@ -406,11 +406,13 @@ Quy tắc an toàn:
 
 ### P2-04 — Thiếu test ở lớp UI
 
-- Admin có khoảng 178 file trong feature nhưng không có unit/component test đặt cùng module.
-- Mobile có 32 screen nhưng 9 test file hiện chủ yếu phủ API failover, auth/push config, presentation/settings và helper phối đồ.
-- Chưa có test screen cho auth, checkout, push, support, review và navigation guard.
+**Đã thực hiện**
 
-Ưu tiên test reducer/helper/component có nhiều nhánh; không cần snapshot toàn trang.
+- [x] Tận dụng Playwright hiện có làm runner unit TypeScript cho admin, có config/script riêng và không khởi động web server hoặc thêm dependency.
+- [x] Đặt unit test cùng module orders admin, phủ nhãn hành động/trạng thái, thông báo bước kế tiếp, ưu tiên hiển thị yêu cầu trả bị từ chối và giá trị mặc định form vận chuyển.
+- [x] Tách logic nhiều nhánh khỏi mobile screen thành helper production cho đăng ký, checkout, push/settings, support, review và navigation guard; screen/provider dùng lại chính các helper này.
+- [x] Bổ sung 6 suite/22 test mobile cho ngày sinh/độ tuổi, điều kiện đặt hàng/trạng thái phí giao hàng, khôi phục push preference, validation/reopen support, review và force-change-password guard.
+- [x] Không dùng snapshot toàn trang; test tập trung vào nhánh quyết định ổn định, còn UI vẫn được kiểm tra bằng typecheck/build và E2E hiện có.
 
 ## 7. Kết quả kiểm tra kỹ thuật
 
@@ -418,9 +420,10 @@ Quy tắc an toàn:
 |---|---|
 | `web_frontend: npm run build` | Qua |
 | `web_frontend: npm run lint` | Qua |
+| `web_frontend: npm run test:unit` | 4/4 qua |
 | `web_frontend: npm run test:e2e` | 14/14 qua |
 | `mobile: npm run typecheck` | Qua |
-| `mobile: npm test` | 12 suite, 54 test qua |
+| `mobile: npm test` | 18 suite, 76 test qua |
 | `backend: npm run build` | Qua |
 | `backend: npm run lint` | Qua |
 | `backend: npm test` | 83 suite, 754 test qua |
@@ -453,13 +456,13 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI
 1. [x] Customer orders/activity/notes.
 2. [x] Virtual try-on settings.
 3. [x] Bulk/export/print cho orders.
-4. Notification badge còn thiếu.
+4. [x] Notification badge cho toàn bộ hàng chờ có nguồn dữ liệu thật.
 
 ### Đợt 4 — Tăng độ tin cậy
 
 1. [x] API-backed E2E cho auth, order, payment, shipping, support và try-on.
-2. Pagination/load more mobile.
-3. Component/screen tests cho các nhánh lỗi và permission.
+2. [x] Pagination/load more mobile.
+3. [x] Unit/helper test cho các nhánh UI quan trọng trên admin và mobile.
 
 ## 9. Tiêu chí đóng toàn bộ backlog
 

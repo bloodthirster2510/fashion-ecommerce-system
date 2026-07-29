@@ -4,20 +4,17 @@ import { sessionStorage } from '../auth/sessionStorage';
 import { useAuth } from '../auth/AuthContext';
 import { notificationApi } from './notificationApi';
 import {
-  defaultPushNotificationPreferences,
   pushNotificationCapability,
   requestPushToken,
   subscribeToPushTokenChanges,
   type PushNotificationCategory,
   type PushNotificationPreferences,
 } from './pushNotifications';
-
-type StoredPushState = {
-  enabled: boolean;
-  token?: string;
-  platform?: 'ios' | 'android';
-  preferences: PushNotificationPreferences;
-};
+import {
+  initialPushNotificationState,
+  normalizeStoredPushState,
+  type StoredPushState,
+} from './pushNotificationState';
 
 type PushNotificationContextValue = {
   capability: typeof pushNotificationCapability;
@@ -34,37 +31,9 @@ type PushNotificationContextValue = {
 const STORAGE_KEY = 'fashionista.pushNotifications.v1';
 const PushNotificationContext = React.createContext<PushNotificationContextValue | null>(null);
 
-const initialState: StoredPushState = {
-  enabled: false,
-  preferences: defaultPushNotificationPreferences,
-};
-
-const normalizeStoredState = (value: unknown): StoredPushState => {
-  if (!value || typeof value !== 'object') return initialState;
-  const input = value as Partial<StoredPushState>;
-  const rawPreferences: Partial<PushNotificationPreferences> =
-    input.preferences && typeof input.preferences === 'object'
-      ? input.preferences
-      : {};
-
-  return {
-    enabled: input.enabled === true,
-    ...(typeof input.token === 'string' && input.token ? { token: input.token } : {}),
-    ...(input.platform === 'ios' || input.platform === 'android' ? { platform: input.platform } : {}),
-    preferences: Object.fromEntries(
-      Object.keys(defaultPushNotificationPreferences).map((category) => [
-        category,
-        typeof rawPreferences[category as PushNotificationCategory] === 'boolean'
-          ? rawPreferences[category as PushNotificationCategory]
-          : true,
-      ]),
-    ) as PushNotificationPreferences,
-  };
-};
-
 export const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
   const { runWithAuth, session } = useAuth();
-  const [state, setState] = React.useState<StoredPushState>(initialState);
+  const [state, setState] = React.useState<StoredPushState>(initialPushNotificationState);
   const [restoring, setRestoring] = React.useState(true);
   const [syncing, setSyncing] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -83,7 +52,7 @@ export const PushNotificationProvider = ({ children }: { children: React.ReactNo
     sessionStorage.getItemAsync(STORAGE_KEY)
       .then((raw) => {
         if (!mounted || !raw) return;
-        const restored = normalizeStoredState(JSON.parse(raw));
+        const restored = normalizeStoredPushState(JSON.parse(raw));
         stateRef.current = restored;
         setState(restored);
       })

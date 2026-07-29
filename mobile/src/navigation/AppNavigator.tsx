@@ -37,6 +37,7 @@ import VirtualTryOnResultScreen from '../features/virtualTryOn/VirtualTryOnResul
 import VirtualTryOnHistoryScreen from '../features/virtualTryOn/VirtualTryOnHistoryScreen';
 import type { TryOnSeedItem } from '../features/virtualTryOn/virtualTryOn.types';
 import type { SupportCategory, SupportTicketType } from '../features/support/support.types';
+import { resolveAppNavigatorMode } from './navigationGuard';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -164,8 +165,9 @@ const Stack = createStackNavigator<RootStackParamList>();
 
 const AppNavigator = () => {
   const { session } = useAuth();
+  const navigatorMode = resolveAppNavigatorMode(session?.user.mustChangePassword);
 
-  if (session?.user.mustChangePassword) {
+  if (navigatorMode === 'force_change_password') {
     return (
       <Stack.Navigator
         initialRouteName="ForceChangePassword"

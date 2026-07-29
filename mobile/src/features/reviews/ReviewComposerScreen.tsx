@@ -10,6 +10,11 @@ import { colors, radii, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { reviewApi } from './reviewApi';
 import type { ReviewCriteria, ReviewImage, ReviewImageDraft } from './review.types';
+import {
+  getAvailableReviewImageSlots,
+  getReviewCommentError,
+  getReviewEligibilityMessage,
+} from './reviewPresentation';
 
 const scoreOptions = [1, 2, 3, 4, 5] as const;
 const sizeFitOptions: Array<{ value: NonNullable<ReviewCriteria['sizeFit']>; label: string }> = [
@@ -36,7 +41,7 @@ export default function ReviewComposerScreen() {
   const [loading, setLoading] = React.useState(false);
 
   const chooseImages = async () => {
-    const availableSlots = 5 - existingImages.length - images.length;
+    const availableSlots = getAvailableReviewImageSlots(existingImages.length, images.length);
     if (availableSlots <= 0) {
       Alert.alert('Đã đủ ảnh', 'Mỗi đánh giá được giữ tối đa 5 ảnh.');
       return;
@@ -63,8 +68,9 @@ export default function ReviewComposerScreen() {
   };
 
   const submit = async () => {
-    if (comment.trim().length < 10) {
-      Alert.alert('Nội dung quá ngắn', 'Đánh giá cần ít nhất 10 ký tự.');
+    const commentError = getReviewCommentError(comment);
+    if (commentError) {
+      Alert.alert('Nội dung quá ngắn', commentError);
       return;
     }
     const criteria: ReviewCriteria = { productQuality, descriptionMatch, sizeFit };
@@ -94,9 +100,7 @@ export default function ReviewComposerScreen() {
         if (!eligibility.canReview) {
           Alert.alert(
             'Không thể đánh giá',
-            eligibility.reason === 'ALREADY_REVIEWED'
-              ? 'Bạn đã đánh giá sản phẩm trong lần mua này.'
-              : 'Đơn hàng chưa đủ điều kiện đánh giá.',
+            getReviewEligibilityMessage(eligibility.reason),
           );
           return;
         }

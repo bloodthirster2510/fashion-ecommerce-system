@@ -20,6 +20,7 @@ import {
   usePushNotifications,
 } from './PushNotificationProvider';
 import type { PushNotificationCategory } from './pushNotifications';
+import { shouldOpenDeviceNotificationSettings } from './pushNotificationState';
 
 type Navigation = StackNavigationProp<RootStackParamList, 'NotificationSettings'>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
@@ -151,7 +152,7 @@ const NotificationSettingsScreen = () => {
         {error ? (
           <View style={styles.errorCard}>
             <Text style={styles.errorText}>{error}</Text>
-            {error.toLowerCase().includes('quyền') ? (
+            {shouldOpenDeviceNotificationSettings(error) ? (
               <TouchableOpacity onPress={() => void Linking.openSettings()}>
                 <Text style={styles.settingsLink}>Mở cài đặt thiết bị</Text>
               </TouchableOpacity>

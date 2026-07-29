@@ -19,8 +19,8 @@ import type { SupportTicket } from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
+import { getSupportTicketStatusLabel } from './supportPresentation';
 
-const labels: Record<string, string> = { open: 'Đã tiếp nhận', in_progress: 'Đang xử lý', waiting_customer: 'Cần bổ sung', resolved: 'Đã giải quyết', closed: 'Đã đóng' };
 const PAGE_SIZE = 20;
 type LoadMode = 'initial' | 'refresh' | 'more';
 
@@ -108,7 +108,7 @@ export default function SupportTicketListScreen() {
           >
             <View style={s.row}>
               <Text style={s.cardTitle}>{ticket.ticketCode}</Text>
-              <Text style={s.secondaryText}>{labels[ticket.status]}</Text>
+              <Text style={s.secondaryText}>{getSupportTicketStatusLabel(ticket.status)}</Text>
             </View>
             <Text style={s.muted}>{ticket.subject}</Text>
             <Text style={s.timestamp}>{new Date(ticket.lastMessageAt).toLocaleString('vi-VN')}</Text>
