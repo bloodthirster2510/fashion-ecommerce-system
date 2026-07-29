@@ -1,6 +1,19 @@
 import { GHNService, GHNServiceError } from '../ghn.service';
 import { shippingQuoteService } from '../shipping-quote.service';
 
+jest.mock('../shipping-area-mapping.service', () => {
+  const actual = jest.requireActual('../shipping-area-mapping.service');
+  const service = actual.shippingAreaMappingService;
+  return {
+    ...actual,
+    shippingAreaMappingService: {
+      ...service,
+      resolveStoredGhnFieldsWithManagedMapping: jest.fn(async (address) =>
+        service.resolveStoredGhnFields(address)),
+    },
+  };
+});
+
 jest.mock('../ghn.service', () => {
   const actual = jest.requireActual('../ghn.service');
   return {
@@ -28,6 +41,9 @@ const input = {
     wardCode: '00004',
     ghnDistrictId: 1484,
     ghnWardCode: '1A0107',
+    ghnMappingStatus: 'mapped' as const,
+    ghnMappingConfidence: 'exact' as const,
+    ghnMappingVerifiedAt: '2026-07-29T00:00:00.000Z',
   },
   items: [{ name: 'Sandbox item', quantity: 1, price: 220_000 }],
 };
@@ -82,5 +98,30 @@ describe('shippingQuoteService GHN candidate validation', () => {
       message: 'Cân nặng không hợp lệ',
       statusCode: 400,
     });
+  });
+
+  it('uses fixed fallback without calling GHN for an unverified province and ward', async () => {
+    const result = await shippingQuoteService.compareCheckout({
+      shippingAddress: {
+        province: 'Tỉnh Đồng Nai',
+        provinceCode: '75',
+        ward: 'Phường Trấn Biên',
+        wardCode: '26368',
+        ghnMappingStatus: 'missing',
+      },
+      items: input.items,
+    });
+
+    expect(result).toMatchObject({
+      comparisonStatus: 'fallback',
+      pricingMode: 'FIXED_FALLBACK',
+      customerFee: 25_000,
+      resolvedArea: {
+        status: 'missing',
+        source: 'missing',
+      },
+    });
+    expect(mockedGetAvailableServices).not.toHaveBeenCalled();
+    expect(mockedCalculateShippingFee).not.toHaveBeenCalled();
   });
 });

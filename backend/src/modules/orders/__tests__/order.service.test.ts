@@ -182,6 +182,8 @@ const normalizedShippingAddress = {
   ghnDistrictId: 1574,
   ghnWardCode: '550101',
   ghnMappingStatus: 'manual' as const,
+  ghnMappingConfidence: null,
+  ghnMappingVerifiedAt: null,
 };
 
 const mockUserAddressLookup = (addresses: Array<typeof shippingAddress & { _id: Types.ObjectId; isDefault: boolean }>) => {
@@ -368,6 +370,7 @@ describe('orderService', () => {
       userId,
       cartItemIds: [cartItemId.toString()],
       couponCode: undefined,
+      couponCodes: undefined,
       paymentMethod: 'COD',
       shippingAddress: normalizedShippingAddress,
     });
@@ -506,6 +509,7 @@ describe('orderService', () => {
       userId,
       cartItemIds: [cartItemId.toString()],
       couponCode: undefined,
+      couponCodes: undefined,
       paymentMethod: 'COD',
       shippingAddress: normalizedShippingAddress,
     });
@@ -657,6 +661,7 @@ describe('orderService', () => {
       userId,
       cartItemIds: [cartItemId.toString()],
       couponCode: undefined,
+      couponCodes: undefined,
       paymentMethod: 'COD',
       shippingAddress: normalizedShippingAddress,
     });
@@ -2131,6 +2136,9 @@ describe('orderService', () => {
         wardCode: '550101',
         ghnDistrictId: 1574,
         ghnWardCode: '550101',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'exact',
+        ghnMappingVerifiedAt: new Date('2026-07-29T00:00:00.000Z'),
       },
       order_list: [
         {
@@ -2168,6 +2176,43 @@ describe('orderService', () => {
     expect(order.shipping.rawShipment).toEqual(ghnPayload);
     expect(order.save).toHaveBeenCalled();
     expect(result).toBe(order);
+  });
+
+  it('does not call GHN when a packed fallback order has no verified mapping', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000077');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-FALLBACK',
+      status: 'packed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 125000,
+      shipping: {
+        provider: 'FIXED',
+        status: 'fallback',
+        trackingCode: null,
+      },
+      shippingAddress: {
+        customerName: 'Granji',
+        phoneNumber: '0343149695',
+        streetName: '12 Nguyen Ai Quoc',
+        province: 'Dong Nai',
+        ward: 'Tran Bien',
+        wardCode: '26368',
+        ghnMappingStatus: 'missing',
+      },
+      order_list: [{ name: 'Basic Tee', quantity: 1, priceAtPurchased: 100000 }],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(orderService.createGhnShipment(orderId.toString())).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: 'GHN_MAPPING_REQUIRED',
+    });
+    expect(mockedGHNService.createShippingOrder).not.toHaveBeenCalled();
+    expect(order.save).not.toHaveBeenCalled();
   });
 
   it('applies a GHN webhook using the client order code relationship', async () => {

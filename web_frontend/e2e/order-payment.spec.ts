@@ -4,7 +4,10 @@ import {
   getVNPayRefundNotice,
 } from '../src/features/admin/modules/orders/utils/vnpayReconcile'
 import type { AdminOrder } from '../src/features/admin/modules/orders/orderAdminApi'
-import { resolveInitialTabKey } from '../src/features/admin/modules/orders/orderPresentation'
+import {
+  canCreateGhnShipment,
+  resolveInitialTabKey,
+} from '../src/features/admin/modules/orders/orderPresentation'
 import { getOrderQueue } from '../src/features/admin/modules/orders/utils/orderQueue'
 
 const pendingVNPayOrder = {
@@ -19,6 +22,49 @@ test('pending VNPay orders stay visible in the payment queue', () => {
 
 test('online order operations open the payment queue by default', () => {
   expect(resolveInitialTabKey(undefined, true, 'online')).toBe('blocked')
+})
+
+test('fallback shipping orders are routed to the GHN mapping queue', () => {
+  const fallbackOrder = {
+    status: 'packed',
+    paymentMethod: 'COD',
+    paymentStatus: 'pending',
+    shipping: {
+      provider: 'FIXED',
+      status: 'fallback',
+      comparisonStatus: 'fallback',
+    },
+    shippingAddress: {
+      ghnMappingStatus: 'missing',
+    },
+  } as AdminOrder
+
+  expect(getOrderQueue(fallbackOrder)).toBe('shipping-mapping')
+  expect(canCreateGhnShipment(fallbackOrder)).toBe(false)
+})
+
+test('GHN shipment action unlocks only after the address mapping is verified', () => {
+  const mappedOrder = {
+    status: 'packed',
+    paymentMethod: 'COD',
+    paymentStatus: 'pending',
+    shipping: {
+      provider: 'FIXED',
+      status: 'mapping_resolved',
+      trackingCode: null,
+    },
+    shippingAddress: {
+      ghnProvinceId: 204,
+      ghnDistrictId: 1452,
+      ghnWardCode: '480101',
+      ghnMappingStatus: 'mapped',
+      ghnMappingConfidence: 'manual',
+      ghnMappingVerifiedAt: '2026-07-29T00:00:00.000Z',
+    },
+  } as AdminOrder
+
+  expect(getOrderQueue(mappedOrder)).toBe('handoff')
+  expect(canCreateGhnShipment(mappedOrder)).toBe(true)
 })
 
 test('VNPay refund request stays a warning while the gateway is processing it', () => {

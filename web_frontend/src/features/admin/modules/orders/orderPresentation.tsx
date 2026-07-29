@@ -44,6 +44,7 @@ export const emptyOperationalSummary = {
   paymentRisk: 0,
   paymentOverdueRisk: 0,
   paymentDeadlineSoon: 0,
+  shippingMappingRequired: 0,
   totalPriority: 0,
 }
 
@@ -121,6 +122,14 @@ export const orderTabs: OrderTab[] = [
     group: 'exceptions',
     statuses: ['confirmed'],
     queue: 'payment-deadline',
+  },
+  {
+    key: 'shipping-mapping',
+    label: 'Cần mapping GHN',
+    helper: 'Đơn đang dùng phí tạm tính hoặc địa chỉ chưa có mã GHN đã xác minh; cần xử lý trước khi bàn giao.',
+    group: 'exceptions',
+    statuses: ['confirmed', 'packed'],
+    queue: 'shipping-mapping',
   },
   {
     key: 'review',
@@ -246,6 +255,7 @@ export const returnRequestStatusLabels: Record<AdminReturnRequestStatus, string>
 export const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'order.status_update': 'Cập nhật trạng thái đơn',
   'order.shipping_update': 'Cập nhật vận chuyển',
+  'order.shipping_mapping_update': 'Xác minh mapping GHN',
   'order.shipping_webhook': 'Webhook vận chuyển',
   'order.shipping_reconcile': 'Đối soát vận chuyển',
   'order.auto_complete_delivered': 'Tự hoàn tất đơn đã giao',
@@ -255,6 +265,8 @@ export const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'payment.vnpay_refund': 'Yêu cầu hoàn tiền VNPay',
   'payment_method.status_update': 'Cập nhật phương thức thanh toán',
   'payment_method.account_reveal': 'Xem số tài khoản hoàn tiền',
+  'shipping_mapping.import': 'Import mapping GHN',
+  'shipping_mapping.review': 'Duyệt mapping GHN',
 }
 
 export const actorRoleLabels: Record<AdminAuditLog['actorRole'], string> = {
@@ -268,6 +280,7 @@ export const auditTargetTypeLabels: Record<string, string> = {
   Order: 'Đơn hàng',
   Payment: 'Thanh toán',
   PaymentMethod: 'Phương thức thanh toán',
+  ShippingAreaMapping: 'Mapping GHN',
 }
 
 export const shippingProviderLabels: Record<string, string> = {
@@ -523,8 +536,14 @@ export const hasActiveGhnShipment = (order: AdminOrder) =>
 
 export const canCreateGhnShipment = (order: AdminOrder) => {
   const paymentReady = order.paymentMethod === 'COD' || order.paymentStatus === 'paid'
+  const mappingReady =
+    order.shippingAddress.ghnMappingStatus === 'mapped' &&
+    Boolean(order.shippingAddress.ghnMappingConfidence) &&
+    Boolean(order.shippingAddress.ghnMappingVerifiedAt) &&
+    Boolean(order.shippingAddress.ghnDistrictId) &&
+    Boolean(order.shippingAddress.ghnWardCode)
 
-  return order.status === 'packed' && paymentReady && !hasActiveGhnShipment(order)
+  return order.status === 'packed' && paymentReady && mappingReady && !hasActiveGhnShipment(order)
 }
 
 export const canCancelGhnShipment = (order: AdminOrder) =>

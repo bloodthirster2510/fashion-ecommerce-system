@@ -31,10 +31,20 @@ export type AdminOrderItem = {
 export type AdminOrderShippingAddress = {
   customerName: string
   province: string
+  provinceCode?: string | null
+  provinceId?: number | null
   district?: string | null
+  districtId?: number | null
   ward: string
+  wardCode: string
   streetName: string
   phoneNumber: string
+  ghnProvinceId?: number | null
+  ghnDistrictId?: number | null
+  ghnWardCode?: string | null
+  ghnMappingStatus?: 'mapped' | 'missing' | 'manual'
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null
+  ghnMappingVerifiedAt?: string | null
 }
 
 export type AdminOrderShipping = {
@@ -150,6 +160,7 @@ export type OrderListFilters = {
   page?: number
   limit?: number
   paymentDeadlineBefore?: string
+  shippingFallback?: boolean
 }
 
 export type AdminOrderListSort =
@@ -173,6 +184,7 @@ export type OrderListResponse = {
     paymentRisk: number
     paymentOverdueRisk?: number
     paymentDeadlineSoon?: number
+    shippingMappingRequired?: number
     totalPriority: number
   }
   pagination?: {
@@ -221,6 +233,7 @@ export type AdminAuditLog = {
   action:
     | 'order.status_update'
     | 'order.shipping_update'
+    | 'order.shipping_mapping_update'
     | 'order.shipping_webhook'
     | 'order.shipping_reconcile'
     | 'order.auto_complete_delivered'
@@ -230,6 +243,8 @@ export type AdminAuditLog = {
     | 'payment.vnpay_refund'
     | 'payment_method.status_update'
     | 'payment_method.account_reveal'
+    | 'shipping_mapping.import'
+    | 'shipping_mapping.review'
   targetType: string
   targetId: string
   reason?: string | null
@@ -257,6 +272,15 @@ export type UpdateOrderShippingPayload = {
   labelUrl?: string | null
   actualProviderCost?: number | null
   reason?: string | null
+}
+
+export type UpdateOrderGhnMappingPayload = {
+  ghnProvinceId: number
+  ghnDistrictId: number
+  ghnWardCode: string
+  confidence: 'exact' | 'manual' | 'legacy'
+  note?: string
+  applyToFutureAddresses?: boolean
 }
 
 export type SimulateShippingWebhookPayload = {
@@ -296,6 +320,10 @@ const buildOrderListQuery = (filters: OrderListFilters) => {
 
   if (filters.paymentDeadlineBefore) {
     params.set('paymentDeadlineBefore', filters.paymentDeadlineBefore)
+  }
+
+  if (filters.shippingFallback) {
+    params.set('shippingFallback', 'true')
   }
 
   if (filters.dateFrom) {
@@ -343,6 +371,12 @@ export const reviewReturnRequest = (
 
 export const updateOrderShipping = (id: string, payload: UpdateOrderShippingPayload) =>
   requestAdmin<AdminOrder>(`/admin/orders/${id}/shipping`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+
+export const updateOrderGhnMapping = (id: string, payload: UpdateOrderGhnMappingPayload) =>
+  requestAdmin<AdminOrder>(`/admin/orders/${id}/ghn-mapping`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   })

@@ -12,13 +12,8 @@ router.get('/wards', ghnController.getWards);
 router.get('/services', authenticate, ghnController.getAvailableServices);
 router.post('/fee', authenticate, ghnController.calculateFee);
 
-router.post(
-  '/orders',
-  authenticate,
-  authorize('admin', 'staff'),
-  requirePermission('orders.update'),
-  ghnController.createShippingOrder,
-);
+// Tạo vận đơn chỉ đi qua /api/admin/orders/:id/ghn-shipment để bắt buộc
+// kiểm tra payment, trạng thái đơn và mapping địa chỉ đã xác minh.
 router.get(
   '/orders/:orderCode',
   authenticate,

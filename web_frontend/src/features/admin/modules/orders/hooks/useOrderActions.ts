@@ -78,6 +78,7 @@ export function useOrderActions({
     handleShippingUpdate,
     handleSimulateShippingStatus,
     handleSyncGhnShipment,
+    handleUpdateGhnMapping,
   } = useOrderShippingActions({
     loadOrders,
     openActionDialog,
@@ -190,6 +191,7 @@ export function useOrderActions({
     handleStatusUpdate,
     handleSubmitActionDialog,
     handleSyncGhnShipment,
+    handleUpdateGhnMapping,
     handleUpdatePaymentMethodStatus,
   }
 }

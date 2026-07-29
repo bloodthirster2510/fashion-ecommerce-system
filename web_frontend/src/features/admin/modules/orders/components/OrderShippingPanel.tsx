@@ -1,4 +1,5 @@
-import type { AdminOrder } from '../orderAdminApi'
+import { useEffect, useState } from 'react'
+import type { AdminOrder, UpdateOrderGhnMappingPayload } from '../orderAdminApi'
 import type { ShippingSimulationStatus } from '../orderTypes'
 import {
   canCancelGhnShipment,
@@ -25,6 +26,7 @@ type OrderShippingPanelProps = {
   onShippingUpdate: () => void
   onSimulateShippingStatus: (status: ShippingSimulationStatus) => void
   onSyncGhnShipment: () => void
+  onUpdateGhnMapping: (payload: UpdateOrderGhnMappingPayload) => void
 }
 
 export function OrderShippingPanel({
@@ -37,7 +39,58 @@ export function OrderShippingPanel({
   onShippingUpdate,
   onSimulateShippingStatus,
   onSyncGhnShipment,
+  onUpdateGhnMapping,
 }: OrderShippingPanelProps) {
+  const [isEditingMapping, setIsEditingMapping] = useState(false)
+  const [mappingError, setMappingError] = useState('')
+  const [ghnProvinceId, setGhnProvinceId] = useState('')
+  const [ghnDistrictId, setGhnDistrictId] = useState('')
+  const [ghnWardCode, setGhnWardCode] = useState('')
+  const [confidence, setConfidence] = useState<UpdateOrderGhnMappingPayload['confidence']>('manual')
+  const [mappingNote, setMappingNote] = useState('')
+  const mappingReady =
+    order.shippingAddress.ghnMappingStatus === 'mapped' &&
+    Boolean(order.shippingAddress.ghnMappingConfidence) &&
+    Boolean(order.shippingAddress.ghnMappingVerifiedAt) &&
+    Boolean(order.shippingAddress.ghnDistrictId) &&
+    Boolean(order.shippingAddress.ghnWardCode)
+
+  useEffect(() => {
+    setGhnProvinceId(order.shippingAddress.ghnProvinceId?.toString() ?? '')
+    setGhnDistrictId(order.shippingAddress.ghnDistrictId?.toString() ?? '')
+    setGhnWardCode(order.shippingAddress.ghnWardCode ?? '')
+    setConfidence(order.shippingAddress.ghnMappingConfidence ?? 'manual')
+    setMappingNote('')
+    setMappingError('')
+    setIsEditingMapping(false)
+  }, [
+    order._id,
+    order.shippingAddress.ghnDistrictId,
+    order.shippingAddress.ghnMappingConfidence,
+    order.shippingAddress.ghnProvinceId,
+    order.shippingAddress.ghnWardCode,
+  ])
+
+  const submitMapping = () => {
+    const provinceId = Number(ghnProvinceId)
+    const districtId = Number(ghnDistrictId)
+    const wardCode = ghnWardCode.trim()
+    if (!Number.isInteger(provinceId) || provinceId <= 0 || !Number.isInteger(districtId) || districtId <= 0 || !wardCode) {
+      setMappingError('Cần nhập đúng GHN ProvinceID, DistrictID và WardCode.')
+      return
+    }
+
+    setMappingError('')
+    onUpdateGhnMapping({
+      ghnProvinceId: provinceId,
+      ghnDistrictId: districtId,
+      ghnWardCode: wardCode,
+      confidence,
+      note: mappingNote.trim() || 'Admin xác minh mapping từ hàng chờ giao hàng',
+      applyToFutureAddresses: true,
+    })
+  }
+
   return (
     <section className="admin-drawer-section admin-order-section-main admin-order-section-shipping">
       <div className="admin-section-inline-heading">
@@ -55,6 +108,90 @@ export function OrderShippingPanel({
         <strong>{order.shippingAddress.customerName}</strong>
         <span>{order.shippingAddress.phoneNumber}</span>
         <p>{getAddressLine(order)}</p>
+      </div>
+      <div className={`admin-ghn-mapping-card ${mappingReady ? 'is-ready' : 'is-warning'}`}>
+        <div className="admin-ghn-mapping-heading">
+          <div>
+            <strong>{mappingReady ? 'Mapping GHN đã xác minh' : 'Cần xác minh mapping GHN'}</strong>
+            <span>
+              {mappingReady
+                ? `${order.shippingAddress.ghnMappingConfidence} · ${new Date(order.shippingAddress.ghnMappingVerifiedAt!).toLocaleDateString('vi-VN')}`
+                : 'Đơn đang dùng phí tạm tính; hệ thống sẽ không gọi tạo vận đơn GHN.'}
+            </span>
+          </div>
+          <button
+            className="admin-link-button"
+            type="button"
+            disabled={!canUpdateOrders || isActionLoading}
+            onClick={() => setIsEditingMapping((current) => !current)}
+          >
+            {isEditingMapping ? 'Đóng' : mappingReady ? 'Sửa mapping' : 'Xử lý mapping'}
+          </button>
+        </div>
+        <div className="admin-ghn-mapping-codes">
+          <span>ProvinceID: <strong>{order.shippingAddress.ghnProvinceId ?? '—'}</strong></span>
+          <span>DistrictID: <strong>{order.shippingAddress.ghnDistrictId ?? '—'}</strong></span>
+          <span>WardCode: <strong>{order.shippingAddress.ghnWardCode ?? '—'}</strong></span>
+        </div>
+        {isEditingMapping ? (
+          <div className="admin-ghn-mapping-form">
+            <label>
+              <span>GHN ProvinceID</span>
+              <input
+                type="number"
+                min={1}
+                value={ghnProvinceId}
+                onChange={(event) => setGhnProvinceId(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>GHN DistrictID</span>
+              <input
+                type="number"
+                min={1}
+                value={ghnDistrictId}
+                onChange={(event) => setGhnDistrictId(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>GHN WardCode</span>
+              <input
+                value={ghnWardCode}
+                maxLength={20}
+                onChange={(event) => setGhnWardCode(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Độ tin cậy</span>
+              <select
+                value={confidence}
+                onChange={(event) => setConfidence(event.target.value as UpdateOrderGhnMappingPayload['confidence'])}
+              >
+                <option value="exact">Khớp chính xác</option>
+                <option value="manual">Admin xác minh thủ công</option>
+                <option value="legacy">Dữ liệu cũ đã đối chiếu</option>
+              </select>
+            </label>
+            <label className="admin-ghn-mapping-note">
+              <span>Ghi chú kiểm tra</span>
+              <input
+                value={mappingNote}
+                maxLength={500}
+                onChange={(event) => setMappingNote(event.target.value)}
+                placeholder="Nguồn đối chiếu hoặc lý do sửa"
+              />
+            </label>
+            {mappingError ? <p className="admin-notice is-error">{mappingError}</p> : null}
+            <button
+              className="admin-primary-button"
+              type="button"
+              disabled={!canUpdateOrders || isActionLoading}
+              onClick={submitMapping}
+            >
+              Xác minh và áp dụng
+            </button>
+          </div>
+        ) : null}
       </div>
       <div className="admin-detail-grid">
         <div>

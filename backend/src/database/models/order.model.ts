@@ -42,6 +42,8 @@ export interface IOrderShippingAddress {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: Date | null;
 }
 
 export interface IOrderShipping {
@@ -179,6 +181,12 @@ const shippingAddressSchema = new Schema<IOrderShippingAddress>(
     ghnDistrictId: { type: Number, default: null, min: 1 },
     ghnWardCode: { type: String, default: null, trim: true, maxlength: 20 },
     ghnMappingStatus: { type: String, enum: ['mapped', 'missing', 'manual'], default: 'missing' },
+    ghnMappingConfidence: {
+      type: String,
+      enum: ['exact', 'manual', 'legacy'],
+      default: null,
+    },
+    ghnMappingVerifiedAt: { type: Date, default: null },
   },
   { _id: false },
 );

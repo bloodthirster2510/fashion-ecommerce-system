@@ -137,6 +137,7 @@ export function OrderListPage({
     handleStatusUpdate,
     handleSubmitActionDialog,
     handleSyncGhnShipment,
+    handleUpdateGhnMapping,
     handleUpdatePaymentMethodStatus,
   } = useOrderActions({
     canAdjustPayments,
@@ -239,6 +240,7 @@ export function OrderListPage({
           onShippingUpdate={() => void handleShippingUpdate()}
           onSimulateShippingStatus={(status) => void handleSimulateShippingStatus(status)}
           onSyncGhnShipment={() => void handleSyncGhnShipment()}
+          onUpdateGhnMapping={(payload) => void handleUpdateGhnMapping(payload)}
           onStatusUpdate={(status) => void handleStatusUpdate(status)}
           onCopyReference={copyReference}
           onRevealRefundAccount={(method) => void handleRevealRefundAccount(method)}

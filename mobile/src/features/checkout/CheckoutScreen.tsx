@@ -85,6 +85,8 @@ const toShippingAddress = (address: UserAddress) => ({
   ghnDistrictId: address.ghnDistrictId ?? null,
   ghnWardCode: address.ghnWardCode ?? null,
   ghnMappingStatus: address.ghnMappingStatus ?? 'missing',
+  ghnMappingConfidence: address.ghnMappingConfidence ?? null,
+  ghnMappingVerifiedAt: address.ghnMappingVerifiedAt ?? null,
 });
 
 const hasShippingAreaCode = (address: UserAddress | null) =>

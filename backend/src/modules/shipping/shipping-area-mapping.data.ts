@@ -11,12 +11,15 @@ export type ShippingAreaMappingRecord = {
   ghnWardCode: string;
   ghnWardName: string;
   confidence: 'exact' | 'manual' | 'legacy';
+  verifiedAt: string;
   note?: string;
 };
 
+const SEED_VERIFIED_AT = '2026-07-29T00:00:00.000Z';
+
 // Seed batch đầu tiên để backend có thể backfill GHN ngay lúc lưu địa chỉ.
 // Cấu trúc này được giữ riêng để sau này có thể thay bằng collection/admin import.
-export const shippingAreaMappingSeed: ShippingAreaMappingRecord[] = [
+const shippingAreaMappingSeedRecords: Array<Omit<ShippingAreaMappingRecord, 'verifiedAt'>> = [
   {
     provider: 'GHN',
     provinceCode: '01',
@@ -188,3 +191,9 @@ export const shippingAreaMappingSeed: ShippingAreaMappingRecord[] = [
     confidence: 'exact',
   },
 ];
+
+export const shippingAreaMappingSeed: ShippingAreaMappingRecord[] =
+  shippingAreaMappingSeedRecords.map((mapping) => ({
+    ...mapping,
+    verifiedAt: SEED_VERIFIED_AT,
+  }));

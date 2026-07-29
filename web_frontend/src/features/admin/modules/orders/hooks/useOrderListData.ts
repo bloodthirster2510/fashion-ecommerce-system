@@ -145,6 +145,7 @@ export function useOrderListData({
         paymentDeadlineBefore: activeTab.queue === 'payment-deadline'
           ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
           : undefined,
+        shippingFallback: activeTab.queue === 'shipping-mapping' || undefined,
         dateFrom: isLookupMode ? dateFrom || undefined : undefined,
         dateTo: isLookupMode ? dateTo || undefined : undefined,
         sort: isLookupMode ? sort : undefined,

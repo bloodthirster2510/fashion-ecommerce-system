@@ -17,6 +17,7 @@ import {
   simulateShippingWebhook,
   syncGhnShipment,
   updateOrderShipping,
+  updateOrderGhnMapping,
   updateOrderStatus,
 } from './order.controller';
 
@@ -42,6 +43,7 @@ adminOrderRouter.patch('/:id/cancel', requirePermission('orders.update'), cancel
 adminOrderRouter.patch('/:id/return-request', requirePermission('orders.update'), reviewReturnRequest);
 adminOrderRouter.patch('/:id/status', requirePermission('orders.update'), updateOrderStatus);
 adminOrderRouter.patch('/:id/shipping', requirePermission('orders.update'), updateOrderShipping);
+adminOrderRouter.patch('/:id/ghn-mapping', requirePermission('orders.update'), updateOrderGhnMapping);
 adminOrderRouter.post('/:id/ghn-shipment', requirePermission('orders.update'), createGhnShipment);
 adminOrderRouter.post('/:id/ghn-shipment/cancel', requirePermission('orders.update'), cancelGhnShipment);
 adminOrderRouter.post('/:id/ghn-shipment/sync', requirePermission('orders.update'), syncGhnShipment);

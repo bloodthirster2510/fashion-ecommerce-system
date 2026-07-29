@@ -20,6 +20,7 @@ import adminVirtualTryOnRouter from '../modules/virtual-try-on/virtual-try-on.ad
 import adminRecommendationRouter from '../modules/recommendations/recommendation.admin.route';
 import dashboardRouter from '../modules/admin/dashboard/dashboard.routes';
 import { adminStorefrontSettingsRouter } from '../modules/storefront-settings/storefront-settings.route';
+import shippingAreaMappingRouter from '../modules/shipping/shipping-area-mapping.route';
 
 const adminRouter = Router();
 
@@ -29,6 +30,7 @@ adminRouter.use('/categories', adminCategoryRouter);
 adminRouter.use('/products', adminProductRouter);
 adminRouter.use('/inventory', inventoryRouter);
 adminRouter.use('/orders', adminOrderRouter);
+adminRouter.use('/shipping-area-mappings', shippingAreaMappingRouter);
 adminRouter.use('/coupons', adminCouponRouter);
 adminRouter.use('/promotion-campaigns', adminPromotionCampaignRouter);
 adminRouter.use('/promotion-analytics', adminPromotionAnalyticsRouter);

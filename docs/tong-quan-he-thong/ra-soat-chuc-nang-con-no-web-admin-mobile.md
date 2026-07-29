@@ -19,10 +19,11 @@ Kết quả triển khai ngày 29/07/2026:
 - **P0-04 đã hoàn tất:** helper E2E dùng chung đã theo route `/admin/dashboard`; Playwright xanh 11/11.
 - **P0-01 đã hoàn tất phần code và test tự động:** có resolver `auto`, adapter `mock`/Twilio/eSMS, timeout/retry/lỗi chuẩn hóa và UI phân biệt `mock`/`real`. Còn thiếu smoke test bằng credential sandbox và thiết bị thật.
 - **P0-02 đã hoàn tất phần code và test tự động:** email có `auto`/mock/SMTP, mock token và outbox, deep link mobile, rollback khi gửi lỗi và guard bắt buộc đổi mật khẩu. Còn thiếu smoke test SMTP thật.
+- **P0-03 đã hoàn tất phần code, test tự động và GHN sandbox smoke:** có collection/import/review/backfill mapping, queue riêng trên admin, form sửa mapping theo đơn và guard không cho gọi tạo vận đơn khi địa chỉ chưa xác minh. Còn phải import bộ mapping production cho toàn bộ vùng bán hàng trước khi mở thật.
 
 Các khoản nợ còn ưu tiên:
 
-1. Mapping địa chỉ hành chính 2025 sang GHN mới có 12 phường/xã thuộc 2/34 tỉnh, thành.
+1. Seed mapping GHN trong repo vẫn chỉ có 12 phường/xã; cần import bộ mapping production đã đối chiếu qua công cụ mới trước khi mở toàn bộ 34 tỉnh, thành.
 2. OTP SMS cần smoke test sandbox cho cả đăng ký và khôi phục trước khi chốt production-ready.
 3. Email reset cần smoke test bằng SMTP thật và xác nhận deep link trên development build/thiết bị thật.
 4. Đăng nhập Google/Facebook có UI nhưng mobile thiếu client ID; push notification đã có EAS Project ID nhưng điểm đăng ký token còn quá hẹp.
@@ -72,6 +73,7 @@ Quy tắc an toàn:
 | Loyalty | Hạng thành viên, sắp xếp/batch, user theo hạng, lịch sử/điều chỉnh điểm và rule. |
 | Khuyến mãi | Voucher, kiểm tra mã, preview, usage, bulk action, CSV, campaign và analytics. |
 | Đơn hàng | Danh sách vận hành/tra cứu, lọc ngày/sort/saved view, realtime, drawer chi tiết, trạng thái, trả hàng, GHN, VNPay, refund và audit log. |
+| Mapping GHN | Queue “Cần mapping GHN”, sửa/xác minh ngay trong đơn, lưu confidence/ngày kiểm tra, import/review/backfill qua API admin. |
 | Đánh giá | Lọc, duyệt/ẩn, bulk status, phản hồi và xóa. |
 | Hỗ trợ | Inbox ticket, phân công/trả lời, FAQ, canned response, analytics và realtime. |
 | Phối đồ ảo | Danh sách job, retry/cancel/hide, retry video, prompt rule và khóa/mở tài khoản. |
@@ -173,33 +175,47 @@ Quy tắc an toàn:
 
 ### P0-03 — GHN chưa phủ địa chỉ mà mobile cho phép chọn
 
-**Hiện trạng**
+**Trạng thái: đã hoàn tất code, test tự động và sandbox smoke; chờ dữ liệu mapping production**
 
-- Mobile/backend dùng danh mục hành chính 2025 gồm 34 tỉnh, thành.
-- Bảng mapping GHN chỉ có 12 phường/xã, thuộc mã tỉnh `01` và `92`.
-- Các địa chỉ còn lại rơi vào `fixed_fallback`: checkout vẫn tạo được đơn với phí tạm tính nhưng tạo vận đơn GHN có thể không đủ `DistrictID/WardCode`.
-- Metadata nói mapping là `admin_managed`, nhưng chưa có collection hay màn admin để quản lý/import mapping.
-- `fixed_fallback` là hành vi hợp lệ cho local/dev khi thiếu GHN; khoản nợ chỉ nằm ở khả năng vận hành thật và quan sát đơn cần xử lý thủ công.
-- Fallback không hoàn toàn ẩn: order lưu provider `FIXED`, status `fallback` và admin hiển thị “Phí cố định”. Phần còn thiếu là filter/queue riêng và công cụ sửa mapping.
+**Đã làm ngày 29/07/2026**
+
+- Tạo collection `ShippingAreaMapping`, unique theo provider/tỉnh/phường; lưu `confidence`, trạng thái review, `verifiedAt`, `verifiedBy` và ghi chú.
+- Thêm API admin:
+  - `GET /api/admin/shipping-area-mappings` để tra cứu/review backlog mapping.
+  - `GET /api/admin/shipping-area-mappings/coverage` để đo coverage theo 34 tỉnh và chặn production khi chưa đạt 100%.
+  - `POST /api/admin/shipping-area-mappings/import` để upsert tối đa 1.000 mapping/lần và backfill order/user address.
+  - `PATCH /api/admin/shipping-area-mappings/:id/review` để verify/disable và backfill sau review.
+- Quote chỉ gọi GHN khi có bộ mã đã xác minh; thiếu mapping/config/provider thì giữ `FIXED_FALLBACK`.
+- Order lưu snapshot mapping gồm nguồn, confidence và ngày xác minh. Vận đơn chỉ được tạo qua `POST /api/admin/orders/:id/ghn-shipment`; route tạo GHN thô đã được gỡ để không bypass guard.
+- Backend trả `GHN_MAPPING_REQUIRED` và tuyệt đối không gọi `GHNService.createShippingOrder` khi mapping thiếu/chưa xác minh.
+- Web Admin có queue “Cần mapping GHN”, số đếm từ backend, cảnh báo trong drawer và form nhập `ProvinceID/DistrictID/WardCode`; mapping đã duyệt được áp dụng lại cho địa chỉ cùng mã tỉnh/phường.
+- Mobile tiếp tục checkout được bằng phí tạm tính và truyền metadata mapping trong snapshot; không báo GHN thật khi chỉ đang fallback.
+- Unit test phủ seed/managed mapping, import + backfill, quote fallback không gọi GHN và create shipment bị chặn. Playwright phủ queue và điều kiện mở nút tạo vận đơn.
+- GHN sandbox thật đã quote thành công Hà Nội (38.500đ) và Cần Thơ (20.900đ), tạo vận đơn sandbox rồi hủy thành công.
+- Coverage report trên database hiện tại: **12/3.321 phường/xã (0,36%)**, thiếu 3.309; `readyForProduction=false`.
 
 **Bằng chứng**
 
-- `backend/src/modules/locations/location.service.ts:49`
+- `backend/src/database/models/shipping-area-mapping.model.ts`
+- `backend/src/modules/shipping/shipping-area-mapping.service.ts`
+- `backend/src/modules/shipping/shipping-area-mapping.controller.ts`
+- `backend/src/modules/orders/order.service.ts`
 - `backend/src/modules/shipping/shipping-area-mapping.data.ts`
-- `backend/src/modules/shipping/shipping-quote.service.ts:365`
-- `mobile/src/features/checkout/CheckoutScreen.tsx:391`
+- `web_frontend/src/features/admin/modules/orders/components/OrderShippingPanel.tsx`
+- `web_frontend/src/features/admin/modules/orders/utils/orderQueue.ts`
+- `web_frontend/e2e/order-payment.spec.ts`
 
-**Cần làm**
+**Còn lại trước production**
 
-- Tạo collection mapping GHN và công cụ admin import/review.
-- Backfill toàn bộ tỉnh/phường đang phục vụ; lưu confidence và ngày kiểm tra.
-- Khi thiếu cấu hình/mapping, giữ phí cố định và đưa đơn vào queue giao hàng thủ công/mock; không gọi tạo vận đơn GHN.
-- Thêm smoke test báo giá và tạo/hủy vận đơn trên nhiều tỉnh.
+- Chuẩn bị/import bộ mapping đã đối chiếu cho toàn bộ tỉnh/phường thuộc phạm vi bán hàng; seed 12 dòng chỉ dùng làm dữ liệu khởi đầu, không được hiểu là đã phủ 34/34 tỉnh.
+- Chạy báo cáo coverage sau import và chỉ bật vùng bán hàng khi 100% địa chỉ trong vùng có mapping `verified`.
 
 **Definition of Done**
 
-- Địa chỉ trong phạm vi bán hàng đều nhận quote GHN thật.
-- Admin biết chính xác đơn nào đang dùng fallback và có thể sửa mapping trước khi bàn giao.
+- [x] Thiếu mapping dùng phí cố định, vào queue riêng và không thể gọi tạo vận đơn GHN.
+- [x] Admin biết chính xác đơn nào đang dùng fallback và có thể sửa/lưu lại mapping trước khi bàn giao.
+- [x] Quote, tạo và hủy vận đơn chạy thật trên GHN sandbox ở nhiều tỉnh.
+- [ ] Bộ mapping production phủ 100% địa chỉ trong phạm vi bán hàng.
 
 ### P0-04 — Bộ E2E admin
 
@@ -361,13 +377,13 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 |---|---|
 | `web_frontend: npm run build` | Qua |
 | `web_frontend: npm run lint` | Qua |
-| `web_frontend: npm run test:e2e` | 11/11 qua |
+| `web_frontend: npm run test:e2e` | 13/13 qua |
 | `mobile: npm run typecheck` | Qua |
 | `mobile: npm test` | 7 suite, 38 test qua |
 | `backend: npm run build` | Qua |
-| `backend: npm test` | 75 suite, 704 test qua |
+| `backend: npm test` | 76 suite, 709 test qua |
 
-Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, GHN, Expo Push hay AI provider hoạt động ngoài đời. Riêng SMS hiện mới giả lập response provider trong unit test; vẫn cần smoke test sandbox bằng credential thật.
+Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI provider hoạt động ngoài đời. GHN đã smoke qua sandbox; SMS vẫn cần credential sandbox, email vẫn cần SMTP thật và deep-link device test.
 
 ## 8. Thứ tự thực hiện đề xuất
 
@@ -378,7 +394,8 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, GHN, Expo Push h
 3. [ ] P0-01 chạy sandbox smoke test trên thiết bị thật.
 4. [x] P0-02 email mock outbox, deep link và reset/force reset password.
 5. [ ] P0-02 chạy SMTP/deep-link smoke test trên thiết bị thật.
-6. [ ] P0-03 hoàn thiện filter/queue fallback và mapping GHN cho môi trường chạy thật.
+6. [x] P0-03 hoàn thiện code filter/queue, collection/import/review/backfill và guard GHN.
+7. [ ] P0-03 import bộ mapping production phủ toàn bộ vùng bán hàng.
 
 ### Đợt 2 — Hoàn tất tích hợp mobile đang lộ trên UI
 

@@ -3,6 +3,7 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 export type AuditLogAction =
   | 'order.status_update'
   | 'order.shipping_update'
+  | 'order.shipping_mapping_update'
   | 'order.shipping_webhook'
   | 'order.shipping_reconcile'
   | 'order.auto_complete_delivered'
@@ -12,6 +13,8 @@ export type AuditLogAction =
   | 'payment.vnpay_refund'
   | 'payment_method.status_update'
   | 'payment_method.account_reveal'
+  | 'shipping_mapping.import'
+  | 'shipping_mapping.review'
   | 'membership_ranking.create'
   | 'membership_ranking.update'
   | 'membership_ranking.status_update'
@@ -52,6 +55,7 @@ const auditLogSchema = new Schema<IAuditLog>(
       enum: [
         'order.status_update',
         'order.shipping_update',
+        'order.shipping_mapping_update',
         'order.shipping_webhook',
         'order.shipping_reconcile',
         'order.auto_complete_delivered',
@@ -61,6 +65,8 @@ const auditLogSchema = new Schema<IAuditLog>(
         'payment.vnpay_refund',
         'payment_method.status_update',
         'payment_method.account_reveal',
+        'shipping_mapping.import',
+        'shipping_mapping.review',
         'membership_ranking.create',
         'membership_ranking.update',
         'membership_ranking.status_update',

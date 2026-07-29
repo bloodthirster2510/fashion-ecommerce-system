@@ -15,6 +15,7 @@ import type {
   RequestReturnInput,
   ReviewReturnRequestInput,
   SimulatedShippingWebhookInput,
+  UpdateOrderGhnMappingInput,
   UpdateOrderShippingInput,
   UpdateOrderStatusInput,
 } from './order.types';
@@ -84,6 +85,14 @@ const parseStringList = (value: unknown): string[] => {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+};
+
+const parseOptionalBoolean = (value: unknown, fieldName: string) => {
+  const normalized = parseString(value)?.toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw new SalesServiceError(`Invalid ${fieldName}`, 400);
 };
 
 const parsePositiveInteger = (value: unknown, fieldName: string) => {
@@ -246,6 +255,7 @@ const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
   from: parseDate(req.query.dateFrom ?? req.query.from, 'dateFrom'),
   to: parseDateTo(req.query.dateTo ?? req.query.to, 'dateTo'),
   paymentDeadlineBefore: parseDate(req.query.paymentDeadlineBefore, 'paymentDeadlineBefore'),
+  shippingFallback: parseOptionalBoolean(req.query.shippingFallback, 'shippingFallback'),
   sort: parseOrderListSort(req.query.sort),
   page: parsePositiveInteger(req.query.page, 'page'),
   limit: parsePositiveInteger(req.query.limit, 'limit'),
@@ -696,6 +706,46 @@ const updateOrderShipping = async (req: Request, res: Response) => {
   }
 };
 
+const updateOrderGhnMapping = async (req: Request, res: Response) => {
+  try {
+    const beforeOrder = await orderService.getOrderById(
+      getUserId(req),
+      getUserRole(req),
+      req.params.id as string,
+    );
+    const body = req.body as UpdateOrderGhnMappingInput;
+    const order = await orderService.updateOrderGhnMapping(
+      req.params.id as string,
+      body,
+      req.user?.userId,
+    );
+
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user?.userId ?? null,
+      actorRole: req.user?.role === 'admin' ? 'admin' : 'staff',
+      action: 'order.shipping_mapping_update',
+      targetType: 'Order',
+      targetId: order._id.toString(),
+      reason: typeof body.note === 'string' ? body.note : 'Verified GHN address mapping',
+      before: {
+        shippingAddress: beforeOrder.shippingAddress ?? null,
+      },
+      after: {
+        shippingAddress: order.shippingAddress ?? null,
+      },
+      metadata: {
+        orderCode: order.orderCode,
+        applyToFutureAddresses: body.applyToFutureAddresses !== false,
+      },
+    });
+
+    return ok(res, order);
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
 const createGhnShipment = async (req: Request, res: Response) => {
   try {
     const beforeOrder = await orderService.getOrderById(getUserId(req), getUserRole(req), req.params.id as string);
@@ -842,5 +892,6 @@ export {
   simulateShippingWebhook,
   syncGhnShipment,
   updateOrderShipping,
+  updateOrderGhnMapping,
   updateOrderStatus,
 };
