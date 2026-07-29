@@ -22,6 +22,9 @@ Kết quả triển khai ngày 29/07/2026:
 - **P0-03 đã hoàn tất phần code, test tự động và GHN sandbox smoke:** có collection/import/review/backfill mapping, queue riêng trên admin, form sửa mapping theo đơn và guard không cho gọi tạo vận đơn khi địa chỉ chưa xác minh. Còn phải import bộ mapping production cho toàn bộ vùng bán hàng trước khi mở thật.
 - **P1-01 đã hoàn tất phần code và test tự động:** social login dùng resolver `auto`, ẩn provider thiếu cấu hình và có redirect scheme cho development build. Còn thiếu credential cùng device smoke thật.
 - **P1-02 đã hoàn tất phần code và test tự động:** push có resolver `auto`, opt-in/cài đặt chung, preference theo loại, token refresh/revoke và deep-link foreground/background/killed. Còn thiếu EAS device smoke thật.
+- **P1-03 đã hoàn tất phần code và test tự động:** search history được dedupe theo event, đồng bộ guest/account và giữ tối đa 10 từ khóa giữa server với SecureStore. Còn thiếu smoke nhiều thiết bị/offline.
+- **P1-04 đã hoàn tất phần code và test tự động:** admin khách hàng có dữ liệu thật cho đơn hàng, timeline và ghi chú nội bộ, kèm permission và audit.
+- **P1-05 đã hoàn tất phần code và test tự động:** cấu hình runtime phối đồ ảo có permission ghi riêng, optimistic concurrency, audit, rollback và không đưa secret vào DB/frontend.
 
 Các khoản nợ còn ưu tiên:
 
@@ -29,8 +32,8 @@ Các khoản nợ còn ưu tiên:
 2. OTP SMS cần smoke test sandbox cho cả đăng ký và khôi phục trước khi chốt production-ready.
 3. Email reset cần smoke test bằng SMTP thật và xác nhận deep link trên development build/thiết bị thật.
 4. Social login và push notification đã hoàn tất guard/config trong code; còn phải cấu hình OAuth thật và chạy smoke test push trên Android/iOS development build.
-5. Search mobile đã được backend tự ghi nhận qua API catalog, nhưng lịch sử local chưa đồng bộ với tài khoản và số liệu có thể bị đếm lặp khi filter/sort tải lại trang đầu.
-6. Admin khách hàng còn ba tab giữ chỗ; cấu hình provider/quota phối đồ ảo mới chỉ đọc, chưa sửa được.
+5. Image validation phối đồ ảo cần hoàn thiện resolver/fail-open/fail-closed và smoke provider thật; `IMAGE_POLICY_BLOCKED` không được chỉ là cảnh báo mềm.
+6. Các tích hợp quan trọng vẫn thiếu API-backed E2E và smoke test permission/concurrency trên staging.
 
 ## 2. Quy ước ưu tiên
 
@@ -310,15 +313,20 @@ Quy tắc an toàn:
 
 ### P1-05 — Quyền “cấu hình phối đồ ảo” chưa có tác dụng
 
-- Permission `virtual_try_on.settings` có trong model, màn phân quyền và UI.
-- Backend chỉ có `GET /admin/virtual-try-on/settings`, không có API cập nhật.
-- Trang admin chỉ hiển thị provider/quota; dòng mô tả nói người có quyền có thể chỉnh nhưng không có form lưu.
+**Đã thực hiện**
 
-**Cần làm**
+- [x] Chốt ranh giới cấu hình: DB chỉ lưu công tắc runtime, quota ảnh/video và chính sách prompt; provider, model, endpoint, workflow và API key tiếp tục do env/deployment secret quản lý.
+- [x] Thêm singleton `VirtualTryOnSettings` có version và tối đa 20 snapshot; `PATCH /api/admin/virtual-try-on/settings` dùng optimistic concurrency, validate đầy đủ và ghi audit.
+- [x] Thêm `POST /api/admin/virtual-try-on/settings/rollback`; rollback một snapshot luôn tạo version mới và ghi audit, không sửa lịch sử tại chỗ.
+- [x] Hai API ghi yêu cầu riêng permission `virtual_try_on.settings`; quyền đọc vẫn chỉ cần `virtual_try_on.read`.
+- [x] Runtime setting được áp dụng vào upload/validate ảnh nguồn, tạo/retry job ảnh và video, quota theo user, độ dài/ngưỡng vi phạm prompt, capability trả về mobile và resume video sau restart.
+- [x] Trang admin có form bật/tắt và chỉnh quota, hiển thị version, hỗ trợ rollback; các secret chỉ hiện trạng thái đã/chưa cấu hình, không có giá trị thật trong response hay form.
+- [x] Có unit test cho schema/range, mặc định env, create/update conflict, rollback/audit và prompt max length runtime.
 
-- Chốt cấu hình nào được phép lưu DB và cấu hình nào bắt buộc qua secret/env.
-- Thêm API update có validate, audit log, optimistic concurrency và rollback.
-- Secret/API key chỉ nhập dạng masked/rotate; không trả ngược giá trị thật về frontend.
+**Còn lại trước production**
+
+- [ ] Smoke test trên staging với admin, staff chỉ có `virtual_try_on.read`, staff có `virtual_try_on.settings`, hai trình duyệt cùng sửa để xác nhận conflict `409`, rollback và mobile đang mở khi công tắc bị tắt/bật.
+- [ ] Xác nhận deployment secret thật cho provider/endpoint/workflow ở staging; kiểm tra response và log không lộ API key.
 
 ### P1-06 — Image validation của phối đồ ảo đang suy giảm
 
@@ -397,7 +405,8 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 | `mobile: npm run typecheck` | Qua |
 | `mobile: npm test` | 9 suite, 47 test qua |
 | `backend: npm run build` | Qua |
-| `backend: npm test` | 77 suite, 714 test qua |
+| `backend: npm run lint` | Qua |
+| `backend: npm test` | 82 suite, 741 test qua |
 
 Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI provider hoạt động ngoài đời. GHN đã smoke qua sandbox; SMS vẫn cần credential sandbox, email vẫn cần SMTP thật và deep-link device test.
 
@@ -417,13 +426,13 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI
 
 1. [x] Resolver `auto` cho social login.
 2. [x] Resolver `auto` cho push notification chung.
-3. Search tracking từ khóa.
+3. [x] Search tracking, dedupe và đồng bộ lịch sử từ khóa.
 4. Khôi phục image validation service.
 
 ### Đợt 3 — Hoàn thiện vận hành admin
 
-1. Customer orders/activity/notes.
-2. Virtual try-on settings.
+1. [x] Customer orders/activity/notes.
+2. [x] Virtual try-on settings.
 3. Bulk/export/print cho orders.
 4. Notification badge còn thiếu.
 

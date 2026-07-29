@@ -231,6 +231,14 @@ describe('validateVirtualTryOnPrompt', () => {
       const result = validateVirtualTryOnPrompt(maxPrompt);
       expect(result.allowed).toBe(true);
     });
+
+    it('applies the runtime max length', () => {
+      const result = validateVirtualTryOnPrompt('a'.repeat(81), [], 80);
+
+      expect(result.allowed).toBe(false);
+      expect(result.reasonCode).toBe('PROMPT_TOO_LONG');
+      expect(result.maxLength).toBe(80);
+    });
   });
 
   describe('chống lách luật (evasion)', () => {

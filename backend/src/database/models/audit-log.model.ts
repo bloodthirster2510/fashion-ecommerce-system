@@ -31,6 +31,8 @@ export type AuditLogAction =
   | 'customer_note.create'
   | 'customer_note.update'
   | 'customer_note.delete'
+  | 'virtual_try_on.settings_update'
+  | 'virtual_try_on.settings_rollback'
   | 'storefront_settings.update';
 
 export interface IAuditLog extends Document {
@@ -88,6 +90,8 @@ const auditLogSchema = new Schema<IAuditLog>(
         'customer_note.create',
         'customer_note.update',
         'customer_note.delete',
+        'virtual_try_on.settings_update',
+        'virtual_try_on.settings_rollback',
         'storefront_settings.update',
       ],
       required: true,

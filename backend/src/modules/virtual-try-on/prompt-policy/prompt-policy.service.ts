@@ -132,6 +132,7 @@ const findMatchedPatternRule = (prompt: string) =>
 export const validateVirtualTryOnPrompt = (
   prompt?: string,
   extraRules: PromptPolicyRule[] = [],
+  maxLength = PROMPT_MAX_LENGTH,
 ): VirtualTryOnPromptValidationResult => {
   const normalizedPrompt = normalizePrompt(prompt);
   if (!normalizedPrompt) {
@@ -140,17 +141,17 @@ export const validateVirtualTryOnPrompt = (
       normalizedPrompt: null,
       reasonCode: null,
       message: null,
-      maxLength: PROMPT_MAX_LENGTH,
+      maxLength,
     };
   }
 
-  if (normalizedPrompt.length > PROMPT_MAX_LENGTH) {
+  if (normalizedPrompt.length > maxLength) {
     return {
       allowed: false,
       normalizedPrompt: null,
       reasonCode: 'PROMPT_TOO_LONG',
-      message: `Mô tả bối cảnh không được vượt quá ${PROMPT_MAX_LENGTH} ký tự`,
-      maxLength: PROMPT_MAX_LENGTH,
+      message: `Mô tả bối cảnh không được vượt quá ${maxLength} ký tự`,
+      maxLength,
     };
   }
 
@@ -161,7 +162,7 @@ export const validateVirtualTryOnPrompt = (
       normalizedPrompt: null,
       reasonCode: matchedRule.reasonCode,
       message: 'Mô tả bối cảnh không phù hợp cho phối đồ ảo',
-      maxLength: PROMPT_MAX_LENGTH,
+      maxLength,
       matchedCategory: matchedRule.category,
       matchedRule: matchedRule.key,
     };
@@ -172,6 +173,6 @@ export const validateVirtualTryOnPrompt = (
     normalizedPrompt,
     reasonCode: null,
     message: null,
-    maxLength: PROMPT_MAX_LENGTH,
+    maxLength,
   };
 };

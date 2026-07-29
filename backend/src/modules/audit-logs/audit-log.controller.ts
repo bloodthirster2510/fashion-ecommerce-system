@@ -17,6 +17,8 @@ const AUDIT_LOG_ACTIONS: AuditLogAction[] = [
   'customer_note.create',
   'customer_note.update',
   'customer_note.delete',
+  'virtual_try_on.settings_update',
+  'virtual_try_on.settings_rollback',
   'storefront_settings.update',
 ];
 

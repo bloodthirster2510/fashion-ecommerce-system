@@ -11,6 +11,7 @@ import type {
   AdminVirtualTryOnPromptRuleList,
   AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
+  AdminVirtualTryOnSettingsConfiguration,
   AdminVirtualTryOnSummary,
   PromptPolicyCategory,
 } from './virtualTryOn.types'
@@ -35,6 +36,31 @@ export const getVirtualTryOnSummary = () =>
 
 export const getVirtualTryOnSettings = () =>
   requestAdmin<AdminVirtualTryOnSettings>('/admin/virtual-try-on/settings')
+
+export const updateVirtualTryOnSettings = (
+  expectedVersion: number,
+  configuration: AdminVirtualTryOnSettingsConfiguration,
+) =>
+  requestAdmin<AdminVirtualTryOnSettings>('/admin/virtual-try-on/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      expectedVersion,
+      configuration: {
+        enabled: configuration.runtimeEnabled,
+        maxConcurrentJobsPerUser: configuration.maxConcurrentJobsPerUser,
+        maxVideoJobsPerUserPerDay: configuration.maxVideoJobsPerUserPerDay,
+        maxConcurrentVideoJobsPerUser: configuration.maxConcurrentVideoJobsPerUser,
+        promptMaxLength: configuration.promptMaxLength,
+        promptViolationLimitPerDay: configuration.promptViolationLimitPerDay,
+      },
+    }),
+  })
+
+export const rollbackVirtualTryOnSettings = (expectedVersion: number, targetVersion: number) =>
+  requestAdmin<AdminVirtualTryOnSettings>('/admin/virtual-try-on/settings/rollback', {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, targetVersion }),
+  })
 
 export const testVirtualTryOnPrompt = (contextPrompt: string) =>
   requestAdmin<AdminVirtualTryOnPromptTestResult>('/admin/virtual-try-on/prompt/test', {

@@ -10,6 +10,7 @@ import {
 } from '../../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
 import { virtualTryOnService } from '../virtual-try-on.service';
+import { virtualTryOnSettingsService } from '../virtual-try-on-settings.service';
 import { interactionService } from '../../interactions/interaction.service';
 
 jest.mock('axios', () => ({
@@ -74,6 +75,15 @@ jest.mock('../../../utils/cloudinary.util', () => ({
   uploadToCloudinary: jest.fn(),
 }));
 
+jest.mock('../virtual-try-on-settings.service', () => ({
+  virtualTryOnSettingsService: {
+    getRuntimeSettings: jest.fn(),
+    getSecretStatus: jest.fn(),
+    rollbackSettings: jest.fn(),
+    updateSettings: jest.fn(),
+  },
+}));
+
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 const mockedDeleteFromCloudinary = deleteFromCloudinary as jest.Mock;
 const mockedProduct = Product as unknown as { find: jest.Mock };
@@ -100,6 +110,7 @@ const mockedVirtualTryOnPromptRule = VirtualTryOnPromptRule as unknown as {
   find: jest.Mock;
 };
 const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
+const mockedSettingsService = virtualTryOnSettingsService as jest.Mocked<typeof virtualTryOnSettingsService>;
 
 const userId = '665000000000000000000020';
 const sourceAssetId = new Types.ObjectId('665000000000000000000101');
@@ -224,6 +235,18 @@ describe('virtualTryOnService image validation', () => {
     };
     delete process.env.IMAGE_VALIDATION_MOCK_REASON_CODE;
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockedSettingsService.getRuntimeSettings.mockResolvedValue({
+      enabled: true,
+      maxConcurrentJobsPerUser: 1,
+      maxVideoJobsPerUserPerDay: 3,
+      maxConcurrentVideoJobsPerUser: 1,
+      promptMaxLength: 200,
+      promptViolationLimitPerDay: 5,
+      version: 0,
+      persisted: false,
+      updatedAt: null,
+      historyVersions: [],
+    });
     mockedUploadToCloudinary.mockResolvedValue(uploadedSource);
     mockedDeleteFromCloudinary.mockResolvedValue(undefined);
     mockedVirtualTryOnAsset.create.mockResolvedValue({
@@ -244,6 +267,27 @@ describe('virtualTryOnService image validation', () => {
     jest.useRealTimers();
     jest.restoreAllMocks();
     process.env = originalEnv;
+  });
+
+  it('blocks new source uploads when the runtime feature switch is off', async () => {
+    mockedSettingsService.getRuntimeSettings.mockResolvedValueOnce({
+      enabled: false,
+      maxConcurrentJobsPerUser: 1,
+      maxVideoJobsPerUserPerDay: 3,
+      maxConcurrentVideoJobsPerUser: 1,
+      promptMaxLength: 200,
+      promptViolationLimitPerDay: 5,
+      version: 4,
+      persisted: true,
+      updatedAt: now,
+      historyVersions: [3],
+    });
+
+    await expect(virtualTryOnService.uploadAsset(userId, uploadFile, 'upload')).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: 'VIRTUAL_TRY_ON_DISABLED',
+    });
+    expect(mockedUploadToCloudinary).not.toHaveBeenCalled();
   });
 
   it('validates source image during upload before saving it to the asset library', async () => {

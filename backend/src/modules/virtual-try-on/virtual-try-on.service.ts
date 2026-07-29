@@ -56,8 +56,12 @@ import {
   type ImageValidationReasonCode,
   type ImageValidationResult,
 } from './image-validation';
-import { PROMPT_MAX_LENGTH, escapeRegExp, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
+import { escapeRegExp, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
 import type { PromptPolicyCategory, PromptPolicyRule } from './prompt-policy/prompt-policy.types';
+import {
+  virtualTryOnSettingsService,
+  type VirtualTryOnRuntimeSettings,
+} from './virtual-try-on-settings.service';
 import type {
   CreateVirtualTryOnItemInput,
   CreateVirtualTryOnJobInput,
@@ -91,9 +95,6 @@ const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
-const DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY = 5;
-const DEFAULT_MAX_VIDEO_JOBS_PER_USER_PER_DAY = 3;
-const DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER = 1;
 const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
   'NO_PERSON_DETECTED',
   'BODY_NOT_VISIBLE',
@@ -167,13 +168,6 @@ const promptPolicyCategoryReasonCodes: Record<PromptPolicyCategory, string> = {
 const allowedPromptPolicyCategories = new Set<PromptPolicyCategory>(
   Object.keys(promptPolicyCategoryReasonCodes) as PromptPolicyCategory[],
 );
-
-const getPromptViolationLimitPerDay = () => {
-  const configuredLimit = Number(process.env.VIRTUAL_TRY_ON_PROMPT_VIOLATION_LIMIT_PER_DAY);
-  return Number.isFinite(configuredLimit) && configuredLimit > 0
-    ? Math.floor(configuredLimit)
-    : DEFAULT_PROMPT_VIOLATION_LIMIT_PER_DAY;
-};
 
 const ensureVirtualTryOnAccountEnabled = async (userObjectId: Types.ObjectId) => {
   const lock = await VirtualTryOnAccountLock.findOne({
@@ -435,11 +429,6 @@ const notifyVirtualTryOnAccessBestEffort = async (input: {
   }).catch((error) => {
     console.warn('Failed to send virtual try-on access push:', error);
   });
-};
-
-const getPositiveIntegerEnv = (name: string, fallback: number) => {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 };
 
 const getVideoCapabilities = () => {
@@ -1160,6 +1149,16 @@ const getSelectionCapabilityModes = (
   return Array.from(new Set(itemRoles.map((role) => role as ImageValidationCapabilityMode)));
 };
 
+const assertRuntimeEnabled = (settings: VirtualTryOnRuntimeSettings) => {
+  if (!settings.enabled || PROVIDER === 'disabled') {
+    throw new VirtualTryOnServiceError(
+      'Tính năng phối đồ ảo đang tắt',
+      503,
+      'VIRTUAL_TRY_ON_DISABLED',
+    );
+  }
+};
+
 const buildAllowedImageValidationCapabilities = (): ImageValidationCapability[] =>
   imageValidationCapabilityModes.map((mode) => ({
     mode,
@@ -1627,8 +1626,10 @@ const getPromptPolicyData = (input: {
   blockedUntil: input.blockedUntil?.toISOString() ?? null,
 });
 
-const throwActivePromptBlock = (violation: { violationCount?: number; blockedUntil?: Date | null }): never => {
-  const limit = getPromptViolationLimitPerDay();
+const throwActivePromptBlock = (
+  violation: { violationCount?: number; blockedUntil?: Date | null },
+  limit: number,
+): never => {
   const blockedUntil = violation.blockedUntil ?? getLocalDayRange().end;
   throw new VirtualTryOnServiceError(
     `Tính năng phối đồ ảo đang bị tạm khóa do nhập mô tả vi phạm nhiều lần. Bạn có thể thử lại sau ${formatPromptBlockUntil(blockedUntil)}.`,
@@ -1642,7 +1643,11 @@ const throwActivePromptBlock = (violation: { violationCount?: number; blockedUnt
   );
 };
 
-const ensurePromptPolicyNotBlocked = async (userObjectId: Types.ObjectId, now = new Date()) => {
+const ensurePromptPolicyNotBlocked = async (
+  userObjectId: Types.ObjectId,
+  limit: number,
+  now = new Date(),
+) => {
   const activeBlock = await VirtualTryOnPromptViolation.findOne({
     userId: userObjectId,
     action: 'temporary_block',
@@ -1650,7 +1655,7 @@ const ensurePromptPolicyNotBlocked = async (userObjectId: Types.ObjectId, now = 
   });
 
   if (activeBlock) {
-    throwActivePromptBlock(activeBlock);
+    throwActivePromptBlock(activeBlock, limit);
   }
 };
 
@@ -1674,14 +1679,22 @@ const getEnabledPromptPolicyRules = async (): Promise<PromptPolicyRule[]> => {
   }));
 };
 
-const validatePromptForCreateJob = async (userObjectId: Types.ObjectId, prompt?: string) => {
+const validatePromptForCreateJob = async (
+  userObjectId: Types.ObjectId,
+  prompt: string | undefined,
+  settings: VirtualTryOnRuntimeSettings,
+) => {
   const now = new Date();
-  await ensurePromptPolicyNotBlocked(userObjectId, now);
+  const limit = settings.promptViolationLimitPerDay;
+  await ensurePromptPolicyNotBlocked(userObjectId, limit, now);
 
-  const promptValidation = validateVirtualTryOnPrompt(prompt, await getEnabledPromptPolicyRules());
+  const promptValidation = validateVirtualTryOnPrompt(
+    prompt,
+    await getEnabledPromptPolicyRules(),
+    settings.promptMaxLength,
+  );
   if (promptValidation.allowed) return promptValidation;
 
-  const limit = getPromptViolationLimitPerDay();
   const { start, end } = getLocalDayRange(now);
   const previousViolationCount = await VirtualTryOnPromptViolation.countDocuments({
     userId: userObjectId,
@@ -1782,6 +1795,7 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
   }
 
   const userObjectId = toObjectId(userId, 'user id');
+  assertRuntimeEnabled(await virtualTryOnSettingsService.getRuntimeSettings());
   await ensureVirtualTryOnAccountEnabled(userObjectId);
   const uploaded = await uploadToCloudinary(
     file.buffer,
@@ -1891,6 +1905,7 @@ const validateAsset = async (
     throw new VirtualTryOnServiceError('Chế độ phối đồ không hợp lệ', 400);
   }
 
+  assertRuntimeEnabled(await virtualTryOnSettingsService.getRuntimeSettings());
   await ensureVirtualTryOnAccountEnabled(toObjectId(userId, 'user id'));
   const sourceAsset = await findSourceAssetForUser(userId, assetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
@@ -1904,7 +1919,10 @@ const getActiveJobCount = (userId: string) =>
     status: { $in: ['queued', 'processing'] },
   });
 
-const ensureVideoJobCapacity = async (userObjectId: Types.ObjectId) => {
+const ensureVideoJobCapacity = async (
+  userObjectId: Types.ObjectId,
+  settings: VirtualTryOnRuntimeSettings,
+) => {
   const { start, end } = getLocalDayRange();
   const [dailyCount, activeCount] = await Promise.all([
     VirtualTryOnJob.countDocuments({
@@ -1920,14 +1938,8 @@ const ensureVideoJobCapacity = async (userObjectId: Types.ObjectId) => {
       videoStatus: { $in: ['queued', 'processing'] },
     }),
   ]);
-  const maxPerDay = getPositiveIntegerEnv(
-    'VIRTUAL_TRY_ON_MAX_VIDEO_JOBS_PER_USER_PER_DAY',
-    DEFAULT_MAX_VIDEO_JOBS_PER_USER_PER_DAY,
-  );
-  const maxConcurrent = getPositiveIntegerEnv(
-    'VIRTUAL_TRY_ON_MAX_CONCURRENT_VIDEO_JOBS_PER_USER',
-    DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER,
-  );
+  const maxPerDay = settings.maxVideoJobsPerUserPerDay;
+  const maxConcurrent = settings.maxConcurrentVideoJobsPerUser;
 
   if (dailyCount >= maxPerDay) {
     throw new VirtualTryOnServiceError(
@@ -1952,11 +1964,9 @@ const createJob = async (
 ) => {
   const normalized = validateCreateJobInput(input);
   const userObjectId = toObjectId(userId, 'user id');
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  assertRuntimeEnabled(runtimeSettings);
   await ensureVirtualTryOnAccountEnabled(userObjectId);
-
-  if (PROVIDER === 'disabled') {
-    throw new VirtualTryOnServiceError('Tính năng phối đồ ảo đang tắt', 503, 'VIRTUAL_TRY_ON_DISABLED');
-  }
 
   if (idempotencyKey) {
     const existing = await VirtualTryOnJob.findOne({
@@ -1967,12 +1977,16 @@ const createJob = async (
     if (existing) return serializeJob(existing);
   }
 
-  const promptValidation = await validatePromptForCreateJob(userObjectId, input.contextPrompt);
+  const promptValidation = await validatePromptForCreateJob(
+    userObjectId,
+    input.contextPrompt,
+    runtimeSettings,
+  );
   if (normalized.outputMode === 'image_and_video') {
-    await ensureVideoJobCapacity(userObjectId);
+    await ensureVideoJobCapacity(userObjectId, runtimeSettings);
   }
   const activeJobCount = await getActiveJobCount(userId);
-  const maxConcurrent = Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1);
+  const maxConcurrent = runtimeSettings.maxConcurrentJobsPerUser;
   if (activeJobCount >= maxConcurrent) {
     throw new VirtualTryOnServiceError('Bạn đang có yêu cầu phối đồ khác đang xử lý', 409, 'ACTIVE_JOB_EXISTS');
   }
@@ -2095,6 +2109,8 @@ const listJobs = async (userId: string, query: VirtualTryOnListQuery) => {
 };
 
 const retryJob = async (userId: string, jobId: string) => {
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  assertRuntimeEnabled(runtimeSettings);
   const job = await VirtualTryOnJob.findOne({
     _id: toObjectId(jobId, 'job id'),
     userId: toObjectId(userId, 'user id'),
@@ -2148,6 +2164,8 @@ const retryJob = async (userId: string, jobId: string) => {
 };
 
 const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  assertRuntimeEnabled(runtimeSettings);
   const job = await VirtualTryOnJob.findOne({
     ...filter,
     deletedAt: null,
@@ -2178,10 +2196,7 @@ const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
     deletedAt: null,
     videoStatus: { $in: ['queued', 'processing'] },
   });
-  const maxConcurrent = getPositiveIntegerEnv(
-    'VIRTUAL_TRY_ON_MAX_CONCURRENT_VIDEO_JOBS_PER_USER',
-    DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER,
-  );
+  const maxConcurrent = runtimeSettings.maxConcurrentVideoJobsPerUser;
   if (activeVideoCount >= maxConcurrent) {
     throw new VirtualTryOnServiceError(
       'Tài khoản đang có video khác được xử lý',
@@ -2452,6 +2467,7 @@ const getAdminSummary = async () => {
   const now = new Date();
   const dayStart = new Date(now);
   dayStart.setHours(0, 0, 0, 0);
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
   const [
     total,
     today,
@@ -2494,7 +2510,7 @@ const getAdminSummary = async () => {
     canceled,
     successRate: total ? Math.round((succeeded / total) * 100) : 0,
     provider: PROVIDER,
-    videoEnabled: getVideoCapabilities().available,
+    videoEnabled: runtimeSettings.enabled && getVideoCapabilities().available,
     videoRequested,
     videoProcessing,
     videoSucceeded,
@@ -2506,12 +2522,26 @@ const getAdminSummary = async () => {
   };
 };
 
-const getAdminSettings = () => {
-  const video = getVideoCapabilities();
-  const imageEnabled = PROVIDER !== 'disabled';
+const getAdminSettings = async () => {
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  const configuredVideo = getVideoCapabilities();
+  const imageEnabled = runtimeSettings.enabled && PROVIDER !== 'disabled';
+  const video = imageEnabled
+    ? configuredVideo
+    : {
+      ...configuredVideo,
+      available: false,
+      reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
+    };
   return {
     provider: PROVIDER,
     enabled: imageEnabled,
+    runtimeEnabled: runtimeSettings.enabled,
+    version: runtimeSettings.version,
+    persisted: runtimeSettings.persisted,
+    updatedAt: runtimeSettings.updatedAt?.toISOString() ?? null,
+    historyVersions: runtimeSettings.historyVersions,
+    secretStatus: virtualTryOnSettingsService.getSecretStatus(),
     image: {
       enabled: imageEnabled,
       provider: PROVIDER,
@@ -2527,30 +2557,34 @@ const getAdminSettings = () => {
     videoEnabled: video.available,
     video,
     maxSelectedItems: MAX_SELECTED_ITEMS,
-    maxConcurrentJobsPerUser: Number(process.env.VIRTUAL_TRY_ON_MAX_CONCURRENT_JOBS_PER_USER || 1),
-    maxVideoJobsPerUserPerDay: getPositiveIntegerEnv(
-      'VIRTUAL_TRY_ON_MAX_VIDEO_JOBS_PER_USER_PER_DAY',
-      DEFAULT_MAX_VIDEO_JOBS_PER_USER_PER_DAY,
-    ),
-    maxConcurrentVideoJobsPerUser: getPositiveIntegerEnv(
-      'VIRTUAL_TRY_ON_MAX_CONCURRENT_VIDEO_JOBS_PER_USER',
-      DEFAULT_MAX_CONCURRENT_VIDEO_JOBS_PER_USER,
-    ),
+    maxConcurrentJobsPerUser: runtimeSettings.maxConcurrentJobsPerUser,
+    maxVideoJobsPerUserPerDay: runtimeSettings.maxVideoJobsPerUserPerDay,
+    maxConcurrentVideoJobsPerUser: runtimeSettings.maxConcurrentVideoJobsPerUser,
     sourceImageMaxMb: 5,
-    promptMaxLength: PROMPT_MAX_LENGTH,
-    promptViolationLimitPerDay: getPromptViolationLimitPerDay(),
+    promptMaxLength: runtimeSettings.promptMaxLength,
+    promptViolationLimitPerDay: runtimeSettings.promptViolationLimitPerDay,
   };
 };
 
-const testAdminPrompt = (input: unknown) => {
+const testAdminPrompt = async (input: unknown) => {
   const contextPrompt = input && typeof input === 'object' && 'contextPrompt' in input
     ? (input as { contextPrompt?: unknown }).contextPrompt
     : undefined;
+  const [settings, extraRules] = await Promise.all([
+    virtualTryOnSettingsService.getRuntimeSettings(),
+    getEnabledPromptPolicyRules(),
+  ]);
 
-  return validateVirtualTryOnPrompt(typeof contextPrompt === 'string' ? contextPrompt : undefined);
+  return validateVirtualTryOnPrompt(
+    typeof contextPrompt === 'string' ? contextPrompt : undefined,
+    extraRules,
+    settings.promptMaxLength,
+  );
 };
 
 const retryAdminJob = async (jobId: string) => {
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  assertRuntimeEnabled(runtimeSettings);
   const job = await VirtualTryOnJob.findOne({
     _id: toObjectId(jobId, 'job id'),
     deletedAt: null,
@@ -2927,16 +2961,47 @@ const unlockAccount = async (actorUserId: string | undefined, userId: string) =>
 
 const getContextPresetPreviews = (): VirtualTryOnContextPresetPreview[] => contextPresetPreviews;
 
-const getCapabilities = () => ({
-  imageGeneration: {
-    available: PROVIDER !== 'disabled',
-    provider: PROVIDER,
-  },
-  videoGeneration: getVideoCapabilities(),
-});
+const getCapabilities = async () => {
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  const imageAvailable = runtimeSettings.enabled && PROVIDER !== 'disabled';
+  const video = getVideoCapabilities();
+  return {
+    imageGeneration: {
+      available: imageAvailable,
+      provider: PROVIDER,
+      ...(!imageAvailable ? { reasonCode: 'VIRTUAL_TRY_ON_DISABLED' } : {}),
+    },
+    videoGeneration: imageAvailable
+      ? video
+      : {
+        ...video,
+        available: false,
+        reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
+      },
+  };
+};
+
+const updateAdminSettings = async (
+  input: { expectedVersion?: unknown; configuration?: unknown },
+  actorId: string,
+  actorRole: 'admin' | 'staff',
+) => {
+  await virtualTryOnSettingsService.updateSettings(input, { actorId, actorRole });
+  return getAdminSettings();
+};
+
+const rollbackAdminSettings = async (
+  input: { expectedVersion?: unknown; targetVersion?: unknown },
+  actorId: string,
+  actorRole: 'admin' | 'staff',
+) => {
+  await virtualTryOnSettingsService.rollbackSettings(input, { actorId, actorRole });
+  return getAdminSettings();
+};
 
 export const resumePendingVirtualTryOnVideoJobs = async () => {
-  if (!getVideoCapabilities().available) return 0;
+  const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
+  if (!runtimeSettings.enabled || !getVideoCapabilities().available) return 0;
   const jobs = await VirtualTryOnJob.find({
     deletedAt: null,
     status: 'processing',
@@ -2964,6 +3029,8 @@ export const virtualTryOnService = {
   listAdminJobs,
   getAdminSummary,
   getAdminSettings,
+  updateAdminSettings,
+  rollbackAdminSettings,
   testAdminPrompt,
   retryAdminJob,
   retryAdminVideo,

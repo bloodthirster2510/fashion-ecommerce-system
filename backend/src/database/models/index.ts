@@ -38,4 +38,5 @@ export * from './virtual-try-on-account-lock.model';
 export * from './virtual-try-on-job.model';
 export * from './virtual-try-on-prompt-rule.model';
 export * from './virtual-try-on-prompt-violation.model';
+export * from './virtual-try-on-settings.model';
 

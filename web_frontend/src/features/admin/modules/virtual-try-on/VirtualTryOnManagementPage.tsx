@@ -13,9 +13,11 @@ import {
   lockVirtualTryOnAccount,
   retryVirtualTryOnJob,
   retryVirtualTryOnVideo,
+  rollbackVirtualTryOnSettings,
   testVirtualTryOnPrompt,
   unlockVirtualTryOnAccount,
   updateVirtualTryOnPromptRule,
+  updateVirtualTryOnSettings,
 } from './virtualTryOn.service'
 import type {
   AdminVirtualTryOnAccountLock,
@@ -29,6 +31,7 @@ import type {
   AdminVirtualTryOnPromptRuleList,
   AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
+  AdminVirtualTryOnSettingsConfiguration,
   AdminVirtualTryOnSummary,
   PromptPolicyCategory,
   VirtualTryOnJobStatus,
@@ -178,12 +181,26 @@ const getAttentionReason = (job: AdminVirtualTryOnJob) => {
   return 'Đã hủy'
 }
 
+const toSettingsConfiguration = (
+  settings: AdminVirtualTryOnSettings,
+): AdminVirtualTryOnSettingsConfiguration => ({
+  runtimeEnabled: settings.runtimeEnabled,
+  maxConcurrentJobsPerUser: settings.maxConcurrentJobsPerUser,
+  maxVideoJobsPerUserPerDay: settings.maxVideoJobsPerUserPerDay,
+  maxConcurrentVideoJobsPerUser: settings.maxConcurrentVideoJobsPerUser,
+  promptMaxLength: settings.promptMaxLength,
+  promptViolationLimitPerDay: settings.promptViolationLimitPerDay,
+})
+
 export function VirtualTryOnManagementPage({ currentUser }: { currentUser: AdminUser }) {
   const [filters, setFilters] = useState(initialFilters)
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
   const [data, setData] = useState<AdminVirtualTryOnJobList | null>(null)
   const [summary, setSummary] = useState<AdminVirtualTryOnSummary | null>(null)
   const [settings, setSettings] = useState<AdminVirtualTryOnSettings | null>(null)
+  const [settingsDraft, setSettingsDraft] = useState<AdminVirtualTryOnSettingsConfiguration | null>(null)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [rollbackVersion, setRollbackVersion] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
@@ -234,6 +251,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       setData(jobs)
       setSummary(nextSummary)
       setSettings(nextSettings)
+      setSettingsDraft(toSettingsConfiguration(nextSettings))
+      setRollbackVersion('')
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải phối đồ ảo' })
     } finally {
@@ -291,6 +310,42 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       })
     } finally {
       setPromptTesting(false)
+    }
+  }
+
+  const handleSaveSettings = async () => {
+    if (!settings || !settingsDraft) return
+    setSettingsSaving(true)
+    setNotice(null)
+    try {
+      const updated = await updateVirtualTryOnSettings(settings.version, settingsDraft)
+      setSettings(updated)
+      setSettingsDraft(toSettingsConfiguration(updated))
+      setRollbackVersion('')
+      setNotice({ type: 'success', message: 'Đã cập nhật cấu hình phối đồ ảo.' })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể cập nhật cấu hình phối đồ ảo' })
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  const handleRollbackSettings = async () => {
+    if (!settings || !rollbackVersion) return
+    const targetVersion = Number(rollbackVersion)
+    if (!window.confirm(`Khôi phục snapshot cấu hình v${targetVersion}? Thao tác này sẽ tạo một phiên bản mới.`)) return
+    setSettingsSaving(true)
+    setNotice(null)
+    try {
+      const updated = await rollbackVirtualTryOnSettings(settings.version, targetVersion)
+      setSettings(updated)
+      setSettingsDraft(toSettingsConfiguration(updated))
+      setRollbackVersion('')
+      setNotice({ type: 'success', message: `Đã khôi phục cấu hình từ v${targetVersion}.` })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khôi phục cấu hình phối đồ ảo' })
+    } finally {
+      setSettingsSaving(false)
     }
   }
 
@@ -775,7 +830,18 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
         <aside className="admin-vto-side">
           <section className="admin-vto-panel admin-vto-settings-panel">
-            <h2>Cấu hình hiện tại</h2>
+            <div className="admin-vto-settings-head">
+              <div>
+                <h2>Cấu hình hiện tại</h2>
+                <p>
+                  {settings?.persisted ? `Phiên bản v${settings.version}` : 'Đang dùng mặc định từ môi trường'}
+                  {settings?.updatedAt ? ` · cập nhật ${formatDate(settings.updatedAt)}` : ''}
+                </p>
+              </div>
+              <span className={settings?.enabled ? 'is-ready' : 'is-offline'}>
+                {settings?.enabled ? 'Đang phục vụ' : 'Đang tắt'}
+              </span>
+            </div>
             <div className="admin-vto-config-grid">
               <section className="admin-vto-config-group is-image">
                 <h3>Tạo ảnh</h3>
@@ -830,7 +896,133 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 </dl>
               </section>
             </div>
-            {!canSettings ? <p>Chỉ admin có quyền cấu hình mới chỉnh được provider/quota.</p> : null}
+            <section className="admin-vto-secret-status">
+              <strong>Cấu hình bí mật chỉ đọc từ môi trường</strong>
+              <span className={settings?.secretStatus.providerApiKeyConfigured ? 'is-ready' : 'is-offline'}>
+                API key: {settings?.secretStatus.providerApiKeyConfigured ? 'đã cấu hình' : 'chưa cấu hình'}
+              </span>
+              <span className={settings?.secretStatus.imageEndpointConfigured ? 'is-ready' : 'is-offline'}>
+                Endpoint ảnh: {settings?.secretStatus.imageEndpointConfigured ? 'đã cấu hình' : 'chưa cấu hình'}
+              </span>
+              <span className={settings?.secretStatus.videoWorkflowConfigured ? 'is-ready' : 'is-offline'}>
+                Workflow video: {settings?.secretStatus.videoWorkflowConfigured ? 'đã cấu hình' : 'chưa cấu hình'}
+              </span>
+            </section>
+
+            {canSettings && settings && settingsDraft ? (
+              <form
+                className="admin-vto-settings-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleSaveSettings()
+                }}
+              >
+                <label className="admin-vto-settings-switch">
+                  <input
+                    type="checkbox"
+                    checked={settingsDraft.runtimeEnabled}
+                    onChange={(event) => setSettingsDraft((current) => current
+                      ? { ...current, runtimeEnabled: event.target.checked }
+                      : current)}
+                  />
+                  <span>Cho phép khách tạo yêu cầu phối đồ ảo mới</span>
+                </label>
+                <div className="admin-vto-settings-fields">
+                  <label>
+                    <span>Job ảnh đồng thời/user</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      required
+                      value={settingsDraft.maxConcurrentJobsPerUser}
+                      onChange={(event) => setSettingsDraft((current) => current
+                        ? { ...current, maxConcurrentJobsPerUser: Number(event.target.value) }
+                        : current)}
+                    />
+                  </label>
+                  <label>
+                    <span>Video/user/ngày</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      required
+                      value={settingsDraft.maxVideoJobsPerUserPerDay}
+                      onChange={(event) => setSettingsDraft((current) => current
+                        ? { ...current, maxVideoJobsPerUserPerDay: Number(event.target.value) }
+                        : current)}
+                    />
+                  </label>
+                  <label>
+                    <span>Video đồng thời/user</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="5"
+                      required
+                      value={settingsDraft.maxConcurrentVideoJobsPerUser}
+                      onChange={(event) => setSettingsDraft((current) => current
+                        ? { ...current, maxConcurrentVideoJobsPerUser: Number(event.target.value) }
+                        : current)}
+                    />
+                  </label>
+                  <label>
+                    <span>Độ dài prompt tối đa</span>
+                    <input
+                      type="number"
+                      min="50"
+                      max="500"
+                      required
+                      value={settingsDraft.promptMaxLength}
+                      onChange={(event) => setSettingsDraft((current) => current
+                        ? { ...current, promptMaxLength: Number(event.target.value) }
+                        : current)}
+                    />
+                  </label>
+                  <label>
+                    <span>Vi phạm prompt/user/ngày</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      required
+                      value={settingsDraft.promptViolationLimitPerDay}
+                      onChange={(event) => setSettingsDraft((current) => current
+                        ? { ...current, promptViolationLimitPerDay: Number(event.target.value) }
+                        : current)}
+                    />
+                  </label>
+                </div>
+                <div className="admin-vto-settings-actions">
+                  <button type="submit" disabled={settingsSaving}>
+                    {settingsSaving ? 'Đang lưu...' : 'Lưu cấu hình'}
+                  </button>
+                  <select
+                    value={rollbackVersion}
+                    onChange={(event) => setRollbackVersion(event.target.value)}
+                    disabled={settingsSaving || !settings.historyVersions.length}
+                    aria-label="Phiên bản cấu hình cần khôi phục"
+                  >
+                    <option value="">Chọn snapshot để khôi phục</option>
+                    {settings.historyVersions.map((version) => (
+                      <option key={version} value={version}>Phiên bản v{version}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="is-secondary"
+                    disabled={settingsSaving || !rollbackVersion}
+                    onClick={() => void handleRollbackSettings()}
+                  >
+                    Khôi phục
+                  </button>
+                </div>
+                <p>Provider, endpoint, workflow và API key chỉ thay đổi qua biến môi trường/deployment secret.</p>
+              </form>
+            ) : (
+              <p>Chỉ tài khoản có quyền cấu hình mới chỉnh được công tắc và quota.</p>
+            )}
           </section>
 
           <section className="admin-vto-panel">

@@ -94,6 +94,16 @@ export type AdminVirtualTryOnSummary = {
 export type AdminVirtualTryOnSettings = {
   provider: string
   enabled: boolean
+  runtimeEnabled: boolean
+  version: number
+  persisted: boolean
+  updatedAt: string | null
+  historyVersions: number[]
+  secretStatus: {
+    providerApiKeyConfigured: boolean
+    imageEndpointConfigured: boolean
+    videoWorkflowConfigured: boolean
+  }
   image: {
     enabled: boolean
     provider: string
@@ -123,6 +133,16 @@ export type AdminVirtualTryOnSettings = {
   promptMaxLength: number
   promptViolationLimitPerDay: number
 }
+
+export type AdminVirtualTryOnSettingsConfiguration = Pick<
+  AdminVirtualTryOnSettings,
+  | 'runtimeEnabled'
+  | 'maxConcurrentJobsPerUser'
+  | 'maxVideoJobsPerUserPerDay'
+  | 'maxConcurrentVideoJobsPerUser'
+  | 'promptMaxLength'
+  | 'promptViolationLimitPerDay'
+>
 
 export type AdminVirtualTryOnPromptTestResult = {
   allowed: boolean
