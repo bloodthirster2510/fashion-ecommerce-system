@@ -52,3 +52,63 @@ export type ManagedUserFilters = {
   page?: number
   limit?: number
 }
+
+export type ManagedCustomerOrder = {
+  _id: string
+  orderCode: string
+  totalAmount: number
+  status: string
+  paymentMethod: string
+  paymentStatus: string
+  createdAt: string
+}
+
+export type ManagedCustomerActivity = {
+  id: string
+  type:
+    | 'account'
+    | 'order'
+    | 'support'
+    | 'review'
+    | 'interaction'
+    | 'virtual_try_on'
+    | 'audit'
+  title: string
+  description: string
+  occurredAt: string
+  metadata?: Record<string, unknown>
+}
+
+export type ManagedCustomerInsights = {
+  orders: {
+    totalOrders: number
+    successfulOrders: number
+    totalSpent: number
+    recentOrders: ManagedCustomerOrder[]
+  }
+  activity: {
+    items: ManagedCustomerActivity[]
+    pagination: {
+      page: number
+      limit: number
+      totalItems: number
+      totalPages: number
+    }
+  }
+}
+
+export type ManagedCustomerNoteAuthor = {
+  _id: string
+  name?: string
+  email?: string
+}
+
+export type ManagedCustomerNote = {
+  _id: string
+  customerId: string
+  content: string
+  createdBy: ManagedCustomerNoteAuthor | string
+  updatedBy: ManagedCustomerNoteAuthor | string
+  createdAt: string
+  updatedAt: string
+}

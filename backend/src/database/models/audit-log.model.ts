@@ -26,6 +26,11 @@ export type AuditLogAction =
   | 'review.moderation'
   | 'review.reply'
   | 'review.reply_delete'
+  | 'customer.status_update'
+  | 'customer.password_reset_requested'
+  | 'customer_note.create'
+  | 'customer_note.update'
+  | 'customer_note.delete'
   | 'storefront_settings.update';
 
 export interface IAuditLog extends Document {
@@ -78,6 +83,11 @@ const auditLogSchema = new Schema<IAuditLog>(
         'review.moderation',
         'review.reply',
         'review.reply_delete',
+        'customer.status_update',
+        'customer.password_reset_requested',
+        'customer_note.create',
+        'customer_note.update',
+        'customer_note.delete',
         'storefront_settings.update',
       ],
       required: true,

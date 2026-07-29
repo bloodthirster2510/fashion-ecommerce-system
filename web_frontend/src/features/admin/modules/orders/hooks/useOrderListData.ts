@@ -48,6 +48,9 @@ const getSavedLookupView = (): OrderLookupSavedView | null => {
   }
 }
 
+const getUrlLookupKeyword = () =>
+  new URLSearchParams(window.location.search).get('keyword')?.trim() ?? ''
+
 const getDefaultLookupDateFrom = () => getRelativeDateInput(30)
 
 const normalizeVisibleColumns = (columns?: OrderTableColumnKey[]) => {
@@ -78,9 +81,12 @@ export function useOrderListData({
   paymentSection: PaymentSectionKey
 }) {
   const savedLookupView = !lockPaymentSection ? getSavedLookupView() : null
+  const initialKeyword = !lockPaymentSection
+    ? getUrlLookupKeyword() || savedLookupView?.keywordInput || ''
+    : ''
   const [orders, setOrders] = useState<AdminOrder[]>([])
-  const [keywordInput, setKeywordInput] = useState(savedLookupView?.keywordInput ?? '')
-  const [keyword, setKeyword] = useState(savedLookupView?.keywordInput?.trim() ?? '')
+  const [keywordInput, setKeywordInput] = useState(initialKeyword)
+  const [keyword, setKeyword] = useState(initialKeyword.trim())
   const [activePaymentSectionKey, setActivePaymentSectionKey] = useState<PaymentSectionKey>(paymentSection)
   const [activeTabKey, setActiveTabKey] = useState(() => (
     resolveInitialTabKey(initialTabKey, lockPaymentSection, paymentSection)
@@ -110,12 +116,15 @@ export function useOrderListData({
 
   useEffect(() => {
     const currentSavedLookupView = !lockPaymentSection ? getSavedLookupView() : null
+    const currentKeyword = !lockPaymentSection
+      ? getUrlLookupKeyword() || currentSavedLookupView?.keywordInput || ''
+      : ''
 
     setActivePaymentSectionKey(paymentSection)
     setPaymentMethod(lockPaymentSection ? paymentSection === 'cod' ? 'COD' : 'all' : currentSavedLookupView?.paymentMethod ?? 'all')
     setPaymentStatus(lockPaymentSection ? 'all' : currentSavedLookupView?.paymentStatus ?? 'all')
-    setKeywordInput(currentSavedLookupView?.keywordInput ?? '')
-    setKeyword(currentSavedLookupView?.keywordInput?.trim() ?? '')
+    setKeywordInput(currentKeyword)
+    setKeyword(currentKeyword.trim())
     setDateFrom(lockPaymentSection ? '' : currentSavedLookupView?.dateFrom ?? getDefaultLookupDateFrom())
     setDateTo(currentSavedLookupView?.dateTo ?? '')
     setSort(currentSavedLookupView?.sort ?? 'created_desc')

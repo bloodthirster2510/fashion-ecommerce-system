@@ -2,6 +2,7 @@ export * from './brand.model';
 export * from './cart.model';
 export * from './category.model';
 export * from './customer-notification.model';
+export * from './customer-note.model';
 export * from './coupon.model';
 export * from './audit-log.model';
 export * from './distributed-lock.model';

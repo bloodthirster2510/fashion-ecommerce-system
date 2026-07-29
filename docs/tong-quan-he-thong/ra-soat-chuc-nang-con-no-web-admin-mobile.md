@@ -294,22 +294,19 @@ Quy tắc an toàn:
 
 ### P1-04 — Admin khách hàng còn ba tab giữ chỗ
 
-| Tab | Thiếu |
-|---|---|
-| Đơn hàng | Đơn gần nhất, tổng chi tiêu, trạng thái và link sang tra cứu đơn. |
-| Tương tác | Timeline auth, đơn hàng, support, review, recommendation/try-on và audit. |
-| Ghi chú nội bộ | Model ghi chú, CRUD, tác giả, thời gian, permission và audit log. |
+**Đã thực hiện**
 
-**Bằng chứng**
+- [x] `GET /api/admin/users/:id/insights` trả tổng đơn, đơn thành công, tổng chi tiêu từ các đơn đã thanh toán và năm đơn gần nhất.
+- [x] Link “Tra cứu đơn” mở workspace đơn hàng với mã đơn trên query string; màn tra cứu đọc query này và áp dụng ngay vào bộ lọc.
+- [x] Timeline có pagination, hợp nhất đăng ký/đăng nhập gần nhất, đơn hàng, support, review, interaction/recommendation, virtual try-on và audit theo thời gian.
+- [x] Thêm model `CustomerNote` với customer, nội dung, người tạo/cập nhật và timestamp; có API list/create/update/delete.
+- [x] `customers.read` được xem insights/notes; `customers.manage` mới được CRUD note. Mọi create/update/delete note, khóa/mở tài khoản và yêu cầu reset mật khẩu đều ghi audit theo target khách hàng.
+- [x] Ba tab trong drawer đã dùng dữ liệu thật, có loading/error/empty state, phân trang timeline và form sửa/xóa note.
+- [x] Có unit test cho schema note, validation, audit khi tạo note và timeline hợp nhất nhiều nguồn.
 
-- `web_frontend/src/features/admin/modules/customers/components/CustomerDetailDrawer.tsx:154`
-- `web_frontend/src/features/admin/modules/customers/customer.service.ts`
+**Còn lại trước production**
 
-**Cần làm**
-
-- Bổ sung endpoint customer overview hoặc hỗ trợ filter order chính xác theo `userId`.
-- Tạo timeline tổng hợp có pagination.
-- Tạo customer note model; không lưu note vào localStorage.
+- [ ] Smoke test quyền admin/staff (`customers.read` so với `customers.manage`) và dữ liệu khách có lịch sử lớn trên staging.
 
 ### P1-05 — Quyền “cấu hình phối đồ ảo” chưa có tác dụng
 

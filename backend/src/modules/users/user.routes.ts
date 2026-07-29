@@ -5,6 +5,7 @@ import { authorize, requirePermission } from '../../middlewares/role.middleware'
 import { getUserMembership } from './membership.service';
 import { User } from '../../database/models/user.model';
 import { ok } from '../../utils/response';
+import * as customerInsightController from './customer-insight.controller';
 
 const customerUserRouter = Router();
 const adminUserRouter = Router();
@@ -35,6 +36,19 @@ customerUserRouter.get('/me/membership', authenticate, async (req: Request, res:
 
 adminUserRouter.get('/', canReadCustomers, userController.getUsers);
 adminUserRouter.get('/summary', canReadCustomers, userController.getCustomerSummary);
+adminUserRouter.get('/:id/insights', canReadCustomers, customerInsightController.getCustomerInsights);
+adminUserRouter.get('/:id/notes', canReadCustomers, customerInsightController.listCustomerNotes);
+adminUserRouter.post('/:id/notes', canManageCustomerStatus, customerInsightController.createCustomerNote);
+adminUserRouter.patch(
+  '/:id/notes/:noteId',
+  canManageCustomerStatus,
+  customerInsightController.updateCustomerNote,
+);
+adminUserRouter.delete(
+  '/:id/notes/:noteId',
+  canManageCustomerStatus,
+  customerInsightController.deleteCustomerNote,
+);
 adminUserRouter.get('/:id', canReadCustomers, userController.getUserById);
 adminUserRouter.patch('/:id/status', canManageCustomerStatus, userController.updateUserStatus);
 adminUserRouter.patch('/:id/role', adminOnly, userController.updateUserRole);

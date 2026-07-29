@@ -12,6 +12,11 @@ const AUDIT_LOG_ACTIONS: AuditLogAction[] = [
   'payment.vnpay_reconcile',
   'payment.vnpay_refund',
   'payment_method.status_update',
+  'customer.status_update',
+  'customer.password_reset_requested',
+  'customer_note.create',
+  'customer_note.update',
+  'customer_note.delete',
   'storefront_settings.update',
 ];
 

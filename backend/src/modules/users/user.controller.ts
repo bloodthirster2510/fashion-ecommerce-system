@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as userService from './user.service';
 import { validateUpdateProfile, validateAddress } from '../../validators/user.validator';
 import { ok, created, noContent } from '../../utils/response';
+import { auditLogService } from '../audit-logs/audit-log.service';
 
 const getParam = (value: unknown): string => {
   return typeof value === 'string' ? value : '';
@@ -170,7 +171,18 @@ export const getUserById = async (req: Request, res: Response) => {
 
 export const updateUserStatus = async (req: Request, res: Response) => {
   try {
-    const user = await userService.updateUserStatus(getParam(req.params.id), req.body.isActive, req.user!.userId);
+    const userId = getParam(req.params.id);
+    const previousUser = await userService.getUserById(userId);
+    const user = await userService.updateUserStatus(userId, req.body.isActive, req.user!.userId);
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user!.userId,
+      actorRole: req.user!.role as 'admin' | 'staff',
+      action: 'customer.status_update',
+      targetType: 'User',
+      targetId: userId,
+      before: { isActive: previousUser.isActive },
+      after: { isActive: user.isActive },
+    });
     return ok(res, user, 'Cập nhật trạng thái thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
@@ -194,7 +206,16 @@ export const updateUserRole = async (req: Request, res: Response) => {
 
 export const forcePasswordReset = async (req: Request, res: Response) => {
   try {
-    const delivery = await userService.forcePasswordReset(getParam(req.params.id));
+    const userId = getParam(req.params.id);
+    const delivery = await userService.forcePasswordReset(userId);
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: req.user!.userId,
+      actorRole: req.user!.role as 'admin' | 'staff',
+      action: 'customer.password_reset_requested',
+      targetType: 'User',
+      targetId: userId,
+      metadata: { mode: delivery.mode, provider: delivery.provider },
+    });
     return ok(res, delivery, 'Đã yêu cầu đặt lại mật khẩu');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
