@@ -156,6 +156,85 @@
   background: rgba(255, 255, 255, 0.62);
 }
 
+.admin-order-bulk-toolbar {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid #d8e1e9;
+  border-radius: 10px;
+  background: #f8fbfd;
+}
+
+.admin-order-bulk-summary,
+.admin-order-bulk-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.admin-order-bulk-summary {
+  justify-content: space-between;
+}
+
+.admin-order-bulk-summary span {
+  color: var(--admin-muted);
+  font-size: 13px;
+}
+
+.admin-order-bulk-fields {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.32fr) minmax(280px, 1fr);
+  gap: 10px;
+}
+
+.admin-order-bulk-fields label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.admin-order-bulk-fields label span {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.admin-order-bulk-fields input,
+.admin-order-bulk-fields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid #cfdbe5;
+  border-radius: 8px;
+  padding: 0 11px;
+  color: var(--admin-text);
+  background: #fff;
+  font: inherit;
+}
+
+.admin-order-bulk-actions {
+  justify-content: flex-end;
+}
+
+.admin-order-bulk-actions button {
+  min-height: 38px;
+}
+
+.admin-order-check-cell {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+}
+
+.admin-order-check-cell input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--admin-accent);
+  cursor: pointer;
+}
+
 .admin-orders-page .admin-drawer-layer {
   position: fixed;
   inset: 0;
@@ -2037,6 +2116,19 @@
 @media (max-width: 720px) {
   .admin-orders-page .admin-table-toolbar.is-lookup {
     grid-template-columns: 1fr;
+  }
+
+  .admin-order-bulk-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-order-bulk-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-bulk-actions button {
+    width: 100%;
   }
 
   .admin-orders-page .admin-table-toolbar.is-lookup > label {

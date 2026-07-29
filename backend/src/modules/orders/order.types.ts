@@ -71,6 +71,20 @@ export interface UpdateOrderStatusInput {
   reason?: string;
 }
 
+export interface BulkUpdateOrderStatusInput {
+  orderIds: string[];
+  status: OrderStatus;
+  reason: string;
+}
+
+export type BulkOrderGhnAction = 'create' | 'sync';
+
+export interface BulkOrderGhnInput {
+  orderIds: string[];
+  action: BulkOrderGhnAction;
+  reason: string;
+}
+
 export interface AdjustOrderPaymentStatusInput {
   paymentStatus: OrderPaymentStatus;
   reason: string;

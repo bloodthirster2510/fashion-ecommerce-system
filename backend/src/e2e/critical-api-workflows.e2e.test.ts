@@ -385,7 +385,26 @@ describe('critical API-backed workflows', () => {
     );
 
     expect(order).toMatchObject({ status: 'confirmed', paymentStatus: 'pending', paymentMethod: 'COD' });
-    for (const status of ['packed', 'shipping', 'delivered']) {
+    const bulkPacked = await harness.request<{
+      requestedCount: number;
+      succeededCount: number;
+      failedCount: number;
+    }>('/api/admin/orders/bulk-status', {
+      method: 'PATCH',
+      token: admin.accessToken,
+      body: {
+        orderIds: [order._id],
+        status: 'packed',
+        reason: 'API E2E bulk packing handoff',
+      },
+    });
+    expect(expectStatus(bulkPacked, 200)).toMatchObject({
+      requestedCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+    });
+
+    for (const status of ['shipping', 'delivered']) {
       const updated = await harness.request<OrderView>(`/api/admin/orders/${order._id}/status`, {
         method: 'PATCH',
         token: admin.accessToken,
@@ -401,6 +420,15 @@ describe('critical API-backed workflows', () => {
       status: 'delivered',
       paymentStatus: 'paid',
     });
+
+    const exportResponse = await fetch(
+      `${harness.baseUrl}/api/admin/orders/export.csv?keyword=${encodeURIComponent(order.orderCode)}`,
+      { headers: { Authorization: `Bearer ${admin.accessToken}` } },
+    );
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.headers.get('content-type')).toContain('text/csv');
+    expect(exportResponse.headers.get('x-export-total')).toBe('1');
+    expect(await exportResponse.text()).toContain(order.orderCode);
   });
 
   it('runs VNPay create/IPN/reconcile/refund and GHN quote/create/sync/cancel through HTTP', async () => {

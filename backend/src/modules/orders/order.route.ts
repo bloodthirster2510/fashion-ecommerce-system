@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
+  bulkProcessGhnShipments,
+  bulkUpdateOrderStatus,
   cancelOrder,
   cancelGhnShipment,
   confirmOrderReceived,
@@ -11,6 +13,7 @@ import {
   getOrderById,
   getOrderTransactions,
   getOrders,
+  exportOrdersCsv,
   previewCheckout,
   requestReturn,
   reviewReturnRequest,
@@ -37,6 +40,9 @@ customerOrderRouter.patch('/:id/request-return', requestReturn);
 adminOrderRouter.use(authenticate);
 adminOrderRouter.use(authorize('admin', 'staff'));
 adminOrderRouter.get('/', requirePermission('orders.read'), getOrders);
+adminOrderRouter.get('/export.csv', requirePermission('orders.read'), exportOrdersCsv);
+adminOrderRouter.patch('/bulk-status', requirePermission('orders.update'), bulkUpdateOrderStatus);
+adminOrderRouter.post('/bulk-ghn', requirePermission('orders.update'), bulkProcessGhnShipments);
 adminOrderRouter.get('/:id/transactions', requirePermission('orders.read'), getOrderTransactions);
 adminOrderRouter.get('/:id', requirePermission('orders.read'), getOrderById);
 adminOrderRouter.patch('/:id/cancel', requirePermission('orders.update'), cancelOrder);

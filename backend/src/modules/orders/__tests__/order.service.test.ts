@@ -285,6 +285,9 @@ describe('orderService', () => {
     jest.clearAllMocks();
     mockSession = createMockSession();
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(mockSession as never);
+    jest.spyOn(mongoose.connection, 'transaction').mockImplementation(
+      async (operation) => operation(mockSession as never),
+    );
     mockedCouponService.reserveCouponUsage.mockResolvedValue(null);
     mockedCouponService.recordCouponUsage.mockResolvedValue(null);
     mockedCouponService.rollbackRecordedCouponUsage.mockResolvedValue(undefined);

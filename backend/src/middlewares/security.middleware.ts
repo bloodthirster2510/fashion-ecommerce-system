@@ -108,6 +108,11 @@ export const createCorsOptions = (env: Env = process.env): CorsOptions => ({
     'X-GHN-Webhook-Secret',
     'X-Shipping-Webhook-Secret',
   ],
+  exposedHeaders: [
+    'Content-Disposition',
+    'X-Export-Total',
+    'X-Export-Truncated',
+  ],
   maxAge: 600,
   optionsSuccessStatus: 204,
 });

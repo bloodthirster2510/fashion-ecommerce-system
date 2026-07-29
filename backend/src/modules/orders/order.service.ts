@@ -85,6 +85,7 @@ import {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const MAX_ORDER_EXPORT_ROWS = 5000;
 const MAX_ORDER_EVIDENCE_IMAGES = 5;
 const MAX_ORDER_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
 const RETURN_WINDOW_DAYS = 7;
@@ -1445,18 +1446,11 @@ const rollbackCouponUsageForCancelledOrder = async (
 };
 
 const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder): Promise<IOrder> => {
-  const session = await mongoose.startSession();
-  let savedOrder: IOrder | null = null;
-
-  try {
-    await session.withTransaction(async () => {
-      ensureDeliveredInvoiceCode(order);
-      const persistedOrder = await order.save({ session });
-      savedOrder = await awardLoyaltyPointsForDeliveredOrder(persistedOrder, { session });
-    });
-  } finally {
-    await session.endSession();
-  }
+  const savedOrder = await mongoose.connection.transaction(async (session) => {
+    ensureDeliveredInvoiceCode(order);
+    const persistedOrder = await order.save({ session });
+    return awardLoyaltyPointsForDeliveredOrder(persistedOrder, { session });
+  });
 
   if (!savedOrder) {
     throw new SalesServiceError('Failed to save delivered order', 500);
@@ -1466,17 +1460,10 @@ const saveDeliveredOrderWithLoyaltyAward = async (order: IOrder): Promise<IOrder
 };
 
 const saveOrderWithLoyaltyClawback = async (order: IOrder, reason: string) => {
-  const session = await mongoose.startSession();
-  let savedOrder: IOrder | null = null;
-
-  try {
-    await session.withTransaction(async () => {
-      const persistedOrder = await order.save({ session });
-      savedOrder = await clawBackLoyaltyPointsForOrder(persistedOrder, reason, { session });
-    });
-  } finally {
-    await session.endSession();
-  }
+  const savedOrder = await mongoose.connection.transaction(async (session) => {
+    const persistedOrder = await order.save({ session });
+    return clawBackLoyaltyPointsForOrder(persistedOrder, reason, { session });
+  });
 
   if (!savedOrder) {
     throw new SalesServiceError('Failed to save order loyalty adjustment', 500);
@@ -1772,6 +1759,23 @@ const getOrders = async (query: OrderListQueryInput) => {
       totalItems,
       totalPages: Math.ceil(totalItems / limit),
     },
+  };
+};
+
+const getOrdersForExport = async (query: OrderListQueryInput) => {
+  const filter = buildOrderFilter(query);
+  const [items, totalItems] = await Promise.all([
+    Order.find(filter)
+      .sort(getOrderSort(query, 'created_asc'))
+      .limit(MAX_ORDER_EXPORT_ROWS)
+      .lean(),
+    Order.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    totalItems,
+    truncated: totalItems > items.length,
   };
 };
 
@@ -2708,6 +2712,7 @@ export const orderService = {
   createOrder,
   getMyOrders,
   getOrders,
+  getOrdersForExport,
   getOrderById,
   getOrderTransactions,
   adjustOrderPaymentStatus,

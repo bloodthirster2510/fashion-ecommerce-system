@@ -4,6 +4,7 @@ import { OrderActionDialog } from './OrderActionDialog'
 import { OrderDetailDrawer } from './OrderDetailDrawer'
 import { OrderWorkspacePanel } from './components/OrderWorkspacePanel'
 import { useOrderActions } from './hooks/useOrderActions'
+import { useOrderBulkActions } from './hooks/useOrderBulkActions'
 import { useOrderDetailData } from './hooks/useOrderDetailData'
 import { useOrderListData } from './hooks/useOrderListData'
 import { useOrderRealtimeRefresh } from './hooks/useOrderRealtimeRefresh'
@@ -41,6 +42,7 @@ export function OrderListPage({
 }: OrdersPageProps) {
   const {
     activePaymentSectionKey,
+    activeFilters,
     activeTab,
     activeTabKey,
     applyLookupDateRange,
@@ -95,6 +97,28 @@ export function OrderListPage({
     )
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
+  const {
+    bulkReason,
+    bulkStatus,
+    clearSelection,
+    handleBulkGhn,
+    handleBulkStatusUpdate,
+    handleExportCsv,
+    handleOpenLabels,
+    isBulkLoading,
+    isExporting,
+    labelCount,
+    selectedOrderIds,
+    setBulkReason,
+    setBulkStatus,
+    toggleOrder,
+    togglePage,
+  } = useOrderBulkActions({
+    activeFilters,
+    loadOrders,
+    orders,
+    setNotice,
+  })
 
   const {
     auditLogs,
@@ -173,15 +197,21 @@ export function OrderListPage({
         activePaymentSectionKey={activePaymentSectionKey}
         activeTab={activeTab}
         activeTabKey={activeTabKey}
+        bulkReason={bulkReason}
+        bulkStatus={bulkStatus}
         canExpirePayments={canUpdateOrders}
+        canUpdateOrders={canUpdateOrders}
         dateFrom={dateFrom}
         dateTo={dateTo}
         errorMessage={errorMessage}
         initialTabKey={initialTabKey}
-        isActionLoading={actionLoading}
+        isActionLoading={actionLoading || isBulkLoading}
+        isBulkLoading={isBulkLoading}
+        isExporting={isExporting}
         isLoading={isLoading}
         isLookupMode={isLookupMode}
         keywordInput={keywordInput}
+        labelCount={labelCount}
         notice={notice}
         operationalSummary={operationalSummary}
         orders={orders}
@@ -191,26 +221,36 @@ export function OrderListPage({
         paymentMethod={paymentMethod}
         paymentStatus={paymentStatus}
         realtimeOrderId={realtimeOrderId}
+        selectedOrderIds={selectedOrderIds}
         sort={sort}
         statusSummary={statusSummary}
         totalItems={totalItems}
         totalPages={totalPages}
         visibleColumns={visibleColumns}
         onApplyDateRange={applyLookupDateRange}
+        onBulkGhn={handleBulkGhn}
+        onBulkReasonChange={setBulkReason}
+        onBulkStatusChange={setBulkStatus}
+        onBulkStatusUpdate={handleBulkStatusUpdate}
+        onClearSelection={clearSelection}
         onColumnToggle={toggleVisibleColumn}
         onClearDateRange={clearLookupDateRange}
         onCopyReference={copyReference}
         onDateFromChange={setDateFrom}
         onDateToChange={setDateTo}
         onExpireStalePayments={handleExpireStalePayments}
+        onExportCsv={handleExportCsv}
         onKeywordInputChange={setKeywordInput}
         onOpenOrder={openOrder}
+        onOpenLabels={handleOpenLabels}
         onPageChange={setPage}
         onPaymentMethodChange={setPaymentMethod}
         onPaymentStatusChange={setPaymentStatus}
         onRefresh={loadOrders}
         onResetLookupView={resetLookupView}
         onSaveLookupView={saveLookupView}
+        onPageSelectionChange={togglePage}
+        onSelectionChange={toggleOrder}
         onSelectTab={setActiveTabKey}
         onSortChange={setSort}
       />

@@ -27,6 +27,7 @@ Kết quả triển khai ngày 29/07/2026:
 - **P1-05 đã hoàn tất phần code và test tự động:** cấu hình runtime phối đồ ảo có permission ghi riêng, optimistic concurrency, audit, rollback và không đưa secret vào DB/frontend.
 - **P1-06 đã hoàn tất phần code và test tự động:** image validation có resolver `auto`, production luôn fail-closed, không còn localhost ngầm định, health được đưa lên admin/mobile và các lỗi policy/provider/nhiều người đều bị chặn. Còn thiếu smoke provider thật cùng bộ ảnh thực tế.
 - **P1-07 đã hoàn tất bộ API-backed E2E:** test khởi động HTTP server, MongoDB replica set và realtime gateway thật; phủ login/cart/checkout/order, VNPay, GHN, virtual try-on và support hai chiều. Provider ngoài được mock tại adapter boundary.
+- **P2-01 đã hoàn tất phần code và test tự động:** orders admin chọn nhiều đơn theo trang, bulk status/GHN trả kết quả riêng từng đơn, mở nhãn vận chuyển và xuất CSV theo toàn bộ bộ lọc.
 
 Các khoản nợ còn ưu tiên:
 
@@ -371,15 +372,17 @@ Quy tắc an toàn:
 
 ### P2-01 — Orders admin thiếu thao tác vận hành hàng loạt
 
-Đã có queue, filter, saved view và action theo từng đơn, nhưng chưa có:
+**Đã thực hiện**
 
-- chọn nhiều đơn;
-- chuyển trạng thái hàng loạt;
-- xuất CSV theo bộ lọc;
-- in/mở nhãn vận chuyển từ `labelUrl`;
-- batch retry/sync GHN có kiểm soát.
-
-Các action hàng loạt phải trả kết quả theo từng đơn, không rollback cả batch khi một đơn lỗi.
+- [x] Thêm checkbox từng dòng/chọn toàn bộ trang, giữ selection đồng bộ với dữ liệu đang hiển thị và cho phép bỏ chọn rõ ràng.
+- [x] Thêm bulk status tối đa 100 đơn/lượt; bắt buộc `reason`, dùng transition/payment guard hiện có và ghi audit riêng cho từng đơn thành công.
+- [x] Thêm batch tạo lại hoặc đồng bộ GHN tối đa 20 đơn/lượt và xử lý tuần tự để không dồn tải lên provider.
+- [x] Bulk API trả `requestedCount`, `succeededCount`, `failedCount` cùng kết quả/lỗi theo từng `orderId`; một đơn lỗi không rollback phần đã thành công.
+- [x] Xuất CSV phía server theo toàn bộ filter/sort, tối đa 5.000 dòng, có cờ truncated, UTF-8 BOM và chống CSV formula injection.
+- [x] Mở/in các `labelUrl` HTTP(S) hợp lệ của các đơn đã chọn; UI báo rõ trường hợp chưa có nhãn và popup bị trình duyệt chặn.
+- [x] Permission giữ nguyên ranh giới: export/nhãn dùng `orders.read`, bulk status/GHN dùng `orders.update`.
+- [x] Chuyển transaction giao hàng/hoàn điểm sang wrapper của Mongoose để giữ change-tracking khi Mongo retry, tránh batch báo thành công nhưng đơn vẫn ở trạng thái cũ.
+- [x] Thêm unit test partial success/audit/CSV và browser E2E cho chọn đơn → bulk status → tải CSV → mở nhãn.
 
 ### P2-02 — Notification admin chưa phủ hết module
 
@@ -410,12 +413,12 @@ Các màn support ticket, review của tôi và một số picker gọi `page=1&
 |---|---|
 | `web_frontend: npm run build` | Qua |
 | `web_frontend: npm run lint` | Qua |
-| `web_frontend: npm run test:e2e` | 13/13 qua |
+| `web_frontend: npm run test:e2e` | 14/14 qua |
 | `mobile: npm run typecheck` | Qua |
 | `mobile: npm test` | 10 suite, 50 test qua |
 | `backend: npm run build` | Qua |
 | `backend: npm run lint` | Qua |
-| `backend: npm test` | 83 suite, 750 test qua |
+| `backend: npm test` | 83 suite, 753 test qua |
 | `backend: npm run test:e2e` | 2 suite, 5 test API-backed qua |
 | `ai_services/image-validation: python -m pytest` | 25 test qua |
 
@@ -444,7 +447,7 @@ Ghi chú: build/test xanh không chứng minh SMTP, SMS, VNPay, Expo Push hay AI
 
 1. [x] Customer orders/activity/notes.
 2. [x] Virtual try-on settings.
-3. Bulk/export/print cho orders.
+3. [x] Bulk/export/print cho orders.
 4. Notification badge còn thiếu.
 
 ### Đợt 4 — Tăng độ tin cậy

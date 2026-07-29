@@ -1,4 +1,4 @@
-import { requestAdmin } from '../../services/adminHttp'
+import { requestAdmin, requestAdminFile } from '../../services/adminHttp'
 
 export type AdminOrderStatus =
   | 'confirmed'
@@ -274,6 +274,21 @@ export type UpdateOrderShippingPayload = {
   reason?: string | null
 }
 
+export type BulkOrderActionResult = {
+  batchId: string
+  requestedCount: number
+  succeededCount: number
+  failedCount: number
+  results: Array<{
+    orderId: string
+    success: boolean
+    order?: AdminOrder
+    message?: string
+    errorCode?: string
+    statusCode?: number
+  }>
+}
+
 export type UpdateOrderGhnMappingPayload = {
   ghnProvinceId: number
   ghnDistrictId: number
@@ -347,6 +362,9 @@ const buildOrderListQuery = (filters: OrderListFilters) => {
 export const listOrders = (filters: OrderListFilters) =>
   requestAdmin<OrderListResponse>(`/admin/orders?${buildOrderListQuery(filters)}`)
 
+export const exportOrdersCsv = (filters: OrderListFilters) =>
+  requestAdminFile(`/admin/orders/export.csv?${buildOrderListQuery(filters)}`)
+
 export const getOrder = (id: string) =>
   requestAdmin<AdminOrder>(`/admin/orders/${id}`)
 
@@ -373,6 +391,26 @@ export const updateOrderShipping = (id: string, payload: UpdateOrderShippingPayl
   requestAdmin<AdminOrder>(`/admin/orders/${id}/shipping`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  })
+
+export const bulkUpdateOrderStatus = (
+  orderIds: string[],
+  status: AdminOrderStatus,
+  reason: string,
+) =>
+  requestAdmin<BulkOrderActionResult>('/admin/orders/bulk-status', {
+    method: 'PATCH',
+    body: JSON.stringify({ orderIds, status, reason }),
+  })
+
+export const bulkProcessGhnShipments = (
+  orderIds: string[],
+  action: 'create' | 'sync',
+  reason: string,
+) =>
+  requestAdmin<BulkOrderActionResult>('/admin/orders/bulk-ghn', {
+    method: 'POST',
+    body: JSON.stringify({ orderIds, action, reason }),
   })
 
 export const updateOrderGhnMapping = (id: string, payload: UpdateOrderGhnMappingPayload) =>
