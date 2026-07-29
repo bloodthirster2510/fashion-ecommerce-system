@@ -1,12 +1,9 @@
 import { expect, test } from '@playwright/test'
+import { enterDemoAdmin } from './helpers/admin'
 
 test('admin notification badges summarize work and navigate from the bell panel', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/admin/login')
-  await page.evaluate(() => window.localStorage.clear())
-  await page.reload()
-  await page.getByRole('button', { name: 'Xem bố cục demo' }).click()
-  await expect(page).toHaveURL(/\/admin\/orders$/)
+  await enterDemoAdmin(page)
 
   await expect(page.getByRole('button', { name: /^Vận hành đơn hàng:/ }).locator('.admin-nav-notification-badge')).toHaveText('6')
   await expect(page.getByRole('button', { name: /^Kho hàng:/ }).locator('.admin-nav-notification-badge')).toBeVisible()

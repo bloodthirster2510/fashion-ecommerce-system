@@ -1,12 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
-
-const enterDemoAdmin = async (page: Page) => {
-  await page.goto('/admin/login')
-  await page.evaluate(() => window.localStorage.clear())
-  await page.reload()
-  await page.getByRole('button', { name: 'Xem bố cục demo' }).click()
-  await expect(page).toHaveURL(/\/admin\/orders$/)
-}
+import { expect, test } from '@playwright/test'
+import { enterDemoAdmin } from './helpers/admin'
 
 test('voucher wizard supports templates, advanced options and cost preview', async ({ page }) => {
   await enterDemoAdmin(page)

@@ -26,8 +26,16 @@ type RecoveryMethod = 'email' | 'phone';
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const getRecoveryMessage = (method: RecoveryMethod) =>
-  method === 'phone' ? 'Mã OTP đã được gửi qua SMS.' : 'Token khôi phục đã được gửi qua email.';
+const getRecoveryMessage = (
+  method: RecoveryMethod,
+  delivery?: { mode: 'mock' | 'real'; provider: 'mock' | 'twilio' | 'esms'; testOtp?: string },
+) => {
+  if (method === 'email') return 'Token khôi phục đã được gửi qua email.';
+  if (delivery?.mode === 'mock') {
+    return `Chế độ thử nghiệm — nếu tài khoản tồn tại, dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}.`;
+  }
+  return 'Nếu tài khoản tồn tại, yêu cầu gửi OTP đã được nhà cung cấp SMS tiếp nhận.';
+};
 
 const ForgotPasswordScreen = () => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -222,7 +230,8 @@ const ForgotPasswordScreen = () => {
       setResetToken('');
       setTouched((current) => ({ ...current, otp: false, resetToken: false }));
       setSubmitted(false);
-      setSuccessMessage(isResend ? `Đã gửi lại. ${getRecoveryMessage(result.method)}` : getRecoveryMessage(result.method));
+      const recoveryMessage = getRecoveryMessage(result.method, result.delivery);
+      setSuccessMessage(isResend ? `Đã gửi lại. ${recoveryMessage}` : recoveryMessage);
       setCountdown(60);
     } catch (error) {
       setSuccessMessage('');

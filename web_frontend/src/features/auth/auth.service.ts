@@ -1,6 +1,6 @@
 import { axiosClient } from '../../services/axiosClient'
 import { tokenService } from '../../services/tokenService'
-import type { ApiResponse, AuthSession, Province, RegisterPayload, Ward } from './auth.types'
+import type { ApiResponse, AuthSession, OtpDeliveryInfo, Province, RegisterPayload, Ward } from './auth.types'
 import { AuthApiError } from './auth.types'
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
@@ -66,7 +66,7 @@ export const authService = {
   },
 
   sendOtp(phone: string) {
-    return request<null>('/auth/send-otp', {
+    return request<OtpDeliveryInfo>('/auth/send-otp', {
       method: 'POST',
       body: JSON.stringify({ phone }),
     })

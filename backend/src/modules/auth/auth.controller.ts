@@ -16,6 +16,7 @@ import {
   validateChangePassword,
 } from '../../validators/auth.validator';
 import { ok, created, noContent } from '../../utils/response';
+import { isSmsDeliveryError } from '../../utils/sms-provider';
 
 const getBearerToken = (req: Request) => {
   const authHeader = req.headers.authorization;
@@ -42,8 +43,8 @@ export const sendOtp = async (req: Request, res: Response) => {
   }
 
   try {
-    await authService.sendOtp(req.body.phone);
-    return ok(res, null, 'Mã OTP đã được gửi');
+    const delivery = await authService.sendOtp(req.body.phone);
+    return ok(res, delivery, 'Nếu số điện thoại có thể đăng ký, mã OTP đã được gửi');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
@@ -179,9 +180,15 @@ export const forgotPassword = async (req: Request, res: Response) => {
     : 'Nếu tài khoản tồn tại, mã OTP đã được gửi qua SMS';
 
   try {
-    await authService.forgotPassword(req.body.identifier);
-    return ok(res, { method: isEmail ? 'email' : 'phone' }, msg);
-  } catch {
+    const result = await authService.forgotPassword(req.body.identifier);
+    return ok(res, result, msg);
+  } catch (err) {
+    if (isSmsDeliveryError(err)) {
+      return res.status(err.status).json({
+        message: 'Không thể gửi mã OTP lúc này. Vui lòng thử lại sau.',
+        errorCode: err.code,
+      });
+    }
     return ok(res, { method: isEmail ? 'email' : 'phone' }, msg);
   }
 };

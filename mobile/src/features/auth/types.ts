@@ -58,6 +58,12 @@ export type AuthSession = {
   user: SessionUser;
 };
 
+export type OtpDeliveryInfo = {
+  mode: 'mock' | 'real';
+  provider: 'mock' | 'twilio' | 'esms';
+  testOtp?: string;
+};
+
 export class AuthApiError extends Error {
   errors?: ApiValidationError[];
   status?: number;

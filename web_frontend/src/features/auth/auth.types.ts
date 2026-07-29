@@ -28,6 +28,12 @@ export type AuthSession = {
   user: AuthUser
 }
 
+export type OtpDeliveryInfo = {
+  mode: 'mock' | 'real'
+  provider: 'mock' | 'twilio' | 'esms'
+  testOtp?: string
+}
+
 // Contract gửi lên POST /auth/register.
 // address là địa chỉ giao hàng mặc định được tạo cùng user.
 export type RegisterPayload = {

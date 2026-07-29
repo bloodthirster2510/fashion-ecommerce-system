@@ -11,6 +11,7 @@ import {
 } from '../../utils/jwt';
 import { sendResetPasswordEmail } from '../../utils/email';
 import { sendOtpSms, verifyOtpCode, verifyOtpToken } from '../../utils/sms';
+import { getSmsDeliveryCapability, type SmsDeliveryInfo } from '../../utils/sms-provider';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 import { LEGAL_POLICY_VERSION } from './legal-policy';
 import { PushToken } from '../../database/models/push-token.model';
@@ -152,12 +153,18 @@ const linkAuthProvider = async (user: IUser, provider: AuthProviderName, provide
   }
 };
 
-export const sendOtp = async (phone: string) => {
+export const sendOtp = async (phone: string): Promise<SmsDeliveryInfo> => {
   assertAuthIdentifierNotThrottled('send-otp', phone);
+  const capability = getSmsDeliveryCapability();
   const existingUser = await User.findOne({ phone });
-  if (existingUser) return;
+  if (existingUser) return capability;
 
-  await sendOtpSms(phone);
+  const delivery = await sendOtpSms(phone);
+  return {
+    mode: delivery.mode,
+    provider: delivery.provider,
+    ...(delivery.testOtp ? { testOtp: delivery.testOtp } : {}),
+  };
 };
 
 export const verifyOtp = async (phone: string, otp: string): Promise<string> => {
@@ -323,18 +330,21 @@ export const refreshAccessToken = async (token: string) => {
 };
 
 export const forgotPassword = async (identifier: string) => {
+  const isEmail = identifier.includes('@');
+  const method = isEmail ? 'email' as const : 'phone' as const;
+  const smsCapability = isEmail ? undefined : getSmsDeliveryCapability();
+
   try {
     assertAuthIdentifierNotThrottled('forgot-password', identifier);
   } catch {
-    return;
+    return { method, ...(smsCapability ? { delivery: smsCapability } : {}) };
   }
 
-  const isEmail = identifier.includes('@');
   const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
 
   const user = await User.findOne(query);
   if (!user) {
-    return;
+    return { method, ...(smsCapability ? { delivery: smsCapability } : {}) };
   }
 
   if (isEmail) {
@@ -347,8 +357,17 @@ export const forgotPassword = async (identifier: string) => {
     });
 
     await sendResetPasswordEmail(user.email, resetToken);
+    return { method };
   } else {
-    await sendOtpSms(user.phone);
+    const delivery = await sendOtpSms(user.phone);
+    return {
+      method,
+      delivery: {
+        mode: delivery.mode,
+        provider: delivery.provider,
+        ...(delivery.testOtp ? { testOtp: delivery.testOtp } : {}),
+      },
+    };
   }
 };
 

@@ -29,25 +29,44 @@ describe('Auth Service', () => {
     process.env.JWT_ACCESS_SECRET = 'test-access-secret';
     process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
     process.env.NODE_ENV = 'test';
+    process.env.SMS_PROVIDER = 'mock';
+    process.env.SMS_MOCK_OTP = '123456';
+    (sendOtpSms as jest.Mock).mockResolvedValue({
+      mode: 'mock',
+      provider: 'mock',
+      testOtp: '123456',
+    });
     clearAuthRequestThrottleForTests();
   });
 
   describe('sendOtp', () => {
     it('should not reveal whether phone already exists', async () => {
       (User.findOne as jest.Mock).mockResolvedValue({ phone: '0900000000' });
-      await expect(sendOtp('0900000000')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000000')).resolves.toEqual({
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      });
       expect(sendOtpSms).not.toHaveBeenCalled();
     });
 
     it('should send OTP successfully', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
-      await expect(sendOtp('0900000000')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000000')).resolves.toEqual({
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      });
     });
 
     it('should throttle repeated OTP requests before user lookup', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
 
-      await expect(sendOtp('0900000001')).resolves.toBeUndefined();
+      await expect(sendOtp('0900000001')).resolves.toEqual({
+        mode: 'mock',
+        provider: 'mock',
+        testOtp: '123456',
+      });
       await expect(sendOtp('0900000001')).rejects.toMatchObject({ status: 429 });
 
       expect(User.findOne).toHaveBeenCalledTimes(1);
@@ -378,7 +397,7 @@ describe('Auth Service', () => {
   describe('forgotPassword', () => {
     it('should do nothing if user not found', async () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
-      await expect(forgotPassword('test@test.com')).resolves.toBeUndefined();
+      await expect(forgotPassword('test@test.com')).resolves.toEqual({ method: 'email' });
     });
 
     it('should throttle repeated phone reset requests without sending another SMS', async () => {
@@ -387,8 +406,14 @@ describe('Auth Service', () => {
         email: 'user@test.com',
       });
 
-      await expect(forgotPassword('0900000009')).resolves.toBeUndefined();
-      await expect(forgotPassword('0900000009')).resolves.toBeUndefined();
+      await expect(forgotPassword('0900000009')).resolves.toEqual({
+        method: 'phone',
+        delivery: { mode: 'mock', provider: 'mock', testOtp: '123456' },
+      });
+      await expect(forgotPassword('0900000009')).resolves.toEqual({
+        method: 'phone',
+        delivery: { mode: 'mock', provider: 'mock', testOtp: '123456' },
+      });
 
       expect(sendOtpSms).toHaveBeenCalledTimes(1);
       expect(User.findOne).toHaveBeenCalledTimes(1);

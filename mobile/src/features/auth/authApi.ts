@@ -5,6 +5,7 @@ import type {
   UserAddressPayload,
   RegisterPayload,
   AuthSession,
+  OtpDeliveryInfo,
 } from './types';
 import { AuthApiError } from './types';
 
@@ -49,14 +50,15 @@ const post = async <T>(path: string, body: Record<string, unknown>, accessToken?
 };
 
 export const authApi = {
-  sendOtp: (phone: string) => post<null>('/auth/send-otp', { phone }),
+  sendOtp: (phone: string) => post<OtpDeliveryInfo>('/auth/send-otp', { phone }),
   verifyOtp: (phone: string, otp: string) => post<{ otpToken: string }>('/auth/verify-otp', { phone, otp }),
   register: (payload: RegisterPayload) => post<AuthSession>('/auth/register', payload),
   login: (identifier: string, password: string) => post<AuthSession>('/auth/login', { identifier, password }),
   logout: (accessToken: string) => post<null>('/auth/logout', {}, accessToken),
   refreshToken: (refreshToken: string) =>
     post<{ accessToken: string; refreshToken: string }>('/auth/refresh-token', { refreshToken }),
-  forgotPassword: (identifier: string) => post<{ method: 'email' | 'phone' }>('/auth/forgot-password', { identifier }),
+  forgotPassword: (identifier: string) =>
+    post<{ method: 'email' | 'phone'; delivery?: OtpDeliveryInfo }>('/auth/forgot-password', { identifier }),
   resetPassword: (identifier: string, token: string, newPassword: string, confirmPassword: string) =>
     post<null>('/auth/reset-password', { identifier, token, newPassword, confirmPassword }),
   socialLogin: (provider: string, idToken: string) => post<AuthSession>('/auth/social-login', { provider, idToken }),

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import * as sms from '../sms';
+import { clearMockSmsOutbox, getMockSmsOutboxEntry } from '../sms-provider';
 import { OtpVerification } from '../../database/models/otp-verification.model';
 
 jest.mock('../../database/models/otp-verification.model', () => ({
@@ -26,17 +27,31 @@ const mockFindOneLeanResults = (...results: unknown[]) => {
 describe('sms otp utilities', () => {
   const originalOtpSecret = process.env.OTP_HASH_SECRET;
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalSmsProvider = process.env.SMS_PROVIDER;
+  const originalMockOtp = process.env.SMS_MOCK_OTP;
 
   beforeEach(() => {
     process.env.OTP_HASH_SECRET = 'test-otp-secret';
     process.env.NODE_ENV = 'test';
+    process.env.SMS_PROVIDER = 'mock';
+    delete process.env.SMS_MOCK_OTP;
+    clearMockSmsOutbox();
     jest.restoreAllMocks();
     jest.clearAllMocks();
   });
 
   afterAll(() => {
-    process.env.OTP_HASH_SECRET = originalOtpSecret;
-    process.env.NODE_ENV = originalNodeEnv;
+    const restore = (name: string, value: string | undefined) => {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    };
+    restore('OTP_HASH_SECRET', originalOtpSecret);
+    restore('NODE_ENV', originalNodeEnv);
+    restore('SMS_PROVIDER', originalSmsProvider);
+    restore('SMS_MOCK_OTP', originalMockOtp);
   });
 
   const mockRandomInt = (value: number) => {
@@ -54,9 +69,19 @@ describe('sms otp utilities', () => {
 
   it('verifies OTP once and stores a single-use verification token', async () => {
     mockRandomInt(654321);
-    jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    process.env.SMS_MOCK_OTP = '654321';
 
-    await sms.sendOtpSms('0900000001');
+    const delivery = await sms.sendOtpSms('0900000001');
+    expect(delivery).toEqual({
+      mode: 'mock',
+      provider: 'mock',
+      testOtp: '654321',
+    });
+    expect(getMockSmsOutboxEntry('0900000001')).toEqual(expect.objectContaining({
+      phone: '0900000001',
+      otp: '654321',
+      expiresAt: expect.any(Date),
+    }));
     const savedOtp = (mockedOtpVerification.findOneAndUpdate as jest.Mock).mock.calls[0][1].$set;
     mockFindOneLeanResults(
       {
@@ -102,7 +127,7 @@ describe('sms otp utilities', () => {
 
   it('locks OTP verification after too many wrong attempts', async () => {
     mockRandomInt(111111);
-    jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    process.env.SMS_MOCK_OTP = '111111';
 
     await sms.sendOtpSms('0900000002');
     const savedOtp = (mockedOtpVerification.findOneAndUpdate as jest.Mock).mock.calls[0][1].$set;

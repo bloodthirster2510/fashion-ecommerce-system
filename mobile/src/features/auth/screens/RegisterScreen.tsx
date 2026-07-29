@@ -123,6 +123,7 @@ const RegisterScreen = () => {
   const [otpToken, setOtpToken] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpDeliveryMessage, setOtpDeliveryMessage] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -240,6 +241,7 @@ const RegisterScreen = () => {
   const resetOtpState = () => {
     setOtp('');
     setOtpToken('');
+    setOtpDeliveryMessage('');
   };
 
   const handlePhoneChange = (value: string) => {
@@ -473,8 +475,14 @@ const RegisterScreen = () => {
     setGeneralError('');
     try {
       setOtpLoading(true);
-      await authApi.sendOtp(phone.trim());
+      const delivery = await authApi.sendOtp(phone.trim());
+      setOtpDeliveryMessage(
+        delivery.mode === 'mock'
+          ? `Chế độ thử nghiệm — nếu số điện thoại có thể đăng ký, dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}`
+          : `Nếu số điện thoại có thể đăng ký, ${delivery.provider === 'esms' ? 'eSMS' : 'Twilio'} đã tiếp nhận yêu cầu gửi OTP.`,
+      );
     } catch (error) {
+      setOtpDeliveryMessage('');
       setGeneralError(error instanceof Error ? error.message : 'Không thể gửi mã OTP');
     } finally {
       setOtpLoading(false);
@@ -790,6 +798,7 @@ const RegisterScreen = () => {
           >
             <Text style={styles.outlineButtonText}>{otpLoading ? 'Đang gửi OTP...' : 'Gửi mã OTP qua SMS'}</Text>
           </TouchableOpacity>
+          {otpDeliveryMessage ? <Text style={styles.otpDeliveryText}>{otpDeliveryMessage}</Text> : null}
 
           <View style={styles.otpContainer}>
             <Text style={styles.label}>Mã OTP</Text>
@@ -1167,6 +1176,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: colors.success,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  otpDeliveryText: {
+    marginTop: 8,
+    color: colors.textMuted,
+    fontSize: 13,
     fontWeight: '600',
   },
   dateRow: {
