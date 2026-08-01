@@ -145,8 +145,8 @@ const ProfileScreen = () => {
           });
         })
         .catch(() => undefined);
-      runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
-        .then((response) => setVoucherCount(response.items.length))
+      runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken, { page: 1, limit: 1 }))
+        .then((response) => setVoucherCount(response.pagination.totalItems))
         .catch(() => setVoucherCount(null));
       runWithAuth(async (accessToken) => {
         const shippingOrders = await accountApi.getMyOrderSummary(accessToken, 'shipping');

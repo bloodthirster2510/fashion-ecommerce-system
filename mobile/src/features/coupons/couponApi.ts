@@ -12,6 +12,8 @@ const COUPON_READ_TIMEOUT_MS = 20000;
 export type AvailableCouponsPayload = {
   cartItemIds?: string[];
   paymentMethod?: CartPaymentMethod;
+  page?: number;
+  limit?: number;
 };
 
 export type AvailableCouponItem = {
@@ -26,6 +28,12 @@ export type AvailableCouponItem = {
 
 export type AvailableCouponsResponse = {
   items: AvailableCouponItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalItems: number;
+    totalPages: number;
+  };
 };
 
 export type ValidateCouponPayload = {

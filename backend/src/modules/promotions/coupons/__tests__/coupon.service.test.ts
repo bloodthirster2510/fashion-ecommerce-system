@@ -201,6 +201,20 @@ describe('couponService admin filters', () => {
 });
 
 describe('couponService admin safeguards', () => {
+  it('rejects string booleans instead of activating a coupon accidentally', async () => {
+    await expect(couponService.createCoupon({
+      code: 'SAVE10',
+      name: 'Save 10',
+      discountType: 'fixed',
+      discountValue: 10000,
+      startAt: new Date('2026-01-01T00:00:00.000Z'),
+      endAt: new Date('2027-01-01T00:00:00.000Z'),
+      isActive: 'false',
+    } as never)).rejects.toMatchObject({ message: 'isActive must be a boolean', statusCode: 400 });
+
+    expect(mockedCoupon.create).not.toHaveBeenCalled();
+  });
+
   it('returns creator and updater identities in coupon detail', async () => {
     mockedCoupon.findById.mockResolvedValue({
       ...baseCoupon,
@@ -267,6 +281,21 @@ describe('couponService admin safeguards', () => {
     expect(mockedCoupon.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it('guards a usage-limit update against a concurrent reservation', async () => {
+    mockedCoupon.findOne.mockResolvedValue({ ...baseCoupon, usedCount: 4 } as never);
+    mockedCoupon.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(
+      couponService.updateCoupon(couponId.toString(), { usageLimit: 4 }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(mockedCoupon.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: couponId, deletedAt: null, usedCount: { $lte: 4 } },
+      { $set: expect.objectContaining({ usageLimit: 4 }) },
+      { returnDocument: 'after', runValidators: true },
+    );
+  });
+
   it('does not delete a coupon with a pending usage reservation', async () => {
     mockedCoupon.findOne.mockResolvedValue({ ...baseCoupon, usedCount: 1 } as never);
     mockedCouponUsage.countDocuments.mockResolvedValue(0);
@@ -277,6 +306,23 @@ describe('couponService admin safeguards', () => {
     });
 
     expect(mockedCoupon.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not delete a coupon when usage changes after the initial check', async () => {
+    mockedCoupon.findOne.mockResolvedValue({ ...baseCoupon, usedCount: 0 } as never);
+    mockedCouponUsage.countDocuments.mockResolvedValue(0);
+    mockedCoupon.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(couponService.deleteCoupon(couponId.toString())).rejects.toMatchObject({
+      message: 'Coupon usage changed and it can no longer be deleted',
+      statusCode: 409,
+    });
+
+    expect(mockedCoupon.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: couponId.toString(), deletedAt: null, usedCount: 0 },
+      { $set: expect.objectContaining({ isActive: false, deletedAt: expect.any(Date) }) },
+      { returnDocument: 'after' },
+    );
   });
 });
 
@@ -355,6 +401,14 @@ describe('couponService usage analytics', () => {
 });
 
 describe('couponService customer availability', () => {
+  it('rejects a null listing payload instead of returning an internal error', async () => {
+    await expect(couponService.listAvailableCoupons(userId, null as never)).rejects.toMatchObject({
+      message: 'Available coupon payload must be an object',
+      statusCode: 400,
+    });
+    expect(mockedCoupon.find).not.toHaveBeenCalled();
+  });
+
   it('does not expose internal errors as unavailable coupon reasons', async () => {
     mockedCoupon.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({

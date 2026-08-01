@@ -1,6 +1,7 @@
 import { apiFetch } from '../../config/api';
 import { reviewApi } from '../reviews/reviewApi';
 import { supportApi } from '../support/supportApi';
+import { couponApi } from '../coupons/couponApi';
 
 jest.mock('../../config/api', () => ({
   apiFetch: jest.fn(),
@@ -69,5 +70,17 @@ describe('paginated mobile APIs', () => {
       message: 'Access token expired',
       status: 401,
     });
+  });
+
+  it('passes coupon pagination so Mobile can load vouchers after the first page', async () => {
+    await couponApi.getAvailableCoupons('access-token', { page: 2, limit: 20 });
+
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/coupons/available',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ page: 2, limit: 20 }),
+      }),
+    );
   });
 });

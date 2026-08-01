@@ -28,6 +28,8 @@ const couponCategories: Array<{ key: CouponCategory; label: string; icon: keyof 
   { key: 'discount', label: 'Mã giảm giá', icon: 'ticket-percent-outline' },
   { key: 'freeship', label: 'Freeship', icon: 'truck-fast-outline' },
 ];
+const PAGE_LIMIT = 20;
+const initialPagination = { page: 1, limit: PAGE_LIMIT, totalItems: 0, totalPages: 0 };
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -81,8 +83,12 @@ const CouponsScreen = () => {
   const [activeCategory, setActiveCategory] = React.useState<CouponCategory>('all');
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [pagination, setPagination] = React.useState(initialPagination);
   const [applyingCouponCode, setApplyingCouponCode] = React.useState<string | null>(null);
-  const hasLoadedOnceRef = React.useRef(false);
+  const paginationRef = React.useRef(initialPagination);
+  const isLoadingMoreRef = React.useRef(false);
+  const requestSequenceRef = React.useRef(0);
 
   const routeCartItemIds = route.params?.cartItemIds;
   const cartItemIds = React.useMemo(() => routeCartItemIds ?? [], [routeCartItemIds]);
@@ -90,36 +96,64 @@ const CouponsScreen = () => {
   const paymentMethod = route.params?.paymentMethod ?? 'COD';
 
   const loadCoupons = React.useCallback(
-    async (silent = false) => {
+    async (mode: 'initial' | 'refresh' | 'more' = 'initial') => {
       if (!session?.accessToken) {
+        requestSequenceRef.current += 1;
         setItems([]);
+        paginationRef.current = initialPagination;
+        setPagination(initialPagination);
         setIsLoading(false);
         return;
       }
+      if (
+        mode === 'more'
+        && (isLoadingMoreRef.current || paginationRef.current.page >= paginationRef.current.totalPages)
+      ) return;
 
-      if (silent || hasLoadedOnceRef.current) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
+      const requestSequence = requestSequenceRef.current + 1;
+      requestSequenceRef.current = requestSequence;
+      if (mode !== 'more') {
+        isLoadingMoreRef.current = false;
+        setIsLoadingMore(false);
       }
 
+      if (mode === 'refresh') setIsRefreshing(true);
+      else if (mode === 'more') {
+        isLoadingMoreRef.current = true;
+        setIsLoadingMore(true);
+      } else setIsLoading(true);
+
       try {
+        const page = mode === 'more' ? paginationRef.current.page + 1 : 1;
         const response = await runWithAuth((accessToken) =>
           couponApi.getAvailableCoupons(accessToken, {
             cartItemIds: hasCartContext ? cartItemIds : undefined,
             paymentMethod,
+            page,
+            limit: PAGE_LIMIT,
           }),
         );
-        setItems(response.items);
+        if (requestSequenceRef.current !== requestSequence) return;
+        setItems((current) => {
+          if (mode !== 'more') return response.items;
+          const existingIds = new Set(current.map((item) => item.coupon._id));
+          return [...current, ...response.items.filter((item) => !existingIds.has(item.coupon._id))];
+        });
+        paginationRef.current = response.pagination;
+        setPagination(response.pagination);
       } catch (error) {
+        if (requestSequenceRef.current !== requestSequence) return;
         Alert.alert(
           'Chưa tải được voucher',
           error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
         );
       } finally {
-        hasLoadedOnceRef.current = true;
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (requestSequenceRef.current === requestSequence) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+          setIsLoadingMore(false);
+          isLoadingMoreRef.current = false;
+        }
       }
     },
     [cartItemIds, hasCartContext, paymentMethod, runWithAuth, session?.accessToken],
@@ -247,7 +281,7 @@ const CouponsScreen = () => {
         <ScrollView
           style={styles.content}
           contentContainerStyle={styles.contentBody}
-          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadCoupons(true)} />}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadCoupons('refresh')} />}
           showsVerticalScrollIndicator={false}
         >
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryTabs}>
@@ -284,6 +318,19 @@ const CouponsScreen = () => {
               <Text style={styles.emptyText}>Ưu đãi mới sẽ xuất hiện tại đây khi được mở.</Text>
             </View>
           )}
+          {pagination.page < pagination.totalPages ? (
+            <TouchableOpacity
+              style={styles.loadMoreButton}
+              onPress={() => void loadCoupons('more')}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? (
+                <ActivityIndicator color={colors.white} />
+              ) : (
+                <Text style={styles.loadMoreText}>Xem thêm voucher</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity style={styles.supportButton} onPress={() => navigation.navigate('SupportTicketCreate', { category: 'promotions', contextSource: 'coupon' })}>
             <MaterialCommunityIcons name="lifebuoy" size={20} color={colors.brand} />
             <Text style={styles.supportButtonText}>Cần hỗ trợ về voucher?</Text>
@@ -344,6 +391,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   supportButtonText: { color: colors.brand, fontWeight: '800' },
+  loadMoreButton: {
+    minHeight: 48,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreText: { color: colors.white, fontWeight: '900' },
   categoryTabs: {
     gap: spacing.sm,
     paddingRight: spacing.lg,
