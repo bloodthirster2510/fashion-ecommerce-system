@@ -144,6 +144,8 @@ vite.config.ts.timestamp-*
 
 # Project specific
 .codex-remote-attachments/
+.codegraph/
+.tmp/
 backend/tmp/
 
 # Python AI services
@@ -175,3 +177,4 @@ support-staff-admin-permissions.md
 payment-deadline-implementation-plan.md
 shipping-realtime-implementation-plan.md
 virtual-try-on-implementation-plan.md
+*.docx
