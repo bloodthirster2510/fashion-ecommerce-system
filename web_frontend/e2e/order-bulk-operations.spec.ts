@@ -119,8 +119,10 @@ test('admin selects orders, performs a bulk status update, exports CSV, and open
   await enterDemoAdmin(page)
   await page.getByRole('button', { name: /Tra cứu đơn & hóa đơn/ }).click()
   await expect(page.getByText(order.orderCode)).toBeVisible()
+  await expect(page.getByLabel('Trạng thái đích')).toHaveCount(0)
 
   await page.getByRole('checkbox', { name: `Chọn đơn ${order.orderCode}` }).check()
+  await expect(page.getByText('Thao tác với 1 đơn đã chọn')).toBeVisible()
   await page.getByLabel('Trạng thái đích').selectOption('packed')
   await page.getByLabel('Lý do bắt buộc').fill('Bàn giao ca kiểm thử')
   await page.getByRole('button', { name: 'Cập nhật trạng thái' }).click()
@@ -133,7 +135,7 @@ test('admin selects orders, performs a bulk status update, exports CSV, and open
   await expect(page.getByText('Cập nhật trạng thái thành công cho 1 đơn hàng.')).toBeVisible()
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Xuất CSV theo bộ lọc' }).click()
+  await page.getByRole('button', { name: 'Xuất CSV' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('orders-e2e.csv')
 

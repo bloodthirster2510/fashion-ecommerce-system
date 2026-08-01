@@ -45,7 +45,7 @@ describe('paymentMethodService', () => {
       metadata: {
         accountHolder: 'NGUYEN VAN A',
         accountNumberLast4: '1234',
-        refundDestination: true,
+        refundDestination: false,
       },
     });
 
@@ -55,6 +55,7 @@ describe('paymentMethodService', () => {
     expect(payload.isDefault).toBe(false);
     expect(payload.accountNumberEncrypted).toEqual(expect.stringMatching(/^v1:/));
     expect(payload.accountNumberEncrypted).not.toContain('0123456789');
+    expect(payload.metadata).toEqual(expect.objectContaining({ refundDestination: true }));
     expect(mockedPaymentMethod.updateMany).not.toHaveBeenCalled();
   });
 
@@ -87,26 +88,58 @@ describe('paymentMethodService', () => {
     expect(result.accountNumber).toBe('0123456789');
   });
 
-  it('creates the first VNPay method as verified and default', async () => {
+  it('rejects customer-added methods that are not bank refund accounts', async () => {
+    await expect(
+      paymentMethodService.createPaymentMethod(userId, {
+        type: 'VNPAY',
+        bankCode: 'VCB',
+      }),
+    ).rejects.toThrow('Only bank refund accounts can be added');
+
+    expect(mockedPaymentMethod.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { metadata: { accountNumber: '0123456789' } },
+    { metadata: { account_number: '0123456789' } },
+    { metadata: { bankAccountNumber: '0123456789' } },
+    { accountNumberEncrypted: 'plaintext-is-not-allowed' },
+  ])('rejects account secrets outside the dedicated encrypted input', async (unsafeInput) => {
+    await expect(
+      paymentMethodService.createPaymentMethod(userId, {
+        type: 'BANK',
+        bankCode: 'VCB',
+        ...unsafeInput,
+      }),
+    ).rejects.toThrow('Raw payment secrets are not accepted');
+
+    expect(mockedPaymentMethod.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps only allowlisted refund metadata', async () => {
     mockedPaymentMethod.countDocuments.mockResolvedValue(0);
     mockedPaymentMethod.create.mockImplementation(async (payload) => payload as never);
 
     await paymentMethodService.createPaymentMethod(userId, {
-      type: 'VNPAY',
+      type: 'BANK',
       bankCode: 'VCB',
+      metadata: {
+        accountHolder: ' NGUYEN VAN A ',
+        bankFullName: 'Vietcombank',
+        accountNumberLast4: '6789',
+        refundDestination: false,
+        customerNote: 'must not be persisted',
+      },
     });
 
-    const payload = mockedPaymentMethod.create.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload.status).toBe('verified');
-    expect(payload.isDefault).toBe(true);
-    expect(mockedPaymentMethod.updateMany).toHaveBeenCalledWith(
-      {
-        user_id: expect.any(Types.ObjectId),
-        status: { $in: ['verified'] },
-        isDefault: true,
+    expect(mockedPaymentMethod.create).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        accountHolder: 'NGUYEN VAN A',
+        bankFullName: 'Vietcombank',
+        accountNumberLast4: '6789',
+        refundDestination: true,
       },
-      { $set: { isDefault: false } },
-    );
+    }));
   });
 
   it('does not let customers set a pending method as default', async () => {
@@ -119,7 +152,7 @@ describe('paymentMethodService', () => {
 
     await expect(
       paymentMethodService.setDefaultPaymentMethod(userId, paymentMethodId),
-    ).rejects.toThrow('Only verified payment methods can be default');
+    ).rejects.toThrow('Only verified refund accounts can be default');
 
     expect(mockedPaymentMethod.updateMany).not.toHaveBeenCalled();
   });
@@ -153,30 +186,14 @@ describe('paymentMethodService', () => {
       metadata: {
         accountHolder: 'NGUYEN VAN A',
         accountNumberLast4: '1234',
-        refundDestination: true,
+        refundDestination: false,
       },
     });
 
     expect(method.status).toBe('pending');
     expect(method.isDefault).toBe(false);
+    expect(method.metadata).toEqual(expect.objectContaining({ refundDestination: true }));
     expect(method.save).toHaveBeenCalled();
-  });
-
-  it('rejects checkout with a pending saved payment method', async () => {
-    mockedPaymentMethod.findOne.mockResolvedValue({
-      _id: new Types.ObjectId(paymentMethodId),
-      user_id: new Types.ObjectId(userId),
-      type: 'VNPAY',
-      status: 'pending',
-    } as never);
-
-    await expect(
-      paymentMethodService.assertUsablePaymentMethodForCheckout({
-        userId,
-        paymentMethodId,
-        paymentMethod: 'VNPAY',
-      }),
-    ).rejects.toThrow('Payment method is not available');
   });
 
   it('lets admin verification promote a method to default when no verified default exists', async () => {

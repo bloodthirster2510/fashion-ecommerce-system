@@ -62,7 +62,7 @@ export const paymentSections: Array<{
   {
     key: 'all',
     label: 'Vận hành đơn hàng',
-    helper: 'Theo dõi toàn bộ đơn cần xử lý, không giới hạn theo phương thức thanh toán.',
+    helper: 'Theo dõi toàn bộ đơn cần xử lý, không giới hạn theo kênh thanh toán của đơn.',
     methods: supportedPaymentMethods,
   },
   {
@@ -142,7 +142,7 @@ export const orderTabs: OrderTab[] = [
   {
     key: 'refund',
     label: 'Cần hoàn tiền',
-    helper: 'Đơn đã thanh toán nhưng bị hủy hoặc đã nhận trả, cần đối soát và hoàn tiền thủ công.',
+    helper: 'Đơn đã thanh toán nhưng bị hủy hoặc đã nhận trả, cần xử lý hoàn tiền theo phương thức thanh toán.',
     group: 'exceptions',
     statuses: ['cancelled', 'returned'],
     paymentStatus: 'paid',
@@ -150,7 +150,7 @@ export const orderTabs: OrderTab[] = [
   },
   {
     key: 'all',
-    label: 'Tất cả đơn',
+    label: 'Tra cứu toàn bộ',
     helper: 'Tra cứu toàn bộ đơn, hóa đơn, thanh toán và vận chuyển.',
     group: 'lookup',
   },
@@ -160,8 +160,8 @@ export const orderTabGroups: Array<{
   key: OrderTabGroupKey
   label: string
 }> = [
-  { key: 'flow', label: 'Luồng vận hành' },
-  { key: 'exceptions', label: 'Phát sinh cần xử lý' },
+  { key: 'exceptions', label: 'Cần ưu tiên' },
+  { key: 'flow', label: 'Luồng thực hiện' },
   { key: 'lookup', label: 'Tra cứu' },
 ]
 
@@ -192,6 +192,22 @@ export const paymentStatusLabels: Record<AdminOrderPaymentStatus, string> = {
   paid: 'Đã thanh toán',
   failed: 'Thanh toán thất bại',
   refunded: 'Đã hoàn tiền',
+}
+
+export const getAllowedPaymentAdjustments = (
+  order: AdminOrder,
+): AdminOrderPaymentStatus[] => {
+  if (order.paymentStatus === 'refunded') return []
+
+  if (order.paymentStatus === 'paid') {
+    const canRefund = order.paymentMethod !== 'VNPAY' &&
+      (order.status === 'cancelled' || order.status === 'returned')
+    return canRefund ? ['refunded'] : []
+  }
+
+  return order.paymentStatus === 'pending'
+    ? ['paid', 'failed']
+    : ['paid', 'pending']
 }
 
 export const paymentMethodStatusLabels: Record<AdminPaymentMethodStatus, string> = {
@@ -225,7 +241,7 @@ export const getPaymentMethodStatusActions = (status: AdminPaymentMethodStatus) 
   }
 
   if (status !== 'disabled') {
-    actions.push({ status: 'disabled', label: 'Tắt phương thức', className: 'admin-danger-button' })
+    actions.push({ status: 'disabled', label: 'Tắt tài khoản', className: 'admin-danger-button' })
   }
 
   return actions
@@ -263,7 +279,7 @@ export const auditActionLabels: Record<AdminAuditLog['action'], string> = {
   'payment.expire': 'Đánh dấu thanh toán hết hạn',
   'payment.vnpay_reconcile': 'Đối soát VNPay',
   'payment.vnpay_refund': 'Yêu cầu hoàn tiền VNPay',
-  'payment_method.status_update': 'Cập nhật phương thức thanh toán',
+  'payment_method.status_update': 'Cập nhật tài khoản nhận hoàn tiền',
   'payment_method.account_reveal': 'Xem số tài khoản hoàn tiền',
   'shipping_mapping.import': 'Import mapping GHN',
   'shipping_mapping.review': 'Duyệt mapping GHN',
@@ -279,7 +295,7 @@ export const actorRoleLabels: Record<AdminAuditLog['actorRole'], string> = {
 export const auditTargetTypeLabels: Record<string, string> = {
   Order: 'Đơn hàng',
   Payment: 'Thanh toán',
-  PaymentMethod: 'Phương thức thanh toán',
+  PaymentMethod: 'Tài khoản nhận hoàn tiền',
   ShippingAreaMapping: 'Mapping GHN',
 }
 
@@ -321,6 +337,18 @@ export const nextStatusOptions: Partial<Record<AdminOrderStatus, AdminOrderStatu
   delivered: ['completed'],
   return_approved: ['returned'],
 }
+
+export const getCommonBulkStatusOptions = (orders: AdminOrder[]) => {
+  if (orders.length === 0) return []
+
+  const firstOptions = nextStatusOptions[orders[0].status] ?? []
+  return firstOptions.filter((status) =>
+    orders.every((order) => (nextStatusOptions[order.status] ?? []).includes(status)),
+  )
+}
+
+export const canSelectOrderForBulk = (order: AdminOrder) =>
+  !['cancelled', 'returned', 'completed'].includes(order.status)
 
 export const getNoNextOrderStepMessage = (order: AdminOrder) => {
   if (order.status === 'shipping') {

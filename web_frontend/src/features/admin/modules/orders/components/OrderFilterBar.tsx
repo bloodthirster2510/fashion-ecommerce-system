@@ -18,6 +18,8 @@ type OrderFilterBarProps = {
   activeTab: OrderTab
   dateFrom: string
   dateTo: string
+  isActionLoading: boolean
+  isExporting: boolean
   isLookupMode: boolean
   keywordInput: string
   paymentMethod: AdminOrderPaymentMethod | 'all'
@@ -33,6 +35,7 @@ type OrderFilterBarProps = {
   onColumnToggle: (column: OrderTableColumnKey) => void
   onApplyDateRange: (daysAgo: number) => void
   onClearDateRange: () => void
+  onExportCsv: () => void | Promise<void>
   onResetLookupView: () => void
   onSaveLookupView: () => void
 }
@@ -42,6 +45,8 @@ export function OrderFilterBar({
   activeTab,
   dateFrom,
   dateTo,
+  isActionLoading,
+  isExporting,
   isLookupMode,
   keywordInput,
   paymentMethod,
@@ -57,10 +62,35 @@ export function OrderFilterBar({
   onColumnToggle,
   onApplyDateRange,
   onClearDateRange,
+  onExportCsv,
   onResetLookupView,
   onSaveLookupView,
 }: OrderFilterBarProps) {
   const visibleColumnSet = new Set(visibleColumns)
+
+  if (!isLookupMode) {
+    return (
+      <div className="admin-table-toolbar admin-order-operational-filter">
+        <label className="admin-user-search">
+          <span>Tìm trong hàng đợi</span>
+          <input
+            type="search"
+            value={keywordInput}
+            onChange={(event) => onKeywordInputChange(event.target.value)}
+            placeholder="Mã đơn, mã hóa đơn hoặc sản phẩm"
+          />
+        </label>
+        <button
+          className="admin-secondary-button"
+          type="button"
+          disabled={isExporting || isActionLoading}
+          onClick={() => void onExportCsv()}
+        >
+          {isExporting ? 'Đang xuất CSV...' : 'Xuất danh sách hiện tại'}
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className={`admin-table-toolbar${isLookupMode ? ' is-lookup' : ''}`}>
@@ -75,13 +105,13 @@ export function OrderFilterBar({
       </label>
 
       <label>
-        <span>Phương thức</span>
+        <span>Kênh thanh toán đơn</span>
         <select
           value={!isLookupMode && activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod}
           disabled={!isLookupMode && activePaymentSectionKey === 'cod'}
           onChange={(event) => onPaymentMethodChange(event.target.value as AdminOrderPaymentMethod | 'all')}
         >
-          <option value="all">Tất cả phương thức</option>
+          <option value="all">Tất cả kênh</option>
           {(isLookupMode ? allPaymentMethods : getPaymentSectionMethods(activePaymentSectionKey)).map((value) => (
             <option key={value} value={value}>
               {paymentMethodLabels[value]}
@@ -159,6 +189,14 @@ export function OrderFilterBar({
           </fieldset>
 
           <div className="admin-order-saved-view-actions" aria-label="View tra cứu">
+            <button
+              className="admin-secondary-button"
+              type="button"
+              disabled={isExporting || isActionLoading}
+              onClick={() => void onExportCsv()}
+            >
+              {isExporting ? 'Đang xuất CSV...' : 'Xuất CSV'}
+            </button>
             <button className="admin-secondary-button" type="button" onClick={onSaveLookupView}>
               Lưu view
             </button>

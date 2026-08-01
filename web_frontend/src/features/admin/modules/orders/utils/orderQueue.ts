@@ -155,7 +155,9 @@ export const getOrderAttention = (order: AdminOrder): AdminOrderAttention | null
       kind: 'refund',
       tone: 'warning',
       label: 'Cần hoàn tiền',
-      helper: 'Đơn đã thanh toán nhưng bị hủy, cần đối soát hoàn tiền thủ công.',
+      helper: order.paymentMethod === 'VNPAY'
+        ? 'Đơn đã thanh toán nhưng bị hủy, cần hoàn về giao dịch gốc qua VNPay.'
+        : 'Đơn đã thanh toán nhưng bị hủy, cần đối soát và chuyển khoản hoàn tiền.',
     }
   }
 

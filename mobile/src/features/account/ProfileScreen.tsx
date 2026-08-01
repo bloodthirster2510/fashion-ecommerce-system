@@ -57,7 +57,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
   { id: 'vouchers', icon: 'ticket-percent-outline', label: 'Voucher & Ưu đãi' },
-  { id: 'payment', icon: 'credit-card-outline', label: 'Phương thức thanh toán' },
+  { id: 'payment', icon: 'bank-outline', label: 'Tài khoản hoàn tiền' },
   { id: 'notification-settings', icon: 'bell-cog-outline', label: 'Cài đặt thông báo' },
   { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ' },
 ];

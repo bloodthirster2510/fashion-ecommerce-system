@@ -13,28 +13,31 @@ export function OrderPaymentSectionTabs({
 }: OrderPaymentSectionTabsProps) {
   const operationalSections = paymentSections.filter((section) => section.key !== 'all')
   return (
-    <div className="admin-order-payment-sections" role="tablist" aria-label="Phương thức thanh toán">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activePaymentSectionKey === 'all'}
-        className={`admin-order-payment-section${activePaymentSectionKey === 'all' ? ' is-active' : ''}`}
-        onClick={() => navigateToOrderSection('all', activeTabKey)}
-      >
-        Tất cả đơn
-      </button>
-      {operationalSections.map((section) => (
+    <section className="admin-order-payment-scope" aria-label="Kênh thanh toán của đơn">
+      <span className="admin-order-payment-scope-label">Kênh thanh toán đơn</span>
+      <div className="admin-order-payment-sections" role="tablist">
         <button
-          key={section.key}
           type="button"
           role="tab"
-          aria-selected={activePaymentSectionKey === section.key}
-          className={`admin-order-payment-section is-${section.key}${activePaymentSectionKey === section.key ? ' is-active' : ''}`}
-          onClick={() => navigateToOrderSection(section.key, activeTabKey)}
+          aria-selected={activePaymentSectionKey === 'all'}
+          className={`admin-order-payment-section${activePaymentSectionKey === 'all' ? ' is-active' : ''}`}
+          onClick={() => navigateToOrderSection('all', activeTabKey)}
         >
-          {section.label}
+          Mọi kênh
         </button>
-      ))}
-    </div>
+        {operationalSections.map((section) => (
+          <button
+            key={section.key}
+            type="button"
+            role="tab"
+            aria-selected={activePaymentSectionKey === section.key}
+            className={`admin-order-payment-section is-${section.key}${activePaymentSectionKey === section.key ? ' is-active' : ''}`}
+            onClick={() => navigateToOrderSection(section.key, activeTabKey)}
+          >
+            {section.label}
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }

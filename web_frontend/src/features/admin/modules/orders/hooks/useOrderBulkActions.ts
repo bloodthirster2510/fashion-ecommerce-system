@@ -9,7 +9,13 @@ import {
   type BulkOrderActionResult,
   type OrderListFilters,
 } from '../orderAdminApi'
-import { getErrorMessage } from '../orderPresentation'
+import {
+  canCreateGhnShipment,
+  canSelectOrderForBulk,
+  canSyncGhnShipment,
+  getCommonBulkStatusOptions,
+  getErrorMessage,
+} from '../orderPresentation'
 import type { Notice } from '../orderTypes'
 
 type UseOrderBulkActionsOptions = {
@@ -70,7 +76,9 @@ export function useOrderBulkActions({
   const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
-    const visibleOrderIds = new Set(orders.map((order) => order._id))
+    const visibleOrderIds = new Set(
+      orders.filter(canSelectOrderForBulk).map((order) => order._id),
+    )
     setSelectedOrderIds((current) => current.filter((orderId) => visibleOrderIds.has(orderId)))
   }, [orders])
 
@@ -79,9 +87,25 @@ export function useOrderBulkActions({
     return orders.filter((order) => selectedIdSet.has(order._id))
   }, [orders, selectedOrderIds])
 
+  const availableBulkStatuses = useMemo(
+    () => getCommonBulkStatusOptions(selectedOrders),
+    [selectedOrders],
+  )
+  const canBulkCreateGhn = selectedOrders.length > 0 && selectedOrders.every(canCreateGhnShipment)
+  const canBulkSyncGhn = selectedOrders.length > 0 && selectedOrders.every(canSyncGhnShipment)
+
+  useEffect(() => {
+    if (availableBulkStatuses.length > 0 && !availableBulkStatuses.includes(bulkStatus)) {
+      setBulkStatus(availableBulkStatuses[0])
+    }
+  }, [availableBulkStatuses, bulkStatus])
+
   const labelCount = selectedOrders.filter((order) => getSafeLabelUrl(order.shipping?.labelUrl)).length
 
   const toggleOrder = (orderId: string, selected: boolean) => {
+    const order = orders.find((item) => item._id === orderId)
+    if (selected && (!order || !canSelectOrderForBulk(order))) return
+
     setSelectedOrderIds((current) => (
       selected
         ? [...new Set([...current, orderId])]
@@ -90,7 +114,11 @@ export function useOrderBulkActions({
   }
 
   const togglePage = (selected: boolean) => {
-    setSelectedOrderIds(selected ? orders.map((order) => order._id) : [])
+    setSelectedOrderIds(
+      selected
+        ? orders.filter(canSelectOrderForBulk).map((order) => order._id)
+        : [],
+    )
   }
 
   const finishBulkAction = async (result: BulkOrderActionResult, actionLabel: string) => {
@@ -108,6 +136,10 @@ export function useOrderBulkActions({
     const reason = bulkReason.trim()
     if (selectedOrderIds.length === 0) {
       setNotice({ type: 'warning', message: 'Hãy chọn ít nhất một đơn hàng.' })
+      return
+    }
+    if (!availableBulkStatuses.includes(bulkStatus)) {
+      setNotice({ type: 'warning', message: 'Các đơn đã chọn không có cùng bước trạng thái hợp lệ.' })
       return
     }
     if (!reason) {
@@ -132,6 +164,16 @@ export function useOrderBulkActions({
     const reason = bulkReason.trim()
     if (selectedOrderIds.length === 0) {
       setNotice({ type: 'warning', message: 'Hãy chọn ít nhất một đơn hàng.' })
+      return
+    }
+    const canRunAction = action === 'create' ? canBulkCreateGhn : canBulkSyncGhn
+    if (!canRunAction) {
+      setNotice({
+        type: 'warning',
+        message: action === 'create'
+          ? 'Chỉ có thể tạo vận đơn khi toàn bộ đơn đã chọn đủ điều kiện GHN.'
+          : 'Chỉ có thể đồng bộ khi toàn bộ đơn đã chọn đã có mã vận đơn GHN.',
+      })
       return
     }
     if (selectedOrderIds.length > 20) {
@@ -198,8 +240,11 @@ export function useOrderBulkActions({
   }
 
   return {
+    availableBulkStatuses,
     bulkReason,
     bulkStatus,
+    canBulkCreateGhn,
+    canBulkSyncGhn,
     clearSelection: () => setSelectedOrderIds([]),
     handleBulkGhn,
     handleBulkStatusUpdate,

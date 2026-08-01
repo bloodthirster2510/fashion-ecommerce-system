@@ -5,6 +5,7 @@ import {
   bulkProcessGhnShipments,
   bulkUpdateOrderStatus,
   exportOrdersCsv,
+  getOrders,
   handleGhnShippingWebhook,
 } from '../order.controller';
 import { orderService } from '../order.service';
@@ -15,6 +16,7 @@ jest.mock('../order.service', () => ({
     cancelOrder: jest.fn(),
     createGhnShipment: jest.fn(),
     getOrderById: jest.fn(),
+    getOrders: jest.fn(),
     getOrdersForExport: jest.fn(),
     syncGhnShipment: jest.fn(),
     updateOrderStatus: jest.fn(),
@@ -47,6 +49,42 @@ const createResponse = () => {
     json: jest.Mock;
   };
 };
+
+describe('admin order queue query', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('forwards a validated operational queue to the orders service', async () => {
+    mockedOrderService.getOrders.mockResolvedValue({
+      items: [],
+      statusSummary: {},
+      operationalSummary: {},
+      pagination: { page: 1, limit: 10, totalItems: 0, totalPages: 0 },
+    } as never);
+    const req = { query: { queue: 'handoff', page: '2', limit: '10' } } as unknown as Request;
+    const res = createResponse();
+
+    await getOrders(req, res);
+
+    expect(mockedOrderService.getOrders).toHaveBeenCalledWith(expect.objectContaining({
+      queue: 'handoff',
+      page: 2,
+      limit: 10,
+    }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('rejects unknown operational queues before querying orders', async () => {
+    const req = { query: { queue: 'unknown-queue' } } as unknown as Request;
+    const res = createResponse();
+
+    await getOrders(req, res);
+
+    expect(mockedOrderService.getOrders).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
 
 describe('handleGhnShippingWebhook', () => {
   const originalSecret = process.env.GHN_WEBHOOK_SECRET;

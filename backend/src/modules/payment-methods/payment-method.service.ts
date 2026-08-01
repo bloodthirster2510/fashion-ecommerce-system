@@ -9,16 +9,13 @@ import {
 import { SalesServiceError } from '../sales/sales.helpers';
 import type { CreatePaymentMethodInput, UpdatePaymentMethodInput } from './payment-method.types';
 
-const allowedTypes: PaymentMethodType[] = ['VNPAY', 'MOMO', 'BANK', 'CARD'];
 const DEFAULTABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
-const CHECKOUT_USABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
 const PAYMENT_ACCOUNT_ENCRYPTION_VERSION = 'v1';
-const sensitiveFieldNames = [
-  'account_number',
-  'bankAccountNumber',
-  'bank_account_number',
-  'cardNumber',
-  'card_number',
+const sensitiveFieldNames = new Set([
+  'accountnumber',
+  'accountnumberencrypted',
+  'bankaccountnumber',
+  'cardnumber',
   'number',
   'cvv',
   'cvc',
@@ -26,9 +23,15 @@ const sensitiveFieldNames = [
   'password',
   'pin',
   'token',
-  'rawToken',
+  'rawtoken',
   'secret',
-];
+]);
+const allowedMetadataFields = new Set([
+  'accountHolder',
+  'accountNumberLast4',
+  'bankFullName',
+  'refundDestination',
+]);
 
 const toObjectId = (value: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(value)) {
@@ -113,10 +116,8 @@ const assertNoSensitiveFields = (input: Record<string, unknown>) => {
     }
 
     Object.entries(value).forEach(([key, nestedValue]) => {
-      const loweredKey = key.toLowerCase();
-      const hasSensitiveField = sensitiveFieldNames.some((field) =>
-        loweredKey === field.toLowerCase(),
-      );
+      const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const hasSensitiveField = sensitiveFieldNames.has(normalizedKey);
 
       if (hasSensitiveField) {
         throw new SalesServiceError('Raw payment secrets are not accepted', 400);
@@ -134,6 +135,8 @@ const sanitizeMetadata = (value: unknown) => {
 
   const result: Record<string, unknown> = {};
   Object.entries(value).forEach(([key, nestedValue]) => {
+    if (!allowedMetadataFields.has(key)) return;
+
     if (typeof nestedValue === 'string') {
       const trimmedValue = nestedValue.trim();
       if (trimmedValue) result[key] = trimmedValue;
@@ -168,11 +171,11 @@ const normalizeMaskedInfo = (value?: string | null) => {
 const normalizeType = (type: unknown): PaymentMethodType => {
   const normalizedType = typeof type === 'string' ? type.toUpperCase() : '';
 
-  if (!allowedTypes.includes(normalizedType as PaymentMethodType)) {
-    throw new SalesServiceError('Invalid payment method type', 400);
+  if (normalizedType !== 'BANK') {
+    throw new SalesServiceError('Only bank refund accounts can be added', 400);
   }
 
-  return normalizedType as PaymentMethodType;
+  return 'BANK';
 };
 
 const getProvider = (type: PaymentMethodType, provider?: string) => {
@@ -232,7 +235,10 @@ const serializePaymentMethod = (
 };
 
 const listPaymentMethods = async (userId: string) => {
-  const methods = await PaymentMethod.find({ user_id: toObjectId(userId, 'userId') })
+  const methods = await PaymentMethod.find({
+    user_id: toObjectId(userId, 'userId'),
+    type: 'BANK',
+  })
     .sort({ isDefault: -1, updatedAt: -1 })
     .lean();
 
@@ -267,7 +273,10 @@ const createPaymentMethod = async (userId: string, input: CreatePaymentMethodInp
     bankName: input.bankName?.trim() || null,
     status: initialStatus,
     isDefault,
-    metadata: sanitizeMetadata(input.metadata),
+    metadata: {
+      ...sanitizeMetadata(input.metadata),
+      refundDestination: true,
+    },
   });
 
   return serializePaymentMethod(method);
@@ -280,7 +289,7 @@ const getOwnedPaymentMethod = async (userId: string, id: string) => {
   });
 
   if (!method) {
-    throw new SalesServiceError('Payment method not found', 404);
+    throw new SalesServiceError('Refund account not found', 404);
   }
 
   return method;
@@ -290,7 +299,7 @@ const getPaymentMethodById = async (id: string) => {
   const method = await PaymentMethod.findById(toObjectId(id, 'paymentMethodId'));
 
   if (!method) {
-    throw new SalesServiceError('Payment method not found', 404);
+    throw new SalesServiceError('Refund account not found', 404);
   }
 
   return method;
@@ -303,12 +312,12 @@ const updatePaymentMethod = async (userId: string, id: string, input: UpdatePaym
   const accountNumber = normalizeAccountNumber(input.accountNumber);
 
   if (input.status !== undefined) {
-    throw new SalesServiceError('Payment method status can only be updated by admin', 403);
+    throw new SalesServiceError('Refund account status can only be updated by admin', 403);
   }
 
   if (input.isDefault === true) {
     if (!DEFAULTABLE_STATUSES.includes(method.status)) {
-      throw new SalesServiceError('Only verified payment methods can be default', 400);
+      throw new SalesServiceError('Only verified refund accounts can be default', 400);
     }
 
     await unsetDefaultPaymentMethods(userId);
@@ -330,7 +339,12 @@ const updatePaymentMethod = async (userId: string, id: string, input: UpdatePaym
   }
   if (input.bankCode !== undefined) method.bankCode = input.bankCode?.trim().toUpperCase() || null;
   if (input.bankName !== undefined) method.bankName = input.bankName?.trim() || null;
-  if (input.metadata !== undefined) method.metadata = sanitizeMetadata(input.metadata);
+  if (input.metadata !== undefined) {
+    method.metadata = {
+      ...sanitizeMetadata(input.metadata),
+      refundDestination: true,
+    };
+  }
   if (input.isDefault !== undefined) method.isDefault = Boolean(input.isDefault);
 
   if (shouldReverifyBankMethod) {
@@ -350,7 +364,7 @@ const setDefaultPaymentMethod = async (userId: string, id: string) => {
   const method = await getOwnedPaymentMethod(userId, id);
 
   if (!DEFAULTABLE_STATUSES.includes(method.status)) {
-    throw new SalesServiceError('Only verified payment methods can be default', 400);
+    throw new SalesServiceError('Only verified refund accounts can be default', 400);
   }
 
   await unsetDefaultPaymentMethods(userId);
@@ -368,7 +382,10 @@ const disablePaymentMethod = async (userId: string, id: string) => {
 };
 
 const listUserPaymentMethodsForAdmin = async (userId: string) => {
-  const methods = await PaymentMethod.find({ user_id: toObjectId(userId, 'userId') })
+  const methods = await PaymentMethod.find({
+    user_id: toObjectId(userId, 'userId'),
+    type: 'BANK',
+  })
     .select('+accountNumberEncrypted')
     .sort({ isDefault: -1, updatedAt: -1 })
     .lean();
@@ -381,7 +398,7 @@ const revealPaymentMethodAccountNumberForAdmin = async (id: string) => {
   const method = await query.select('+accountNumberEncrypted');
 
   if (!method) {
-    throw new SalesServiceError('Payment method not found', 404);
+    throw new SalesServiceError('Refund account not found', 404);
   }
 
   if (method.type !== 'BANK') {
@@ -442,30 +459,6 @@ const updatePaymentMethodStatusForAdmin = async ({
   };
 };
 
-const assertUsablePaymentMethodForCheckout = async ({
-  userId,
-  paymentMethodId,
-  paymentMethod,
-}: {
-  userId: string;
-  paymentMethodId?: string;
-  paymentMethod: string;
-}) => {
-  if (!paymentMethodId) return null;
-
-  const method = await getOwnedPaymentMethod(userId, paymentMethodId);
-
-  if (!CHECKOUT_USABLE_STATUSES.includes(method.status)) {
-    throw new SalesServiceError('Payment method is not available', 400);
-  }
-
-  if (method.type !== paymentMethod) {
-    throw new SalesServiceError('Payment method type does not match checkout method', 400);
-  }
-
-  return method;
-};
-
 export const paymentMethodService = {
   listPaymentMethods,
   createPaymentMethod,
@@ -475,5 +468,4 @@ export const paymentMethodService = {
   listUserPaymentMethodsForAdmin,
   revealPaymentMethodAccountNumberForAdmin,
   updatePaymentMethodStatusForAdmin,
-  assertUsablePaymentMethodForCheckout,
 };

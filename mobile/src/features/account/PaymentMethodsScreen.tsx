@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -24,7 +25,6 @@ import {
   paymentMethodsApi,
   type PaymentMethodRecord,
   type PaymentMethodStatus,
-  type PaymentMethodType,
 } from './paymentMethodsApi';
 
 type PaymentMethodsNavigationProp = StackNavigationProp<RootStackParamList, 'PaymentMethods'>;
@@ -41,44 +41,116 @@ type BankOption = {
   code: string;
   name: string;
   shortName: string;
+  logoUrl: string;
 };
 
 const DEFAULTABLE_STATUSES: PaymentMethodStatus[] = ['verified'];
 const BANK_OPTIONS: BankOption[] = [
-  { code: 'VCB', name: 'Ngân hàng TMCP Ngoại thương Việt Nam', shortName: 'Vietcombank' },
-  { code: 'TCB', name: 'Ngân hàng TMCP Kỹ thương Việt Nam', shortName: 'Techcombank' },
-  { code: 'BIDV', name: 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam', shortName: 'BIDV' },
-  { code: 'CTG', name: 'Ngân hàng TMCP Công thương Việt Nam', shortName: 'VietinBank' },
-  { code: 'VBA', name: 'Ngân hàng Nông nghiệp và Phát triển Nông thôn Việt Nam', shortName: 'Agribank' },
-  { code: 'ACB', name: 'Ngân hàng TMCP Á Châu', shortName: 'ACB' },
-  { code: 'MB', name: 'Ngân hàng TMCP Quân đội', shortName: 'MB Bank' },
-  { code: 'VPB', name: 'Ngân hàng TMCP Việt Nam Thịnh Vượng', shortName: 'VPBank' },
-  { code: 'TPB', name: 'Ngân hàng TMCP Tiên Phong', shortName: 'TPBank' },
-  { code: 'STB', name: 'Ngân hàng TMCP Sài Gòn Thương Tín', shortName: 'Sacombank' },
-  { code: 'HDB', name: 'Ngân hàng TMCP Phát triển TP.HCM', shortName: 'HDBank' },
-  { code: 'VIB', name: 'Ngân hàng TMCP Quốc tế Việt Nam', shortName: 'VIB' },
-  { code: 'OCB', name: 'Ngân hàng TMCP Phương Đông', shortName: 'OCB' },
-  { code: 'MSB', name: 'Ngân hàng TMCP Hàng Hải Việt Nam', shortName: 'MSB' },
-  { code: 'SHB', name: 'Ngân hàng TMCP Sài Gòn - Hà Nội', shortName: 'SHB' },
-  { code: 'EIB', name: 'Ngân hàng TMCP Xuất Nhập khẩu Việt Nam', shortName: 'Eximbank' },
+  {
+    code: 'VCB',
+    name: 'Ngân hàng TMCP Ngoại thương Việt Nam',
+    shortName: 'Vietcombank',
+    logoUrl: 'https://cdn.vietqr.io/img/VCB.png',
+  },
+  {
+    code: 'TCB',
+    name: 'Ngân hàng TMCP Kỹ thương Việt Nam',
+    shortName: 'Techcombank',
+    logoUrl: 'https://cdn.vietqr.io/img/TCB.png',
+  },
+  {
+    code: 'BIDV',
+    name: 'Ngân hàng TMCP Đầu tư và Phát triển Việt Nam',
+    shortName: 'BIDV',
+    logoUrl: 'https://cdn.vietqr.io/img/BIDV.png',
+  },
+  {
+    code: 'CTG',
+    name: 'Ngân hàng TMCP Công thương Việt Nam',
+    shortName: 'VietinBank',
+    logoUrl: 'https://cdn.vietqr.io/img/ICB.png',
+  },
+  {
+    code: 'VBA',
+    name: 'Ngân hàng Nông nghiệp và Phát triển Nông thôn Việt Nam',
+    shortName: 'Agribank',
+    logoUrl: 'https://cdn.vietqr.io/img/VBA.png',
+  },
+  { code: 'ACB', name: 'Ngân hàng TMCP Á Châu', shortName: 'ACB', logoUrl: 'https://cdn.vietqr.io/img/ACB.png' },
+  { code: 'MB', name: 'Ngân hàng TMCP Quân đội', shortName: 'MB Bank', logoUrl: 'https://cdn.vietqr.io/img/MB.png' },
+  {
+    code: 'VPB',
+    name: 'Ngân hàng TMCP Việt Nam Thịnh Vượng',
+    shortName: 'VPBank',
+    logoUrl: 'https://cdn.vietqr.io/img/VPB.png',
+  },
+  {
+    code: 'TPB',
+    name: 'Ngân hàng TMCP Tiên Phong',
+    shortName: 'TPBank',
+    logoUrl: 'https://cdn.vietqr.io/img/TPB.png',
+  },
+  {
+    code: 'STB',
+    name: 'Ngân hàng TMCP Sài Gòn Thương Tín',
+    shortName: 'Sacombank',
+    logoUrl: 'https://cdn.vietqr.io/img/STB.png',
+  },
+  {
+    code: 'HDB',
+    name: 'Ngân hàng TMCP Phát triển TP.HCM',
+    shortName: 'HDBank',
+    logoUrl: 'https://cdn.vietqr.io/img/HDB.png',
+  },
+  { code: 'VIB', name: 'Ngân hàng TMCP Quốc tế Việt Nam', shortName: 'VIB', logoUrl: 'https://cdn.vietqr.io/img/VIB.png' },
+  { code: 'OCB', name: 'Ngân hàng TMCP Phương Đông', shortName: 'OCB', logoUrl: 'https://cdn.vietqr.io/img/OCB.png' },
+  { code: 'MSB', name: 'Ngân hàng TMCP Hàng Hải Việt Nam', shortName: 'MSB', logoUrl: 'https://cdn.vietqr.io/img/MSB.png' },
+  { code: 'SHB', name: 'Ngân hàng TMCP Sài Gòn - Hà Nội', shortName: 'SHB', logoUrl: 'https://cdn.vietqr.io/img/SHB.png' },
+  {
+    code: 'EIB',
+    name: 'Ngân hàng TMCP Xuất Nhập khẩu Việt Nam',
+    shortName: 'Eximbank',
+    logoUrl: 'https://cdn.vietqr.io/img/EIB.png',
+  },
 ];
+
+const findBankOption = (bankCode?: string | null, bankName?: string | null) => {
+  const normalizedCode = bankCode?.trim().toUpperCase();
+  const normalizedName = bankName?.trim().toLocaleLowerCase('vi');
+
+  return BANK_OPTIONS.find(
+    (bank) =>
+      bank.code === normalizedCode ||
+      (normalizedName &&
+        (bank.shortName.toLocaleLowerCase('vi') === normalizedName || bank.name.toLocaleLowerCase('vi') === normalizedName)),
+  );
+};
+
+const BankLogo = ({ bank, fallbackCode, compact = false }: { bank?: BankOption; fallbackCode?: string | null; compact?: boolean }) => {
+  const [failedUrl, setFailedUrl] = React.useState<string | null>(null);
+  const canShowLogo = Boolean(bank?.logoUrl && failedUrl !== bank.logoUrl);
+  const fallback = (fallbackCode || bank?.code || 'NH').slice(0, 3).toUpperCase();
+
+  return (
+    <View style={[styles.bankLogo, compact && styles.bankLogoCompact]} accessibilityLabel={bank ? `Logo ${bank.shortName}` : `Ngân hàng ${fallback}`}>
+      {canShowLogo ? (
+        <ExpoImage
+          source={bank?.logoUrl}
+          style={styles.bankLogoImage}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+          transition={120}
+          onError={() => setFailedUrl(bank?.logoUrl ?? null)}
+        />
+      ) : (
+        <Text style={styles.bankLogoText}>{fallback}</Text>
+      )}
+    </View>
+  );
+};
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Bạn thử lại sau nha.';
-
-const getMethodIcon = (method: PaymentMethodRecord): keyof typeof MaterialCommunityIcons.glyphMap => {
-  if (method.type === 'VNPAY') return 'credit-card-check-outline';
-  if (method.type === 'MOMO') return 'wallet-outline';
-  if (method.type === 'CARD') return 'credit-card-outline';
-  return 'bank-outline';
-};
-
-const getMethodLabel = (type: PaymentMethodType) => {
-  if (type === 'VNPAY') return 'VNPay';
-  if (type === 'MOMO') return 'MoMo';
-  if (type === 'CARD') return 'Thẻ thanh toán';
-  return 'Ngân hàng';
-};
 
 const getStatusLabel = (status: PaymentMethodStatus) => {
   if (status === 'verified') return 'Sẵn sàng';
@@ -213,7 +285,7 @@ const PaymentMethodsScreen = () => {
         const message = getErrorMessage(loadError);
         setError(message);
         if (silent) {
-          Alert.alert('Chưa tải được phương thức thanh toán', message);
+          Alert.alert('Chưa tải được tài khoản hoàn tiền', message);
         }
       } finally {
         setIsLoading(false);
@@ -268,17 +340,17 @@ const PaymentMethodsScreen = () => {
     const normalizedAccountNumber = accountNumber.replace(/\s+/g, '');
     const isEditing = Boolean(editingMethod);
     if (!selectedBank) {
-      Alert.alert('Chọn ngân hàng', 'Bạn chọn ngân hàng phát hành thẻ hoặc tài khoản nhận hoàn tiền nha.');
+      Alert.alert('Chọn ngân hàng', 'Bạn chọn ngân hàng của tài khoản nhận hoàn tiền nha.');
       return;
     }
 
     if (!accountHolder.trim() || (!isEditing && normalizedAccountNumber.length < 4)) {
-      Alert.alert('Thiếu thông tin', 'Bạn nhập tên chủ thẻ/tài khoản và số thẻ/tài khoản nhận hoàn tiền nha.');
+      Alert.alert('Thiếu thông tin', 'Bạn nhập tên chủ tài khoản và số tài khoản nhận hoàn tiền nha.');
       return;
     }
 
     if (normalizedAccountNumber && normalizedAccountNumber.length < 4) {
-      Alert.alert('Số tài khoản chưa hợp lệ', 'Số thẻ/tài khoản nhận hoàn tiền cần ít nhất 4 chữ số.');
+      Alert.alert('Số tài khoản chưa hợp lệ', 'Số tài khoản nhận hoàn tiền cần ít nhất 4 chữ số.');
       return;
     }
 
@@ -324,7 +396,7 @@ const PaymentMethodsScreen = () => {
       setIsAddingMethod(false);
       await loadMethods(true);
     } catch (saveError) {
-      Alert.alert('Chưa lưu được phương thức', getErrorMessage(saveError));
+      Alert.alert('Chưa lưu được tài khoản hoàn tiền', getErrorMessage(saveError));
     } finally {
       setIsSaving(false);
     }
@@ -352,7 +424,7 @@ const PaymentMethodsScreen = () => {
     }
 
     Alert.alert(
-      'Xoá phương thức thanh toán',
+      'Xoá tài khoản nhận hoàn tiền',
       `Bạn muốn xoá ${method.displayName}?`,
       [
         { text: 'Huỷ', style: 'cancel' },
@@ -367,7 +439,7 @@ const PaymentMethodsScreen = () => {
                 setMethods((current) => current.filter((item) => item._id !== method._id));
                 await loadMethods(true);
               } catch (removeError) {
-                Alert.alert('Chưa xoá được phương thức', getErrorMessage(removeError));
+                Alert.alert('Chưa xoá được tài khoản hoàn tiền', getErrorMessage(removeError));
               } finally {
                 setPendingMethodId(null);
               }
@@ -416,6 +488,7 @@ const PaymentMethodsScreen = () => {
         onPress={() => setIsBankPickerOpen(true)}
         activeOpacity={0.84}
       >
+        {selectedBank ? <BankLogo bank={selectedBank} compact /> : null}
         <View style={styles.selectCopy}>
           <Text style={[styles.selectValue, !selectedBank && styles.selectPlaceholder]} numberOfLines={1}>
             {selectedBank ? selectedBank.shortName : 'Chọn ngân hàng'}
@@ -451,7 +524,7 @@ const PaymentMethodsScreen = () => {
           <View style={styles.bankSheetHeader}>
             <View>
               <Text style={styles.bankSheetTitle}>Chọn ngân hàng</Text>
-              <Text style={styles.bankSheetSubtitle}>Ngân hàng phát hành thẻ hoặc tài khoản nhận hoàn tiền</Text>
+              <Text style={styles.bankSheetSubtitle}>Ngân hàng của tài khoản nhận hoàn tiền</Text>
             </View>
             <TouchableOpacity
               style={styles.closeFormButton}
@@ -496,9 +569,7 @@ const PaymentMethodsScreen = () => {
                   }}
                   activeOpacity={0.84}
                 >
-                  <View style={styles.bankLogo}>
-                    <Text style={styles.bankLogoText}>{bank.code.slice(0, 3)}</Text>
-                  </View>
+                  <BankLogo bank={bank} />
                   <View style={styles.bankOptionCopy}>
                     <Text style={styles.bankOptionName} numberOfLines={1}>
                       {bank.shortName}
@@ -529,13 +600,12 @@ const PaymentMethodsScreen = () => {
     const isPending = pendingMethodId === method._id;
     const canSetDefault = isDefaultableMethod(method) && !method.isDefault;
     const statusStyle = getStatusStyle(method.status);
+    const methodBank = findBankOption(method.bankCode, method.bankName);
 
     return (
       <View key={method._id} style={[styles.methodCard, !isDefaultableMethod(method) && styles.methodCardMuted]}>
         <View style={styles.methodHeader}>
-          <View style={styles.methodIcon}>
-            <MaterialCommunityIcons name={getMethodIcon(method)} size={22} color={colors.brand} />
-          </View>
+          <BankLogo bank={methodBank} fallbackCode={method.bankCode} />
           <View style={styles.methodTitleBlock}>
             <View style={styles.methodTitleRow}>
               <Text style={styles.methodTitle} numberOfLines={1}>
@@ -548,7 +618,7 @@ const PaymentMethodsScreen = () => {
                 </View>
               ) : null}
             </View>
-            <Text style={styles.methodTypeText}>{getMethodLabel(method.type)}</Text>
+            <Text style={styles.methodTypeText}>Tài khoản ngân hàng nhận hoàn</Text>
           </View>
         </View>
 
@@ -563,7 +633,7 @@ const PaymentMethodsScreen = () => {
           </View>
           {method.status === 'pending' ? (
             <Text style={styles.statusHint} numberOfLines={1}>
-              Admin sẽ xác minh trước khi sử dụng.
+              Shop sẽ xác minh trước khi chuyển tiền hoàn.
             </Text>
           ) : null}
         </View>
@@ -655,7 +725,7 @@ const PaymentMethodsScreen = () => {
           </View>
           <View style={styles.addCopy}>
             <Text style={styles.addTitle}>Thêm thông tin</Text>
-            <Text style={styles.addText}>Thêm thẻ hoặc tài khoản ngân hàng để shop xử lý hoàn tiền.</Text>
+            <Text style={styles.addText}>Thêm tài khoản ngân hàng để shop chuyển khoản hoàn tiền khi cần.</Text>
           </View>
           <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textMuted} />
         </TouchableOpacity>
@@ -672,7 +742,7 @@ const PaymentMethodsScreen = () => {
             <Text style={styles.formSubtitle}>
               {isEditing
                 ? 'Sửa thông tin nhận hoàn tiền. Nếu đổi số tài khoản, shop sẽ xác minh lại trước khi sử dụng.'
-                : 'Chọn ngân hàng và nhập thẻ/tài khoản nhận hoàn tiền.'}
+                : 'Chọn ngân hàng và nhập tài khoản nhận hoàn tiền.'}
             </Text>
           </View>
           <TouchableOpacity
@@ -682,7 +752,7 @@ const PaymentMethodsScreen = () => {
               resetForm();
             }}
             activeOpacity={0.84}
-            accessibilityLabel="Đóng form phương thức thanh toán"
+            accessibilityLabel="Đóng form tài khoản hoàn tiền"
           >
             <MaterialCommunityIcons name="close" size={20} color={colors.textMuted} />
           </TouchableOpacity>
@@ -692,23 +762,23 @@ const PaymentMethodsScreen = () => {
           label: 'Tên gợi nhớ',
           value: displayName,
           onChangeText: setDisplayName,
-          placeholder: 'Ví dụ: Thẻ hoàn tiền Vietcombank',
+          placeholder: 'Ví dụ: Tài khoản Vietcombank',
         })}
 
         {renderBankPicker()}
         {renderField({
-          label: 'Tên chủ thẻ/tài khoản',
+          label: 'Tên chủ tài khoản',
           value: accountHolder,
           onChangeText: setAccountHolder,
-          placeholder: 'Nhập đúng tên trên thẻ hoặc tài khoản',
+          placeholder: 'Nhập đúng tên chủ tài khoản ngân hàng',
           autoCapitalize: 'characters',
           onFocus: scrollFormFieldIntoView,
         })}
         {renderField({
-          label: 'Số thẻ/tài khoản',
+          label: 'Số tài khoản',
           value: accountNumber,
           onChangeText: setAccountNumber,
-          placeholder: isEditing ? 'Để trống nếu không đổi số tài khoản' : 'Số thẻ hoặc tài khoản nhận hoàn tiền',
+          placeholder: isEditing ? 'Để trống nếu không đổi số tài khoản' : 'Số tài khoản nhận hoàn tiền',
           keyboardType: 'number-pad',
           onFocus: scrollFormFieldIntoView,
         })}
@@ -751,9 +821,9 @@ const PaymentMethodsScreen = () => {
     if (!isAuthenticated || !session?.accessToken) {
       return (
         <View style={styles.statePanel}>
-          <MaterialCommunityIcons name="credit-card-outline" size={42} color={colors.brand} />
-          <Text style={styles.stateTitle}>Đăng nhập để quản lý thanh toán</Text>
-          <Text style={styles.stateText}>Bạn có thể lưu thẻ hoặc tài khoản nhận hoàn tiền sau khi đăng nhập.</Text>
+          <MaterialCommunityIcons name="bank-outline" size={42} color={colors.brand} />
+          <Text style={styles.stateTitle}>Đăng nhập để quản lý tài khoản hoàn tiền</Text>
+          <Text style={styles.stateText}>Bạn có thể lưu tài khoản ngân hàng nhận hoàn tiền sau khi đăng nhập.</Text>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => navigation.navigate('Login')}
@@ -769,7 +839,7 @@ const PaymentMethodsScreen = () => {
       return (
         <View style={styles.statePanel}>
           <ActivityIndicator color={colors.brand} />
-          <Text style={styles.stateText}>Đang tải phương thức thanh toán</Text>
+          <Text style={styles.stateText}>Đang tải tài khoản nhận hoàn tiền</Text>
         </View>
       );
     }
@@ -809,11 +879,11 @@ const PaymentMethodsScreen = () => {
           <View style={styles.combinedPanel}>
             {renderSavedMethodGroup({
               title: 'Nhận hoàn tiền',
-              meta: `${refundMethods.length} thẻ/tài khoản`,
+              meta: `${refundMethods.length} tài khoản`,
               icon: 'bank-outline',
               data: refundMethods,
               emptyTitle: 'Chưa có thông tin hoàn tiền',
-              emptyText: 'Thêm ngân hàng và số thẻ/tài khoản để shop xử lý hoàn tiền khi cần.',
+              emptyText: 'Thêm ngân hàng và số tài khoản để shop chuyển khoản hoàn tiền khi cần.',
             })}
 
             <View style={styles.groupDivider} />
@@ -836,8 +906,8 @@ const PaymentMethodsScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.headerTitle}>Phương thức thanh toán</Text>
-          <Text style={styles.headerSubtitle}>Thẻ và tài khoản nhận hoàn tiền</Text>
+          <Text style={styles.headerTitle}>Tài khoản nhận hoàn tiền</Text>
+          <Text style={styles.headerSubtitle}>Chỉ dùng khi shop cần chuyển khoản hoàn tiền</Text>
         </View>
         <TouchableOpacity
           style={styles.headerAction}
@@ -1049,14 +1119,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-  },
-  methodIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.brandSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   methodTitleBlock: {
     flex: 1,
@@ -1425,13 +1487,25 @@ const styles = StyleSheet.create({
   bankLogo: {
     width: 42,
     height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.brand,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 4,
+  },
+  bankLogoCompact: {
+    width: 38,
+    height: 38,
+  },
+  bankLogoImage: {
+    width: '100%',
+    height: '100%',
   },
   bankLogoText: {
-    color: colors.white,
+    color: colors.brand,
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '900',

@@ -3,6 +3,7 @@ import type {
   AdminCustomerPaymentMethod,
   AdminOrder,
   AdminOrderPaymentStatus,
+  AdminOrderQueueKey,
   AdminOrderStatus,
   AdminPaymentMethodStatus,
   AdminReturnReviewDecision,
@@ -26,15 +27,7 @@ export type OrderTab = {
 }
 
 export type OrderTabGroupKey = 'flow' | 'exceptions' | 'lookup'
-export type OrderQueueKey =
-  | 'packing'
-  | 'handoff'
-  | 'delivery'
-  | 'blocked'
-  | 'review'
-  | 'refund'
-  | 'payment-deadline'
-  | 'shipping-mapping'
+export type OrderQueueKey = AdminOrderQueueKey
 export type PaymentSectionKey = 'all' | 'online' | 'cod'
 export type ShippingSimulationStatus = 'picked' | 'shipping' | 'delivered' | 'failed'
 export type OrderTableColumnKey = 'customer' | 'total' | 'status' | 'createdAt'

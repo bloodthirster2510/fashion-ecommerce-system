@@ -5,7 +5,13 @@ import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../
 import { auditLogService } from '../audit-logs/audit-log.service';
 import { SalesServiceError } from '../sales/sales.helpers';
 import { orderService } from './order.service';
-import { ORDER_STATUSES, PAYMENT_METHODS, PAYMENT_STATUSES } from './order.constants';
+import {
+  ORDER_QUEUE_KEYS,
+  ORDER_STATUSES,
+  PAYMENT_METHODS,
+  PAYMENT_STATUSES,
+  type OrderQueueKey,
+} from './order.constants';
 import type {
   BulkOrderGhnAction,
   BulkOrderGhnInput,
@@ -173,6 +179,20 @@ const parseStatuses = (value: unknown) => {
   return uniqueStatuses as OrderStatus[];
 };
 
+const parseOrderQueue = (value: unknown) => {
+  const queue = parseString(value);
+
+  if (!queue) {
+    return undefined;
+  }
+
+  if (!ORDER_QUEUE_KEYS.includes(queue as OrderQueueKey)) {
+    throw new SalesServiceError('Invalid order queue', 400);
+  }
+
+  return queue as OrderQueueKey;
+};
+
 const parsePaymentMethod = (value: unknown) => {
   const paymentMethod = parseString(value);
 
@@ -250,6 +270,7 @@ const parseOrderListSort = (value: unknown): OrderListQueryInput['sort'] => {
 };
 
 const parseOrderListQuery = (req: Request): OrderListQueryInput => ({
+  queue: parseOrderQueue(req.query.queue),
   status: parseStatus(req.query.status),
   statuses: parseStatuses(req.query.statuses),
   paymentMethod: parsePaymentMethod(req.query.paymentMethod),
@@ -498,7 +519,7 @@ const buildOrdersCsv = (
     'Sản phẩm',
     'Ngày tạo',
     'Trạng thái đơn',
-    'Phương thức thanh toán',
+    'Kênh thanh toán đơn',
     'Trạng thái thanh toán',
     'Tạm tính',
     'Phí vận chuyển',

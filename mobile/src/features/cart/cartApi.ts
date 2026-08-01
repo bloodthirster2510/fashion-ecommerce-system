@@ -83,7 +83,6 @@ export type CreateOrderPayload = {
   };
   quoteVersion: string;
   paymentMethod: CartPaymentMethod;
-  paymentMethodId?: string;
   couponCode?: string;
   couponCodes?: string[];
   orderNote?: string;

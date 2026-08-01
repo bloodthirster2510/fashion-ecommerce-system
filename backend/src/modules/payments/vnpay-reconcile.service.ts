@@ -85,6 +85,19 @@ const reconcileTransaction = async (transaction: ITransaction, ipAddr = getVNPay
   });
 
   if (!response.isValidSignature) {
+    // VNPay sandbox may omit vnp_SecureHash for duplicate QueryDr requests (code 94).
+    // This branch is deliberately read-only: never infer a payment/refund result from it.
+    if (response.vnp_ResponseCode === '94' && !response.vnp_SecureHash) {
+      return {
+        transaction,
+        response,
+        settlement: null,
+        refundedOrder: null,
+        reconciliationStatus: isRefundAttempt ? 'pending_refund' : 'unchanged',
+        duplicateRequest: true,
+      };
+    }
+
     throw new SalesServiceError('Invalid VNPay QueryDr response signature', 502);
   }
 

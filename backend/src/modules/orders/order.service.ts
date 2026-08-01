@@ -31,7 +31,6 @@ import {
   getOrderPaymentDeadlineAt,
   getOrderPaymentDeadlineWarningMs,
 } from '../payments/order-payment-deadline.config';
-import { paymentMethodService } from '../payment-methods/payment-method.service';
 import { promotionPricingService } from '../promotions/pricing/promotion-pricing.service';
 import type { CheckoutOrderItem } from '../promotions/pricing/promotion-pricing.types';
 import { couponService } from '../promotions/coupons/coupon.service';
@@ -75,11 +74,13 @@ import type {
 } from './order.types';
 import {
   ONLINE_PAYMENT_METHODS,
+  ORDER_QUEUE_KEYS,
   ORDER_STATUSES,
   ORDER_STATUS_TRANSITIONS,
   SHIPPING_MILESTONE_STATUSES,
   SHIPPING_WEBHOOK_STATUSES,
   SUPPORTED_PAYMENT_METHODS,
+  type OrderQueueKey,
 } from './order.constants';
 
 const DEFAULT_PAGE = 1;
@@ -134,6 +135,57 @@ const SHIPPING_FALLBACK_CONDITION = {
   ],
 };
 
+const buildOrderQueueConditions = (now = new Date()) => {
+  const deadlineSoonAt = new Date(now.getTime() + getOrderPaymentDeadlineWarningMs());
+  const rawConditions: Record<OrderQueueKey, Record<string, unknown>> = {
+    refund: {
+      status: { $in: ['cancelled', 'returned'] },
+      paymentStatus: 'paid',
+    },
+    review: {
+      $or: [
+        { status: 'return_requested', 'returnRequest.status': 'requested' },
+        { status: 'return_approved', 'returnRequest.status': 'approved' },
+      ],
+    },
+    'payment-deadline': {
+      status: { $nin: ['cancelled', 'returned', 'completed'] },
+      paymentMethod: { $ne: 'COD' },
+      paymentStatus: { $in: ['pending', 'failed'] },
+      paymentDeadlineAt: { $gt: now, $lte: deadlineSoonAt },
+    },
+    blocked: {
+      status: { $nin: ['cancelled', 'returned', 'completed'] },
+      paymentMethod: { $ne: 'COD' },
+      paymentStatus: { $in: ['pending', 'failed'] },
+    },
+    'shipping-mapping': {
+      status: { $in: ['confirmed', 'packed'] },
+      ...SHIPPING_FALLBACK_CONDITION,
+    },
+    packing: { status: 'confirmed' },
+    handoff: { status: 'packed' },
+    delivery: { status: 'shipping' },
+  };
+
+  return ORDER_QUEUE_KEYS.reduce((conditions, queue, index) => {
+    const higherPriorityConditions = ORDER_QUEUE_KEYS
+      .slice(0, index)
+      .map((higherPriorityQueue) => rawConditions[higherPriorityQueue]);
+
+    conditions[queue] = higherPriorityConditions.length === 0
+      ? rawConditions[queue]
+      : {
+          $and: [
+            rawConditions[queue],
+            { $nor: higherPriorityConditions },
+          ],
+        };
+
+    return conditions;
+  }, {} as Record<OrderQueueKey, Record<string, unknown>>);
+};
+
 const buildOrderFilter = (query: OrderListQueryInput) => {
   const filter: Record<string, unknown> = {};
 
@@ -181,8 +233,25 @@ const buildOrderFilter = (query: OrderListQueryInput) => {
     ];
   }
 
+  if (query.queue) {
+    filter.$and = [
+      ...((filter.$and as unknown[]) ?? []),
+      buildOrderQueueConditions()[query.queue],
+    ];
+  }
+
   return filter;
 };
+
+const buildOrderSummaryFilter = (query: OrderListQueryInput) => buildOrderFilter({
+  ...query,
+  keyword: undefined,
+  queue: undefined,
+  status: undefined,
+  statuses: undefined,
+  paymentDeadlineBefore: undefined,
+  shippingFallback: undefined,
+});
 
 const getOrderSort = (
   query: OrderListQueryInput,
@@ -204,11 +273,8 @@ const getOrderSort = (
 };
 
 const buildStatusSummary = async (filter: Record<string, unknown>) => {
-  const summaryFilter = { ...filter };
-  delete summaryFilter.status;
-
   const rows = await Order.aggregate<{ _id: OrderStatus; count: number }>([
-    { $match: summaryFilter },
+    { $match: filter },
     { $group: { _id: '$status', count: { $sum: 1 } } },
   ]);
   const summary = ORDER_STATUSES.reduce(
@@ -232,101 +298,40 @@ const buildStatusSummary = async (filter: Record<string, unknown>) => {
 };
 
 const buildOperationalSummary = async (filter: Record<string, unknown>) => {
-  const summaryFilter = { ...filter };
-  delete summaryFilter.status;
-  delete summaryFilter.paymentStatus;
-
   const countWith = (condition: Record<string, unknown>) =>
-    Order.countDocuments({ $and: [summaryFilter, condition] });
+    Order.countDocuments({ $and: [filter, condition] });
 
-  const readyOrderCondition = {
-    paymentStatus: { $ne: 'failed' },
-    $or: [
-      { paymentMethod: 'COD' },
-      { paymentStatus: 'paid' },
-    ],
-  };
-
-  const now = new Date();
-  const deadlineSoonAt = new Date(now.getTime() + getOrderPaymentDeadlineWarningMs());
+  const queueConditions = buildOrderQueueConditions();
 
   const [
-    returnRequests,
-    refunds,
     paidReady,
-    packingReady,
-    handoffReady,
-    deliveryConfirmations,
-    paymentRisk,
-    paymentDeadlineSoon,
-    shippingMappingRequired,
+    ...queueCounts
   ] = await Promise.all([
     countWith({
-      status: { $in: ['return_requested', 'return_approved'] },
-      'returnRequest.status': { $in: ['requested', 'approved'] },
-    }),
-    countWith({
-      status: { $in: ['cancelled', 'returned'] },
-      paymentStatus: 'paid',
-    }),
-    countWith({
       status: { $in: ['confirmed', 'packed'] },
       paymentStatus: 'paid',
     }),
-    countWith({
-      status: 'confirmed',
-      ...readyOrderCondition,
-    }),
-    countWith({
-      status: 'packed',
-      ...readyOrderCondition,
-    }),
-    countWith({
-      status: 'delivered',
-      ...readyOrderCondition,
-    }),
-    countWith({
-      status: { $nin: ['cancelled', 'returned'] },
-      $or: [
-        { paymentStatus: 'failed' },
-        {
-          paymentMethod: { $ne: 'COD' },
-          paymentStatus: { $ne: 'paid' },
-        },
-      ],
-    }),
-    countWith({
-      status: 'confirmed',
-      paymentMethod: { $in: ONLINE_PAYMENT_METHODS },
-      paymentStatus: { $in: ['pending', 'failed'] },
-      paymentDeadlineAt: { $gt: now, $lte: deadlineSoonAt },
-    }),
-    countWith({
-      status: { $in: ['confirmed', 'packed'] },
-      ...SHIPPING_FALLBACK_CONDITION,
-    }),
+    ...ORDER_QUEUE_KEYS.map((queue) => countWith(queueConditions[queue])),
   ]);
 
+  const counts = Object.fromEntries(
+    ORDER_QUEUE_KEYS.map((queue, index) => [queue, queueCounts[index] ?? 0]),
+  ) as Record<OrderQueueKey, number>;
+  const paymentRisk = counts.blocked + counts['payment-deadline'];
+
   return {
-    returnRequests,
-    refunds,
+    returnRequests: counts.review,
+    refunds: counts.refund,
     paidReady,
-    packingReady,
-    handoffReady,
-    readyToProcess: packingReady + handoffReady,
-    deliveryConfirmations,
+    packingReady: counts.packing,
+    handoffReady: counts.handoff,
+    readyToProcess: counts.packing + counts.handoff,
+    deliveryConfirmations: counts.delivery,
     paymentRisk,
-    paymentOverdueRisk: Math.max(0, paymentRisk - paymentDeadlineSoon),
-    paymentDeadlineSoon,
-    shippingMappingRequired,
-    totalPriority:
-      returnRequests
-      + refunds
-      + packingReady
-      + handoffReady
-      + deliveryConfirmations
-      + paymentRisk
-      + shippingMappingRequired,
+    paymentOverdueRisk: counts.blocked,
+    paymentDeadlineSoon: counts['payment-deadline'],
+    shippingMappingRequired: counts['shipping-mapping'],
+    totalPriority: ORDER_QUEUE_KEYS.reduce((total, queue) => total + counts[queue], 0),
   };
 };
 
@@ -1509,11 +1514,6 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
 
   assertSupportedPaymentMethod(input.paymentMethod);
   const normalizedQuoteVersion = requireCheckoutQuoteVersion(input.quoteVersion);
-  const selectedPaymentMethod = await paymentMethodService.assertUsablePaymentMethodForCheckout({
-    userId,
-    paymentMethodId: input.paymentMethodId,
-    paymentMethod: input.paymentMethod,
-  });
   const shippingAddress = await resolveCheckoutShippingAddress(userId, input, { required: true });
 
   const pricing = await promotionPricingService.calculateCheckout({
@@ -1610,7 +1610,7 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
         totalAmount,
         status: 'confirmed',
         paymentMethod: input.paymentMethod,
-        paymentMethodId: selectedPaymentMethod?._id ?? null,
+        paymentMethodId: null,
         paymentStatus: 'pending',
         paymentDeadlineAt: isOnlinePaymentMethod(input.paymentMethod)
           ? getOrderPaymentDeadlineAt()
@@ -1634,7 +1634,6 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
           orderId: orderId.toString(),
           amount: totalAmount,
           paymentMethod: input.paymentMethod,
-          paymentMethodId: selectedPaymentMethod?._id?.toString(),
           gatewayProvider: getGatewayProvider(input.paymentMethod),
           session,
         });
@@ -1707,6 +1706,10 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
     ...buildOrderFilter(query),
     user_id: toObjectId(userId, 'userId'),
   };
+  const summaryFilter = {
+    ...buildOrderSummaryFilter(query),
+    user_id: toObjectId(userId, 'userId'),
+  };
 
   const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
@@ -1715,8 +1718,8 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
       .limit(limit)
       .lean(),
     Order.countDocuments(filter),
-    buildStatusSummary(filter),
-    buildOperationalSummary(filter),
+    buildStatusSummary(summaryFilter),
+    buildOperationalSummary(summaryFilter),
   ]);
   const resolvedItems = await resolveOrderFitTypeLabels(items);
 
@@ -1736,6 +1739,7 @@ const getMyOrders = async (userId: string, query: OrderListQueryInput) => {
 const getOrders = async (query: OrderListQueryInput) => {
   const { page, limit } = clampPagination(query);
   const filter = buildOrderFilter(query);
+  const summaryFilter = buildOrderSummaryFilter(query);
 
   const [items, totalItems, statusSummary, operationalSummary] = await Promise.all([
     Order.find(filter)
@@ -1744,8 +1748,8 @@ const getOrders = async (query: OrderListQueryInput) => {
       .limit(limit)
       .lean(),
     Order.countDocuments(filter),
-    buildStatusSummary(filter),
-    buildOperationalSummary(filter),
+    buildStatusSummary(summaryFilter),
+    buildOperationalSummary(summaryFilter),
   ]);
   const resolvedItems = await resolveOrderFitTypeLabels(items);
 

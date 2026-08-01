@@ -35,7 +35,7 @@ const parsePaymentMethodStatus = (value: unknown) => {
   const status = typeof value === 'string' ? value : '';
 
   if (!PAYMENT_METHOD_STATUSES.includes(status as PaymentMethodStatus)) {
-    throw new SalesServiceError('Invalid payment method status', 400);
+    throw new SalesServiceError('Invalid refund account status', 400);
   }
 
   return status as PaymentMethodStatus;
@@ -57,7 +57,7 @@ export const createPaymentMethod = async (req: Request, res: Response) => {
       getUserId(req),
       req.body as CreatePaymentMethodInput,
     );
-    return ok(res, method, 'Created payment method');
+    return ok(res, method, 'Created refund account');
   } catch (error: unknown) {
     const { statusCode, message } = getErrorResponse(error);
     return errorResponse(res, message, statusCode);

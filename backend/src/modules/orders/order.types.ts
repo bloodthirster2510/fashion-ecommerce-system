@@ -1,5 +1,5 @@
 import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
-import type { OrderShippingWebhookStatus } from './order.constants';
+import type { OrderQueueKey, OrderShippingWebhookStatus } from './order.constants';
 
 export interface ShippingAddressInput {
   customerName: string;
@@ -27,7 +27,6 @@ export interface CreateOrderInput {
   shippingAddress?: ShippingAddressInput;
   quoteVersion: string;
   paymentMethod: OrderPaymentMethod;
-  paymentMethodId?: string;
   couponCode?: string;
   couponCodes?: string[];
   orderNote?: string;
@@ -50,6 +49,7 @@ export type OrderListSort =
   | 'payment_deadline_asc';
 
 export interface OrderListQueryInput {
+  queue?: OrderQueueKey;
   status?: OrderStatus;
   statuses?: OrderStatus[];
   paymentMethod?: OrderPaymentMethod;

@@ -3,9 +3,11 @@ import type { AdminOrder, AdminOrderPaymentStatus, AdminTransaction } from '../o
 import {
   formatCurrency,
   formatDate,
+  getAllowedPaymentAdjustments,
   paymentStatusLabels,
   transactionStatusLabels,
 } from '../orderPresentation'
+import { getTransactionStatusLabel } from '../utils/vnpayReconcile'
 
 type OrderPaymentPanelProps = {
   canAdjustPayments: boolean
@@ -26,6 +28,8 @@ export function OrderPaymentPanel({
   onReconcileVNPay,
   onRefresh,
 }: OrderPaymentPanelProps) {
+  const manualStatuses = getAllowedPaymentAdjustments(order)
+
   return (
     <>
       <section className="admin-drawer-section admin-order-section-main admin-order-section-payments">
@@ -59,7 +63,7 @@ export function OrderPaymentPanel({
                     {transaction.paymentDetail?.vnp_Command === 'refund' ? 'Hoàn tiền' : 'Lượt thanh toán'} #{transaction.attemptNo ?? '?'}
                   </strong>
                   <span className={transaction.status === 'success' ? 'is-success' : transaction.status === 'pending' ? 'is-pending' : 'is-failed'}>
-                    {transactionStatusLabels[transaction.status]}
+                    {getTransactionStatusLabel(transaction) ?? transactionStatusLabels[transaction.status]}
                   </span>
                 </header>
                 <dl>
@@ -96,10 +100,14 @@ export function OrderPaymentPanel({
       </section>
 
       <section className="admin-drawer-section admin-order-section-side admin-order-section-payment-adjust">
-        <h3>Điều chỉnh thanh toán thủ công</h3>
-        <p className="admin-muted-text">Chỉ dùng khi đã đối soát ngoài cổng thanh toán. Lý do bắt buộc và sẽ ghi nhật ký thao tác.</p>
+        <h3>{order.paymentMethod === 'VNPAY' ? 'Điều chỉnh sau đối soát' : 'Điều chỉnh thanh toán thủ công'}</h3>
+        <p className="admin-muted-text">
+          {order.paymentMethod === 'VNPAY'
+            ? 'Không đánh dấu hoàn tiền thủ công tại đây. Lệnh hoàn VNPay nằm trong mục Trả/Hoàn và chỉ hoàn về giao dịch gốc.'
+            : 'Chỉ cập nhật sau khi đã kiểm tra tiền thực tế. Lý do bắt buộc và sẽ được ghi vào nhật ký.'}
+        </p>
         <div className="admin-drawer-actions">
-          {(['paid', 'failed', 'refunded', 'pending'] as AdminOrderPaymentStatus[]).map((status) => (
+          {manualStatuses.map((status) => (
             <button
               className={status === 'paid' ? 'admin-primary-button' : 'admin-secondary-button'}
               key={status}
@@ -111,6 +119,13 @@ export function OrderPaymentPanel({
             </button>
           ))}
         </div>
+        {manualStatuses.length === 0 ? (
+          <p className="admin-muted-text">
+            {order.paymentStatus === 'refunded'
+              ? 'Khoản thanh toán đã hoàn tất hoàn tiền và không thể điều chỉnh thêm.'
+              : 'Trạng thái hiện tại không có điều chỉnh thủ công hợp lệ.'}
+          </p>
+        ) : null}
         {!canAdjustPayments ? (
           <p className="admin-permission-note">Cần quyền payments.adjust để điều chỉnh thanh toán.</p>
         ) : null}
