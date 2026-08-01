@@ -131,9 +131,16 @@ function Header() {
   const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoryError, setCategoryError] = useState('')
-  const [searchCategoryId, setSearchCategoryId] = useState(
-    () => new URLSearchParams(window.location.search).get('categoryId') ?? '',
-  )
+  const locationSearchParams = new URLSearchParams(window.location.search)
+  const locationCategoryId = locationSearchParams.get('categoryId') ?? ''
+  const locationKeyword = locationSearchParams.get('keyword') ?? ''
+  const [searchCategoryId, setSearchCategoryId] = useState(locationCategoryId)
+  const [searchKeyword, setSearchKeyword] = useState(locationKeyword)
+
+  useEffect(() => {
+    setSearchCategoryId(locationCategoryId)
+    setSearchKeyword(locationKeyword)
+  }, [locationCategoryId, locationKeyword])
 
   useEffect(() => {
     let isMounted = true
@@ -239,17 +246,25 @@ function Header() {
             </Button>
           </Dropdown>
           <input type="hidden" name="categoryId" value={searchCategoryId} />
-          <Input name="keyword" placeholder="Tìm kiếm sản phẩm..." aria-label="Tìm kiếm sản phẩm" />
+          <Input
+            name="keyword"
+            placeholder="Tìm kiếm sản phẩm..."
+            aria-label="Tìm kiếm sản phẩm"
+            value={searchKeyword}
+            onChange={(event) => setSearchKeyword(event.target.value)}
+          />
           <Button className="search-submit" htmlType="submit" icon={<SearchOutlined />} aria-label="Tìm kiếm" />
         </form>
 
         <nav className="header-actions" aria-label="Liên kết nhanh">
-          <Button className="client-action-button client-action-button--favorite" type="text" href="/account?section=favorites">
-            <span>Yêu thích</span>
-            <span className="client-action-icon">
-              <HeartOutlined />
-            </span>
-          </Button>
+          {(!currentUser || currentUser.role === 'user') && (
+            <Button className="client-action-button client-action-button--favorite" type="text" href="/account?section=favorites">
+              <span>Yêu thích</span>
+              <span className="client-action-icon">
+                <HeartOutlined />
+              </span>
+            </Button>
+          )}
           <Button className="client-action-button client-action-button--cart" type="text" href="/cart">
             <span>Giỏ hàng</span>
             <span className="client-action-icon">

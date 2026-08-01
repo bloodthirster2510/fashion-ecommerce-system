@@ -10,7 +10,7 @@ import {
   ShoppingCartOutlined,
   SwapOutlined,
 } from '@ant-design/icons'
-import { useAppDispatch } from '../../../app/hooks'
+import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
 import { setCart } from '../../cart/cart.slice'
@@ -43,6 +43,9 @@ const isCssColor = (value?: string) => Boolean(value && (value.startsWith('#') |
 
 export function ProductDetailPage() {
   const dispatch = useAppDispatch()
+  const currentUser = useAppSelector((state) => state.auth.currentUser)
+  const isCustomer = currentUser?.role === 'user'
+  const showFavoriteAction = !currentUser || isCustomer
   const productId = getProductIdFromPath()
   const [product, setProduct] = useState<ProductDetail | null>(null)
   const [selectedVariantId, setSelectedVariantId] = useState('')
@@ -111,6 +114,11 @@ export function ProductDetailPage() {
 }, [productId])
 
   useEffect(() => {
+    if (!isCustomer) {
+      setIsFavorited(false)
+      return
+    }
+
     let isMounted = true
 
     customerProductActionsService
@@ -127,7 +135,7 @@ export function ProductDetailPage() {
     return () => {
       isMounted = false
     }
-  }, [productId])
+  }, [isCustomer, productId])
 
   const selectedVariant = useMemo(() => {
     return product?.variants.find((variant) => variant._id === selectedVariantId) ?? product?.variants[0]
@@ -359,14 +367,16 @@ export function ProductDetailPage() {
                             <PlusOutlined />
                           </button>
                         </div>
-                        <Button
-                          type="text"
-                          icon={<HeartOutlined />}
-                          loading={isUpdatingFavorite}
-                          onClick={() => void handleToggleFavorite()}
-                        >
-                          {isFavorited ? 'Bỏ khỏi sản phẩm yêu thích' : 'Thêm vào sản phẩm yêu thích'}
-                        </Button>
+                        {showFavoriteAction && (
+                          <Button
+                            type="text"
+                            icon={<HeartOutlined />}
+                            loading={isUpdatingFavorite}
+                            onClick={() => void handleToggleFavorite()}
+                          >
+                            {isFavorited ? 'Bỏ khỏi sản phẩm yêu thích' : 'Thêm vào sản phẩm yêu thích'}
+                          </Button>
+                        )}
                       </div>
                     </section>
 

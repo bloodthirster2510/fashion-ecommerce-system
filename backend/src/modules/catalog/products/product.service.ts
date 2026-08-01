@@ -504,8 +504,19 @@ const selectDisplayVariant = (
   query: ProductListQueryInput,
   inventoryItems?: InventoryStockDocument[],
 ) => {
+  const matchingVariants = variants.filter((variant) => matchesVariantQuery(variant, query, inventoryItems));
+
+  if (matchingVariants.length && isPriceSort(query.sort)) {
+    const direction = query.sort === 'price_asc' ? 1 : -1;
+    return [...matchingVariants].sort((left, right) => {
+      return direction * (
+        getFinalPrice(left.price, left.discount) - getFinalPrice(right.price, right.discount)
+      );
+    })[0];
+  }
+
   return (
-    variants.find((variant) => matchesVariantQuery(variant, query, inventoryItems)) ??
+    matchingVariants[0] ??
     variants.find((variant) =>
       variant.isActive &&
       hasVariantSize(variant) &&
@@ -525,10 +536,6 @@ const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
       return { name: 1 };
     case 'name_desc':
       return { name: -1 };
-    case 'price_asc':
-      return { 'variant.price': 1, createdAt: -1 };
-    case 'price_desc':
-      return { 'variant.price': -1, createdAt: -1 };
     case 'best_seller':
       return { sold_quantity: -1, createdAt: -1 };
     case 'rating_desc':
@@ -537,6 +544,56 @@ const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
     default:
       return { createdAt: -1 };
   }
+};
+
+const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_desc' =>
+  sort === 'price_asc' || sort === 'price_desc';
+
+const getPriceSortedProductIds = async (
+  filter: ProductListFilter,
+  sort: 'price_asc' | 'price_desc',
+  page: number,
+  limit: number,
+) => {
+  const direction = sort === 'price_asc' ? 1 : -1;
+  const priceOperator = sort === 'price_asc' ? '$min' : '$max';
+
+  return Product.aggregate<{ _id: Types.ObjectId }>([
+    { $match: filter },
+    {
+      $addFields: {
+        __catalogFinalPrice: {
+          [priceOperator]: {
+            $map: {
+              input: {
+                $filter: {
+                  input: '$variant',
+                  as: 'variant',
+                  cond: { $eq: ['$$variant.isActive', true] },
+                },
+              },
+              as: 'variant',
+              in: {
+                $round: [
+                  {
+                    $multiply: [
+                      '$$variant.price',
+                      { $subtract: [1, { $divide: ['$$variant.discount', 100] }] },
+                    ],
+                  },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    { $sort: { __catalogFinalPrice: direction, createdAt: -1 } },
+    { $skip: (page - 1) * limit },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
 };
 
 const buildVariantFilter = (query: ProductListQueryInput) => {
@@ -653,14 +710,16 @@ const buildKeywordConditions = async (keyword?: string): Promise<Record<string, 
   const tokenRegexes = toTokenRegexes(expandedTokens);
 
   const [brands, categories] = await Promise.all([
-    Brand.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true }).select('_id').lean(),
-    Category.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true }).select('_id').lean(),
+    Brand.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true })
+      .select('_id name')
+      .lean<Array<{ _id: Types.ObjectId; name: string }>>(),
+    Category.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true })
+      .select('_id name')
+      .lean<Array<{ _id: Types.ObjectId; name: string }>>(),
   ]);
 
-  const brandIds = brands.map((brand) => brand._id);
-  const categoryIds = categories.map((category) => category._id);
-
   return tokenGroups.map((group) => {
+    const groupRegexes = group.map(toAccentInsensitiveRegex);
     const orConditions: Record<string, unknown>[] = group.flatMap((token) => {
       const regex = toAccentInsensitiveRegex(token);
       return [
@@ -669,6 +728,13 @@ const buildKeywordConditions = async (keyword?: string): Promise<Record<string, 
         { materialNormalized: regex },
       ];
     });
+    const brandIds = brands
+      .filter((brand) => groupRegexes.some((regex) => regex.test(brand.name)))
+      .map((brand) => brand._id);
+    const categoryIds = categories
+      .filter((category) => groupRegexes.some((regex) => regex.test(category.name)))
+      .map((category) => category._id);
+
     if (brandIds.length) orConditions.push({ brand_id: { $in: brandIds } });
     if (categoryIds.length) orConditions.push({ category_id: { $in: categoryIds } });
     return { $or: orConditions };
@@ -1768,20 +1834,31 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
   const { page, limit } = clampPagination(query);
   const filter = await buildProductListFilter(query);
   const sort = getSortOption(query.sort);
+  const priceSortedProductIds = isPriceSort(query.sort)
+    ? await getPriceSortedProductIds(filter, query.sort, page, limit)
+    : undefined;
+  const priceSortOrder = new Map(
+    priceSortedProductIds?.map((item, index) => [item._id.toString(), index]),
+  );
+  const productQuery = priceSortedProductIds
+    ? Product.find({ _id: { $in: priceSortedProductIds.map((item) => item._id) } })
+    : Product.find(filter).sort(sort).skip((page - 1) * limit).limit(limit);
 
   const [products, totalItems, filters] = await Promise.all([
-    Product.find(filter)
+    productQuery
       .populate('brand_id', '_id name image')
       .populate('category_id', '_id name gender image')
-      .sort(sort)
-      .skip((page - 1) * limit)
-      .limit(limit)
       .lean<ProductListDocument[]>(),
     Product.countDocuments(filter),
     query.includeFilters === false
       ? Promise.resolve(undefined)
       : getProductListFilters(filter, query),
   ]);
+  if (priceSortOrder) {
+    products.sort((left, right) => {
+      return (priceSortOrder.get(left._id.toString()) ?? 0) - (priceSortOrder.get(right._id.toString()) ?? 0);
+    });
+  }
   const inventoryItems = products.length
     ? await Inventory.find({
         productId: { $in: products.map((product) => product._id) },

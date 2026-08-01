@@ -154,6 +154,41 @@ describe('favoriteService', () => {
     });
   });
 
+  it('keeps adding the same favorite idempotent', async () => {
+    mockProductFindOne({ _id: productId });
+    mockedFavorite.updateOne.mockResolvedValue({ matchedCount: 1, upsertedCount: 0 });
+
+    const firstResult = await favoriteService.addFavorite(userId, productId.toString());
+    const secondResult = await favoriteService.addFavorite(userId, productId.toString());
+
+    expect(mockedFavorite.updateOne).toHaveBeenCalledTimes(2);
+    expect(mockedFavorite.updateOne).toHaveBeenNthCalledWith(
+      2,
+      { user_id: new Types.ObjectId(userId), product_id: productId },
+      { $setOnInsert: { user_id: new Types.ObjectId(userId), product_id: productId } },
+      { upsert: true },
+    );
+    expect(firstResult).toEqual({ productId: productId.toString(), isFavorited: true });
+    expect(secondResult).toEqual(firstResult);
+  });
+
+  it('removes a favorite idempotently', async () => {
+    mockedFavorite.deleteOne
+      .mockResolvedValueOnce({ deletedCount: 1 })
+      .mockResolvedValueOnce({ deletedCount: 0 });
+
+    const firstResult = await favoriteService.removeFavorite(userId, productId.toString());
+    const secondResult = await favoriteService.removeFavorite(userId, productId.toString());
+
+    expect(mockedFavorite.deleteOne).toHaveBeenCalledTimes(2);
+    expect(mockedFavorite.deleteOne).toHaveBeenCalledWith({
+      user_id: new Types.ObjectId(userId),
+      product_id: productId,
+    });
+    expect(firstResult).toEqual({ productId: productId.toString(), isFavorited: false });
+    expect(secondResult).toEqual(firstResult);
+  });
+
   it('rejects adding an unavailable product', async () => {
     mockProductFindOne(null);
 

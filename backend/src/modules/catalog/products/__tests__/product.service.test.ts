@@ -839,6 +839,105 @@ describe('productService', () => {
     });
   });
 
+  it('sorts the public product list by discounted final price', async () => {
+    const regularProductId = new Types.ObjectId('665000000000000000000030');
+    const discountedProductId = new Types.ObjectId('665000000000000000000031');
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const createListProduct = (
+      id: Types.ObjectId,
+      name: string,
+      price: number,
+      discount: number,
+    ) => ({
+      _id: id,
+      category_id: { _id: new Types.ObjectId(categoryId), name: 'T-shirts', gender: 'male' },
+      name,
+      brand_id: { _id: new Types.ObjectId(brandId), name: 'YODY' },
+      variant: [{
+        _id: new Types.ObjectId(),
+        fitTypeId,
+        price,
+        discount,
+        sizeMeasurements: [{ size: 'M', measurements: [] }],
+        colors: [{ _id: new Types.ObjectId(), color: 'Black', image: colorImageUrl }],
+        isActive: true,
+      }],
+      description: '',
+      product_image: productImageUrl,
+      isActive: true,
+      sold_quantity: 0,
+      averageRating: 0,
+      reviewCount: 0,
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+    });
+    const regularProduct = createListProduct(regularProductId, 'Regular price', 50000, 0);
+    const discountedProduct = createListProduct(discountedProductId, 'Discounted price', 100000, 60);
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([regularProduct, discountedProduct]),
+    };
+
+    mockedProduct.aggregate.mockResolvedValue([
+      { _id: discountedProductId },
+      { _id: regularProductId },
+    ] as never);
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+    mockedProduct.countDocuments.mockResolvedValue(2);
+    mockedInventory.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) } as never);
+
+    const result = await productService.getProductList({
+      sort: 'price_asc',
+      page: 1,
+      limit: 10,
+      includeFilters: false,
+    });
+    const aggregatePipeline = mockedProduct.aggregate.mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+
+    expect(aggregatePipeline).toEqual(expect.arrayContaining([
+      { $sort: { __catalogFinalPrice: 1, createdAt: -1 } },
+    ]));
+    expect(mockedProduct.find).toHaveBeenCalledWith({
+      _id: { $in: [discountedProductId, regularProductId] },
+    });
+    expect(result.items.map((item) => item.finalPrice)).toEqual([40000, 50000]);
+  });
+
+  it('only applies matched category ids to their corresponding keyword groups', async () => {
+    const matchedCategoryId = new Types.ObjectId(categoryId);
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+
+    mockedBrand.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    } as never);
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([{ _id: matchedCategoryId, name: 'Áo polo' }]),
+    } as never);
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+
+    await productService.getProductList({
+      keyword: 'áo polo mềm',
+      includeFilters: false,
+    });
+    const filter = mockedProduct.find.mock.calls[0][0] as unknown as {
+      $and: Array<{ $or: Array<Record<string, unknown>> }>;
+    };
+    const categoryRelationPresence = filter.$and.map((condition) => {
+      return condition.$or.some((item) => Object.prototype.hasOwnProperty.call(item, 'category_id'));
+    });
+
+    expect(mockedCategory.find).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
+    expect(categoryRelationPresence).toEqual([true, true, false]);
+  });
+
   it('uses a typed service error for product failures', async () => {
     await expect(productService.getProductById('invalid-id')).rejects.toBeInstanceOf(
       ProductServiceError,

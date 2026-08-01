@@ -1,4 +1,4 @@
-export type AccountSection = 'profile' | 'orders' | 'ranking' | 'coupons'
+export type AccountSection = 'profile' | 'orders' | 'favorites' | 'ranking' | 'coupons'
 
 export type ProfileFormValues = {
   name: string
