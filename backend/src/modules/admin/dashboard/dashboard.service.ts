@@ -11,6 +11,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const BANGKOK_TIME_ZONE = 'Asia/Bangkok';
 const MAX_DAYS = 180;
 
+export const dashboardLowStockCondition = {
+  $and: [
+    { $gt: ['$availableQuantity', 0] },
+    { $lte: ['$availableQuantity', 5] },
+  ],
+};
+
 type DashboardActor = {
   userId: string;
   role: string;
@@ -351,7 +358,7 @@ const getInventoryOverview = async () => {
         $group: {
           _id: null,
           totalSkus: { $sum: 1 },
-          lowStockSkus: { $sum: { $cond: [{ $lte: ['$availableQuantity', 5] }, 1, 0] } },
+          lowStockSkus: { $sum: { $cond: [dashboardLowStockCondition, 1, 0] } },
           outOfStockSkus: { $sum: { $cond: [{ $eq: ['$availableQuantity', 0] }, 1, 0] } },
           reservedUnits: { $sum: '$reservedQuantity' },
         },

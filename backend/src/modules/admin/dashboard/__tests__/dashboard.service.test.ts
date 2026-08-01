@@ -1,5 +1,6 @@
 import {
   calculateDashboardChange,
+  dashboardLowStockCondition,
   normalizeDashboardRange,
 } from '../dashboard.service';
 
@@ -34,6 +35,15 @@ describe('dashboard analytics helpers', () => {
     expect(calculateDashboardChange(120, 100)).toBe(20);
     expect(calculateDashboardChange(0, 0)).toBe(0);
     expect(calculateDashboardChange(10, 0)).toBeNull();
+  });
+
+  it('keeps out-of-stock SKUs separate from the low-stock count', () => {
+    expect(dashboardLowStockCondition).toEqual({
+      $and: [
+        { $gt: ['$availableQuantity', 0] },
+        { $lte: ['$availableQuantity', 5] },
+      ],
+    });
   });
 });
 
