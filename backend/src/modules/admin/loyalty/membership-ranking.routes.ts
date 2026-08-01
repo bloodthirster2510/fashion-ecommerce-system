@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../../../middlewares/auth.middleware';
+import { authenticate, requireActiveAccount } from '../../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../../middlewares/role.middleware';
 import {
   createMembershipRanking,
@@ -21,8 +21,18 @@ import {
 } from './loyalty-rule.controller';
 
 const membershipRankingAdminRouter = Router();
-const loyaltyReaders = [authenticate, authorize('admin', 'staff'), requirePermission('loyalty.read')];
-const loyaltyWriters = [authenticate, authorize('admin', 'staff'), requirePermission('loyalty.write')];
+const loyaltyReaders = [
+  authenticate,
+  requireActiveAccount,
+  authorize('admin', 'staff'),
+  requirePermission('loyalty.read'),
+];
+const loyaltyWriters = [
+  authenticate,
+  requireActiveAccount,
+  authorize('admin', 'staff'),
+  requirePermission('loyalty.write'),
+];
 
 membershipRankingAdminRouter.get('/', loyaltyReaders, listMembershipRankings);
 membershipRankingAdminRouter.get('/users', loyaltyReaders, listLoyaltyUsers);

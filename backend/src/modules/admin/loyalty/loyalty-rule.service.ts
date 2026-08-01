@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import mongoose, { Types, type ClientSession } from 'mongoose';
 import { LoyaltyRule, type LoyaltyRuleRoundMode } from '../../../database/models';
 
 export type LoyaltyRulePayload = {
@@ -28,6 +28,20 @@ export class LoyaltyRuleServiceError extends Error {
   }
 }
 
+function assertObjectPayload(payload: unknown): asserts payload is Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new LoyaltyRuleServiceError('Request body must be an object', 400);
+  }
+}
+
+const rethrowLoyaltyRuleWriteError = (error: unknown): never => {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+    throw new LoyaltyRuleServiceError('Another loyalty rule is already active', 409);
+  }
+
+  throw error;
+};
+
 const parseNumber = (value: unknown, field: string, required: boolean) => {
   if (value === undefined || value === null || value === '') {
     if (required) throw new LoyaltyRuleServiceError(`${field} is required`, 400);
@@ -47,6 +61,7 @@ const parseDate = (value: unknown, field: string) => {
 };
 
 const normalizePayload = (payload: LoyaltyRulePayload, mode: 'create' | 'update') => {
+  assertObjectPayload(payload);
   const required = mode === 'create';
   const data: Record<string, unknown> = {};
   if (payload.name !== undefined || required) {
@@ -98,24 +113,52 @@ const normalizePayload = (payload: LoyaltyRulePayload, mode: 'create' | 'update'
     if (typeof payload.isActive !== 'boolean') throw new LoyaltyRuleServiceError('isActive must be a boolean', 400);
     data.isActive = payload.isActive;
   } else if (required) data.isActive = true;
+  if (!required && Object.keys(data).length === 0) {
+    throw new LoyaltyRuleServiceError('No data to update', 400);
+  }
   return data;
 };
 
 const listRules = () => LoyaltyRule.find().sort({ createdAt: -1 }).lean();
 
-const deactivateOtherRules = async (exceptId?: string) => {
+const deactivateOtherRules = async (exceptId?: string, session?: ClientSession) => {
   const filter = exceptId ? { _id: { $ne: new Types.ObjectId(exceptId) }, isActive: true } : { isActive: true };
-  await LoyaltyRule.updateMany(filter, { $set: { isActive: false } });
+  await LoyaltyRule.updateMany(filter, { $set: { isActive: false } }, { session });
 };
 
 const createRule = async (payload: LoyaltyRulePayload, actorId?: string) => {
   const data = normalizePayload(payload, 'create');
-  if (data.isActive) await deactivateOtherRules();
   if (actorId && Types.ObjectId.isValid(actorId)) {
     data.createdBy = new Types.ObjectId(actorId);
     data.updatedBy = new Types.ObjectId(actorId);
   }
-  return LoyaltyRule.create(data);
+
+  if (!data.isActive) {
+    try {
+      return await LoyaltyRule.create(data);
+    } catch (error) {
+      return rethrowLoyaltyRuleWriteError(error);
+    }
+  }
+
+  const session = await mongoose.startSession();
+  let createdRule: unknown;
+  try {
+    await session.withTransaction(async () => {
+      await deactivateOtherRules(undefined, session);
+      const [rule] = await LoyaltyRule.create([data], { session });
+      createdRule = rule;
+    });
+  } catch (error) {
+    return rethrowLoyaltyRuleWriteError(error);
+  } finally {
+    await session.endSession();
+  }
+
+  if (!createdRule) {
+    throw new LoyaltyRuleServiceError('Loyalty rule creation was not committed', 500);
+  }
+  return createdRule;
 };
 
 const updateRule = async (id: string, payload: LoyaltyRulePayload, actorId?: string) => {
@@ -126,9 +169,44 @@ const updateRule = async (id: string, payload: LoyaltyRulePayload, actorId?: str
   const startAt = data.startAt === undefined ? current.startAt : data.startAt as Date | null;
   const endAt = data.endAt === undefined ? current.endAt : data.endAt as Date | null;
   if (startAt && endAt && endAt <= startAt) throw new LoyaltyRuleServiceError('endAt must be after startAt', 400);
-  if (data.isActive === true) await deactivateOtherRules(id);
   if (actorId && Types.ObjectId.isValid(actorId)) data.updatedBy = new Types.ObjectId(actorId);
-  return LoyaltyRule.findByIdAndUpdate(id, { $set: data }, { returnDocument: 'after', runValidators: true });
+
+  if (data.isActive === true) {
+    const session = await mongoose.startSession();
+    let updatedRule: unknown;
+    try {
+      await session.withTransaction(async () => {
+        await deactivateOtherRules(id, session);
+        updatedRule = await LoyaltyRule.findByIdAndUpdate(
+          id,
+          { $set: data },
+          { returnDocument: 'after', runValidators: true, session },
+        );
+        if (!updatedRule) {
+          throw new LoyaltyRuleServiceError('Loyalty rule not found', 404);
+        }
+      });
+    } catch (error) {
+      if (error instanceof LoyaltyRuleServiceError) throw error;
+      return rethrowLoyaltyRuleWriteError(error);
+    } finally {
+      await session.endSession();
+    }
+    return updatedRule;
+  }
+
+  try {
+    const updatedRule = await LoyaltyRule.findByIdAndUpdate(
+      id,
+      { $set: data },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (!updatedRule) throw new LoyaltyRuleServiceError('Loyalty rule not found', 404);
+    return updatedRule;
+  } catch (error) {
+    if (error instanceof LoyaltyRuleServiceError) throw error;
+    return rethrowLoyaltyRuleWriteError(error);
+  }
 };
 
 const deleteRule = async (id: string) => {

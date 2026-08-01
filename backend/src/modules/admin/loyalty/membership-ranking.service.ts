@@ -75,6 +75,20 @@ export class MembershipRankingServiceError extends Error {
   }
 }
 
+function assertObjectPayload(payload: unknown): asserts payload is Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new MembershipRankingServiceError('Request body must be an object', 400);
+  }
+}
+
+const rethrowMembershipWriteError = (error: unknown): never => {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+    throw new MembershipRankingServiceError('Membership ranking conflicts with an existing ranking', 409);
+  }
+
+  throw error;
+};
+
 const assertValidId = (id: string) => {
   if (!Types.ObjectId.isValid(id)) {
     throw new MembershipRankingServiceError('Invalid membership ranking id', 400);
@@ -202,6 +216,7 @@ const assertIntegerInRange = (value: number, field: string, min: number, max: nu
 function normalizePayload(payload: MembershipRankingPayload, mode: 'create'): NormalizedMembershipRanking;
 function normalizePayload(payload: MembershipRankingPayload, mode: 'update'): PartialMembershipRanking;
 function normalizePayload(payload: MembershipRankingPayload, mode: 'create' | 'update') {
+  assertObjectPayload(payload);
   const required = mode === 'create';
   const normalized: PartialMembershipRanking = {};
   const name = parseString(payload.name, 'name', required);
@@ -387,20 +402,31 @@ const assertTierCanBeDeactivated = async (
 
 const listMembershipRankings = async () => {
   const rankings = await MembershipRanking.find().sort({ level: 1 }).lean();
-  const memberCounts = await Promise.all(rankings.map((ranking, index) => {
+  const activeRankings = rankings.filter((ranking) => ranking.isActive !== false);
+  const memberCounts = await Promise.all(rankings.map((ranking) => {
+    if (ranking.isActive === false) {
+      return 0;
+    }
+
+    const nextActiveRanking = activeRankings.find((candidate) => candidate.minPoint > ranking.minPoint);
     const loyaltyPointFilter: Record<string, unknown> = { $gte: ranking.minPoint };
-    if (rankings[index + 1]) {
-      loyaltyPointFilter.$lt = rankings[index + 1].minPoint;
+    if (nextActiveRanking) {
+      loyaltyPointFilter.$lt = nextActiveRanking.minPoint;
     }
     return User.countDocuments({ loyaltyPoint: loyaltyPointFilter });
   }));
 
-  return rankings.map((ranking, index) => ({
-    ...ranking,
-    maxPoint: rankings[index + 1] ? rankings[index + 1].minPoint - 1 : null,
-    memberCount: memberCounts[index],
-    ...resolveMembershipVisualConfig(ranking),
-  }));
+  return rankings.map((ranking, index) => {
+    const nextRanking = ranking.isActive === false
+      ? rankings[index + 1]
+      : activeRankings.find((candidate) => candidate.minPoint > ranking.minPoint);
+    return {
+      ...ranking,
+      maxPoint: nextRanking ? nextRanking.minPoint - 1 : null,
+      memberCount: memberCounts[index],
+      ...resolveMembershipVisualConfig(ranking),
+    };
+  });
 };
 
 const createMembershipRanking = async (payload: MembershipRankingPayload) => {
@@ -413,7 +439,11 @@ const createMembershipRanking = async (payload: MembershipRankingPayload) => {
   await assertUniqueMinPoint(normalized);
   await assertPointOrder(normalized);
 
-  return MembershipRanking.create(normalized);
+  try {
+    return await MembershipRanking.create(normalized);
+  } catch (error) {
+    return rethrowMembershipWriteError(error);
+  }
 };
 
 const updateMembershipRanking = async (id: string, payload: MembershipRankingPayload) => {
@@ -439,17 +469,23 @@ const updateMembershipRanking = async (id: string, payload: MembershipRankingPay
     id,
   );
 
-  const updatedRanking = await MembershipRanking.findByIdAndUpdate(id, normalized, {
-    returnDocument: 'after',
-    runValidators: true,
-  }).lean();
+  try {
+    const updatedRanking = await MembershipRanking.findByIdAndUpdate(id, normalized, {
+      returnDocument: 'after',
+      runValidators: true,
+    }).lean();
+    if (!updatedRanking) {
+      throw new MembershipRankingServiceError('Membership ranking not found', 404);
+    }
 
-  return updatedRanking
-    ? {
-        ...updatedRanking,
-        ...resolveMembershipVisualConfig(updatedRanking),
-      }
-    : updatedRanking;
+    return {
+      ...updatedRanking,
+      ...resolveMembershipVisualConfig(updatedRanking),
+    };
+  } catch (error) {
+    if (error instanceof MembershipRankingServiceError) throw error;
+    return rethrowMembershipWriteError(error);
+  }
 };
 
 const updateMembershipRankingStatus = async (id: string, isActive: unknown) => {
@@ -467,12 +503,14 @@ const deleteMembershipRanking = async (id: string) => {
     throw new MembershipRankingServiceError('Base membership ranking cannot be deleted', 409);
   }
 
-  const memberCount = await countTierMembers(current);
-  if (memberCount > 0) {
-    throw new MembershipRankingServiceError(
-      `Membership ranking has ${memberCount} active member(s) and cannot be deleted`,
-      409,
-    );
+  if (current.isActive !== false) {
+    const memberCount = await countTierMembers(current);
+    if (memberCount > 0) {
+      throw new MembershipRankingServiceError(
+        `Membership ranking has ${memberCount} active member(s) and cannot be deleted`,
+        409,
+      );
+    }
   }
 
   const couponCount = await Coupon.countDocuments({
@@ -486,10 +524,16 @@ const deleteMembershipRanking = async (id: string) => {
     );
   }
 
-  return MembershipRanking.findByIdAndDelete(id);
+  const deletedRanking = await MembershipRanking.findByIdAndDelete(id);
+  if (!deletedRanking) {
+    throw new MembershipRankingServiceError('Membership ranking not found', 404);
+  }
+
+  return deletedRanking;
 };
 
 const createMembershipRankingsBatch = async (payload: MembershipRankingBatchPayload) => {
+  assertObjectPayload(payload);
   if (!Array.isArray(payload.rankings) || payload.rankings.length < 1 || payload.rankings.length > 20) {
     throw new MembershipRankingServiceError('rankings must contain from 1 to 20 items', 400);
   }
@@ -529,12 +573,15 @@ const createMembershipRankingsBatch = async (payload: MembershipRankingBatchPayl
       createdRankings = await MembershipRanking.insertMany(orderedRankings, { session });
     });
     return createdRankings;
+  } catch (error) {
+    return rethrowMembershipWriteError(error);
   } finally {
     await session.endSession();
   }
 };
 
 const reorderMembershipRankings = async (payload: MembershipRankingReorderPayload) => {
+  assertObjectPayload(payload);
   if (!Array.isArray(payload.orderedIds) || payload.orderedIds.some((id) => typeof id !== 'string')) {
     throw new MembershipRankingServiceError('orderedIds must be an array of ranking ids', 400);
   }
@@ -573,12 +620,21 @@ const listLoyaltyUsers = async (query: LoyaltyPointQuery) => {
 
   if (tierId) {
     assertValidId(tierId);
-    const tier = await MembershipRanking.findById(tierId).select('minPoint').lean();
+    const tier = await MembershipRanking.findById(tierId).select('minPoint isActive').lean();
     if (!tier) {
       throw new MembershipRankingServiceError('Membership ranking not found', 404);
     }
+    if (tier.isActive === false) {
+      return {
+        items: [],
+        pagination: { page, limit, totalItems: 0, totalPages: 0 },
+      };
+    }
 
-    const nextTier = await MembershipRanking.findOne({ minPoint: { $gt: tier.minPoint } })
+    const nextTier = await MembershipRanking.findOne({
+      isActive: true,
+      minPoint: { $gt: tier.minPoint },
+    })
       .sort({ minPoint: 1 })
       .select('minPoint')
       .lean();
@@ -687,6 +743,7 @@ const adjustLoyaltyPoints = async (
   payload: LoyaltyPointAdjustmentPayload,
   actor: LoyaltyPointAdjustmentActor,
 ) => {
+  assertObjectPayload(payload);
   const userId = parseString(payload.userId, 'userId', true) as string;
   const delta = parseNumber(payload.delta, 'delta', true) as number;
   const reason = parseString(payload.reason, 'reason', true) as string;

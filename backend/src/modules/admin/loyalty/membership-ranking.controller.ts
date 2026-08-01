@@ -158,7 +158,7 @@ export const updateMembershipRankingStatus = async (req: Request, res: Response)
   try {
     const ranking = await membershipRankingAdminService.updateMembershipRankingStatus(
       getParamId(req),
-      req.body.isActive,
+      req.body?.isActive,
     );
     if (ranking) {
       await recordRankingAudit(req, 'membership_ranking.status_update', ranking);
