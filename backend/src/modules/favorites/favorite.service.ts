@@ -357,7 +357,7 @@ const listFavorites = async (
     return {
       items: [],
       pagination: {
-        page,
+        page: 1,
         limit,
         totalItems: 0,
         totalPages: 0,
@@ -391,15 +391,20 @@ const listFavorites = async (
     });
   const sortedEntries = sortFavoriteEntries(entries, query, inventoryByProductId);
   const totalItems = sortedEntries.length;
-  const paginatedEntries = sortedEntries.slice((page - 1) * limit, page * limit);
+  const totalPages = Math.ceil(totalItems / limit);
+  const normalizedPage = totalPages ? Math.min(page, totalPages) : 1;
+  const paginatedEntries = sortedEntries.slice(
+    (normalizedPage - 1) * limit,
+    normalizedPage * limit,
+  );
 
   return {
     items: paginatedEntries.map((entry) => mapFavoriteProductItem(entry, query, inventoryByProductId)),
     pagination: {
-      page,
+      page: normalizedPage,
       limit,
       totalItems,
-      totalPages: Math.ceil(totalItems / limit),
+      totalPages,
     },
   };
 };

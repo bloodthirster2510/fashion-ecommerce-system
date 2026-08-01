@@ -59,10 +59,26 @@ const FavoritesScreen = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [removingProductId, setRemovingProductId] = React.useState<string | null>(null);
+  const [removingProductIds, setRemovingProductIds] = React.useState<Set<string>>(() => new Set());
+  const requestSequenceRef = React.useRef(0);
+  const removingProductIdsRef = React.useRef(new Set<string>());
+  const isMountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      requestSequenceRef.current += 1;
+      removingProductIdsRef.current.clear();
+    };
+  }, []);
 
   const loadFavorites = React.useCallback(
     async (silent = false) => {
+      const requestSequence = requestSequenceRef.current + 1;
+      requestSequenceRef.current = requestSequence;
+
       if (!isAuthenticated || !session?.accessToken) {
         setItems([]);
         setPagination({
@@ -71,6 +87,7 @@ const FavoritesScreen = () => {
           totalItems: 0,
           totalPages: 0,
         });
+        setError(null);
         setIsLoading(false);
         setIsRefreshing(false);
         return;
@@ -92,17 +109,25 @@ const FavoritesScreen = () => {
             sort: 'favorited_desc',
           }),
         );
+        if (requestSequenceRef.current !== requestSequence) return;
         setItems(response.items);
         setPagination(response.pagination);
+        setPage((currentPage) => (
+          currentPage === response.pagination.page ? currentPage : response.pagination.page
+        ));
       } catch (loadError) {
+        if (requestSequenceRef.current !== requestSequence) return;
         const message = loadError instanceof Error ? loadError.message : 'Không thể tải danh sách yêu thích';
-        setError(message);
         if (silent) {
           Alert.alert('Chưa tải được yêu thích', message);
+        } else {
+          setError(message);
         }
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (requestSequenceRef.current === requestSequence) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [isAuthenticated, page, runWithAuth, session?.accessToken, submittedKeyword],
@@ -113,7 +138,7 @@ const FavoritesScreen = () => {
       void loadFavorites();
     },
     [loadFavorites],
-    { staleMs: 30 * 1000 },
+    { staleMs: 30 * 1000, runOnDepsChange: true },
   );
 
   const handleSearchSubmit = () => {
@@ -128,12 +153,14 @@ const FavoritesScreen = () => {
   };
 
   const handleRemoveFavorite = async (product: FavoriteProduct) => {
-    if (removingProductId) {
+    if (removingProductIdsRef.current.has(product._id)) {
       return;
     }
 
+    removingProductIdsRef.current.add(product._id);
+    setRemovingProductIds(new Set(removingProductIdsRef.current));
+
     try {
-      setRemovingProductId(product._id);
       await runWithAuth((accessToken) => favoritesApi.removeFavorite(accessToken, product._id));
 
       if (items.length === 1 && page > 1) {
@@ -147,7 +174,10 @@ const FavoritesScreen = () => {
         removeError instanceof Error ? removeError.message : 'Bạn thử lại sau nha.',
       );
     } finally {
-      setRemovingProductId(null);
+      removingProductIdsRef.current.delete(product._id);
+      if (isMountedRef.current) {
+        setRemovingProductIds(new Set(removingProductIdsRef.current));
+      }
     }
   };
 
@@ -159,7 +189,7 @@ const FavoritesScreen = () => {
     ({ item: product }: { item: FavoriteProduct }) => {
       const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
       const originalPrice = product.originalPrice ?? product.price;
-      const isRemoving = removingProductId === product._id;
+      const isRemoving = removingProductIds.has(product._id);
       const favoritedDate = formatFavoriteDate(product.favoritedAt);
 
       return (
@@ -237,7 +267,7 @@ const FavoritesScreen = () => {
       </TouchableOpacity>
     );
     },
-    [handleProductPress, removingProductId],
+    [handleProductPress, removingProductIds],
   );
 
   const renderHeader = () => (

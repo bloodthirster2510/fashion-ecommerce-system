@@ -238,4 +238,38 @@ describe('favoriteService', () => {
       },
     });
   });
+
+  it('clamps a stale page after favorites become unavailable', async () => {
+    mockFavoriteFind([{ product_id: productId, createdAt: favoritedAt }]);
+    mockProductFind([product]);
+    mockInventoryFind([inventory]);
+
+    const result = await favoriteService.listFavorites(userId, { page: 4, limit: 10 });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.pagination).toEqual({
+      page: 1,
+      limit: 10,
+      totalItems: 1,
+      totalPages: 1,
+    });
+  });
+
+  it('returns the first empty page when only inactive or deleted favorites remain', async () => {
+    mockFavoriteFind([{ product_id: productId, createdAt: favoritedAt }]);
+    mockProductFind([]);
+    mockInventoryFind([]);
+
+    const result = await favoriteService.listFavorites(userId, { page: 3, limit: 10 });
+
+    expect(result).toEqual({
+      items: [],
+      pagination: {
+        page: 1,
+        limit: 10,
+        totalItems: 0,
+        totalPages: 0,
+      },
+    });
+  });
 });

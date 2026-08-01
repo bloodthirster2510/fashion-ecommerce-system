@@ -266,6 +266,10 @@ type ProductDetailRequestOptions = {
   forceRefresh?: boolean;
 };
 
+type CategoryRequestOptions = {
+  forceRefresh?: boolean;
+};
+
 const getProducts = (params: ProductListParams = {}, signal?: AbortSignal, token?: string) => {
   return request<ProductListResponse>(`/products${toQueryString(params)}`, signal, token);
 };
@@ -287,13 +291,17 @@ const getProductById = (
   );
 };
 
-const getCategories = (params: CategoryListParams = {}, signal?: AbortSignal) => {
+const getCategories = (
+  params: CategoryListParams = {},
+  signal?: AbortSignal,
+  options: CategoryRequestOptions = {},
+) => {
   const query = toQueryString({ activeOnly: true, ...params });
   const key = `categories:${query}`;
   return withCache(
     key,
     () => request<CatalogCategory[]>(`/categories${query}`, signal),
-    { ttlMs: CATEGORIES_CACHE_TTL_MS },
+    { ttlMs: CATEGORIES_CACHE_TTL_MS, forceRefresh: options.forceRefresh },
   );
 };
 

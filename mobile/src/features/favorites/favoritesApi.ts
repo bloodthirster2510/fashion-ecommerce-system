@@ -103,7 +103,7 @@ const request = async <T>(
   });
   const payload = parseApiResponse<T>(await response.text());
 
-  if (!response.ok) {
+  if (!response.ok || payload.data === undefined) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new FavoriteApiError(
       validationMessage || payload.message || 'Không thể cập nhật sản phẩm yêu thích',
