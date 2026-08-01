@@ -212,7 +212,7 @@ const serializeReview = (review: ReviewView) => {
   };
 };
 
-const serializePublicReview = (review: ReviewView) => {
+const serializePublicReview = (review: ReviewView, hasVotedHelpful = false) => {
   const serialized = serializeReview(review);
   return {
     _id: serialized._id,
@@ -222,7 +222,7 @@ const serializePublicReview = (review: ReviewView) => {
     criteria: serialized.criteria,
     images: serialized.images,
     helpfulCount: serialized.helpfulCount,
-    hasVotedHelpful: false,
+    hasVotedHelpful,
     verifiedPurchase: serialized.verifiedPurchase,
     purchasedVariant: serialized.purchasedVariant,
     user: serialized.user,
@@ -460,8 +460,13 @@ const listEligibleItems = async (
   };
 };
 
-const listProductReviews = async (productIdValue: string, query: ReviewListQueryInput = {}) => {
+const listProductReviews = async (
+  productIdValue: string,
+  query: ReviewListQueryInput = {},
+  viewerUserIdValue?: string,
+) => {
   const productId = toObjectId(productIdValue, 'productId');
+  const viewerUserId = viewerUserIdValue ? toObjectId(viewerUserIdValue, 'userId') : null;
   const { page, limit } = normalizePagination(query);
   const filter: Record<string, unknown> = {
     product_id: productId,
@@ -495,13 +500,24 @@ const listProductReviews = async (productIdValue: string, query: ReviewListQuery
   ]);
 
   if (!product) throw new ReviewServiceError('Product not found', 404);
+  const votedReviewIds = new Set<string>();
+  if (viewerUserId && reviews.length > 0) {
+    const votes = await ReviewHelpfulVote.find({
+      review_id: { $in: reviews.map((review) => review._id) },
+      user_id: viewerUserId,
+    }).select('review_id').lean();
+    votes.forEach((vote) => votedReviewIds.add(vote.review_id.toString()));
+  }
   const publicReviewCount = ratingCounts.reduce((total, item) => total + item.count, 0);
   const publicAverageRating = publicReviewCount > 0
     ? Math.round((ratingCounts.reduce((total, item) => total + item._id * item.count, 0) / publicReviewCount) * 10) / 10
     : 0;
 
   return {
-    items: reviews.map((review) => serializePublicReview(review as unknown as ReviewView)),
+    items: reviews.map((review) => serializePublicReview(
+      review as unknown as ReviewView,
+      votedReviewIds.has(review._id.toString()),
+    )),
     summary: {
       averageRating: publicAverageRating,
       reviewCount: publicReviewCount,
@@ -801,7 +817,18 @@ const toggleHelpfulVote = async (userIdValue: string, reviewIdValue: string) => 
       }
     }
     const helpfulCount = await ReviewHelpfulVote.countDocuments({ review_id: reviewId }).session(session);
-    await Review.updateOne({ _id: reviewId }, { $set: { helpfulCount } }, { session });
+    const reviewUpdate = await Review.updateOne(
+      {
+        _id: reviewId,
+        $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }],
+      },
+      { $set: { helpfulCount } },
+      { session },
+    );
+    if (reviewUpdate.matchedCount === 0) {
+      // Throwing inside the transaction also rolls back the vote that was just added/removed.
+      throw new ReviewServiceError('Review not found', 404);
+    }
     return { reviewId: reviewId.toString(), helpfulCount, hasVotedHelpful };
   });
 };
@@ -995,6 +1022,10 @@ const getModerationAction = (
   return 'approved' as const;
 };
 
+const haveSameReasons = (left: readonly string[], right: readonly string[]) => (
+  left.length === right.length && left.every((value, index) => value === right[index])
+);
+
 const getAdminReviewDetail = async (reviewIdValue: string) => {
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
   const review = await Review.findById(reviewId)
@@ -1052,8 +1083,18 @@ const updateModerationStatus = async (
     const review = await Review.findById(reviewId).session(session);
     if (!review) throw new ReviewServiceError('Review not found', 404);
     const previousStatus = review.moderationStatus ?? 'visible';
+    const nextReasons = status === 'hidden' && normalizedReason ? [normalizedReason] : [];
+    const previousReasons = [...(review.moderationReasons ?? [])] as string[];
+    if (previousStatus === status && haveSameReasons(previousReasons, nextReasons)) {
+      return {
+        reviewId: review._id.toString(),
+        status: previousStatus,
+        previousStatus,
+        changed: false,
+      };
+    }
     review.moderationStatus = status;
-    review.moderationReasons = status === 'hidden' && normalizedReason ? [normalizedReason] : [];
+    review.moderationReasons = nextReasons;
     review.moderationHistory ??= [];
     review.moderationHistory.push({
       action: getModerationAction(previousStatus, status),
@@ -1066,19 +1107,26 @@ const updateModerationStatus = async (
     });
     await review.save({ session });
     await refreshProductRating(review.product_id, session);
-    return { reviewId: review._id.toString(), status: review.moderationStatus, previousStatus };
+    return {
+      reviewId: review._id.toString(),
+      status: review.moderationStatus,
+      previousStatus,
+      changed: true,
+    };
   });
 
-  await auditLogService.recordAuditLogBestEffort({
-    actorId: actor.userId,
-    actorRole: actor.role,
-    action: 'review.moderation',
-    targetType: 'Review',
-    targetId: result.reviewId,
-    reason: normalizedReason,
-    before: { moderationStatus: result.previousStatus },
-    after: { moderationStatus: result.status },
-  });
+  if (result.changed) {
+    await auditLogService.recordAuditLogBestEffort({
+      actorId: actor.userId,
+      actorRole: actor.role,
+      action: 'review.moderation',
+      targetType: 'Review',
+      targetId: result.reviewId,
+      reason: normalizedReason,
+      before: { moderationStatus: result.previousStatus },
+      after: { moderationStatus: result.status },
+    });
+  }
 
   return { reviewId: result.reviewId, status: result.status };
 };
@@ -1104,12 +1152,18 @@ const updateManyModerationStatuses = async (
 
   const result = await withReviewTransaction(async (session) => {
     const reviews = await Review.find({ _id: { $in: reviewIds } })
-      .select('_id product_id moderationStatus')
+      .select('_id product_id moderationStatus moderationReasons')
       .session(session)
       .lean();
+    const changedReviews = reviews.filter((review) => {
+      const previousStatus = review.moderationStatus ?? 'visible';
+      const previousReasons = [...(review.moderationReasons ?? [])] as string[];
+      const nextReasons = status === 'hidden' && normalizedReason ? [normalizedReason] : [];
+      return previousStatus !== status || !haveSameReasons(previousReasons, nextReasons);
+    });
     const createdAt = new Date();
-    if (reviews.length > 0) {
-      await Promise.all(reviews.map((review) => {
+    if (changedReviews.length > 0) {
+      await Promise.all(changedReviews.map((review) => {
         const previousStatus = review.moderationStatus ?? 'visible';
         return Review.updateOne(
           { _id: review._id },
@@ -1134,15 +1188,15 @@ const updateManyModerationStatuses = async (
         );
       }));
     }
-    const productIds = [...new Set(reviews.map((review) => review.product_id.toString()))];
+    const productIds = [...new Set(changedReviews.map((review) => review.product_id.toString()))];
     for (const productId of productIds) {
       await refreshProductRating(new Types.ObjectId(productId), session);
     }
     return {
-      updatedCount: reviews.length,
-      skippedCount: reviewIds.length - reviews.length,
+      updatedCount: changedReviews.length,
+      skippedCount: reviewIds.length - changedReviews.length,
       status,
-      reviews: reviews.map((review) => ({
+      reviews: changedReviews.map((review) => ({
         reviewId: review._id.toString(),
         previousStatus: (review.moderationStatus ?? 'visible') as ReviewModerationStatus,
       })),

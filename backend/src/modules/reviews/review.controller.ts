@@ -124,7 +124,13 @@ const getReviewFiles = (req: Request) =>
   (req.files as Express.Multer.File[] | undefined) ?? [];
 
 export const listProductReviews = async (req: Request, res: Response) => {
-  try { return ok(res, await reviewService.listProductReviews(req.params.productId as string, parseQuery(req))); }
+  try {
+    return ok(res, await reviewService.listProductReviews(
+      req.params.productId as string,
+      parseQuery(req),
+      req.user?.role === 'user' ? req.user.userId : undefined,
+    ));
+  }
   catch (error) { return handleError(res, error); }
 };
 

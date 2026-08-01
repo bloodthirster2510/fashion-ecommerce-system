@@ -81,7 +81,12 @@ export default function ProductReviewsSection({ productId, onSummaryChange }: Pr
     setLoading(true);
     setError('');
 
-    reviewApi.listProductReviews(productId, { page, limit: PAGE_SIZE, rating: selectedRating })
+    const query = { page, limit: PAGE_SIZE, rating: selectedRating };
+    const request = session?.user.role === 'user'
+      ? runWithAuth((token) => reviewApi.listProductReviews(productId, query, token))
+      : reviewApi.listProductReviews(productId, query);
+
+    request
       .then((result) => {
         if (!active) return;
         setData(result);
@@ -98,7 +103,7 @@ export default function ProductReviewsSection({ productId, onSummaryChange }: Pr
       });
 
     return () => { active = false; };
-  }, [onSummaryChange, page, productId, selectedRating]);
+  }, [onSummaryChange, page, productId, runWithAuth, selectedRating, session?.user.role]);
 
   const selectRating = (rating?: number) => {
     setSelectedRating(rating);

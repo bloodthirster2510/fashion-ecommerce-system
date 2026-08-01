@@ -46,4 +46,28 @@ describe('paginated mobile APIs', () => {
       expect.any(Object),
     );
   });
+
+  it('sends the customer token when restoring helpful votes on product reviews', async () => {
+    await reviewApi.listProductReviews('product-1', { page: 1, limit: 5 }, 'access-token');
+
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/reviews/products/product-1?page=1&limit=5&sort=newest',
+      expect.objectContaining({ timeoutMs: 30000 }),
+    );
+    const request = mockedApiFetch.mock.calls[0][1];
+    expect(new Headers(request?.headers).get('Authorization')).toBe('Bearer access-token');
+  });
+
+  it('keeps the HTTP status on review API errors so authentication can refresh a session', async () => {
+    mockedApiFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: jest.fn().mockResolvedValue(JSON.stringify({ message: 'Access token expired' })),
+    } as unknown as Response);
+
+    await expect(reviewApi.listMine('expired-token')).rejects.toMatchObject({
+      message: 'Access token expired',
+      status: 401,
+    });
+  });
 });

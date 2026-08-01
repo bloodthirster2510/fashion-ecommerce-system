@@ -1,5 +1,11 @@
 import type { Request, Response } from 'express';
-import { createReview, listAdminReviews, updateModerationStatus, updateReview } from '../review.controller';
+import {
+  createReview,
+  listAdminReviews,
+  listProductReviews,
+  updateModerationStatus,
+  updateReview,
+} from '../review.controller';
 import { reviewService } from '../review.service';
 
 type MockResponse = Response & {
@@ -109,6 +115,25 @@ describe('review controller validation', () => {
     await listAdminReviews(request, response);
 
     expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ hasImages: false }));
+    expect(response.status).toHaveBeenCalledWith(200);
+  });
+
+  it('passes an optional customer identity when listing public product reviews', async () => {
+    const response = createResponse();
+    const request = {
+      params: { productId: '665000000000000000000001' },
+      query: {},
+      user: { userId: '665000000000000000000002', role: 'user' },
+    } as unknown as Request;
+    const listSpy = jest.spyOn(reviewService, 'listProductReviews').mockResolvedValue({} as never);
+
+    await listProductReviews(request, response);
+
+    expect(listSpy).toHaveBeenCalledWith(
+      '665000000000000000000001',
+      expect.any(Object),
+      '665000000000000000000002',
+    );
     expect(response.status).toHaveBeenCalledWith(200);
   });
 });
