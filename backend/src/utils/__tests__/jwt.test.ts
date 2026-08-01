@@ -30,7 +30,10 @@ describe('jwt utilities', () => {
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
-    expect(verifyAccessToken(accessToken)).toMatchObject(payload);
+    expect(verifyAccessToken(accessToken)).toMatchObject({
+      ...payload,
+      issuedAtMs: expect.any(Number),
+    });
     expect(verifyRefreshToken(refreshToken)).toMatchObject(payload);
   });
 });

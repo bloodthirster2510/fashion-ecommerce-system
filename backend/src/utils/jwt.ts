@@ -18,10 +18,23 @@ export interface JwtPayload {
   email: string;
   role: string;
   iat?: number;
+  issuedAtMs?: number;
 }
 
+export const wasTokenIssuedBeforePasswordChange = (
+  payload: JwtPayload,
+  passwordChangedAt?: Date | null,
+) => {
+  if (!passwordChangedAt) return false;
+  if (typeof payload.issuedAtMs === 'number') {
+    return payload.issuedAtMs < passwordChangedAt.getTime();
+  }
+  const changedAtSeconds = Math.floor(passwordChangedAt.getTime() / 1000);
+  return typeof payload.iat !== 'number' || payload.iat < changedAtSeconds;
+};
+
 export const generateAccessToken = (payload: JwtPayload): string => {
-  return jwt.sign(payload, getJwtSecret('JWT_ACCESS_SECRET'), {
+  return jwt.sign({ ...payload, issuedAtMs: Date.now() }, getJwtSecret('JWT_ACCESS_SECRET'), {
     expiresIn: ACCESS_TOKEN_EXPIRY,
     algorithm: 'HS256',
   });

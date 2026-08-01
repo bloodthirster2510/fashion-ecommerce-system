@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { User, type IUser, type IUserAddress, type UserRole } from '../../database/models/user.model';
+import { PushToken } from '../../database/models/push-token.model';
 import { deleteImageFromCloudinary, getAvatarFolder, uploadImageToCloudinary } from '../../utils/cloudinary';
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 import {
@@ -544,6 +545,10 @@ export const forcePasswordReset = async (id: string) => {
   try {
     const delivery = await sendResetPasswordEmail(user.email, resetToken);
     revokeSupportSocketAccess(id);
+    await PushToken.updateMany(
+      { userId: id, isActive: true },
+      { $set: { isActive: false } },
+    );
     return delivery;
   } catch (error) {
     user.refreshToken = previousAuthState.refreshToken;

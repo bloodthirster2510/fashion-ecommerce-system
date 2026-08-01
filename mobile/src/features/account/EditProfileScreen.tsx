@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -251,6 +251,9 @@ const EditProfileScreen = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [securityMessage, setSecurityMessage] = useState('');
+  const accountLoadSequenceRef = useRef(0);
+  const wardRequestSequenceRef = useRef(0);
+  const passwordSavingRef = useRef(false);
 
   const provinceOptions = useMemo(
     () => provinces.map((item) => ({ label: item.name, value: String(item.code) })),
@@ -320,6 +323,7 @@ const EditProfileScreen = () => {
     vietnamPhoneRegex.test(phone.trim()) && Boolean(gender && buildDateOfBirth() && nextAddresses.length > 0);
 
   const clearAddressForm = () => {
+    wardRequestSequenceRef.current += 1;
     setSelectedAddressId(newAddressId);
     setCustomerName(name.trim() ? capitalizeWords(name) : '');
     setAddressPhone(phone.trim());
@@ -330,6 +334,7 @@ const EditProfileScreen = () => {
     setStreetName('');
     setAddressDefault(addresses.length === 0);
     setWards([]);
+    setWardLoading(false);
     setManualWardEntryAllowed(false);
     setWardLocationError('');
     setAddressMessage('');
@@ -349,21 +354,33 @@ const EditProfileScreen = () => {
   }, [addressPhone, customerName, name, phone, selectedAddressId]);
 
   const loadWards = async (code: string) => {
+    const requestSequence = ++wardRequestSequenceRef.current;
     if (!code) {
       setWards([]);
       setManualWardEntryAllowed(false);
-      return [];
+      setWardLoading(false);
+      return { applied: true, wards: [] as WardApiItem[] };
     }
 
     try {
       setWardLoading(true);
       const result = await locationApi.getWardList(code);
+      if (requestSequence !== wardRequestSequenceRef.current) {
+        return { applied: false, wards: [] as WardApiItem[] };
+      }
       setWards(result.wards);
       setManualWardEntryAllowed(result.manualEntryAllowed);
       setWardLocationError('');
-      return result.wards;
+      return { applied: true, wards: result.wards };
+    } catch (error) {
+      if (requestSequence !== wardRequestSequenceRef.current) {
+        return { applied: false, wards: [] as WardApiItem[] };
+      }
+      throw error;
     } finally {
-      setWardLoading(false);
+      if (requestSequence === wardRequestSequenceRef.current) {
+        setWardLoading(false);
+      }
     }
   };
 
@@ -389,7 +406,9 @@ const EditProfileScreen = () => {
     if (matchedProvince) {
       let loadedWards: WardApiItem[] = [];
       try {
-        loadedWards = await loadWards(String(matchedProvince.code));
+        const result = await loadWards(String(matchedProvince.code));
+        if (!result.applied) return;
+        loadedWards = result.wards;
       } catch (error) {
         setWards([]);
         setAddressMessage(error instanceof Error ? error.message : 'Không tải được danh sách phường/xã');
@@ -401,11 +420,16 @@ const EditProfileScreen = () => {
       ));
       setWardCode(matchedWard ? String(matchedWard.code) : address.wardCode ?? '');
     } else {
+      wardRequestSequenceRef.current += 1;
       setWards([]);
+      setManualWardEntryAllowed(false);
+      setWardLoading(false);
     }
   };
 
   const loadAccount = async () => {
+    const requestSequence = ++accountLoadSequenceRef.current;
+    wardRequestSequenceRef.current += 1;
     try {
       setLoading(true);
       setGeneralError('');
@@ -413,6 +437,7 @@ const EditProfileScreen = () => {
         accountApi.getMe(accessToken),
         accountApi.getAddresses(accessToken),
       ]));
+      if (requestSequence !== accountLoadSequenceRef.current) return;
 
       const birthParts = splitDateOfBirth(profile.dateOfBirth);
       const nextAddresses = addressList.length > 0 ? addressList : profile.address ?? [];
@@ -422,8 +447,10 @@ const EditProfileScreen = () => {
 
       try {
         provinceList = await locationApi.getProvinces();
+        if (requestSequence !== accountLoadSequenceRef.current) return;
         setProvinceLocationError('');
       } catch (error) {
+        if (requestSequence !== accountLoadSequenceRef.current) return;
         locationMessage = error instanceof Error ? error.message : 'Không tải được dữ liệu tỉnh/phường xã';
         setProvinceLocationError(locationMessage);
       }
@@ -439,19 +466,27 @@ const EditProfileScreen = () => {
       setAddresses(nextAddresses);
       setProvinces(provinceList);
       await fillAddressForm(defaultAddress, provinceList);
+      if (requestSequence !== accountLoadSequenceRef.current) return;
 
       if (locationMessage) {
         setAddressMessage(locationMessage);
       }
     } catch (error) {
+      if (requestSequence !== accountLoadSequenceRef.current) return;
       setGeneralError(error instanceof Error ? error.message : 'Không thể tải thông tin tài khoản');
     } finally {
-      setLoading(false);
+      if (requestSequence === accountLoadSequenceRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     void loadAccount();
+    return () => {
+      accountLoadSequenceRef.current += 1;
+      wardRequestSequenceRef.current += 1;
+    };
   }, [session?.accessToken]);
 
   const openSelect = (config: SelectConfig) => {
@@ -698,6 +733,7 @@ const EditProfileScreen = () => {
               accountApi.deleteAddress(accessToken, selectedAddressId)
             ));
             setAddresses(nextAddresses);
+            updateSessionUser({ profileCompleted: isLocalProfileComplete(nextAddresses) });
             await fillAddressForm(
               nextAddresses.find((item) => item.isDefault) ?? nextAddresses[0] ?? null,
             );
@@ -713,6 +749,7 @@ const EditProfileScreen = () => {
   };
 
   const handleChangePassword = async () => {
+    if (passwordSavingRef.current) return;
     if (!currentPassword) {
       setSecurityMessage('Vui lòng nhập mật khẩu hiện tại');
       return;
@@ -729,6 +766,7 @@ const EditProfileScreen = () => {
     }
 
     try {
+      passwordSavingRef.current = true;
       setPasswordSaving(true);
       setSecurityMessage('');
       await runWithAuth((accessToken) =>
@@ -737,21 +775,16 @@ const EditProfileScreen = () => {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      Alert.alert('Đổi mật khẩu', 'Mật khẩu đã được cập nhật. Vui lòng đăng nhập lại.', [
-        {
-          text: 'Đăng nhập',
-          onPress: () => {
-            logout();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
-          },
-        },
-      ]);
+      await logout();
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+      Alert.alert('Đổi mật khẩu', 'Mật khẩu đã được cập nhật. Vui lòng đăng nhập lại.');
     } catch (error) {
       setSecurityMessage(error instanceof Error ? error.message : 'Không thể đổi mật khẩu');
     } finally {
+      passwordSavingRef.current = false;
       setPasswordSaving(false);
     }
   };

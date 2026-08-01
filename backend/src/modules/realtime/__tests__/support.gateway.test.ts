@@ -19,7 +19,15 @@ const staffUser = {
   role: 'staff',
 };
 
-const mockStaffRecord = (record: { role: string; permissions: string[]; isActive: boolean } | null) => {
+type MockAccountRecord = {
+  role: string;
+  permissions: string[];
+  isActive: boolean;
+  mustChangePassword?: boolean;
+  passwordChangedAt?: Date | null;
+};
+
+const mockStaffRecord = (record: MockAccountRecord | null) => {
   const lean = jest.fn().mockResolvedValue(record);
   const select = jest.fn().mockReturnValue({ lean });
   mockedUser.findById.mockReturnValue({ select } as never);
@@ -48,7 +56,7 @@ describe('support realtime authorization', () => {
     [{ role: 'user', permissions: ['support.reply'], isActive: true }],
     [null],
   ])('rejects unauthorized staff record %#', async (record) => {
-    mockStaffRecord(record as { role: string; permissions: string[]; isActive: boolean } | null);
+    mockStaffRecord(record as MockAccountRecord | null);
     await expect(resolveSupportSocketMeta(staffUser)).rejects.toThrow('Insufficient permissions');
   });
 
@@ -70,6 +78,46 @@ describe('support realtime authorization', () => {
 
     await expect(resolveSupportSocketMeta({ ...staffUser, role: 'user' }))
       .rejects.toThrow('Account access revoked');
+  });
+
+  it('rejects customer sockets issued before a password change', async () => {
+    mockStaffRecord({
+      role: 'user',
+      permissions: [],
+      isActive: true,
+      passwordChangedAt: new Date(1_700_000_100 * 1000),
+    });
+
+    await expect(resolveSupportSocketMeta({ ...staffUser, role: 'user', iat: 1_700_000_000 }))
+      .rejects.toThrow('Account access revoked');
+  });
+
+  it('rejects a customer socket changed later within the same second', async () => {
+    mockStaffRecord({
+      role: 'user',
+      permissions: [],
+      isActive: true,
+      passwordChangedAt: new Date(1_700_000_000_900),
+    });
+
+    await expect(resolveSupportSocketMeta({
+      ...staffUser,
+      role: 'user',
+      iat: 1_700_000_000,
+      issuedAtMs: 1_700_000_000_100,
+    })).rejects.toThrow('Account access revoked');
+  });
+
+  it('rejects staff sockets issued before a password change', async () => {
+    mockStaffRecord({
+      role: 'staff',
+      permissions: ['support.reply'],
+      isActive: true,
+      passwordChangedAt: new Date(1_700_000_100 * 1000),
+    });
+
+    await expect(resolveSupportSocketMeta({ ...staffUser, iat: 1_700_000_000 }))
+      .rejects.toThrow('Insufficient permissions');
   });
 
   it('uses the permission cache until explicitly invalidated', async () => {

@@ -316,12 +316,19 @@ export const verifyLoginUnlock = (identifier: string, otp: string) => (
   verifyLoginUnlockChallenge(identifier, otp)
 );
 
+const revokeUserDeviceAccess = async (userId: string) => {
+  revokeSupportSocketAccess(userId);
+  await PushToken.updateMany(
+    { userId, isActive: true },
+    { $set: { isActive: false } },
+  );
+};
+
 export const logoutUser = async (userId: string) => {
   await Promise.all([
     User.updateOne({ _id: userId }, { $set: { refreshToken: null } }),
-    PushToken.updateMany({ userId, isActive: true }, { $set: { isActive: false } }),
+    revokeUserDeviceAccess(userId),
   ]);
-  revokeSupportSocketAccess(userId);
 };
 
 export const logoutWithAccessToken = async (token: string) => {
@@ -458,6 +465,7 @@ export const resetPassword = async (identifier: string, token: string, newPasswo
     mustChangePassword: false,
     passwordChangedAt: new Date(),
   });
+  await revokeUserDeviceAccess(user._id.toString());
   await clearLoginSecurity(identifier, user);
 };
 
@@ -483,6 +491,7 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     mustChangePassword: false,
     passwordChangedAt: new Date(),
   });
+  await revokeUserDeviceAccess(userId);
   await clearLoginSecurity(user.email, user);
 };
 

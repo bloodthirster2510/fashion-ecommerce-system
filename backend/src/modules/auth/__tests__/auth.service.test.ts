@@ -597,6 +597,11 @@ describe('Auth Service', () => {
           }),
         },
       );
+      expect(PushToken.updateMany).toHaveBeenCalledWith(
+        { userId: 'user123', isActive: true },
+        { $set: { isActive: false } },
+      );
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('user123');
       expect(mockUser.save).not.toHaveBeenCalled();
     });
   });
@@ -625,7 +630,28 @@ describe('Auth Service', () => {
           }),
         },
       );
+      expect(PushToken.updateMany).toHaveBeenCalledWith(
+        { userId: 'user123', isActive: true },
+        { $set: { isActive: false } },
+      );
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('user123');
       expect(mockUser.save).not.toHaveBeenCalled();
+    });
+
+    it('does not revoke device access when the current password is invalid', async () => {
+      (User.findById as jest.Mock).mockResolvedValue({
+        _id: { toString: () => 'user123' },
+        email: 'test@test.com',
+        password: 'current_hash',
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(changePassword('user123', 'wrong-password', 'newPassword123'))
+        .rejects.toMatchObject({ status: 400 });
+
+      expect(User.updateOne).not.toHaveBeenCalled();
+      expect(PushToken.updateMany).not.toHaveBeenCalled();
+      expect(revokeSupportSocketAccess).not.toHaveBeenCalled();
     });
   });
 });

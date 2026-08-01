@@ -1,7 +1,11 @@
 import type { Server as HttpServer } from 'http';
 import type { Socket } from 'socket.io';
 import { Server } from 'socket.io';
-import { verifyAccessToken, type JwtPayload } from '../../utils/jwt';
+import {
+  verifyAccessToken,
+  wasTokenIssuedBeforePasswordChange,
+  type JwtPayload,
+} from '../../utils/jwt';
 import { isCorsOriginAllowed } from '../../middlewares/security.middleware';
 import { SupportTicket, User, type ISupportMessage, type StaffPermission } from '../../database/models';
 
@@ -29,41 +33,75 @@ interface SupportRealtimeEvent {
 const ADMIN_ROOM = 'admin:support';
 const ticketRoom = (ticketId: string) => `ticket:${ticketId}`;
 const STAFF_PERMISSION_CACHE_TTL_MS = 30_000;
-const staffPermissionCache = new Map<string, { allowed: boolean; expiresAt: number }>();
+const staffPermissionCache = new Map<string, {
+  allowed: boolean;
+  expiresAt: number;
+  tokenIssuedAt: number | 'unknown';
+}>();
 
-const hasStaffSupportPermission = async (userId: string) => {
-  const cached = staffPermissionCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+const hasStaffSupportPermission = async (user: JwtPayload) => {
+  const tokenIssuedAt = user.issuedAtMs ?? user.iat ?? 'unknown';
+  const cached = staffPermissionCache.get(user.userId);
+  if (
+    cached
+    && cached.expiresAt > Date.now()
+    && cached.tokenIssuedAt === tokenIssuedAt
+  ) return cached.allowed;
 
-  const user = await User.findById(userId)
-    .select('role permissions isActive')
-    .lean<{ role?: string; permissions?: StaffPermission[]; isActive?: boolean } | null>();
+  const account = await User.findById(user.userId)
+    .select('role permissions isActive mustChangePassword passwordChangedAt')
+    .lean<{
+      role?: string;
+      permissions?: StaffPermission[];
+      isActive?: boolean;
+      mustChangePassword?: boolean;
+      passwordChangedAt?: Date | null;
+    } | null>();
   const allowed = Boolean(
-    user?.isActive
-    && user.role === 'staff'
-    && user.permissions?.includes('support.reply'),
+    account?.isActive
+    && account.role === 'staff'
+    && !account.mustChangePassword
+    && !wasTokenIssuedBeforePasswordChange(user, account.passwordChangedAt)
+    && account.permissions?.includes('support.reply'),
   );
-  staffPermissionCache.set(userId, { allowed, expiresAt: Date.now() + STAFF_PERMISSION_CACHE_TTL_MS });
+  staffPermissionCache.set(user.userId, {
+    allowed,
+    expiresAt: Date.now() + STAFF_PERMISSION_CACHE_TTL_MS,
+    tokenIssuedAt,
+  });
   return allowed;
 };
 
 export const invalidateSupportSocketPermissionCache = (userId?: string) => {
-  if (userId) staffPermissionCache.delete(userId);
-  else staffPermissionCache.clear();
+  if (!userId) {
+    staffPermissionCache.clear();
+    return;
+  }
+  staffPermissionCache.delete(userId);
 };
 
 export const resolveSupportSocketMeta = async (user: JwtPayload): Promise<SupportSocketMeta> => {
   if (user.role === 'staff') {
-    if (!await hasStaffSupportPermission(user.userId)) {
+    if (!await hasStaffSupportPermission(user)) {
       throw new Error('Insufficient permissions');
     }
     return { user, scope: 'admin' };
   }
 
   const account = await User.findById(user.userId)
-    .select('role isActive')
-    .lean<{ role?: string; isActive?: boolean } | null>();
-  if (!account?.isActive || account.role !== user.role) {
+    .select('role isActive mustChangePassword passwordChangedAt')
+    .lean<{
+      role?: string;
+      isActive?: boolean;
+      mustChangePassword?: boolean;
+      passwordChangedAt?: Date | null;
+    } | null>();
+  if (
+    !account?.isActive
+    || account.role !== user.role
+    || account.mustChangePassword
+    || wasTokenIssuedBeforePasswordChange(user, account.passwordChangedAt)
+  ) {
     throw new Error('Account access revoked');
   }
 

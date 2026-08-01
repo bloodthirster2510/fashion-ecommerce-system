@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyAccessToken, JwtPayload } from '../utils/jwt';
+import {
+  verifyAccessToken,
+  wasTokenIssuedBeforePasswordChange,
+  JwtPayload,
+} from '../utils/jwt';
 import { User } from '../database/models/user.model';
 
 declare module 'express' {
@@ -17,15 +21,6 @@ const getTokenAccountState = (userId: string) =>
   User.findById(userId)
     .select('mustChangePassword passwordChangedAt')
     .lean<TokenAccountState | null>();
-
-const wasTokenIssuedBeforePasswordChange = (
-  payload: JwtPayload,
-  passwordChangedAt?: Date | null,
-) => {
-  if (!passwordChangedAt) return false;
-  const changedAtSeconds = Math.floor(passwordChangedAt.getTime() / 1000);
-  return typeof payload.iat !== 'number' || payload.iat < changedAtSeconds;
-};
 
 const canUseTokenWhilePasswordChangeIsRequired = (req: Request) =>
   req.baseUrl.endsWith('/auth')

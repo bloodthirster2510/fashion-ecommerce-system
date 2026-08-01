@@ -15,6 +15,7 @@ import {
   uploadAvatar,
 } from '../user.service';
 import { User } from '../../../database/models/user.model';
+import { PushToken } from '../../../database/models/push-token.model';
 import {
   deleteImageFromCloudinary,
   uploadImageToCloudinary,
@@ -30,6 +31,7 @@ jest.mock('../../realtime/support.gateway', () => ({
 }));
 
 jest.mock('../../../database/models/user.model');
+jest.mock('../../../database/models/push-token.model');
 jest.mock('../../../utils/cloudinary', () => ({
   deleteImageFromCloudinary: jest.fn().mockResolvedValue(undefined),
   getAvatarFolder: jest.fn(() => 'test/avatars'),
@@ -502,6 +504,10 @@ describe('User Service', () => {
       expect(user.passwordChangedAt!.getTime()).toBeGreaterThan(previousPasswordChangedAt.getTime());
       expect(user.save).toHaveBeenCalled();
       expect(sendResetPasswordEmail).toHaveBeenCalledTimes(1);
+      expect(PushToken.updateMany).toHaveBeenCalledWith(
+        { userId: 'u1', isActive: true },
+        { $set: { isActive: false } },
+      );
       expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
 
       const [email, token] = (sendResetPasswordEmail as jest.Mock).mock.calls[0];
@@ -534,6 +540,7 @@ describe('User Service', () => {
         passwordChangedAt: previousPasswordChangedAt,
       });
       expect(user.save).toHaveBeenCalledTimes(2);
+      expect(PushToken.updateMany).not.toHaveBeenCalled();
       expect(revokeSupportSocketAccess).not.toHaveBeenCalled();
     });
   });
