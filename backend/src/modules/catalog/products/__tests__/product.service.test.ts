@@ -938,6 +938,177 @@ describe('productService', () => {
     expect(categoryRelationPresence).toEqual([true, true, false]);
   });
 
+  it('matches material aliases as complete words instead of unrelated substrings', async () => {
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+
+    await productService.getProductList({ keyword: 'leather', includeFilters: false });
+    const leatherFilter = mockedProduct.find.mock.calls[0][0] as unknown as {
+      $and: Array<{ $or: Array<{ description?: RegExp }> }>;
+    };
+    const leatherRegexes = leatherFilter.$and[0].$or
+      .map((condition) => condition.description)
+      .filter((regex): regex is RegExp => regex instanceof RegExp);
+
+    expect(leatherRegexes.some((regex) => regex.test('Chất liệu da saffiano mềm mại'))).toBe(true);
+    expect(leatherRegexes.some((regex) => regex.test('Áo có dáng suông dài'))).toBe(false);
+    expect(leatherRegexes.some((regex) => regex.test('Không gây kích ứng lên da nhạy cảm'))).toBe(false);
+    expect(leatherRegexes.some((regex) => regex.test(
+      'Chất liệu viscose co giãn, giữ ấm và không gây kích ứng lên da nhạy cảm',
+    ))).toBe(false);
+
+    await productService.getProductList({ keyword: 'wool', includeFilters: false });
+    const woolFilter = mockedProduct.find.mock.calls[1][0] as unknown as {
+      $and: Array<{ $or: Array<{ description?: RegExp }> }>;
+    };
+    const woolRegexes = woolFilter.$and[0].$or
+      .map((condition) => condition.description)
+      .filter((regex): regex is RegExp => regex instanceof RegExp);
+
+    expect(woolRegexes.some((regex) => regex.test('Áo len mềm mại'))).toBe(true);
+    expect(woolRegexes.some((regex) => regex.test('Lên đồ thanh lịch'))).toBe(false);
+  });
+
+  it('filters variants by discounted final price instead of the original price', async () => {
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+
+    await productService.getProductList({
+      minPrice: 40000,
+      maxPrice: 45000,
+      includeFilters: false,
+    });
+    const filter = mockedProduct.find.mock.calls[0][0] as unknown as {
+      variant: { $elemMatch: Record<string, unknown> };
+      $expr: Record<string, unknown>;
+    };
+    const priceExpression = JSON.stringify(filter.$expr);
+
+    expect(filter.variant.$elemMatch).not.toHaveProperty('price');
+    expect(priceExpression).toContain('"$round"');
+    expect(priceExpression).toContain('40000');
+    expect(priceExpression).toContain('45000');
+  });
+
+  it('keeps an out-of-stock variant that matches the requested final-price range', async () => {
+    const listProductId = new Types.ObjectId('665000000000000000000040');
+    const cheapVariantId = new Types.ObjectId('665000000000000000000041');
+    const cheapColorId = new Types.ObjectId('665000000000000000000042');
+    const availableVariantId = new Types.ObjectId('665000000000000000000043');
+    const availableColorId = new Types.ObjectId('665000000000000000000044');
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const productDocument = {
+      _id: listProductId,
+      category_id: { _id: new Types.ObjectId(categoryId), name: 'T-shirts', gender: 'male' },
+      name: 'Two-price product',
+      brand_id: { _id: new Types.ObjectId(brandId), name: 'YODY' },
+      variant: [
+        {
+          _id: cheapVariantId,
+          fitTypeId,
+          price: 100000,
+          discount: 60,
+          sizeMeasurements: [{ size: 'M', measurements: [] }],
+          colors: [{ _id: cheapColorId, color: 'Black', image: colorImageUrl }],
+          isActive: true,
+        },
+        {
+          _id: availableVariantId,
+          fitTypeId,
+          price: 50000,
+          discount: 0,
+          sizeMeasurements: [{ size: 'M', measurements: [] }],
+          colors: [{ _id: availableColorId, color: 'Black', image: colorImageUrl }],
+          isActive: true,
+        },
+      ],
+      description: '',
+      product_image: productImageUrl,
+      isActive: true,
+      sold_quantity: 0,
+      averageRating: 0,
+      reviewCount: 0,
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-01T00:00:00.000Z'),
+    };
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([productDocument]),
+    };
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+    mockedProduct.countDocuments.mockResolvedValue(1);
+    mockedInventory.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          productId: listProductId,
+          variantId: cheapVariantId,
+          colorVariantId: cheapColorId,
+          size: 'M',
+          availableQuantity: 0,
+        },
+        {
+          productId: listProductId,
+          variantId: availableVariantId,
+          colorVariantId: availableColorId,
+          size: 'M',
+          availableQuantity: 10,
+        },
+      ]),
+    } as never);
+
+    const result = await productService.getProductList({
+      maxPrice: 45000,
+      includeFilters: false,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      finalPrice: 40000,
+      originalPrice: 100000,
+      isAvailable: false,
+    });
+  });
+
+  it('returns an empty catalog result for a well-formed category id that no longer exists', async () => {
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    mockedCategory.findById.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(null),
+    } as never);
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+
+    const result = await productService.getProductList({
+      categoryId: ['111111111111111111111111'],
+      includeFilters: false,
+    });
+    const filter = mockedProduct.find.mock.calls[0][0] as unknown as {
+      category_id: { $in: unknown[] };
+    };
+
+    expect(filter.category_id.$in).toEqual([]);
+    expect(result.items).toEqual([]);
+  });
+
   it('uses a typed service error for product failures', async () => {
     await expect(productService.getProductById('invalid-id')).rejects.toBeInstanceOf(
       ProductServiceError,

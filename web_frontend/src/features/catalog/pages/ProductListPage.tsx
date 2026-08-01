@@ -61,7 +61,7 @@ const getListParam = (params: URLSearchParams, key: string) => {
 const parseQuery = (search: string): ProductListQuery => {
   const params = new URLSearchParams(search)
   const color = getListParam(params, 'color')
-  const fitType = getListParam(params, 'fitType')
+  const fitType = getListParam(params, 'fitType').filter((value) => objectIdPattern.test(value))
   const size = getListParam(params, 'size')
   const gender = params.get('gender')
   const categoryId = params.get('categoryId')
@@ -179,14 +179,10 @@ export function ProductListPage() {
       if (!isMounted) return
 
       setProductList(products)
-    } catch (loadError: unknown) {
+    } catch {
       if (!isMounted) return
 
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Không thể tải danh sách sản phẩm.'
-      )
+      setError('Không thể tải danh sách sản phẩm. Vui lòng thử lại.')
     } finally {
       if (isMounted) {
         setIsLoading(false)

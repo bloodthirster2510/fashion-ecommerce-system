@@ -1,4 +1,4 @@
-import { toAccentInsensitiveRegex, tokenize } from '../search.util';
+import { toAccentInsensitiveRegex, toExactPhraseRegex, tokenize } from '../search.util';
 
 describe('search.util', () => {
   it('matches unsigned tokens against Vietnamese product names', () => {
@@ -9,5 +9,12 @@ describe('search.util', () => {
 
   it('tokenizes Vietnamese keywords to unsigned search tokens', () => {
     expect(tokenize('quần jean nữ')).toEqual(['quan', 'jean', 'nu']);
+  });
+
+  it('matches complete material words without matching fragments or another tone', () => {
+    expect(toExactPhraseRegex('da').test('Giày da saffiano')).toBe(true);
+    expect(toExactPhraseRegex('da').test('Áo dáng suông dài')).toBe(false);
+    expect(toExactPhraseRegex('bông').test('Vải bông mềm')).toBe(true);
+    expect(toExactPhraseRegex('bông').test('Bề mặt bóng đẹp')).toBe(false);
   });
 });

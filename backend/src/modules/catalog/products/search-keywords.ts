@@ -259,39 +259,66 @@ export const buildSearchKeywordSuggestions = ({
 };
 
 const MATERIAL_SYNONYMS: Record<string, string[]> = {
-  cotton: ['cotton', 'co ton', 'bong'],
+  cotton: ['cotton', 'cô tông', 'co ton', 'bông'],
   polyester: ['polyester', 'plyester'],
   linen: ['linen', 'lanh'],
-  silk: ['silk', 'lua', 'lua tuyen'],
-  wool: ['wool', 'len', 'to lon'],
-  jeans: ['jeans', 'jins', 'denim', 'okford'],
-  leather: ['leather', 'da', 'da that'],
-  knit: ['knit', 'dan len', 'thun dan'],
-  thunlanh: ['thun lanh', 'thun lenh', 'cooling'],
-  thuncotton: ['thun cotton', 'cotton spandex', 'ao thun'],
+  silk: ['silk', 'lụa', 'lụa tuyết'],
+  wool: ['wool', 'len', 'tơ lông'],
+  jeans: ['jeans', 'jins', 'denim', 'oxford'],
+  leather: ['leather', 'da', 'da thật'],
+  knit: ['knit', 'đan len', 'thun đan'],
+  thunlanh: ['thun lạnh', 'thun lệnh', 'cooling'],
+  thuncotton: ['thun cotton', 'cotton spandex'],
   kaki: ['kaki', 'khaki'],
-  nỉ: ['ni', 'fleece', 'hoodie'],
-  vải: ['vai', 'fabric', 'material'],
+  nỉ: ['nỉ', 'fleece'],
+  vải: ['vải', 'fabric', 'material'],
 };
 
 const buildMaterialSynonymIndex = (): Map<string, string[]> => {
   const index = new Map<string, string[]>();
   for (const [, synonyms] of Object.entries(MATERIAL_SYNONYMS)) {
-    const normalizedSynonyms = synonyms.map((s) => normalizeVietnamese(s));
-    for (const syn of normalizedSynonyms) {
-      index.set(syn, normalizedSynonyms);
+    for (const synonym of synonyms) {
+      index.set(normalizeVietnamese(synonym), synonyms);
     }
   }
   return index;
 };
 
 const materialSynonymIndex = buildMaterialSynonymIndex();
+const maxMaterialPhraseTokens = Math.max(
+  ...Array.from(materialSynonymIndex.keys()).map((synonym) => synonym.split(/\s+/).length),
+);
 
-export const expandMaterialTokenGroups = (tokens: string[]): string[][] =>
-  tokens.map((token) => {
-    const synonyms = materialSynonymIndex.get(token);
-    return Array.from(new Set([token, ...(synonyms ?? [])]));
-  });
+export const expandMaterialTokenGroups = (tokens: string[]): string[][] => {
+  const groups: string[][] = [];
+
+  for (let index = 0; index < tokens.length;) {
+    let matchedTokenCount = 0;
+
+    for (
+      let tokenCount = Math.min(maxMaterialPhraseTokens, tokens.length - index);
+      tokenCount >= 1;
+      tokenCount -= 1
+    ) {
+      const phrase = tokens.slice(index, index + tokenCount).join(' ');
+      const synonyms = materialSynonymIndex.get(phrase);
+      if (!synonyms) continue;
+
+      groups.push(Array.from(new Set(synonyms)));
+      matchedTokenCount = tokenCount;
+      break;
+    }
+
+    if (matchedTokenCount) {
+      index += matchedTokenCount;
+    } else {
+      groups.push([tokens[index]]);
+      index += 1;
+    }
+  }
+
+  return groups;
+};
 
 export const expandMaterialTokens = (tokens: string[]): string[] => {
   const expanded = new Set<string>();
@@ -300,4 +327,4 @@ export const expandMaterialTokens = (tokens: string[]): string[] => {
 };
 
 export const isMaterialToken = (token: string): boolean =>
-  materialSynonymIndex.has(token);
+  materialSynonymIndex.has(normalizeVietnamese(token));
