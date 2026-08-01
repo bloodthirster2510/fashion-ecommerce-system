@@ -1,5 +1,14 @@
 import { SupportMessage, SupportTicket } from '../../../database/models';
-import { addCustomerMessage, createGuestFeedback, createTicket, getCustomerTicket, toCustomerSupportMessage, toCustomerSupportTicket } from '../support.service';
+import {
+  addCustomerMessage,
+  closeCustomerTicket,
+  createGuestFeedback,
+  createTicket,
+  getCustomerTicket,
+  reopenCustomerTicket,
+  toCustomerSupportMessage,
+  toCustomerSupportTicket,
+} from '../support.service';
 
 jest.mock('../../../database/models', () => ({
   Coupon: { exists: jest.fn() },
@@ -57,6 +66,58 @@ describe('support service security and state rules', () => {
     await expect(addCustomerMessage(ticketId, userId, { body: 'Tôi muốn bổ sung thông tin.' }))
       .rejects.toMatchObject({ message: 'Closed ticket cannot receive messages', statusCode: 409 });
     expect(mockedMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('removes a just-created message when the ticket closes concurrently', async () => {
+    const messageId = '665000000000000000000005';
+    const messageAt = new Date('2026-08-01T10:00:00.000Z');
+    mockedTicket.findOne
+      .mockResolvedValueOnce({
+        _id: ticketId,
+        status: 'in_progress',
+        lastMessageAt: new Date('2026-08-01T09:00:00.000Z'),
+      } as never)
+      .mockResolvedValueOnce({ _id: ticketId, status: 'closed' } as never);
+    mockedMessage.create.mockResolvedValue({ _id: messageId, createdAt: messageAt } as never);
+    mockedTicket.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(addCustomerMessage(ticketId, userId, { body: 'Tôi bổ sung thêm thông tin.' }))
+      .rejects.toMatchObject({ message: 'Ticket cannot receive messages', statusCode: 409 });
+
+    expect(mockedMessage.deleteOne).toHaveBeenCalledWith({ _id: messageId });
+  });
+
+  it('scopes reopen and close transitions to the owning customer', async () => {
+    const reopenLean = jest.fn().mockResolvedValue({ _id: ticketId, status: 'in_progress' });
+    const closeLean = jest.fn().mockResolvedValue({ _id: ticketId, status: 'closed' });
+    mockedTicket.findOneAndUpdate
+      .mockReturnValueOnce({ lean: reopenLean } as never)
+      .mockReturnValueOnce({ lean: closeLean } as never);
+
+    await expect(reopenCustomerTicket(ticketId, userId)).resolves.toMatchObject({ status: 'in_progress' });
+    await expect(closeCustomerTicket(ticketId, userId)).resolves.toMatchObject({ status: 'closed' });
+
+    expect(mockedTicket.findOneAndUpdate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        _id: expect.anything(),
+        userId: expect.anything(),
+        status: 'resolved',
+        reopenDeadline: { $gte: expect.any(Date) },
+      }),
+      expect.objectContaining({ status: 'in_progress', requiresReply: true }),
+      { returnDocument: 'after' },
+    );
+    expect(mockedTicket.findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        _id: expect.anything(),
+        userId: expect.anything(),
+        status: { $nin: ['closed', 'spam'] },
+      }),
+      expect.objectContaining({ status: 'closed', requiresReply: false }),
+      { returnDocument: 'after' },
+    );
   });
 
   it('silently accepts honeypot guest feedback without creating a ticket', async () => {

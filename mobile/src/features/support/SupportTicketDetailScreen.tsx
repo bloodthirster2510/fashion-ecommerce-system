@@ -1,9 +1,9 @@
 import React from 'react';
-import { Alert, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
@@ -14,7 +14,9 @@ import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import {
   canReopenSupportTicket,
+  getSupportImageMimeType,
   getSupportTicketStatusLabel,
+  shouldMarkIncomingSupportMessageRead,
   validateSupportImageAssets,
 } from './supportPresentation';
 
@@ -22,6 +24,7 @@ export default function SupportTicketDetailScreen() {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList, 'SupportTicketDetail'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'SupportTicketDetail'>>();
   const { runWithAuth, session } = useAuth();
+  const isFocused = useIsFocused();
   const ticketId = route.params.ticketId;
 
   const [detail, setDetail] = React.useState<SupportTicketDetail | null>(null);
@@ -58,7 +61,15 @@ export default function SupportTicketDetailScreen() {
       if (id !== ticketId) return;
       setLiveMessages((prev) => (prev.some((m) => m._id === message._id) ? prev : [...prev, message]));
       setStaffTyping(false);
-      void runWithAuth((token) => supportApi.markRead(token, ticketId)).catch(() => {});
+      if (shouldMarkIncomingSupportMessageRead({
+        activeTicketId: ticketId,
+        eventTicketId: id,
+        isFocused,
+        isAppActive: AppState.currentState === 'active',
+        senderType: message.senderType,
+      })) {
+        void runWithAuth((token) => supportApi.markRead(token, ticketId)).catch(() => {});
+      }
     },
     onTyping: (id, isTyping) => {
       if (id !== ticketId) return;
@@ -98,7 +109,7 @@ export default function SupportTicketDetailScreen() {
     const imageError = validateSupportImageAssets(result.assets);
     if (imageError) { setError(imageError); return; }
     setError('');
-    setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-reply-${Date.now()}-${index}.jpg`, type: asset.mimeType || 'image/jpeg', size: asset.fileSize })));
+    setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-reply-${Date.now()}-${index}.jpg`, type: getSupportImageMimeType(asset) || 'image/jpeg', size: asset.fileSize })));
   };
 
   const close = () => Alert.alert(

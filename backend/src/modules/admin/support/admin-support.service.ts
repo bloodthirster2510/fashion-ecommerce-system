@@ -333,8 +333,15 @@ export const updateAdminTicket = async (
     if (input.assignedTo === null) ticket.assignedTo = null;
     else {
       const assigneeId = objectId(input.assignedTo, 'assignedTo');
-      const assignee = await User.exists({ _id: assigneeId, role: { $in: ['admin', 'staff'] }, isActive: true });
-      if (!assignee) throw new SupportServiceError('Assignee is not an active admin/staff member', 404);
+      const assignee = await User.exists({
+        _id: assigneeId,
+        isActive: true,
+        $or: [
+          { role: 'admin' },
+          { role: 'staff', permissions: 'support.reply' },
+        ],
+      });
+      if (!assignee) throw new SupportServiceError('Assignee is not an active support admin/staff member', 404);
       ticket.assignedTo = assigneeId;
     }
   }

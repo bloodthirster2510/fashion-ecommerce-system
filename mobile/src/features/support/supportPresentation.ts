@@ -3,6 +3,12 @@ import type { SupportCategory, SupportTicketStatus } from './support.types';
 const MAX_SUPPORT_IMAGES = 3;
 const MAX_SUPPORT_IMAGE_SIZE = 5 * 1024 * 1024;
 const allowedSupportImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const supportImageTypesByExtension: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
 const orderRelatedCategories = new Set<SupportCategory>(['orders', 'returns', 'payments']);
 
 const supportStatusLabels: Record<SupportTicketStatus, string> = {
@@ -35,16 +41,35 @@ export const validateSupportTicketDraft = (input: {
 };
 
 export const validateSupportImageAssets = (
-  assets: Array<{ mimeType?: string | null; fileSize?: number | null }>,
+  assets: Array<{
+    mimeType?: string | null;
+    fileName?: string | null;
+    uri?: string | null;
+    fileSize?: number | null;
+  }>,
 ) => {
   if (assets.length > MAX_SUPPORT_IMAGES) return 'Chỉ được chọn tối đa 3 ảnh.';
-  if (assets.some((asset) => !allowedSupportImageTypes.has(asset.mimeType || ''))) {
+  if (assets.some((asset) => !getSupportImageMimeType(asset))) {
     return 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WEBP.';
   }
   if (assets.some((asset) => (asset.fileSize ?? 0) > MAX_SUPPORT_IMAGE_SIZE)) {
     return 'Mỗi ảnh phải có dung lượng không quá 5MB.';
   }
   return '';
+};
+
+export const getSupportImageMimeType = (asset: {
+  mimeType?: string | null;
+  fileName?: string | null;
+  uri?: string | null;
+}) => {
+  const declaredType = asset.mimeType?.split(';', 1)[0].trim().toLowerCase();
+  if (declaredType) return allowedSupportImageTypes.has(declaredType) ? declaredType : null;
+
+  const source = asset.fileName || asset.uri || '';
+  const cleanSource = source.split(/[?#]/, 1)[0];
+  const extension = cleanSource.match(/\.([^.\\/]+)$/)?.[1]?.toLowerCase() ?? '';
+  return supportImageTypesByExtension[extension] ?? null;
 };
 
 export const canReopenSupportTicket = (
@@ -56,3 +81,14 @@ export const canReopenSupportTicket = (
   const deadline = new Date(reopenDeadline).getTime();
   return Number.isFinite(deadline) && deadline >= now;
 };
+
+export const shouldMarkIncomingSupportMessageRead = (input: {
+  activeTicketId: string;
+  eventTicketId: string;
+  isFocused: boolean;
+  isAppActive: boolean;
+  senderType: 'customer' | 'staff';
+}) => input.isFocused
+  && input.isAppActive
+  && input.activeTicketId === input.eventTicketId
+  && input.senderType === 'staff';

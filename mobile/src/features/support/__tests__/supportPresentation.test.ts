@@ -1,6 +1,8 @@
 import {
   canReopenSupportTicket,
+  getSupportImageMimeType,
   getSupportTicketStatusLabel,
+  shouldMarkIncomingSupportMessageRead,
   supportCategoryNeedsOrder,
   validateSupportImageAssets,
   validateSupportTicketDraft,
@@ -56,11 +58,39 @@ describe('support presentation helpers', () => {
     expect(validateSupportImageAssets([jpeg])).toBe('');
   });
 
+  it('accepts a supported image extension when the device omits MIME metadata', () => {
+    const pngWithoutMime = {
+      mimeType: null,
+      fileName: 'anh-minh-chung.PNG',
+      uri: 'file:///cache/anh-minh-chung.PNG',
+      fileSize: 1024,
+    };
+
+    expect(validateSupportImageAssets([pngWithoutMime])).toBe('');
+    expect(getSupportImageMimeType(pngWithoutMime)).toBe('image/png');
+  });
+
   it('allows reopening only a resolved ticket before its deadline', () => {
     const now = Date.parse('2026-07-29T00:00:00.000Z');
     expect(canReopenSupportTicket('resolved', '2026-07-30T00:00:00.000Z', now)).toBe(true);
     expect(canReopenSupportTicket('resolved', '2026-07-28T00:00:00.000Z', now)).toBe(false);
     expect(canReopenSupportTicket('closed', '2026-07-30T00:00:00.000Z', now)).toBe(false);
     expect(canReopenSupportTicket('resolved', 'invalid', now)).toBe(false);
+  });
+
+  it('marks only visible staff replies on the active ticket as read', () => {
+    const base = {
+      activeTicketId: 'ticket-1',
+      eventTicketId: 'ticket-1',
+      isFocused: true,
+      isAppActive: true,
+      senderType: 'staff' as const,
+    };
+
+    expect(shouldMarkIncomingSupportMessageRead(base)).toBe(true);
+    expect(shouldMarkIncomingSupportMessageRead({ ...base, isFocused: false })).toBe(false);
+    expect(shouldMarkIncomingSupportMessageRead({ ...base, isAppActive: false })).toBe(false);
+    expect(shouldMarkIncomingSupportMessageRead({ ...base, eventTicketId: 'ticket-2' })).toBe(false);
+    expect(shouldMarkIncomingSupportMessageRead({ ...base, senderType: 'customer' })).toBe(false);
   });
 });
