@@ -32,6 +32,16 @@ import {
   ProductDetailColor,
   ProductDetailVariant,
 } from './catalogApi';
+import {
+  getAvailableQuantityForSize,
+  getFirstAvailableSize,
+  getInitialProductSelection,
+  getInventoryForSelection,
+  getProductDetailErrorMessage,
+  isColorAvailable,
+  isSizeAvailableForColor,
+  isVariantAvailable,
+} from './productDetailSelection';
 import ProductReviewsSection from '../reviews/ProductReviewsSection';
 import type { PublicReviewList } from '../reviews/review.types';
 
@@ -45,8 +55,6 @@ type AddCartFeedback = {
   variantText: string;
   imageUri?: string;
 };
-
-const fallbackQuantityLimit = 99;
 
 const formatCurrency = (value: number) => {
   return `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -82,51 +90,6 @@ const findCartItemIdForSelection = (
 
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-
-const getInitialVariant = (product: CatalogProductDetail) =>
-  product.variants.find((variant) => variant._id === product.selectedVariantId) ??
-  product.variants.find((variant) => variant.isActive) ??
-  product.variants[0];
-
-const getInventoryForSelection = (
-  variant?: ProductDetailVariant,
-  colorVariantId?: string,
-  size?: string,
-) => {
-  if (!variant || !colorVariantId || !size) {
-    return undefined;
-  }
-
-  return variant.inventory?.find((item) => {
-    return item.colorVariantId === colorVariantId && item.size.trim().toLowerCase() === size.trim().toLowerCase();
-  });
-};
-
-const getAvailableQuantityForSize = (
-  variant: ProductDetailVariant | undefined,
-  colorVariantId: string | undefined,
-  sizeOption: ProductDetailVariant['sizes'][number],
-) => {
-  const inventory = getInventoryForSelection(variant, colorVariantId, sizeOption.size);
-
-  if (variant && Array.isArray(variant.inventory) && colorVariantId) {
-    return Math.max(0, inventory?.availableQuantity ?? 0);
-  }
-
-  return Math.max(0, sizeOption.availableQuantity ?? (sizeOption.isAvailable ? fallbackQuantityLimit : 0));
-};
-
-const isSizeAvailableForColor = (
-  variant: ProductDetailVariant | undefined,
-  colorVariantId: string | undefined,
-  sizeOption: ProductDetailVariant['sizes'][number],
-) => {
-  return getAvailableQuantityForSize(variant, colorVariantId, sizeOption) > 0;
-};
-
-const getFirstAvailableSize = (variant?: ProductDetailVariant, colorVariantId?: string) =>
-  variant?.sizes.find((item) => isSizeAvailableForColor(variant, colorVariantId, item))?.size ??
-  variant?.sizes[0]?.size;
 
 const getImageOptions = (product: CatalogProductDetail) =>
   uniqueStrings([
@@ -229,13 +192,12 @@ const ProductDetailScreen = () => {
   React.useEffect(() => clearAddCartFeedbackTimer, [clearAddCartFeedbackTimer]);
 
   const initializeSelection = React.useCallback((detail: CatalogProductDetail) => {
-    const initialVariant = getInitialVariant(detail);
-    const initialColor = initialVariant?.colors[0];
+    const initialSelection = getInitialProductSelection(detail);
 
-    setSelectedVariantId(initialVariant?._id);
-    setSelectedColorId(initialColor?._id);
-    setSelectedSize(getFirstAvailableSize(initialVariant, initialColor?._id));
-    setSelectedImage(initialColor?.image || detail.gallery[0] || detail.productImage);
+    setSelectedVariantId(initialSelection.variant?._id);
+    setSelectedColorId(initialSelection.color?._id);
+    setSelectedSize(initialSelection.size);
+    setSelectedImage(initialSelection.color?.image || detail.gallery[0] || detail.productImage);
     setQuantity(1);
   }, []);
 
@@ -333,7 +295,7 @@ const ProductDetailScreen = () => {
         if (!isCurrentRequest) return;
 
         setProduct(null);
-        setError(err instanceof Error ? err.message : 'Không tải được chi tiết sản phẩm');
+        setError(getProductDetailErrorMessage(err));
         setIsLoading(false);
       });
 
@@ -400,10 +362,9 @@ const ProductDetailScreen = () => {
   const selectedColor = selectedVariant?.colors.find((color) => color._id === selectedColorId);
   const selectedSizeOption = selectedVariant?.sizes.find((item) => item.size === selectedSize);
   const selectedInventory = getInventoryForSelection(selectedVariant, selectedColorId, selectedSize);
-  const selectedAvailableQuantity =
-    selectedColorId
-      ? selectedInventory?.availableQuantity ?? 0
-      : selectedSizeOption?.availableQuantity ?? (selectedSizeOption?.isAvailable ? fallbackQuantityLimit : 0);
+  const selectedAvailableQuantity = selectedSizeOption
+    ? getAvailableQuantityForSize(selectedVariant, selectedColorId, selectedSizeOption)
+    : selectedInventory?.availableQuantity ?? 0;
   const maxPurchasableQuantity = Math.max(0, selectedAvailableQuantity);
   const canCheckout = Boolean(
     product &&
@@ -443,7 +404,7 @@ const ProductDetailScreen = () => {
   };
 
   const handleVariantPress = (variant: ProductDetailVariant) => {
-    const firstColor = variant.colors[0];
+    const firstColor = variant.colors.find((color) => isColorAvailable(variant, color._id)) ?? variant.colors[0];
 
     setSelectedVariantId(variant._id);
     setSelectedColorId(firstColor?._id);
@@ -924,14 +885,21 @@ const ProductDetailScreen = () => {
               <View style={styles.chipWrap}>
                 {product.variants.map((variant) => {
                   const isActive = variant._id === selectedVariantId;
+                  const variantAvailable = isVariantAvailable(variant);
 
                   return (
                     <TouchableOpacity
                       key={variant._id}
-                      style={[styles.fitChip, isActive && styles.fitChipActive, !variant.isActive && styles.disabledChip]}
+                      style={[
+                        styles.fitChip,
+                        isActive && styles.fitChipActive,
+                        !variantAvailable && styles.disabledChip,
+                      ]}
                       onPress={() => handleVariantPress(variant)}
-                      disabled={!variant.isActive}
+                      disabled={!variantAvailable}
                       activeOpacity={0.82}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isActive, disabled: !variantAvailable }}
                     >
                       <Text style={[styles.fitChipText, isActive && styles.fitChipTextActive]} numberOfLines={1}>
                         {variant.fitType?.label ?? 'Mặc định'}
@@ -952,17 +920,23 @@ const ProductDetailScreen = () => {
             <View style={styles.colorChipRow}>
               {selectedVariant?.colors.map((color) => {
                 const isActive = color._id === selectedColorId;
+                const colorAvailable = isColorAvailable(selectedVariant, color._id);
                 const swatchColor = resolveColorSwatch(color.color, color.colorCode).hex;
 
                 return (
                   <TouchableOpacity
                     key={color._id}
-                    style={[styles.colorChip, isActive && styles.colorChipActive]}
+                    style={[
+                      styles.colorChip,
+                      isActive && styles.colorChipActive,
+                      !colorAvailable && styles.disabledChip,
+                    ]}
                     onPress={() => handleColorPress(color)}
+                    disabled={!colorAvailable}
                     activeOpacity={0.78}
                     accessibilityRole="button"
                     accessibilityLabel={`Chọn màu ${color.color}`}
-                    accessibilityState={{ selected: isActive }}
+                    accessibilityState={{ selected: isActive, disabled: !colorAvailable }}
                   >
                     <View style={[styles.colorChipDot, { backgroundColor: swatchColor }]} />
                     <Text
@@ -1003,7 +977,10 @@ const ProductDetailScreen = () => {
                       !isAvailable && styles.disabledChip,
                     ]}
                     onPress={() => setSelectedSize(sizeOption.size)}
+                    disabled={!isAvailable}
                     activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isActive, disabled: !isAvailable }}
                   >
                     <Text style={[styles.sizeButtonText, isActive && styles.sizeButtonTextActive]}>
                       {sizeOption.size}

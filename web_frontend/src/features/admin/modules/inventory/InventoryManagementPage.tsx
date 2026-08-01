@@ -44,7 +44,7 @@ import {
   getReceiptListItem,
   getStatus,
   inventoryPageSize,
-  lowStockPercentage,
+  lowStockThreshold,
 } from './inventory.utils'
 import './inventory.css'
 
@@ -255,14 +255,12 @@ function InventoryManagementContent({
   const stats = useMemo(
     () => {
       const total = inventory.reduce((sum, item) => sum + item.availableQuantity, 0)
-      const avg = inventory.length ? total / inventory.length : 0
-      const threshold = avg * lowStockPercentage
       return {
         total,
         low: inventory.filter(
           (item) =>
             item.availableQuantity > 0 &&
-            item.availableQuantity <= threshold,
+            item.availableQuantity <= lowStockThreshold,
         ).length,
         out: inventory.filter((item) => item.availableQuantity === 0).length,
       }
@@ -270,25 +268,13 @@ function InventoryManagementContent({
     [inventory],
   )
 
-  // Tổng tồn theo sản phẩm được dùng để tính trạng thái còn hàng/sắp hết.
-  const productTotals = useMemo(() => {
-    const totals = new Map<string, { total: number; count: number }>()
-    rows.forEach((row) => {
-      const current = totals.get(row.productId) ?? { total: 0, count: 0 }
-      totals.set(row.productId, { total: current.total + row.availableQuantity, count: current.count + 1 })
-    })
-    return totals
-  }, [rows])
-
   // Lọc trước rồi mới gom nhóm, để phân trang theo sản phẩm thay vì từng size.
   const pagination = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLocaleLowerCase('vi')
     const groupsByProduct = new Map<string, InventoryProductGroup>()
 
     rows.forEach((row) => {
-      const productEntry = productTotals.get(row.productId) ?? { total: 0, count: 1 }
-      const productAvg = productEntry.count ? productEntry.total / productEntry.count : 0
-      const rowStatus = getStatus(row.availableQuantity, productAvg).id
+      const rowStatus = getStatus(row.availableQuantity).id
       const matchesKeyword =
         !normalizedKeyword ||
         [row.product?.name, row.sku, row.color?.color, row.size].some((value) =>
@@ -324,7 +310,7 @@ function InventoryManagementContent({
       start: filtered.length ? startIndex + 1 : 0,
       end: Math.min(startIndex + inventoryPageSize, filtered.length),
     }
-  }, [brand, category, fitType, keyword, page, rows, status, productTotals])
+  }, [brand, category, fitType, keyword, page, rows, status])
 
   useEffect(() => setPage(1), [brand, category, fitType, keyword, status])
 
@@ -651,11 +637,11 @@ function InventoryManagementContent({
               {!isLoading && pagination.items.length === 0 ? <EmptyRow label="Không có tồn kho phù hợp." /> : null}
               {!isLoading ? pagination.items.flatMap((group) => {
                 const total = group.rows.reduce((sum, row) => sum + row.availableQuantity, 0)
-                const groupAvg = group.rows.length ? total / group.rows.length : 0
-                const threshold = groupAvg * lowStockPercentage
-                const low = group.rows.filter((row) => row.availableQuantity > 0 && row.availableQuantity <= threshold).length
+                const low = group.rows.filter(
+                  (row) => row.availableQuantity > 0 && row.availableQuantity <= lowStockThreshold,
+                ).length
                 const out = group.rows.filter((row) => row.availableQuantity === 0).length
-                const productStatus = getStatus(group.rows, groupAvg)
+                const productStatus = getStatus(group.rows)
                 const isProductExpanded = expandedProducts.has(group.productId)
                 const rowsByVariant = new Map<string, InventoryRow[]>()
                 group.rows.forEach((row) => {
@@ -689,10 +675,8 @@ function InventoryManagementContent({
                         const variantKey = `${group.productId}:${variantId}`
                         const isVariantExpanded = expandedVariants.has(variantKey)
                         const variantTotal = variantRows.reduce((sum, row) => sum + row.availableQuantity, 0)
-                        const variantAvg = variantRows.length ? variantTotal / variantRows.length : 0
-                        const variantThreshold = variantAvg * lowStockPercentage
                         const variantWarnings = variantRows.filter(
-                          (row) => row.availableQuantity > 0 && row.availableQuantity <= variantThreshold,
+                          (row) => row.availableQuantity > 0 && row.availableQuantity <= lowStockThreshold,
                         )
                         const rowsByColor = new Map<string, InventoryColorGroup>()
                         variantRows.forEach((row) => {
@@ -739,17 +723,15 @@ function InventoryManagementContent({
                                   (sum, row) => sum + row.availableQuantity,
                                   0,
                                 )
-                                const colorAvg = colorGroup.rows.length ? colorTotal / colorGroup.rows.length : 0
-                                const threshold = colorAvg * lowStockPercentage
                                 const lowRows = colorGroup.rows.filter(
                                   (row) =>
                                     row.availableQuantity > 0 &&
-                                    row.availableQuantity <= threshold,
+                                    row.availableQuantity <= lowStockThreshold,
                                 )
                                 const outRows = colorGroup.rows.filter(
                                   (row) => row.availableQuantity === 0,
                                 )
-                                const colorStatus = getStatus(colorGroup.rows, colorAvg)
+                                const colorStatus = getStatus(colorGroup.rows)
                                         return (
                                           <article className="admin-inventory-color-block" key={colorGroup.colorVariantId}>
                                             <div className="admin-option-name">

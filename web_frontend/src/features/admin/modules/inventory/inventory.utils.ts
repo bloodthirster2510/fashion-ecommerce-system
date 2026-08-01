@@ -6,8 +6,9 @@ import type {
   ReceiptProductLine,
   ReceiptSummary,
 } from './inventory.view-types'
+import { getStockStatus, lowStockThreshold } from '../../utils/stock'
 
-export const lowStockPercentage = 0.15
+export { lowStockThreshold }
 export const inventoryPageSize = 10
 
 export const formatNumber = (value: number) => value.toLocaleString('vi-VN')
@@ -178,17 +179,9 @@ export const getReceiptListItem = (
 }
 
 // Tính trạng thái kho cho một dòng size hoặc cho cả nhóm sản phẩm.
-export const getStatus = (quantity: number | Array<{ availableQuantity: number }>, total: number) => {
+export const getStatus = (quantity: number | Array<{ availableQuantity: number }>) => {
   const items = typeof quantity === 'number' ? [{ availableQuantity: quantity }] : quantity
-
-  const allZero = items.every((item) => item.availableQuantity === 0)
-  if (allZero) return { id: 'out', label: 'Hết hàng', className: 'is-out' }
-  const threshold = total * lowStockPercentage
-  const allLow = items.length > 0 && items.every((item) => item.availableQuantity > 0 && item.availableQuantity <= threshold)
-  if (allLow) {
-    return { id: 'low', label: 'Sắp hết', className: 'is-low' }
-  }
-  return { id: 'available', label: 'Còn hàng', className: 'is-available' }
+  return getStockStatus(items)
 }
 
 export const getImportRemainingClass = (remainingQuantity: number, quantity: number) => {
