@@ -694,21 +694,13 @@ const EditProfileScreen = () => {
           try {
             setAddressSaving(true);
             setAddressMessage('');
-            await runWithAuth((accessToken) => accountApi.deleteAddress(accessToken, selectedAddressId));
-            const remainingAddresses = addresses.filter((item) => item._id !== selectedAddressId);
-            if (remainingAddresses.length > 0 && !remainingAddresses.some((item) => item.isDefault)) {
-              const fallbackId = remainingAddresses[0]._id;
-              if (fallbackId) {
-                const nextAddresses = await runWithAuth((accessToken) =>
-                  accountApi.setDefaultAddress(accessToken, fallbackId),
-                );
-                setAddresses(nextAddresses);
-                await fillAddressForm(nextAddresses[0] ?? null);
-              }
-            } else {
-              setAddresses(remainingAddresses);
-              await fillAddressForm(remainingAddresses.find((item) => item.isDefault) ?? remainingAddresses[0] ?? null);
-            }
+            const nextAddresses = await runWithAuth((accessToken) => (
+              accountApi.deleteAddress(accessToken, selectedAddressId)
+            ));
+            setAddresses(nextAddresses);
+            await fillAddressForm(
+              nextAddresses.find((item) => item.isDefault) ?? nextAddresses[0] ?? null,
+            );
             setAddressMessage('Đã xóa địa chỉ');
           } catch (error) {
             setAddressMessage(error instanceof Error ? error.message : 'Không thể xóa địa chỉ');

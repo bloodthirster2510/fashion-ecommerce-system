@@ -3,7 +3,7 @@ import http from 'http';
 import type { AddressInfo } from 'net';
 import { User } from '../../../database/models/user.model';
 import { generateAccessToken } from '../../../utils/jwt';
-import { customerUserRouter } from '../user.routes';
+import { adminUserRouter, customerUserRouter } from '../user.routes';
 import { getUserMembership } from '../membership.service';
 
 jest.mock('../user.controller', () => {
@@ -68,14 +68,17 @@ const mockAccount = (role: 'user' | 'admin', isActive: boolean) => {
 describe('mobile membership route account state', () => {
   let server: http.Server;
   let baseUrl: string;
+  let adminBaseUrl: string;
 
   beforeAll(async () => {
     process.env.JWT_ACCESS_SECRET = 'test-access-secret-at-least-32-characters';
     const app = express();
     app.use('/users', customerUserRouter);
+    app.use('/admin/users', adminUserRouter);
     server = http.createServer(app);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/users/me/membership`;
+    adminBaseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/admin/users`;
   });
 
   afterAll(async () => {
@@ -119,5 +122,62 @@ describe('mobile membership route account state', () => {
     mockAccount('admin', true);
     await expect(request('admin')).resolves.toMatchObject({ status: 403 });
     expect(mockedGetUserMembership).not.toHaveBeenCalled();
+  });
+
+  it('protects all Mobile account routes from disabled users and non-user roles', async () => {
+    const tokenFor = (role: 'user' | 'admin') => generateAccessToken({
+      userId: '665000000000000000000002',
+      email: `${role}@example.com`,
+      role,
+    });
+
+    mockAccount('user', false);
+    await expect(fetch(baseUrl.replace('/membership', '/addresses'), {
+      headers: { Authorization: `Bearer ${tokenFor('user')}` },
+    })).resolves.toMatchObject({ status: 403 });
+
+    mockAccount('admin', true);
+    await expect(fetch(baseUrl.replace('/membership', '/addresses'), {
+      headers: { Authorization: `Bearer ${tokenFor('admin')}` },
+    })).resolves.toMatchObject({ status: 403 });
+  });
+
+  it('allows an active Mobile user to access account routes', async () => {
+    mockAccount('user', true);
+    const token = generateAccessToken({
+      userId: '665000000000000000000002',
+      email: 'user@example.com',
+      role: 'user',
+    });
+
+    await expect(fetch(baseUrl.replace('/membership', '/addresses'), {
+      headers: { Authorization: `Bearer ${token}` },
+    })).resolves.toMatchObject({ status: 204 });
+  });
+
+  it('protects Admin customer routes from a disabled admin token', async () => {
+    mockAccount('admin', false);
+    const token = generateAccessToken({
+      userId: '665000000000000000000001',
+      email: 'admin@example.com',
+      role: 'admin',
+    });
+
+    await expect(fetch(adminBaseUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    })).resolves.toMatchObject({ status: 403 });
+  });
+
+  it('allows an active Admin to access customer routes', async () => {
+    mockAccount('admin', true);
+    const token = generateAccessToken({
+      userId: '665000000000000000000001',
+      email: 'admin@example.com',
+      role: 'admin',
+    });
+
+    await expect(fetch(adminBaseUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    })).resolves.toMatchObject({ status: 204 });
   });
 });

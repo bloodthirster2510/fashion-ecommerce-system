@@ -9,26 +9,25 @@ import * as customerInsightController from './customer-insight.controller';
 
 const customerUserRouter = Router();
 const adminUserRouter = Router();
-const canManageUsers = [authenticate, authorize('admin', 'staff')];
-const adminOnly = [authenticate, authorize('admin')];
+const customerAccountAccess = [authenticate, requireActiveAccount, authorize('user')];
+const canManageUsers = [authenticate, requireActiveAccount, authorize('admin', 'staff')];
+const adminOnly = [authenticate, requireActiveAccount, authorize('admin')];
 const canReadCustomers = [...canManageUsers, requirePermission('customers.read')];
 const canManageCustomerStatus = [...canManageUsers, requirePermission('customers.manage')];
 
-customerUserRouter.get('/me', authenticate, userController.getMe);
-customerUserRouter.put('/me', authenticate, userController.updateMe);
-customerUserRouter.post('/me/avatar', authenticate, userController.uploadAvatar);
+customerUserRouter.get('/me', customerAccountAccess, userController.getMe);
+customerUserRouter.put('/me', customerAccountAccess, userController.updateMe);
+customerUserRouter.post('/me/avatar', customerAccountAccess, userController.uploadAvatar);
 
-customerUserRouter.get('/me/addresses', authenticate, userController.getAddresses);
-customerUserRouter.post('/me/addresses', authenticate, userController.addAddress);
-customerUserRouter.put('/me/addresses/:addressId', authenticate, userController.updateAddress);
-customerUserRouter.delete('/me/addresses/:addressId', authenticate, userController.deleteAddress);
-customerUserRouter.patch('/me/addresses/:addressId/default', authenticate, userController.setDefaultAddress);
+customerUserRouter.get('/me/addresses', customerAccountAccess, userController.getAddresses);
+customerUserRouter.post('/me/addresses', customerAccountAccess, userController.addAddress);
+customerUserRouter.put('/me/addresses/:addressId', customerAccountAccess, userController.updateAddress);
+customerUserRouter.delete('/me/addresses/:addressId', customerAccountAccess, userController.deleteAddress);
+customerUserRouter.patch('/me/addresses/:addressId/default', customerAccountAccess, userController.setDefaultAddress);
 
 customerUserRouter.get(
   '/me/membership',
-  authenticate,
-  requireActiveAccount,
-  authorize('user'),
+  customerAccountAccess,
   async (req: Request, res: Response) => {
     const user = await User.findById(req.user!.userId).select('loyaltyPoint');
     if (!user) {

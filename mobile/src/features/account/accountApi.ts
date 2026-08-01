@@ -134,7 +134,7 @@ export const accountApi = {
   updateAddress: (token: string, addressId: string, payload: UserAddressPayload) =>
     request<UserAddress[]>(`/users/me/addresses/${addressId}`, token, { method: 'PUT', body: payload }),
   deleteAddress: (token: string, addressId: string) =>
-    request<undefined>(`/users/me/addresses/${addressId}`, token, { method: 'DELETE' }),
+    request<UserAddress[]>(`/users/me/addresses/${addressId}`, token, { method: 'DELETE' }),
   setDefaultAddress: (token: string, addressId: string) =>
     request<UserAddress[]>(`/users/me/addresses/${addressId}/default`, token, { method: 'PATCH' }),
   changePassword: (token: string, currentPassword: string, newPassword: string, confirmPassword: string) =>

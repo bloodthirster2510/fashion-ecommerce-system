@@ -11,6 +11,12 @@ const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswo
 const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
 const adminUserRoleSet = new Set<string>(adminUserRoles);
 
+function assertObjectPayload(payload: unknown, message: string): asserts payload is Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw { status: 400, message };
+  }
+}
+
 const firstString = (value: unknown) => {
   if (Array.isArray(value)) {
     return firstString(value[0]);
@@ -108,11 +114,13 @@ const normalizeSavedAddressesForCurrentSchema = (user: IUser) => {
 };
 
 const ensureAddressDefaultInvariant = (addresses: IUserAddress[]) => {
-  if (!addresses.length || addresses.some((address) => address.isDefault)) {
-    return;
-  }
+  if (!addresses.length) return;
 
-  addresses[0].isDefault = true;
+  const defaultIndex = addresses.findIndex((address) => address.isDefault);
+  const selectedIndex = defaultIndex >= 0 ? defaultIndex : 0;
+  addresses.forEach((address, index) => {
+    address.isDefault = index === selectedIndex;
+  });
 };
 
 const assertNotLastActiveAdmin = async (user: IUser, nextRole: UserRole) => {
@@ -139,6 +147,13 @@ const normalizeBase64Image = (imageBase64: string, fallbackMimeType?: string) =>
   return { mimeType, cleanBase64 };
 };
 
+const decodeStrictBase64 = (value: string) => {
+  if (!/^[a-zA-Z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) return null;
+  const buffer = Buffer.from(value, 'base64');
+  const canonicalValue = value.replace(/=+$/, '');
+  return buffer.toString('base64').replace(/=+$/, '') === canonicalValue ? buffer : null;
+};
+
 export const getMe = async (userId: string) => {
   const user = await User.findById(userId)
     .select(safeUserSelect);
@@ -155,7 +170,9 @@ export const updateMe = async (userId: string, data: {
   dateOfBirth?: string;
   avatarImage?: string | null;
 }) => {
+  assertObjectPayload(data, 'Dữ liệu cập nhật không hợp lệ');
   const updates: Record<string, unknown> = {};
+  let avatarPublicIdToDelete: string | null | undefined;
 
   if (data.name !== undefined) updates.name = data.name.trim();
   if (data.phone !== undefined) {
@@ -177,7 +194,7 @@ export const updateMe = async (userId: string, data: {
         throw { status: 404, message: 'Người dùng không tồn tại' };
       }
 
-      await deleteImageFromCloudinary(existingUser.avatarPublicId).catch(() => undefined);
+      avatarPublicIdToDelete = existingUser.avatarPublicId;
       updates.avatarImage = null;
       updates.avatarPublicId = null;
     }
@@ -194,6 +211,10 @@ export const updateMe = async (userId: string, data: {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
+  if (avatarPublicIdToDelete) {
+    await deleteImageFromCloudinary(avatarPublicIdToDelete).catch(() => undefined);
+  }
+
   normalizeSavedAddressesForCurrentSchema(user);
   syncProfileCompleted(user);
   await user.save();
@@ -204,6 +225,7 @@ export const uploadAvatar = async (userId: string, data: {
   imageBase64?: string;
   mimeType?: string;
 }) => {
+  assertObjectPayload(data, 'Dữ liệu ảnh đại diện không hợp lệ');
   if (!data.imageBase64 || typeof data.imageBase64 !== 'string') {
     throw { status: 400, message: 'Vui lòng chọn ảnh đại diện' };
   }
@@ -224,10 +246,13 @@ export const uploadAvatar = async (userId: string, data: {
     throw { status: 400, message: 'Ảnh đại diện phải là JPG, PNG hoặc WEBP' };
   }
 
-  const avatarBuffer = Buffer.from(cleanBase64, 'base64');
+  const avatarBuffer = decodeStrictBase64(cleanBase64);
   const maxAvatarBytes = 3 * 1024 * 1024;
 
-  if (!avatarBuffer.length || avatarBuffer.length > maxAvatarBytes) {
+  if (!avatarBuffer?.length) {
+    throw { status: 400, message: 'Dữ liệu ảnh đại diện không hợp lệ' };
+  }
+  if (avatarBuffer.length > maxAvatarBytes) {
     throw { status: 400, message: 'Ảnh đại diện tối đa 3MB' };
   }
 
@@ -245,6 +270,7 @@ export const uploadAvatar = async (userId: string, data: {
   ).select(safeUserSelect);
 
   if (!user) {
+    await deleteImageFromCloudinary(uploadResult.publicId).catch(() => undefined);
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
 
@@ -264,6 +290,7 @@ export const getAddresses = async (userId: string) => {
 };
 
 export const addAddress = async (userId: string, address: UserAddressInput) => {
+  assertObjectPayload(address, 'Dữ liệu địa chỉ không hợp lệ');
   const user = await User.findById(userId);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -273,7 +300,7 @@ export const addAddress = async (userId: string, address: UserAddressInput) => {
     throw { status: 400, message: 'Tối đa 5 địa chỉ' };
   }
 
-  const shouldSetDefault = address.isDefault ?? user.address.length === 0;
+  const shouldSetDefault = user.address.length === 0 || address.isDefault === true;
   if (shouldSetDefault) {
     user.address.forEach((item: IUserAddress) => {
       item.isDefault = false;
@@ -286,6 +313,7 @@ export const addAddress = async (userId: string, address: UserAddressInput) => {
     ...address,
     isDefault: shouldSetDefault,
   }));
+  ensureAddressDefaultInvariant(user.address);
 
   syncProfileCompleted(user);
   await user.save();
@@ -293,6 +321,10 @@ export const addAddress = async (userId: string, address: UserAddressInput) => {
 };
 
 export const updateAddress = async (userId: string, addressId: string, data: Partial<UserAddressInput>) => {
+  assertObjectPayload(data, 'Dữ liệu địa chỉ không hợp lệ');
+  if (Object.keys(data).length === 0) {
+    throw { status: 400, message: 'Không có dữ liệu địa chỉ để cập nhật' };
+  }
   const user = await User.findById(userId);
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
@@ -318,6 +350,7 @@ export const updateAddress = async (userId: string, addressId: string, data: Par
     ...data,
     isDefault: data.isDefault ?? currentAddress.isDefault,
   }));
+  ensureAddressDefaultInvariant(user.address);
 
   syncProfileCompleted(user);
   await user.save();
@@ -336,13 +369,13 @@ export const deleteAddress = async (userId: string, addressId: string) => {
     throw { status: 404, message: 'Địa chỉ không tồn tại' };
   }
 
-  const wasDefault = Boolean(toPlainAddress(address as IUserAddress).isDefault);
   address.deleteOne();
-  if (wasDefault && Array.isArray(user.address)) {
+  if (Array.isArray(user.address)) {
     ensureAddressDefaultInvariant(user.address);
   }
   syncProfileCompleted(user);
   await user.save();
+  return user.address;
 };
 
 export const setDefaultAddress = async (userId: string, addressId: string) => {
