@@ -78,14 +78,33 @@ export type PasswordRecoveryResult =
   | { method: 'email'; delivery?: EmailDeliveryInfo }
   | { method: 'phone'; delivery?: OtpDeliveryInfo };
 
+export type LoginUnlockResult = {
+  method: 'email' | 'phone';
+  delivery: {
+    mode: 'mock' | 'real';
+    provider: 'mock' | 'smtp' | 'twilio' | 'esms';
+    testOtp?: string;
+  };
+};
+
 export class AuthApiError extends Error {
   errors?: ApiValidationError[];
   status?: number;
+  errorCode?: string;
+  data?: unknown;
 
-  constructor(message: string, errors?: ApiValidationError[], status?: number) {
+  constructor(
+    message: string,
+    errors?: ApiValidationError[],
+    status?: number,
+    errorCode?: string,
+    data?: unknown,
+  ) {
     super(message);
     this.name = 'AuthApiError';
     this.errors = errors;
     this.status = status;
+    this.errorCode = errorCode;
+    this.data = data;
   }
 }

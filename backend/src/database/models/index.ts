@@ -12,6 +12,7 @@ export * from './faq-vote.model';
 export * from './inventory.model';
 export * from './loyalty-point-history.model';
 export * from './loyalty-rule.model';
+export * from './login-attempt.model';
 export * from './membership-ranking.model';
 export * from './order.model';
 export * from './otp-verification.model';

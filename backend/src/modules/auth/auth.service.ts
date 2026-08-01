@@ -18,8 +18,16 @@ import { getSmsDeliveryCapability, type SmsDeliveryInfo } from '../../utils/sms-
 import { normalizeUserAddressInput, type UserAddressInput } from '../../utils/address';
 import { LEGAL_POLICY_VERSION } from './legal-policy';
 import { PushToken } from '../../database/models/push-token.model';
+import {
+  assertLoginAllowed,
+  clearLoginSecurity,
+  recordFailedLogin,
+  requestLoginUnlock as requestLoginUnlockChallenge,
+  verifyLoginUnlock as verifyLoginUnlockChallenge,
+} from './login-security.service';
 
 const SALT_ROUNDS = 10;
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('fashion-shop-invalid-login-placeholder', SALT_ROUNDS);
 const DEFAULT_AUTH_IDENTIFIER_COOLDOWN_MS = 60_000;
 const DEFAULT_AUTH_IDENTIFIER_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_AUTH_IDENTIFIER_MAX_ATTEMPTS = 5;
@@ -249,12 +257,16 @@ const loginWithPassword = async (
   password: string,
   options: { allowedRoles?: Array<IUser['role']> } = {},
 ) => {
-  const isEmail = identifier.includes('@');
-  const query = isEmail ? { email: identifier.toLowerCase() } : { phone: identifier };
+  const normalizedIdentifier = identifier.trim();
+  const isEmail = normalizedIdentifier.includes('@');
+  const query = isEmail ? { email: normalizedIdentifier.toLowerCase() } : { phone: normalizedIdentifier };
 
   const user = await User.findOne(query);
+  await assertLoginAllowed(normalizedIdentifier, user);
 
   if (!user) {
+    await comparePassword(password, DUMMY_PASSWORD_HASH);
+    await recordFailedLogin(normalizedIdentifier);
     throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
   }
 
@@ -264,8 +276,11 @@ const loginWithPassword = async (
 
   const isPasswordValid = await comparePassword(password, user.password);
   if (!isPasswordValid) {
+    await recordFailedLogin(normalizedIdentifier, user);
     throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
   }
+
+  await clearLoginSecurity(normalizedIdentifier, user);
 
   if (options.allowedRoles && !options.allowedRoles.includes(user.role)) {
     throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
@@ -291,6 +306,14 @@ export const loginUser = async (identifier: string, password: string) => {
 export const loginAdminUser = async (identifier: string, password: string) => {
   return loginWithPassword(identifier, password, { allowedRoles: ['admin', 'staff'] });
 };
+
+export const requestLoginUnlock = (identifier: string, channel?: 'email' | 'phone') => (
+  requestLoginUnlockChallenge(identifier, channel)
+);
+
+export const verifyLoginUnlock = (identifier: string, otp: string) => (
+  verifyLoginUnlockChallenge(identifier, otp)
+);
 
 export const logoutUser = async (userId: string) => {
   await Promise.all([
@@ -430,6 +453,7 @@ export const resetPassword = async (identifier: string, token: string, newPasswo
     mustChangePassword: false,
     passwordChangedAt: new Date(),
   });
+  await clearLoginSecurity(identifier, user);
 };
 
 export const changePassword = async (userId: string, currentPassword: string, newPassword: string) => {
@@ -454,6 +478,7 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     mustChangePassword: false,
     passwordChangedAt: new Date(),
   });
+  await clearLoginSecurity(user.email, user);
 };
 
 const googleClient = process.env.GOOGLE_CLIENT_ID
@@ -465,7 +490,10 @@ const generateUserTokens = async (user: IUser) => {
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
-  await updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() });
+  await Promise.all([
+    updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() }),
+    clearLoginSecurity(user.email, user),
+  ]);
 
   return {
     accessToken,

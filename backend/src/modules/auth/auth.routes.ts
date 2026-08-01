@@ -10,6 +10,8 @@ router.post('/send-otp', authRateLimit, authController.sendOtp);
 router.post('/verify-otp', authRateLimit, authController.verifyOtp);
 router.post('/register', authRateLimit, authController.register);
 router.post('/login', authRateLimit, authController.login);
+router.post('/login/unlock/request', authRateLimit, authController.requestLoginUnlock);
+router.post('/login/unlock/verify', authRateLimit, authController.verifyLoginUnlock);
 router.post('/admin/login', authRateLimit, authController.adminLogin);
 router.post('/logout', authController.logout);
 router.post('/refresh-token', authRateLimit, authController.refreshToken);

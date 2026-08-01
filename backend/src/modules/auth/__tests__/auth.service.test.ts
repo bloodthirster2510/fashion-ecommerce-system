@@ -8,6 +8,13 @@ import crypto from 'crypto';
 
 jest.mock('../../../database/models/user.model');
 jest.mock('../../../database/models/push-token.model');
+jest.mock('../login-security.service', () => ({
+  assertLoginAllowed: jest.fn(),
+  clearLoginSecurity: jest.fn(),
+  recordFailedLogin: jest.fn(),
+  requestLoginUnlock: jest.fn(),
+  verifyLoginUnlock: jest.fn(),
+}));
 jest.mock('bcryptjs');
 jest.mock('jsonwebtoken');
 jest.mock('../../../utils/email', () => ({
@@ -26,6 +33,11 @@ import {
   sendResetPasswordEmail,
 } from '../../../utils/email';
 import { EmailDeliveryError } from '../../../utils/email-provider';
+import {
+  assertLoginAllowed,
+  clearLoginSecurity,
+  recordFailedLogin,
+} from '../login-security.service';
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -54,6 +66,9 @@ describe('Auth Service', () => {
       provider: 'mock',
       testOtp: '123456',
     });
+    (assertLoginAllowed as jest.Mock).mockResolvedValue(undefined);
+    (recordFailedLogin as jest.Mock).mockResolvedValue(undefined);
+    (clearLoginSecurity as jest.Mock).mockResolvedValue(undefined);
     clearAuthRequestThrottleForTests();
   });
 
@@ -276,6 +291,7 @@ describe('Auth Service', () => {
         status: 401,
         message: 'Thông tin đăng nhập không chính xác',
       });
+      expect(recordFailedLogin).toHaveBeenCalledWith('test@test.com');
     });
 
     it('should throw error if user is inactive', async () => {
@@ -287,12 +303,28 @@ describe('Auth Service', () => {
     });
 
     it('should throw error if password is wrong', async () => {
-      (User.findOne as jest.Mock).mockResolvedValue({ isActive: true, password: 'hash' });
+      const mockUser = { _id: { toString: () => 'user123' }, isActive: true, password: 'hash' };
+      (User.findOne as jest.Mock).mockResolvedValue(mockUser);
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
       await expect(loginUser('test@test.com', 'password')).rejects.toEqual({
         status: 401,
         message: 'Thông tin đăng nhập không chính xác',
       });
+      expect(recordFailedLogin).toHaveBeenCalledWith('test@test.com', mockUser);
+    });
+
+    it('propagates the temporary lock raised on the fifth failed attempt', async () => {
+      const mockUser = { _id: { toString: () => 'user123' }, isActive: true, password: 'hash' };
+      const lockError = {
+        status: 429,
+        errorCode: 'LOGIN_TEMPORARILY_LOCKED',
+        message: 'Tài khoản tạm khóa',
+      };
+      (User.findOne as jest.Mock).mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (recordFailedLogin as jest.Mock).mockRejectedValueOnce(lockError);
+
+      await expect(loginUser('test@test.com', 'password')).rejects.toBe(lockError);
     });
 
     it('should login user successfully', async () => {
@@ -319,6 +351,7 @@ describe('Auth Service', () => {
         { _id: mockUser._id },
         { $set: expect.objectContaining({ refreshToken: hashToken('refresh_token'), lastLoginAt: expect.any(Date) }) },
       );
+      expect(clearLoginSecurity).toHaveBeenCalledWith('test@test.com', mockUser);
       expect(mockUser.save).not.toHaveBeenCalled();
     });
   });

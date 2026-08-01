@@ -1,6 +1,6 @@
 import { axiosClient } from '../../services/axiosClient'
 import { tokenService } from '../../services/tokenService'
-import type { ApiResponse, AuthSession, OtpDeliveryInfo, Province, RegisterPayload, Ward } from './auth.types'
+import type { ApiResponse, AuthSession, LoginUnlockResult, OtpDeliveryInfo, Province, RegisterPayload, Ward } from './auth.types'
 import { AuthApiError } from './auth.types'
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
@@ -35,7 +35,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   }
 
   if (!response.ok) {
-    throw new AuthApiError(body.message || 'Không thể xử lý yêu cầu.', body.errors)
+    throw new AuthApiError(body.message || 'Không thể xử lý yêu cầu.', body.errors, response.status, body.errorCode, body.data)
   }
 
   if (body.data === undefined) {
@@ -63,6 +63,20 @@ export const authService = {
 
     saveSession(session)
     return session
+  },
+
+  requestLoginUnlock(identifier: string, channel: 'email' | 'phone') {
+    return request<LoginUnlockResult>('/auth/login/unlock/request', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, channel }),
+    })
+  },
+
+  verifyLoginUnlock(identifier: string, otp: string) {
+    return request<null>('/auth/login/unlock/verify', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, otp }),
+    })
   },
 
   sendOtp(phone: string) {

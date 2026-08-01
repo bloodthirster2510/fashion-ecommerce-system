@@ -11,6 +11,8 @@ import {
   validateVerifyOtp,
   validateRegister,
   validateLogin,
+  validateLoginUnlockRequest,
+  validateLoginUnlockVerify,
   validateForgotPassword,
   validateResetPassword,
   validateChangePassword,
@@ -18,6 +20,20 @@ import {
 import { ok, created, noContent } from '../../utils/response';
 import { isSmsDeliveryError } from '../../utils/sms-provider';
 import { isEmailDeliveryError } from '../../utils/email-provider';
+import { LoginSecurityError } from './login-security.service';
+
+const sendLoginSecurityError = (res: Response, err: unknown) => {
+  if (!(err instanceof LoginSecurityError)) return null;
+  const retryAfterSeconds = err.data?.retryAfterSeconds;
+  if (typeof retryAfterSeconds === 'number') {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfterSeconds))));
+  }
+  return res.status(err.status).json({
+    message: err.message,
+    errorCode: err.errorCode,
+    ...(err.data ? { data: err.data } : {}),
+  });
+};
 
 const getBearerToken = (req: Request) => {
   const authHeader = req.headers.authorization;
@@ -98,9 +114,61 @@ export const login = async (req: Request, res: Response) => {
     const result = await authService.loginUser(req.body.identifier, req.body.password);
     return ok(res, applyRefreshTokenCookieMode(req, res, result), 'Đăng nhập thành công');
   } catch (err: unknown) {
+    const securityResponse = sendLoginSecurityError(res, err);
+    if (securityResponse) return securityResponse;
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
     }
+    return res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+export const requestLoginUnlock = async (req: Request, res: Response) => {
+  const errors = validateLoginUnlockRequest(req.body);
+  if (errors.length > 0) {
+    return res.status(400).json({ message: 'Dữ liệu không hợp lệ', errors });
+  }
+
+  const isEmail = req.body.channel
+    ? req.body.channel === 'email'
+    : req.body.identifier.trim().includes('@');
+  const message = isEmail
+    ? 'Nếu tài khoản đang bị khóa, mã OTP đã được gửi qua email.'
+    : 'Nếu tài khoản đang bị khóa, mã OTP đã được gửi qua SMS.';
+
+  try {
+    return ok(res, await authService.requestLoginUnlock(req.body.identifier, req.body.channel), message);
+  } catch (err) {
+    const securityResponse = sendLoginSecurityError(res, err);
+    if (securityResponse) return securityResponse;
+    if (isEmailDeliveryError(err)) {
+      return res.status(err.status).json({
+        message: 'Không thể gửi email mở khóa lúc này. Vui lòng thử lại sau.',
+        errorCode: err.code,
+      });
+    }
+    if (isSmsDeliveryError(err)) {
+      return res.status(err.status).json({
+        message: 'Không thể gửi mã OTP lúc này. Vui lòng thử lại sau.',
+        errorCode: err.code,
+      });
+    }
+    return res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+export const verifyLoginUnlock = async (req: Request, res: Response) => {
+  const errors = validateLoginUnlockVerify(req.body);
+  if (errors.length > 0) {
+    return res.status(400).json({ message: 'Dữ liệu không hợp lệ', errors });
+  }
+
+  try {
+    await authService.verifyLoginUnlock(req.body.identifier, req.body.otp);
+    return ok(res, null, 'Mở khóa đăng nhập thành công. Vui lòng đăng nhập lại.');
+  } catch (err) {
+    const securityResponse = sendLoginSecurityError(res, err);
+    if (securityResponse) return securityResponse;
     return res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -115,6 +183,8 @@ export const adminLogin = async (req: Request, res: Response) => {
     const result = await authService.loginAdminUser(req.body.identifier, req.body.password);
     return ok(res, applyRefreshTokenCookieMode(req, res, result), 'Đăng nhập quản trị thành công');
   } catch (err: unknown) {
+    const securityResponse = sendLoginSecurityError(res, err);
+    if (securityResponse) return securityResponse;
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
     }

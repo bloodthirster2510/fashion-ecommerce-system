@@ -5,7 +5,7 @@ import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { clearCurrentUser, setCurrentUser } from '../auth.slice'
 import { clearCart } from '../../cart/cart.slice'
 import { authService } from '../auth.service'
-import type { AuthUser } from '../auth.types'
+import { AuthApiError, type AuthUser } from '../auth.types'
 import { RegisterModal } from './RegisterModal'
 import { tokenService } from '../../../services/tokenService'
 import '../auth.css'
@@ -28,6 +28,12 @@ export function LoginButton() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState('')
+  const [isLoginLocked, setIsLoginLocked] = useState(false)
+  const [unlockCode, setUnlockCode] = useState('')
+  const [unlockMethod, setUnlockMethod] = useState<'email' | 'phone'>('email')
+  const [unlockRequested, setUnlockRequested] = useState(false)
+  const [unlockMessage, setUnlockMessage] = useState('')
+  const [isUnlocking, setIsUnlocking] = useState(false)
   const [form] = Form.useForm()
 
   const handleLoginOpenChange = (open: boolean) => {
@@ -36,6 +42,10 @@ export function LoginButton() {
     if (!open) {
       form.resetFields()
       setLoginError('')
+      setIsLoginLocked(false)
+      setUnlockCode('')
+      setUnlockRequested(false)
+      setUnlockMessage('')
     }
 
     setIsLoginOpen(open)
@@ -85,9 +95,76 @@ export function LoginButton() {
       message.success('Đăng nhập thành công.')
       handleLoginOpenChange(false)
     } catch (error) {
+      if (error instanceof AuthApiError && error.errorCode === 'LOGIN_TEMPORARILY_LOCKED') {
+        setIsLoginLocked(true)
+        setUnlockRequested(false)
+        setUnlockCode('')
+        setUnlockMessage('')
+      }
       setLoginError(error instanceof Error ? error.message : 'Không thể đăng nhập. Vui lòng thử lại.')
     } finally {
       setIsLoggingIn(false)
+    }
+  }
+
+  const getLoginIdentifier = () => String(form.getFieldValue('identifier') ?? '').trim()
+
+  const handleIdentifierChange = () => {
+    if (!isLoginLocked) return
+    setIsLoginLocked(false)
+    setUnlockRequested(false)
+    setUnlockCode('')
+    setUnlockMessage('')
+    setLoginError('')
+  }
+
+  const handleRequestUnlock = async (channel: 'email' | 'phone') => {
+    const identifier = getLoginIdentifier()
+    if (!emailPattern.test(identifier) && !vietnamPhonePattern.test(identifier)) {
+      setUnlockMessage('Email hoặc số điện thoại không hợp lệ.')
+      return
+    }
+
+    try {
+      setIsUnlocking(true)
+      setUnlockMessage('')
+      const result = await authService.requestLoginUnlock(identifier, channel)
+      setUnlockMethod(result.method)
+      setUnlockRequested(true)
+      if (result.delivery.mode === 'mock' && result.delivery.testOtp) {
+        setUnlockCode(result.delivery.testOtp)
+        setUnlockMessage(`Mã OTP thử nghiệm: ${result.delivery.testOtp}`)
+      } else {
+        setUnlockMessage(result.method === 'email'
+          ? 'Mã OTP đã được gửi tới email của bạn.'
+          : 'Mã OTP đã được gửi tới số điện thoại của bạn.')
+      }
+    } catch (error) {
+      setUnlockMessage(error instanceof Error ? error.message : 'Chưa thể gửi mã OTP.')
+    } finally {
+      setIsUnlocking(false)
+    }
+  }
+
+  const handleVerifyUnlock = async () => {
+    if (!/^\d{6}$/.test(unlockCode.trim())) {
+      setUnlockMessage('Vui lòng nhập đủ 6 chữ số OTP.')
+      return
+    }
+
+    try {
+      setIsUnlocking(true)
+      setUnlockMessage('')
+      await authService.verifyLoginUnlock(getLoginIdentifier(), unlockCode.trim())
+      setIsLoginLocked(false)
+      setUnlockRequested(false)
+      setUnlockCode('')
+      setLoginError('')
+      message.success('Đã mở khóa. Bạn có thể đăng nhập lại.')
+    } catch (error) {
+      setUnlockMessage(error instanceof Error ? error.message : 'Không thể xác thực mã OTP.')
+    } finally {
+      setIsUnlocking(false)
     }
   }
 
@@ -99,6 +176,42 @@ export function LoginButton() {
       </div>
 
       {loginError && <Alert className="auth-alert" type="error" message={loginError} showIcon />}
+
+      {isLoginLocked && (
+        <div className="login-unlock-card">
+          <strong>Mở khóa đăng nhập</strong>
+          <span>Chọn email hoặc SMS đã đăng ký để nhận mã mở khóa.</span>
+          {unlockRequested ? (
+            <>
+              <Input
+                value={unlockCode}
+                onChange={(event) => setUnlockCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Nhập mã OTP 6 số"
+                maxLength={6}
+                inputMode="numeric"
+                size="large"
+                className="login-unlock-code"
+              />
+              <Button type="primary" block loading={isUnlocking} onClick={handleVerifyUnlock}>
+                Xác nhận mở khóa
+              </Button>
+              <Button type="link" block disabled={isUnlocking} onClick={() => handleRequestUnlock(unlockMethod)}>
+                Gửi lại qua {unlockMethod === 'email' ? 'email' : 'SMS'}
+              </Button>
+            </>
+          ) : (
+            <div className="login-unlock-channels">
+              <Button block loading={isUnlocking} onClick={() => handleRequestUnlock('email')}>
+                Nhận qua Email
+              </Button>
+              <Button block disabled={isUnlocking} onClick={() => handleRequestUnlock('phone')}>
+                Nhận qua SMS
+              </Button>
+            </div>
+          )}
+          {unlockMessage && <small>{unlockMessage}</small>}
+        </div>
+      )}
 
       <Form form={form} layout="vertical" requiredMark={false} className="login-form" onFinish={handleLogin}>
         <Form.Item
@@ -119,7 +232,12 @@ export function LoginButton() {
             },
           ]}
         >
-          <Input prefix={<MailOutlined />} placeholder="Nhập email hoặc số điện thoại" size="large" />
+          <Input
+            prefix={<MailOutlined />}
+            placeholder="Nhập email hoặc số điện thoại"
+            size="large"
+            onChange={handleIdentifierChange}
+          />
         </Form.Item>
 
         <Form.Item
@@ -137,7 +255,15 @@ export function LoginButton() {
           <a href="/">Quên mật khẩu?</a>
         </div>
 
-        <Button type="primary" htmlType="submit" size="large" block className="login-submit" loading={isLoggingIn}>
+        <Button
+          type="primary"
+          htmlType="submit"
+          size="large"
+          block
+          className="login-submit"
+          loading={isLoggingIn}
+          disabled={isLoginLocked}
+        >
           Đăng nhập
         </Button>
       </Form>

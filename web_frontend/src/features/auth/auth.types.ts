@@ -8,6 +8,7 @@ export type ApiResponse<T> = {
   message?: string
   data?: T
   errors?: ApiValidationError[]
+  errorCode?: string
 }
 
 export type AuthUser = {
@@ -32,6 +33,15 @@ export type OtpDeliveryInfo = {
   mode: 'mock' | 'real'
   provider: 'mock' | 'twilio' | 'esms'
   testOtp?: string
+}
+
+export type LoginUnlockResult = {
+  method: 'email' | 'phone'
+  delivery: {
+    mode: 'mock' | 'real'
+    provider: 'mock' | 'smtp' | 'twilio' | 'esms'
+    testOtp?: string
+  }
 }
 
 // Contract gửi lên POST /auth/register.
@@ -69,10 +79,22 @@ export type Ward = {
 
 export class AuthApiError extends Error {
   errors?: ApiValidationError[]
+  status?: number
+  errorCode?: string
+  data?: unknown
 
-  constructor(message: string, errors?: ApiValidationError[]) {
+  constructor(
+    message: string,
+    errors?: ApiValidationError[],
+    status?: number,
+    errorCode?: string,
+    data?: unknown,
+  ) {
     super(message)
     this.name = 'AuthApiError'
     this.errors = errors
+    this.status = status
+    this.errorCode = errorCode
+    this.data = data
   }
 }

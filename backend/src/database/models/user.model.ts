@@ -83,6 +83,11 @@ export interface IUser extends Document {
   profileCompleted: boolean;
   resetPasswordToken?: string | null;
   resetPasswordExpires?: Date | null;
+  loginUnlockOtpHash?: string | null;
+  loginUnlockOtpExpiresAt?: Date | null;
+  loginUnlockOtpAttempts: number;
+  loginUnlockOtpLockedUntil?: Date | null;
+  loginUnlockOtpSentAt?: Date | null;
   avatarImage?: string | null;
   avatarPublicId?: string | null;
   isActive: boolean;
@@ -179,6 +184,11 @@ const userSchema = new Schema<IUser>(
     profileCompleted: { type: Boolean, default: true },
     resetPasswordToken: { type: String, default: null },
     resetPasswordExpires: { type: Date, default: null },
+    loginUnlockOtpHash: { type: String, default: null },
+    loginUnlockOtpExpiresAt: { type: Date, default: null },
+    loginUnlockOtpAttempts: { type: Number, default: 0, min: 0 },
+    loginUnlockOtpLockedUntil: { type: Date, default: null },
+    loginUnlockOtpSentAt: { type: Date, default: null },
     avatarImage: { type: String, default: null, maxlength: 1000 },
     avatarPublicId: { type: String, default: null, maxlength: 255 },
     isActive: { type: Boolean, default: false },
