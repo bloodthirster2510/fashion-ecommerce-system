@@ -189,7 +189,18 @@ export const markCustomerNotificationRead = async (userId: string, notificationI
       _id: toObjectId(notificationId, 'notificationId'),
       userId: toObjectId(userId, 'userId'),
     },
-    { $set: { isRead: true, readAt: new Date() } },
+    [{
+      $set: {
+        isRead: true,
+        readAt: {
+          $cond: [
+            { $eq: ['$isRead', true] },
+            { $ifNull: ['$readAt', '$$NOW'] },
+            '$$NOW',
+          ],
+        },
+      },
+    }],
     { returnDocument: 'after', runValidators: true },
   ).lean();
 

@@ -65,8 +65,9 @@ const deliverExpoPush = async (
   const payload = await response.json() as {
     data?: Array<{ status?: string; details?: { error?: string } }>;
   };
+  const receipts = Array.isArray(payload.data) ? payload.data : [];
   const invalidTokens = eligibleTokens.filter(
-    (_, index) => payload.data?.[index]?.details?.error === 'DeviceNotRegistered',
+    (_, index) => receipts[index]?.details?.error === 'DeviceNotRegistered',
   );
   if (invalidTokens.length) {
     await PushToken.updateMany(
@@ -74,7 +75,8 @@ const deliverExpoPush = async (
       { isActive: false },
     );
   }
-  const failed = payload.data?.filter((item) => item.status === 'error').length ?? 0;
+  // A missing or malformed receipt must not be reported as a successful delivery.
+  const failed = eligibleTokens.filter((_, index) => receipts[index]?.status !== 'ok').length;
   return { sent: eligibleTokens.length - failed, failed };
 };
 
@@ -93,9 +95,12 @@ export const sendCustomerPush = (input: {
 
 export const registerPushToken = async (
   userId: string,
-  input: { token?: string; platform?: string; preferences?: unknown },
+  input: { token?: string; platform?: string; preferences?: unknown } | null | undefined,
 ) => {
   if (!Types.ObjectId.isValid(userId)) throw Object.assign(new Error('Invalid user'), { statusCode: 400 });
+  if (!input || typeof input !== 'object') {
+    throw Object.assign(new Error('Push token payload is required'), { statusCode: 400 });
+  }
   const token = input.token?.trim() ?? '';
   if (!expoTokenPattern.test(token)) throw Object.assign(new Error('Invalid Expo push token'), { statusCode: 400 });
   if (!input.platform || !['ios', 'android'].includes(input.platform)) {
@@ -118,9 +123,15 @@ export const registerPushToken = async (
 };
 
 export const unregisterPushToken = async (userId: string, token: string) => {
-  if (!Types.ObjectId.isValid(userId)) return { disabled: false };
+  if (!Types.ObjectId.isValid(userId)) {
+    throw Object.assign(new Error('Invalid user'), { statusCode: 400 });
+  }
+  const normalizedToken = token?.trim() ?? '';
+  if (!expoTokenPattern.test(normalizedToken)) {
+    throw Object.assign(new Error('Invalid Expo push token'), { statusCode: 400 });
+  }
   const result = await PushToken.updateOne(
-    { userId: new Types.ObjectId(userId), token: token.trim() },
+    { userId: new Types.ObjectId(userId), token: normalizedToken },
     { isActive: false },
   );
   return { disabled: result.modifiedCount > 0 };
