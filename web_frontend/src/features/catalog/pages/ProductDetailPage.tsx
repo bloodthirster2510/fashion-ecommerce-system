@@ -16,15 +16,20 @@ import { formatPrice } from '../../../utils/formatPrice'
 import { setCart } from '../../cart/cart.slice'
 import { catalogService } from '../catalog.service'
 import { customerProductActionsService } from '../customerProductActions.service'
+import {
+  findInventoryForSelection,
+  getFirstAvailableSizeForColor,
+  getInitialProductSelection,
+  getProductDetailErrorMessage,
+  getSelectableProductVariants,
+  isColorAvailable,
+  isSizeAvailableForColor,
+} from '../productDetailSelection'
 import { ProductReviews } from '../reviews/ProductReviews'
 import type { ProductColorVariant, ProductDetail, ProductVariant } from '../catalog.types'
 import '../catalog.css'
 
 const getProductIdFromPath = () => window.location.pathname.split('/').filter(Boolean)[1] || ''
-
-const getFinalPrice = (variant?: ProductVariant) => {
-  return variant?.finalPrice ?? 0
-}
 
 const getUniqueImages = (product: ProductDetail) => {
   const images = [product.productImage, ...product.gallery]
@@ -73,32 +78,18 @@ export function ProductDetailPage() {
 
       if (!isMounted) return
 
-      const firstVariant =
-        productData.variants.find((variant) => variant._id === productData.selectedVariantId) ??
-        productData.variants.find((variant) => variant.isActive) ??
-        productData.variants[0]
-
-      const firstColor = firstVariant?.colors[0]
-
-      const firstSize =
-        firstVariant?.sizes.find((size) => size.isAvailable)?.size ??
-        firstVariant?.sizes[0]?.size ??
-        ''
+      const initialSelection = getInitialProductSelection(productData)
 
       setProduct(productData)
-      setSelectedVariantId(firstVariant?._id ?? '')
-      setSelectedColorId(firstColor?._id ?? '')
-      setSelectedSize(firstSize)
-      setSelectedImage(firstColor?.image || productData.productImage)
+      setSelectedVariantId(initialSelection.variant?._id ?? '')
+      setSelectedColorId(initialSelection.color?._id ?? '')
+      setSelectedSize(initialSelection.size)
+      setSelectedImage(initialSelection.color?.image || productData.productImage)
       setThumbnailStart(0)
     } catch (loadError: unknown) {
       if (!isMounted) return
 
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Không thể tải chi tiết sản phẩm.'
-      )
+      setError(getProductDetailErrorMessage(loadError))
     } finally {
       if (isMounted) {
         setIsLoading(false)
@@ -137,17 +128,20 @@ export function ProductDetailPage() {
     }
   }, [isCustomer, productId])
 
+  const selectableVariants = useMemo(
+    () => getSelectableProductVariants(product?.variants ?? []),
+    [product],
+  )
+
   const selectedVariant = useMemo(() => {
-    return product?.variants.find((variant) => variant._id === selectedVariantId) ?? product?.variants[0]
-  }, [product, selectedVariantId])
+    return selectableVariants.find((variant) => variant._id === selectedVariantId) ?? selectableVariants[0]
+  }, [selectableVariants, selectedVariantId])
 
   const selectedColor = useMemo(() => {
     return selectedVariant?.colors.find((color) => color._id === selectedColorId) ?? selectedVariant?.colors[0]
   }, [selectedColorId, selectedVariant])
 
-  const stockItem = selectedVariant?.inventory.find(
-    (item) => item.colorVariantId === selectedColor?._id && item.size === selectedSize,
-  )
+  const stockItem = findInventoryForSelection(selectedVariant, selectedColor?._id, selectedSize)
   const sku = stockItem?.sku ?? product?._id.slice(-8).toUpperCase()
   const availableQuantity = stockItem?.availableQuantity ?? 0
   const isAvailable = Boolean(
@@ -163,6 +157,9 @@ export function ProductDetailPage() {
   const visibleImages = images.slice(thumbnailStart, thumbnailStart + 5)
   const categoryTrail = product?.categoryBreadcrumb ?? []
   const description = product ? stripDescription(product.description) : ''
+  const displayFinalPrice = selectedVariant?.finalPrice ?? product?.finalPrice ?? 0
+  const displayOriginalPrice = selectedVariant?.price ?? product?.price ?? 0
+  const displayDiscount = selectedVariant?.discount ?? product?.discount ?? 0
 
   const handleVariantColorChange = (variant: ProductVariant, color: ProductColorVariant) => {
     const colorImageIndex = product ? getUniqueImages(product).indexOf(color.image) : -1
@@ -170,7 +167,7 @@ export function ProductDetailPage() {
     setSelectedVariantId(variant._id)
     setSelectedColorId(color._id)
     setSelectedImage(color.image)
-    setSelectedSize(variant.sizes.find((size) => size.isAvailable)?.size ?? variant.sizes[0]?.size ?? '')
+    setSelectedSize(getFirstAvailableSizeForColor(variant, color._id))
     setThumbnailStart(colorImageIndex >= 0 ? Math.min(colorImageIndex, maxThumbnailStart) : 0)
     setQuantity(1)
   }
@@ -231,7 +228,7 @@ export function ProductDetailPage() {
   return (
     <MainLayout>
       <main className="product-detail-page">
-        {error && <Alert className="catalog-alert" type="error" message={error} showIcon />}
+        {error && <Alert className="catalog-alert" type="error" title={error} showIcon />}
 
         <Spin spinning={isLoading}>
           {!isLoading && !product ? (
@@ -297,31 +294,37 @@ export function ProductDetailPage() {
                     </p>
 
                     <div className="detail-price">
-                      <strong>{formatPrice(getFinalPrice(selectedVariant))}</strong>
-                      {selectedVariant && selectedVariant.discount > 0 && <span>{formatPrice(selectedVariant.price)}</span>}
+                      <strong>{formatPrice(displayFinalPrice)}</strong>
+                      {displayDiscount > 0 && <span>{formatPrice(displayOriginalPrice)}</span>}
                     </div>
 
                     <section className="detail-option-group" aria-label="Màu sắc">
                       <span className="detail-option-label">Màu sắc</span>
                       <div className="color-options">
-                        {product.variants.flatMap((variant) =>
-                          variant.colors.map((color) => (
-                            <button
-                              type="button"
-                              className={color._id === selectedColor?._id ? 'active' : ''}
-                              key={color._id}
-                              title={color.color}
-                              aria-label={color.color}
-                              onClick={() => handleVariantColorChange(variant, color)}
-                            >
-                              <span
-                                style={{
-                                  background: isCssColor(color.colorCode) ? color.colorCode : undefined,
-                                  backgroundImage: isCssColor(color.colorCode) ? undefined : `url(${color.image})`,
-                                }}
-                              />
-                            </button>
-                          )),
+                        {selectableVariants.flatMap((variant) =>
+                          variant.colors.map((color) => {
+                            const colorAvailable = isColorAvailable(variant, color._id)
+                            const colorLabel = colorAvailable ? color.color : `${color.color} - Hết hàng`
+
+                            return (
+                              <button
+                                type="button"
+                                className={color._id === selectedColor?._id ? 'active' : ''}
+                                key={color._id}
+                                title={colorLabel}
+                                aria-label={colorLabel}
+                                disabled={!colorAvailable}
+                                onClick={() => handleVariantColorChange(variant, color)}
+                              >
+                                <span
+                                  style={{
+                                    background: isCssColor(color.colorCode) ? color.colorCode : undefined,
+                                    backgroundImage: isCssColor(color.colorCode) ? undefined : `url(${color.image})`,
+                                  }}
+                                />
+                              </button>
+                            )
+                          }),
                         )}
                       </div>
                     </section>
@@ -334,20 +337,32 @@ export function ProductDetailPage() {
                         </label>
                       </div>
                       <div className="size-options">
-                        {selectedVariant?.sizes.map((sizeMeasurement) => (
-                          <button
-                            type="button"
-                            className={sizeMeasurement.size === selectedSize ? 'active' : ''}
-                            key={sizeMeasurement.size}
-                            disabled={!sizeMeasurement.isAvailable}
-                            onClick={() => {
-                              setSelectedSize(sizeMeasurement.size)
-                              setQuantity(1)
-                            }}
-                          >
-                            {sizeMeasurement.size}
-                          </button>
-                        ))}
+                        {selectedVariant?.sizes.map((sizeMeasurement) => {
+                          const sizeAvailable = Boolean(
+                            selectedColor &&
+                            isSizeAvailableForColor(selectedVariant, selectedColor._id, sizeMeasurement.size),
+                          )
+                          const sizeLabel = sizeAvailable
+                            ? sizeMeasurement.size
+                            : `${sizeMeasurement.size} - Hết hàng`
+
+                          return (
+                            <button
+                              type="button"
+                              className={sizeMeasurement.size === selectedSize ? 'active' : ''}
+                              key={sizeMeasurement.size}
+                              title={sizeLabel}
+                              aria-label={sizeLabel}
+                              disabled={!sizeAvailable}
+                              onClick={() => {
+                                setSelectedSize(sizeMeasurement.size)
+                                setQuantity(1)
+                              }}
+                            >
+                              {sizeMeasurement.size}
+                            </button>
+                          )
+                        })}
                       </div>
                     </section>
 

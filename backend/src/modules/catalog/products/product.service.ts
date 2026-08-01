@@ -1557,9 +1557,7 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
     variants[0];
   const originalPrice = displayVariant?.originalPrice ?? 0;
   const discount = displayVariant?.discount ?? 0;
-  const selectableVariants = variants.some((variant) => variant.isActive)
-    ? variants.filter((variant) => variant.isActive)
-    : variants;
+  const selectableVariants = variants.filter((variant) => variant.isActive);
 
   return {
     _id: product._id.toString(),
