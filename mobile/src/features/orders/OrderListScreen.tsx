@@ -122,7 +122,7 @@ const OrderListScreen = () => {
   const route = useRoute<OrderListRouteProp>();
   const isFocused = useIsFocused();
   const { logout, runWithAuth, session } = useAuth();
-  const initialStatus = getOrderTab(route.params?.status ?? 'active').key;
+  const initialStatus = getOrderTab(route.params?.status ?? 'all').key;
 
   const [activeStatus, setActiveStatus] = React.useState<OrderTabKey>(initialStatus);
   const [orders, setOrders] = React.useState<CustomerOrder[]>([]);
@@ -136,6 +136,7 @@ const OrderListScreen = () => {
   const [searchText, setSearchText] = React.useState('');
   const [debouncedSearchText, setDebouncedSearchText] = React.useState('');
   const [paymentFilter, setPaymentFilter] = React.useState<PaymentFilter>('all');
+  const [isFilterOpen, setIsFilterOpen] = React.useState(false);
 
   React.useEffect(() => {
     const timeout = setTimeout(() => {
@@ -282,7 +283,6 @@ const OrderListScreen = () => {
 
   const getTabCount = (status: OrderTabKey) => getOrderTabCount(statusSummary, status);
   const hasActiveFilters = Boolean(debouncedSearchText) || paymentFilter !== 'all';
-  const selectedTab = getOrderTab(activeStatus);
   const hasVisiblePaymentAction = orders.some(orderNeedsPaymentAction);
   const hasShippingAction = (statusSummary?.delivered ?? 0) > 0;
 
@@ -307,37 +307,45 @@ const OrderListScreen = () => {
           activeOpacity={0.8}
           accessibilityLabel="Trở về"
         >
-          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+          <MaterialCommunityIcons name="arrow-left" size={27} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
           <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
         </View>
-        <TouchableOpacity
-          style={[styles.headerAction, (isRefreshing || isLoading) && styles.headerActionDisabled]}
-          onPress={handleRefresh}
-          activeOpacity={0.8}
-          accessibilityLabel="Tải lại"
-          disabled={isRefreshing || isLoading}
-        >
-          {isRefreshing || isLoading ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.headerAction, isFilterOpen && styles.headerActionActive]}
+            onPress={() => setIsFilterOpen((current) => !current)}
+            activeOpacity={0.8}
+            accessibilityLabel="Tìm kiếm và lọc đơn hàng"
+          >
+            <MaterialCommunityIcons name={isFilterOpen ? 'close' : 'magnify'} size={27} color={colors.brand} />
+            {hasActiveFilters && !isFilterOpen ? <View style={styles.headerActionDot} /> : null}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.navigate('SupportHome')}
+            activeOpacity={0.8}
+            accessibilityLabel="Trung tâm hỗ trợ"
+          >
+            <MaterialCommunityIcons name="message-processing-outline" size={26} color={colors.brand} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.content}>
-        <OrderFilterPanel
-          hasActiveFilters={hasActiveFilters}
-          paymentFilter={paymentFilter}
-          paymentFilters={displayedPaymentFilters}
-          searchText={searchText}
-          onClearFilters={clearFilters}
-          onPaymentFilterChange={setPaymentFilter}
-          onSearchTextChange={setSearchText}
-          shouldShowPaymentFilterDot={shouldShowPaymentFilterDot}
-        />
+        {isFilterOpen ? (
+          <OrderFilterPanel
+            hasActiveFilters={hasActiveFilters}
+            paymentFilter={paymentFilter}
+            paymentFilters={displayedPaymentFilters}
+            searchText={searchText}
+            onClearFilters={clearFilters}
+            onPaymentFilterChange={setPaymentFilter}
+            onSearchTextChange={setSearchText}
+            shouldShowPaymentFilterDot={shouldShowPaymentFilterDot}
+          />
+        ) : null}
 
         <View style={styles.tabsPanel}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsContent}>
@@ -356,24 +364,16 @@ const OrderListScreen = () => {
                   <View style={styles.tabLabelRow}>
                     {showDot ? <View style={styles.tabActionDot} /> : null}
                     <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+                    {count !== undefined && count > 0 ? (
+                      <View style={[styles.tabCountBadge, isActive && styles.tabCountBadgeActive]}>
+                        <Text style={[styles.tabCount, isActive && styles.tabCountActive]}>{count}</Text>
+                      </View>
+                    ) : null}
                   </View>
-                  <Text style={[styles.tabCount, isActive && styles.tabCountActive]}>
-                    {count === undefined ? tab.helper : `${count} đơn`}
-                  </Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-        </View>
-
-        <View style={styles.listSummary}>
-          <View style={styles.listSummaryCopy}>
-            <Text style={styles.listSummaryTitle}>{selectedTab.label}</Text>
-            <Text style={styles.listSummaryText}>{selectedTab.helper}</Text>
-          </View>
-          <View style={styles.listSummaryBadge}>
-            <Text style={styles.listSummaryBadgeText}>{isLoading ? '...' : `${orders.length} đơn`}</Text>
-          </View>
         </View>
 
         <ScrollView
@@ -443,17 +443,6 @@ const OrderListScreen = () => {
             </>
           )}
 
-          <View style={styles.policyCard}>
-            <View style={styles.policyIcon}>
-              <MaterialCommunityIcons name="shield-check-outline" size={22} color={colors.brand} />
-            </View>
-            <View style={styles.policyCopy}>
-              <Text style={styles.policyTitle}>Chính sách xử lý đơn</Text>
-              <Text style={styles.policyText}>
-                Hủy đơn trước khi bàn giao vận chuyển. Đơn đã giao có thể yêu cầu hỗ trợ đổi trả trong 7 ngày nếu còn tem mác và hóa đơn.
-              </Text>
-            </View>
-          </View>
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -463,36 +452,59 @@ const OrderListScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.brand,
+    backgroundColor: colors.surface,
   },
   header: {
     ...brandedHeaderStyles.container,
+    minHeight: 68,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   headerAction: {
     ...brandedHeaderStyles.action,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
   },
-  headerActionDisabled: {
-    opacity: 0.7,
+  headerActionActive: {
+    backgroundColor: colors.brandSoft,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  headerActionDot: {
+    position: 'absolute',
+    top: 7,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.danger,
+    borderWidth: 1,
+    borderColor: colors.surface,
   },
   headerTitleGroup: {
     ...brandedHeaderStyles.titleGroup,
-    alignItems: 'center',
-  },
-  brand: {
-    color: colors.brandMist,
-    fontSize: 13,
-    fontWeight: '700',
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.sm,
   },
   headerTitle: {
     ...brandedHeaderStyles.title,
+    color: colors.text,
+    fontSize: 21,
+    lineHeight: 28,
     marginTop: 0,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   content: {
     flex: 1,
     backgroundColor: colors.background,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
     overflow: 'hidden',
   },
   filterPanel: {
@@ -577,25 +589,27 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   tabsPanel: {
-    paddingTop: spacing.md,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   tabsContent: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   tabButton: {
-    minWidth: 118,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 52,
+    minWidth: 88,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingTop: 15,
+    paddingBottom: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabButtonActive: {
-    borderColor: colors.brand,
-    backgroundColor: colors.brandSoft,
+    borderBottomColor: colors.brand,
   },
   tabLabelRow: {
     flexDirection: 'row',
@@ -609,22 +623,35 @@ const styles = StyleSheet.create({
     backgroundColor: colors.danger,
   },
   tabLabel: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '800',
+    color: colors.textBody,
+    fontSize: 14,
+    fontWeight: '600',
   },
   tabLabelActive: {
-    color: colors.brandDark,
+    color: colors.brand,
+    fontWeight: '800',
+  },
+  tabCountBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF1F4',
+  },
+  tabCountBadgeActive: {
+    backgroundColor: colors.brandSoft,
   },
   tabCount: {
     color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
   },
   tabCountActive: {
     color: colors.brand,
-    fontWeight: '700',
+    fontWeight: '900',
   },
   listSummary: {
     minHeight: 58,
@@ -670,9 +697,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   orderScrollContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xxl,
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   orderCard: {
     borderRadius: radii.sm,

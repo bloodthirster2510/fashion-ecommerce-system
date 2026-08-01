@@ -59,29 +59,34 @@ export function OrderCard({
       onPress={() => onOpen(order)}
     >
       <View style={styles.orderHeader}>
-        <View style={styles.orderTitleGroup}>
-          <View style={styles.orderCodeRow}>
-            <Text style={styles.orderCode} numberOfLines={1}>{order.orderCode}</Text>
-            <TouchableOpacity
-              style={styles.copyCodeButton}
-              onPress={(event) => {
-                event.stopPropagation();
-                handleCopyOrderCode();
-              }}
-              activeOpacity={0.78}
-              accessibilityLabel="Sao chép mã đơn hàng"
-            >
-              <MaterialCommunityIcons name="content-copy" size={15} color={colors.brand} />
-            </TouchableOpacity>
+        <View style={styles.storeGroup}>
+          <View style={styles.storeBadge}>
+            <MaterialCommunityIcons name="shopping-outline" size={13} color={colors.white} />
+            <Text style={styles.storeBadgeText}>F+</Text>
           </View>
-          <Text style={styles.orderDate}>Đặt ngày {formatDate(order.createdAt)}</Text>
+          <Text style={styles.storeName} numberOfLines={1}>Fashionista Official Store</Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: displayState.backgroundColor }]}>
-          {requiresUserAction || hasExceptionalStatus ? (
-            <View style={[styles.statusBadgeDot, { backgroundColor: displayState.color }]} />
-          ) : null}
-          <Text style={[styles.statusBadgeText, { color: displayState.color }]}>{displayState.label}</Text>
+        <Text style={[styles.statusText, { color: displayState.color }]} numberOfLines={1}>
+          {displayState.label}
+        </Text>
+      </View>
+
+      <View style={styles.orderMetaRow}>
+        <View style={styles.orderCodeRow}>
+          <Text style={styles.orderCode} numberOfLines={1}>#{order.orderCode}</Text>
+          <TouchableOpacity
+            style={styles.copyCodeButton}
+            onPress={(event) => {
+              event.stopPropagation();
+              handleCopyOrderCode();
+            }}
+            activeOpacity={0.78}
+            accessibilityLabel="Sao chép mã đơn hàng"
+          >
+            <MaterialCommunityIcons name="content-copy" size={13} color={colors.textMuted} />
+          </TouchableOpacity>
         </View>
+        <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
       </View>
 
       {isDeadlineSoon ? (
@@ -104,27 +109,35 @@ export function OrderCard({
           <Text style={styles.productName} numberOfLines={2}>
             {primaryItem?.name ?? 'Sản phẩm Fashionista'}
           </Text>
-          <Text style={styles.productMeta} numberOfLines={1}>
-            {primaryItem ? `${primaryItem.color} • ${primaryItem.size} • SL: ${primaryItem.quantity}` : 'Đang cập nhật'}
-          </Text>
-          {extraItemText ? <Text style={styles.extraItemText}>{extraItemText}</Text> : null}
-        </View>
-
-        <View style={styles.priceGroup}>
-          <Text style={styles.totalLabel}>{getOrderItemCount(order)} món</Text>
-          <Text style={styles.totalAmount}>{formatCurrency(order.totalAmount)}</Text>
+          <View style={styles.productMetaRow}>
+            <Text style={styles.productMeta} numberOfLines={1}>
+              {primaryItem ? `${primaryItem.color} · Size ${primaryItem.size}` : 'Đang cập nhật'}
+            </Text>
+            {primaryItem ? <Text style={styles.productQuantity}>x{primaryItem.quantity}</Text> : null}
+          </View>
+          <View style={styles.productPriceRow}>
+            {extraItemText ? <Text style={styles.extraItemText}>{extraItemText}</Text> : <View />}
+            {primaryItem ? (
+              <Text style={styles.itemPrice}>{formatCurrency(primaryItem.priceAtPurchased)}</Text>
+            ) : null}
+          </View>
         </View>
       </View>
 
-      <View style={styles.deliveryRow}>
+      <View style={[styles.deliveryRow, { backgroundColor: displayState.backgroundColor }]}>
         <MaterialCommunityIcons
           name={displayState.icon as keyof typeof MaterialCommunityIcons.glyphMap}
-          size={18}
+          size={17}
           color={displayState.color}
         />
         <Text style={[styles.deliveryText, { color: displayState.color }]}>
           {displayState.description}
         </Text>
+      </View>
+
+      <View style={styles.totalRow}>
+        <Text style={styles.totalLabel}>Tổng số tiền ({getOrderItemCount(order)} sản phẩm):</Text>
+        <Text style={styles.totalAmount}>{formatCurrency(order.totalAmount)}</Text>
       </View>
 
       <View style={styles.cardActions}>
@@ -133,11 +146,18 @@ export function OrderCard({
           onPress={() => onOpen(order)}
           activeOpacity={0.82}
         >
-          <MaterialCommunityIcons name="receipt-text-outline" size={18} color={colors.brand} />
-          <Text style={styles.secondaryActionText}>Chi tiết</Text>
+          <Text style={styles.secondaryActionText}>Xem chi tiết</Text>
         </TouchableOpacity>
 
-        {canConfirmDelivery ? (
+        {requiresPayment ? (
+          <TouchableOpacity
+            style={styles.primaryAction}
+            onPress={() => onOpen(order)}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.primaryActionText}>Thanh toán ngay</Text>
+          </TouchableOpacity>
+        ) : canConfirmDelivery ? (
           <TouchableOpacity
             style={styles.primaryAction}
             onPress={() => onConfirmReceived(order)}
@@ -145,10 +165,8 @@ export function OrderCard({
             disabled={isConfirming}
           >
             {isConfirming ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <MaterialCommunityIcons name="package-check" size={18} color={colors.white} />
-            )}
+              <ActivityIndicator size="small" color={colors.brand} />
+            ) : null}
             <Text style={styles.primaryActionText}>Đã nhận hàng</Text>
           </TouchableOpacity>
         ) : null}
@@ -159,59 +177,101 @@ export function OrderCard({
 
 const styles = StyleSheet.create({
   orderCard: {
-    borderRadius: radii.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ECEFF1',
     backgroundColor: colors.surface,
-    padding: spacing.lg,
+    padding: 14,
     ...shadows.card,
   },
   orderCardNeedsPayment: {
-    borderWidth: 1,
     borderColor: colors.gold,
-    backgroundColor: '#FFFCF5',
+    backgroundColor: colors.surface,
   },
   orderCardAttention: {
-    borderWidth: 1,
     borderColor: colors.borderStrong,
   },
   orderCardDanger: {
-    borderWidth: 1,
-    borderColor: colors.danger,
-    backgroundColor: '#FFF9F9',
+    borderColor: '#F2C9C9',
+    backgroundColor: colors.surface,
   },
   orderHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  orderTitleGroup: {
+  storeGroup: {
     flex: 1,
     minWidth: 0,
-  },
-  orderCodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
+  },
+  storeBadge: {
+    height: 24,
+    borderRadius: radii.xs,
+    paddingHorizontal: 6,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  storeBadgeText: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+  },
+  storeName: {
+    flexShrink: 1,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  statusText: {
+    flexShrink: 0,
+    maxWidth: '38%',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  orderMetaRow: {
+    minHeight: 30,
+    marginTop: spacing.xs,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF0F2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  orderCodeRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
   orderCode: {
     flexShrink: 1,
-    color: colors.text,
-    fontSize: 17,
-    lineHeight: 24,
-    fontWeight: '800',
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   copyCodeButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.brandSoft,
   },
   orderDate: {
     color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 11,
   },
   paymentDeadlineChip: {
     alignSelf: 'flex-start',
@@ -229,38 +289,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
   },
-  statusBadge: {
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statusBadgeDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  statusBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
   productRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     gap: spacing.md,
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
   productImage: {
-    width: 70,
-    height: 70,
+    width: 86,
+    height: 86,
     borderRadius: radii.sm,
     backgroundColor: colors.brandSoft,
   },
   productImagePlaceholder: {
-    width: 70,
-    height: 70,
+    width: 86,
+    height: 86,
     borderRadius: radii.sm,
     alignItems: 'center',
     justifyContent: 'center',
@@ -272,48 +315,80 @@ const styles = StyleSheet.create({
   },
   productName: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '800',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  productMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   productMeta: {
+    flex: 1,
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 3,
   },
-  extraItemText: {
-    color: colors.brand,
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  priceGroup: {
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  totalLabel: {
+  productQuantity: {
     color: colors.textMuted,
     fontSize: 12,
+    marginTop: 3,
+  },
+  productPriceRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  extraItemText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  itemPrice: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  totalLabel: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 20,
   },
   totalAmount: {
-    color: colors.text,
-    fontSize: 15,
+    color: colors.brandDark,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '900',
   },
   deliveryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.lg,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    marginTop: spacing.md,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   deliveryText: {
     flex: 1,
-    color: colors.success,
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  totalRow: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 5,
   },
   cardActions: {
     flexDirection: 'row',
@@ -321,35 +396,40 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: spacing.sm,
     marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: '#EEF0F2',
   },
   secondaryAction: {
-    minHeight: 40,
+    minHeight: 42,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
+    borderColor: colors.borderStrong,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
   secondaryActionText: {
-    color: colors.brand,
+    color: colors.textBody,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   primaryAction: {
-    minHeight: 40,
+    minHeight: 42,
     borderRadius: radii.sm,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.brand,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
   primaryActionText: {
-    color: colors.white,
+    color: colors.brand,
     fontSize: 13,
     fontWeight: '900',
   },
