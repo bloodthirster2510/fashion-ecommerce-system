@@ -69,13 +69,13 @@ export function Router() {
 
   const handleLogout = async () => {
     const accessToken = adminSession?.accessToken
-    if (accessToken) {
-      await logoutAdmin(accessToken)
-    }
-
     clearAdminSession()
     setAdminSession(null)
     replacePath(ADMIN_LOGIN_PATH)
+
+    if (accessToken) {
+      await logoutAdmin(accessToken)
+    }
   }
 
   useEffect(() => {

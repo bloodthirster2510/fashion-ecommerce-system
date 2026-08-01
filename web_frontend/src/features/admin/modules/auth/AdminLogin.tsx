@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import {
   isAdminRole,
   saveAdminSession,
@@ -17,12 +17,16 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const isSubmittingRef = useRef(false)
   const canUseDemoAccess = import.meta.env.DEV
 
   const handleDemoAccess = () => {
-    if (!canUseDemoAccess) {
+    if (!canUseDemoAccess || isSubmittingRef.current) {
       return
     }
+
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
 
     const session: AdminSession = {
       accessToken: 'demo-admin-access-token',
@@ -40,6 +44,11 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (isSubmittingRef.current) {
+      return
+    }
+
+    isSubmittingRef.current = true
     setErrorMessage('')
     setIsSubmitting(true)
 
@@ -69,6 +78,7 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
           : message,
       )
     } finally {
+      isSubmittingRef.current = false
       setIsSubmitting(false)
     }
   }
@@ -122,7 +132,7 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
           </button>
           {canUseDemoAccess ? (
-            <button className="admin-login-secondary" type="button" onClick={handleDemoAccess}>
+            <button className="admin-login-secondary" type="button" onClick={handleDemoAccess} disabled={isSubmitting}>
               Xem bố cục demo
             </button>
           ) : null}

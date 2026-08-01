@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { changeAdminPassword } from './auth.service'
 import type { AdminSession } from './auth.types'
 import shopNameImage from '../../../../assets/images/ShopName.png'
@@ -20,6 +20,12 @@ export function ForcePasswordChange({
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const isSubmittingRef = useRef(false)
+  const operationSequenceRef = useRef(0)
+
+  useEffect(() => () => {
+    operationSequenceRef.current += 1
+  }, [])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -35,6 +41,13 @@ export function ForcePasswordChange({
       return
     }
 
+    if (isSubmittingRef.current) {
+      return
+    }
+
+    isSubmittingRef.current = true
+    const operationSequence = operationSequenceRef.current + 1
+    operationSequenceRef.current = operationSequence
     setIsSubmitting(true)
 
     try {
@@ -44,12 +57,25 @@ export function ForcePasswordChange({
           confirmPassword,
       })
 
-      onPasswordChanged()
+      if (operationSequenceRef.current === operationSequence) {
+        onPasswordChanged()
+      }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không thể đổi mật khẩu')
+      if (operationSequenceRef.current === operationSequence) {
+        setErrorMessage(error instanceof Error ? error.message : 'Không thể đổi mật khẩu')
+      }
     } finally {
-      setIsSubmitting(false)
+      if (operationSequenceRef.current === operationSequence) {
+        isSubmittingRef.current = false
+        setIsSubmitting(false)
+      }
     }
+  }
+
+  const handleLogout = () => {
+    operationSequenceRef.current += 1
+    isSubmittingRef.current = false
+    onLogout()
   }
 
   return (
@@ -109,7 +135,7 @@ export function ForcePasswordChange({
           <button className="admin-login-submit" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Đang đổi mật khẩu...' : 'Hoàn tất'}
           </button>
-          <button className="admin-login-secondary" type="button" onClick={onLogout}>
+          <button className="admin-login-secondary" type="button" onClick={handleLogout}>
             Đăng xuất
           </button>
         </form>

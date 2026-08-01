@@ -51,8 +51,11 @@ const fetchAdminResponse = async (path: string, init?: RequestInit) => {
       const nextSession = await refreshAdminSession()
       response = await fetchWithToken(path, init, nextSession.accessToken)
     } catch {
-      clearAdminSession()
-      window.dispatchEvent(new Event('admin-session-expired'))
+      const latestSession = getAdminSession()
+      if (latestSession?.accessToken === currentAccessToken) {
+        clearAdminSession()
+        window.dispatchEvent(new Event('admin-session-expired'))
+      }
       throw new Error(SESSION_EXPIRED_MESSAGE)
     }
   }
