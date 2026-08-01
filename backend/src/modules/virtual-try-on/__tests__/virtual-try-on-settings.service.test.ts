@@ -82,6 +82,28 @@ describe('virtualTryOnSettingsService', () => {
     expect(mockedSettings.create).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a null update body', null],
+    ['an array update body', []],
+  ])('rejects %s as a validation error', async (_label, input) => {
+    await expect(virtualTryOnSettingsService.updateSettings(input as never, actor))
+      .rejects.toMatchObject({ statusCode: 400 });
+
+    expect(mockedSettings.findOne).not.toHaveBeenCalled();
+    expect(mockedSettings.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a null rollback body', null],
+    ['an array rollback body', []],
+  ])('rejects %s as a validation error', async (_label, input) => {
+    await expect(virtualTryOnSettingsService.rollbackSettings(input as never, actor))
+      .rejects.toMatchObject({ statusCode: 400 });
+
+    expect(mockedSettings.findOne).not.toHaveBeenCalled();
+    expect(mockedSettings.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it('creates the singleton at version one and records an audit event', async () => {
     mockFindOne(null);
     const created = {

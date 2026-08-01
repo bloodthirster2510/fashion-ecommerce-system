@@ -126,6 +126,13 @@ const parseInteger = (
   return Number(value);
 };
 
+const requireInputRecord = (value: unknown) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new VirtualTryOnSettingsServiceError('Dữ liệu cấu hình không hợp lệ', 400);
+  }
+  return value as Record<string, unknown>;
+};
+
 const normalizeConfiguration = (value: unknown): IVirtualTryOnRuntimeConfiguration => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new VirtualTryOnSettingsServiceError('Cấu hình không hợp lệ', 400);
@@ -186,11 +193,12 @@ const getRuntimeSettings = async (): Promise<VirtualTryOnRuntimeSettings> => {
 };
 
 const updateSettings = async (
-  input: { expectedVersion?: unknown; configuration?: unknown },
+  input: unknown,
   actor: SettingsActor,
 ) => {
-  const expectedVersion = parseExpectedVersion(input.expectedVersion);
-  const configuration = normalizeConfiguration(input.configuration);
+  const payload = requireInputRecord(input);
+  const expectedVersion = parseExpectedVersion(payload.expectedVersion);
+  const configuration = normalizeConfiguration(payload.configuration);
   const updatedBy = validateActor(actor.actorId);
   const current = await VirtualTryOnSettings.findOne({ key: SETTINGS_KEY }).lean();
 
@@ -281,11 +289,12 @@ const updateSettings = async (
 };
 
 const rollbackSettings = async (
-  input: { expectedVersion?: unknown; targetVersion?: unknown },
+  input: unknown,
   actor: SettingsActor,
 ) => {
-  const expectedVersion = parseExpectedVersion(input.expectedVersion);
-  const targetVersion = parseExpectedVersion(input.targetVersion);
+  const payload = requireInputRecord(input);
+  const expectedVersion = parseExpectedVersion(payload.expectedVersion);
+  const targetVersion = parseExpectedVersion(payload.targetVersion);
   const updatedBy = validateActor(actor.actorId);
   const current = await VirtualTryOnSettings.findOne({ key: SETTINGS_KEY }).lean();
 

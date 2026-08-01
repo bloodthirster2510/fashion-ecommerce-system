@@ -26,6 +26,7 @@ export type VirtualTryOnRealtimeEvent = {
   videoErrorMessage?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  updatedAt: string;
   at: string;
 };
 
