@@ -55,6 +55,9 @@ const storedSettings = (overrides: Record<string, unknown> = {}) => ({
 describe('normalizeStorefrontSettingsInput', () => {
   it.each([
     ['a non-object payload', null],
+    ['a null version', validInput({ version: null })],
+    ['a string version', validInput({ version: '1' })],
+    ['a boolean version', validInput({ version: false })],
     ['an invalid version', validInput({ version: -1 })],
     ['a fractional version', validInput({ version: 1.5 })],
     ['missing identity data', validInput({ identity: undefined })],
@@ -63,10 +66,13 @@ describe('normalizeStorefrontSettingsInput', () => {
     ['a short shop name', validInput({ identity: { ...validInput().identity, name: 'A' } })],
     ['a non-HTTPS avatar link', validInput({ identity: { ...validInput().identity, avatarUrl: 'http://example.com/avatar.png' } })],
     ['an invalid tax code', validInput({ identity: { ...validInput().identity, taxCode: '12 34' } })],
+    ['a tax code without letters or digits', validInput({ identity: { ...validInput().identity, taxCode: '---' } })],
     ['an invalid phone number', validInput({ contact: { ...validInput().contact, phone: 'call-me' } })],
+    ['a phone number without digits', validInput({ contact: { ...validInput().contact, phone: '-------' } })],
     ['an invalid email', validInput({ contact: { ...validInput().contact, email: 'not-an-email' } })],
     ['a non-HTTPS map link', validInput({ contact: { ...validInput().contact, mapUrl: 'http://maps.example.com' } })],
     ['a malformed social item', validInput({ socials: [null as never] })],
+    ['a non-boolean social visibility flag', validInput({ socials: [{ platform: 'facebook', label: 'Facebook', url: 'https://facebook.com/cdshop', enabled: 'yes' as never }] })],
     ['an unknown social platform', validInput({ socials: [{ platform: 'myspace', label: 'MySpace', url: 'https://example.com' }] })],
     ['a short social label', validInput({ socials: [{ platform: 'other', label: 'A', url: 'https://example.com' }] })],
     ['a non-HTTPS social link', validInput({ socials: [{ platform: 'facebook', label: 'Facebook', url: 'http://facebook.com/cdshop' }] })],

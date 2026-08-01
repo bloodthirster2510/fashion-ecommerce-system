@@ -69,13 +69,13 @@ const isHttpsUrl = (value: string) => {
 
 const validateDraft = (draft: SettingsDraft) => {
   if (draft.identity.name.trim().length < 2) return 'Tên cửa hàng phải có ít nhất 2 ký tự.'
-  if (draft.identity.taxCode && !/^[0-9A-Za-z-]{3,30}$/.test(draft.identity.taxCode.trim())) {
+  if (draft.identity.taxCode && !/^(?=.*[0-9A-Za-z])[0-9A-Za-z-]{3,30}$/.test(draft.identity.taxCode.trim())) {
     return 'Mã số thuế chỉ được chứa chữ, số và dấu gạch ngang.'
   }
   if (draft.contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.contact.email.trim())) {
     return 'Email không đúng định dạng.'
   }
-  if (draft.contact.phone && !/^[0-9+()\-.\s]{7,30}$/.test(draft.contact.phone.trim())) {
+  if (draft.contact.phone && !/^(?=.*\d)[0-9+()\-.\s]{7,30}$/.test(draft.contact.phone.trim())) {
     return 'Số điện thoại không đúng định dạng.'
   }
   if (!isHttpsUrl(draft.contact.mapUrl)) return 'Liên kết bản đồ phải là URL HTTPS hợp lệ.'

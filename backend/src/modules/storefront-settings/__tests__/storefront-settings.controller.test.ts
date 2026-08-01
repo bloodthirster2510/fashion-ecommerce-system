@@ -83,7 +83,7 @@ describe('storefront settings controller', () => {
 
     expect(response.set).toHaveBeenCalledWith(
       'Cache-Control',
-      'public, max-age=300, stale-while-revalidate=86400',
+      'public, no-cache, must-revalidate',
     );
     expect(response.status).toHaveBeenCalledWith(200);
     expect(response.json).toHaveBeenCalledWith({ message: 'Success', data: configuredSettings });
@@ -212,6 +212,58 @@ describe('storefront settings controller', () => {
     expect(mockedExtractPublicId).toHaveBeenCalledWith(oldAvatarUrl);
     expect(mockedDelete).toHaveBeenCalledWith('fashion-ecommerce/storefront/old-avatar');
     expect(response.status).toHaveBeenCalledWith(200);
+  });
+
+  it('rejects a non-object multipart payload before uploading the avatar', async () => {
+    mockedService.getAdminSettings.mockResolvedValue(configuredSettings);
+    const response = mockResponse();
+    const request = {
+      body: { settings: 'null' },
+      file: { buffer: Buffer.from('avatar'), originalname: 'avatar.png' },
+      user: { userId: '665000000000000000000001', email: 'admin@example.com', role: 'admin' },
+    } as unknown as Request;
+
+    await updateAdminStorefrontSettings(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(mockedUpload).not.toHaveBeenCalled();
+    expect(mockedService.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('removes the newly uploaded avatar when the settings update is rejected', async () => {
+    const newAvatarUrl = 'https://res.cloudinary.com/demo/image/upload/storefront/new-avatar.png';
+    mockedService.getAdminSettings.mockResolvedValue(configuredSettings);
+    mockedUpload.mockResolvedValue({
+      public_id: 'fashion-ecommerce/storefront/new-avatar',
+      secure_url: newAvatarUrl,
+      url: newAvatarUrl,
+      width: 512,
+      height: 512,
+      format: 'png',
+      bytes: 1024,
+    });
+    mockedService.updateSettings.mockRejectedValue(
+      new StorefrontSettingsServiceError('conflict', 409),
+    );
+    mockedExtractPublicId.mockReturnValueOnce('fashion-ecommerce/storefront/new-avatar');
+    const response = mockResponse();
+    const request = {
+      body: { settings: JSON.stringify({
+        version: 1,
+        identity: configuredSettings.identity,
+        contact: configuredSettings.contact,
+        socials: [],
+      }) },
+      file: { buffer: Buffer.from('avatar'), originalname: 'avatar.png' },
+      user: { userId: '665000000000000000000001', email: 'admin@example.com', role: 'admin' },
+    } as unknown as Request;
+
+    await updateAdminStorefrontSettings(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(mockedExtractPublicId).toHaveBeenCalledWith(newAvatarUrl);
+    expect(mockedDelete).toHaveBeenCalledWith('fashion-ecommerce/storefront/new-avatar');
+    expect(mockedAuditLogService.recordAuditLogBestEffort).not.toHaveBeenCalled();
   });
 
   it('does not write an audit event when the update fails', async () => {

@@ -15,17 +15,25 @@ import {
 const CLOUDINARY_HOST = 'res.cloudinary.com';
 
 const parseSettingsInput = (req: Request): StorefrontSettingsInput => {
-  if (!req.file) return req.body as StorefrontSettingsInput;
+  let input: unknown = req.body;
 
-  if (typeof req.body?.settings !== 'string') {
+  if (req.file) {
+    if (typeof req.body?.settings !== 'string') {
+      throw new StorefrontSettingsServiceError('Dữ liệu cấu hình không hợp lệ');
+    }
+
+    try {
+      input = JSON.parse(req.body.settings) as unknown;
+    } catch {
+      throw new StorefrontSettingsServiceError('Dữ liệu cấu hình không hợp lệ');
+    }
+  }
+
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new StorefrontSettingsServiceError('Dữ liệu cấu hình không hợp lệ');
   }
 
-  try {
-    return JSON.parse(req.body.settings) as StorefrontSettingsInput;
-  } catch {
-    throw new StorefrontSettingsServiceError('Dữ liệu cấu hình không hợp lệ');
-  }
+  return input as StorefrontSettingsInput;
 };
 
 const deleteStorefrontAvatar = async (avatarUrl?: string | null) => {
@@ -50,7 +58,7 @@ const handleError = (res: Response, caught: unknown) => {
 
 export const getPublicStorefrontSettings = async (_req: Request, res: Response) => {
   try {
-    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
+    res.set('Cache-Control', 'public, no-cache, must-revalidate');
     return ok(res, await storefrontSettingsService.getPublicSettings());
   } catch (caught) {
     return handleError(res, caught);

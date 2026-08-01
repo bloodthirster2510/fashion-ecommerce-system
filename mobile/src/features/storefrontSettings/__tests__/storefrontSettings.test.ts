@@ -1,5 +1,6 @@
 import {
   isStorefrontSettings,
+  preferFreshStorefrontSettings,
   resolveStorefrontSettings,
 } from '../StorefrontSettingsProvider';
 import type { StorefrontSettings } from '../storefrontSettings.types';
@@ -15,7 +16,7 @@ const settings = (
     { platform: 'facebook', label: 'Facebook', url: 'https://facebook.com/shop', enabled: false, sortOrder: 0 },
   ],
   version: configured ? 1 : 0,
-  updatedAt: null,
+  updatedAt: configured ? '2026-08-01T00:00:00.000Z' : null,
   ...overrides,
 });
 
@@ -100,8 +101,14 @@ describe('isStorefrontSettings', () => {
     ['a missing configured flag', { ...settings(true), configured: undefined }],
     ['an incomplete identity', { ...settings(true), identity: { name: 'Shop' } }],
     ['an incomplete contact', { ...settings(true), contact: { phone: '0900000000' } }],
+    ['a configured payload at version zero', { ...settings(true), version: 0 }],
+    ['an unconfigured payload above version zero', { ...settings(false), version: 2 }],
+    ['a negative version', { ...settings(true), version: -1 }],
     ['a fractional version', { ...settings(true), version: 1.5 }],
-    ['an invalid update timestamp', { ...settings(true), updatedAt: 123 }],
+    ['an invalid update timestamp type', { ...settings(true), updatedAt: 123 }],
+    ['an invalid update timestamp value', { ...settings(true), updatedAt: 'not-a-date' }],
+    ['a configured payload without an update timestamp', { ...settings(true), updatedAt: null }],
+    ['an unconfigured payload with an update timestamp', { ...settings(false), updatedAt: '2026-08-01T00:00:00.000Z' }],
     ['a non-HTTPS avatar link', {
       ...settings(true),
       identity: { ...settings(true).identity, avatarUrl: 'http://example.com/avatar.png' },
@@ -122,11 +129,45 @@ describe('isStorefrontSettings', () => {
       ...settings(true),
       socials: [{ platform: 'facebook', label: 'Facebook', url: 'https://example.com', enabled: true, sortOrder: 0.5 }],
     }],
+    ['a negative social sort order', {
+      ...settings(true),
+      socials: [{ platform: 'facebook', label: 'Facebook', url: 'https://example.com', enabled: true, sortOrder: -1 }],
+    }],
+    ['duplicate known social platforms', {
+      ...settings(true),
+      socials: [
+        { platform: 'facebook', label: 'Facebook', url: 'https://example.com/one', enabled: true, sortOrder: 0 },
+        { platform: 'facebook', label: 'Backup', url: 'https://example.com/two', enabled: true, sortOrder: 1 },
+      ],
+    }],
+    ['more than twelve social links', {
+      ...settings(true),
+      socials: Array.from({ length: 13 }, (_, index) => ({
+        platform: 'other', label: `Link ${index}`, url: `https://example.com/${index}`, enabled: true, sortOrder: index,
+      })),
+    }],
     ['a non-HTTPS social link', {
       ...settings(true),
       socials: [{ platform: 'facebook', label: 'Facebook', url: 'http://example.com', enabled: true, sortOrder: 0 }],
     }],
   ])('rejects %s', (_label, payload) => {
     expect(isStorefrontSettings(payload)).toBe(false);
+  });
+});
+
+describe('preferFreshStorefrontSettings', () => {
+  it('keeps the current settings when a slower response has an older version', () => {
+    const current = settings(true, { version: 3 });
+    const staleResponse = settings(true, { version: 2, identity: { ...settings(true).identity, name: 'Old Shop' } });
+
+    expect(preferFreshStorefrontSettings(current, staleResponse)).toBe(current);
+  });
+
+  it('accepts a response with the same or a newer version', () => {
+    const current = settings(true, { version: 2 });
+    const refreshed = settings(true, { version: 3 });
+
+    expect(preferFreshStorefrontSettings(current, refreshed)).toBe(refreshed);
+    expect(preferFreshStorefrontSettings(refreshed, { ...refreshed })).not.toBe(refreshed);
   });
 });
