@@ -552,21 +552,33 @@ export function AdminDashboardPage({ currentUser }: { currentUser: AdminUser }) 
       ) : null}
 
       {loading && !overview ? <DashboardSkeleton /> : overview ? (
-        <>
-          {overview.business ? <BusinessKpis business={overview.business} /> : <NoBusinessAccess currentUser={currentUser} />}
+        overview.business ? (
+          <>
+            <BusinessKpis business={overview.business} />
 
-          <div className={`admin-dash-primary-grid ${overview.business ? '' : 'is-attention-only'}`}>
-            {overview.business ? <SalesTrend overview={overview} /> : null}
-            <AttentionCenter summary={notificationSummary} loading={notificationLoading} />
-          </div>
+            <div className="admin-dash-primary-grid">
+              <SalesTrend overview={overview} />
+              <AttentionCenter summary={notificationSummary} loading={notificationLoading} />
+            </div>
 
-          <div className="admin-dash-secondary-grid">
-            {overview.business ? <TopProducts overview={overview} /> : null}
-            {overview.inventory ? <InventoryRisk overview={overview} /> : null}
-            {overview.business ? <CustomerMix summary={overview.business.summary} /> : null}
-            {overview.capabilities.orders ? <OrderHealth overview={overview} /> : null}
-          </div>
-        </>
+            <div className="admin-dash-secondary-grid">
+              <TopProducts overview={overview} />
+              {overview.inventory ? <InventoryRisk overview={overview} /> : null}
+              <CustomerMix summary={overview.business.summary} />
+              {overview.capabilities.orders ? <OrderHealth overview={overview} /> : null}
+            </div>
+          </>
+        ) : (
+          <>
+            <NoBusinessAccess currentUser={currentUser} />
+
+            <div className="admin-dash-staff-grid">
+              <AttentionCenter summary={notificationSummary} loading={notificationLoading} />
+              {overview.inventory ? <InventoryRisk overview={overview} /> : null}
+              {overview.capabilities.orders ? <OrderHealth overview={overview} /> : null}
+            </div>
+          </>
+        )
       ) : null}
     </section>
   )
