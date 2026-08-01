@@ -17,7 +17,7 @@ import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav
 import { RemoteImage } from '../../components/media/RemoteImage';
 import OutfitIcon from '../../components/ui/OutfitIcon';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { colors, radii, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { useCustomerNotifications } from './CustomerNotificationProvider';
 import {
@@ -322,7 +322,7 @@ const NotificationsScreen = () => {
           activeOpacity={0.82}
           accessibilityLabel="Trở về"
         >
-          <MaterialCommunityIcons name="arrow-left" size={25} color={colors.brandDark} />
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Thông báo</Text>
         <View style={styles.headerActions}>
@@ -332,7 +332,7 @@ const NotificationsScreen = () => {
             activeOpacity={0.78}
             accessibilityLabel="Giỏ hàng"
           >
-            <MaterialCommunityIcons name="cart-outline" size={25} color={colors.brandDark} />
+            <MaterialCommunityIcons name="cart-outline" size={24} color={colors.white} />
             {(summary?.cartItems ?? 0) > 0 ? (
               <View style={styles.headerBadge}>
                 <Text style={styles.headerBadgeText}>{Math.min(summary?.cartItems ?? 0, 99)}</Text>
@@ -345,7 +345,7 @@ const NotificationsScreen = () => {
             activeOpacity={0.78}
             accessibilityLabel="Cài đặt thông báo"
           >
-            <MaterialCommunityIcons name="bell-cog-outline" size={25} color={colors.brandDark} />
+            <MaterialCommunityIcons name="bell-cog-outline" size={24} color={colors.white} />
           </TouchableOpacity>
         </View>
       </View>
@@ -447,39 +447,27 @@ const NotificationsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.surface },
+  safeArea: { flex: 1, backgroundColor: colors.brand },
   header: {
-    height: 62,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
+    ...brandedHeaderStyles.container,
   },
   headerButton: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...brandedHeaderStyles.action,
   },
   headerTitle: {
     position: 'absolute',
     left: 100,
     right: 100,
-    color: colors.brandDark,
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '900',
+    ...brandedHeaderStyles.title,
+    marginTop: 0,
     textAlign: 'center',
   },
-  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   headerActionButton: {
+    ...brandedHeaderStyles.action,
     width: 38,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
+    height: 38,
+    borderRadius: 19,
   },
   headerBadge: {
     position: 'absolute',
@@ -490,7 +478,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     borderRadius: 9,
     borderWidth: 1.5,
-    borderColor: colors.white,
+    borderColor: colors.brand,
     backgroundColor: colors.coral,
     alignItems: 'center',
     justifyContent: 'center',
