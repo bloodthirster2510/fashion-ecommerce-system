@@ -35,6 +35,7 @@ import {
   interactionApi,
   type InteractionPayload,
 } from '../recommendation/interactionApi';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
@@ -302,6 +303,7 @@ const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
   const { isAuthenticated, runWithAuth } = useAuth();
+  const { summary: notificationSummary } = useCustomerNotifications();
   const params = route.params;
   const hasScopedCatalogRequest = Boolean(
     params?.keyword
@@ -901,14 +903,16 @@ const ProductListScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
-          accessibilityLabel="Trở về"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
-        </TouchableOpacity>
+        <View style={styles.headerEdge}>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+            accessibilityLabel="Trở về"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.titleBlock}>
           <Text style={styles.title} numberOfLines={1}>
@@ -916,14 +920,33 @@ const ProductListScreen = () => {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-          accessibilityLabel="Tài khoản"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="account-outline" size={23} color={colors.white} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
+            accessibilityLabel="Sản phẩm yêu thích"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="heart-outline" size={23} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
+            accessibilityLabel={notificationSummary?.cartItems
+              ? `Giỏ hàng, ${notificationSummary.cartItems} sản phẩm`
+              : 'Giỏ hàng'}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+            {notificationSummary?.cartItems ? (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>
+                  {notificationSummary.cartItems > 99 ? '99+' : notificationSummary.cartItems}
+                </Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -1313,6 +1336,41 @@ const styles = StyleSheet.create({
   },
   headerAction: {
     ...brandedHeaderStyles.action,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    position: 'relative',
+  },
+  headerEdge: {
+    width: 80,
+    alignItems: 'flex-start',
+  },
+  headerActions: {
+    width: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -4,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: colors.coral,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadgeText: {
+    color: colors.white,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
   },
   titleBlock: {
     ...brandedHeaderStyles.titleGroup,
