@@ -510,12 +510,12 @@ export const deleteCannedResponse = async (id: string) => {
 const cleanFaqPayload = (input: FaqPayload, partial = false) => {
   const payload: Record<string, unknown> = {};
   if (!partial || input.question !== undefined) {
-    const question = input.question?.trim();
+    const question = typeof input.question === 'string' ? input.question.trim() : '';
     if (!question || question.length < 5 || question.length > 300) throw new SupportServiceError('question must contain 5-300 characters');
     payload.question = question;
   }
   if (!partial || input.answer !== undefined) {
-    const answer = input.answer?.trim();
+    const answer = typeof input.answer === 'string' ? input.answer.trim() : '';
     if (!answer || answer.length < 10 || answer.length > 5000) throw new SupportServiceError('answer must contain 10-5000 characters');
     payload.answer = answer;
   }
@@ -524,12 +524,26 @@ const cleanFaqPayload = (input: FaqPayload, partial = false) => {
     payload.category = input.category;
   }
   if (input.keywords !== undefined) {
-    if (!Array.isArray(input.keywords) || input.keywords.length > 20) throw new SupportServiceError('keywords are invalid');
-    payload.keywords = [...new Set(input.keywords.map((item) => item.trim()).filter(Boolean))].slice(0, 20);
+    if (
+      !Array.isArray(input.keywords)
+      || input.keywords.length > 20
+      || input.keywords.some((item) => typeof item !== 'string')
+    ) {
+      throw new SupportServiceError('keywords are invalid');
+    }
+    const keywords = input.keywords.map((item) => item.trim()).filter(Boolean);
+    if (keywords.some((item) => item.length > 40)) throw new SupportServiceError('keywords are invalid');
+    payload.keywords = [...new Set(keywords)].slice(0, 20);
   }
-  if (input.sortOrder !== undefined) payload.sortOrder = Math.max(0, Math.floor(input.sortOrder));
+  if (input.sortOrder !== undefined) {
+    if (!Number.isSafeInteger(input.sortOrder) || input.sortOrder < 0) {
+      throw new SupportServiceError('sortOrder must be a non-negative safe integer');
+    }
+    payload.sortOrder = input.sortOrder;
+  }
   if (input.isPublished !== undefined) {
-    payload.isPublished = Boolean(input.isPublished);
+    if (typeof input.isPublished !== 'boolean') throw new SupportServiceError('isPublished must be boolean');
+    payload.isPublished = input.isPublished;
     payload.publishedAt = input.isPublished ? new Date() : null;
   }
   return payload;
@@ -568,11 +582,44 @@ export const deleteFaq = async (faqId: string, actor: SupportActor) => {
 
 export const reorderFaqs = async (actor: SupportActor, orderedIds: string[]) => {
   if (!Array.isArray(orderedIds) || orderedIds.length > 500) throw new SupportServiceError('orderedIds are invalid');
+  if (new Set(orderedIds).size !== orderedIds.length) {
+    throw new SupportServiceError('orderedIds must contain unique FAQ ids');
+  }
+  if (!orderedIds.length) return [];
+
   const actorId = objectId(actor.userId, 'actorId');
-  await FaqArticle.bulkWrite(orderedIds.map((id, index) => ({
-    updateOne: { filter: { _id: objectId(id, 'faqId') }, update: { sortOrder: index, updatedBy: actorId } },
+  const faqIds = orderedIds.map((id) => objectId(id, 'faqId'));
+  const existingFaqs = await FaqArticle.find({})
+    .select('_id sortOrder createdAt')
+    .sort({ sortOrder: 1, createdAt: -1 })
+    .lean();
+  const requestedIdSet = new Set(faqIds.map((faqId) => faqId.toString()));
+  const existingIdSet = new Set(existingFaqs.map((faq) => faq._id.toString()));
+  if (faqIds.some((faqId) => !existingIdSet.has(faqId.toString()))) {
+    throw new SupportServiceError('FAQ not found', 404);
+  }
+
+  const reorderedFaqIds = existingFaqs.map((faq) => faq._id);
+  const requestedPositions = reorderedFaqIds
+    .map((faqId, index) => requestedIdSet.has(faqId.toString()) ? index : -1)
+    .filter((index) => index >= 0);
+  requestedPositions.forEach((position, index) => {
+    reorderedFaqIds[position] = faqIds[index];
+  });
+
+  const result = await FaqArticle.bulkWrite(reorderedFaqIds.map((faqId, index) => ({
+    updateOne: {
+      filter: { _id: faqId },
+      update: { sortOrder: index, updatedBy: actorId },
+    },
   })));
-  return FaqArticle.find({ _id: { $in: orderedIds } }).sort({ sortOrder: 1 }).lean();
+  if (typeof result.matchedCount === 'number' && result.matchedCount !== reorderedFaqIds.length) {
+    throw new SupportServiceError('FAQ list changed while reordering', 409);
+  }
+
+  const updatedFaqs = await FaqArticle.find({ _id: { $in: faqIds } }).lean();
+  const faqById = new Map(updatedFaqs.map((faq) => [faq._id.toString(), faq]));
+  return faqIds.map((faqId) => faqById.get(faqId.toString())).filter(Boolean);
 };
 
 export const adminSupportService = {

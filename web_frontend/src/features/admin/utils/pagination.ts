@@ -1,5 +1,40 @@
 export type PaginationItem = number | 'start-ellipsis' | 'end-ellipsis'
 
+type PaginatedResult<T> = {
+  items: T[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
+}
+
+export const loadAllPages = async <T>(
+  loadPage: (page: number) => Promise<PaginatedResult<T>>,
+) => {
+  const firstPage = await loadPage(1)
+
+  if (firstPage.pagination.totalPages <= 1) {
+    return firstPage
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from(
+      { length: firstPage.pagination.totalPages - 1 },
+      (_, index) => loadPage(index + 2),
+    ),
+  )
+
+  return {
+    ...firstPage,
+    items: [
+      ...firstPage.items,
+      ...remainingPages.flatMap((page) => page.items),
+    ],
+  }
+}
+
 export const getPaginationItems = (
   totalPages: number,
   currentPage: number,

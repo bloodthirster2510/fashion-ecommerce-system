@@ -1,4 +1,5 @@
 import { requestAdmin } from '../../services/adminHttp'
+import { loadAllPages } from '../../utils/pagination'
 import type {
   FaqArticle,
   FaqList,
@@ -96,12 +97,13 @@ export const updateCannedResponse = (id: string, payload: Partial<CannedResponse
 export const deleteCannedResponse = (id: string) =>
   requestAdmin<{ _id: string; deleted: true }>(`/admin/support/canned-responses/${id}`, { method: 'DELETE' })
 
-export const listAdminFaqs = (search = '', category = 'all') => {
-  const params = new URLSearchParams({ page: '1', limit: '100' })
-  if (search.trim()) params.set('search', search.trim())
-  if (category !== 'all') params.set('category', category)
-  return requestAdmin<FaqList>(`/admin/support/faqs?${params.toString()}`)
-}
+export const listAdminFaqs = (search = '', category = 'all') =>
+  loadAllPages((page) => {
+    const params = new URLSearchParams({ page: String(page), limit: '100' })
+    if (search.trim()) params.set('search', search.trim())
+    if (category !== 'all') params.set('category', category)
+    return requestAdmin<FaqList>(`/admin/support/faqs?${params.toString()}`)
+  })
 
 export const createAdminFaq = (payload: FaqPayload) => requestAdmin<FaqArticle>('/admin/support/faqs', {
   method: 'POST',

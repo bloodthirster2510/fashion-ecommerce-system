@@ -47,6 +47,9 @@ const CUSTOMER_TICKET_FIELDS = [
   'reopenDeadline', 'createdAt', 'updatedAt',
 ] as const;
 const CUSTOMER_MESSAGE_FIELDS = ['_id', 'senderType', 'body', 'attachments', 'createdAt', 'updatedAt'] as const;
+const PUBLIC_FAQ_FIELDS = [
+  '_id', 'question', 'answer', 'category', 'sortOrder', 'helpfulCount', 'notHelpfulCount', 'createdAt', 'updatedAt',
+] as const;
 
 const toPlainObject = (value: unknown): Record<string, unknown> => {
   if (value && typeof value === 'object' && 'toObject' in value
@@ -115,8 +118,11 @@ export const listFaqs = async ({
     filter.$or = [{ question: regex }, { answer: regex }, { keywords: regex }];
   }
 
+  const faqQuery = FaqArticle.find(filter);
+  if (publishedOnly) faqQuery.select(PUBLIC_FAQ_FIELDS.join(' '));
+
   const [items, totalItems] = await Promise.all([
-    FaqArticle.find(filter)
+    faqQuery
       .sort({ sortOrder: 1, createdAt: -1 })
       .skip((pagination.page - 1) * pagination.limit)
       .limit(pagination.limit)
@@ -137,19 +143,24 @@ export const voteFaq = async (faqId: string, userId: string, input: VoteFaqInput
   const faq = await FaqArticle.findOne({ _id: faqObjectId, isPublished: true });
   if (!faq) throw new SupportServiceError('FAQ not found', 404);
 
+  let vote;
   try {
-    await FaqVote.create({ faqId: faqObjectId, userId: userObjectId, value: input.value });
+    vote = await FaqVote.create({ faqId: faqObjectId, userId: userObjectId, value: input.value });
   } catch (error) {
     if ((error as { code?: number }).code === 11000) throw new SupportServiceError('You already voted for this FAQ', 409);
     throw error;
   }
 
   const counter = input.value === 'helpful' ? 'helpfulCount' : 'notHelpfulCount';
-  const updated = await FaqArticle.findByIdAndUpdate(
-    faqObjectId,
+  const updated = await FaqArticle.findOneAndUpdate(
+    { _id: faqObjectId, isPublished: true },
     { $inc: { [counter]: 1 } },
     { returnDocument: 'after' },
-  ).lean();
+  ).select(PUBLIC_FAQ_FIELDS.join(' ')).lean();
+  if (!updated) {
+    await FaqVote.deleteOne({ _id: vote._id });
+    throw new SupportServiceError('FAQ is no longer available', 409);
+  }
   return updated;
 };
 
