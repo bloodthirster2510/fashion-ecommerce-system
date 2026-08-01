@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -30,7 +31,6 @@ import {
 } from './catalogApi';
 import ProductCard from './ProductCard';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
-import { RemoteImage } from '../../components/media/RemoteImage';
 import {
   interactionApi,
   type InteractionPayload,
@@ -84,6 +84,10 @@ const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
 const DISCOVERY_TITLE = 'Khám phá gu riêng';
+const discoveryImages = {
+  male: require('../../../assets/discovery-male-model-v2.png'),
+  female: require('../../../assets/discovery-female-model-v2.png'),
+} as const;
 
 const emptyAvailableFilters: ProductListResponse['filters'] = {
   brands: [],
@@ -131,8 +135,6 @@ const toArray = (value?: string | string[]) => {
 };
 
 const toQueryArray = (value: string[]) => (value.length ? value : undefined);
-
-const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const normalizeFilters = (filters: ProductListFilters): ProductListFilters => ({
   ...filters,
@@ -336,7 +338,6 @@ const ProductListScreen = () => {
   const [error, setError] = React.useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = React.useState(false);
-  const [discoveryImages, setDiscoveryImages] = React.useState({ male: '', female: '' });
   const heroReveal = React.useRef(new Animated.Value(0)).current;
   const garmentFloat = React.useRef(new Animated.Value(0)).current;
 
@@ -678,27 +679,6 @@ const ProductListScreen = () => {
 
   React.useEffect(() => loadProducts(1), [loadProducts]);
 
-  React.useEffect(() => {
-    setDiscoveryImages((current) => {
-      const next = { ...current };
-
-      (['male', 'female'] as const).forEach((gender) => {
-        if (next[gender]) return;
-
-        const productImage = products.find(
-          (product) => product.category?.gender === gender && isRemoteImage(product.image),
-        )?.image;
-        const categoryImage = availableFilters.categories.find(
-          (category) => category.gender === gender && isRemoteImage(category.image),
-        )?.image;
-
-        next[gender] = productImage?.trim() ?? categoryImage?.trim() ?? '';
-      });
-
-      return next.male === current.male && next.female === current.female ? current : next;
-    });
-  }, [availableFilters.categories, products]);
-
   const openFilterSheet = () => {
     setDraftFilters(appliedFilters);
     setIsFilterSheetVisible(true);
@@ -874,7 +854,6 @@ const ProductListScreen = () => {
   const renderGenderSpotlight = (gender: 'male' | 'female') => {
     const isMale = gender === 'male';
     const active = appliedFilters.gender === gender;
-    const imageUri = discoveryImages[gender];
     const label = isMale ? 'NAM' : 'NỮ';
 
     return (
@@ -913,15 +892,7 @@ const ProductListScreen = () => {
         </View>
 
         <View style={styles.genderImageFrame}>
-          {imageUri ? (
-            <RemoteImage uri={imageUri} style={styles.genderImage} recyclingKey={`discovery-${gender}`} />
-          ) : (
-            <MaterialCommunityIcons
-              name="tshirt-crew"
-              size={44}
-              color={isMale ? 'rgba(255,255,255,0.5)' : 'rgba(155,76,85,0.35)'}
-            />
-          )}
+          <Image source={discoveryImages[gender]} style={styles.genderImage} resizeMode="cover" />
         </View>
       </TouchableOpacity>
     );

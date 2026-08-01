@@ -10,6 +10,8 @@ type StorefrontHeaderProps = {
   onMenuPress?: () => void;
   menuIcon?: HeaderIconName;
   menuAccessibilityLabel?: string;
+  isAuthenticated?: boolean;
+  onAccountPress?: () => void;
   onFavoritesPress?: () => void;
   onCartPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
@@ -21,6 +23,8 @@ const StorefrontHeader = ({
   onMenuPress,
   menuIcon = 'menu',
   menuAccessibilityLabel = 'Mở menu',
+  isAuthenticated = false,
+  onAccountPress,
   onFavoritesPress,
   onCartPress,
   onSearchSubmit,
@@ -78,27 +82,41 @@ const StorefrontHeader = ({
         )}
 
         <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={onFavoritesPress}
-            accessibilityLabel="Sản phẩm yêu thích"
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="heart-outline" size={25} color={colors.white} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={onCartPress}
-            accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="shopping-outline" size={25} color={colors.white} />
-            {cartBadgeCount > 0 ? (
-              <View style={styles.cartBadge}>
-                <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
+          {isAuthenticated ? (
+            <>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={onFavoritesPress}
+                accessibilityLabel="Sản phẩm yêu thích"
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons name="heart-outline" size={25} color={colors.white} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={onCartPress}
+                accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons name="shopping-outline" size={25} color={colors.white} />
+                {cartBadgeCount > 0 ? (
+                  <View style={styles.cartBadge}>
+                    <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.accountButton}
+              onPress={onAccountPress}
+              accessibilityLabel="Đăng nhập tài khoản"
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="account-circle-outline" size={23} color={colors.white} />
+              <Text style={styles.accountButtonText} numberOfLines={1}>Đăng nhập</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </View>
@@ -117,6 +135,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actions: {
+    minWidth: 76,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.xs,
@@ -128,6 +147,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+  },
+  accountButton: {
+    height: 36,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  accountButtonText: {
+    color: colors.white,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
   },
   cartBadge: {
     position: 'absolute',

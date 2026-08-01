@@ -123,7 +123,7 @@ const HomeScreen = () => {
       ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(10, accessToken))
       : recommendationApi.getPersonalRecommendations(10);
 
-    Promise.allSettled([catalogApi.getBestSellers(4), recommendationPromise])
+    Promise.allSettled([catalogApi.getBestSellers(8), recommendationPromise])
       .then(([bestSellerResult, recommendationResult]) => {
         if (!isCurrentRequest) return;
 
@@ -235,6 +235,8 @@ const HomeScreen = () => {
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         menuIcon="filter-variant"
         menuAccessibilityLabel="Mở bộ lọc sản phẩm"
+        isAuthenticated={isAuthenticated}
+        onAccountPress={() => navigation.navigate('Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
         onSearchSubmit={handleSearchSubmit}

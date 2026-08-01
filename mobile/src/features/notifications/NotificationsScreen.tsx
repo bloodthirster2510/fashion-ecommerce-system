@@ -15,6 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { RemoteImage } from '../../components/media/RemoteImage';
+import OutfitIcon from '../../components/ui/OutfitIcon';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
@@ -34,7 +35,7 @@ const PAGE_LIMIT = 20;
 const filters: Array<{ key: NotificationFilter; label: string; icon: IconName }> = [
   { key: 'all', label: 'Tất cả', icon: 'bell-outline' },
   { key: 'order', label: 'Đơn hàng', icon: 'package-variant-closed' },
-  { key: 'virtual_try_on', label: 'Phối đồ', icon: 'tshirt-crew-outline' },
+  { key: 'virtual_try_on', label: 'Phối đồ', icon: 'hanger' },
   { key: 'promotion', label: 'Ưu đãi', icon: 'ticket-percent-outline' },
   { key: 'support', label: 'Hỗ trợ', icon: 'message-reply-text-outline' },
   { key: 'account', label: 'Tài khoản', icon: 'account-circle-outline' },
@@ -50,7 +51,7 @@ const categoryPresentation: Record<CustomerNotificationCategory, {
   promotion: { icon: 'ticket-percent-outline', label: 'Ưu đãi', color: colors.coral, background: '#FFF0EC' },
   support: { icon: 'message-reply-text-outline', label: 'Hỗ trợ', color: colors.success, background: colors.successSoft },
   account: { icon: 'account-circle-outline', label: 'Tài khoản', color: colors.goldDark, background: colors.goldSoft },
-  virtual_try_on: { icon: 'tshirt-crew-outline', label: 'Phối đồ', color: '#7C3AED', background: '#F2ECFF' },
+  virtual_try_on: { icon: 'hanger', label: 'Phối đồ', color: '#7C3AED', background: '#F2ECFF' },
   system: { icon: 'information-outline', label: 'Hệ thống', color: colors.textMuted, background: colors.background },
 };
 
@@ -240,7 +241,11 @@ const NotificationsScreen = () => {
             <RemoteImage uri={imageUri} style={styles.notificationImage} recyclingKey={item._id} />
           ) : (
             <View style={[styles.notificationIcon, { backgroundColor: presentation.background }]}>
-              <MaterialCommunityIcons name={presentation.icon} size={23} color={presentation.color} />
+              {item.category === 'virtual_try_on' ? (
+                <OutfitIcon size={25} color={presentation.color} />
+              ) : (
+                <MaterialCommunityIcons name={presentation.icon} size={23} color={presentation.color} />
+              )}
             </View>
           )}
 
@@ -388,11 +393,19 @@ const NotificationsScreen = () => {
                 activeOpacity={0.82}
               >
                 <View style={styles.filterIconWrap}>
-                  <MaterialCommunityIcons
-                    name={option.icon}
-                    size={25}
-                    color={active ? colors.brand : colors.textMuted}
-                  />
+                  {option.key === 'virtual_try_on' ? (
+                    <OutfitIcon
+                      size={25}
+                      color={active ? colors.brand : colors.textMuted}
+                      muted={!active}
+                    />
+                  ) : (
+                    <MaterialCommunityIcons
+                      name={option.icon}
+                      size={25}
+                      color={active ? colors.brand : colors.textMuted}
+                    />
+                  )}
                   {option.key === 'all' && unreadCount > 0 ? (
                     <View style={styles.filterBadge}>
                       <Text style={styles.filterBadgeText}>{Math.min(unreadCount, 99)}</Text>
@@ -434,7 +447,7 @@ const NotificationsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.white },
+  safeArea: { flex: 1, backgroundColor: colors.surface },
   header: {
     height: 62,
     paddingHorizontal: spacing.md,
@@ -443,7 +456,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
   },
   headerButton: {
     width: 42,
@@ -483,7 +496,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerBadgeText: { color: colors.white, fontSize: 9, lineHeight: 11, fontWeight: '900' },
-  content: { flex: 1, backgroundColor: '#FBFAF8' },
+  content: { flex: 1, backgroundColor: colors.background },
   updatesHeader: {
     minHeight: 64,
     paddingHorizontal: spacing.lg,
@@ -491,7 +504,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
   },
   updatesTitle: { color: colors.text, fontSize: 16, lineHeight: 22, fontWeight: '900' },
   updatesSubtitle: { marginTop: 1, color: colors.textMuted, fontSize: 11, lineHeight: 15, fontWeight: '600' },
@@ -504,7 +517,7 @@ const styles = StyleSheet.create({
     maxHeight: 92,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
   },
   filterRow: { minHeight: 92, paddingHorizontal: spacing.sm, alignItems: 'stretch' },
   filterTab: {
@@ -555,7 +568,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
-    backgroundColor: '#FBFAF8',
+    backgroundColor: colors.background,
   },
   sectionTitle: { color: colors.textMuted, fontSize: 12, lineHeight: 17, fontWeight: '800', textTransform: 'capitalize' },
   notificationCard: {
@@ -563,7 +576,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
   },
   notificationCardUnread: { backgroundColor: '#F4F8FA' },
   notificationMainRow: {
