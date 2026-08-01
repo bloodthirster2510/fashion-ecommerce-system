@@ -262,16 +262,28 @@ const CATEGORIES_CACHE_TTL_MS = 5 * 60 * 1000;
 const PRODUCT_DETAIL_CACHE_TTL_MS = 60 * 1000;
 const PRODUCT_DETAIL_STALE_MS = 5 * 60 * 1000;
 
+type ProductDetailRequestOptions = {
+  forceRefresh?: boolean;
+};
+
 const getProducts = (params: ProductListParams = {}, signal?: AbortSignal, token?: string) => {
   return request<ProductListResponse>(`/products${toQueryString(params)}`, signal, token);
 };
 
-const getProductById = (productId: string, signal?: AbortSignal) => {
+const getProductById = (
+  productId: string,
+  signal?: AbortSignal,
+  options: ProductDetailRequestOptions = {},
+) => {
   const key = `product:${productId}`;
   return withCache(
     key,
     () => request<CatalogProductDetail>(`/products/${encodeURIComponent(productId)}`, signal),
-    { ttlMs: PRODUCT_DETAIL_CACHE_TTL_MS, staleWhileRevalidateMs: PRODUCT_DETAIL_STALE_MS },
+    {
+      ttlMs: PRODUCT_DETAIL_CACHE_TTL_MS,
+      staleWhileRevalidateMs: PRODUCT_DETAIL_STALE_MS,
+      forceRefresh: options.forceRefresh,
+    },
   );
 };
 

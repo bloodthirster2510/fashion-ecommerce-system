@@ -1538,7 +1538,10 @@ const getDetailColors = (variants: ProductDetailVariant[]) => {
   return Array.from(colorsByKey.values());
 };
 
-const mapProductDetail = async (product: ProductListDocument): Promise<ProductDetailResponse> => {
+const mapProductDetail = async (
+  product: ProductListDocument,
+  options: { includeInactiveVariants?: boolean } = {},
+): Promise<ProductDetailResponse> => {
   const category = isPopulatedCategory(product.category_id) ? product.category_id : null;
   const [templateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
     resolveDetailCategoryTemplate(category),
@@ -1548,7 +1551,10 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
   await repairInventoryReferencesForProduct(product._id, product.variant, inventoryItems);
   const fitTypeMap = getFitTypeMap(templateCategory);
   const measurementFieldMap = getMeasurementFieldMap(templateCategory);
-  const variants = product.variant.map((variant) =>
+  const detailVariants = options.includeInactiveVariants
+    ? product.variant
+    : product.variant.filter((variant) => variant.isActive);
+  const variants = detailVariants.map((variant) =>
     mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems),
   );
   const displayVariant =
@@ -2026,10 +2032,11 @@ const getProductDetailById = async (
   options: { activeOnly?: boolean } = {},
 ): Promise<ProductDetailResponse> => {
   assertValidObjectId(id, 'product id');
+  const activeOnly = options.activeOnly ?? true;
 
   const product = await Product.findOne({
     _id: id,
-    ...(options.activeOnly ?? true ? { isActive: true } : {}),
+    ...(activeOnly ? { isActive: true } : {}),
   })
     .populate('brand_id', '_id name image')
     .populate('category_id', PRODUCT_DETAIL_CATEGORY_PROJECTION)
@@ -2039,7 +2046,7 @@ const getProductDetailById = async (
     throw new ProductServiceError('Product not found', 404);
   }
 
-  return mapProductDetail(product);
+  return mapProductDetail(product, { includeInactiveVariants: !activeOnly });
 };
 
 export const productService = {

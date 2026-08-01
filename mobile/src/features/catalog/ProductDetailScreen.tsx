@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,6 +19,7 @@ import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import { resolveColorSwatch } from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi, type CartResponse } from '../cart/cartApi';
 import { favoritesApi } from '../favorites/favoritesApi';
@@ -49,6 +51,7 @@ type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type ReviewSummary = PublicReviewList['summary'];
+type ProductLoadMode = 'loading' | 'refresh';
 type AddCartFeedback = {
   id: number;
   productName: string;
@@ -150,6 +153,7 @@ const ProductDetailScreen = () => {
   const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
   const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isRecommendationLoading, setIsRecommendationLoading] = React.useState(false);
   const [isAddingToCart, setIsAddingToCart] = React.useState(false);
   const [isFavorited, setIsFavorited] = React.useState(false);
@@ -164,6 +168,8 @@ const ProductDetailScreen = () => {
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
   const addCartFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedProductIdRef = React.useRef<string | undefined>(undefined);
+  const productRequestIdRef = React.useRef(0);
 
   const clearAddCartFeedbackTimer = React.useCallback(() => {
     if (addCartFeedbackTimerRef.current) {
@@ -244,10 +250,15 @@ const ProductDetailScreen = () => {
     onImpression: (item) => recordRecommendationEvent(item, 'impression'),
   });
 
-  const loadProduct = React.useCallback(() => {
+  const loadProduct = React.useCallback((mode: ProductLoadMode = 'loading') => {
     let isCurrentRequest = true;
+    const controller = new AbortController();
+    const requestId = productRequestIdRef.current + 1;
+    productRequestIdRef.current = requestId;
+    const isCurrent = () => isCurrentRequest && productRequestIdRef.current === requestId;
 
-    setIsLoading(true);
+    if (mode === 'loading') setIsLoading(true);
+    if (mode === 'refresh') setIsRefreshing(true);
     setIsRecommendationLoading(false);
     setError(null);
     setRecommendationItems([]);
@@ -257,13 +268,13 @@ const ProductDetailScreen = () => {
     setPublicReviewSummary(null);
 
     catalogApi
-      .getProductById(productId)
+      .getProductById(productId, controller.signal, { forceRefresh: true })
       .then((detail) => {
-        if (!isCurrentRequest) return;
+        if (!isCurrent()) return;
 
+        loadedProductIdRef.current = detail._id;
         setProduct(detail);
         initializeSelection(detail);
-        setIsLoading(false);
         setIsRecommendationLoading(true);
 
         const recommendationPromise = isAuthenticated
@@ -272,39 +283,50 @@ const ProductDetailScreen = () => {
 
         recommendationPromise
           .then((response) => {
-            if (isCurrentRequest) {
+            if (isCurrent()) {
               setRecommendationItems(response.items);
               setRecommendationRequestId(response.requestId);
               setRecommendationAlgorithmVersion(response.algorithmVersion);
             }
           })
           .catch(() => {
-            if (isCurrentRequest) {
+            if (isCurrent()) {
               setRecommendationItems([]);
               setRecommendationRequestId(null);
               setRecommendationAlgorithmVersion(undefined);
             }
           })
           .finally(() => {
-            if (isCurrentRequest) {
+            if (isCurrent()) {
               setIsRecommendationLoading(false);
             }
           });
       })
       .catch((err: unknown) => {
-        if (!isCurrentRequest) return;
+        if (!isCurrent()) return;
 
+        loadedProductIdRef.current = undefined;
         setProduct(null);
         setError(getProductDetailErrorMessage(err));
+      })
+      .finally(() => {
+        if (!isCurrent()) return;
         setIsLoading(false);
+        setIsRefreshing(false);
       });
 
     return () => {
       isCurrentRequest = false;
+      productRequestIdRef.current += 1;
+      controller.abort();
     };
   }, [initializeSelection, isAuthenticated, productId, runWithAuth]);
 
-  React.useEffect(() => loadProduct(), [loadProduct]);
+  useStaleFocusEffect(
+    () => loadProduct(loadedProductIdRef.current === productId ? 'refresh' : 'loading'),
+    [loadProduct, productId],
+    { runOnDepsChange: true, staleMs: 0 },
+  );
 
   React.useEffect(() => {
     if (!product?._id) {
@@ -727,7 +749,11 @@ const ProductDetailScreen = () => {
           <MaterialCommunityIcons name="alert-circle-outline" size={34} color={colors.danger} />
           <Text style={styles.centerStateTitle}>Không tải được sản phẩm</Text>
           <Text style={styles.centerStateText}>{error ?? 'Sản phẩm không tồn tại hoặc đã ngừng bán.'}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadProduct} activeOpacity={0.82}>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => { void loadProduct(); }}
+            activeOpacity={0.82}
+          >
             <Text style={styles.retryButtonText}>Thử lại</Text>
           </TouchableOpacity>
         </View>
@@ -747,6 +773,14 @@ const ProductDetailScreen = () => {
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => { void loadProduct('refresh'); }}
+            colors={[colors.brand]}
+            tintColor={colors.brand}
+          />
+        )}
         onScroll={checkRecommendationVisibility}
         scrollEventThrottle={100}
       >

@@ -762,7 +762,7 @@ describe('productService', () => {
     expect(result.policies).toHaveLength(3);
   });
 
-  it('does not report inventory from inactive variants as publicly available', async () => {
+  it('hides inactive variants publicly but keeps them visible to admin', async () => {
     const fitTypeId = new Types.ObjectId('665000000000000000000010');
     const variantId = new Types.ObjectId('665000000000000000000011');
     const colorId = new Types.ObjectId('665000000000000000000012');
@@ -824,11 +824,17 @@ describe('productService', () => {
 
     const result = await productService.getProductDetailById(productId);
 
-    expect(result.variants).toHaveLength(1);
-    expect(result.variants[0].isActive).toBe(false);
+    expect(result.variants).toEqual([]);
     expect(result.isAvailable).toBe(false);
     expect(result.colors).toEqual([]);
     expect(result.sizes).toEqual([]);
+    expect(result.gallery).toEqual([productImageUrl]);
+
+    const adminResult = await productService.getProductDetailById(productId, { activeOnly: false });
+
+    expect(mockedProduct.findOne).toHaveBeenLastCalledWith({ _id: productId });
+    expect(adminResult.variants).toHaveLength(1);
+    expect(adminResult.variants[0].isActive).toBe(false);
   });
 
   it('keeps active products visible in the public list even when inventory is empty', async () => {

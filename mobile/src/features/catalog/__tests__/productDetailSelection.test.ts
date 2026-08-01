@@ -85,6 +85,28 @@ describe('mobile product detail selection', () => {
     expect(isSizeAvailableForColor(variant, 'beige', medium)).toBe(false);
   });
 
+  it.each([
+    [0, false],
+    [1, true],
+    [5, true],
+    [6, true],
+  ])('treats quantity %i availability as %s', (availableQuantity, expected) => {
+    const variant = makeVariant({
+      inventory: [
+        {
+          colorVariantId: 'beige',
+          size: 'S',
+          sku: 'BE-S',
+          availableQuantity,
+          isAvailable: availableQuantity > 0,
+        },
+      ],
+    });
+    const small = variant.sizes.find((size) => size.size === 'S')!;
+
+    expect(isSizeAvailableForColor(variant, 'beige', small)).toBe(expected);
+  });
+
   it('marks a color unavailable when all of its sizes are sold out', () => {
     const variant = makeVariant();
 

@@ -7,6 +7,7 @@ import {
   Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +21,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   catalogApi,
@@ -679,7 +681,11 @@ const ProductListScreen = () => {
     runWithAuth,
   ]);
 
-  React.useEffect(() => loadProducts(1), [loadProducts]);
+  useStaleFocusEffect(
+    () => loadProducts(1),
+    [loadProducts],
+    { runOnDepsChange: true, staleMs: 0 },
+  );
 
   const openFilterSheet = () => {
     setDraftFilters(appliedFilters);
@@ -954,6 +960,14 @@ const ProductListScreen = () => {
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={() => { void loadProducts(1); }}
+            colors={[colors.brand]}
+            tintColor={colors.brand}
+          />
+        )}
         onScroll={handleCatalogScroll}
         scrollEventThrottle={16}
       >

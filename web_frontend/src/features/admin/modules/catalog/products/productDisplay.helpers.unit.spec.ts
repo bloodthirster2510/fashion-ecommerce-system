@@ -61,6 +61,19 @@ test.describe('admin catalog inventory presentation', () => {
     })
   })
 
+  test('maps the 0, 1, 5 and 6 stock boundaries consistently', () => {
+    const cases = [
+      [0, 'is-out'],
+      [1, 'is-low'],
+      [5, 'is-low'],
+      [6, 'is-available'],
+    ] as const
+
+    cases.forEach(([availableQuantity, expectedClassName]) => {
+      expect(getInventoryStatus([{ availableQuantity }], true).className).toBe(expectedClassName)
+    })
+  })
+
   test('keeps inactive and fully sold-out states ahead of low-stock warnings', () => {
     expect(getInventoryStatus([{ availableQuantity: 5 }], false).className).toBe('is-inactive')
     expect(getInventoryStatus([{ availableQuantity: 0 }], true).className).toBe('is-out')
