@@ -36,9 +36,13 @@ const hasStaffSupportPermission = async (userId: string) => {
   if (cached && cached.expiresAt > Date.now()) return cached.allowed;
 
   const user = await User.findById(userId)
-    .select('permissions isActive')
-    .lean<{ permissions?: StaffPermission[]; isActive?: boolean } | null>();
-  const allowed = Boolean(user?.isActive && user.permissions?.includes('support.reply'));
+    .select('role permissions isActive')
+    .lean<{ role?: string; permissions?: StaffPermission[]; isActive?: boolean } | null>();
+  const allowed = Boolean(
+    user?.isActive
+    && user.role === 'staff'
+    && user.permissions?.includes('support.reply'),
+  );
   staffPermissionCache.set(userId, { allowed, expiresAt: Date.now() + STAFF_PERMISSION_CACHE_TTL_MS });
   return allowed;
 };
@@ -49,14 +53,22 @@ export const invalidateSupportSocketPermissionCache = (userId?: string) => {
 };
 
 export const resolveSupportSocketMeta = async (user: JwtPayload): Promise<SupportSocketMeta> => {
-  if (user.role === 'admin') return { user, scope: 'admin' };
-
   if (user.role === 'staff') {
     if (!await hasStaffSupportPermission(user.userId)) {
       throw new Error('Insufficient permissions');
     }
     return { user, scope: 'admin' };
   }
+
+  const account = await User.findById(user.userId)
+    .select('role isActive')
+    .lean<{ role?: string; isActive?: boolean } | null>();
+  if (!account?.isActive || account.role !== user.role) {
+    throw new Error('Account access revoked');
+  }
+
+  if (user.role === 'admin') return { user, scope: 'admin' };
+  if (user.role !== 'user') throw new Error('Account access revoked');
 
   return { user, scope: 'customer' };
 };

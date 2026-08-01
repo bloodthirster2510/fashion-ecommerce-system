@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
 import { API_BASE_URL } from '../../config/api';
 import type { SupportMessage, SupportTicket } from './support.types';
@@ -32,20 +33,31 @@ export function useSupportRealtime(token: string | null, handlers: Handlers) {
   handlersRef.current = handlers;
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  const subscribedTicketIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      subscribedTicketIdsRef.current.clear();
+      setConnected(false);
+      return;
+    }
     const socket = io(resolveSocketUrl(), {
       path: SOCKET_PATH,
       auth: { token },
       transports: ['websocket', 'polling'],
+      autoConnect: false,
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 8000,
     });
     socketRef.current = socket;
 
-    const onConnect = () => setConnected(true);
+    const onConnect = () => {
+      setConnected(true);
+      subscribedTicketIdsRef.current.forEach((ticketId) => {
+        socket.emit('ticket:subscribe', ticketId);
+      });
+    };
     const onDisconnect = () => setConnected(false);
     const onEvent = (event: SupportRealtimeEvent) => {
       const h = handlersRef.current;
@@ -58,9 +70,20 @@ export function useSupportRealtime(token: string | null, handlers: Handlers) {
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('ticket:event', onEvent);
-    if (!socket.connected) socket.connect();
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        if (!socket.connected) socket.connect();
+        return;
+      }
+
+      setConnected(false);
+      socket.disconnect();
+    });
+    if (AppState.currentState === 'active' && !socket.connected) socket.connect();
 
     return () => {
+      appStateSubscription.remove();
+      setConnected(false);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('ticket:event', onEvent);
@@ -69,10 +92,27 @@ export function useSupportRealtime(token: string | null, handlers: Handlers) {
     };
   }, [token]);
 
+  const subscribeTicket = useCallback((ticketId: string) => {
+    subscribedTicketIdsRef.current.add(ticketId);
+    const socket = socketRef.current;
+    if (socket?.connected) socket.emit('ticket:subscribe', ticketId);
+  }, []);
+
+  const unsubscribeTicket = useCallback((ticketId: string) => {
+    subscribedTicketIdsRef.current.delete(ticketId);
+    const socket = socketRef.current;
+    if (socket?.connected) socket.emit('ticket:unsubscribe', ticketId);
+  }, []);
+
+  const emitTyping = useCallback((ticketId: string, isTyping: boolean) => {
+    const socket = socketRef.current;
+    if (socket?.connected) socket.emit('ticket:typing', { ticketId, isTyping });
+  }, []);
+
   return useMemo(() => ({
     connected,
-    subscribeTicket: (ticketId: string) => socketRef.current?.emit('ticket:subscribe', ticketId),
-    unsubscribeTicket: (ticketId: string) => socketRef.current?.emit('ticket:unsubscribe', ticketId),
-    emitTyping: (ticketId: string, isTyping: boolean) => socketRef.current?.emit('ticket:typing', { ticketId, isTyping }),
-  }), [connected]);
+    subscribeTicket,
+    unsubscribeTicket,
+    emitTyping,
+  }), [connected, emitTyping, subscribeTicket, unsubscribeTicket]);
 }

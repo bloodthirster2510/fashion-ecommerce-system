@@ -25,6 +25,7 @@ import {
   requestLoginUnlock as requestLoginUnlockChallenge,
   verifyLoginUnlock as verifyLoginUnlockChallenge,
 } from './login-security.service';
+import { revokeSupportSocketAccess } from '../realtime/support.gateway';
 
 const SALT_ROUNDS = 10;
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('fashion-shop-invalid-login-placeholder', SALT_ROUNDS);
@@ -320,6 +321,7 @@ export const logoutUser = async (userId: string) => {
     User.updateOne({ _id: userId }, { $set: { refreshToken: null } }),
     PushToken.updateMany({ userId, isActive: true }, { $set: { isActive: false } }),
   ]);
+  revokeSupportSocketAccess(userId);
 };
 
 export const logoutWithAccessToken = async (token: string) => {

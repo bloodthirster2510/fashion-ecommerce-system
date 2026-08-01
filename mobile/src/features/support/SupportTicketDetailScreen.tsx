@@ -16,6 +16,8 @@ import {
   canReopenSupportTicket,
   getSupportImageMimeType,
   getSupportTicketStatusLabel,
+  mergeSupportMessages,
+  selectLatestSupportTicket,
   shouldMarkIncomingSupportMessageRead,
   validateSupportImageAssets,
 } from './supportPresentation';
@@ -39,27 +41,43 @@ export default function SupportTicketDetailScreen() {
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = React.useRef(false);
   const reopeningRef = React.useRef(false);
+  const requestSequenceRef = React.useRef(0);
+
+  React.useEffect(() => {
+    requestSequenceRef.current += 1;
+    setDetail(null);
+    setLiveMessages([]);
+    setLiveTicket(null);
+    setStaffTyping(false);
+    setError('');
+  }, [ticketId]);
 
   const load = React.useCallback(async () => {
+    const requestSequence = ++requestSequenceRef.current;
     try {
       const value = await runWithAuth((token) => supportApi.getTicket(token, ticketId));
+      if (requestSequence !== requestSequenceRef.current) return;
       setDetail(value);
-      setLiveMessages(value.messages);
-      setLiveTicket(value.ticket);
+      setLiveMessages((current) => mergeSupportMessages(value.messages, current));
+      setLiveTicket((current) => selectLatestSupportTicket(current, value.ticket));
       if (value.ticket.lastMessageSender === 'staff') {
         await runWithAuth((token) => supportApi.markRead(token, ticketId)).catch(() => {});
       }
     } catch (caught) {
+      if (requestSequence !== requestSequenceRef.current) return;
       setError(caught instanceof Error ? caught.message : 'Không thể tải ticket.');
     }
   }, [ticketId, runWithAuth]);
 
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  useFocusEffect(React.useCallback(() => {
+    void load();
+    return () => { requestSequenceRef.current += 1; };
+  }, [load]));
 
   const realtime = useSupportRealtime(session?.accessToken ?? null, {
     onMessage: (id, message) => {
       if (id !== ticketId) return;
-      setLiveMessages((prev) => (prev.some((m) => m._id === message._id) ? prev : [...prev, message]));
+      setLiveMessages((current) => mergeSupportMessages(current, [message]));
       setStaffTyping(false);
       if (shouldMarkIncomingSupportMessageRead({
         activeTicketId: ticketId,
@@ -79,14 +97,14 @@ export default function SupportTicketDetailScreen() {
     },
     onUpdated: (id, ticket) => {
       if (id !== ticketId) return;
-      setLiveTicket(ticket);
+      setLiveTicket((current) => selectLatestSupportTicket(current, ticket));
     },
   });
 
   React.useEffect(() => {
     realtime.subscribeTicket(ticketId);
     return () => { realtime.unsubscribeTicket(ticketId); };
-  }, [ticketId, realtime]);
+  }, [realtime.subscribeTicket, realtime.unsubscribeTicket, ticketId]);
 
   const send = async () => {
     if (!reply.trim() || sendingRef.current) return;

@@ -23,6 +23,11 @@ import {
   getResetPasswordEmailCapability,
   sendResetPasswordEmail,
 } from '../../../utils/email';
+import { revokeSupportSocketAccess } from '../../realtime/support.gateway';
+
+jest.mock('../../realtime/support.gateway', () => ({
+  revokeSupportSocketAccess: jest.fn(),
+}));
 
 jest.mock('../../../database/models/user.model');
 jest.mock('../../../utils/cloudinary', () => ({
@@ -430,6 +435,7 @@ describe('User Service', () => {
         { isActive: false },
         { returnDocument: 'after' },
       );
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
     });
   });
 
@@ -443,6 +449,7 @@ describe('User Service', () => {
 
       const result = await updateUserRole('u1', 'staff');
       expect(result).toEqual(mockUser);
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
     });
 
     it('should reject downgrading the last active admin', async () => {
@@ -495,6 +502,7 @@ describe('User Service', () => {
       expect(user.passwordChangedAt!.getTime()).toBeGreaterThan(previousPasswordChangedAt.getTime());
       expect(user.save).toHaveBeenCalled();
       expect(sendResetPasswordEmail).toHaveBeenCalledTimes(1);
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
 
       const [email, token] = (sendResetPasswordEmail as jest.Mock).mock.calls[0];
       expect(email).toBe('customer@test.com');
@@ -526,6 +534,7 @@ describe('User Service', () => {
         passwordChangedAt: previousPasswordChangedAt,
       });
       expect(user.save).toHaveBeenCalledTimes(2);
+      expect(revokeSupportSocketAccess).not.toHaveBeenCalled();
     });
   });
 });

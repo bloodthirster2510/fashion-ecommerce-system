@@ -38,6 +38,11 @@ import {
   clearLoginSecurity,
   recordFailedLogin,
 } from '../login-security.service';
+import { revokeSupportSocketAccess } from '../../realtime/support.gateway';
+
+jest.mock('../../realtime/support.gateway', () => ({
+  revokeSupportSocketAccess: jest.fn(),
+}));
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -418,6 +423,7 @@ describe('Auth Service', () => {
         { userId: 'user123', isActive: true },
         { $set: { isActive: false } },
       );
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('user123');
       expect(mockUser.save).not.toHaveBeenCalled();
     });
   });

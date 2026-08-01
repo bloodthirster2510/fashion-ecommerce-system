@@ -1,4 +1,9 @@
-import type { SupportCategory, SupportTicketStatus } from './support.types';
+import type {
+  SupportCategory,
+  SupportMessage,
+  SupportTicket,
+  SupportTicketStatus,
+} from './support.types';
 
 const MAX_SUPPORT_IMAGES = 3;
 const MAX_SUPPORT_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -92,3 +97,30 @@ export const shouldMarkIncomingSupportMessageRead = (input: {
   && input.isAppActive
   && input.activeTicketId === input.eventTicketId
   && input.senderType === 'staff';
+
+const timestamp = (value?: string | null) => {
+  const parsed = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export const mergeSupportMessages = (
+  ...messageGroups: SupportMessage[][]
+) => {
+  const messagesById = new Map<string, SupportMessage>();
+  messageGroups.forEach((messages) => {
+    messages.forEach((message) => messagesById.set(message._id, message));
+  });
+  return Array.from(messagesById.values()).sort(
+    (left, right) => timestamp(left.createdAt) - timestamp(right.createdAt),
+  );
+};
+
+export const selectLatestSupportTicket = (
+  current: SupportTicket | null,
+  incoming: SupportTicket,
+) => {
+  if (!current) return incoming;
+  const currentTimestamp = timestamp(current.updatedAt ?? current.lastMessageAt);
+  const incomingTimestamp = timestamp(incoming.updatedAt ?? incoming.lastMessageAt);
+  return incomingTimestamp < currentTimestamp ? current : incoming;
+};

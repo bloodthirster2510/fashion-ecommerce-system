@@ -6,6 +6,7 @@ import {
   getResetPasswordEmailCapability,
   sendResetPasswordEmail,
 } from '../../utils/email';
+import { revokeSupportSocketAccess } from '../realtime/support.gateway';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
 const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
@@ -487,6 +488,7 @@ export const updateUserStatus = async (id: string, isActive: boolean, actorUserI
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
+  revokeSupportSocketAccess(id);
   return user;
 };
 
@@ -511,6 +513,7 @@ export const updateUserRole = async (id: string, role: string, actorUserId?: str
   if (!user) {
     throw { status: 404, message: 'Người dùng không tồn tại' };
   }
+  revokeSupportSocketAccess(id);
   return user;
 };
 
@@ -539,7 +542,9 @@ export const forcePasswordReset = async (id: string) => {
   await user.save();
 
   try {
-    return await sendResetPasswordEmail(user.email, resetToken);
+    const delivery = await sendResetPasswordEmail(user.email, resetToken);
+    revokeSupportSocketAccess(id);
+    return delivery;
   } catch (error) {
     user.refreshToken = previousAuthState.refreshToken;
     user.resetPasswordToken = previousAuthState.resetPasswordToken;

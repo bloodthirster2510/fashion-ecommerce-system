@@ -2,6 +2,8 @@ import {
   canReopenSupportTicket,
   getSupportImageMimeType,
   getSupportTicketStatusLabel,
+  mergeSupportMessages,
+  selectLatestSupportTicket,
   shouldMarkIncomingSupportMessageRead,
   supportCategoryNeedsOrder,
   validateSupportImageAssets,
@@ -92,5 +94,44 @@ describe('support presentation helpers', () => {
     expect(shouldMarkIncomingSupportMessageRead({ ...base, isAppActive: false })).toBe(false);
     expect(shouldMarkIncomingSupportMessageRead({ ...base, eventTicketId: 'ticket-2' })).toBe(false);
     expect(shouldMarkIncomingSupportMessageRead({ ...base, senderType: 'customer' })).toBe(false);
+  });
+
+  it('deduplicates and orders support messages after reconnect', () => {
+    const message = (id: string, createdAt: string, body = id) => ({
+      _id: id,
+      senderType: 'staff' as const,
+      body,
+      attachments: [],
+      createdAt,
+    });
+
+    expect(mergeSupportMessages(
+      [message('newer', '2026-08-02T10:00:02.000Z'), message('same', '2026-08-02T10:00:01.000Z', 'old')],
+      [message('older', '2026-08-02T10:00:00.000Z'), message('same', '2026-08-02T10:00:01.000Z', 'latest')],
+    )).toEqual([
+      expect.objectContaining({ _id: 'older' }),
+      expect.objectContaining({ _id: 'same', body: 'latest' }),
+      expect.objectContaining({ _id: 'newer' }),
+    ]);
+  });
+
+  it('does not let a delayed ticket response overwrite a newer realtime update', () => {
+    const ticket = (status: 'open' | 'resolved', updatedAt: string) => ({
+      _id: 'ticket-1',
+      ticketCode: 'SP-001',
+      type: 'question' as const,
+      category: 'account' as const,
+      subject: 'Need help',
+      status,
+      requiresReply: false,
+      lastMessageAt: updatedAt,
+      lastMessageSender: 'staff' as const,
+      createdAt: '2026-08-02T09:00:00.000Z',
+      updatedAt,
+    });
+    const realtimeTicket = ticket('resolved', '2026-08-02T10:00:02.000Z');
+    const delayedResponse = ticket('open', '2026-08-02T10:00:01.000Z');
+
+    expect(selectLatestSupportTicket(realtimeTicket, delayedResponse)).toBe(realtimeTicket);
   });
 });
