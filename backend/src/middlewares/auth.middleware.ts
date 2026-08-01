@@ -124,3 +124,12 @@ export const requireActiveAccount = async (req: Request, res: Response, next: Ne
     return res.status(500).json({ message: 'Internal Server Error' });
   }
 };
+
+export const requireActiveAccountIfAuthenticated = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (!req.user) return next();
+  return requireActiveAccount(req, res, next);
+};
