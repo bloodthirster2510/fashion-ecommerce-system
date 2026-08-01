@@ -46,6 +46,7 @@ const DEFAULT_RESERVATION_TTL_MINUTES = 15;
 const MAX_IMPORT_QUANTITY = 1_000_000;
 const MAX_IMPORT_PRICE = 1_000_000_000;
 const MAX_IMPORT_TOTAL = 1_000_000_000_000_000;
+const MAX_IMPORT_CODE_LENGTH = 40;
 
 type SessionOptions = {
   session?: ClientSession;
@@ -173,8 +174,8 @@ const findProductSelection = async (
   options: { requireSellable?: boolean; session?: ClientSession } = {},
 ) => {
   const productObjectId = toObjectId(productId, 'productId');
-  assertValidObjectId(variantId, 'variantId');
-  assertValidObjectId(colorVariantId, 'colorVariantId');
+  const variantObjectId = toObjectId(variantId, 'variantId');
+  const colorVariantObjectId = toObjectId(colorVariantId, 'colorVariantId');
   const query = Product.findById(productObjectId);
   const product = await (options.session ? query.session(options.session) : query);
 
@@ -186,7 +187,10 @@ const findProductSelection = async (
     throw new InventoryServiceError('Product is not active', 400);
   }
 
-  const variant = product.variant.find((item: IProductVariant) => toIdString(item._id) === variantId);
+  const normalizedVariantId = variantObjectId.toString();
+  const variant = product.variant.find(
+    (item: IProductVariant) => toIdString(item._id) === normalizedVariantId,
+  );
   if (!variant) {
     throw new InventoryServiceError('Variant not found in product', 404);
   }
@@ -195,7 +199,10 @@ const findProductSelection = async (
     throw new InventoryServiceError('Variant is not active', 400);
   }
 
-  const color = variant.colors.find((item: IProductVariant['colors'][number]) => toIdString(item._id) === colorVariantId);
+  const normalizedColorVariantId = colorVariantObjectId.toString();
+  const color = variant.colors.find(
+    (item: IProductVariant['colors'][number]) => toIdString(item._id) === normalizedColorVariantId,
+  );
   if (!color) {
     throw new InventoryServiceError('Color variant not found in product variant', 404);
   }
@@ -283,7 +290,8 @@ const buildReceiptFilter = (query: InventoryReceiptListQueryInput) => {
   return filter;
 };
 
-const normalizeReceiptCode = (value: string | undefined) => value?.trim().toUpperCase().slice(0, 40);
+const normalizeReceiptCode = (value: string | undefined) =>
+  value?.trim().toUpperCase().slice(0, MAX_IMPORT_CODE_LENGTH);
 
 const normalizeReceiptStatus = (value: InventoryReceiptStatus | undefined) => {
   if (!value) return 'draft';
@@ -344,7 +352,8 @@ const buildReceiptCode = async () => {
 
 const buildReceiptImportCode = (receiptCode: string, lineIndex: number) => {
   const suffix = String(lineIndex + 1).padStart(2, '0');
-  const prefix = receiptCode.slice(0, 37);
+  const prefixLength = Math.max(0, MAX_IMPORT_CODE_LENGTH - suffix.length - 1);
+  const prefix = receiptCode.slice(0, prefixLength);
 
   return `${prefix}-${suffix}`;
 };
@@ -374,9 +383,9 @@ const normalizeReceiptLines = async (
       await findProductSelection(line.productId, line.variantId, line.colorVariantId, detail.size, options);
 
       const selector = [
-        line.productId,
-        line.variantId,
-        line.colorVariantId,
+        productId.toString(),
+        variantId.toString(),
+        colorVariantId.toString(),
         detail.size.toLowerCase(),
       ].join(':');
 

@@ -1,5 +1,5 @@
 import type { ManagedProduct } from '../catalog/products/product.types'
-import type { InventoryReceipt } from './inventory.types'
+import type { InventoryPage, InventoryReceipt } from './inventory.types'
 import type {
   InventoryReceiptListItem,
   ReceiptProductEntry,
@@ -10,6 +10,31 @@ import { getStockStatus, lowStockThreshold } from '../../utils/stock'
 
 export { lowStockThreshold }
 export const inventoryPageSize = 10
+
+export const listAllInventoryPages = async <T>(
+  loadPage: (page: number) => Promise<InventoryPage<T>>,
+) => {
+  const firstPage = await loadPage(1)
+
+  if (firstPage.pagination.totalPages <= 1) {
+    return firstPage
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from(
+      { length: firstPage.pagination.totalPages - 1 },
+      (_, index) => loadPage(index + 2),
+    ),
+  )
+
+  return {
+    ...firstPage,
+    items: [
+      ...firstPage.items,
+      ...remainingPages.flatMap((page) => page.items),
+    ],
+  }
+}
 
 export const formatNumber = (value: number) => value.toLocaleString('vi-VN')
 
