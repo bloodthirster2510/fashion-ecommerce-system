@@ -1749,6 +1749,32 @@ describe('orderService', () => {
     );
   });
 
+  it('requires cancelled VNPay orders to use the gateway refund flow', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000078');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'cancelled',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'refunded',
+      reason: 'Attempted manual VNPay refund',
+      actorId: '665000000000000000000079',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'VNPay refunds must be completed through the VNPay refund flow',
+    });
+
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedTransactionService.createManualAdjustmentTransaction).not.toHaveBeenCalled();
+  });
+
   it('rejects downgrading a paid payment status', async () => {
     const orderId = new Types.ObjectId('665000000000000000000074');
     const order = {

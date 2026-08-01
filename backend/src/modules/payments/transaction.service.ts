@@ -1,5 +1,7 @@
+import crypto from 'crypto';
 import { Types, type ClientSession } from 'mongoose';
 import {
+  DistributedLock,
   Transaction,
   type TransactionStatus,
   type TransactionCreatedBy,
@@ -8,6 +10,9 @@ import {
 } from '../../database/models';
 
 const PAYMENT_ATTEMPT_TTL_MS = 15 * 60 * 1000;
+const VNPAY_REFUND_LOCK_TTL_MS = 60 * 1000;
+
+const getVNPayRefundLockName = (orderId: string) => `vnpay-refund:${orderId}`;
 
 const isDuplicateKeyError = (error: unknown) => (
   typeof error === 'object' &&
@@ -186,6 +191,32 @@ export const transactionService = {
     gatewayProvider: 'vnpay',
     'paymentDetail.vnp_Command': 'refund',
   }).sort({ createdAt: -1 }),
+
+  acquireVNPayRefundLock: async (orderId: string) => {
+    const name = getVNPayRefundLockName(orderId);
+    const ownerId = `${process.pid}:${crypto.randomUUID()}`;
+    const now = new Date();
+
+    try {
+      const result = await DistributedLock.updateOne(
+        { name, $or: [{ expiresAt: { $lte: now } }, { ownerId }] },
+        {
+          $set: { ownerId, expiresAt: new Date(now.getTime() + VNPAY_REFUND_LOCK_TTL_MS) },
+          $setOnInsert: { name },
+        },
+        { upsert: true },
+      );
+
+      return result.upsertedCount > 0 || result.modifiedCount > 0 ? ownerId : null;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) return null;
+      throw error;
+    }
+  },
+
+  releaseVNPayRefundLock: async (orderId: string, ownerId: string) => {
+    await DistributedLock.deleteOne({ name: getVNPayRefundLockName(orderId), ownerId });
+  },
 
   createVNPayRefundTransaction: async ({
     userId,

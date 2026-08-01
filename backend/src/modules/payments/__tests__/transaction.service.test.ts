@@ -1,8 +1,12 @@
 import { Types } from 'mongoose';
-import { Transaction } from '../../../database/models';
+import { DistributedLock, Transaction } from '../../../database/models';
 import { transactionService } from '../transaction.service';
 
 jest.mock('../../../database/models', () => ({
+  DistributedLock: {
+    updateOne: jest.fn(),
+    deleteOne: jest.fn(),
+  },
   Transaction: {
     create: jest.fn(),
     findOne: jest.fn(),
@@ -12,6 +16,7 @@ jest.mock('../../../database/models', () => ({
 }));
 
 const mockedTransaction = Transaction as jest.Mocked<typeof Transaction>;
+const mockedDistributedLock = DistributedLock as jest.Mocked<typeof DistributedLock>;
 
 const chainSortResult = (value: unknown) => ({
   sort: jest.fn().mockResolvedValue(value),
@@ -21,6 +26,36 @@ describe('transactionService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedTransaction.updateMany.mockResolvedValue({ modifiedCount: 0 } as never);
+  });
+
+  it('acquires and releases an order-scoped VNPay refund lock', async () => {
+    const orderId = '665000000000000000000206';
+    mockedDistributedLock.updateOne.mockResolvedValue({ upsertedCount: 1, modifiedCount: 0 } as never);
+    mockedDistributedLock.deleteOne.mockResolvedValue({ deletedCount: 1 } as never);
+
+    const ownerId = await transactionService.acquireVNPayRefundLock(orderId);
+
+    expect(ownerId).toEqual(expect.any(String));
+    expect(mockedDistributedLock.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ name: `vnpay-refund:${orderId}` }),
+      expect.objectContaining({
+        $set: expect.objectContaining({ ownerId, expiresAt: expect.any(Date) }),
+      }),
+      { upsert: true },
+    );
+
+    await transactionService.releaseVNPayRefundLock(orderId, ownerId!);
+    expect(mockedDistributedLock.deleteOne).toHaveBeenCalledWith({
+      name: `vnpay-refund:${orderId}`,
+      ownerId,
+    });
+  });
+
+  it('reports a busy refund lock when another request wins the unique lock race', async () => {
+    mockedDistributedLock.updateOne.mockRejectedValue({ code: 11000 });
+
+    await expect(transactionService.acquireVNPayRefundLock('665000000000000000000207'))
+      .resolves.toBeNull();
   });
 
   it('expires older pending VNPay attempts before creating a new attempt', async () => {

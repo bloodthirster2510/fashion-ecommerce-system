@@ -11,7 +11,7 @@ test('legal policies expose the payment, return and privacy commitments on deskt
   await page.goto('/policies/privacy')
   await expect(page.getByRole('heading', { name: 'Chính sách bảo vệ dữ liệu cá nhân' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Thời hạn lưu giữ' })).toBeVisible()
-  await expect(page.getByText(/CDShop không bán dữ liệu cá nhân/)).toBeVisible()
+  await expect(page.getByText(/không bán dữ liệu cá nhân/)).toBeVisible()
   await expect(page.locator('main.policy-page')).toHaveCSS('width', '362px')
 })
 

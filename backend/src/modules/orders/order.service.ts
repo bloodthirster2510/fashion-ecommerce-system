@@ -1828,6 +1828,10 @@ const adjustOrderPaymentStatus = async (
     );
   }
 
+  if (input.paymentStatus === 'refunded' && order.paymentMethod === 'VNPAY') {
+    throw new SalesServiceError('VNPay refunds must be completed through the VNPay refund flow', 409);
+  }
+
   order.paymentStatus = input.paymentStatus;
   const updatedOrder = await order.save();
 
