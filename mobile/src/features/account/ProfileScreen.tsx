@@ -12,7 +12,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../auth/AuthContext';
-import { authApi } from '../auth/authApi';
 import { accountApi, MembershipResponse } from './accountApi';
 import { couponApi } from '../coupons/couponApi';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
@@ -227,13 +226,10 @@ const ProfileScreen = () => {
           text: 'Đăng xuất',
           style: 'destructive',
           onPress: () => {
-            const accessToken = session?.accessToken;
-
             void (async () => {
               try {
-                if (accessToken) await authApi.logout(accessToken);
+                await logout();
               } finally {
-                logout();
                 navigation.reset({
                   index: 0,
                   routes: [{ name: 'Home' }],

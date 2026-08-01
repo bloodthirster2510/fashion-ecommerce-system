@@ -429,6 +429,7 @@ describe('Auth Service', () => {
         _id: { toString: () => 'user123' },
         email: 'test@test.com',
         role: 'user',
+        isActive: true,
         refreshToken: 'old_token',
         save: jest.fn(),
       };
@@ -442,6 +443,27 @@ describe('Auth Service', () => {
         { _id: mockUser._id },
         { $set: { refreshToken: hashToken('new_refresh') } },
       );
+    });
+
+    it('rejects refresh tokens after the account is deactivated', async () => {
+      (jwt.verify as jest.Mock).mockReturnValue({
+        userId: 'user123',
+        email: 'test@test.com',
+        role: 'user',
+      });
+      (User.findById as jest.Mock).mockResolvedValue({
+        _id: { toString: () => 'user123' },
+        email: 'test@test.com',
+        role: 'user',
+        isActive: false,
+        refreshToken: hashToken('old_token'),
+      });
+
+      await expect(refreshAccessToken('old_token')).rejects.toMatchObject({
+        status: 403,
+      });
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(User.updateOne).not.toHaveBeenCalled();
     });
   });
 

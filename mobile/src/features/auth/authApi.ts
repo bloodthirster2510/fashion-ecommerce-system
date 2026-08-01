@@ -62,7 +62,8 @@ export const authApi = {
     post<LoginUnlockResult>('/auth/login/unlock/request', { identifier, channel }),
   verifyLoginUnlock: (identifier: string, otp: string) =>
     post<null>('/auth/login/unlock/verify', { identifier, otp }),
-  logout: (accessToken: string) => post<null>('/auth/logout', {}, accessToken),
+  logout: (accessToken: string, refreshToken: string) =>
+    post<null>('/auth/logout', { refreshToken }, accessToken),
   refreshToken: (refreshToken: string) =>
     post<{ accessToken: string; refreshToken: string }>('/auth/refresh-token', { refreshToken }),
   forgotPassword: (identifier: string) =>

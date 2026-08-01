@@ -203,7 +203,12 @@ export const logout = async (req: Request, res: Response) => {
       const refreshToken = getRequestRefreshToken(req);
 
       if (accessToken) {
-        await authService.logoutWithAccessToken(accessToken);
+        try {
+          await authService.logoutWithAccessToken(accessToken);
+        } catch (accessTokenError) {
+          if (!refreshToken) throw accessTokenError;
+          await authService.logoutWithRefreshToken(refreshToken);
+        }
       } else if (refreshToken) {
         await authService.logoutWithRefreshToken(refreshToken);
       }

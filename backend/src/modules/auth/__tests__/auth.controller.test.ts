@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { adminLogin, forgotPassword, login, refreshToken, sendOtp } from '../auth.controller';
+import { adminLogin, forgotPassword, login, logout, refreshToken, sendOtp } from '../auth.controller';
 import * as authService from '../auth.service';
 import { REFRESH_TOKEN_COOKIE_MODE_HEADER } from '../refresh-token-cookie';
 import { SmsDeliveryError } from '../../../utils/sms-provider';
@@ -11,6 +11,8 @@ jest.mock('../auth.service', () => ({
   forgotPassword: jest.fn(),
   loginAdminUser: jest.fn(),
   loginUser: jest.fn(),
+  logoutWithAccessToken: jest.fn(),
+  logoutWithRefreshToken: jest.fn(),
   refreshAccessToken: jest.fn(),
 }));
 
@@ -44,14 +46,17 @@ const createRequest = ({
   body = {},
   cookie,
   cookieMode = true,
+  accessToken,
 }: {
   body?: Record<string, unknown>;
   cookie?: string;
   cookieMode?: boolean;
+  accessToken?: string;
 }) => ({
   body,
   headers: {
     ...(cookie ? { cookie } : {}),
+    ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
   },
   get: jest.fn((headerName: string) => (
     cookieMode && headerName.toLowerCase() === REFRESH_TOKEN_COOKIE_MODE_HEADER.toLowerCase()
@@ -143,6 +148,31 @@ describe('auth controller refresh cookie mode', () => {
 
     expect(authService.refreshAccessToken).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('auth controller logout', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.NODE_ENV = 'test';
+  });
+
+  it('falls back to the refresh token when the access token has expired', async () => {
+    (authService.logoutWithAccessToken as jest.Mock).mockRejectedValue(
+      new Error('expired access token'),
+    );
+    (authService.logoutWithRefreshToken as jest.Mock).mockResolvedValue(undefined);
+    const res = createResponse();
+
+    await logout(createRequest({
+      body: { refreshToken: 'valid_refresh' },
+      accessToken: 'expired_access',
+      cookieMode: false,
+    }), res);
+
+    expect(authService.logoutWithAccessToken).toHaveBeenCalledWith('expired_access');
+    expect(authService.logoutWithRefreshToken).toHaveBeenCalledWith('valid_refresh');
+    expect(res.status).toHaveBeenCalledWith(204);
   });
 });
 

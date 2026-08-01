@@ -345,6 +345,9 @@ export const refreshAccessToken = async (token: string) => {
   if (!user || (user.refreshToken !== tokenHash && user.refreshToken !== token)) {
     throw { status: 401, message: 'Refresh token không hợp lệ' };
   }
+  if (!user.isActive) {
+    throw { status: 403, message: 'Tài khoản đã bị khóa' };
+  }
 
   const newPayload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
   const newAccessToken = generateAccessToken(newPayload);
