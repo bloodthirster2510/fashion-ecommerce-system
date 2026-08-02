@@ -11,7 +11,6 @@ import {
 import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
 import { virtualTryOnService } from '../virtual-try-on.service';
 import { virtualTryOnSettingsService } from '../virtual-try-on-settings.service';
-import { interactionService } from '../../interactions/interaction.service';
 
 jest.mock('axios', () => ({
   __esModule: true,
@@ -109,7 +108,6 @@ const mockedVirtualTryOnAccountLock = VirtualTryOnAccountLock as unknown as {
 const mockedVirtualTryOnPromptRule = VirtualTryOnPromptRule as unknown as {
   find: jest.Mock;
 };
-const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
 const mockedSettingsService = virtualTryOnSettingsService as jest.Mocked<typeof virtualTryOnSettingsService>;
 
 const userId = '665000000000000000000020';
