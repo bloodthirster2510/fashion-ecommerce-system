@@ -19,6 +19,7 @@ import {
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
+import { isImageValidationHardBlockReason } from './imageValidationPolicy';
 import {
   TRY_ON_ACTIVE_ITEM_LIMIT,
   TRY_ON_QUEUE_LIMIT,
@@ -311,15 +312,15 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
   },
   MULTIPLE_PEOPLE_DETECTED: {
     title: 'Ảnh có nhiều người',
-    message: 'Dùng ảnh chỉ có một người.',
+    message: 'Kết quả có thể kém chính xác. Bạn vẫn có thể tiếp tục hoặc dùng ảnh chỉ có một người.',
   },
   PERSON_TOO_SMALL: {
     title: 'Người quá nhỏ',
-    message: 'Chọn ảnh chụp gần hơn.',
+    message: 'Kết quả có thể kém chính xác. Bạn vẫn có thể tiếp tục hoặc chọn ảnh chụp gần hơn.',
   },
   BODY_NOT_VISIBLE: {
     title: 'Chưa đủ vùng cho món này',
-    message: 'Ảnh này chưa thấy đủ vùng cơ thể cho món đang chọn.',
+    message: 'Ảnh chưa thấy đủ vùng cơ thể cho món đang chọn. Bạn vẫn có thể tiếp tục.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
@@ -343,7 +344,7 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
   },
   VALIDATION_PROVIDER_FAILED: {
     title: 'Chưa kiểm tra được ảnh',
-    message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
+    message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Bạn vẫn có thể tiếp tục, nhưng kết quả có thể kém chính xác.',
   },
 };
 
@@ -492,15 +493,6 @@ const getImageValidationReasonTitle = (reasonCode?: string | null) => {
 };
 
 const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' as const;
-
-const imageValidationBlockingReasonCodes = new Set([
-  'NO_PERSON_DETECTED',
-  'MULTIPLE_PEOPLE_DETECTED',
-  'BODY_NOT_VISIBLE',
-  'PERSON_TOO_SMALL',
-  'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
-]);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
@@ -1171,7 +1163,7 @@ const VirtualTryOnBuilderScreen = () => {
     if (
       hasCurrentImageValidationResult &&
       currentReasonCode &&
-      imageValidationBlockingReasonCodes.has(currentReasonCode)
+      isImageValidationHardBlockReason(currentReasonCode)
     ) {
       return currentReasonCode;
     }
@@ -1179,7 +1171,7 @@ const VirtualTryOnBuilderScreen = () => {
       (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
       imageValidation.key === imageValidationScanKey &&
       imageValidation.errorCode &&
-      imageValidationBlockingReasonCodes.has(imageValidation.errorCode)
+      isImageValidationHardBlockReason(imageValidation.errorCode)
     ) {
       return imageValidation.errorCode;
     }

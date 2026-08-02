@@ -12,6 +12,7 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
+import { isImageValidationHardBlockReason } from './imageValidationPolicy';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
@@ -46,19 +47,8 @@ const getJobImageCount = (job: VirtualTryOnJob) =>
 const isSourceAsset = (asset: VirtualTryOnAsset) =>
   asset.type === 'source_upload' || asset.type === 'source_camera';
 
-const blockingSourceImageReasonCodes = new Set([
-  'NO_PERSON_DETECTED',
-  'MULTIPLE_PEOPLE_DETECTED',
-  'PERSON_TOO_SMALL',
-  'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
-]);
-
 const isBlockedSourceAsset = (asset: VirtualTryOnAsset | null) =>
-  Boolean(
-    asset?.validationWarning?.reasonCode &&
-    blockingSourceImageReasonCodes.has(asset.validationWarning.reasonCode),
-  );
+  isImageValidationHardBlockReason(asset?.validationWarning?.reasonCode);
 
 const getUploadAssetErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError) {
@@ -178,9 +168,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Cần đổi ảnh',
+      label: 'Có cảnh báo',
       title: 'Ảnh có nhiều người.',
-      message: 'Hãy chọn ảnh chỉ có một người chính để thử đồ.',
+      message: 'Kết quả có thể kém chính xác. Bạn vẫn có thể tiếp tục hoặc chọn ảnh chỉ có một người chính.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -190,9 +180,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'VALIDATION_PROVIDER_FAILED') {
     return {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Chưa thể dùng',
+      label: 'Có thể tiếp tục',
       title: 'Chưa kiểm tra được ảnh.',
-      message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
+      message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Bạn vẫn có thể tiếp tục, nhưng kết quả có thể kém chính xác.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -202,9 +192,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'PERSON_TOO_SMALL') {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Cần đổi ảnh',
+      label: 'Có cảnh báo',
       title: 'Người trong ảnh quá nhỏ.',
-      message: 'Hãy chọn ảnh chụp gần hơn để nhìn rõ người mặc.',
+      message: 'Kết quả có thể kém chính xác. Bạn vẫn có thể tiếp tục hoặc chọn ảnh chụp gần hơn.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',

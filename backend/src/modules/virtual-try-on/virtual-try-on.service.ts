@@ -98,17 +98,9 @@ const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
-const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
+const hardBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
   'NO_PERSON_DETECTED',
-  'MULTIPLE_PEOPLE_DETECTED',
-  'BODY_NOT_VISIBLE',
-  'PERSON_TOO_SMALL',
   'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
-]);
-const uploadBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
-  'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
 ]);
 const terminalPolicyJobErrorCodes = new Set([
   'PROVIDER_SAFETY_BLOCKED',
@@ -1518,7 +1510,7 @@ const warnSourceImageForJob = async (
   const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
   const suitabilityResult = buildBodySuitabilityResult(result, outfitMode, itemRoles);
   const suitabilityWarning = getImageValidationWarning(suitabilityResult);
-  if (suitabilityWarning && jobBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
+  if (suitabilityWarning && hardBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
     throw new VirtualTryOnServiceError(
       suitabilityWarning.message,
       getImageValidationReasonStatus(suitabilityWarning.reasonCode),
@@ -1837,7 +1829,7 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
     const validationWarning = getImageValidationWarning(validationResult);
     if (
       validationWarning &&
-      uploadBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
+      hardBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
     ) {
       throw new VirtualTryOnServiceError(
         validationWarning.message,
@@ -3016,11 +3008,7 @@ const getCapabilities = async () => {
     checkImageValidationProviderHealth(),
   ]);
   const runtimeAvailable = runtimeSettings.enabled && PROVIDER !== 'disabled';
-  const imageValidationAllowsRequests =
-    imageValidation.available ||
-    imageValidation.failOpen ||
-    imageValidation.provider === 'disabled';
-  const imageAvailable = runtimeAvailable && imageValidationAllowsRequests;
+  const imageAvailable = runtimeAvailable;
   const video = getVideoCapabilities();
   return {
     imageGeneration: {
@@ -3028,9 +3016,7 @@ const getCapabilities = async () => {
       provider: PROVIDER,
       ...(!imageAvailable
         ? {
-          reasonCode: runtimeAvailable
-            ? 'IMAGE_VALIDATION_UNAVAILABLE'
-            : 'VIRTUAL_TRY_ON_DISABLED',
+          reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
         }
         : {}),
     },
@@ -3040,9 +3026,7 @@ const getCapabilities = async () => {
       : {
         ...video,
         available: false,
-        reasonCode: runtimeAvailable
-          ? 'IMAGE_VALIDATION_UNAVAILABLE'
-          : 'VIRTUAL_TRY_ON_DISABLED',
+        reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
       },
   };
 };
