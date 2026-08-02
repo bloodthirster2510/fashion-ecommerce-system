@@ -148,6 +148,13 @@ vite.config.ts.timestamp-*
 .tmp/
 backend/tmp/
 
+# Expo mobile generated native/build directories
+/mobile/android/
+/mobile/ios/
+/mobile/.expo/
+/mobile/dist/
+/mobile/coverage/
+
 # Python AI services
 __pycache__/
 *.py[cod]
