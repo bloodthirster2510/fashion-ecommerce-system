@@ -998,7 +998,7 @@ const ProductListScreen = () => {
               : 'Giỏ hàng'}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+            <MaterialCommunityIcons name="cart-outline" size={23} color={colors.white} />
             {notificationSummary?.cartItems ? (
               <View style={styles.cartBadge}>
                 <Text style={styles.cartBadgeText}>

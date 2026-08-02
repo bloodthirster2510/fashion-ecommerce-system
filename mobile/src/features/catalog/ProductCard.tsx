@@ -172,7 +172,7 @@ const ProductCard = ({ product, animationIndex, onPress, onCartPress }: ProductC
               activeOpacity={0.82}
               accessibilityLabel={`Thêm ${product.name} vào giỏ hàng`}
             >
-              <MaterialCommunityIcons name="shopping-outline" size={18} color={colors.white} />
+              <MaterialCommunityIcons name="cart-outline" size={18} color={colors.white} />
             </TouchableOpacity>
           </View>
         </View>

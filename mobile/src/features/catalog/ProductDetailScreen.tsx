@@ -789,7 +789,7 @@ const ProductDetailScreen = () => {
             activeOpacity={0.82}
             accessibilityLabel="Giỏ hàng"
           >
-            <MaterialCommunityIcons name="shopping-outline" size={22} color={colors.white} />
+            <MaterialCommunityIcons name="cart-outline" size={22} color={colors.white} />
           </TouchableOpacity>
         </View>
       </View>

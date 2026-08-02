@@ -98,7 +98,7 @@ const StorefrontHeader = ({
                 accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
                 activeOpacity={0.8}
               >
-                <MaterialCommunityIcons name="shopping-outline" size={25} color={colors.white} />
+                <MaterialCommunityIcons name="cart-outline" size={25} color={colors.white} />
                 {cartBadgeCount > 0 ? (
                   <View style={styles.cartBadge}>
                     <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>

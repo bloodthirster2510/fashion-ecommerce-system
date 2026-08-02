@@ -317,7 +317,7 @@ const FavoritesScreen = () => {
         activeOpacity={0.82}
         accessibilityLabel="Giỏ hàng"
       >
-        <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+        <MaterialCommunityIcons name="cart-outline" size={23} color={colors.white} />
       </TouchableOpacity>
     </View>
   );
