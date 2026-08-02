@@ -1,4 +1,4 @@
-import { Copy } from 'lucide-react'
+import { Copy, ReceiptText } from 'lucide-react'
 import type { AdminOrder } from '../orderAdminApi'
 import {
   formatCurrency,
@@ -13,9 +13,11 @@ import { OrderStatusPill } from './OrderStatusPill'
 export function OrderOverviewPanel({
   order,
   onCopyReference,
+  onViewInvoice,
 }: {
   order: AdminOrder
   onCopyReference: (value: string, label: string) => void
+  onViewInvoice: () => void
 }) {
   return (
     <section className="admin-drawer-section admin-order-section-summary">
@@ -37,14 +39,20 @@ export function OrderOverviewPanel({
           <strong className="admin-code-with-copy">
             <span>{order.invoiceCode || 'Chưa có'}</span>
             {order.invoiceCode ? (
-              <button
-                className="admin-copy-button"
-                type="button"
-                onClick={() => onCopyReference(order.invoiceCode ?? '', 'mã hóa đơn')}
-                aria-label="Sao chép mã hóa đơn"
-              >
-                <Copy size={14} strokeWidth={2.4} />
-              </button>
+              <>
+                <button
+                  className="admin-copy-button"
+                  type="button"
+                  onClick={() => onCopyReference(order.invoiceCode ?? '', 'mã hóa đơn')}
+                  aria-label="Sao chép mã hóa đơn"
+                >
+                  <Copy size={14} strokeWidth={2.4} />
+                </button>
+                <button className="admin-invoice-view-button" type="button" onClick={onViewInvoice}>
+                  <ReceiptText size={14} aria-hidden="true" />
+                  Xem hóa đơn
+                </button>
+              </>
             ) : null}
           </strong>
         </div>

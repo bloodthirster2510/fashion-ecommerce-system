@@ -400,8 +400,11 @@ const generateInvoiceCode = (order: Pick<IOrder, '_id' | 'orderCode'>) => {
 };
 
 const ensureDeliveredInvoiceCode = (order: IOrder) => {
-  if ((order.status === 'delivered' || order.status === 'completed') && !order.invoiceCode) {
-    order.invoiceCode = generateInvoiceCode(order);
+  if (order.status !== 'delivered' && order.status !== 'completed') return;
+
+  if (!order.invoiceCode) order.invoiceCode = generateInvoiceCode(order);
+  if (!order.invoiceIssuedAt) {
+    order.invoiceIssuedAt = order.deliveredAt ?? order.receivedAt ?? new Date();
   }
 };
 

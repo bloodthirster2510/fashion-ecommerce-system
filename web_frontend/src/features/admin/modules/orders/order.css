@@ -1195,6 +1195,366 @@
   grid-column: 2;
 }
 
+.admin-invoice-view-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  padding: 5px 8px;
+  border: 1px solid #b9d8d3;
+  border-radius: 7px;
+  color: #0f766e;
+  background: #f0fdfa;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.admin-invoice-view-button:hover {
+  border-color: #5da99d;
+  background: #e5faf6;
+}
+
+.admin-order-invoice-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-order-invoice-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #dbe4ec;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(31, 45, 61, 0.06);
+}
+
+.admin-order-invoice-actions > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-order-invoice-actions > div:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-order-invoice-actions span {
+  color: var(--admin-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.admin-order-invoice-actions strong {
+  color: #0f766e;
+  font-size: 16px;
+}
+
+.admin-order-invoice-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+}
+
+.admin-order-invoice-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e6d0a2;
+  border-radius: 9px;
+  color: #8a5b18;
+  background: #fff9ec;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.admin-order-invoice-notice.is-error {
+  border-color: #efc1ba;
+  color: #a63e2d;
+  background: #fff3f1;
+}
+
+.admin-order-invoice-sheet {
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: 34px 38px;
+  border: 1px solid #d8e1e9;
+  border-radius: 12px;
+  color: #202020;
+  background: #fff;
+  box-shadow: 0 16px 38px rgba(31, 45, 61, 0.09);
+}
+
+.admin-order-invoice-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.admin-order-invoice-seller {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.admin-order-invoice-logo {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(145deg, #171717, #4a4a4a);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.admin-order-invoice-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-order-invoice-seller h3 {
+  margin: 0 0 4px;
+  color: #111;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.admin-order-invoice-seller strong,
+.admin-order-invoice-seller > div span {
+  display: block;
+}
+
+.admin-order-invoice-seller strong {
+  margin-bottom: 3px;
+  color: #303030;
+  font-size: 12px;
+}
+
+.admin-order-invoice-seller > div span {
+  color: #5f5f5f;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.admin-order-invoice-title {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  text-align: right;
+}
+
+.admin-order-invoice-title > span {
+  color: #000;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.admin-order-invoice-title > strong {
+  margin-top: 5px;
+  color: #222;
+  font-size: 14px;
+}
+
+.admin-order-invoice-title small {
+  margin-top: 4px;
+  color: #666;
+}
+
+.admin-order-invoice-parties {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+  padding: 22px 0;
+}
+
+.admin-order-invoice-parties section > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #444;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.admin-order-invoice-parties section > strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #171717;
+  font-size: 15px;
+}
+
+.admin-order-invoice-parties p {
+  margin: 2px 0;
+  color: #555;
+  font-size: 12px;
+}
+
+.admin-order-invoice-parties dl,
+.admin-order-invoice-summary dl {
+  margin: 0;
+}
+
+.admin-order-invoice-parties dl > div {
+  display: grid;
+  grid-template-columns: 95px minmax(0, 1fr);
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.admin-order-invoice-parties dt,
+.admin-order-invoice-summary dt {
+  color: #666;
+}
+
+.admin-order-invoice-parties dd,
+.admin-order-invoice-summary dd {
+  margin: 0;
+  color: #222;
+  font-weight: 800;
+}
+
+.admin-order-invoice-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-order-invoice-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.admin-order-invoice-table th,
+.admin-order-invoice-table td {
+  padding: 10px 9px;
+  border: 1px solid #dbe4ec;
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-order-invoice-table th {
+  color: #222;
+  background: #f2f2f2;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.admin-order-invoice-table th:first-child,
+.admin-order-invoice-table td:first-child {
+  width: 42px;
+  text-align: center;
+}
+
+.admin-order-invoice-table th:nth-child(n + 3),
+.admin-order-invoice-table td:nth-child(n + 3) {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.admin-order-invoice-table td > span {
+  display: block;
+  margin-top: 3px;
+  color: #5f5f5f;
+  font-size: 11px;
+}
+
+.admin-order-invoice-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+  padding-top: 18px;
+}
+
+.admin-order-invoice-note strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #444;
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+.admin-order-invoice-note p {
+  margin: 0;
+  color: #454545;
+  font-size: 12px;
+}
+
+.admin-order-invoice-summary dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-order-invoice-summary dl > div.is-discount dt,
+.admin-order-invoice-summary dl > div.is-discount dd {
+  color: #3f3f3f;
+  font-weight: 700;
+}
+
+.admin-order-invoice-summary dl > div.is-total {
+  margin-top: 3px;
+  padding-top: 11px;
+  border-top: 1px solid #94a3b8;
+  border-bottom: 0;
+  font-size: 15px;
+}
+
+.admin-order-invoice-summary dl > div.is-total dt,
+.admin-order-invoice-summary dl > div.is-total dd {
+  color: #000;
+  font-weight: 900;
+}
+
+.admin-order-invoice-sheet > footer {
+  margin-top: 26px;
+  color: #777;
+  font-size: 10px;
+  font-style: italic;
+  text-align: center;
+}
+
+.admin-order-invoice-empty {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  color: #64748b;
+}
+
+.admin-order-invoice-empty > svg {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  color: #94a3b8;
+}
+
+.admin-order-invoice-empty h3,
+.admin-order-invoice-empty p {
+  margin: 0;
+}
+
+.admin-order-invoice-empty p {
+  margin-top: 3px;
+  font-size: 12px;
+}
+
 .admin-order-section-issue {
   order: 1;
 }
@@ -2427,6 +2787,37 @@
     grid-template-columns: 1fr;
     gap: 0;
     padding-right: 0;
+  }
+
+  .admin-order-invoice-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-invoice-actions > div:last-child {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-order-invoice-sheet {
+    padding: 22px 18px;
+    border-radius: 9px;
+  }
+
+  .admin-order-invoice-heading,
+  .admin-order-invoice-parties,
+  .admin-order-invoice-summary {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .admin-order-invoice-title {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .admin-order-invoice-parties dl > div {
+    grid-template-columns: 90px minmax(0, 1fr);
   }
 
   .admin-order-action-layer {
