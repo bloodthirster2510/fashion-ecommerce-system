@@ -33,6 +33,7 @@ const compactUnique = (values: Array<string | undefined>) =>
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 const configuredApiHost = process.env.EXPO_PUBLIC_API_HOST?.trim();
 const configuredApiPort = process.env.EXPO_PUBLIC_API_PORT?.trim() || DEFAULT_DEV_API_PORT;
+const apiDebugLogsEnabled = __DEV__ || process.env.EXPO_PUBLIC_API_DEBUG_LOGS === 'true';
 const configuredRequestTimeoutMs = Number(process.env.EXPO_PUBLIC_API_TIMEOUT_MS);
 const requestTimeoutMs = Number.isFinite(configuredRequestTimeoutMs)
   ? configuredRequestTimeoutMs
@@ -52,9 +53,15 @@ export const API_BASE_URLS = fallbackApiUrls;
 export const API_BASE_URL = API_BASE_URLS[0];
 let preferredApiBaseUrl: string | undefined;
 
-if (__DEV__) {
-  console.log('[API] Base URL candidates configured', API_BASE_URLS.length);
+if (apiDebugLogsEnabled) {
+  console.log(`[API] Base URL candidates: ${API_BASE_URLS.join(', ')}`);
 }
+
+const getLoggableRequestUrl = (url: string) => url.split('?')[0];
+const getErrorSummary = (error: unknown) => {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return typeof error === 'string' ? error : 'Unknown network error';
+};
 
 const isNetworkError = (error: unknown) =>
   error instanceof TypeError ||
@@ -133,9 +140,18 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
 
   for (const [index, baseUrl] of baseUrls.entries()) {
     const requestUrl = `${baseUrl}${normalizedPath}`;
+    const loggableUrl = getLoggableRequestUrl(requestUrl);
+    const startedAt = Date.now();
+
+    if (apiDebugLogsEnabled) {
+      console.log(`[API] ${method} ${loggableUrl} candidate=${index + 1}/${baseUrls.length}`);
+    }
 
     try {
       const response = await fetchWithTimeout(requestUrl, fetchInit);
+      if (apiDebugLogsEnabled) {
+        console.log(`[API] ${method} ${loggableUrl} -> ${response.status} (${Date.now() - startedAt}ms)`);
+      }
       preferredApiBaseUrl = baseUrl;
       return response;
     } catch (error) {
@@ -153,8 +169,10 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
         throw error;
       }
 
-      if (__DEV__) {
-        console.warn(`[API] Request failed for candidate ${index + 1}/${baseUrls.length}`, error);
+      if (apiDebugLogsEnabled) {
+        console.warn(
+          `[API] ${method} ${loggableUrl} -> NETWORK_ERROR (${Date.now() - startedAt}ms) ${getErrorSummary(error)}`,
+        );
       }
     }
   }

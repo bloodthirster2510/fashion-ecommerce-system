@@ -6,10 +6,22 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.11:5000/api",
+        "EXPO_PUBLIC_API_HOST": "192.168.1.11",
+        "EXPO_PUBLIC_API_PORT": "5000",
+        "EXPO_PUBLIC_API_DEBUG_LOGS": "true"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.11:5000/api",
+        "EXPO_PUBLIC_API_HOST": "192.168.1.11",
+        "EXPO_PUBLIC_API_PORT": "5000",
+        "EXPO_PUBLIC_API_DEBUG_LOGS": "true"
+      }
     },
     "production": {
       "autoIncrement": true
