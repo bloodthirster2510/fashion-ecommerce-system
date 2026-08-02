@@ -151,6 +151,16 @@ const getPreferredRefundMethod = (methods: PaymentMethodRecord[]) =>
     .filter((method) => method.type === 'BANK' && method.status !== 'disabled')
     .sort((left, right) => getRefundMethodRank(left) - getRefundMethodRank(right))[0] ?? null;
 
+const shouldLoadManualRefundAccount = (order: CustomerOrder) =>
+  order.paymentMethod !== 'VNPAY' &&
+  (
+    canRequestReturn(order.status) ||
+    Boolean(order.returnRequest) ||
+    order.status === 'cancelled' ||
+    order.status === 'returned' ||
+    order.paymentStatus === 'refunded'
+  );
+
 const getRefundMethodTitle = (method: PaymentMethodRecord) =>
   getPaymentMethodMetadataText(method, 'accountHolder') ?? method.displayName;
 
@@ -199,6 +209,7 @@ const OrderDetailScreen = () => {
   const [returnEvidenceImages, setReturnEvidenceImages] = React.useState<EvidenceDraft[]>([]);
   const [refundMethods, setRefundMethods] = React.useState<PaymentMethodRecord[]>([]);
   const [isRefundMethodsLoading, setIsRefundMethodsLoading] = React.useState(false);
+  const shouldLoadRefundMethods = Boolean(order && shouldLoadManualRefundAccount(order));
   // Lưu order_item_id đã được đánh giá để ẩn/đổi nhãn nút review trên từng dòng hàng.
   const [reviewedItemIds, setReviewedItemIds] = React.useState<Set<string>>(new Set());
   const copyReference = React.useCallback((_label: string, value: string) => {
@@ -294,8 +305,9 @@ const OrderDetailScreen = () => {
   }, [isFocused, loadOrder, orderRealtime.connected]);
 
   const loadRefundMethods = React.useCallback(async () => {
-    if (!session?.accessToken) {
+    if (!session?.accessToken || !shouldLoadRefundMethods) {
       setRefundMethods([]);
+      setIsRefundMethodsLoading(false);
       return;
     }
 
@@ -308,7 +320,7 @@ const OrderDetailScreen = () => {
     } finally {
       setIsRefundMethodsLoading(false);
     }
-  }, [runWithAuth, session?.accessToken]);
+  }, [runWithAuth, session?.accessToken, shouldLoadRefundMethods]);
 
   React.useEffect(() => {
     if (!isFocused) return;
@@ -1099,7 +1111,7 @@ const OrderDetailScreen = () => {
                 <Text style={styles.refundAmountValue}>{formatCurrency(order.totalAmount)}</Text>
               </View>
             ) : null}
-            <View style={styles.refundMethodCard}>
+            {!usesVNPay ? <View style={styles.refundMethodCard}>
               <View style={styles.refundMethodHeader}>
                 <MaterialCommunityIcons name="bank-outline" size={18} color={colors.brand} />
                 <Text style={styles.refundMethodHeading}>Tài khoản nhận hoàn tiền</Text>
@@ -1131,7 +1143,7 @@ const OrderDetailScreen = () => {
                 </Text>
                 <MaterialCommunityIcons name="chevron-right" size={18} color={colors.brand} />
               </TouchableOpacity>
-            </View>
+            </View> : null}
             {canReturn && !order.returnRequest ? (
               <TouchableOpacity
                 style={styles.returnHelpButton}

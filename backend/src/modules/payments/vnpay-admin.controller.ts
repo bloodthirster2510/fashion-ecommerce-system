@@ -75,7 +75,13 @@ export const refundVNPayOrder = async (req: Request, res: Response) => {
   if (!Types.ObjectId.isValid(orderId)) return error(res, 'Invalid orderId', 400);
   if (reason.length < 5) return error(res, 'Refund reason must be at least 5 characters', 400);
 
+  let refundLockOwnerId: string | null = null;
   try {
+    refundLockOwnerId = await transactionService.acquireVNPayRefundLock(orderId);
+    if (!refundLockOwnerId) {
+      return error(res, 'A VNPay refund request is already in progress', 409);
+    }
+
     const order = await orderService.getOrderById(req.user!.userId, req.user?.role, orderId);
     if (order.paymentMethod !== 'VNPAY' || order.paymentStatus !== 'paid') {
       return error(res, 'Only paid VNPay orders can be refunded through VNPay', 409);
@@ -170,5 +176,11 @@ export const refundVNPayOrder = async (req: Request, res: Response) => {
     return status === 500
       ? serverError(res, getErrorMessage(value))
       : error(res, getErrorMessage(value), status);
+  } finally {
+    if (refundLockOwnerId) {
+      await transactionService.releaseVNPayRefundLock(orderId, refundLockOwnerId).catch((value) => {
+        console.error('Failed to release VNPay refund lock:', value);
+      });
+    }
   }
 };

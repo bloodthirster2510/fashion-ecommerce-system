@@ -1,21 +1,14 @@
 import type { AdminOrderStatus } from '../orderAdminApi'
 import { statusLabels } from '../orderPresentation'
 
-const bulkStatuses: AdminOrderStatus[] = [
-  'confirmed',
-  'packed',
-  'shipping',
-  'delivered',
-  'completed',
-  'cancelled',
-]
-
 type OrderBulkToolbarProps = {
+  availableBulkStatuses: AdminOrderStatus[]
   bulkReason: string
   bulkStatus: AdminOrderStatus
+  canBulkCreateGhn: boolean
+  canBulkSyncGhn: boolean
   canUpdateOrders: boolean
   isBulkLoading: boolean
-  isExporting: boolean
   labelCount: number
   selectedCount: number
   onBulkGhn: (action: 'create' | 'sync') => void | Promise<void>
@@ -23,16 +16,17 @@ type OrderBulkToolbarProps = {
   onBulkStatusChange: (status: AdminOrderStatus) => void
   onBulkStatusUpdate: () => void | Promise<void>
   onClearSelection: () => void
-  onExportCsv: () => void | Promise<void>
   onOpenLabels: () => void
 }
 
 export function OrderBulkToolbar({
+  availableBulkStatuses,
   bulkReason,
   bulkStatus,
+  canBulkCreateGhn,
+  canBulkSyncGhn,
   canUpdateOrders,
   isBulkLoading,
-  isExporting,
   labelCount,
   selectedCount,
   onBulkGhn,
@@ -40,38 +34,36 @@ export function OrderBulkToolbar({
   onBulkStatusChange,
   onBulkStatusUpdate,
   onClearSelection,
-  onExportCsv,
   onOpenLabels,
 }: OrderBulkToolbarProps) {
-  const hasSelection = selectedCount > 0
+  if (selectedCount === 0) return null
+  const hasOperationalAction = availableBulkStatuses.length > 0 || canBulkCreateGhn || canBulkSyncGhn
 
   return (
     <section className="admin-order-bulk-toolbar" aria-label="Thao tác đơn hàng hàng loạt">
       <div className="admin-order-bulk-summary">
-        <strong>Đã chọn {selectedCount} đơn</strong>
-        {hasSelection ? (
-          <button className="admin-link-button" type="button" disabled={isBulkLoading} onClick={onClearSelection}>
-            Bỏ chọn
-          </button>
-        ) : (
-          <span>Chọn các đơn trên trang để thao tác cùng lúc.</span>
-        )}
+        <strong>Thao tác với {selectedCount} đơn đã chọn</strong>
+        <button className="admin-link-button" type="button" disabled={isBulkLoading} onClick={onClearSelection}>
+          Bỏ chọn
+        </button>
       </div>
 
-      {canUpdateOrders ? (
+      {canUpdateOrders && hasOperationalAction ? (
         <div className="admin-order-bulk-fields">
-          <label>
-            <span>Trạng thái đích</span>
-            <select
-              value={bulkStatus}
-              disabled={isBulkLoading}
-              onChange={(event) => onBulkStatusChange(event.target.value as AdminOrderStatus)}
-            >
-              {bulkStatuses.map((status) => (
-                <option key={status} value={status}>{statusLabels[status]}</option>
-              ))}
-            </select>
-          </label>
+          {availableBulkStatuses.length > 0 ? (
+            <label>
+              <span>Bước tiếp theo</span>
+              <select
+                value={bulkStatus}
+                disabled={isBulkLoading}
+                onChange={(event) => onBulkStatusChange(event.target.value as AdminOrderStatus)}
+              >
+                {availableBulkStatuses.map((status) => (
+                  <option key={status} value={status}>{statusLabels[status]}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="admin-order-bulk-reason">
             <span>Lý do bắt buộc</span>
             <input
@@ -86,50 +78,52 @@ export function OrderBulkToolbar({
         </div>
       ) : null}
 
+      {canUpdateOrders && !hasOperationalAction ? (
+        <p className="admin-muted-text">Các đơn đã chọn không còn thao tác trạng thái hoặc GHN chung.</p>
+      ) : null}
+
       <div className="admin-order-bulk-actions">
         {canUpdateOrders ? (
           <>
-            <button
-              className="admin-primary-button"
-              type="button"
-              disabled={!hasSelection || isBulkLoading}
-              onClick={() => void onBulkStatusUpdate()}
-            >
-              {isBulkLoading ? 'Đang xử lý...' : 'Cập nhật trạng thái'}
-            </button>
-            <button
-              className="admin-secondary-button"
-              type="button"
-              disabled={!hasSelection || isBulkLoading}
-              onClick={() => void onBulkGhn('create')}
-            >
-              Tạo lại vận đơn GHN
-            </button>
-            <button
-              className="admin-secondary-button"
-              type="button"
-              disabled={!hasSelection || isBulkLoading}
-              onClick={() => void onBulkGhn('sync')}
-            >
-              Đồng bộ GHN
-            </button>
+            {availableBulkStatuses.length > 0 ? (
+              <button
+                className="admin-primary-button"
+                type="button"
+                disabled={isBulkLoading}
+                onClick={() => void onBulkStatusUpdate()}
+              >
+                {isBulkLoading ? 'Đang xử lý...' : 'Cập nhật bước tiếp theo'}
+              </button>
+            ) : null}
+            {canBulkCreateGhn ? (
+              <button
+                className="admin-secondary-button"
+                type="button"
+                disabled={isBulkLoading}
+                onClick={() => void onBulkGhn('create')}
+              >
+                Tạo vận đơn GHN
+              </button>
+            ) : null}
+            {canBulkSyncGhn ? (
+              <button
+                className="admin-secondary-button"
+                type="button"
+                disabled={isBulkLoading}
+                onClick={() => void onBulkGhn('sync')}
+              >
+                Đồng bộ GHN
+              </button>
+            ) : null}
           </>
         ) : null}
         <button
           className="admin-secondary-button"
           type="button"
-          disabled={!hasSelection || isBulkLoading}
+          disabled={isBulkLoading}
           onClick={onOpenLabels}
         >
           Mở/In nhãn ({labelCount})
-        </button>
-        <button
-          className="admin-secondary-button"
-          type="button"
-          disabled={isExporting || isBulkLoading}
-          onClick={() => void onExportCsv()}
-        >
-          {isExporting ? 'Đang xuất CSV...' : 'Xuất CSV theo bộ lọc'}
         </button>
       </div>
     </section>

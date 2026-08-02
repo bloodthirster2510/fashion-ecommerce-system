@@ -66,6 +66,9 @@ describe('notification summary service', () => {
       reviewsPending: 1,
       paymentDeadlineSoon: 2,
     });
+    expect(mockedInventory.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
+      { $match: { availableQuantity: { $gt: 0, $lte: 5 } } },
+    ]));
     expect(summary.capabilities).toMatchObject({
       orders: true,
       inventory: true,

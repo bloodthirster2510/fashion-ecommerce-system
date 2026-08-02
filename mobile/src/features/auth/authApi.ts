@@ -7,6 +7,7 @@ import type {
   AuthSession,
   OtpDeliveryInfo,
   PasswordRecoveryResult,
+  LoginUnlockResult,
 } from './types';
 import { AuthApiError } from './types';
 
@@ -44,6 +45,8 @@ const post = async <T>(path: string, body: Record<string, unknown>, accessToken?
       validationMessage || payload.message || 'Không thể kết nối máy chủ',
       payload.errors,
       response.status,
+      payload.errorCode,
+      payload.data,
     );
   }
 
@@ -55,7 +58,12 @@ export const authApi = {
   verifyOtp: (phone: string, otp: string) => post<{ otpToken: string }>('/auth/verify-otp', { phone, otp }),
   register: (payload: RegisterPayload) => post<AuthSession>('/auth/register', payload),
   login: (identifier: string, password: string) => post<AuthSession>('/auth/login', { identifier, password }),
-  logout: (accessToken: string) => post<null>('/auth/logout', {}, accessToken),
+  requestLoginUnlock: (identifier: string, channel: 'email' | 'phone') =>
+    post<LoginUnlockResult>('/auth/login/unlock/request', { identifier, channel }),
+  verifyLoginUnlock: (identifier: string, otp: string) =>
+    post<null>('/auth/login/unlock/verify', { identifier, otp }),
+  logout: (accessToken: string, refreshToken: string) =>
+    post<null>('/auth/logout', { refreshToken }, accessToken),
   refreshToken: (refreshToken: string) =>
     post<{ accessToken: string; refreshToken: string }>('/auth/refresh-token', { refreshToken }),
   forgotPassword: (identifier: string) =>

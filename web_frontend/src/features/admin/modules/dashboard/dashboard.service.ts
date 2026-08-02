@@ -2,6 +2,68 @@ import { requestAdmin } from '../../services/adminHttp'
 import { getAdminSession } from '../auth/adminSession'
 import type { AdminDashboardOverview } from './dashboard.types'
 
+const MAX_DASHBOARD_DAYS = 180
+const dashboardCapabilityKeys = [
+  'reports',
+  'orders',
+  'inventory',
+  'customers',
+  'promotions',
+  'support',
+] as const
+const runtimeEnv = (import.meta as ImportMeta & { readonly env?: ImportMetaEnv }).env
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+export const normalizeDashboardDays = (days: number) => {
+  if (!Number.isInteger(days) || days < 1 || days > MAX_DASHBOARD_DAYS) {
+    throw new Error(`Khoảng thời gian dashboard phải từ 1 đến ${MAX_DASHBOARD_DAYS} ngày`)
+  }
+  return days
+}
+
+export const parseAdminDashboardOverview = (value: unknown): AdminDashboardOverview => {
+  if (!isRecord(value) || !isRecord(value.range) || !isRecord(value.capabilities)) {
+    throw new Error('Dữ liệu dashboard không hợp lệ')
+  }
+
+  const overviewCapabilities = value.capabilities
+  const hasCapabilities = dashboardCapabilityKeys.every(
+    (key) => typeof overviewCapabilities[key] === 'boolean',
+  )
+  const hasRange = (
+    Number.isInteger(value.range.days) &&
+    typeof value.range.from === 'string' &&
+    typeof value.range.to === 'string' &&
+    typeof value.range.previousFrom === 'string' &&
+    typeof value.range.previousTo === 'string'
+  )
+  const hasBusiness = value.business === null || (
+    isRecord(value.business) &&
+    isRecord(value.business.summary) &&
+    isRecord(value.business.comparison) &&
+    Array.isArray(value.business.trend) &&
+    Array.isArray(value.business.topProducts)
+  )
+  const hasInventory = value.inventory === null || (
+    isRecord(value.inventory) && Array.isArray(value.inventory.atRisk)
+  )
+
+  if (
+    typeof value.generatedAt !== 'string' ||
+    !hasCapabilities ||
+    !hasRange ||
+    !hasBusiness ||
+    !hasInventory ||
+    !Array.isArray(value.orderHealth)
+  ) {
+    throw new Error('Dữ liệu dashboard không hợp lệ')
+  }
+
+  return value as AdminDashboardOverview
+}
+
 const getDemoDashboard = (days: number): AdminDashboardOverview => {
   const to = new Date()
   const from = new Date(to)
@@ -99,9 +161,11 @@ const getDemoDashboard = (days: number): AdminDashboardOverview => {
 }
 
 export const getAdminDashboardOverview = (days = 30) => {
-  if (import.meta.env.DEV && getAdminSession()?.accessToken === 'demo-admin-access-token') {
-    return Promise.resolve(getDemoDashboard(days))
+  const normalizedDays = normalizeDashboardDays(days)
+  if (runtimeEnv?.DEV && getAdminSession()?.accessToken === 'demo-admin-access-token') {
+    return Promise.resolve(parseAdminDashboardOverview(getDemoDashboard(normalizedDays)))
   }
 
-  return requestAdmin<AdminDashboardOverview>(`/admin/dashboard/overview?days=${days}`)
+  return requestAdmin<AdminDashboardOverview>(`/admin/dashboard/overview?days=${normalizedDays}`)
+    .then(parseAdminDashboardOverview)
 }

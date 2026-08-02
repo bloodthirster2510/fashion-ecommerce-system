@@ -32,8 +32,18 @@ import type {
   ProductVariantInput,
   UpdateProductInput,
 } from './product.types';
-import { tokenize, toAccentInsensitiveRegex, toTokenRegexes } from './search.util';
-import { inferGenderFromTokens, expandMaterialTokens, expandMaterialTokenGroups } from './search-keywords';
+import {
+  tokenize,
+  toAccentInsensitiveRegex,
+  toExactPhraseRegex,
+  toTokenRegexes,
+} from './search.util';
+import {
+  inferGenderFromTokens,
+  expandMaterialTokens,
+  expandMaterialTokenGroups,
+  isMaterialToken,
+} from './search-keywords';
 
 export class ProductServiceError extends Error {
   constructor(
@@ -398,6 +408,18 @@ const getFinalPrice = (price: number, discount: number) => {
   return Math.round(price * (1 - discount / 100));
 };
 
+const getFinalPriceAggregationExpression = (variantPath: string) => ({
+  $round: [
+    {
+      $multiply: [
+        `${variantPath}.price`,
+        { $subtract: [1, { $divide: [`${variantPath}.discount`, 100] }] },
+      ],
+    },
+    0,
+  ],
+});
+
 const hasVariantSize = (variant: IProductVariant, selectedSizes?: string[]) => {
   const normalizedSizes = selectedSizes?.map((size) => size.trim().toLowerCase());
 
@@ -466,13 +488,8 @@ const matchesObjectIdList = (value: Types.ObjectId, selectedValues?: string[]) =
 const matchesVariantQuery = (
   variant: IProductVariant,
   query: ProductListQueryInput,
-  inventoryItems?: InventoryStockDocument[],
 ) => {
   if (!variant.isActive || !hasVariantSize(variant, query.size)) {
-    return false;
-  }
-
-  if (!hasAvailableInventoryForVariant(variant, inventoryItems, query.size)) {
     return false;
   }
 
@@ -484,11 +501,13 @@ const matchesVariantQuery = (
     return false;
   }
 
-  if (query.minPrice !== undefined && variant.price < query.minPrice) {
+  const finalPrice = getFinalPrice(variant.price, variant.discount);
+
+  if (query.minPrice !== undefined && finalPrice < query.minPrice) {
     return false;
   }
 
-  if (query.maxPrice !== undefined && variant.price > query.maxPrice) {
+  if (query.maxPrice !== undefined && finalPrice > query.maxPrice) {
     return false;
   }
 
@@ -504,8 +523,25 @@ const selectDisplayVariant = (
   query: ProductListQueryInput,
   inventoryItems?: InventoryStockDocument[],
 ) => {
+  const queryMatchingVariants = variants.filter((variant) => matchesVariantQuery(variant, query));
+  const availableMatchingVariants = queryMatchingVariants.filter((variant) =>
+    hasAvailableInventoryForVariant(variant, inventoryItems, query.size)
+  );
+  const displayCandidates = availableMatchingVariants.length
+    ? availableMatchingVariants
+    : queryMatchingVariants;
+
+  if (displayCandidates.length && isPriceSort(query.sort)) {
+    const direction = query.sort === 'price_asc' ? 1 : -1;
+    return [...displayCandidates].sort((left, right) => {
+      return direction * (
+        getFinalPrice(left.price, left.discount) - getFinalPrice(right.price, right.discount)
+      );
+    })[0];
+  }
+
   return (
-    variants.find((variant) => matchesVariantQuery(variant, query, inventoryItems)) ??
+    displayCandidates[0] ??
     variants.find((variant) =>
       variant.isActive &&
       hasVariantSize(variant) &&
@@ -525,10 +561,6 @@ const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
       return { name: 1 };
     case 'name_desc':
       return { name: -1 };
-    case 'price_asc':
-      return { 'variant.price': 1, createdAt: -1 };
-    case 'price_desc':
-      return { 'variant.price': -1, createdAt: -1 };
     case 'best_seller':
       return { sold_quantity: -1, createdAt: -1 };
     case 'rating_desc':
@@ -537,6 +569,132 @@ const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
     default:
       return { createdAt: -1 };
   }
+};
+
+const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_desc' =>
+  sort === 'price_asc' || sort === 'price_desc';
+
+const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
+  const conditions: Record<string, unknown>[] = [
+    { $eq: ['$$variant.isActive', true] },
+  ];
+  const selectedSizes = query.size
+    ?.map((size) => size.trim().toLowerCase())
+    .filter(Boolean);
+  const selectedColors = query.color
+    ?.map((color) => color.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (selectedSizes?.length) {
+    conditions.push({
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$$variant.sizeMeasurements', []] },
+              as: 'sizeMeasurement',
+              cond: {
+                $in: [{ $toLower: '$$sizeMeasurement.size' }, selectedSizes],
+              },
+            },
+          },
+        },
+        0,
+      ],
+    });
+  }
+
+  if (selectedColors?.length) {
+    conditions.push({
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$$variant.colors', []] },
+              as: 'color',
+              cond: {
+                $in: [{ $toLower: '$$color.color' }, selectedColors],
+              },
+            },
+          },
+        },
+        0,
+      ],
+    });
+  }
+
+  if (query.fitType?.length) {
+    conditions.push({
+      $in: ['$$variant.fitTypeId', toObjectIdList(query.fitType)],
+    });
+  }
+
+  const finalPriceExpression = getFinalPriceAggregationExpression('$$variant');
+  if (query.minPrice !== undefined) {
+    conditions.push({ $gte: [finalPriceExpression, query.minPrice] });
+  }
+  if (query.maxPrice !== undefined) {
+    conditions.push({ $lte: [finalPriceExpression, query.maxPrice] });
+  }
+
+  if (query.isSale) {
+    conditions.push({ $gt: ['$$variant.discount', 0] });
+  }
+
+  return conditions;
+};
+
+const buildMatchingVariantExpression = (query: ProductListQueryInput) => ({
+  $gt: [
+    {
+      $size: {
+        $filter: {
+          input: { $ifNull: ['$variant', []] },
+          as: 'variant',
+          cond: { $and: buildVariantAggregationConditions(query) },
+        },
+      },
+    },
+    0,
+  ],
+});
+
+const getPriceSortedProductIds = async (
+  filter: ProductListFilter,
+  query: ProductListQueryInput,
+  sort: 'price_asc' | 'price_desc',
+  page: number,
+  limit: number,
+) => {
+  const direction = sort === 'price_asc' ? 1 : -1;
+  const priceOperator = sort === 'price_asc' ? '$min' : '$max';
+
+  return Product.aggregate<{ _id: Types.ObjectId }>([
+    { $match: filter },
+    {
+      $addFields: {
+        __catalogFinalPrice: {
+          [priceOperator]: {
+            $map: {
+              input: {
+                $filter: {
+                  input: '$variant',
+                  as: 'variant',
+                  cond: { $and: buildVariantAggregationConditions(query) },
+                },
+              },
+              as: 'variant',
+              in: getFinalPriceAggregationExpression('$$variant'),
+            },
+          },
+        },
+      },
+    },
+    { $sort: { __catalogFinalPrice: direction, createdAt: -1 } },
+    { $skip: (page - 1) * limit },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
 };
 
 const buildVariantFilter = (query: ProductListQueryInput) => {
@@ -564,13 +722,6 @@ const buildVariantFilter = (query: ProductListQueryInput) => {
     variantFilter.fitTypeId = { $in: toObjectIdList(query.fitType) };
   }
 
-  if (query.minPrice !== undefined || query.maxPrice !== undefined) {
-    variantFilter.price = {
-      ...(query.minPrice !== undefined ? { $gte: query.minPrice } : {}),
-      ...(query.maxPrice !== undefined ? { $lte: query.maxPrice } : {}),
-    };
-  }
-
   if (query.isSale) {
     variantFilter.discount = { $gt: 0 };
   }
@@ -584,7 +735,7 @@ const getDescendantCategoryIds = async (categoryId: string, gender?: ProductGend
   const rootCategory = await Category.findById(categoryId).select('_id gender isActive').lean();
 
   if (!rootCategory) {
-    throw new ProductServiceError('Category not found', 404);
+    return [];
   }
 
   if (!rootCategory.isActive || (gender && rootCategory.gender !== gender)) {
@@ -636,6 +787,25 @@ const resolveCategoryFilter = async (query: ProductListQueryInput) => {
   return undefined;
 };
 
+const toMaterialDescriptionRegex = (material: string) => {
+  if (material.toLowerCase() !== 'da') {
+    return toExactPhraseRegex(material);
+  }
+
+  const contextPattern = [
+    'chất liệu',
+    'làm từ',
+    'thành phần',
+  ]
+    .map((context) => toAccentInsensitiveRegex(context).source)
+    .join('|');
+
+  return new RegExp(
+    `(?:${contextPattern})[^.!?\r\n]{0,40}${toExactPhraseRegex(material).source}`,
+    'i',
+  );
+};
+
 const buildKeywordConditions = async (keyword?: string): Promise<Record<string, unknown>[] | undefined> => {
   const trimmedKeyword = keyword?.trim();
 
@@ -653,22 +823,33 @@ const buildKeywordConditions = async (keyword?: string): Promise<Record<string, 
   const tokenRegexes = toTokenRegexes(expandedTokens);
 
   const [brands, categories] = await Promise.all([
-    Brand.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true }).select('_id').lean(),
-    Category.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true }).select('_id').lean(),
+    Brand.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true })
+      .select('_id name')
+      .lean<Array<{ _id: Types.ObjectId; name: string }>>(),
+    Category.find({ $or: tokenRegexes.map((regex) => ({ name: regex })), isActive: true })
+      .select('_id name')
+      .lean<Array<{ _id: Types.ObjectId; name: string }>>(),
   ]);
 
-  const brandIds = brands.map((brand) => brand._id);
-  const categoryIds = categories.map((category) => category._id);
-
   return tokenGroups.map((group) => {
+    const isMaterialGroup = group.some(isMaterialToken);
+    const toGroupRegex = isMaterialGroup ? toExactPhraseRegex : toAccentInsensitiveRegex;
+    const groupRegexes = group.map(toGroupRegex);
     const orConditions: Record<string, unknown>[] = group.flatMap((token) => {
-      const regex = toAccentInsensitiveRegex(token);
+      const regex = toGroupRegex(token);
       return [
         { name: regex },
-        { description: regex },
+        { description: isMaterialGroup ? toMaterialDescriptionRegex(token) : regex },
         { materialNormalized: regex },
       ];
     });
+    const brandIds = brands
+      .filter((brand) => groupRegexes.some((regex) => regex.test(brand.name)))
+      .map((brand) => brand._id);
+    const categoryIds = categories
+      .filter((category) => groupRegexes.some((regex) => regex.test(category.name)))
+      .map((category) => category._id);
+
     if (brandIds.length) orConditions.push({ brand_id: { $in: brandIds } });
     if (categoryIds.length) orConditions.push({ category_id: { $in: categoryIds } });
     return { $or: orConditions };
@@ -682,6 +863,10 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
     isActive: true,
     variant: { $elemMatch: buildVariantFilter(query) },
   };
+
+  if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+    filter.$expr = buildMatchingVariantExpression(query);
+  }
 
   let effectiveGender = query.gender;
   if (query.keyword && !effectiveGender) {
@@ -1353,7 +1538,10 @@ const getDetailColors = (variants: ProductDetailVariant[]) => {
   return Array.from(colorsByKey.values());
 };
 
-const mapProductDetail = async (product: ProductListDocument): Promise<ProductDetailResponse> => {
+const mapProductDetail = async (
+  product: ProductListDocument,
+  options: { includeInactiveVariants?: boolean } = {},
+): Promise<ProductDetailResponse> => {
   const category = isPopulatedCategory(product.category_id) ? product.category_id : null;
   const [templateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
     resolveDetailCategoryTemplate(category),
@@ -1363,7 +1551,10 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
   await repairInventoryReferencesForProduct(product._id, product.variant, inventoryItems);
   const fitTypeMap = getFitTypeMap(templateCategory);
   const measurementFieldMap = getMeasurementFieldMap(templateCategory);
-  const variants = product.variant.map((variant) =>
+  const detailVariants = options.includeInactiveVariants
+    ? product.variant
+    : product.variant.filter((variant) => variant.isActive);
+  const variants = detailVariants.map((variant) =>
     mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems),
   );
   const displayVariant =
@@ -1372,9 +1563,7 @@ const mapProductDetail = async (product: ProductListDocument): Promise<ProductDe
     variants[0];
   const originalPrice = displayVariant?.originalPrice ?? 0;
   const discount = displayVariant?.discount ?? 0;
-  const selectableVariants = variants.some((variant) => variant.isActive)
-    ? variants.filter((variant) => variant.isActive)
-    : variants;
+  const selectableVariants = variants.filter((variant) => variant.isActive);
 
   return {
     _id: product._id.toString(),
@@ -1768,20 +1957,31 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
   const { page, limit } = clampPagination(query);
   const filter = await buildProductListFilter(query);
   const sort = getSortOption(query.sort);
+  const priceSortedProductIds = isPriceSort(query.sort)
+    ? await getPriceSortedProductIds(filter, query, query.sort, page, limit)
+    : undefined;
+  const priceSortOrder = new Map(
+    priceSortedProductIds?.map((item, index) => [item._id.toString(), index]),
+  );
+  const productQuery = priceSortedProductIds
+    ? Product.find({ _id: { $in: priceSortedProductIds.map((item) => item._id) } })
+    : Product.find(filter).sort(sort).skip((page - 1) * limit).limit(limit);
 
   const [products, totalItems, filters] = await Promise.all([
-    Product.find(filter)
+    productQuery
       .populate('brand_id', '_id name image')
       .populate('category_id', '_id name gender image')
-      .sort(sort)
-      .skip((page - 1) * limit)
-      .limit(limit)
       .lean<ProductListDocument[]>(),
     Product.countDocuments(filter),
     query.includeFilters === false
       ? Promise.resolve(undefined)
       : getProductListFilters(filter, query),
   ]);
+  if (priceSortOrder) {
+    products.sort((left, right) => {
+      return (priceSortOrder.get(left._id.toString()) ?? 0) - (priceSortOrder.get(right._id.toString()) ?? 0);
+    });
+  }
   const inventoryItems = products.length
     ? await Inventory.find({
         productId: { $in: products.map((product) => product._id) },
@@ -1832,10 +2032,11 @@ const getProductDetailById = async (
   options: { activeOnly?: boolean } = {},
 ): Promise<ProductDetailResponse> => {
   assertValidObjectId(id, 'product id');
+  const activeOnly = options.activeOnly ?? true;
 
   const product = await Product.findOne({
     _id: id,
-    ...(options.activeOnly ?? true ? { isActive: true } : {}),
+    ...(activeOnly ? { isActive: true } : {}),
   })
     .populate('brand_id', '_id name image')
     .populate('category_id', PRODUCT_DETAIL_CATEGORY_PROJECTION)
@@ -1845,7 +2046,7 @@ const getProductDetailById = async (
     throw new ProductServiceError('Product not found', 404);
   }
 
-  return mapProductDetail(product);
+  return mapProductDetail(product, { includeInactiveVariants: !activeOnly });
 };
 
 export const productService = {

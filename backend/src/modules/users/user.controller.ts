@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import * as userService from './user.service';
 import { validateUpdateProfile, validateAddress } from '../../validators/user.validator';
-import { ok, created, noContent } from '../../utils/response';
+import { ok, created } from '../../utils/response';
 import { auditLogService } from '../audit-logs/audit-log.service';
 
 const getParam = (value: unknown): string => {
@@ -101,6 +101,11 @@ export const addAddress = async (req: Request, res: Response) => {
 };
 
 export const updateAddress = async (req: Request, res: Response) => {
+  const errors = validateAddress(req.body);
+  if (errors.length > 0) {
+    return res.status(400).json({ message: 'Dữ liệu không hợp lệ', errors });
+  }
+
   try {
     const addresses = await userService.updateAddress(req.user!.userId, getParam(req.params.addressId), req.body);
     return ok(res, addresses, 'Cập nhật địa chỉ thành công');
@@ -111,8 +116,8 @@ export const updateAddress = async (req: Request, res: Response) => {
 
 export const deleteAddress = async (req: Request, res: Response) => {
   try {
-    await userService.deleteAddress(req.user!.userId, getParam(req.params.addressId));
-    return noContent(res);
+    const addresses = await userService.deleteAddress(req.user!.userId, getParam(req.params.addressId));
+    return ok(res, addresses, 'Xóa địa chỉ thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
@@ -173,7 +178,7 @@ export const updateUserStatus = async (req: Request, res: Response) => {
   try {
     const userId = getParam(req.params.id);
     const previousUser = await userService.getUserById(userId);
-    const user = await userService.updateUserStatus(userId, req.body.isActive, req.user!.userId);
+    const user = await userService.updateUserStatus(userId, req.body?.isActive, req.user!.userId);
     await auditLogService.recordAuditLogBestEffort({
       actorId: req.user!.userId,
       actorRole: req.user!.role as 'admin' | 'staff',
@@ -194,7 +199,7 @@ export const updateUserStatus = async (req: Request, res: Response) => {
 
 export const updateUserRole = async (req: Request, res: Response) => {
   try {
-    const user = await userService.updateUserRole(getParam(req.params.id), req.body.role, req.user!.userId);
+    const user = await userService.updateUserRole(getParam(req.params.id), req.body?.role, req.user!.userId);
     return ok(res, user, 'Cập nhật quyền thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {

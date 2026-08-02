@@ -42,4 +42,46 @@ describe('promotionCampaignService', () => {
       maxCouponsPerOrder: 2,
     }));
   });
+
+  it('rejects a null campaign payload with a validation error', async () => {
+    await expect(promotionCampaignService.createCampaign(null as never)).rejects.toMatchObject({
+      message: 'Campaign payload must be an object',
+      statusCode: 400,
+    });
+    expect(mockedCampaign.create).not.toHaveBeenCalled();
+  });
+
+  it('maps duplicate campaign codes during update to a conflict', async () => {
+    const campaignId = new Types.ObjectId();
+    mockedCampaign.findById.mockResolvedValue({
+      _id: campaignId,
+      startAt: new Date('2026-01-01T00:00:00Z'),
+      endAt: new Date('2027-01-01T00:00:00Z'),
+      allowCouponStacking: false,
+      maxCouponsPerOrder: 1,
+    } as never);
+    mockedCampaign.findByIdAndUpdate.mockRejectedValue({ code: 11000 });
+
+    await expect(promotionCampaignService.updateCampaign(
+      campaignId.toString(),
+      { code: 'EXISTING' },
+    )).rejects.toMatchObject({ message: 'Campaign code already exists', statusCode: 409 });
+  });
+
+  it('reports a concurrent campaign deletion instead of returning null', async () => {
+    const campaignId = new Types.ObjectId();
+    mockedCampaign.findById.mockResolvedValue({
+      _id: campaignId,
+      startAt: new Date('2026-01-01T00:00:00Z'),
+      endAt: new Date('2027-01-01T00:00:00Z'),
+      allowCouponStacking: false,
+      maxCouponsPerOrder: 1,
+    } as never);
+    mockedCampaign.findByIdAndUpdate.mockResolvedValue(null);
+
+    await expect(promotionCampaignService.updateCampaign(
+      campaignId.toString(),
+      { name: 'Updated campaign' },
+    )).rejects.toMatchObject({ message: 'Campaign not found', statusCode: 404 });
+  });
 });

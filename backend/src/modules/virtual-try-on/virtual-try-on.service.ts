@@ -569,6 +569,7 @@ const emitJob = (job: IVirtualTryOnJob, type: 'queued' | 'processing' | 'progres
     videoErrorMessage: videoResult.errorMessage,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
+    updatedAt: job.updatedAt.toISOString(),
   });
 };
 
@@ -2146,9 +2147,11 @@ const listJobs = async (userId: string, query: VirtualTryOnListQuery) => {
 const retryJob = async (userId: string, jobId: string) => {
   const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
   assertRuntimeEnabled(runtimeSettings);
+  const userObjectId = toObjectId(userId, 'user id');
+  await ensureVirtualTryOnAccountEnabled(userObjectId);
   const job = await VirtualTryOnJob.findOne({
     _id: toObjectId(jobId, 'job id'),
-    userId: toObjectId(userId, 'user id'),
+    userId: userObjectId,
     deletedAt: null,
     status: { $in: ['failed', 'canceled'] },
   });
@@ -2198,9 +2201,15 @@ const retryJob = async (userId: string, jobId: string) => {
   return serializeJob(job);
 };
 
-const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
+const retryVideoJobForFilter = async (
+  filter: Record<string, unknown>,
+  lockedAccountUserId?: Types.ObjectId,
+) => {
   const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
   assertRuntimeEnabled(runtimeSettings);
+  if (lockedAccountUserId) {
+    await ensureVirtualTryOnAccountEnabled(lockedAccountUserId);
+  }
   const job = await VirtualTryOnJob.findOne({
     ...filter,
     deletedAt: null,
@@ -2265,10 +2274,11 @@ const retryVideoJobForFilter = async (filter: Record<string, unknown>) => {
 };
 
 const retryVideo = async (userId: string, jobId: string) => {
+  const userObjectId = toObjectId(userId, 'user id');
   const job = await retryVideoJobForFilter({
     _id: toObjectId(jobId, 'job id'),
-    userId: toObjectId(userId, 'user id'),
-  });
+    userId: userObjectId,
+  }, userObjectId);
   return serializeJob(job);
 };
 

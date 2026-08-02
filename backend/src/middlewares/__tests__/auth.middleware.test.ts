@@ -4,7 +4,10 @@ import { verifyAccessToken } from '../../utils/jwt';
 import { authenticate, requireActiveAccount } from '../auth.middleware';
 
 jest.mock('../../database/models/user.model');
-jest.mock('../../utils/jwt');
+jest.mock('../../utils/jwt', () => ({
+  ...jest.requireActual('../../utils/jwt'),
+  verifyAccessToken: jest.fn(),
+}));
 
 type MockResponse = Response & {
   status: jest.Mock;
@@ -63,6 +66,26 @@ describe('auth middleware token state', () => {
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({ message: 'Access token has been revoked' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects a token changed later within the same second', async () => {
+    (verifyAccessToken as jest.Mock).mockReturnValue({
+      userId: 'user-1',
+      email: 'customer@example.com',
+      role: 'user',
+      iat: 1_700_000_000,
+      issuedAtMs: 1_700_000_000_100,
+    });
+    mockAccountState({
+      mustChangePassword: false,
+      passwordChangedAt: new Date(1_700_000_000_900),
+    });
+    const res = createResponse();
+
+    await authenticate(createRequest(), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 

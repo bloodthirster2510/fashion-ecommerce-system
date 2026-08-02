@@ -92,6 +92,30 @@ export const validateLogin = (body: Record<string, unknown>): ValidationError[] 
   return errors;
 };
 
+export const validateLoginUnlockRequest = (body: Record<string, unknown>): ValidationError[] => {
+  const errors: ValidationError[] = [];
+
+  if (!body.identifier || typeof body.identifier !== 'string' || body.identifier.trim().length === 0) {
+    errors.push({ field: 'identifier', message: 'Vui lòng nhập email hoặc số điện thoại' });
+  }
+
+  if (body.channel !== undefined && !['email', 'phone'].includes(String(body.channel))) {
+    errors.push({ field: 'channel', message: 'Kênh nhận OTP không hợp lệ' });
+  }
+
+  return errors;
+};
+
+export const validateLoginUnlockVerify = (body: Record<string, unknown>): ValidationError[] => {
+  const errors = validateLoginUnlockRequest(body);
+
+  if (!body.otp || typeof body.otp !== 'string' || !/^\d{6}$/.test(body.otp.trim())) {
+    errors.push({ field: 'otp', message: 'Mã OTP phải gồm 6 chữ số' });
+  }
+
+  return errors;
+};
+
 export const validateForgotPassword = (body: Record<string, unknown>): ValidationError[] => {
   const errors: ValidationError[] = [];
 

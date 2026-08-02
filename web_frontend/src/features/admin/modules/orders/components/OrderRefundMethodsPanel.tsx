@@ -1,8 +1,9 @@
-import { Copy, RotateCcw } from 'lucide-react'
+import { CircleAlert, CircleCheck, Clock3, Copy, RefreshCw, RotateCcw } from 'lucide-react'
 import type {
   AdminCustomerPaymentMethod,
   AdminOrder,
   AdminPaymentMethodStatus,
+  AdminTransaction,
 } from '../orderAdminApi'
 import {
   formatCurrency,
@@ -18,18 +19,24 @@ import {
   getRefundBankName,
   getRefundTransferContent,
 } from '../utils/refundRecommend'
+import { getVNPayRefundDisplayStatus } from '../utils/vnpayReconcile'
+
+const isVNPaySandbox = String(import.meta.env.VITE_VNPAY_ENV ?? 'sandbox').toLowerCase() !== 'production'
 
 type OrderRefundMethodsPanelProps = {
   canAdjustPayments: boolean
   canManageCustomerPaymentMethods: boolean
   canReadCustomerPaymentMethods: boolean
   isActionLoading: boolean
+  isTransactionLoading: boolean
   needsRefundHandling: boolean
   order: AdminOrder
   paymentMethods: AdminCustomerPaymentMethod[]
+  refundTransaction?: AdminTransaction | null
   revealedRefundAccounts: Record<string, string>
   onCopyReference: (value: string, label: string) => void
   onRefundVNPay: () => void
+  onReconcileVNPay: () => void
   onRevealRefundAccount: (method: AdminCustomerPaymentMethod) => void
   onUpdatePaymentMethodStatus: (method: AdminCustomerPaymentMethod, status: AdminPaymentMethodStatus) => void
 }
@@ -39,12 +46,15 @@ export function OrderRefundMethodsPanel({
   canManageCustomerPaymentMethods,
   canReadCustomerPaymentMethods,
   isActionLoading,
+  isTransactionLoading,
   needsRefundHandling,
   order,
   paymentMethods,
+  refundTransaction,
   revealedRefundAccounts,
   onCopyReference,
   onRefundVNPay,
+  onReconcileVNPay,
   onRevealRefundAccount,
   onUpdatePaymentMethodStatus,
 }: OrderRefundMethodsPanelProps) {
@@ -59,25 +69,91 @@ export function OrderRefundMethodsPanel({
       recommendedRefundMethod?.maskedInfo &&
       /[•*xX]/.test(recommendedRefundMethod.maskedInfo),
   )
+  const vnpayRefundStatus = getVNPayRefundDisplayStatus(refundTransaction)
 
   if (needsRefundHandling && order.paymentMethod === 'VNPAY') {
+    const refundState = isTransactionLoading
+      ? {
+          className: 'is-pending',
+          icon: <Clock3 size={18} aria-hidden="true" />,
+          label: 'Đang kiểm tra lịch sử hoàn tiền',
+          helper: 'Vui lòng chờ tải giao dịch trước khi gửi hoặc đối soát lệnh hoàn.',
+        }
+      : vnpayRefundStatus === 'pending'
+      ? {
+          className: 'is-pending',
+          icon: <Clock3 size={18} aria-hidden="true" />,
+          label: 'VNPay đang xử lý',
+          helper: 'Đơn vẫn hiển thị đã thanh toán cho tới khi VNPay xác nhận hoàn thành.',
+        }
+      : vnpayRefundStatus === 'failed'
+        ? {
+            className: 'is-failed',
+            icon: <CircleAlert size={18} aria-hidden="true" />,
+            label: 'Lệnh hoàn gần nhất thất bại',
+            helper: 'Kiểm tra phản hồi trong mục Thanh toán & xử lý trước khi gửi lại.',
+          }
+        : vnpayRefundStatus === 'completed'
+          ? {
+              className: 'is-completed',
+              icon: <CircleCheck size={18} aria-hidden="true" />,
+              label: 'VNPay đã xác nhận hoàn tiền',
+              helper: 'Khoản hoàn được trả về nguồn thanh toán ban đầu của khách.',
+            }
+          : {
+              className: 'is-ready',
+              icon: <RotateCcw size={18} aria-hidden="true" />,
+              label: 'Sẵn sàng gửi lệnh hoàn',
+              helper: 'Hệ thống sẽ yêu cầu VNPay hoàn toàn bộ giao dịch gốc.',
+            }
+
     return (
       <section className="admin-drawer-section admin-order-section-side admin-order-section-refund">
-        <h3>Hoàn tiền VNPay</h3>
+        <div className="admin-section-inline-heading">
+          <h3>Hoàn tiền qua VNPay</h3>
+          {isVNPaySandbox ? <span className="admin-vnpay-environment">Sandbox · tiền thử</span> : null}
+        </div>
         <div className="admin-refund-panel">
           <div className="admin-refund-panel-header">
             <span>Số tiền hoàn toàn phần</span>
             <strong>{formatCurrency(order.totalAmount)}</strong>
           </div>
-          <button
-            className="admin-primary-button"
-            type="button"
-            disabled={!canAdjustPayments || isActionLoading}
-            onClick={onRefundVNPay}
-          >
-            <RotateCcw size={16} aria-hidden="true" />
-            Gửi yêu cầu hoàn qua VNPay
-          </button>
+          <div className={`admin-vnpay-refund-state ${refundState.className}`} role="status">
+            {refundState.icon}
+            <div>
+              <strong>{refundState.label}</strong>
+              <span>{refundState.helper}</span>
+            </div>
+          </div>
+          <p className="admin-refund-bank-note is-caution">
+            VNPay hoàn về nguồn thanh toán ban đầu. Không sử dụng tài khoản ngân hàng nhận hoàn mà khách đã khai báo.
+          </p>
+          {isTransactionLoading ? (
+            <button className="admin-secondary-button" type="button" disabled>
+              <Clock3 size={16} aria-hidden="true" />
+              Đang kiểm tra giao dịch...
+            </button>
+          ) : vnpayRefundStatus === 'pending' ? (
+            <button
+              className="admin-secondary-button"
+              type="button"
+              disabled={!canAdjustPayments || isActionLoading}
+              onClick={onReconcileVNPay}
+            >
+              <RefreshCw size={16} aria-hidden="true" />
+              Đối soát trạng thái với VNPay
+            </button>
+          ) : vnpayRefundStatus !== 'completed' ? (
+            <button
+              className="admin-primary-button"
+              type="button"
+              disabled={!canAdjustPayments || isActionLoading}
+              onClick={onRefundVNPay}
+            >
+              <RotateCcw size={16} aria-hidden="true" />
+              {vnpayRefundStatus === 'failed' ? 'Gửi lại lệnh hoàn tiền' : 'Gửi lệnh hoàn tiền đến VNPay'}
+            </button>
+          ) : null}
           {!canAdjustPayments ? (
             <p className="admin-permission-note">Cần quyền payments.adjust để hoàn tiền.</p>
           ) : null}
@@ -88,7 +164,7 @@ export function OrderRefundMethodsPanel({
 
   return (
     <section className="admin-drawer-section admin-order-section-side admin-order-section-refund">
-      <h3>{needsRefundHandling ? 'Hoàn tiền & tài khoản nhận' : 'Phương thức thanh toán của khách hàng'}</h3>
+      <h3>Hoàn tiền thủ công</h3>
       {needsRefundHandling ? (
         <div className="admin-refund-panel">
           <div className="admin-refund-panel-header">
@@ -177,14 +253,12 @@ export function OrderRefundMethodsPanel({
         </div>
       ) : null}
       {!canReadCustomerPaymentMethods ? (
-        <p className="admin-muted-text">Cần quyền customers.read để xem phương thức thanh toán của khách.</p>
-      ) : paymentMethods.length === 0 ? (
-        <p className="admin-muted-text">Khách hàng chưa lưu phương thức thanh toán nào.</p>
-      ) : needsRefundHandling && refundMethods.length === 0 ? (
-        <p className="admin-muted-text">Khách chưa lưu tài khoản ngân hàng. Các phương thức khác vẫn nằm trong hồ sơ thanh toán nhưng không dùng để chuyển khoản hoàn tiền.</p>
+        <p className="admin-muted-text">Cần quyền customers.read để xem tài khoản nhận hoàn tiền.</p>
+      ) : refundMethods.length === 0 ? (
+        <p className="admin-muted-text">Khách chưa lưu tài khoản ngân hàng nhận hoàn tiền.</p>
       ) : (
         <div className="admin-payment-method-list">
-          {(needsRefundHandling ? refundMethods : paymentMethods).map((method) => {
+          {refundMethods.map((method) => {
             const statusActions = getPaymentMethodStatusActions(method.status)
 
             return (
@@ -198,7 +272,7 @@ export function OrderRefundMethodsPanel({
                     {paymentMethodStatusLabels[method.status]}
                   </span>
                   {method.isDefault ? <span className="admin-status-pill is-warning">Mặc định</span> : null}
-                  {!needsRefundHandling ? statusActions.map((action) => (
+                  {statusActions.map((action) => (
                     <button
                       className={action.className}
                       type="button"
@@ -208,15 +282,15 @@ export function OrderRefundMethodsPanel({
                     >
                       {action.label}
                     </button>
-                  )) : null}
+                  ))}
                 </div>
               </article>
             )
           })}
         </div>
       )}
-      {!needsRefundHandling && !canManageCustomerPaymentMethods ? (
-        <p className="admin-permission-note">Cần quyền customers.manage để cập nhật phương thức thanh toán.</p>
+      {!canManageCustomerPaymentMethods ? (
+        <p className="admin-permission-note">Cần quyền customers.manage để xác minh tài khoản nhận hoàn tiền.</p>
       ) : null}
     </section>
   )

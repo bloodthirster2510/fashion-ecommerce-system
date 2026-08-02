@@ -7,17 +7,36 @@ import {
   getCustomerSummary,
   getMe,
   getUsers,
+  setDefaultAddress,
+  updateAddress,
   updateMe,
   updateUserRole,
   updateUserStatus,
+  uploadAvatar,
 } from '../user.service';
 import { User } from '../../../database/models/user.model';
+import { PushToken } from '../../../database/models/push-token.model';
+import {
+  deleteImageFromCloudinary,
+  uploadImageToCloudinary,
+} from '../../../utils/cloudinary';
 import {
   getResetPasswordEmailCapability,
   sendResetPasswordEmail,
 } from '../../../utils/email';
+import { revokeSupportSocketAccess } from '../../realtime/support.gateway';
+
+jest.mock('../../realtime/support.gateway', () => ({
+  revokeSupportSocketAccess: jest.fn(),
+}));
 
 jest.mock('../../../database/models/user.model');
+jest.mock('../../../database/models/push-token.model');
+jest.mock('../../../utils/cloudinary', () => ({
+  deleteImageFromCloudinary: jest.fn().mockResolvedValue(undefined),
+  getAvatarFolder: jest.fn(() => 'test/avatars'),
+  uploadImageToCloudinary: jest.fn(),
+}));
 jest.mock('../../../utils/email', () => ({
   getResetPasswordEmailCapability: jest.fn(),
   sendResetPasswordEmail: jest.fn(),
@@ -94,6 +113,46 @@ describe('User Service', () => {
         message: 'Không có dữ liệu để cập nhật',
       });
     });
+
+    it('should reject a null payload as bad input', async () => {
+      await expect(updateMe('user123', null as never)).rejects.toEqual({
+        status: 400,
+        message: 'Dữ liệu cập nhật không hợp lệ',
+      });
+    });
+  });
+
+  describe('uploadAvatar', () => {
+    it('should reject malformed base64 before uploading', async () => {
+      (User.findById as jest.Mock).mockReturnValue({
+        select: jest.fn().mockResolvedValue({ avatarPublicId: null }),
+      });
+
+      await expect(uploadAvatar('user123', {
+        imageBase64: '%%%not-base64%%%',
+        mimeType: 'image/png',
+      })).rejects.toEqual({ status: 400, message: 'Dữ liệu ảnh đại diện không hợp lệ' });
+      expect(uploadImageToCloudinary).not.toHaveBeenCalled();
+    });
+
+    it('should remove a newly uploaded image when the user is concurrently deleted', async () => {
+      (User.findById as jest.Mock).mockReturnValue({
+        select: jest.fn().mockResolvedValue({ avatarPublicId: null }),
+      });
+      (uploadImageToCloudinary as jest.Mock).mockResolvedValue({
+        publicId: 'test/avatars/user123',
+        secureUrl: 'https://cdn.example.com/user123.png',
+      });
+      (User.findByIdAndUpdate as jest.Mock).mockReturnValue({
+        select: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(uploadAvatar('user123', {
+        imageBase64: Buffer.from('valid-image-bytes').toString('base64'),
+        mimeType: 'image/png',
+      })).rejects.toEqual({ status: 404, message: 'Người dùng không tồn tại' });
+      expect(deleteImageFromCloudinary).toHaveBeenCalledWith('test/avatars/user123');
+    });
   });
 
   describe('getAddresses', () => {
@@ -132,6 +191,23 @@ describe('User Service', () => {
       expect(result).toHaveLength(1);
       expect(result[0].customerName).toBe('Test');
       expect(user.save).toHaveBeenCalled();
+    });
+
+    it('should always make the first saved address the default', async () => {
+      const user = { address: [], save: jest.fn() };
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      const result = await addAddress('user123', {
+        customerName: 'Test User',
+        province: 'Cần Thơ',
+        ward: 'An Khánh',
+        wardCode: '00123',
+        streetName: '123 Đường 3/2',
+        phoneNumber: '0900000000',
+        isDefault: false,
+      });
+
+      expect(result[0].isDefault).toBe(true);
     });
 
     it('should normalize legacy saved addresses before adding a new one', async () => {
@@ -198,6 +274,59 @@ describe('User Service', () => {
     });
   });
 
+  describe('updateAddress', () => {
+    const savedAddress = () => ({
+      _id: { toString: () => 'addr-default' },
+      customerName: 'Test User',
+      province: 'Cần Thơ',
+      provinceCode: '92',
+      provinceId: 92,
+      district: null,
+      districtId: null,
+      ward: 'An Khánh',
+      wardCode: '00123',
+      streetName: '123 Đường 3/2',
+      phoneNumber: '0900000000',
+      isDefault: true,
+    });
+
+    it('should preserve the default-address invariant when unchecking the only default', async () => {
+      const address = savedAddress();
+      const addresses = [address] as typeof address[] & { id?: jest.Mock };
+      addresses.id = jest.fn().mockReturnValue(address);
+      const user = { address: addresses, save: jest.fn(), profileCompleted: true };
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      const result = await updateAddress('user123', 'addr-default', { isDefault: false });
+
+      expect(result[0].isDefault).toBe(true);
+      expect(user.save).toHaveBeenCalled();
+    });
+
+    it('should reject a null update payload', async () => {
+      await expect(updateAddress('user123', 'addr-default', null as never)).rejects.toEqual({
+        status: 400,
+        message: 'Dữ liệu địa chỉ không hợp lệ',
+      });
+      expect(User.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setDefaultAddress', () => {
+    it('should keep exactly one default address', async () => {
+      const addresses = [
+        { _id: { toString: () => 'addr-1' }, isDefault: true },
+        { _id: { toString: () => 'addr-2' }, isDefault: false },
+      ];
+      const user = { address: addresses, save: jest.fn() };
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      await setDefaultAddress('user123', 'addr-2');
+
+      expect(addresses.map((address) => address.isDefault)).toEqual([false, true]);
+    });
+  });
+
   describe('deleteAddress', () => {
     it('should delete an address', async () => {
       const address = { deleteOne: jest.fn() };
@@ -231,10 +360,11 @@ describe('User Service', () => {
       (user.address as unknown as { id: jest.Mock }).id = jest.fn().mockReturnValue(defaultAddress);
       (User.findById as jest.Mock).mockResolvedValue(user);
 
-      await deleteAddress('user123', 'addr-default');
+      const remainingAddresses = await deleteAddress('user123', 'addr-default');
 
       expect(defaultAddress.deleteOne).toHaveBeenCalled();
       expect(fallbackAddress.isDefault).toBe(true);
+      expect(remainingAddresses).toBe(user.address);
       expect(user.save).toHaveBeenCalled();
     });
   });
@@ -307,6 +437,7 @@ describe('User Service', () => {
         { isActive: false },
         { returnDocument: 'after' },
       );
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
     });
   });
 
@@ -320,6 +451,7 @@ describe('User Service', () => {
 
       const result = await updateUserRole('u1', 'staff');
       expect(result).toEqual(mockUser);
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
     });
 
     it('should reject downgrading the last active admin', async () => {
@@ -372,6 +504,11 @@ describe('User Service', () => {
       expect(user.passwordChangedAt!.getTime()).toBeGreaterThan(previousPasswordChangedAt.getTime());
       expect(user.save).toHaveBeenCalled();
       expect(sendResetPasswordEmail).toHaveBeenCalledTimes(1);
+      expect(PushToken.updateMany).toHaveBeenCalledWith(
+        { userId: 'u1', isActive: true },
+        { $set: { isActive: false } },
+      );
+      expect(revokeSupportSocketAccess).toHaveBeenCalledWith('u1');
 
       const [email, token] = (sendResetPasswordEmail as jest.Mock).mock.calls[0];
       expect(email).toBe('customer@test.com');
@@ -403,6 +540,8 @@ describe('User Service', () => {
         passwordChangedAt: previousPasswordChangedAt,
       });
       expect(user.save).toHaveBeenCalledTimes(2);
+      expect(PushToken.updateMany).not.toHaveBeenCalled();
+      expect(revokeSupportSocketAccess).not.toHaveBeenCalled();
     });
   });
 });

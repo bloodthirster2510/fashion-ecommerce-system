@@ -624,6 +624,28 @@ describe('virtualTryOnService image validation', () => {
     });
   });
 
+  it('blocks user image and video retries while the account is feature-locked', async () => {
+    mockedVirtualTryOnAccountLock.findOne.mockResolvedValue({
+      reason: 'Tạm khóa để kiểm tra',
+      lockedAt: now,
+    });
+    mockedVirtualTryOnJob.findOne.mockResolvedValue(null);
+
+    await expect(virtualTryOnService.retryJob(userId, jobId.toString())).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'VIRTUAL_TRY_ON_FEATURE_LOCKED',
+      data: {
+        reason: 'Tạm khóa để kiểm tra',
+        lockedAt: now.toISOString(),
+      },
+    });
+    await expect(virtualTryOnService.retryVideo(userId, jobId.toString())).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'VIRTUAL_TRY_ON_FEATURE_LOCKED',
+    });
+    expect(mockedVirtualTryOnJob.findOne).not.toHaveBeenCalled();
+  });
+
   it('keeps video safety failures terminal while preserving generated images', async () => {
     const closedVideoJob = {
       _id: jobId,

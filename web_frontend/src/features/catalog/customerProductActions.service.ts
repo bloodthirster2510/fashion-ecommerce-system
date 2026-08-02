@@ -1,5 +1,6 @@
 import { requestCustomer } from '../../services/customerHttp'
 import type { Cart } from '../cart/cart.types'
+import type { ProductListItem, ProductSortOption } from './catalog.types'
 
 export type AddCartItemPayload = {
   productId: string
@@ -14,6 +15,43 @@ export type FavoriteStatusResponse = {
   isFavorited: boolean
 }
 
+export type FavoriteSortOption = ProductSortOption | 'favorited_desc' | 'favorited_asc'
+
+export type FavoriteProduct = ProductListItem & {
+  favoritedAt: string
+  isFavorited: true
+}
+
+export type FavoriteListResponse = {
+  items: FavoriteProduct[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
+}
+
+export type FavoriteListQuery = {
+  keyword?: string
+  inStock?: boolean
+  sort?: FavoriteSortOption
+  page?: number
+  limit?: number
+}
+
+const buildFavoriteQuery = (query: FavoriteListQuery) => {
+  const params = new URLSearchParams()
+
+  if (query.keyword?.trim()) params.set('keyword', query.keyword.trim())
+  if (query.inStock) params.set('inStock', 'true')
+  if (query.sort) params.set('sort', query.sort)
+  if (query.page) params.set('page', String(query.page))
+  if (query.limit) params.set('limit', String(query.limit))
+
+  return params.toString()
+}
+
 export const customerProductActionsService = {
   addCartItem(input: AddCartItemPayload) {
     return requestCustomer<Cart>('/cart/items', {
@@ -24,6 +62,11 @@ export const customerProductActionsService = {
 
   getFavoriteStatus(productId: string) {
     return requestCustomer<FavoriteStatusResponse>(`/favorites/status?productId=${encodeURIComponent(productId)}`)
+  },
+
+  listFavorites(query: FavoriteListQuery = {}) {
+    const queryString = buildFavoriteQuery(query)
+    return requestCustomer<FavoriteListResponse>(`/favorites${queryString ? `?${queryString}` : ''}`)
   },
 
   addFavorite(productId: string) {

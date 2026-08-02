@@ -1,4 +1,7 @@
-import { buildSearchKeywordSuggestions } from '../search-keywords';
+import {
+  buildSearchKeywordSuggestions,
+  expandMaterialTokenGroups,
+} from '../search-keywords';
 
 describe('buildSearchKeywordSuggestions', () => {
   it('builds shopee-style suggestions for Vietnamese clothing queries', () => {
@@ -26,5 +29,19 @@ describe('buildSearchKeywordSuggestions', () => {
       'quần jean nữ',
       'quần ống rộng nữ',
     ]);
+  });
+
+  it('collapses multi-word material aliases into a single synonym group', () => {
+    expect(expandMaterialTokenGroups(['co', 'ton'])).toEqual([
+      expect.arrayContaining(['cotton', 'cô tông', 'bông']),
+    ]);
+    expect(expandMaterialTokenGroups(['da', 'that'])).toEqual([
+      expect.arrayContaining(['leather', 'da', 'da thật']),
+    ]);
+  });
+
+  it('does not treat a product type as an equivalent material', () => {
+    expect(expandMaterialTokenGroups(['ao', 'thun'])).toEqual([['ao'], ['thun']]);
+    expect(expandMaterialTokenGroups(['hoodie'])).toEqual([['hoodie']]);
   });
 });

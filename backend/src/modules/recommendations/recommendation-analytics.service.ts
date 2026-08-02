@@ -179,6 +179,8 @@ type RecentRequestEventRow = {
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 180;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const BANGKOK_TIME_ZONE = 'Asia/Bangkok';
+const BANGKOK_OFFSET = '+07:00';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const RECENT_REQUEST_LIMIT = 12;
 
@@ -252,10 +254,42 @@ export const calculateAnalyticsChangePercent = (value: number, previousValue: nu
     return value === 0 ? 0 : null;
   }
 
-  return Math.round(((value - previousValue) / previousValue) * 1000) / 10;
+  return Math.round(((value - previousValue) / Math.abs(previousValue)) * 1000) / 10;
 };
 
-const toDateInput = (value: Date) => value.toISOString().slice(0, 10);
+const bangkokDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: BANGKOK_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+const bangkokDateKey = (value: Date) => bangkokDateFormatter.format(value);
+
+const bangkokDayStart = (value: Date) => (
+  new Date(`${bangkokDateKey(value)}T00:00:00${BANGKOK_OFFSET}`)
+);
+
+export const recommendationAnalyticsDayExpression = (dateExpression: string) => ({
+  $dateToString: {
+    date: dateExpression,
+    format: '%Y-%m-%d',
+    timezone: BANGKOK_TIME_ZONE,
+  },
+});
+
+type CoverageDimension = 'category_id' | 'brand_id';
+
+export const buildActiveCoverageProductFilter = (
+  dimension: CoverageDimension,
+  joinedProduct = false,
+) => {
+  const prefix = joinedProduct ? 'product.' : '';
+  return {
+    [`${prefix}isActive`]: true,
+    [`${prefix}${dimension}`]: { $exists: true, $ne: null },
+  };
+};
 
 const parseDate = (value: unknown, fallback: Date, endOfDay = false) => {
   if (typeof value !== 'string' || !value.trim()) {
@@ -263,10 +297,11 @@ const parseDate = (value: unknown, fallback: Date, endOfDay = false) => {
   }
 
   const normalized = value.trim();
-  const date = DATE_ONLY_PATTERN.test(normalized)
-    ? new Date(`${normalized}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`)
+  const isDateOnly = DATE_ONLY_PATTERN.test(normalized);
+  const date = isDateOnly
+    ? new Date(`${normalized}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}${BANGKOK_OFFSET}`)
     : new Date(normalized);
-  if (Number.isNaN(date.getTime())) {
+  if (Number.isNaN(date.getTime()) || (isDateOnly && bangkokDateKey(date) !== normalized)) {
     throw Object.assign(new Error('Invalid recommendation analytics date range'), { statusCode: 400 });
   }
 
@@ -289,8 +324,12 @@ const parseDays = (value: unknown) => {
 };
 
 const parseOptionalText = (value: unknown, maxLength: number) => {
-  if (typeof value !== 'string') {
+  if (value === undefined || value === null || value === '') {
     return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw Object.assign(new Error('Invalid recommendation analytics filter'), { statusCode: 400 });
   }
 
   const normalized = value.trim();
@@ -310,7 +349,7 @@ export const normalizeRecommendationAnalyticsQuery = (
   now = new Date(),
 ) => {
   const days = parseDays(query.days);
-  const defaultFrom = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const defaultFrom = new Date(bangkokDayStart(now).getTime() - (days - 1) * DAY_MS);
   const from = parseDate(query.from, defaultFrom);
   const to = parseDate(query.to, now, true);
 
@@ -413,7 +452,7 @@ const collectMetricSnapshot = async (
           _id: null,
           requests: { $sum: 1 },
           fallbackRequests: { $sum: { $cond: ['$fallbackUsed', 1, 0] } },
-          recommendations: { $sum: { $size: '$items' } },
+          recommendations: { $sum: { $size: { $ifNull: ['$items', []] } } },
         },
       },
       { $project: { _id: 0, requests: 1, fallbackRequests: 1, recommendations: 1 } },
@@ -452,7 +491,7 @@ const collectSegments = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filte
           },
           requests: { $sum: 1 },
           fallbackRequests: { $sum: { $cond: ['$fallbackUsed', 1, 0] } },
-          recommendations: { $sum: { $size: '$items' } },
+          recommendations: { $sum: { $size: { $ifNull: ['$items', []] } } },
         },
       },
     ]),
@@ -532,14 +571,12 @@ const collectSegments = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filte
 
 const buildDayBuckets = (range: Pick<AnalyticsRange, 'from' | 'to'>) => {
   const buckets = new Map<string, MetricSnapshot>();
-  const cursor = new Date(range.from);
-  cursor.setUTCHours(0, 0, 0, 0);
-  const end = new Date(range.to);
-  end.setUTCHours(0, 0, 0, 0);
+  const cursor = bangkokDayStart(range.from);
+  const end = bangkokDayStart(range.to);
 
   while (cursor <= end) {
-    buckets.set(toDateInput(cursor), toMetricSnapshot(undefined, []));
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    buckets.set(bangkokDateKey(cursor), toMetricSnapshot(undefined, []));
+    cursor.setTime(cursor.getTime() + DAY_MS);
   }
 
   return buckets;
@@ -552,7 +589,7 @@ const collectTrend = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filters:
       { $match: buildRequestFilter(range, filters) },
       {
         $group: {
-          _id: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } },
+          _id: recommendationAnalyticsDayExpression('$createdAt'),
           requests: { $sum: 1 },
           fallbackRequests: { $sum: { $cond: ['$fallbackUsed', 1, 0] } },
         },
@@ -563,7 +600,7 @@ const collectTrend = async (range: Pick<AnalyticsRange, 'from' | 'to'>, filters:
       {
         $group: {
           _id: {
-            day: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } },
+            day: recommendationAnalyticsDayExpression('$createdAt'),
             eventType: '$eventType',
           },
           count: { $sum: 1 },
@@ -608,11 +645,11 @@ const collectCoverageBreakdown = async (
   const requestFilter = buildRequestFilter(range, filters);
   const [activeCategoryRows, activeBrandRows, categoryRows, brandRows] = await Promise.all([
     Product.aggregate<{ _id: string }>([
-      { $match: { isActive: true } },
+      { $match: buildActiveCoverageProductFilter('category_id') },
       { $group: { _id: '$category_id' } },
     ]),
     Product.aggregate<{ _id: string }>([
-      { $match: { isActive: true } },
+      { $match: buildActiveCoverageProductFilter('brand_id') },
       { $group: { _id: '$brand_id' } },
     ]),
     RecommendationRequest.aggregate<CoverageRow>([
@@ -620,6 +657,7 @@ const collectCoverageBreakdown = async (
       { $unwind: '$items' },
       { $lookup: { from: 'products', localField: 'items.productId', foreignField: '_id', as: 'product' } },
       { $unwind: '$product' },
+      { $match: buildActiveCoverageProductFilter('category_id', true) },
       {
         $group: {
           _id: '$product.category_id',
@@ -644,6 +682,7 @@ const collectCoverageBreakdown = async (
       { $unwind: '$items' },
       { $lookup: { from: 'products', localField: 'items.productId', foreignField: '_id', as: 'product' } },
       { $unwind: '$product' },
+      { $match: buildActiveCoverageProductFilter('brand_id', true) },
       {
         $group: {
           _id: '$product.brand_id',
@@ -687,7 +726,12 @@ const collectDiversity = async (
 ) => {
   const rows = await RecommendationRequest.aggregate<DiversityRow>([
     { $match: buildRequestFilter(range, filters) },
-    { $project: { requestId: 1, topItems: { $slice: ['$items', 10] } } },
+    {
+      $project: {
+        requestId: 1,
+        topItems: { $slice: [{ $ifNull: ['$items', []] }, 10] },
+      },
+    },
     { $unwind: '$topItems' },
     { $lookup: { from: 'products', localField: 'topItems.productId', foreignField: '_id', as: 'product' } },
     { $unwind: '$product' },
@@ -787,7 +831,7 @@ const collectSearchReport = async (range: Pick<AnalyticsRange, 'from' | 'to'>) =
       { $match: searchFilter },
       {
         $group: {
-          _id: { $dateToString: { date: '$createdAt', format: '%Y-%m-%d' } },
+          _id: recommendationAnalyticsDayExpression('$createdAt'),
           searches: { $sum: 1 },
           zeroResultSearches: { $sum: { $cond: [{ $eq: ['$resultCount', 0] }, 1, 0] } },
         },
@@ -974,7 +1018,7 @@ const collectRecentRequests = async (
       context: request.context,
       algorithmVersion: request.algorithmVersion,
       fallbackUsed: request.fallbackUsed,
-      itemCount: request.items.length,
+      itemCount: Array.isArray(request.items) ? request.items.length : 0,
       createdAt: request.createdAt,
       ...counts,
       ctr: calculateAnalyticsRate(counts.clicks, counts.impressions),

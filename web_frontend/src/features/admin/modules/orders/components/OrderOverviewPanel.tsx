@@ -55,7 +55,7 @@ export function OrderOverviewPanel({
           </div>
         ) : null}
         <div className="admin-detail-card is-method">
-          <span>Phương thức</span>
+          <span>Kênh thanh toán đơn</span>
           <strong>{paymentMethodLabels[order.paymentMethod]}</strong>
         </div>
         <div className="admin-detail-card is-total">

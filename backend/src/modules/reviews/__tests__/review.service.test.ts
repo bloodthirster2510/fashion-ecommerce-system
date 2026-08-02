@@ -35,6 +35,7 @@ jest.mock('../../../database/models', () => ({
     countDocuments: jest.fn(),
     create: jest.fn(),
     deleteMany: jest.fn(),
+    find: jest.fn(),
     findOneAndDelete: jest.fn(),
   },
   User: {
@@ -150,6 +151,7 @@ describe('reviewService', () => {
     mockedReview.updateMany.mockResolvedValue({ acknowledged: true, matchedCount: 0, modifiedCount: 0 } as never);
     mockedReview.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 } as never);
     mockedHelpfulVote.deleteMany.mockResolvedValue({ acknowledged: true, deletedCount: 0 } as never);
+    mockedHelpfulVote.find.mockReturnValue(query([]) as never);
     mockedUser.find.mockReturnValue(query([]) as never);
     mockedProduct.find.mockReturnValue(query([]) as never);
   });
@@ -470,6 +472,27 @@ describe('reviewService', () => {
     ]);
   });
 
+  it('restores the current customer helpful votes when listing public reviews', async () => {
+    const visibleReview = populatedReview();
+    mockedReview.find.mockReturnValue(query([visibleReview]) as never);
+    mockedReview.countDocuments.mockResolvedValue(1);
+    mockedProduct.findById.mockReturnValue(query({ _id: productId }) as never);
+    mockedReview.aggregate.mockReturnValue(aggregateQuery([{ _id: 5, count: 1 }]) as never);
+    mockedHelpfulVote.find.mockReturnValue(query([{ review_id: reviewId }]) as never);
+
+    const result = await reviewService.listProductReviews(
+      productId.toString(),
+      {},
+      userId.toString(),
+    );
+
+    expect(mockedHelpfulVote.find).toHaveBeenCalledWith({
+      review_id: { $in: [reviewId] },
+      user_id: userId,
+    });
+    expect(result.items[0].hasVotedHelpful).toBe(true);
+  });
+
   it('applies rating and sort filters when listing the current customer reviews', async () => {
     const myReview = populatedReview({
       product_id: { _id: productId, name: 'Basic Tee', product_image: 'tee.png' },
@@ -533,11 +556,78 @@ describe('reviewService', () => {
       { session: mockSession },
     );
     expect(mockedReview.updateOne).toHaveBeenCalledWith(
-      { _id: reviewId },
+      {
+        _id: reviewId,
+        $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }],
+      },
       { $set: { helpfulCount: 1 } },
       { session: mockSession },
     );
     expect(result).toEqual({ reviewId: reviewId.toString(), helpfulCount: 1, hasVotedHelpful: true });
+  });
+
+  it('rejects and rolls back a helpful vote when the review becomes hidden or deleted', async () => {
+    mockedReview.findById.mockReturnValue(query({
+      _id: reviewId,
+      user_id: new Types.ObjectId('665000000000000000000010'),
+      moderationStatus: 'visible',
+      helpfulCount: 0,
+    }) as never);
+    mockedHelpfulVote.findOneAndDelete.mockResolvedValue(null);
+    mockedHelpfulVote.create.mockResolvedValue([{ _id: new Types.ObjectId() }] as never);
+    mockedHelpfulVote.countDocuments.mockReturnValue(query(1) as never);
+    mockedReview.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 0, modifiedCount: 0 } as never);
+
+    await expect(reviewService.toggleHelpfulVote(userId.toString(), reviewId.toString()))
+      .rejects.toMatchObject({ statusCode: 404 });
+
+    expect(mockedReview.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: reviewId,
+        $or: [{ moderationStatus: 'visible' }, { moderationStatus: { $exists: false } }],
+      }),
+      { $set: { helpfulCount: 1 } },
+      { session: mockSession },
+    );
+  });
+
+  it('does not append moderation history when the requested state is unchanged', async () => {
+    const reviewDocument = {
+      ...populatedReview({ moderationStatus: 'visible', moderationReasons: [] }),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedReview.findById.mockReturnValue(query(reviewDocument) as never);
+
+    const result = await reviewService.updateModerationStatus(
+      reviewId.toString(),
+      'visible',
+      { userId: userId.toString(), role: 'admin' },
+    );
+
+    expect(result).toEqual({ reviewId: reviewId.toString(), status: 'visible' });
+    expect(reviewDocument.save).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+    expect(reviewDocument.moderationHistory).toEqual([]);
+  });
+
+  it('skips unchanged reviews during bulk moderation', async () => {
+    mockedReview.find.mockReturnValue(query([{
+      _id: reviewId,
+      product_id: productId,
+      moderationStatus: 'hidden',
+      moderationReasons: ['Nội dung vi phạm'],
+    }]) as never);
+
+    const result = await reviewService.updateManyModerationStatuses(
+      [reviewId.toString()],
+      'hidden',
+      { userId: userId.toString(), role: 'admin' },
+      'Nội dung vi phạm',
+    );
+
+    expect(result).toEqual({ updatedCount: 0, skippedCount: 1, status: 'hidden' });
+    expect(mockedReview.updateOne).not.toHaveBeenCalled();
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
   });
 
   it('rejects marking the current customer own review as helpful', async () => {

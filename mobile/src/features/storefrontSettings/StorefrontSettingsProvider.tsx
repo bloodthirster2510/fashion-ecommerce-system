@@ -15,6 +15,7 @@ type StorefrontSettingsContextValue = {
   refresh: () => Promise<void>;
 };
 
+const MAX_SOCIAL_LINKS = 12;
 const CACHE_FILE_URI = FileSystem.documentDirectory
   ? `${FileSystem.documentDirectory}storefront-settings-v1.json`
   : null;
@@ -78,22 +79,35 @@ export const isStorefrontSettings = (value: unknown): value is StorefrontSetting
     || !hasStringFields(candidate.identity, ['name', 'avatarUrl', 'legalName', 'taxCode', 'tagline', 'description'])
     || !hasStringFields(candidate.contact, ['phone', 'email', 'hours', 'address', 'mapUrl'])
     || !Array.isArray(candidate.socials)
+    || candidate.socials.length > MAX_SOCIAL_LINKS
     || !Number.isInteger(candidate.version)
+    || (candidate.version ?? -1) < 0
+    || (candidate.configured ? candidate.version === 0 : candidate.version !== 0)
     || (candidate.updatedAt !== null && typeof candidate.updatedAt !== 'string')
+    || (typeof candidate.updatedAt === 'string' && Number.isNaN(Date.parse(candidate.updatedAt)))
+    || (candidate.configured ? candidate.updatedAt === null : candidate.updatedAt !== null)
     || (Boolean(candidate.identity?.avatarUrl) && !isHttpsUrl(candidate.identity?.avatarUrl ?? ''))
     || (Boolean(candidate.contact?.mapUrl) && !isHttpsUrl(candidate.contact?.mapUrl ?? ''))
   ) return false;
 
-  return candidate.socials.every((social) => (
-    Boolean(social)
-    && typeof social === 'object'
-    && storefrontSocialPlatforms.includes(social.platform)
-    && typeof social.label === 'string'
-    && typeof social.url === 'string'
-    && isHttpsUrl(social.url)
-    && typeof social.enabled === 'boolean'
-    && Number.isInteger(social.sortOrder)
-  ));
+  const seenPlatforms = new Set<string>();
+  return candidate.socials.every((social) => {
+    if (
+      !social
+      || typeof social !== 'object'
+      || !storefrontSocialPlatforms.includes(social.platform)
+      || typeof social.label !== 'string'
+      || typeof social.url !== 'string'
+      || !isHttpsUrl(social.url)
+      || typeof social.enabled !== 'boolean'
+      || !Number.isInteger(social.sortOrder)
+      || social.sortOrder < 0
+      || (social.platform !== 'other' && seenPlatforms.has(social.platform))
+    ) return false;
+
+    if (social.platform !== 'other') seenPlatforms.add(social.platform);
+    return true;
+  });
 };
 
 const preferValue = (serverValue: string, fallbackValue: string) => serverValue.trim() || fallbackValue;
@@ -131,6 +145,11 @@ export const resolveStorefrontSettings = (settings: StorefrontSettings): Storefr
   };
 };
 
+export const preferFreshStorefrontSettings = (
+  current: StorefrontSettings,
+  incoming: StorefrontSettings,
+) => incoming.version >= current.version ? incoming : current;
+
 const readCache = async () => {
   if (!CACHE_FILE_URI) return null;
   try {
@@ -158,7 +177,6 @@ const fetchSettings = async () => {
   if (!response.ok || !isStorefrontSettings(payload.data)) {
     throw new Error(payload.message || 'Không thể tải thông tin cửa hàng.');
   }
-  await writeCache(payload.data);
   return resolveStorefrontSettings(payload.data);
 };
 
@@ -167,26 +185,48 @@ const StorefrontSettingsContext = React.createContext<StorefrontSettingsContextV
 export function StorefrontSettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = React.useState(fallbackSettings);
   const [isLoading, setIsLoading] = React.useState(true);
+  const settingsRef = React.useRef(fallbackSettings);
+  const mountedRef = React.useRef(true);
+  const cacheWriteQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const applySettings = React.useCallback((incoming: StorefrontSettings, persist: boolean) => {
+    if (!mountedRef.current) return Promise.resolve();
+
+    const next = preferFreshStorefrontSettings(settingsRef.current, incoming);
+    if (next === settingsRef.current) return Promise.resolve();
+
+    settingsRef.current = next;
+    setSettings(next);
+    if (!persist) return Promise.resolve();
+
+    cacheWriteQueueRef.current = cacheWriteQueueRef.current.then(() => writeCache(next));
+    return cacheWriteQueueRef.current;
+  }, []);
 
   const refresh = React.useCallback(async () => {
     try {
-      setSettings(await fetchSettings());
+      await applySettings(await fetchSettings(), true);
     } catch {
       // Keep the cached or bundled fallback value.
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) setIsLoading(false);
     }
-  }, []);
+  }, [applySettings]);
 
   React.useEffect(() => {
     let active = true;
     void (async () => {
       const cached = await readCache();
-      if (active && cached) setSettings(cached);
+      if (active && cached) await applySettings(cached, false);
       if (active) await refresh();
     })();
     return () => { active = false; };
-  }, [refresh]);
+  }, [applySettings, refresh]);
 
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {

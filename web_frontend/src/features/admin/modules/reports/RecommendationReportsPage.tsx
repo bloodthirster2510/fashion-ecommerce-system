@@ -19,6 +19,8 @@ import {
   PageHeader,
 } from '../../components/ui'
 import {
+  buildDefaultRecommendationAnalyticsFilters,
+  getBestRecommendationSegment,
   getRecommendationAnalytics,
   type RecommendationAnalyticsFilters,
 } from './recommendationAnalytics.service'
@@ -49,13 +51,6 @@ const toDateInput = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
   return local.toISOString().slice(0, 10)
 }
-
-const defaultFilters = (): RecommendationAnalyticsFilters => ({
-  from: toDateInput(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
-  to: toDateInput(new Date()),
-  context: 'all',
-  algorithmVersion: '',
-})
 
 const formatNumber = (value = 0) => new Intl.NumberFormat('vi-VN').format(value)
 
@@ -97,14 +92,6 @@ const getMetricChange = (
   const changeKey = `${key}Percent` as keyof RecommendationAnalytics['comparison']
   return analytics.comparison[changeKey]
 }
-
-const getBestSegment = (segments: RecommendationSegment[]) =>
-  [...segments]
-    .filter((segment) => segment.metrics.impressions >= 100)
-    .sort((left, right) =>
-      right.metrics.ctr - left.metrics.ctr ||
-      right.metrics.clicks - left.metrics.clicks,
-    )[0] ?? segments[0] ?? null
 
 const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: RecommendationSegment | null) => {
   const items: Array<{
@@ -372,8 +359,9 @@ function SegmentTable({ segments }: { segments: RecommendationSegment[] }) {
 }
 
 export function RecommendationReportsPage() {
-  const [filters, setFilters] = useState<RecommendationAnalyticsFilters>(() => defaultFilters())
-  const [appliedFilters, setAppliedFilters] = useState<RecommendationAnalyticsFilters>(() => defaultFilters())
+  const initialFilters = useMemo(() => buildDefaultRecommendationAnalyticsFilters(), [])
+  const [filters, setFilters] = useState<RecommendationAnalyticsFilters>(() => ({ ...initialFilters }))
+  const [appliedFilters, setAppliedFilters] = useState<RecommendationAnalyticsFilters>(() => ({ ...initialFilters }))
   const [analytics, setAnalytics] = useState<RecommendationAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -407,7 +395,7 @@ export function RecommendationReportsPage() {
     if (filters.algorithmVersion?.trim()) versions.add(filters.algorithmVersion.trim())
     return Array.from(versions).sort()
   }, [analytics?.segments, filters.algorithmVersion])
-  const bestSegment = useMemo(() => analytics ? getBestSegment(analytics.segments) : null, [analytics])
+  const bestSegment = useMemo(() => analytics ? getBestRecommendationSegment(analytics.segments) : null, [analytics])
   const insightItems = useMemo(() => analytics ? getInsightItems(analytics, bestSegment) : [], [analytics, bestSegment])
   const topKeywordMaximum = Math.max(...(analytics?.search.topKeywords.map((item) => item.count) ?? []), 1)
 

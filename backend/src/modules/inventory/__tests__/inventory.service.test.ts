@@ -318,6 +318,52 @@ describe('inventoryService', () => {
     expect(mockedInventoryReceipt.create).not.toHaveBeenCalled();
   });
 
+  it('rejects duplicate receipt selectors when object id casing differs', async () => {
+    const casedProductId = 'abcdef000000000000000003';
+    const casedVariantId = 'abcdef000000000000000011';
+    const casedColorVariantId = 'abcdef000000000000000012';
+    mockedProduct.findById.mockReturnValue(createQueryLikePromise({
+      ...productDocument,
+      _id: new Types.ObjectId(casedProductId),
+      variant: [
+        {
+          ...productDocument.variant[0],
+          _id: new Types.ObjectId(casedVariantId),
+          colors: [
+            {
+              ...productDocument.variant[0].colors[0],
+              _id: new Types.ObjectId(casedColorVariantId),
+            },
+          ],
+        },
+      ],
+    }) as never);
+
+    await expect(
+      inventoryService.createReceipt({
+        lines: [
+          {
+            productId: casedProductId,
+            variantId: casedVariantId,
+            colorVariantId: casedColorVariantId,
+            detail: [{ size: 'M', quantity: 1 }],
+          },
+          {
+            productId: casedProductId.toUpperCase(),
+            variantId: casedVariantId.toUpperCase(),
+            colorVariantId: casedColorVariantId.toUpperCase(),
+            detail: [{ size: 'm', quantity: 2 }],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Duplicate product variant size in receipt',
+      statusCode: 400,
+    });
+
+    expect(mockedInventoryReceipt.create).not.toHaveBeenCalled();
+  });
+
   it('confirms a draft receipt by creating linked import lots and incrementing inventory', async () => {
     const receiptId = new Types.ObjectId();
     const receiptRecord = {
@@ -416,6 +462,58 @@ describe('inventoryService', () => {
     const result = await inventoryService.confirmReceipt(receiptRecord._id.toString());
 
     expect(result).toBe(receiptRecord);
+    expect(mockedInventoryImport.create).not.toHaveBeenCalled();
+    expect(mockedInventory.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps generated import codes within the schema limit for the 100th receipt line', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      receiptCode: 'R'.repeat(40),
+      supplierName: '',
+      status: 'confirmed',
+      lines: Array.from({ length: 100 }, () => ({
+        productId: new Types.ObjectId(productId),
+        variantId: new Types.ObjectId(variantId),
+        colorVariantId: new Types.ObjectId(colorVariantId),
+        detail: [{ size: 'M', quantity: 1, importPrice: 0 }],
+      })),
+    };
+
+    mockedInventoryReceipt.findOneAndUpdate.mockResolvedValue(receiptRecord as never);
+    mockedInventoryImport.exists.mockReturnValue({ session: jest.fn().mockResolvedValue(null) } as never);
+    mockedInventoryImport.create.mockResolvedValue([{ _id: new Types.ObjectId() }] as never);
+    mockedInventory.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() } as never);
+
+    await inventoryService.confirmReceipt(receiptRecord._id.toString());
+
+    expect(mockedInventoryImport.create).toHaveBeenCalledTimes(100);
+    const hundredthImportPayload = mockedInventoryImport.create.mock.calls[99][0] as unknown as Array<{
+      importCode: string;
+    }>;
+    expect(hundredthImportPayload[0].importCode).toBe(`${'R'.repeat(36)}-100`);
+    expect(hundredthImportPayload[0].importCode).toHaveLength(40);
+  });
+
+  it('does not confirm or mutate stock for a cancelled receipt', async () => {
+    const receiptRecord = {
+      _id: new Types.ObjectId(),
+      receiptCode: 'PN00010',
+      status: 'cancelled',
+      lines: [],
+    };
+    mockedInventoryReceipt.findOneAndUpdate.mockResolvedValue(null);
+    mockedInventoryReceipt.findById.mockReturnValue({
+      session: jest.fn().mockResolvedValue(receiptRecord),
+    } as never);
+
+    await expect(
+      inventoryService.confirmReceipt(receiptRecord._id.toString()),
+    ).rejects.toMatchObject({
+      message: 'Only draft receipts can be confirmed',
+      statusCode: 409,
+    });
+
     expect(mockedInventoryImport.create).not.toHaveBeenCalled();
     expect(mockedInventory.findOneAndUpdate).not.toHaveBeenCalled();
   });

@@ -3,6 +3,7 @@ import {
   normalizePushPreferences,
   registerPushToken,
   sendCustomerPush,
+  unregisterPushToken,
 } from '../push-notification.service';
 
 jest.mock('../../../database/models', () => ({
@@ -128,5 +129,45 @@ describe('push notification service', () => {
       platform: 'android',
     })).rejects.toMatchObject({ statusCode: 400 });
     expect(mockedPushToken.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty registration payload instead of throwing an internal error', async () => {
+    await expect(registerPushToken(userId, null)).rejects.toMatchObject({
+      message: 'Push token payload is required',
+      statusCode: 400,
+    });
+    expect(mockedPushToken.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed tokens when unregistering', async () => {
+    await expect(unregisterPushToken(userId, '')).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockedPushToken.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when Expo omits receipts and disables unregistered devices', async () => {
+    mockTokenQuery([
+      { token: 'ExpoPushToken[expired]', preferences: { support: true } },
+      { token: 'ExpoPushToken[missing-receipt]', preferences: { support: true } },
+    ]);
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        data: [{ status: 'error', details: { error: 'DeviceNotRegistered' } }],
+      }),
+    } as unknown as Response);
+    mockedPushToken.updateMany.mockResolvedValue({ modifiedCount: 1 } as never);
+
+    await expect(sendCustomerPush({
+      userId,
+      category: 'support',
+      title: 'Support',
+      body: 'Reply',
+      data: { type: 'support_reply' },
+    })).resolves.toEqual({ sent: 0, failed: 2 });
+
+    expect(mockedPushToken.updateMany).toHaveBeenCalledWith(
+      { token: { $in: ['ExpoPushToken[expired]'] } },
+      { isActive: false },
+    );
   });
 });

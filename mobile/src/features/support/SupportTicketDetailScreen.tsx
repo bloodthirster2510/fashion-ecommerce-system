@@ -1,9 +1,9 @@
 import React from 'react';
-import { Alert, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
@@ -14,7 +14,11 @@ import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import {
   canReopenSupportTicket,
+  getSupportImageMimeType,
   getSupportTicketStatusLabel,
+  mergeSupportMessages,
+  selectLatestSupportTicket,
+  shouldMarkIncomingSupportMessageRead,
   validateSupportImageAssets,
 } from './supportPresentation';
 
@@ -22,6 +26,7 @@ export default function SupportTicketDetailScreen() {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList, 'SupportTicketDetail'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'SupportTicketDetail'>>();
   const { runWithAuth, session } = useAuth();
+  const isFocused = useIsFocused();
   const ticketId = route.params.ticketId;
 
   const [detail, setDetail] = React.useState<SupportTicketDetail | null>(null);
@@ -36,29 +41,53 @@ export default function SupportTicketDetailScreen() {
   const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendingRef = React.useRef(false);
   const reopeningRef = React.useRef(false);
+  const requestSequenceRef = React.useRef(0);
+
+  React.useEffect(() => {
+    requestSequenceRef.current += 1;
+    setDetail(null);
+    setLiveMessages([]);
+    setLiveTicket(null);
+    setStaffTyping(false);
+    setError('');
+  }, [ticketId]);
 
   const load = React.useCallback(async () => {
+    const requestSequence = ++requestSequenceRef.current;
     try {
       const value = await runWithAuth((token) => supportApi.getTicket(token, ticketId));
+      if (requestSequence !== requestSequenceRef.current) return;
       setDetail(value);
-      setLiveMessages(value.messages);
-      setLiveTicket(value.ticket);
+      setLiveMessages((current) => mergeSupportMessages(value.messages, current));
+      setLiveTicket((current) => selectLatestSupportTicket(current, value.ticket));
       if (value.ticket.lastMessageSender === 'staff') {
         await runWithAuth((token) => supportApi.markRead(token, ticketId)).catch(() => {});
       }
     } catch (caught) {
+      if (requestSequence !== requestSequenceRef.current) return;
       setError(caught instanceof Error ? caught.message : 'Không thể tải ticket.');
     }
   }, [ticketId, runWithAuth]);
 
-  useFocusEffect(React.useCallback(() => { void load(); }, [load]));
+  useFocusEffect(React.useCallback(() => {
+    void load();
+    return () => { requestSequenceRef.current += 1; };
+  }, [load]));
 
   const realtime = useSupportRealtime(session?.accessToken ?? null, {
     onMessage: (id, message) => {
       if (id !== ticketId) return;
-      setLiveMessages((prev) => (prev.some((m) => m._id === message._id) ? prev : [...prev, message]));
+      setLiveMessages((current) => mergeSupportMessages(current, [message]));
       setStaffTyping(false);
-      void runWithAuth((token) => supportApi.markRead(token, ticketId)).catch(() => {});
+      if (shouldMarkIncomingSupportMessageRead({
+        activeTicketId: ticketId,
+        eventTicketId: id,
+        isFocused,
+        isAppActive: AppState.currentState === 'active',
+        senderType: message.senderType,
+      })) {
+        void runWithAuth((token) => supportApi.markRead(token, ticketId)).catch(() => {});
+      }
     },
     onTyping: (id, isTyping) => {
       if (id !== ticketId) return;
@@ -68,14 +97,14 @@ export default function SupportTicketDetailScreen() {
     },
     onUpdated: (id, ticket) => {
       if (id !== ticketId) return;
-      setLiveTicket(ticket);
+      setLiveTicket((current) => selectLatestSupportTicket(current, ticket));
     },
   });
 
   React.useEffect(() => {
     realtime.subscribeTicket(ticketId);
     return () => { realtime.unsubscribeTicket(ticketId); };
-  }, [ticketId, realtime]);
+  }, [realtime.subscribeTicket, realtime.unsubscribeTicket, ticketId]);
 
   const send = async () => {
     if (!reply.trim() || sendingRef.current) return;
@@ -98,7 +127,7 @@ export default function SupportTicketDetailScreen() {
     const imageError = validateSupportImageAssets(result.assets);
     if (imageError) { setError(imageError); return; }
     setError('');
-    setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-reply-${Date.now()}-${index}.jpg`, type: asset.mimeType || 'image/jpeg', size: asset.fileSize })));
+    setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-reply-${Date.now()}-${index}.jpg`, type: getSupportImageMimeType(asset) || 'image/jpeg', size: asset.fileSize })));
   };
 
   const close = () => Alert.alert(

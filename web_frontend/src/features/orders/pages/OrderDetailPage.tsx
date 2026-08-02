@@ -280,7 +280,11 @@ function OrderDetailContent({ orderId }: { orderId: string }) {
                 <Alert className="payment-action-alert" type={order.paymentStatus === 'failed' ? 'error' : 'warning'} showIcon
                   message={order.paymentStatus === 'failed' ? 'Giao dịch trước chưa thành công' : 'Đơn hàng đang chờ thanh toán'}
                   description="Bạn có thể tiếp tục thanh toán an toàn qua VNPay."
-                  action={<Button type="primary" loading={paying} onClick={() => void payAgain()}>Thanh toán ngay</Button>} />
+                  action={(
+                    <Button type="primary" loading={paying} onClick={() => void payAgain()}>
+                      {order.paymentStatus === 'failed' ? 'Thanh toán lại' : 'Thanh toán ngay'}
+                    </Button>
+                  )} />
               )}
 
               <section className={`order-progress-card ${['cancelled', 'return_requested', 'return_approved', 'returned'].includes(order.status) ? 'is-stopped' : ''}`}>

@@ -42,6 +42,9 @@ const parseDate = (value: unknown, field: string, required = false) => {
 };
 
 const normalizePayload = (payload: PromotionCampaignPayload, mode: 'create' | 'update') => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new PromotionCampaignServiceError('Campaign payload must be an object', 400);
+  }
   const required = mode === 'create';
   const data: Record<string, unknown> = {};
   const code = parseString(payload.code, 'code', required)?.toUpperCase();
@@ -158,7 +161,20 @@ const updateCampaign = async (id: string, payload: PromotionCampaignPayload, act
   }
   if (actorId && Types.ObjectId.isValid(actorId)) data.updatedBy = new Types.ObjectId(actorId);
 
-  return PromotionCampaign.findByIdAndUpdate(id, { $set: data }, { returnDocument: 'after', runValidators: true });
+  try {
+    const campaign = await PromotionCampaign.findByIdAndUpdate(
+      id,
+      { $set: data },
+      { returnDocument: 'after', runValidators: true },
+    );
+    if (!campaign) throw new PromotionCampaignServiceError('Campaign not found', 404);
+    return campaign;
+  } catch (error) {
+    if ((error as { code?: number }).code === 11000) {
+      throw new PromotionCampaignServiceError('Campaign code already exists', 409);
+    }
+    throw error;
+  }
 };
 
 const deleteCampaign = async (id: string) => {

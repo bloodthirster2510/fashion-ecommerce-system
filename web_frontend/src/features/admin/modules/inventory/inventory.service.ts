@@ -10,35 +10,15 @@ import type {
   InventoryReceiptStatus,
   UpdateInventoryReceiptInput,
 } from './inventory.types'
+import { listAllInventoryPages } from './inventory.utils'
 
 // Bảng kho cần đủ toàn bộ dòng tồn, nên hàm này lấy hết các trang dữ liệu.
-export const listInventory = async () => {
-  const firstPage = await requestAdmin<InventoryPage<InventoryItem>>(
-    '/admin/inventory?page=1&limit=100',
-  )
-
-  if (firstPage.pagination.totalPages <= 1) {
-    return firstPage
-  }
-
-  const remainingPages = await Promise.all(
-    Array.from(
-      { length: firstPage.pagination.totalPages - 1 },
-      (_, index) =>
-        requestAdmin<InventoryPage<InventoryItem>>(
-          `/admin/inventory?page=${index + 2}&limit=100`,
-        ),
+export const listInventory = () =>
+  listAllInventoryPages((page) =>
+    requestAdmin<InventoryPage<InventoryItem>>(
+      `/admin/inventory?page=${page}&limit=100`,
     ),
   )
-
-  return {
-    ...firstPage,
-    items: [
-      ...firstPage.items,
-      ...remainingPages.flatMap((page) => page.items),
-    ],
-  }
-}
 
 export const listInventoryProducts = () =>
   requestAdmin<ManagedProduct[]>('/admin/inventory/products')
@@ -56,17 +36,18 @@ export const listInventoryImportsByColor = (
 export const listInventoryImports = () =>
   requestAdmin<InventoryPage<InventoryImport>>('/admin/inventory/imports?page=1&limit=100')
 
-// Danh sách phiếu nhập trong dialog hiện chỉ cần lấy một trang lớn.
-export const listInventoryReceipts = (status?: InventoryReceiptStatus) => {
-  const params = new URLSearchParams({ page: '1', limit: '100' })
-  if (status) {
-    params.set('status', status)
-  }
+// Danh sách phiếu nhập cần đủ các trang để không ẩn phiếu cũ và sinh trùng mã gợi ý.
+export const listInventoryReceipts = (status?: InventoryReceiptStatus) =>
+  listAllInventoryPages((page) => {
+    const params = new URLSearchParams({ page: String(page), limit: '100' })
+    if (status) {
+      params.set('status', status)
+    }
 
-  return requestAdmin<InventoryPage<InventoryReceipt>>(
-    `/admin/inventory/receipts?${params.toString()}`,
-  )
-}
+    return requestAdmin<InventoryPage<InventoryReceipt>>(
+      `/admin/inventory/receipts?${params.toString()}`,
+    )
+  })
 
 export const getInventoryReceipt = (receiptId: string) =>
   requestAdmin<InventoryReceipt>(`/admin/inventory/receipts/${receiptId}`)

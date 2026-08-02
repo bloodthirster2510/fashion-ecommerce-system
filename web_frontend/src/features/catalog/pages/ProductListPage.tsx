@@ -27,12 +27,20 @@ const sortOptions: Array<{ value: ProductSortOption; label: string }> = [
   { value: 'rating_desc', label: 'Đánh giá cao' },
 ]
 
-const getNumberParam = (params: URLSearchParams, key: string) => {
+const validSortOptions = new Set<ProductSortOption>(sortOptions.map((option) => option.value))
+const objectIdPattern = /^[a-f\d]{24}$/i
+
+const getNonNegativeNumberParam = (params: URLSearchParams, key: string) => {
   const value = params.get(key)
   if (!value) return undefined
 
   const parsedValue = Number(value)
-  return Number.isFinite(parsedValue) ? parsedValue : undefined
+  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : undefined
+}
+
+const getPositiveIntegerParam = (params: URLSearchParams, key: string) => {
+  const value = getNonNegativeNumberParam(params, key)
+  return value !== undefined && Number.isInteger(value) && value >= 1 ? value : undefined
 }
 
 const getBooleanParam = (params: URLSearchParams, key: string) => {
@@ -53,24 +61,32 @@ const getListParam = (params: URLSearchParams, key: string) => {
 const parseQuery = (search: string): ProductListQuery => {
   const params = new URLSearchParams(search)
   const color = getListParam(params, 'color')
-  const fitType = getListParam(params, 'fitType')
+  const fitType = getListParam(params, 'fitType').filter((value) => objectIdPattern.test(value))
   const size = getListParam(params, 'size')
   const gender = params.get('gender')
+  const categoryId = params.get('categoryId')
+  const brandId = params.get('brandId')
+  const requestedSort = params.get('sort') as ProductSortOption | null
+  const requestedMinPrice = getNonNegativeNumberParam(params, 'minPrice')
+  const requestedMaxPrice = getNonNegativeNumberParam(params, 'maxPrice')
+  const hasValidPriceRange = requestedMinPrice === undefined
+    || requestedMaxPrice === undefined
+    || requestedMinPrice <= requestedMaxPrice
 
   return {
-    keyword: params.get('keyword') || undefined,
+    keyword: params.get('keyword')?.trim() || undefined,
     gender: gender === 'male' || gender === 'female' ? gender : undefined,
-    categoryId: params.get('categoryId') || undefined,
-    brandId: params.get('brandId') || undefined,
+    categoryId: categoryId && objectIdPattern.test(categoryId) ? categoryId : undefined,
+    brandId: brandId && objectIdPattern.test(brandId) ? brandId : undefined,
     ...(color.length ? { color } : {}),
     ...(fitType.length ? { fitType } : {}),
     ...(size.length ? { size } : {}),
-    minPrice: getNumberParam(params, 'minPrice'),
-    maxPrice: getNumberParam(params, 'maxPrice'),
+    minPrice: hasValidPriceRange ? requestedMinPrice : undefined,
+    maxPrice: hasValidPriceRange ? requestedMaxPrice : undefined,
     isSale: getBooleanParam(params, 'isSale'),
     isNew: getBooleanParam(params, 'isNew'),
-    sort: (params.get('sort') as ProductSortOption | null) || 'newest',
-    page: getNumberParam(params, 'page') || 1,
+    sort: requestedSort && validSortOptions.has(requestedSort) ? requestedSort : 'newest',
+    page: getPositiveIntegerParam(params, 'page') || 1,
     limit: LIMIT,
   }
 }
@@ -93,6 +109,27 @@ const setListParam = (params: URLSearchParams, key: string, values?: string[]) =
   })
 }
 
+const buildNormalizedSearch = (query: ProductListQuery) => {
+  const params = new URLSearchParams()
+
+  setOptionalParam(params, 'keyword', query.keyword)
+  setOptionalParam(params, 'gender', query.gender)
+  setOptionalParam(params, 'categoryId', query.categoryId)
+  setOptionalParam(params, 'brandId', query.brandId)
+  setListParam(params, 'color', query.color)
+  setListParam(params, 'fitType', query.fitType)
+  setListParam(params, 'size', query.size)
+  setOptionalParam(params, 'minPrice', query.minPrice)
+  setOptionalParam(params, 'maxPrice', query.maxPrice)
+  setOptionalParam(params, 'isSale', query.isSale)
+  setOptionalParam(params, 'isNew', query.isNew)
+  if (query.sort && query.sort !== 'newest') params.set('sort', query.sort)
+  if (query.page && query.page > 1) params.set('page', String(query.page))
+
+  const normalizedSearch = params.toString()
+  return normalizedSearch ? `?${normalizedSearch}` : ''
+}
+
 export function ProductListPage() {
   const [search, setSearch] = useState(window.location.search)
   const query = useMemo(() => parseQuery(search), [search])
@@ -107,6 +144,14 @@ export function ProductListPage() {
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
+
+  useEffect(() => {
+    const normalizedSearch = buildNormalizedSearch(query)
+    if (normalizedSearch === search) return
+
+    window.history.replaceState({}, '', `${window.location.pathname}${normalizedSearch}`)
+    setSearch(normalizedSearch)
+  }, [query, search])
 
   useEffect(() => {
   let isMounted = true
@@ -134,14 +179,10 @@ export function ProductListPage() {
       if (!isMounted) return
 
       setProductList(products)
-    } catch (loadError: unknown) {
+    } catch {
       if (!isMounted) return
 
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Không thể tải danh sách sản phẩm.'
-      )
+      setError('Không thể tải danh sách sản phẩm. Vui lòng thử lại.')
     } finally {
       if (isMounted) {
         setIsLoading(false)
@@ -219,7 +260,7 @@ export function ProductListPage() {
   return (
     <MainLayout>
       <main className="catalog-page">
-        <CatalogHero categories={categories} query={query} fallbackCategoryId={productList?.items[0]?.category?._id} />
+        <CatalogHero categories={categories} query={query} />
 
         <CatalogToolbar
           query={query}
@@ -234,7 +275,7 @@ export function ProductListPage() {
         {error && <Alert className="catalog-alert" type="error" message={error} showIcon />}
 
         <Spin spinning={isLoading}>
-          {productList && productList.items.length > 0 ? (
+          {!error && productList && productList.items.length > 0 ? (
             <>
               <section className="product-grid" aria-label="Danh sách sản phẩm">
                 {productList.items.map((product) => (
@@ -252,7 +293,7 @@ export function ProductListPage() {
               />
             </>
           ) : (
-            !isLoading && <Empty className="catalog-empty" description="Chưa có sản phẩm phù hợp." />
+            !error && !isLoading && <Empty className="catalog-empty" description="Chưa có sản phẩm phù hợp." />
           )}
         </Spin>
       </main>

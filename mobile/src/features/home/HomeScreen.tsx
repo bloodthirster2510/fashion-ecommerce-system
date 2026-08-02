@@ -19,6 +19,7 @@ import FeatureCard from './components/FeatureCard';
 import ProductSection from './components/ProductSection';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 import { addSearchHistory, createSearchEventId } from '../search/searchHistory';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -39,6 +40,7 @@ const HomeScreen = () => {
   const [isProductLoading, setIsProductLoading] = React.useState(true);
   const [bestSellerError, setBestSellerError] = React.useState<string | null>(null);
   const [recommendationError, setRecommendationError] = React.useState<string | null>(null);
+  const recommendationAuthStateRef = React.useRef(isAuthenticated);
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
     if (isAuthenticated) {
@@ -84,19 +86,18 @@ const HomeScreen = () => {
 
   const loadCategories = React.useCallback(() => {
     let isCurrentRequest = true;
+    const controller = new AbortController();
 
     setIsCategoryLoading(true);
     catalogApi
-      .getCategories()
+      .getCategories({}, controller.signal, { forceRefresh: true })
       .then((items) => {
         if (isCurrentRequest) {
           setCategories(items);
         }
       })
       .catch(() => {
-        if (isCurrentRequest) {
-          setCategories([]);
-        }
+        // Keep the last good categories during a short network interruption.
       })
       .finally(() => {
         if (isCurrentRequest) {
@@ -106,31 +107,36 @@ const HomeScreen = () => {
 
     return () => {
       isCurrentRequest = false;
+      controller.abort();
     };
   }, []);
 
   const loadHomeProducts = React.useCallback(() => {
     let isCurrentRequest = true;
+    const controller = new AbortController();
 
     setIsProductLoading(true);
     setBestSellerError(null);
     setRecommendationError(null);
-    setRecommendationItems([]);
-    setRecommendationRequestId(null);
-    setRecommendationAlgorithmVersion(undefined);
+    if (recommendationAuthStateRef.current !== isAuthenticated) {
+      recommendationAuthStateRef.current = isAuthenticated;
+      setRecommendationItems([]);
+      setRecommendationRequestId(null);
+      setRecommendationAlgorithmVersion(undefined);
+    }
 
     const recommendationPromise = isAuthenticated
-      ? runWithAuth((accessToken) => recommendationApi.getPersonalRecommendations(10, accessToken))
-      : recommendationApi.getPersonalRecommendations(10);
+      ? runWithAuth((accessToken) =>
+          recommendationApi.getPersonalRecommendations(10, accessToken, controller.signal))
+      : recommendationApi.getPersonalRecommendations(10, undefined, controller.signal);
 
-    Promise.allSettled([catalogApi.getBestSellers(4), recommendationPromise])
+    Promise.allSettled([catalogApi.getBestSellers(8, controller.signal), recommendationPromise])
       .then(([bestSellerResult, recommendationResult]) => {
         if (!isCurrentRequest) return;
 
         if (bestSellerResult.status === 'fulfilled') {
           setBestSellers(bestSellerResult.value.items);
         } else {
-          setBestSellers([]);
           setBestSellerError('Không tải được sản phẩm bán chạy');
         }
 
@@ -139,9 +145,6 @@ const HomeScreen = () => {
           setRecommendationRequestId(recommendationResult.value.requestId);
           setRecommendationAlgorithmVersion(recommendationResult.value.algorithmVersion);
         } else {
-          setRecommendationItems([]);
-          setRecommendationRequestId(null);
-          setRecommendationAlgorithmVersion(undefined);
           setRecommendationError('Không tải được sản phẩm gợi ý');
         }
       })
@@ -153,11 +156,15 @@ const HomeScreen = () => {
 
     return () => {
       isCurrentRequest = false;
+      controller.abort();
     };
   }, [isAuthenticated, runWithAuth]);
 
-  React.useEffect(() => loadCategories(), [loadCategories]);
-  React.useEffect(() => loadHomeProducts(), [loadHomeProducts]);
+  useStaleFocusEffect(loadCategories, [loadCategories], { staleMs: 60 * 1000 });
+  useStaleFocusEffect(loadHomeProducts, [loadHomeProducts], {
+    staleMs: 60 * 1000,
+    runOnDepsChange: true,
+  });
   useFocusEffect(React.useCallback(() => { void refreshNotifications(); }, [refreshNotifications]));
 
   const navigateToProductList = (params?: RootStackParamList['ProductList']) => {
@@ -235,6 +242,8 @@ const HomeScreen = () => {
         onMenuPress={() => setIsCategoryDrawerVisible(true)}
         menuIcon="filter-variant"
         menuAccessibilityLabel="Mở bộ lọc sản phẩm"
+        isAuthenticated={isAuthenticated}
+        onAccountPress={() => navigation.navigate('Login')}
         onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
         onSearchSubmit={handleSearchSubmit}

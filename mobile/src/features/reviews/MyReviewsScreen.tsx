@@ -104,6 +104,9 @@ export default function MyReviewsScreen() {
     editCriteria: review.criteria,
     editImages: review.images,
   });
+  const openProduct = (review: MyReview) => navigation.navigate('ProductDetail', {
+    productId: review.product._id,
+  });
   const canLoadMore = hasNextPage(pagination);
 
   return (
@@ -136,9 +139,22 @@ export default function MyReviewsScreen() {
           </View>
         ) : reviews.length ? reviews.map((review) => (
           <View key={review._id} style={s.card}>
-            <Image source={{ uri: review.product.image }} style={s.image} />
+            <TouchableOpacity
+              style={s.productImageLink}
+              onPress={() => openProduct(review)}
+              accessibilityRole="button"
+              accessibilityLabel={`Xem chi tiết ${review.product.name}`}
+            >
+              <Image source={{ uri: review.product.image }} style={s.image} />
+            </TouchableOpacity>
             <View style={s.copy}>
-              <Text style={s.name}>{review.product.name}</Text>
+              <TouchableOpacity
+                onPress={() => openProduct(review)}
+                accessibilityRole="button"
+                accessibilityLabel={`Xem chi tiết ${review.product.name}`}
+              >
+                <Text style={s.name}>{review.product.name}</Text>
+              </TouchableOpacity>
               <View style={s.stars}>
                 {[1, 2, 3, 4, 5].map((value) => (
                   <MaterialCommunityIcons key={value} name={value <= review.rating ? 'star' : 'star-outline'} size={14} color="#e8a528" />
@@ -179,6 +195,7 @@ const s = StyleSheet.create({
   title: { flex: 1, color: colors.white, fontWeight: '900', fontSize: 18, textAlign: 'center' },
   content: { padding: spacing.md, gap: spacing.sm },
   card: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, backgroundColor: colors.white, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border },
+  productImageLink: { width: 64, height: 64, borderRadius: radii.sm },
   image: { width: 64, height: 64, borderRadius: radii.sm },
   copy: { flex: 1, gap: 4 },
   name: { color: colors.text, fontWeight: '900' },

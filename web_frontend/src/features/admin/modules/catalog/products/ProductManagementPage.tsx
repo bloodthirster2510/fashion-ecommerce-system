@@ -30,7 +30,7 @@ import {
   getErrorMessage,
   getInventory,
   getStockMeta,
-  lowStockPercentage,
+  lowStockThreshold,
   pageSize,
 } from './productDisplay.helpers'
 import './product.css'
@@ -134,11 +134,8 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
     const filtered = products.filter((product) => {
       const inventory = getInventory(product)
       const isOut = inventory.length > 0 && inventory.every((item) => item.availableQuantity === 0)
-      const total = inventory.reduce((sum, item) => sum + item.availableQuantity, 0)
-      const avg = inventory.length ? total / inventory.length : 0
-      const threshold = avg * lowStockPercentage
-      const isLowStatus = !isOut && inventory.length > 0 && inventory.every(
-        (item) => item.availableQuantity > 0 && item.availableQuantity <= threshold,
+      const isLowStatus = !isOut && inventory.some(
+        (item) => item.availableQuantity > 0 && item.availableQuantity <= lowStockThreshold,
       )
       const stockStatus = isOut ? 'out' : isLowStatus ? 'low' : 'available'
       const matchesKeyword =

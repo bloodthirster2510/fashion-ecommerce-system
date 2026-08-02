@@ -262,26 +262,46 @@ const CATEGORIES_CACHE_TTL_MS = 5 * 60 * 1000;
 const PRODUCT_DETAIL_CACHE_TTL_MS = 60 * 1000;
 const PRODUCT_DETAIL_STALE_MS = 5 * 60 * 1000;
 
+type ProductDetailRequestOptions = {
+  forceRefresh?: boolean;
+};
+
+type CategoryRequestOptions = {
+  forceRefresh?: boolean;
+};
+
 const getProducts = (params: ProductListParams = {}, signal?: AbortSignal, token?: string) => {
   return request<ProductListResponse>(`/products${toQueryString(params)}`, signal, token);
 };
 
-const getProductById = (productId: string, signal?: AbortSignal) => {
+const getProductById = (
+  productId: string,
+  signal?: AbortSignal,
+  options: ProductDetailRequestOptions = {},
+) => {
   const key = `product:${productId}`;
   return withCache(
     key,
     () => request<CatalogProductDetail>(`/products/${encodeURIComponent(productId)}`, signal),
-    { ttlMs: PRODUCT_DETAIL_CACHE_TTL_MS, staleWhileRevalidateMs: PRODUCT_DETAIL_STALE_MS },
+    {
+      ttlMs: PRODUCT_DETAIL_CACHE_TTL_MS,
+      staleWhileRevalidateMs: PRODUCT_DETAIL_STALE_MS,
+      forceRefresh: options.forceRefresh,
+    },
   );
 };
 
-const getCategories = (params: CategoryListParams = {}, signal?: AbortSignal) => {
+const getCategories = (
+  params: CategoryListParams = {},
+  signal?: AbortSignal,
+  options: CategoryRequestOptions = {},
+) => {
   const query = toQueryString({ activeOnly: true, ...params });
   const key = `categories:${query}`;
   return withCache(
     key,
     () => request<CatalogCategory[]>(`/categories${query}`, signal),
-    { ttlMs: CATEGORIES_CACHE_TTL_MS },
+    { ttlMs: CATEGORIES_CACHE_TTL_MS, forceRefresh: options.forceRefresh },
   );
 };
 

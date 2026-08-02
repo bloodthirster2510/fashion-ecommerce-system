@@ -12,6 +12,7 @@ import type { SupportCategory, SupportImage, SupportTicketType } from './support
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import {
+  getSupportImageMimeType,
   supportCategoryNeedsOrder,
   validateSupportImageAssets,
   validateSupportTicketDraft,
@@ -38,7 +39,7 @@ export default function SupportTicketCreateScreen() {
       const imageError = validateSupportImageAssets(result.assets);
       if (imageError) { setError(imageError); return; }
       setError('');
-      setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-${Date.now()}-${index}.jpg`, type: asset.mimeType || 'image/jpeg', size: asset.fileSize })));
+      setImages(result.assets.map((asset, index) => ({ uri: asset.uri, name: asset.fileName || `support-${Date.now()}-${index}.jpg`, type: getSupportImageMimeType(asset) || 'image/jpeg', size: asset.fileSize })));
     }
   };
 

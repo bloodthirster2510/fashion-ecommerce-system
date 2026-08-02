@@ -3,6 +3,23 @@
   margin: 0 auto;
 }
 
+.admin-order-operational-filter {
+  align-items: end;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+}
+
+.admin-order-operational-filter .admin-user-search {
+  flex: 1 1 520px;
+  width: auto;
+  max-width: none;
+}
+
+.admin-order-operational-filter .admin-secondary-button {
+  flex: 0 0 auto;
+  min-height: 42px;
+}
+
 .admin-orders-page .admin-table-toolbar.is-lookup {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -157,13 +174,18 @@
 }
 
 .admin-order-bulk-toolbar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 12;
   display: grid;
   gap: 12px;
   margin: 14px 0;
   padding: 14px 16px;
-  border: 1px solid #d8e1e9;
-  border-radius: 10px;
-  background: #f8fbfd;
+  border: 1px solid #b9cad8;
+  border-radius: 12px;
+  background: rgba(248, 251, 253, 0.98);
+  box-shadow: 0 16px 36px rgba(31, 45, 61, 0.16);
+  backdrop-filter: blur(10px);
 }
 
 .admin-order-bulk-summary,
@@ -461,9 +483,67 @@
   background: #fff0ec;
 }
 
-.admin-order-tab-groups {
+.admin-order-queue-board {
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid #dce4ea;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.admin-order-queue-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e7edf2;
+}
+
+.admin-order-queue-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.admin-order-queue-heading > div > span,
+.admin-order-payment-scope-label {
+  color: #657789;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-order-queue-heading strong {
+  color: var(--admin-text);
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.admin-order-queue-heading p {
   margin: 0;
-  padding: 4px 0 2px;
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.admin-order-active-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: #315f83;
+  background: #eef6fb;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.admin-order-active-count strong {
+  color: inherit;
+  font-size: 20px;
 }
 
 @keyframes adminPaymentSectionOpen {
@@ -484,11 +564,11 @@
 }
 
 .admin-order-tab-groups {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 10px;
-  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.8fr);
+  align-items: start;
+  gap: 18px;
+  margin-top: 14px;
 }
 
 .admin-order-tab-group {
@@ -496,22 +576,15 @@
   display: grid;
   align-content: start;
   gap: 6px;
-  padding: 8px;
-  border: 1px solid #dce4ea;
-  border-radius: 10px;
-  background: #fff;
-}
-
-.admin-order-tab-group.is-flow {
-  flex: 1 1 470px;
-}
-
-.admin-order-tab-group.is-exceptions {
-  flex: 1 1 430px;
 }
 
 .admin-order-tab-group.is-lookup {
-  flex: 0 0 auto;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #edf1f4;
 }
 
 .admin-order-tab-group-label {
@@ -628,15 +701,26 @@
   background: #fff;
 }
 
+.admin-order-payment-scope {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid #e3e9ef;
+  border-radius: 10px;
+  background: #f8fafb;
+}
+
+.admin-order-payment-scope-label {
+  flex: 0 0 auto;
+  padding-left: 4px;
+}
+
 .admin-order-payment-sections {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 12px;
-  padding: 4px;
-  border: 1px solid #e3e9ef;
-  border-radius: 8px;
-  background: #f8fafb;
 }
 
 .admin-order-payment-section {
@@ -680,7 +764,7 @@
 }
 
 .admin-orders-table {
-  min-width: 1080px;
+  min-width: 1160px;
 }
 
 .admin-order-row td {
@@ -788,22 +872,113 @@
   min-width: 132px;
 }
 
-.admin-order-status-cell--combined {
-  min-width: 220px;
+.admin-order-workflow-cell {
+  min-width: 172px;
+  gap: 8px;
 }
 
-.admin-order-status-subline {
+.admin-order-status-heading {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  color: var(--admin-muted);
-  line-height: 1.35;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.admin-order-status-subline .admin-status-pill {
-  padding: 3px 7px;
-  font-size: 0.72rem;
+.admin-orders-page .admin-order-primary-status {
+  min-width: 0;
+  max-width: calc(100% - 44px);
+  justify-content: flex-start;
+  padding: 5px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-order-progress-value {
+  flex: 0 0 auto;
+  color: #66788a;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.admin-order-workflow-cell .admin-order-progress.is-compact {
+  width: 100%;
+}
+
+.admin-order-workflow-cell .admin-order-progress progress {
+  height: 4px;
+}
+
+.admin-order-operation-cell {
+  min-width: 132px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.admin-order-meta-state {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.admin-order-meta-state::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 999px;
+  background: #94a3b1;
+  content: '';
+}
+
+.admin-order-meta-state.is-paid::before { background: #3d9362; }
+.admin-order-meta-state.is-pending::before { background: #d29d2f; }
+.admin-order-meta-state.is-failed::before { background: #ce5b42; }
+.admin-order-meta-state.is-refunded::before { background: #a95787; }
+
+.admin-order-meta-provider {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.admin-order-operation-meta,
+.admin-order-tracking-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #718091;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.admin-order-tracking-code {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: #46677d;
+  background: #eef5f8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.admin-orders-page .admin-order-deadline-note {
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
+  padding: 4px 7px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
 }
 
 .admin-order-progress {
@@ -1654,6 +1829,68 @@
   gap: 10px;
 }
 
+.admin-vnpay-environment {
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid #e5c86a;
+  border-radius: 999px;
+  color: #7b5b10;
+  background: #fff8dc;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-vnpay-refund-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #cfdfd5;
+  border-radius: 10px;
+  color: #286845;
+  background: #f4faf6;
+}
+
+.admin-vnpay-refund-state > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.admin-vnpay-refund-state strong {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.admin-vnpay-refund-state span {
+  color: #5f7167;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.admin-vnpay-refund-state.is-pending {
+  border-color: #ead69c;
+  color: #8a6512;
+  background: #fff9e6;
+}
+
+.admin-vnpay-refund-state.is-failed {
+  border-color: #efc4bb;
+  color: var(--admin-danger);
+  background: #fff5f2;
+}
+
+.admin-vnpay-refund-state.is-completed {
+  border-color: #b9dac5;
+  color: #1f6b43;
+  background: #edf8f1;
+}
+
 .admin-refund-panel-header,
 .admin-refund-transfer-content,
 .admin-refund-account-card {
@@ -2078,6 +2315,14 @@
 }
 
 @media (max-width: 1100px) {
+  .admin-order-tab-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-order-tab-group.is-lookup {
+    min-width: 0;
+  }
+
   .admin-orders-page .admin-table-toolbar.is-lookup {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2114,6 +2359,23 @@
 }
 
 @media (max-width: 720px) {
+  .admin-order-operational-filter,
+  .admin-order-payment-scope,
+  .admin-order-queue-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-operational-filter .admin-secondary-button,
+  .admin-order-payment-sections,
+  .admin-order-active-count {
+    width: 100%;
+  }
+
+  .admin-order-active-count {
+    justify-content: center;
+  }
+
   .admin-orders-page .admin-table-toolbar.is-lookup {
     grid-template-columns: 1fr;
   }

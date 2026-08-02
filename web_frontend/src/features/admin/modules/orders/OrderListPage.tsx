@@ -98,8 +98,11 @@ export function OrderListPage({
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
   const {
+    availableBulkStatuses,
     bulkReason,
     bulkStatus,
+    canBulkCreateGhn,
+    canBulkSyncGhn,
     clearSelection,
     handleBulkGhn,
     handleBulkStatusUpdate,
@@ -197,8 +200,11 @@ export function OrderListPage({
         activePaymentSectionKey={activePaymentSectionKey}
         activeTab={activeTab}
         activeTabKey={activeTabKey}
+        availableBulkStatuses={availableBulkStatuses}
         bulkReason={bulkReason}
         bulkStatus={bulkStatus}
+        canBulkCreateGhn={canBulkCreateGhn}
+        canBulkSyncGhn={canBulkSyncGhn}
         canExpirePayments={canUpdateOrders}
         canUpdateOrders={canUpdateOrders}
         dateFrom={dateFrom}

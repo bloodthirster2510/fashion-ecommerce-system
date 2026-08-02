@@ -91,7 +91,7 @@ const request = async <T>(
   if (!response.ok) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new PaymentMethodsApiError(
-      validationMessage || payload.message || 'Không thể cập nhật phương thức thanh toán',
+      validationMessage || payload.message || 'Không thể cập nhật tài khoản nhận hoàn tiền',
       payload.errors,
       response.status,
     );

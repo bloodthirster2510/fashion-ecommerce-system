@@ -23,6 +23,8 @@ const MembershipScreen = () => {
   const { session, runWithAuth } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MembershipResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const membershipCardCarouselRef = useRef<ScrollView>(null);
   const currentIndexRef = useRef(0);
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -30,25 +32,37 @@ const MembershipScreen = () => {
 
 
   useEffect(() => {
+    const abortController = new AbortController();
     const fetchMembership = async () => {
+      setLoading(true);
+      setLoadError(null);
       if (!session?.accessToken) {
         setData(null);
+        setLoadError('Vui lòng đăng nhập để xem hạng thành viên.');
         setLoading(false);
         return;
       }
       try {
-        const response = await runWithAuth((accessToken) => accountApi.getMembership(accessToken));
+        const response = await runWithAuth((accessToken) => accountApi.getMembership(
+          accessToken,
+          abortController.signal,
+        ));
+        if (abortController.signal.aborted) return;
         setData(response);
       } catch (error) {
+        if (abortController.signal.aborted) return;
         console.error('Lỗi khi tải thông tin hạng thẻ', error);
+        setData(null);
+        setLoadError('Không thể tải thông tin hạng thành viên. Vui lòng thử lại.');
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) setLoading(false);
       }
     };
     fetchMembership();
-  }, [runWithAuth, session?.accessToken]);
+    return () => abortController.abort();
+  }, [reloadKey, runWithAuth, session?.accessToken]);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <View style={styles.header}>
@@ -60,6 +74,33 @@ const MembershipScreen = () => {
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.brand} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!data) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Hạng thẻ thành viên</Text>
+          <View style={styles.backButton} />
+        </View>
+        <View style={styles.emptyMembershipContainer}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={48} color={colors.brand} />
+          <Text style={styles.emptyMembershipTitle}>Chưa thể hiển thị hạng thành viên</Text>
+          <Text style={styles.emptyMembershipText}>{loadError}</Text>
+          {session?.accessToken ? (
+            <TouchableOpacity
+              style={styles.membershipRetryButton}
+              onPress={() => setReloadKey((current) => current + 1)}
+            >
+              <Text style={styles.membershipRetryButtonText}>Thử lại</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </SafeAreaView>
     );
@@ -297,6 +338,16 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   supportButtonText: { color: colors.white, fontWeight: '800' },
+  membershipRetryButton: {
+    minHeight: 42,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  membershipRetryButtonText: { color: colors.white, fontWeight: '800' },
   header: {
     height: 56,
     flexDirection: 'row',

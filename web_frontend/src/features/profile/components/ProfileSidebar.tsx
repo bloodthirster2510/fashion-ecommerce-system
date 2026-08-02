@@ -36,6 +36,7 @@ const menuPaths: Record<string, string> = {
   cart: '/cart',
   orders: '/account/orders',
   reviews: '/account/reviews',
+  favorites: '/account?section=favorites',
   ranking: '/account?section=ranking',
   coupons: '/account?section=coupons',
   support: '/account/support',
@@ -44,12 +45,14 @@ const menuPaths: Record<string, string> = {
 type ProfileSidebarProps = {
   name?: string
   avatarImage?: string | null
+  role?: string
   selectedKey?: string
 }
 
 export function ProfileSidebar({
   name,
   avatarImage,
+  role,
   selectedKey = 'profile',
 }: ProfileSidebarProps) {
   const dispatch = useAppDispatch()
@@ -116,7 +119,7 @@ export function ProfileSidebar({
         className="account-menu"
         mode="inline"
         selectedKeys={[selectedKey]}
-        items={menuItems}
+        items={role === 'user' ? menuItems : menuItems.filter((item) => item.key !== 'favorites')}
         onClick={({ key }) => {
           const path = menuPaths[key]
           if (!path) return

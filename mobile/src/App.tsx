@@ -8,7 +8,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
-import { AuthProvider } from './features/auth/AuthContext';
+import { AuthProvider, useAuth } from './features/auth/AuthContext';
 import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
 import { PushNotificationProvider } from './features/notifications/PushNotificationProvider';
 import {
@@ -43,14 +43,15 @@ const handleUnhandledNavigationAction = (action: NavigationAction) => {
   console.warn('Unhandled navigation action', action);
 };
 
-const App = () => {
+const NavigationRoot = () => {
+  const { isRestoringSession } = useAuth();
   const pendingUrlRef = React.useRef<string | null>(null);
   const pendingPushTargetRef = React.useRef<PushNavigationTarget | null>(null);
 
   const handleDeepLink = React.useCallback((url: string | null) => {
     if (!url) return;
 
-    if (!navigationRef.isReady()) {
+    if (isRestoringSession || !navigationRef.isReady()) {
       pendingUrlRef.current = url;
       return;
     }
@@ -67,10 +68,10 @@ const App = () => {
       const orderId = getUrlParam(url, 'orderId');
       if (orderId) navigationRef.navigate('OrderDetail', { orderId });
     }
-  }, []);
+  }, [isRestoringSession]);
 
   const openPushTarget = React.useCallback((target: PushNavigationTarget) => {
-    if (!navigationRef.isReady()) {
+    if (isRestoringSession || !navigationRef.isReady()) {
       pendingPushTargetRef.current = target;
       return;
     }
@@ -86,17 +87,28 @@ const App = () => {
     } else {
       navigationRef.navigate('VirtualTryOnHome');
     }
-  }, []);
+  }, [isRestoringSession]);
 
-  const handleNavigationReady = React.useCallback(() => {
-    resetRootToHome();
+  const flushPendingNavigation = React.useCallback(() => {
+    if (isRestoringSession || !navigationRef.isReady()) return;
+
     const pendingUrl = pendingUrlRef.current;
     pendingUrlRef.current = null;
     if (pendingUrl) handleDeepLink(pendingUrl);
+
     const pendingPushTarget = pendingPushTargetRef.current;
     pendingPushTargetRef.current = null;
     if (pendingPushTarget) openPushTarget(pendingPushTarget);
-  }, [handleDeepLink, openPushTarget]);
+  }, [handleDeepLink, isRestoringSession, openPushTarget]);
+
+  const handleNavigationReady = React.useCallback(() => {
+    resetRootToHome();
+    flushPendingNavigation();
+  }, [flushPendingNavigation]);
+
+  React.useEffect(() => {
+    flushPendingNavigation();
+  }, [flushPendingNavigation]);
 
   React.useEffect(() => {
     const subscription = Linking.addEventListener('url', ({ url }) => {
@@ -128,24 +140,28 @@ const App = () => {
   }, [openPushTarget]);
 
   return (
-    <SafeAreaProvider>
-      <StorefrontSettingsProvider>
-        <NavigationContainer
-          ref={navigationRef}
-          onReady={handleNavigationReady}
-          onUnhandledAction={handleUnhandledNavigationAction}
-        >
-          <AuthProvider>
-            <PushNotificationProvider>
-              <CustomerNotificationProvider>
-                <AppNavigator />
-              </CustomerNotificationProvider>
-            </PushNotificationProvider>
-          </AuthProvider>
-        </NavigationContainer>
-      </StorefrontSettingsProvider>
-    </SafeAreaProvider>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={handleNavigationReady}
+      onUnhandledAction={handleUnhandledNavigationAction}
+    >
+      <PushNotificationProvider>
+        <CustomerNotificationProvider>
+          <AppNavigator />
+        </CustomerNotificationProvider>
+      </PushNotificationProvider>
+    </NavigationContainer>
   );
 };
+
+const App = () => (
+  <SafeAreaProvider>
+    <StorefrontSettingsProvider>
+      <AuthProvider>
+        <NavigationRoot />
+      </AuthProvider>
+    </StorefrontSettingsProvider>
+  </SafeAreaProvider>
+);
 
 export default App;

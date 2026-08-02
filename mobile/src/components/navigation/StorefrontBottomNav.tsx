@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, shadows, spacing } from '../../theme';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useCustomerNotifications } from '../../features/notifications/CustomerNotificationProvider';
+import OutfitIcon from '../ui/OutfitIcon';
 
 type MainTab = 'home' | 'catalog' | 'notifications' | 'profile';
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
@@ -78,7 +79,7 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
         accessibilityLabel="Phòng phối đồ ảo"
         activeOpacity={0.86}
       >
-        <MaterialCommunityIcons name="tshirt-crew-outline" size={24} color={colors.brandDark} />
+        <OutfitIcon size={24} color={colors.brandDark} />
       </TouchableOpacity>
       <Text style={styles.tryOnLabel}>Phối đồ</Text>
     </View>

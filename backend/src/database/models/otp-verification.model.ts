@@ -49,7 +49,6 @@ const otpVerificationSchema = new Schema<IOtpVerification>(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
     },
   },
   { timestamps: true },

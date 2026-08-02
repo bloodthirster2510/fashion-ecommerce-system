@@ -12,6 +12,11 @@ import {
 import type { Notice } from '../orderTypes'
 import { getErrorMessage } from '../orderPresentation'
 
+const needsCustomerRefundAccount = (order: AdminOrder) =>
+  order.paymentStatus === 'paid' &&
+  (order.status === 'cancelled' || order.status === 'returned') &&
+  order.paymentMethod !== 'VNPAY'
+
 export function useOrderDetailData({
   canReadCustomerPaymentMethods,
   setNotice,
@@ -41,7 +46,7 @@ export function useOrderDetailData({
       const orderDetail = await getOrder(orderId)
       const [orderTransactions, paymentMethods, orderAuditLogs] = await Promise.all([
         listOrderTransactions(orderId),
-        canReadCustomerPaymentMethods
+        canReadCustomerPaymentMethods && needsCustomerRefundAccount(orderDetail)
           ? listCustomerPaymentMethods(orderDetail.user_id).catch(() => [])
           : Promise.resolve([]),
         listAuditLogs({ targetType: 'Order', targetId: orderId, limit: 20 }),

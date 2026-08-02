@@ -87,7 +87,7 @@ const getOrderCounts = async () => {
 
 const getLowStockVariantCount = async (threshold: number) => {
   const rows = await Inventory.aggregate<{ count: number }>([
-    { $match: { availableQuantity: { $lte: threshold } } },
+    { $match: { availableQuantity: { $gt: 0, $lte: threshold } } },
     {
       $group: {
         _id: {

@@ -1,5 +1,5 @@
 import { Router, type RequestHandler } from 'express';
-import { authenticate, requireActiveAccount } from '../../middlewares/auth.middleware';
+import { authenticate, optionalAuthenticate, requireActiveAccount } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   createReviewCreateRateLimitMiddleware,
@@ -44,7 +44,7 @@ const enforceReviewImageTotalLimit: RequestHandler = (req, res, next) => {
 };
 
 // Danh sách review là dữ liệu công khai để hiển thị ở trang chi tiết sản phẩm.
-router.get('/products/:productId', listProductReviews);
+router.get('/products/:productId', optionalAuthenticate, listProductReviews);
 
 // Các thao tác còn lại gắn với danh tính người mua nên bắt buộc đăng nhập bằng tài khoản user.
 router.get('/eligibility', authenticate, requireActiveAccount, authorize('user'), getReviewEligibility);

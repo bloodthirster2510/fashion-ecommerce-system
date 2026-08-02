@@ -14,6 +14,10 @@ import { useVirtualTryOnRealtime } from './virtualTryOnRealtime';
 import type { VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { tryOnRoleLabel } from './virtualTryOnSelection';
+import {
+  mergeVirtualTryOnRealtimeEvent,
+  preferFreshVirtualTryOnJob,
+} from './virtualTryOnJobState';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
@@ -56,8 +60,13 @@ const VirtualTryOnProcessingScreen = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const progressGlow = React.useRef(new Animated.Value(0)).current;
   const hasOpenedResult = React.useRef(false);
+  const mountedRef = React.useRef(true);
+  const jobRef = React.useRef<VirtualTryOnJob | null>(null);
+  const activeJobIdRef = React.useRef(route.params.jobId);
+  const loadingJobIdsRef = React.useRef(new Set<string>());
 
   const jobId = route.params.jobId;
+  activeJobIdRef.current = jobId;
   const retainedSeedItems = route.params.seedItems;
   const retainedAlternativeSeedItems = route.params.alternativeSeedItems;
   const isProviderSafetyBlocked = job?.status === 'failed' && job.errorCode === 'PROVIDER_SAFETY_BLOCKED';
@@ -80,59 +89,56 @@ const VirtualTryOnProcessingScreen = () => {
     } : undefined);
   }, [navigation, retainedSeedItems, retainedAlternativeSeedItems]);
 
-  const loadJob = React.useCallback(() => {
-    let isCurrent = true;
-    runWithAuth((token) => virtualTryOnApi.getJob(token, jobId))
-      .then((nextJob) => {
-        if (!isCurrent) return;
-        setJob(nextJob);
-        if (nextJob.status === 'succeeded' && getGeneratedTryOnImageUrls(nextJob).length > 0) {
-          openResult(nextJob._id);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!isCurrent) return;
-        const message = error instanceof Error ? error.message : 'Không tải được tiến trình phối đồ.';
-        Alert.alert('Phối đồ ảo', message);
-      })
-      .finally(() => {
-        if (isCurrent) setIsLoading(false);
-      });
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-    return () => { isCurrent = false; };
-  }, [jobId, openResult, runWithAuth]);
+  const applyJob = React.useCallback((incoming: VirtualTryOnJob) => {
+    if (!mountedRef.current || activeJobIdRef.current !== incoming._id) return;
+
+    const nextJob = jobRef.current
+      ? preferFreshVirtualTryOnJob(jobRef.current, incoming)
+      : incoming;
+    if (nextJob !== jobRef.current) {
+      jobRef.current = nextJob;
+      setJob(nextJob);
+    }
+    if (nextJob.status === 'succeeded' && getGeneratedTryOnImageUrls(nextJob).length > 0) {
+      openResult(nextJob._id);
+    }
+  }, [openResult]);
+
+  const loadJob = React.useCallback(async () => {
+    if (loadingJobIdsRef.current.has(jobId)) return;
+    loadingJobIdsRef.current.add(jobId);
+
+    try {
+      const nextJob = await runWithAuth((token) => virtualTryOnApi.getJob(token, jobId));
+      applyJob(nextJob);
+    } catch (error) {
+      if (!mountedRef.current || activeJobIdRef.current !== jobId) return;
+      const message = error instanceof Error ? error.message : 'Không tải được tiến trình phối đồ.';
+      Alert.alert('Phối đồ ảo', message);
+    } finally {
+      loadingJobIdsRef.current.delete(jobId);
+      if (mountedRef.current && activeJobIdRef.current === jobId) setIsLoading(false);
+    }
+  }, [applyJob, jobId, runWithAuth]);
 
   const realtime = useVirtualTryOnRealtime(session?.accessToken, (event) => {
     if (event.jobId !== jobId) return;
-    setJob((current) => current
-      ? {
-          ...current,
-          status: event.status,
-          progress: event.progress,
-          processingStage: event.processingStage ?? current.processingStage,
-          generatedImageUrl: event.generatedImageUrl !== undefined ? event.generatedImageUrl : current.generatedImageUrl,
-          generatedImageUrls: event.generatedImageUrls ?? current.generatedImageUrls,
-          generatedVideoUrl: event.generatedVideoUrl !== undefined ? event.generatedVideoUrl : current.generatedVideoUrl,
-          videoStatus: event.videoStatus ?? current.videoStatus,
-          videoProgress: event.videoProgress ?? current.videoProgress,
-          videoErrorCode: event.videoErrorCode !== undefined ? event.videoErrorCode : current.videoErrorCode,
-          videoErrorMessage: event.videoErrorMessage !== undefined ? event.videoErrorMessage : current.videoErrorMessage,
-          errorCode: event.errorCode !== undefined ? event.errorCode : current.errorCode,
-          errorMessage: event.errorMessage !== undefined ? event.errorMessage : current.errorMessage,
-        }
-      : current);
-    if (
-      event.status === 'succeeded'
-      && (
-        getGeneratedTryOnImageUrls(event).length > 0
-        || (job ? getGeneratedTryOnImageUrls(job).length > 0 : false)
-      )
-    ) {
-      openResult(jobId);
-    }
+    if (!jobRef.current) return;
+    applyJob(mergeVirtualTryOnRealtimeEvent(jobRef.current, event));
   });
 
-  React.useEffect(() => loadJob(), [loadJob]);
+  React.useEffect(() => {
+    hasOpenedResult.current = false;
+    jobRef.current = null;
+    setJob(null);
+    setIsLoading(true);
+    void loadJob();
+  }, [jobId, loadJob]);
 
   React.useEffect(() => {
     realtime.subscribeJob(jobId);
@@ -142,7 +148,7 @@ const VirtualTryOnProcessingScreen = () => {
   React.useEffect(() => {
     const timer = setInterval(() => {
       if (!job || ['queued', 'processing'].includes(job.status)) {
-        loadJob();
+        void loadJob();
       }
     }, 2500);
     return () => clearInterval(timer);
@@ -172,7 +178,7 @@ const VirtualTryOnProcessingScreen = () => {
   const retry = async () => {
     try {
       const nextJob = await runWithAuth((token) => virtualTryOnApi.retryJob(token, jobId));
-      setJob(nextJob);
+      applyJob(nextJob);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể thử lại.';
       Alert.alert('Phối đồ ảo', message);
@@ -182,7 +188,7 @@ const VirtualTryOnProcessingScreen = () => {
   const cancel = async () => {
     try {
       const nextJob = await runWithAuth((token) => virtualTryOnApi.cancelJob(token, jobId));
-      setJob(nextJob);
+      applyJob(nextJob);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể hủy yêu cầu.';
       Alert.alert('Phối đồ ảo', message);

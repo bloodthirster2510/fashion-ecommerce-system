@@ -4,6 +4,7 @@ import {
   deleteVirtualTryOnJobNotifications,
   listCustomerNotifications,
   markAllCustomerNotificationsRead,
+  markCustomerNotificationRead,
   recordOrderCreatedNotification,
   recordVirtualTryOnAccessNotification,
   recordVirtualTryOnOutcomeNotification,
@@ -88,6 +89,38 @@ describe('customer notification service', () => {
     expect(mockedNotification.updateMany).toHaveBeenCalledWith(
       { userId: expect.any(Types.ObjectId), isRead: false },
       { $set: { isRead: true, readAt: expect.any(Date) } },
+    );
+  });
+
+  it('marks one owned notification read without changing an existing read timestamp', async () => {
+    const notificationId = new Types.ObjectId('665000000000000000000009');
+    const readAt = new Date('2026-07-01T00:00:00.000Z');
+    const lean = jest.fn().mockResolvedValue({
+      _id: notificationId,
+      userId: new Types.ObjectId(userId),
+      isRead: true,
+      readAt,
+    });
+    mockedNotification.findOneAndUpdate.mockReturnValue({ lean } as never);
+
+    const result = await markCustomerNotificationRead(userId, notificationId.toString());
+
+    expect(result).toMatchObject({ _id: notificationId, isRead: true, readAt });
+    expect(mockedNotification.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: notificationId, userId: expect.any(Types.ObjectId) },
+      [{
+        $set: {
+          isRead: true,
+          readAt: {
+            $cond: [
+              { $eq: ['$isRead', true] },
+              { $ifNull: ['$readAt', '$$NOW'] },
+              '$$NOW',
+            ],
+          },
+        },
+      }],
+      { returnDocument: 'after', runValidators: true },
     );
   });
 

@@ -20,10 +20,6 @@ import {
   paymentSections,
   resolveInitialTabKey,
 } from '../orderPresentation'
-import {
-  getOrderAttentionRank,
-  getOrderQueue,
-} from '../utils/orderQueue'
 import { defaultOrderTableColumns } from '../utils/orderTableColumns'
 
 const orderLookupViewStorageKey = 'admin.orders.lookupView'
@@ -107,10 +103,6 @@ export function useOrderListData({
   const [operationalSummary, setOperationalSummary] = useState(emptyOperationalSummary)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const [paymentDeadlineCutoff] = useState(() => (
-    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-  ))
-
   const isLookupMode = !lockPaymentSection
   const activeTab = orderTabs.find((tab) => tab.key === activeTabKey) ?? orderTabs[0]
   const activePaymentSection =
@@ -119,30 +111,24 @@ export function useOrderListData({
   const pageHelper = lockPaymentSection ? activePaymentSection.helper : 'Tìm theo mã đơn, mã hóa đơn, khách hàng hoặc sản phẩm'
 
   const activeFilters = useMemo<OrderListFilters>(() => {
-    const effectivePaymentStatus = activeTab.paymentStatus ?? paymentStatus
-    const effectiveLimit = activeTab.queue ? 100 : pageSize
     const sectionPaymentMethods = isLookupMode ? undefined : getPaymentSectionMethods(activePaymentSectionKey)
     const selectedPaymentMethod = !isLookupMode && activePaymentSectionKey === 'cod' ? 'COD' : paymentMethod
 
     return {
       keyword,
-      statuses: activeTab.statuses,
-      paymentStatus: effectivePaymentStatus,
+      queue: activeTab.queue,
+      statuses: activeTab.queue ? undefined : activeTab.statuses,
+      paymentStatus,
       paymentMethod: selectedPaymentMethod === 'all' ? undefined : selectedPaymentMethod,
       paymentMethods: selectedPaymentMethod === 'all' ? sectionPaymentMethods : undefined,
-      paymentDeadlineBefore: activeTab.queue === 'payment-deadline'
-        ? paymentDeadlineCutoff
-        : undefined,
-      shippingFallback: activeTab.queue === 'shipping-mapping' || undefined,
       dateFrom: isLookupMode ? dateFrom || undefined : undefined,
       dateTo: isLookupMode ? dateTo || undefined : undefined,
       sort: isLookupMode ? sort : undefined,
-      page: activeTab.queue ? 1 : page,
-      limit: effectiveLimit,
+      page,
+      limit: pageSize,
     }
   }, [
     activePaymentSectionKey,
-    activeTab.paymentStatus,
     activeTab.queue,
     activeTab.statuses,
     dateFrom,
@@ -151,7 +137,6 @@ export function useOrderListData({
     keyword,
     page,
     paymentMethod,
-    paymentDeadlineCutoff,
     paymentStatus,
     sort,
   ])
@@ -185,17 +170,9 @@ export function useOrderListData({
     try {
       const result = await listOrders(activeFilters)
 
-      const orderedItems = [...result.items]
-        .filter((order) => !activeTab.queue || getOrderQueue(order) === activeTab.queue)
-        .sort((left, right) => {
-          const rankDelta = getOrderAttentionRank(left) - getOrderAttentionRank(right)
-          if (rankDelta !== 0) return rankDelta
-          return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
-        })
-
-      setOrders(orderedItems)
-      setTotalItems(activeTab.queue ? orderedItems.length : Math.max(0, result.pagination?.totalItems ?? orderedItems.length))
-      setTotalPages(activeTab.queue ? 1 : Math.max(1, result.pagination?.totalPages ?? 1))
+      setOrders(result.items)
+      setTotalItems(Math.max(0, result.pagination?.totalItems ?? result.items.length))
+      setTotalPages(Math.max(1, result.pagination?.totalPages ?? 1))
       setStatusSummary({ ...emptyStatusSummary, ...result.statusSummary })
       setOperationalSummary({ ...emptyOperationalSummary, ...result.operationalSummary })
     } catch (error) {
@@ -207,7 +184,7 @@ export function useOrderListData({
         setIsLoading(false)
       }
     }
-  }, [activeFilters, activeTab.queue, setOrders])
+  }, [activeFilters, setOrders])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {

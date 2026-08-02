@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as userController from './user.controller';
-import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticate, requireActiveAccount } from '../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import { getUserMembership } from './membership.service';
 import { User } from '../../database/models/user.model';
@@ -9,30 +9,35 @@ import * as customerInsightController from './customer-insight.controller';
 
 const customerUserRouter = Router();
 const adminUserRouter = Router();
-const canManageUsers = [authenticate, authorize('admin', 'staff')];
-const adminOnly = [authenticate, authorize('admin')];
+const customerAccountAccess = [authenticate, requireActiveAccount, authorize('user')];
+const canManageUsers = [authenticate, requireActiveAccount, authorize('admin', 'staff')];
+const adminOnly = [authenticate, requireActiveAccount, authorize('admin')];
 const canReadCustomers = [...canManageUsers, requirePermission('customers.read')];
 const canManageCustomerStatus = [...canManageUsers, requirePermission('customers.manage')];
 
-customerUserRouter.get('/me', authenticate, userController.getMe);
-customerUserRouter.put('/me', authenticate, userController.updateMe);
-customerUserRouter.post('/me/avatar', authenticate, userController.uploadAvatar);
+customerUserRouter.get('/me', customerAccountAccess, userController.getMe);
+customerUserRouter.put('/me', customerAccountAccess, userController.updateMe);
+customerUserRouter.post('/me/avatar', customerAccountAccess, userController.uploadAvatar);
 
-customerUserRouter.get('/me/addresses', authenticate, userController.getAddresses);
-customerUserRouter.post('/me/addresses', authenticate, userController.addAddress);
-customerUserRouter.put('/me/addresses/:addressId', authenticate, userController.updateAddress);
-customerUserRouter.delete('/me/addresses/:addressId', authenticate, userController.deleteAddress);
-customerUserRouter.patch('/me/addresses/:addressId/default', authenticate, userController.setDefaultAddress);
+customerUserRouter.get('/me/addresses', customerAccountAccess, userController.getAddresses);
+customerUserRouter.post('/me/addresses', customerAccountAccess, userController.addAddress);
+customerUserRouter.put('/me/addresses/:addressId', customerAccountAccess, userController.updateAddress);
+customerUserRouter.delete('/me/addresses/:addressId', customerAccountAccess, userController.deleteAddress);
+customerUserRouter.patch('/me/addresses/:addressId/default', customerAccountAccess, userController.setDefaultAddress);
 
-customerUserRouter.get('/me/membership', authenticate, async (req: Request, res: Response) => {
-  const user = await User.findById(req.user!.userId).select('loyaltyPoint');
-  if (!user) {
-    return res.status(404).json({ message: 'Người dùng không tồn tại' });
-  }
+customerUserRouter.get(
+  '/me/membership',
+  customerAccountAccess,
+  async (req: Request, res: Response) => {
+    const user = await User.findById(req.user!.userId).select('loyaltyPoint');
+    if (!user) {
+      return res.status(404).json({ message: 'Người dùng không tồn tại' });
+    }
 
-  const result = await getUserMembership(req.user!.userId, user.loyaltyPoint);
-  return ok(res, result);
-});
+    const result = await getUserMembership(req.user!.userId, user.loyaltyPoint);
+    return ok(res, result);
+  },
+);
 
 adminUserRouter.get('/', canReadCustomers, userController.getUsers);
 adminUserRouter.get('/summary', canReadCustomers, userController.getCustomerSummary);

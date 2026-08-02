@@ -1501,6 +1501,119 @@ describe('orderService', () => {
     expect(result.statusSummary.all).toBe(5);
   });
 
+  it('filters operational queues on the server with mutually exclusive priority rules', async () => {
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(0 as never);
+    mockedOrder.aggregate.mockResolvedValue([] as never);
+
+    await orderService.getOrders({
+      queue: 'handoff',
+      paymentMethod: 'COD',
+      page: 2,
+      limit: 10,
+    });
+
+    const listFilter = (mockedOrder.find as unknown as jest.Mock).mock.calls[0][0] as {
+      paymentMethod: string;
+      $and: Array<{
+        $and: Array<Record<string, unknown>>;
+      }>;
+    };
+    const handoffCondition = listFilter.$and[0].$and;
+    const excludedHigherPriorityQueues = handoffCondition[1].$nor as Array<Record<string, unknown>>;
+
+    expect(listFilter.paymentMethod).toBe('COD');
+    expect(handoffCondition[0]).toEqual({ status: 'packed' });
+    expect(excludedHigherPriorityQueues).toHaveLength(6);
+    expect(excludedHigherPriorityQueues).toContainEqual(expect.objectContaining({
+      status: { $in: ['confirmed', 'packed'] },
+    }));
+    expect(mockedOrder.aggregate).toHaveBeenCalledWith([
+      { $match: { paymentMethod: 'COD' } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+    expect(findQuery.skip).toHaveBeenCalledWith(10);
+    expect(findQuery.limit).toHaveBeenCalledWith(10);
+  });
+
+  it('keeps workload summaries global while a keyword narrows the order table', async () => {
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(0 as never);
+    mockedOrder.aggregate.mockResolvedValue([] as never);
+
+    await orderService.getOrders({ keyword: 'FS-001', paymentMethod: 'COD' });
+
+    expect(mockedOrder.find).toHaveBeenCalledWith(expect.objectContaining({
+      paymentMethod: 'COD',
+      $or: expect.any(Array),
+    }));
+    expect(mockedOrder.aggregate).toHaveBeenCalledWith([
+      { $match: { paymentMethod: 'COD' } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+  });
+
+  it('uses shipping orders for the delivery confirmation queue', async () => {
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(0 as never);
+    mockedOrder.aggregate.mockResolvedValue([] as never);
+
+    await orderService.getOrders({ queue: 'delivery' });
+
+    const listFilter = (mockedOrder.find as unknown as jest.Mock).mock.calls[0][0] as {
+      $and: Array<{ $and: Array<Record<string, unknown>> }>;
+    };
+
+    expect(listFilter.$and[0].$and[0]).toEqual({ status: 'shipping' });
+  });
+
+  it('keeps terminal and COD orders out of the blocked payment queue', async () => {
+    const findQuery = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+
+    mockedOrder.find.mockReturnValue(findQuery as never);
+    mockedOrder.countDocuments.mockResolvedValue(0 as never);
+    mockedOrder.aggregate.mockResolvedValue([] as never);
+
+    await orderService.getOrders({ queue: 'blocked' });
+
+    const listFilter = (mockedOrder.find as unknown as jest.Mock).mock.calls[0][0] as {
+      $and: Array<{ $and: Array<Record<string, unknown>> }>;
+    };
+    const blockedCondition = listFilter.$and[0].$and[0];
+
+    expect(blockedCondition).toEqual({
+      status: { $nin: ['cancelled', 'returned', 'completed'] },
+      paymentMethod: { $ne: 'COD' },
+      paymentStatus: { $in: ['pending', 'failed'] },
+    });
+  });
+
   it('applies admin order list sort options', async () => {
     const findQuery = {
       sort: jest.fn().mockReturnThis(),
@@ -1634,6 +1747,32 @@ describe('orderService', () => {
         reason: 'Cash refund verified by operations',
       }),
     );
+  });
+
+  it('requires cancelled VNPay orders to use the gateway refund flow', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000078');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      status: 'cancelled',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      order_list: [],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+
+    await expect(orderService.adjustOrderPaymentStatus(orderId.toString(), {
+      paymentStatus: 'refunded',
+      reason: 'Attempted manual VNPay refund',
+      actorId: '665000000000000000000079',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'VNPay refunds must be completed through the VNPay refund flow',
+    });
+
+    expect(order.save).not.toHaveBeenCalled();
+    expect(mockedTransactionService.createManualAdjustmentTransaction).not.toHaveBeenCalled();
   });
 
   it('rejects downgrading a paid payment status', async () => {

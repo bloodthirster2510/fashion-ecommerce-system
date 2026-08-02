@@ -11,6 +11,10 @@ export type ResetPasswordEmailDeliveryInfo = EmailDeliveryInfo & {
   testUrl?: string;
 };
 
+export type LoginUnlockEmailDeliveryInfo = EmailDeliveryInfo & {
+  testOtp?: string;
+};
+
 const escapeHtml = (value: string) => value
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -82,6 +86,30 @@ export const sendResetPasswordEmail = async (to: string, token: string) => {
       ? { testToken: token, testUrl: urls.mobileUrl }
       : {}),
   } satisfies ResetPasswordEmailDeliveryInfo;
+};
+
+export const sendLoginUnlockOtpEmail = async (
+  to: string,
+  otp: string,
+  expiresAt: Date,
+): Promise<LoginUnlockEmailDeliveryInfo> => {
+  const delivery = await deliverEmail({
+    to,
+    subject: 'Mã mở khóa đăng nhập - Fashion Shop',
+    logLabel: 'login unlock OTP',
+    html: [
+      '<p>Chúng tôi nhận được yêu cầu mở khóa đăng nhập cho tài khoản của bạn.</p>',
+      `<p>Mã OTP: <strong>${escapeHtml(otp)}</strong></p>`,
+      `<p>Mã có hiệu lực đến ${escapeHtml(expiresAt.toLocaleString('vi-VN'))} và chỉ dùng được một lần.</p>`,
+      '<p>Nếu bạn không yêu cầu mã này, hãy bỏ qua email và cân nhắc đổi mật khẩu.</p>',
+    ].join(''),
+  });
+
+  return {
+    mode: delivery.mode,
+    provider: delivery.provider,
+    ...(delivery.mode === 'mock' ? { testOtp: otp } : {}),
+  };
 };
 
 const sendBestEffortEmail = async (input: EmailMessageInput) => {

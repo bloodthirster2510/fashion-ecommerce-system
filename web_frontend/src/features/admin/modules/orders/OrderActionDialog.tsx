@@ -10,9 +10,16 @@ import {
 const getReasonPresets = (action: OrderActionDialogState) => {
   if (action.type === 'payment-status') {
     if (action.nextStatus === 'refunded') {
+      if (action.order.paymentMethod === 'VNPAY') {
+        return [
+          'Hoàn tiền do khách hủy đơn',
+          'Hoàn tiền sau khi nhận hàng trả',
+          'Hoàn toàn phần theo chính sách',
+        ]
+      }
+
       return [
         'Đã hoàn tiền qua chuyển khoản',
-        'Đã hoàn về kênh thanh toán gốc',
         'Hoàn tiền sau duyệt trả hàng',
       ]
     }
@@ -71,8 +78,8 @@ const getReasonPresets = (action: OrderActionDialogState) => {
 
     if (action.nextStatus === 'disabled') {
       return [
-        'Khách yêu cầu tắt phương thức',
-        'Thông tin thanh toán không hợp lệ',
+        'Khách yêu cầu tắt tài khoản',
+        'Thông tin nhận hoàn tiền không hợp lệ',
       ]
     }
 
@@ -132,8 +139,11 @@ export function OrderActionDialog({
     if (action.type === 'return-review') return action.decision === 'approved' ? 'Duyệt trả hàng' : 'Từ chối trả hàng'
     if (action.type === 'shipping') return 'Cập nhật vận đơn'
     if (action.type === 'cancel-ghn') return 'Hủy vận đơn GHN'
+    if (action.type === 'payment-status' && action.nextStatus === 'refunded') {
+      return action.order.paymentMethod === 'VNPAY' ? 'Gửi đến VNPay' : 'Xác nhận đã hoàn'
+    }
     if (action.type === 'payment-status') return 'Cập nhật trạng thái'
-    return 'Cập nhật phương thức thanh toán'
+    return 'Cập nhật tài khoản hoàn tiền'
   })()
 
   const title = (() => {
@@ -142,8 +152,11 @@ export function OrderActionDialog({
     if (action.type === 'return-review') return action.decision === 'approved' ? 'Duyệt yêu cầu trả hàng' : 'Từ chối yêu cầu trả hàng'
     if (action.type === 'shipping') return 'Cập nhật vận đơn'
     if (action.type === 'cancel-ghn') return 'Hủy vận đơn GHN'
+    if (action.type === 'payment-status' && action.nextStatus === 'refunded') {
+      return action.order.paymentMethod === 'VNPAY' ? 'Gửi lệnh hoàn tiền VNPay' : 'Xác nhận hoàn tiền thủ công'
+    }
     if (action.type === 'payment-status') return 'Điều chỉnh thanh toán'
-    return 'Cập nhật phương thức thanh toán'
+    return 'Cập nhật tài khoản hoàn tiền'
   })()
 
   const helper = (() => {
@@ -165,6 +178,14 @@ export function OrderActionDialog({
       return 'Thao tác này hủy vận đơn đang liên kết với GHN cho đơn hiện tại.'
     }
     if (action.type === 'payment-status') {
+      if (action.nextStatus === 'refunded' && action.order.paymentMethod === 'VNPAY') {
+        return 'Hệ thống sẽ gửi lệnh hoàn toàn phần đến VNPay cho giao dịch gốc. Tiền không được chuyển vào tài khoản hoàn mà khách đã khai báo.'
+      }
+
+      if (action.nextStatus === 'refunded') {
+        return 'Chỉ xác nhận sau khi shop đã chuyển khoản vào tài khoản nhận hoàn của khách và kiểm tra giao dịch thành công.'
+      }
+
       return `Chuyển thanh toán sang "${paymentStatusLabels[action.nextStatus]}". Lý do đối soát là bắt buộc.`
     }
     if (action.type === 'payment-method-status') {

@@ -11,8 +11,8 @@ import {
 const STOREFRONT_KEY = 'storefront';
 const MAX_SOCIAL_LINKS = 12;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const phonePattern = /^[0-9+()\-.\s]{7,30}$/;
-const taxCodePattern = /^[0-9A-Za-z-]{3,30}$/;
+const phonePattern = /^(?=.*\d)[0-9+()\-.\s]{7,30}$/;
+const taxCodePattern = /^(?=.*[0-9A-Za-z])[0-9A-Za-z-]{3,30}$/;
 const knownSocialPlatformSet = new Set<string>(storefrontSocialPlatforms);
 
 export type StorefrontSettingsView = {
@@ -180,10 +180,10 @@ export const normalizeStorefrontSettingsInput = (input: StorefrontSettingsInput)
     throw new StorefrontSettingsServiceError('Dữ liệu cấu hình không hợp lệ');
   }
 
-  const version = Number(input.version);
-  if (!Number.isInteger(version) || version < 0) {
+  if (typeof input.version !== 'number' || !Number.isInteger(input.version) || input.version < 0) {
     throw new StorefrontSettingsServiceError('Phiên bản cấu hình không hợp lệ');
   }
+  const version = input.version;
 
   if (!input.identity || typeof input.identity !== 'object' || Array.isArray(input.identity)) {
     throw new StorefrontSettingsServiceError('Thông tin nhận diện cửa hàng không hợp lệ');
@@ -237,12 +237,15 @@ export const normalizeStorefrontSettingsInput = (input: StorefrontSettingsInput)
       throw new StorefrontSettingsServiceError(`Nền tảng ${platform} đang bị trùng`);
     }
     if (platform !== 'other') seenPlatforms.add(platform);
+    if (item.enabled !== undefined && typeof item.enabled !== 'boolean') {
+      throw new StorefrontSettingsServiceError(`Trạng thái liên kết thứ ${index + 1} không hợp lệ`);
+    }
 
     return {
       platform: platform as StorefrontSocialPlatform,
       label: requiredString(item.label, `Tên liên kết thứ ${index + 1}`, 2, 40),
       url: httpsUrl(item.url, `URL liên kết thứ ${index + 1}`, true),
-      enabled: item.enabled !== false,
+      enabled: item.enabled ?? true,
       sortOrder: index,
     };
   });

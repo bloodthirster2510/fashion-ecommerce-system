@@ -1,7 +1,9 @@
 import {
+  buildActiveCoverageProductFilter,
   calculateAnalyticsChangePercent,
   calculateAnalyticsRate,
   normalizeRecommendationAnalyticsQuery,
+  recommendationAnalyticsDayExpression,
   toMetricSnapshot,
 } from '../recommendation-analytics.service';
 
@@ -20,6 +22,8 @@ describe('recommendation analytics helpers', () => {
     expect(calculateAnalyticsRate(1, 3)).toBe(0.3333);
     expect(calculateAnalyticsRate(2, 0)).toBe(0);
     expect(calculateAnalyticsChangePercent(15, 10)).toBe(50);
+    expect(calculateAnalyticsChangePercent(0, -100)).toBe(100);
+    expect(calculateAnalyticsChangePercent(-200, -100)).toBe(-100);
     expect(calculateAnalyticsChangePercent(3, 0)).toBeNull();
     expect(calculateAnalyticsChangePercent(0, 0)).toBe(0);
   });
@@ -39,9 +43,37 @@ describe('recommendation analytics helpers', () => {
       context: 'cart',
       algorithmVersion: 'v3_cart_complementary',
     });
-    expect(result.range.from.toISOString()).toBe('2026-07-01T00:00:00.000Z');
-    expect(result.range.to.toISOString()).toBe('2026-07-10T23:59:59.999Z');
+    expect(result.range.from.toISOString()).toBe('2026-06-30T17:00:00.000Z');
+    expect(result.range.to.toISOString()).toBe('2026-07-10T16:59:59.999Z');
     expect(result.range.previousTo.getTime()).toBe(result.range.from.getTime() - 1);
+  });
+
+  it('uses Bangkok calendar days for default ranges and trend buckets', () => {
+    const result = normalizeRecommendationAnalyticsQuery(
+      { days: '30' },
+      new Date('2026-07-13T10:00:00.000Z'),
+    );
+
+    expect(result.range.from.toISOString()).toBe('2026-06-13T17:00:00.000Z');
+    expect(result.range.to.toISOString()).toBe('2026-07-13T10:00:00.000Z');
+    expect(recommendationAnalyticsDayExpression('$createdAt')).toEqual({
+      $dateToString: {
+        date: '$createdAt',
+        format: '%Y-%m-%d',
+        timezone: 'Asia/Bangkok',
+      },
+    });
+  });
+
+  it('limits coverage to active products with a real catalog dimension', () => {
+    expect(buildActiveCoverageProductFilter('category_id')).toEqual({
+      isActive: true,
+      category_id: { $exists: true, $ne: null },
+    });
+    expect(buildActiveCoverageProductFilter('brand_id', true)).toEqual({
+      'product.isActive': true,
+      'product.brand_id': { $exists: true, $ne: null },
+    });
   });
 
   it('separates legacy order creation from paid and net attribution', () => {
@@ -86,5 +118,9 @@ describe('recommendation analytics helpers', () => {
       .toThrow('Recommendation analytics end date must be after start date');
     expect(() => normalizeRecommendationAnalyticsQuery({ from: '2026-01-01', to: '2026-07-01' }))
       .toThrow('Recommendation analytics date range cannot exceed 180 days');
+    expect(() => normalizeRecommendationAnalyticsQuery({ from: '2026-02-30' }))
+      .toThrow('Invalid recommendation analytics date range');
+    expect(() => normalizeRecommendationAnalyticsQuery({ context: ['cart'] }))
+      .toThrow('Invalid recommendation analytics filter');
   });
 });

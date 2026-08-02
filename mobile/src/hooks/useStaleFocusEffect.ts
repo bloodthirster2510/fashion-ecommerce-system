@@ -8,7 +8,7 @@ type Options = {
 };
 
 export const useStaleFocusEffect = (
-  callback: () => void,
+  callback: () => void | (() => void),
   deps: React.DependencyList,
   { enabled = true, runOnDepsChange = false, staleMs }: Options,
 ) => {
@@ -27,7 +27,7 @@ export const useStaleFocusEffect = (
       if (!hasDepsChanged && Date.now() - lastRunRef.current < staleMs) return;
       lastDepsRef.current = deps;
       lastRunRef.current = Date.now();
-      callback();
+      return callback();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, runOnDepsChange, staleMs, ...deps]),
   );

@@ -4,8 +4,10 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +21,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
+import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   catalogApi,
@@ -30,11 +33,11 @@ import {
 } from './catalogApi';
 import ProductCard from './ProductCard';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
-import { RemoteImage } from '../../components/media/RemoteImage';
 import {
   interactionApi,
   type InteractionPayload,
 } from '../recommendation/interactionApi';
+import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
@@ -84,6 +87,10 @@ const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
 const DISCOVERY_TITLE = 'Khám phá gu riêng';
+const discoveryImages = {
+  male: require('../../../assets/discovery-male-model-v2.png'),
+  female: require('../../../assets/discovery-female-model-v2.png'),
+} as const;
 
 const emptyAvailableFilters: ProductListResponse['filters'] = {
   brands: [],
@@ -131,8 +138,6 @@ const toArray = (value?: string | string[]) => {
 };
 
 const toQueryArray = (value: string[]) => (value.length ? value : undefined);
-
-const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const normalizeFilters = (filters: ProductListFilters): ProductListFilters => ({
   ...filters,
@@ -300,6 +305,7 @@ const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
   const { isAuthenticated, runWithAuth } = useAuth();
+  const { summary: notificationSummary } = useCustomerNotifications();
   const params = route.params;
   const hasScopedCatalogRequest = Boolean(
     params?.keyword
@@ -336,7 +342,6 @@ const ProductListScreen = () => {
   const [error, setError] = React.useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = React.useState(false);
-  const [discoveryImages, setDiscoveryImages] = React.useState({ male: '', female: '' });
   const heroReveal = React.useRef(new Animated.Value(0)).current;
   const garmentFloat = React.useRef(new Animated.Value(0)).current;
 
@@ -676,28 +681,11 @@ const ProductListScreen = () => {
     runWithAuth,
   ]);
 
-  React.useEffect(() => loadProducts(1), [loadProducts]);
-
-  React.useEffect(() => {
-    setDiscoveryImages((current) => {
-      const next = { ...current };
-
-      (['male', 'female'] as const).forEach((gender) => {
-        if (next[gender]) return;
-
-        const productImage = products.find(
-          (product) => product.category?.gender === gender && isRemoteImage(product.image),
-        )?.image;
-        const categoryImage = availableFilters.categories.find(
-          (category) => category.gender === gender && isRemoteImage(category.image),
-        )?.image;
-
-        next[gender] = productImage?.trim() ?? categoryImage?.trim() ?? '';
-      });
-
-      return next.male === current.male && next.female === current.female ? current : next;
-    });
-  }, [availableFilters.categories, products]);
+  useStaleFocusEffect(
+    () => loadProducts(1),
+    [loadProducts],
+    { runOnDepsChange: true, staleMs: 0 },
+  );
 
   const openFilterSheet = () => {
     setDraftFilters(appliedFilters);
@@ -874,7 +862,6 @@ const ProductListScreen = () => {
   const renderGenderSpotlight = (gender: 'male' | 'female') => {
     const isMale = gender === 'male';
     const active = appliedFilters.gender === gender;
-    const imageUri = discoveryImages[gender];
     const label = isMale ? 'NAM' : 'NỮ';
 
     return (
@@ -913,15 +900,7 @@ const ProductListScreen = () => {
         </View>
 
         <View style={styles.genderImageFrame}>
-          {imageUri ? (
-            <RemoteImage uri={imageUri} style={styles.genderImage} recyclingKey={`discovery-${gender}`} />
-          ) : (
-            <MaterialCommunityIcons
-              name="tshirt-crew"
-              size={44}
-              color={isMale ? 'rgba(255,255,255,0.5)' : 'rgba(155,76,85,0.35)'}
-            />
-          )}
+          <Image source={discoveryImages[gender]} style={styles.genderImage} resizeMode="cover" />
         </View>
       </TouchableOpacity>
     );
@@ -930,14 +909,16 @@ const ProductListScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
-          accessibilityLabel="Trở về"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
-        </TouchableOpacity>
+        <View style={styles.headerEdge}>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+            accessibilityLabel="Trở về"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={23} color={colors.white} />
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.titleBlock}>
           <Text style={styles.title} numberOfLines={1}>
@@ -945,14 +926,33 @@ const ProductListScreen = () => {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.headerAction}
-          onPress={() => navigation.navigate(isAuthenticated ? 'Profile' : 'Login')}
-          accessibilityLabel="Tài khoản"
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="account-outline" size={23} color={colors.white} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
+            accessibilityLabel="Sản phẩm yêu thích"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="heart-outline" size={23} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
+            accessibilityLabel={notificationSummary?.cartItems
+              ? `Giỏ hàng, ${notificationSummary.cartItems} sản phẩm`
+              : 'Giỏ hàng'}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+            {notificationSummary?.cartItems ? (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>
+                  {notificationSummary.cartItems > 99 ? '99+' : notificationSummary.cartItems}
+                </Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -960,6 +960,14 @@ const ProductListScreen = () => {
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={(
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={() => { void loadProducts(1); }}
+            colors={[colors.brand]}
+            tintColor={colors.brand}
+          />
+        )}
         onScroll={handleCatalogScroll}
         scrollEventThrottle={16}
       >
@@ -1342,6 +1350,41 @@ const styles = StyleSheet.create({
   },
   headerAction: {
     ...brandedHeaderStyles.action,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    position: 'relative',
+  },
+  headerEdge: {
+    width: 80,
+    alignItems: 'flex-start',
+  },
+  headerActions: {
+    width: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -4,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: colors.coral,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadgeText: {
+    color: colors.white,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
   },
   titleBlock: {
     ...brandedHeaderStyles.titleGroup,

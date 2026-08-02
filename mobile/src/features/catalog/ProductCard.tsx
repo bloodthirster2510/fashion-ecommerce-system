@@ -16,6 +16,21 @@ const formatCurrency = (value: number) => {
   return `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 };
 
+const formatSoldQuantity = (value: number) => {
+  const quantity = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
+
+  if (quantity < 1_000) return quantity.toString();
+
+  const divisor = quantity >= 1_000_000 ? 1_000_000 : 1_000;
+  const suffix = quantity >= 1_000_000 ? 'tr' : 'k';
+  const compactValue = quantity / divisor;
+  const roundedValue = compactValue >= 100
+    ? Math.floor(compactValue)
+    : Math.floor(compactValue * 10) / 10;
+
+  return `${String(roundedValue).replace('.', ',')}${suffix}+`;
+};
+
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const ProductCard = ({ product, animationIndex, onPress, onCartPress }: ProductCardProps) => {
@@ -122,12 +137,20 @@ const ProductCard = ({ product, animationIndex, onPress, onCartPress }: ProductC
                 </Text>
               </View>
             ) : <View />}
-            {product.averageRating > 0 ? (
-              <View style={styles.rating}>
-                <MaterialCommunityIcons name="star" size={11} color={colors.goldDark} />
-                <Text style={styles.ratingText}>{product.averageRating.toFixed(1)}</Text>
-              </View>
-            ) : null}
+            <View style={styles.engagementMeta}>
+              {product.averageRating > 0 ? (
+                <>
+                  <View style={styles.rating}>
+                    <MaterialCommunityIcons name="star" size={11} color={colors.goldDark} />
+                    <Text style={styles.ratingText}>{product.averageRating.toFixed(1)}</Text>
+                  </View>
+                  <Text style={styles.metaDivider}>•</Text>
+                </>
+              ) : null}
+              <Text style={styles.soldText} numberOfLines={1}>
+                Đã bán {formatSoldQuantity(product.soldQuantity)}
+              </Text>
+            </View>
           </View>
 
           <Text style={styles.name} numberOfLines={2}>
@@ -265,11 +288,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+  engagementMeta: {
+    minWidth: 0,
+    marginLeft: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 3,
+    flexShrink: 1,
+  },
   ratingText: {
     color: colors.textMuted,
     fontSize: 9,
     lineHeight: 12,
     fontWeight: '800',
+  },
+  metaDivider: {
+    color: colors.textSubtle,
+    fontSize: 8,
+    lineHeight: 12,
+  },
+  soldText: {
+    color: colors.textMuted,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+    flexShrink: 1,
   },
   name: {
     minHeight: 36,

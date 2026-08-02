@@ -26,6 +26,8 @@ jest.mock('../payments.service', () => ({
 
 jest.mock('../transaction.service', () => ({
   transactionService: {
+    acquireVNPayRefundLock: jest.fn(),
+    releaseVNPayRefundLock: jest.fn(),
     findLatestVNPayRefundByOrderId: jest.fn(),
     findLatestSuccessfulByOrderId: jest.fn(),
     createVNPayRefundTransaction: jest.fn(),
@@ -53,6 +55,8 @@ const createResponse = () => {
 describe('refundVNPayOrder', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedTransactionService.acquireVNPayRefundLock.mockResolvedValue('refund-lock-owner');
+    mockedTransactionService.releaseVNPayRefundLock.mockResolvedValue(undefined);
   });
 
   it('records response 94 as a pending refund and uses the configured server IP', async () => {
@@ -139,6 +143,66 @@ describe('refundVNPayOrder', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Order must be cancelled or returned before refund',
     }));
+  });
+
+  it('allows only one concurrent refund request to call the VNPay gateway', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000711');
+    const actorId = new Types.ObjectId('665000000000000000000712');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId('665000000000000000000713'),
+      status: 'cancelled',
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'paid',
+      totalAmount: 385000,
+    };
+    const paymentTransaction = {
+      _id: new Types.ObjectId('665000000000000000000714'),
+      txnRef: 'FSORDERA1',
+      gatewayTransactionId: '123456',
+      createdAt: new Date('2026-06-18T05:00:00.000Z'),
+      paymentDetail: { vnp_CreateDate: '20260618120000' },
+    };
+    mockedTransactionService.acquireVNPayRefundLock
+      .mockResolvedValueOnce('refund-lock-owner')
+      .mockResolvedValueOnce(null);
+    mockedOrderService.getOrderById.mockResolvedValue(order as never);
+    mockedTransactionService.findLatestVNPayRefundByOrderId.mockResolvedValue(null);
+    mockedTransactionService.findLatestSuccessfulByOrderId.mockResolvedValue(paymentTransaction as never);
+    mockedRefund.mockResolvedValue({
+      isValidSignature: true,
+      vnp_ResponseCode: '94',
+      vnp_TransactionStatus: '05',
+      vnp_TransactionType: '02',
+      vnp_TxnRef: 'FSORDERA1',
+    });
+    mockedTransactionService.createVNPayRefundTransaction.mockResolvedValue({
+      _id: new Types.ObjectId('665000000000000000000715'),
+      status: 'pending',
+    } as never);
+    mockedAudit.recordAuditLogBestEffort.mockResolvedValue(undefined);
+
+    const createRequest = () => ({
+      params: { orderId: orderId.toString() },
+      body: { reason: 'Customer cancelled the order' },
+      user: { userId: actorId.toString(), role: 'admin' },
+    }) as unknown as Request;
+    const firstResponse = createResponse();
+    const secondResponse = createResponse();
+
+    await Promise.all([
+      refundVNPayOrder(createRequest(), firstResponse),
+      refundVNPayOrder(createRequest(), secondResponse),
+    ]);
+
+    expect(mockedRefund).toHaveBeenCalledTimes(1);
+    expect(mockedTransactionService.createVNPayRefundTransaction).toHaveBeenCalledTimes(1);
+    expect(mockedTransactionService.releaseVNPayRefundLock).toHaveBeenCalledWith(
+      orderId.toString(),
+      'refund-lock-owner',
+    );
+    expect([firstResponse.status.mock.calls[0]?.[0], secondResponse.status.mock.calls[0]?.[0]].sort())
+      .toEqual([200, 409]);
   });
 
   it('fails closed when VNPay confirms a non-refund transaction type', async () => {

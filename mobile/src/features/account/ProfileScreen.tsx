@@ -12,7 +12,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../auth/AuthContext';
-import { authApi } from '../auth/authApi';
 import { accountApi, MembershipResponse } from './accountApi';
 import { couponApi } from '../coupons/couponApi';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
@@ -34,9 +33,18 @@ type ProfileMenuItem = {
 };
 
 type AccountStat = {
+  id: 'shipping' | 'vouchers' | 'points';
+  icon: IconName;
   label: string;
   value: string;
   tone: 'blue' | 'coral' | 'gold';
+  onPress: () => void;
+};
+
+const accountStatVisuals: Record<AccountStat['tone'], { backgroundColor: string; iconColor: string }> = {
+  blue: { backgroundColor: colors.brandSoft, iconColor: colors.brand },
+  coral: { backgroundColor: '#FFF0EC', iconColor: colors.coral },
+  gold: { backgroundColor: colors.goldSoft, iconColor: colors.goldDark },
 };
 
 const profileMenuItems: ProfileMenuItem[] = [
@@ -48,7 +56,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
   { id: 'membership', icon: 'medal-outline', label: 'Hạng thành viên' },
   { id: 'vouchers', icon: 'ticket-percent-outline', label: 'Voucher & Ưu đãi' },
-  { id: 'payment', icon: 'credit-card-outline', label: 'Phương thức thanh toán' },
+  { id: 'payment', icon: 'bank-outline', label: 'Tài khoản hoàn tiền' },
   { id: 'notification-settings', icon: 'bell-cog-outline', label: 'Cài đặt thông báo' },
   { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ' },
 ];
@@ -136,8 +144,8 @@ const ProfileScreen = () => {
           });
         })
         .catch(() => undefined);
-      runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken))
-        .then((response) => setVoucherCount(response.items.length))
+      runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken, { page: 1, limit: 1 }))
+        .then((response) => setVoucherCount(response.pagination.totalItems))
         .catch(() => setVoucherCount(null));
       runWithAuth(async (accessToken) => {
         const shippingOrders = await accountApi.getMyOrderSummary(accessToken, 'shipping');
@@ -218,13 +226,10 @@ const ProfileScreen = () => {
           text: 'Đăng xuất',
           style: 'destructive',
           onPress: () => {
-            const accessToken = session?.accessToken;
-
             void (async () => {
               try {
-                if (accessToken) await authApi.logout(accessToken);
+                await logout();
               } finally {
-                logout();
                 navigation.reset({
                   index: 0,
                   routes: [{ name: 'Home' }],
@@ -239,6 +244,34 @@ const ProfileScreen = () => {
   };
 
   const memberVisual = getMembershipTierVisualConfig(membershipData?.currentTier);
+  const accountStats: AccountStat[] = [
+    {
+      id: 'shipping',
+      icon: 'truck-delivery-outline',
+      label: 'Đơn đang giao',
+      value: shippingOrderCount === null ? '—' : shippingOrderCount.toString(),
+      tone: 'blue',
+      onPress: () => navigation.navigate('Orders', { status: 'shipping' }),
+    },
+    {
+      id: 'vouchers',
+      icon: 'ticket-percent-outline',
+      label: 'Kho voucher',
+      value: voucherCount === null ? '—' : voucherCount.toString(),
+      tone: 'coral',
+      onPress: () => navigation.navigate('Coupons'),
+    },
+    {
+      id: 'points',
+      icon: 'star-circle-outline',
+      label: 'Điểm thưởng',
+      value: membershipData
+        ? membershipData.loyaltyPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+        : '—',
+      tone: 'gold',
+      onPress: () => navigation.navigate('Membership'),
+    },
+  ];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -315,21 +348,43 @@ const ProfileScreen = () => {
           </Text>
         </View>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={[styles.statDot, styles.blueDot]} />
-            <Text style={styles.statValue}>{shippingOrderCount ?? '-'}</Text>
-            <Text style={styles.statLabel}>Đơn đang giao</Text>
+        <View style={styles.accountStatsPanel}>
+          <View style={styles.accountStatsHeader}>
+            <Text style={styles.accountStatsTitle}>Tiện ích của bạn</Text>
+            <Text style={styles.accountStatsHint}>Chạm để xem chi tiết</Text>
           </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statDot, styles.coralDot]} />
-            <Text style={styles.statValue}>{voucherCount ?? '-'}</Text>
-            <Text style={styles.statLabel}>Voucher</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statDot, styles.goldDot]} />
-            <Text style={styles.statValue}>{(membershipData?.loyaltyPoint || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}</Text>
-            <Text style={styles.statLabel}>Điểm</Text>
+          <View style={styles.accountStatsRow}>
+            {accountStats.map((item, index) => (
+              <React.Fragment key={item.id}>
+                <TouchableOpacity
+                  style={styles.accountStatAction}
+                  onPress={item.onPress}
+                  activeOpacity={0.72}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.label}: ${item.value}`}
+                >
+                  <View
+                    style={[
+                      styles.accountStatIcon,
+                      { backgroundColor: accountStatVisuals[item.tone].backgroundColor },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name={item.icon}
+                      size={22}
+                      color={accountStatVisuals[item.tone].iconColor}
+                    />
+                  </View>
+                  <Text style={styles.accountStatValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {item.value}
+                  </Text>
+                  <Text style={styles.accountStatLabel} numberOfLines={2}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+                {index < accountStats.length - 1 ? <View style={styles.accountStatDivider} /> : null}
+              </React.Fragment>
+            ))}
           </View>
         </View>
 
@@ -524,44 +579,81 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 10,
   },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
+  accountStatsPanel: {
     marginTop: 12,
-  },
-  statCard: {
-    flex: 1,
-    minHeight: 86,
-    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    borderRadius: radii.md,
     backgroundColor: colors.surface,
-    padding: spacing.md,
+    ...shadows.card,
+  },
+  accountStatsHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: 14,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
   },
-  statDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  blueDot: {
-    backgroundColor: colors.brand,
-  },
-  coralDot: {
-    backgroundColor: colors.coral,
-  },
-  goldDot: {
-    backgroundColor: colors.goldDark,
-  },
-  statValue: {
+  accountStatsTitle: {
     color: colors.text,
-    fontSize: 19,
-    lineHeight: 25,
-    fontWeight: '800',
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '900',
   },
-  statLabel: {
+  accountStatsHint: {
+    color: colors.textSubtle,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  accountStatsRow: {
+    minHeight: 104,
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  accountStatAction: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountStatIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  accountStatValue: {
+    width: '100%',
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  accountStatLabel: {
+    minHeight: 30,
+    marginTop: 1,
     color: colors.textMuted,
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: '600',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  accountStatDivider: {
+    width: 1,
+    height: 54,
+    alignSelf: 'center',
+    backgroundColor: colors.border,
   },
   sectionHeader: {
     marginTop: 20,

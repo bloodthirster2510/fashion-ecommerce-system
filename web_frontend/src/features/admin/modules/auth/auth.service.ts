@@ -6,6 +6,7 @@ import type {
 import { API_BASE_URL } from '../../../../config/api'
 import {
   clearAdminSession,
+  getAdminSessionRevision,
   getStoredAdminUser,
   saveAdminSession,
 } from './adminSession'
@@ -21,6 +22,8 @@ type RefreshTokenResponse = {
 }
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
+let adminRefreshRequest: Promise<AdminSession> | null = null
+let adminRefreshRequestRevision: number | null = null
 
 const parseResponse = async <T>(response: Response, fallbackMessage: string) => {
   const result = (await response.json().catch(() => ({}))) as ApiResponse<T>
@@ -48,13 +51,15 @@ export const loginAdmin = async (
   return parseResponse<AdminSession>(response, 'Không thể đăng nhập')
 }
 
-export const refreshAdminSession = async () => {
+const performAdminSessionRefresh = async () => {
   const storedUser = getStoredAdminUser()
 
   if (!storedUser) {
     clearAdminSession()
     throw new Error('Phiên đăng nhập đã hết hạn')
   }
+
+  const sessionRevision = getAdminSessionRevision()
 
   const response = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
     method: 'POST',
@@ -73,8 +78,29 @@ export const refreshAdminSession = async () => {
     user: storedUser,
   }
 
+  if (getAdminSessionRevision() !== sessionRevision) {
+    throw new Error('Phiên đăng nhập đã thay đổi, vui lòng đăng nhập lại')
+  }
+
   saveAdminSession(nextSession)
   return nextSession
+}
+
+export const refreshAdminSession = () => {
+  const currentRevision = getAdminSessionRevision()
+  if (adminRefreshRequest && adminRefreshRequestRevision === currentRevision) {
+    return adminRefreshRequest
+  }
+
+  const request = performAdminSessionRefresh().finally(() => {
+    if (adminRefreshRequest === request) {
+      adminRefreshRequest = null
+      adminRefreshRequestRevision = null
+    }
+  })
+  adminRefreshRequest = request
+  adminRefreshRequestRevision = currentRevision
+  return request
 }
 
 export const changeAdminPassword = async (

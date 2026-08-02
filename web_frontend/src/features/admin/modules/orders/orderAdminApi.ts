@@ -1,4 +1,5 @@
 import { requestAdmin, requestAdminFile } from '../../services/adminHttp'
+import { buildOrderListQuery } from './utils/orderListQuery'
 
 export type AdminOrderStatus =
   | 'confirmed'
@@ -13,6 +14,15 @@ export type AdminOrderStatus =
 
 export type AdminOrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK'
 export type AdminOrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
+export type AdminOrderQueueKey =
+  | 'packing'
+  | 'handoff'
+  | 'delivery'
+  | 'blocked'
+  | 'review'
+  | 'refund'
+  | 'payment-deadline'
+  | 'shipping-mapping'
 export type AdminPaymentMethodStatus = 'pending' | 'verified' | 'expired' | 'disabled'
 export type AdminReturnRequestStatus = 'requested' | 'approved' | 'rejected'
 export type AdminReturnReviewDecision = 'approved' | 'rejected'
@@ -148,6 +158,7 @@ export type AdminCustomerPaymentMethod = {
 }
 
 export type OrderListFilters = {
+  queue?: AdminOrderQueueKey
   status?: AdminOrderStatus | 'all'
   statuses?: AdminOrderStatus[]
   paymentMethod?: AdminOrderPaymentMethod | 'all'
@@ -303,60 +314,6 @@ export type SimulateShippingWebhookPayload = {
   reason?: string | null
   trackingCode?: string | null
   provider?: string | null
-}
-
-const buildOrderListQuery = (filters: OrderListFilters) => {
-  const params = new URLSearchParams()
-  const keyword = filters.keyword?.trim()
-
-  if (keyword) {
-    params.set('keyword', keyword)
-  }
-
-  const statuses = filters.statuses?.filter(Boolean)
-
-  if (statuses?.length) {
-    params.set('statuses', statuses.join(','))
-  } else if (filters.status && filters.status !== 'all') {
-    params.set('status', filters.status)
-  }
-
-  if (filters.paymentMethod && filters.paymentMethod !== 'all') {
-    params.set('paymentMethod', filters.paymentMethod)
-  }
-
-  if (filters.paymentMethods?.length) {
-    params.set('paymentMethods', filters.paymentMethods.join(','))
-  }
-
-  if (filters.paymentStatus && filters.paymentStatus !== 'all') {
-    params.set('paymentStatus', filters.paymentStatus)
-  }
-
-  if (filters.paymentDeadlineBefore) {
-    params.set('paymentDeadlineBefore', filters.paymentDeadlineBefore)
-  }
-
-  if (filters.shippingFallback) {
-    params.set('shippingFallback', 'true')
-  }
-
-  if (filters.dateFrom) {
-    params.set('dateFrom', filters.dateFrom)
-  }
-
-  if (filters.dateTo) {
-    params.set('dateTo', filters.dateTo)
-  }
-
-  if (filters.sort) {
-    params.set('sort', filters.sort)
-  }
-
-  params.set('page', String(filters.page ?? 1))
-  params.set('limit', String(filters.limit ?? 10))
-
-  return params.toString()
 }
 
 export const listOrders = (filters: OrderListFilters) =>

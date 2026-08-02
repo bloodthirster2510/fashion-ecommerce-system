@@ -13,8 +13,10 @@ jest.mock('../../../../database/models/coupon.model', () => ({
 }));
 jest.mock('../../../../database/models/membership-ranking.model', () => ({
   MembershipRanking: {
+    create: jest.fn(),
     find: jest.fn(),
     findById: jest.fn(),
+    findByIdAndUpdate: jest.fn(),
     findByIdAndDelete: jest.fn(),
     findOne: jest.fn(),
     exists: jest.fn(),
@@ -86,6 +88,27 @@ describe('membershipRankingAdminService', () => {
     expect(result[1].memberCount).toBe(2);
   });
 
+  it('uses active-tier boundaries and reports zero members for an inactive tier', async () => {
+    mockedMembershipRanking.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { _id: rankingId, level: 1, minPoint: 0, isActive: true },
+          { _id: new Types.ObjectId(), level: 2, minPoint: 1000, isActive: false },
+          { _id: new Types.ObjectId(), level: 3, minPoint: 5000, isActive: true },
+        ]),
+      }),
+    } as never);
+    mockedUser.countDocuments.mockResolvedValueOnce(5).mockResolvedValueOnce(2);
+
+    const result = await membershipRankingAdminService.listMembershipRankings();
+
+    expect(result.map((tier) => tier.memberCount)).toEqual([5, 0, 2]);
+    expect(result[0].maxPoint).toBe(4999);
+    expect(mockedUser.countDocuments).toHaveBeenNthCalledWith(1, {
+      loyaltyPoint: { $gte: 0, $lt: 5000 },
+    });
+  });
+
   it('does not delete the base tier', async () => {
     mockedMembershipRanking.findById.mockResolvedValue({
       _id: rankingId,
@@ -126,6 +149,153 @@ describe('membershipRankingAdminService', () => {
     await expect(
       membershipRankingAdminService.deleteMembershipRanking(rankingId.toString()),
     ).resolves.toBe(ranking);
+  });
+
+  it('does not assign members to an inactive tier when deleting it', async () => {
+    const ranking = { _id: rankingId, minPoint: 5000, isActive: false };
+    mockedMembershipRanking.findById.mockResolvedValue(ranking as never);
+    mockedCoupon.countDocuments.mockResolvedValue(0);
+    mockedMembershipRanking.findByIdAndDelete.mockResolvedValue(ranking as never);
+
+    await expect(
+      membershipRankingAdminService.deleteMembershipRanking(rankingId.toString()),
+    ).resolves.toBe(ranking);
+
+    expect(mockedUser.countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('reports a concurrent tier deletion instead of returning null', async () => {
+    mockedMembershipRanking.findById.mockResolvedValue({
+      _id: rankingId,
+      minPoint: 5000,
+      isActive: false,
+    } as never);
+    mockedCoupon.countDocuments.mockResolvedValue(0);
+    mockedMembershipRanking.findByIdAndDelete.mockResolvedValue(null);
+
+    await expect(
+      membershipRankingAdminService.deleteMembershipRanking(rankingId.toString()),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('reports a concurrent tier deletion during update instead of returning null', async () => {
+    const current = {
+      _id: rankingId,
+      name: 'Gold',
+      level: 2,
+      minPoint: 5000,
+      maxPoint: null,
+      isActive: true,
+    };
+    mockedMembershipRanking.findById.mockResolvedValue(current as never);
+    mockedMembershipRanking.find.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([current]),
+      }),
+    } as never);
+    mockedMembershipRanking.findByIdAndUpdate.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(null),
+    } as never);
+
+    await expect(membershipRankingAdminService.updateMembershipRanking(
+      rankingId.toString(),
+      { benefitDescription: 'Updated benefits' },
+    )).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('maps a duplicate-key create race to a conflict', async () => {
+    mockedMembershipRanking.findOne.mockResolvedValue(null);
+    mockedMembershipRanking.find.mockReturnValue({
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+    } as never);
+    mockedMembershipRanking.create.mockRejectedValue({ code: 11000 });
+
+    await expect(membershipRankingAdminService.createMembershipRanking({
+      name: 'Gold',
+      level: 1,
+      minPoint: 0,
+      discountPercent: 5,
+      benefitDescription: 'Gold benefits',
+    })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('maps a duplicate-key batch race to a conflict', async () => {
+    mockedMembershipRanking.exists.mockReturnValue({ session: jest.fn().mockResolvedValue(null) } as never);
+    mockedMembershipRanking.insertMany.mockRejectedValue({ code: 11000 });
+
+    await expect(membershipRankingAdminService.createMembershipRankingsBatch({
+      rankings: [
+        {
+          name: 'Member',
+          level: 1,
+          minPoint: 0,
+          discountPercent: 0,
+          benefitDescription: 'Member benefits',
+        },
+      ],
+    })).rejects.toMatchObject({ statusCode: 409 });
+    expect(mockSession.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns no users for an inactive tier', async () => {
+    mockedMembershipRanking.findById.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ minPoint: 1000, isActive: false }),
+      }),
+    } as never);
+
+    await expect(membershipRankingAdminService.listLoyaltyUsers({
+      tierId: rankingId.toString(),
+      page: '2',
+      limit: '5',
+    })).resolves.toEqual({
+      items: [],
+      pagination: { page: 2, limit: 5, totalItems: 0, totalPages: 0 },
+    });
+    expect(mockedUser.find).not.toHaveBeenCalled();
+    expect(mockedUser.countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('uses the next active tier when filtering loyalty users', async () => {
+    mockedMembershipRanking.findById.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({ minPoint: 0, isActive: true }),
+      }),
+    } as never);
+    mockNextTier(5000);
+    mockedUser.find.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnValue({
+          skip: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+          }),
+        }),
+      }),
+    } as never);
+    mockedUser.countDocuments.mockResolvedValue(0);
+
+    await membershipRankingAdminService.listLoyaltyUsers({ tierId: rankingId.toString() });
+
+    expect(mockedMembershipRanking.findOne).toHaveBeenCalledWith({
+      isActive: true,
+      minPoint: { $gt: 0 },
+    });
+    expect(mockedUser.find).toHaveBeenCalledWith({
+      role: 'user',
+      loyaltyPoint: { $gte: 0, $lt: 5000 },
+    });
+  });
+
+  it.each([
+    ['create', () => membershipRankingAdminService.createMembershipRanking(null as never)],
+    ['batch create', () => membershipRankingAdminService.createMembershipRankingsBatch(null as never)],
+    ['reorder', () => membershipRankingAdminService.reorderMembershipRankings(null as never)],
+    ['point adjustment', () => membershipRankingAdminService.adjustLoyaltyPoints(
+      null as never,
+      { actorRole: 'admin' },
+    )],
+  ])('rejects a null request body for %s', async (_operation, request) => {
+    await expect(request()).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('creates a complete tier template in one transaction', async () => {

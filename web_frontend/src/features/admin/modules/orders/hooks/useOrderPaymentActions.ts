@@ -163,7 +163,7 @@ export function useOrderPaymentActions({
 
     try {
       await updateCustomerPaymentMethodStatus(method._id, nextStatus, reason.trim())
-      setNotice({ type: 'success', message: 'Đã cập nhật phương thức thanh toán của khách hàng' })
+      setNotice({ type: 'success', message: 'Đã cập nhật tài khoản nhận hoàn tiền' })
       await refreshSelectedOrder(order._id)
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })

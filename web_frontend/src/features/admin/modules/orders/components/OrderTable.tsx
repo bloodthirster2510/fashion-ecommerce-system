@@ -1,11 +1,13 @@
 import type { AdminOrder } from '../orderAdminApi'
 import type { OrderTableColumnKey } from '../orderTypes'
-import { formatDate } from '../orderPresentation'
+import { canSelectOrderForBulk, formatDate } from '../orderPresentation'
 import { getOrderRowClass } from '../utils/orderQueue'
 import { defaultOrderTableColumns } from '../utils/orderTableColumns'
 import {
   OrderFulfillmentCell,
+  OrderPaymentStatusCell,
   OrderReferenceCell,
+  OrderShippingStatusCell,
   OrderTotalCell,
 } from './OrderStatusCells'
 
@@ -34,8 +36,10 @@ export function OrderTable({
 }: OrderTableProps) {
   const visibleColumnSet = new Set(visibleColumns)
   const selectedOrderIdSet = new Set(selectedOrderIds)
-  const allPageOrdersSelected = orders.length > 0 && orders.every((order) => selectedOrderIdSet.has(order._id))
-  const tableColumnCount = 3 + visibleColumns.length
+  const selectableOrders = orders.filter(canSelectOrderForBulk)
+  const allPageOrdersSelected = selectableOrders.length > 0 &&
+    selectableOrders.every((order) => selectedOrderIdSet.has(order._id))
+  const tableColumnCount = 3 + visibleColumns.length + (visibleColumnSet.has('status') ? 2 : 0)
 
   return (
     <div className="admin-table-shell">
@@ -47,14 +51,20 @@ export function OrderTable({
                 type="checkbox"
                 aria-label="Chọn tất cả đơn hàng trên trang"
                 checked={allPageOrdersSelected}
-                disabled={isLoading || orders.length === 0}
+                disabled={isLoading || selectableOrders.length === 0}
                 onChange={(event) => onPageSelectionChange(event.target.checked)}
               />
             </th>
             <th>Đơn hàng</th>
             {visibleColumnSet.has('customer') ? <th>Khách hàng</th> : null}
             {visibleColumnSet.has('total') ? <th>Tổng tiền</th> : null}
-            {visibleColumnSet.has('status') ? <th>Trạng thái</th> : null}
+            {visibleColumnSet.has('status') ? (
+              <>
+                <th>Xử lý đơn</th>
+                <th>Thanh toán</th>
+                <th>Vận chuyển</th>
+              </>
+            ) : null}
             {visibleColumnSet.has('createdAt') ? <th>Ngày tạo</th> : null}
             <th>Thao tác</th>
           </tr>
@@ -77,7 +87,10 @@ export function OrderTable({
           ) : null}
 
           {!isLoading
-            ? orders.map((order) => (
+            ? orders.map((order) => {
+                const canSelect = canSelectOrderForBulk(order)
+
+                return (
                 <tr
                   className={`${getOrderRowClass(order)}${realtimeOrderId === order._id ? ' is-realtime-updated' : ''}`}
                   key={order._id}
@@ -87,6 +100,8 @@ export function OrderTable({
                       type="checkbox"
                       aria-label={`Chọn đơn ${order.orderCode}`}
                       checked={selectedOrderIdSet.has(order._id)}
+                      disabled={!canSelect}
+                      title={canSelect ? undefined : 'Đơn đã kết thúc, không còn thao tác hàng loạt'}
                       onChange={(event) => onSelectionChange(order._id, event.target.checked)}
                     />
                   </td>
@@ -107,9 +122,17 @@ export function OrderTable({
                     </td>
                   ) : null}
                   {visibleColumnSet.has('status') ? (
-                    <td>
-                      <OrderFulfillmentCell order={order} />
-                    </td>
+                    <>
+                      <td>
+                        <OrderFulfillmentCell order={order} />
+                      </td>
+                      <td>
+                        <OrderPaymentStatusCell order={order} />
+                      </td>
+                      <td>
+                        <OrderShippingStatusCell order={order} />
+                      </td>
+                    </>
                   ) : null}
                   {visibleColumnSet.has('createdAt') ? <td>{formatDate(order.createdAt)}</td> : null}
                   <td>
@@ -118,7 +141,8 @@ export function OrderTable({
                     </button>
                   </td>
                 </tr>
-              ))
+                )
+              })
             : null}
         </tbody>
       </table>

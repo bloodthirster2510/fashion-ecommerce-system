@@ -154,6 +154,41 @@ describe('favoriteService', () => {
     });
   });
 
+  it('keeps adding the same favorite idempotent', async () => {
+    mockProductFindOne({ _id: productId });
+    mockedFavorite.updateOne.mockResolvedValue({ matchedCount: 1, upsertedCount: 0 });
+
+    const firstResult = await favoriteService.addFavorite(userId, productId.toString());
+    const secondResult = await favoriteService.addFavorite(userId, productId.toString());
+
+    expect(mockedFavorite.updateOne).toHaveBeenCalledTimes(2);
+    expect(mockedFavorite.updateOne).toHaveBeenNthCalledWith(
+      2,
+      { user_id: new Types.ObjectId(userId), product_id: productId },
+      { $setOnInsert: { user_id: new Types.ObjectId(userId), product_id: productId } },
+      { upsert: true },
+    );
+    expect(firstResult).toEqual({ productId: productId.toString(), isFavorited: true });
+    expect(secondResult).toEqual(firstResult);
+  });
+
+  it('removes a favorite idempotently', async () => {
+    mockedFavorite.deleteOne
+      .mockResolvedValueOnce({ deletedCount: 1 })
+      .mockResolvedValueOnce({ deletedCount: 0 });
+
+    const firstResult = await favoriteService.removeFavorite(userId, productId.toString());
+    const secondResult = await favoriteService.removeFavorite(userId, productId.toString());
+
+    expect(mockedFavorite.deleteOne).toHaveBeenCalledTimes(2);
+    expect(mockedFavorite.deleteOne).toHaveBeenCalledWith({
+      user_id: new Types.ObjectId(userId),
+      product_id: productId,
+    });
+    expect(firstResult).toEqual({ productId: productId.toString(), isFavorited: false });
+    expect(secondResult).toEqual(firstResult);
+  });
+
   it('rejects adding an unavailable product', async () => {
     mockProductFindOne(null);
 
@@ -200,6 +235,40 @@ describe('favoriteService', () => {
       category: {
         _id: categoryId.toString(),
         name: 'Ao thun',
+      },
+    });
+  });
+
+  it('clamps a stale page after favorites become unavailable', async () => {
+    mockFavoriteFind([{ product_id: productId, createdAt: favoritedAt }]);
+    mockProductFind([product]);
+    mockInventoryFind([inventory]);
+
+    const result = await favoriteService.listFavorites(userId, { page: 4, limit: 10 });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.pagination).toEqual({
+      page: 1,
+      limit: 10,
+      totalItems: 1,
+      totalPages: 1,
+    });
+  });
+
+  it('returns the first empty page when only inactive or deleted favorites remain', async () => {
+    mockFavoriteFind([{ product_id: productId, createdAt: favoritedAt }]);
+    mockProductFind([]);
+    mockInventoryFind([]);
+
+    const result = await favoriteService.listFavorites(userId, { page: 3, limit: 10 });
+
+    expect(result).toEqual({
+      items: [],
+      pagination: {
+        page: 1,
+        limit: 10,
+        totalItems: 0,
+        totalPages: 0,
       },
     });
   });

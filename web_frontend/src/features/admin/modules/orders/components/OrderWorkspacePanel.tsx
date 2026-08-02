@@ -21,8 +21,11 @@ type OrderWorkspacePanelProps = {
   activePaymentSectionKey: PaymentSectionKey
   activeTab: OrderTab
   activeTabKey: string
+  availableBulkStatuses: AdminOrderStatus[]
   bulkReason: string
   bulkStatus: AdminOrderStatus
+  canBulkCreateGhn: boolean
+  canBulkSyncGhn: boolean
   canExpirePayments: boolean
   canUpdateOrders: boolean
   dateFrom: string
@@ -83,8 +86,11 @@ export function OrderWorkspacePanel({
   activePaymentSectionKey,
   activeTab,
   activeTabKey,
+  availableBulkStatuses,
   bulkReason,
   bulkStatus,
+  canBulkCreateGhn,
+  canBulkSyncGhn,
   canExpirePayments,
   canUpdateOrders,
   dateFrom,
@@ -176,6 +182,8 @@ export function OrderWorkspacePanel({
         activeTab={activeTab}
         dateFrom={dateFrom}
         dateTo={dateTo}
+        isActionLoading={isActionLoading || isBulkLoading}
+        isExporting={isExporting}
         isLookupMode={isLookupMode}
         keywordInput={keywordInput}
         paymentMethod={paymentMethod}
@@ -206,16 +214,19 @@ export function OrderWorkspacePanel({
         onColumnToggle={onColumnToggle}
         onApplyDateRange={onApplyDateRange}
         onClearDateRange={onClearDateRange}
+        onExportCsv={onExportCsv}
         onResetLookupView={onResetLookupView}
         onSaveLookupView={onSaveLookupView}
       />
 
       <OrderBulkToolbar
+        availableBulkStatuses={availableBulkStatuses}
         bulkReason={bulkReason}
         bulkStatus={bulkStatus}
+        canBulkCreateGhn={canBulkCreateGhn}
+        canBulkSyncGhn={canBulkSyncGhn}
         canUpdateOrders={canUpdateOrders}
         isBulkLoading={isBulkLoading}
-        isExporting={isExporting}
         labelCount={labelCount}
         selectedCount={selectedOrderIds.length}
         onBulkGhn={onBulkGhn}
@@ -223,7 +234,6 @@ export function OrderWorkspacePanel({
         onBulkStatusChange={onBulkStatusChange}
         onBulkStatusUpdate={onBulkStatusUpdate}
         onClearSelection={onClearSelection}
-        onExportCsv={onExportCsv}
         onOpenLabels={onOpenLabels}
       />
 

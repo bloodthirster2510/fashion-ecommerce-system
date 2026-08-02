@@ -2,11 +2,13 @@ import { colors } from '../../theme';
 import type { CustomerOrder, OrderPaymentMethod, OrderStatus, OrderStatusSummary } from './orderApi';
 
 export type OrderTabKey =
+  | 'all'
   | 'active'
+  | 'packed'
   | 'shipping'
   | 'completed'
   | 'issues'
-  | 'all';
+  | 'cancelled';
 
 export type OrderTab = {
   key: OrderTabKey;
@@ -17,34 +19,46 @@ export type OrderTab = {
 
 export const orderTabs: OrderTab[] = [
   {
+    key: 'all',
+    label: 'Tất cả',
+    helper: 'Tất cả đơn hàng',
+    statuses: ['confirmed', 'packed', 'shipping', 'delivered', 'completed', 'cancelled', 'return_requested', 'return_approved', 'returned'],
+  },
+  {
     key: 'active',
-    label: 'Đang xử lý',
-    helper: 'Shop xác nhận & chuẩn bị',
-    statuses: ['confirmed', 'packed'],
+    label: 'Chờ xác nhận',
+    helper: 'Shop đang xác nhận',
+    statuses: ['confirmed'],
+  },
+  {
+    key: 'packed',
+    label: 'Chờ lấy hàng',
+    helper: 'Đơn đang được chuẩn bị',
+    statuses: ['packed'],
   },
   {
     key: 'shipping',
-    label: 'Đang giao',
-    helper: 'Theo dõi vận chuyển & xác nhận',
+    label: 'Chờ giao hàng',
+    helper: 'Đơn đang trên đường giao',
     statuses: ['shipping', 'delivered'],
   },
   {
     key: 'completed',
-    label: 'Hoàn tất',
+    label: 'Hoàn thành',
     helper: 'Đã giao thành công',
     statuses: ['completed'],
   },
   {
     key: 'issues',
-    label: 'Cần hỗ trợ',
-    helper: 'Trả hàng/chờ đối soát',
-    statuses: ['return_requested', 'return_approved'],
+    label: 'Trả hàng',
+    helper: 'Yêu cầu trả hàng',
+    statuses: ['return_requested', 'return_approved', 'returned'],
   },
   {
-    key: 'all',
-    label: 'Lịch sử',
-    helper: 'Đã giao, đã hủy hoặc đã trả',
-    statuses: ['completed', 'cancelled', 'returned'],
+    key: 'cancelled',
+    label: 'Đã hủy',
+    helper: 'Đơn hàng đã hủy',
+    statuses: ['cancelled'],
   },
 ];
 

@@ -105,6 +105,76 @@ describe('vnpayReconcileService', () => {
     expect(result.settlement?.paymentStatus).toBe('paid');
   });
 
+  it('treats an unsigned duplicate QueryDr response as read-only and unchanged', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000508');
+    const transaction = {
+      _id: new Types.ObjectId('665000000000000000000608'),
+      order_id: orderId,
+      txnRef: 'FSORDERA1',
+      status: 'expired',
+      createdAt: new Date('2026-06-18T05:00:00.000Z'),
+      paymentDetail: { vnp_CreateDate: '20260618120000' },
+      gatewayTransactionId: null,
+    };
+    mockedOrder.findById.mockReturnValue(leanResult({
+      _id: orderId,
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+    }) as never);
+    mockedTransactionService.findLatestAttemptByOrderId.mockResolvedValue(transaction as never);
+    mockedQuery.mockResolvedValue({
+      isValidSignature: false,
+      vnp_ResponseCode: '94',
+      vnp_Message: 'Request is duplicated',
+    });
+
+    const result = await vnpayReconcileService.reconcileOrder(orderId.toString());
+
+    expect(mockedTransactionService.recordVNPayQueryResult).toHaveBeenCalled();
+    expect(mockedSettle).not.toHaveBeenCalled();
+    expect(mockedOrderService.markVNPayRefundCompleted).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      settlement: null,
+      refundedOrder: null,
+      reconciliationStatus: 'unchanged',
+      duplicateRequest: true,
+    });
+  });
+
+  it('still rejects unsigned QueryDr responses that could change financial state', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000509');
+    const transaction = {
+      _id: new Types.ObjectId('665000000000000000000609'),
+      order_id: orderId,
+      txnRef: 'FSORDERA1',
+      status: 'pending',
+      createdAt: new Date('2026-06-18T05:00:00.000Z'),
+      paymentDetail: { vnp_CreateDate: '20260618120000' },
+      gatewayTransactionId: null,
+    };
+    mockedOrder.findById.mockReturnValue(leanResult({
+      _id: orderId,
+      paymentMethod: 'VNPAY',
+      paymentStatus: 'pending',
+      totalAmount: 385000,
+    }) as never);
+    mockedTransactionService.findLatestAttemptByOrderId.mockResolvedValue(transaction as never);
+    mockedQuery.mockResolvedValue({
+      isValidSignature: false,
+      vnp_ResponseCode: '00',
+      vnp_TransactionStatus: '00',
+      vnp_TxnRef: 'FSORDERA1',
+      vnp_Amount: '38500000',
+    });
+
+    await expect(
+      vnpayReconcileService.reconcileOrder(orderId.toString()),
+    ).rejects.toThrow('Invalid VNPay QueryDr response signature');
+
+    expect(mockedSettle).not.toHaveBeenCalled();
+  });
+
   it('completes a full refund only after QueryDr confirms the refund transaction', async () => {
     const orderId = new Types.ObjectId('665000000000000000000502');
     const paymentTransaction = {

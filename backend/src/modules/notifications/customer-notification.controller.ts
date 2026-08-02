@@ -22,6 +22,12 @@ const respondWithError = (res: Response, error: unknown) => {
   if (error instanceof CustomerNotificationServiceError) {
     return errorResponse(res, error.message, error.statusCode);
   }
+  const statusCode = error && typeof error === 'object' && 'statusCode' in error
+    ? Number((error as { statusCode?: unknown }).statusCode)
+    : 500;
+  if (statusCode >= 400 && statusCode < 500 && error instanceof Error) {
+    return errorResponse(res, error.message, statusCode);
+  }
   console.error('Customer notification controller error:', error);
   return errorResponse(res, 'Unable to process notifications', 500);
 };

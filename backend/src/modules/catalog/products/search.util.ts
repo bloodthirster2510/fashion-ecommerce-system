@@ -46,5 +46,11 @@ const toAccentInsensitivePattern = (value: string) =>
 export const toAccentInsensitiveRegex = (value: string): RegExp =>
   new RegExp(toAccentInsensitivePattern(value), 'i');
 
+export const toExactPhraseRegex = (value: string): RegExp =>
+  new RegExp(
+    `(?:^|[^0-9A-Za-zÀ-ỹĐđ])${escapeRegex(value)}(?=$|[^0-9A-Za-zÀ-ỹĐđ])`,
+    'i',
+  );
+
 export const toTokenRegexes = (tokens: string[]): RegExp[] =>
   tokens.map(toAccentInsensitiveRegex);

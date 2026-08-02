@@ -1,14 +1,18 @@
 import type { Request, Response } from 'express';
-import { adminLogin, forgotPassword, refreshToken, sendOtp } from '../auth.controller';
+import { adminLogin, forgotPassword, login, logout, refreshToken, sendOtp } from '../auth.controller';
 import * as authService from '../auth.service';
 import { REFRESH_TOKEN_COOKIE_MODE_HEADER } from '../refresh-token-cookie';
 import { SmsDeliveryError } from '../../../utils/sms-provider';
 import { EmailDeliveryError } from '../../../utils/email-provider';
+import { LoginSecurityError } from '../login-security.service';
 
 jest.mock('../auth.service', () => ({
   sendOtp: jest.fn(),
   forgotPassword: jest.fn(),
   loginAdminUser: jest.fn(),
+  loginUser: jest.fn(),
+  logoutWithAccessToken: jest.fn(),
+  logoutWithRefreshToken: jest.fn(),
   refreshAccessToken: jest.fn(),
 }));
 
@@ -42,14 +46,17 @@ const createRequest = ({
   body = {},
   cookie,
   cookieMode = true,
+  accessToken,
 }: {
   body?: Record<string, unknown>;
   cookie?: string;
   cookieMode?: boolean;
+  accessToken?: string;
 }) => ({
   body,
   headers: {
     ...(cookie ? { cookie } : {}),
+    ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
   },
   get: jest.fn((headerName: string) => (
     cookieMode && headerName.toLowerCase() === REFRESH_TOKEN_COOKIE_MODE_HEADER.toLowerCase()
@@ -141,6 +148,67 @@ describe('auth controller refresh cookie mode', () => {
 
     expect(authService.refreshAccessToken).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('auth controller logout', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.NODE_ENV = 'test';
+  });
+
+  it('falls back to the refresh token when the access token has expired', async () => {
+    (authService.logoutWithAccessToken as jest.Mock).mockRejectedValue(
+      new Error('expired access token'),
+    );
+    (authService.logoutWithRefreshToken as jest.Mock).mockResolvedValue(undefined);
+    const res = createResponse();
+
+    await logout(createRequest({
+      body: { refreshToken: 'valid_refresh' },
+      accessToken: 'expired_access',
+      cookieMode: false,
+    }), res);
+
+    expect(authService.logoutWithAccessToken).toHaveBeenCalledWith('expired_access');
+    expect(authService.logoutWithRefreshToken).toHaveBeenCalledWith('valid_refresh');
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+});
+
+describe('auth controller login lock response', () => {
+  it('returns the structured lock contract and Retry-After header', async () => {
+    (authService.loginUser as jest.Mock).mockRejectedValue(new LoginSecurityError(
+      'Tài khoản tạm khóa',
+      {
+        status: 429,
+        errorCode: 'LOGIN_TEMPORARILY_LOCKED',
+        data: {
+          lockedUntil: '2030-01-01T00:00:00.000Z',
+          retryAfterSeconds: 900,
+          canUnlock: true,
+        },
+      },
+    ));
+    const res = createResponse();
+    res.setHeader = jest.fn() as never;
+
+    await login(createRequest({
+      body: { identifier: 'customer@example.com', password: 'wrong-password' },
+      cookieMode: false,
+    }), res);
+
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '900');
+    expect(res.status).toHaveBeenCalledWith(429);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Tài khoản tạm khóa',
+      errorCode: 'LOGIN_TEMPORARILY_LOCKED',
+      data: {
+        lockedUntil: '2030-01-01T00:00:00.000Z',
+        retryAfterSeconds: 900,
+        canUnlock: true,
+      },
+    });
   });
 });
 

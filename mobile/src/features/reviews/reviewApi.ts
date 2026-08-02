@@ -16,7 +16,10 @@ const request = async <T>(path: string, token?: string, init?: RequestInit) => {
   const response = await apiFetch(path, { ...init, headers, timeoutMs: 30000 });
   const payload = JSON.parse((await response.text()) || '{}') as ApiResponse<T>;
   if (!response.ok || payload.data === undefined) {
-    throw new Error(payload.message || 'Không thể xử lý đánh giá');
+    throw Object.assign(
+      new Error(payload.message || 'Không thể xử lý đánh giá'),
+      { status: response.status },
+    );
   }
   return payload.data;
 };
@@ -25,6 +28,7 @@ export const reviewApi = {
   listProductReviews: (
     productId: string,
     query: { page?: number; limit?: number; rating?: number; sort?: 'newest' | 'oldest' } = {},
+    token?: string,
   ) => {
     const params = new URLSearchParams({
       page: String(query.page ?? 1),
@@ -32,7 +36,10 @@ export const reviewApi = {
       sort: query.sort ?? 'newest',
     });
     if (query.rating !== undefined) params.set('rating', String(query.rating));
-    return request<PublicReviewList>(`/reviews/products/${encodeURIComponent(productId)}?${params.toString()}`);
+    return request<PublicReviewList>(
+      `/reviews/products/${encodeURIComponent(productId)}?${params.toString()}`,
+      token,
+    );
   },
   getEligibility: (token: string, orderId: string, orderItemId: string) => {
     const query = new URLSearchParams({ orderId, orderItemId });

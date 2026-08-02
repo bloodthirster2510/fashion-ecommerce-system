@@ -2,7 +2,8 @@ import type { Request, Response } from 'express';
 import mongoose, { Types } from 'mongoose';
 import { Order } from '../../../database/models';
 import { transactionService } from '../transaction.service';
-import { handleVNPayIpn, settleVNPayPayment } from '../payments.controller';
+import { handleVNPayIpn, handleVNPayReturn, settleVNPayPayment } from '../payments.controller';
+import * as paymentService from '../payments.service';
 import { orderService } from '../../orders/order.service';
 
 jest.mock('../../../database/models', () => ({
@@ -173,6 +174,58 @@ describe('settleVNPayPayment', () => {
       rspCode: '00',
       transactionStatus: 'success',
       paymentStatus: 'paid',
+    });
+  });
+
+  it('records a customer-cancelled VNPay attempt as failed so the order can be retried', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000206');
+    const transactionId = new Types.ObjectId('665000000000000000000306');
+    const transaction = {
+      _id: transactionId,
+      order_id: orderId,
+      amount: 385000,
+      status: 'pending',
+    };
+    const order = {
+      _id: orderId,
+      orderCode: 'FSRETRY',
+      paymentStatus: 'pending',
+    };
+    const resolvedTransaction = { ...transaction, status: 'failed' };
+
+    mockedTransactionService.findByTxnRef.mockResolvedValue(transaction as never);
+    mockedOrder.findById.mockReturnValue(chainLeanResult(order) as never);
+    mockedTransactionService.resolveTransaction.mockResolvedValue(resolvedTransaction as never);
+    mockedTransactionService.findLatestAttemptByOrderId.mockResolvedValue(resolvedTransaction as never);
+
+    const result = await settleVNPayPayment({
+      isValidSignature: true,
+      isSuccess: false,
+      orderId: 'FSRETRYA1',
+      amount: 385000,
+      responseCode: '24',
+      transactionStatus: '02',
+      transactionNo: 'VNP-RETRY-306',
+      bankCode: 'NCB',
+      payDate: '20260618123500',
+    });
+
+    expect(mockedTransactionService.resolveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionId: transactionId.toString(),
+        status: 'failed',
+        failureReason: 'VNPay response 24',
+      }),
+    );
+    expect(mockedOrder.updateOne).toHaveBeenCalledWith(
+      { _id: orderId, paymentStatus: { $nin: ['paid', 'refunded'] } },
+      { $set: { paymentStatus: 'failed' } },
+      { session: mockSession },
+    );
+    expect(result).toMatchObject({
+      rspCode: '00',
+      transactionStatus: 'failed',
+      paymentStatus: 'failed',
     });
   });
 
@@ -359,5 +412,89 @@ describe('handleVNPayIpn', () => {
       Message: 'Internal Server Error',
     });
     expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to handle VNPay IPN:', expect.any(Error));
+  });
+});
+
+describe('handleVNPayReturn', () => {
+  const originalCustomerFrontendUrl = process.env.CUSTOMER_FRONTEND_URL;
+  const originalFrontendUrl = process.env.FRONTEND_URL;
+  const originalMobileReturnUrl = process.env.VNPAY_MOBILE_RETURN_URL;
+  const orderId = new Types.ObjectId('665000000000000000000221');
+  const transactionId = new Types.ObjectId('665000000000000000000321');
+  const verifiedResult = {
+    isValidSignature: true,
+    isSuccess: true,
+    orderId: 'FSRETURNA1',
+    amount: 385000,
+    responseCode: '00',
+    transactionStatus: '00',
+    transactionNo: 'VNP-RETURN-321',
+    bankCode: 'NCB',
+    payDate: '20260618130000',
+  };
+  const transaction = {
+    _id: transactionId,
+    order_id: orderId,
+    amount: 385000,
+    status: 'success',
+  };
+  const order = {
+    _id: orderId,
+    orderCode: 'FSRETURN',
+    paymentStatus: 'paid',
+  };
+
+  const createResponse = () => ({
+    status: jest.fn().mockReturnThis(),
+    send: jest.fn(),
+    json: jest.fn(),
+  }) as unknown as Response;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(paymentService, 'verifyVNPayResponse').mockReturnValue(verifiedResult);
+    mockedTransactionService.findByTxnRef.mockResolvedValue(transaction as never);
+    mockedOrder.findById.mockReturnValue(chainLeanResult(order) as never);
+    mockedOrderService.recordRecommendationPaymentCompleted.mockResolvedValue({} as never);
+  });
+
+  afterEach(() => {
+    if (originalCustomerFrontendUrl === undefined) delete process.env.CUSTOMER_FRONTEND_URL;
+    else process.env.CUSTOMER_FRONTEND_URL = originalCustomerFrontendUrl;
+
+    if (originalFrontendUrl === undefined) delete process.env.FRONTEND_URL;
+    else process.env.FRONTEND_URL = originalFrontendUrl;
+
+    if (originalMobileReturnUrl === undefined) delete process.env.VNPAY_MOBILE_RETURN_URL;
+    else process.env.VNPAY_MOBILE_RETURN_URL = originalMobileReturnUrl;
+
+    jest.restoreAllMocks();
+  });
+
+  it('returns to the web order page when the storefront URL is configured', async () => {
+    process.env.CUSTOMER_FRONTEND_URL = 'http://localhost:5173';
+    process.env.VNPAY_MOBILE_RETURN_URL = 'fashionapp://payment-result';
+    const res = createResponse();
+
+    await handleVNPayReturn({ query: {} } as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining(
+      `http://localhost:5173/orders/${orderId.toString()}?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
+    ));
+  });
+
+  it('falls back to the mobile deep link when no storefront URL is configured', async () => {
+    delete process.env.CUSTOMER_FRONTEND_URL;
+    delete process.env.FRONTEND_URL;
+    process.env.VNPAY_MOBILE_RETURN_URL = 'fashionapp://payment-result';
+    const res = createResponse();
+
+    await handleVNPayReturn({ query: {} } as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining(
+      `fashionapp://payment-result?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
+    ));
   });
 });

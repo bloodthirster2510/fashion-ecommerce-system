@@ -82,11 +82,18 @@ const assertValidObjectId = (id: string, fieldName: string) => {
 };
 
 const toObjectIdList = (values?: string[]) => {
-  if (!values?.length) {
+  if (values === undefined) {
     return [];
   }
 
+  if (!Array.isArray(values)) {
+    throw new CouponServiceError('Invalid object id list', 400);
+  }
+
   return values.map((value) => {
+    if (typeof value !== 'string') {
+      throw new CouponServiceError('Invalid object id', 400);
+    }
     assertValidObjectId(value, 'object id');
     return new Types.ObjectId(value);
   });
@@ -288,18 +295,35 @@ const buildCouponFilter = (query: CouponListQueryInput) => {
 };
 
 const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCreate: boolean) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new CouponServiceError('Coupon payload must be an object', 400);
+  }
   const data: Record<string, unknown> = {};
 
-  if (input.code !== undefined) data.code = normalizeCode(input.code);
-  if (input.name !== undefined) data.name = input.name.trim();
-  if (input.description !== undefined) data.description = input.description?.trim() || null;
+  if (input.code !== undefined) {
+    if (typeof input.code !== 'string') throw new CouponServiceError('code must be a string', 400);
+    data.code = normalizeCode(input.code);
+  }
+  if (input.name !== undefined) {
+    if (typeof input.name !== 'string') throw new CouponServiceError('name must be a string', 400);
+    data.name = input.name.trim();
+  }
+  if (input.description !== undefined) {
+    if (input.description !== null && typeof input.description !== 'string') {
+      throw new CouponServiceError('description must be a string', 400);
+    }
+    data.description = input.description?.trim() || null;
+  }
   if (input.discountType !== undefined) data.discountType = input.discountType;
   if (input.discountValue !== undefined) data.discountValue = toRequiredNumber(input.discountValue, 'discountValue');
   if (input.maxDiscountAmount !== undefined) data.maxDiscountAmount = toNullableNumber(input.maxDiscountAmount);
   if (input.minOrderAmount !== undefined) data.minOrderAmount = toRequiredNumber(input.minOrderAmount, 'minOrderAmount');
   if (input.usageLimit !== undefined) data.usageLimit = toNullablePositiveInteger(input.usageLimit, 'usageLimit');
   if (input.perUserLimit !== undefined) data.perUserLimit = toPositiveInteger(input.perUserLimit, 'perUserLimit');
-  if (input.isPublic !== undefined) data.isPublic = Boolean(input.isPublic);
+  if (input.isPublic !== undefined) {
+    if (typeof input.isPublic !== 'boolean') throw new CouponServiceError('isPublic must be a boolean', 400);
+    data.isPublic = input.isPublic;
+  }
   if (input.eligibleUserTypes !== undefined) data.eligibleUserTypes = normalizeEligibleUserTypes(input.eligibleUserTypes);
   if (input.eligibleMembershipRanks !== undefined) {
     data.eligibleMembershipRanks = toObjectIdList(input.eligibleMembershipRanks);
@@ -308,7 +332,10 @@ const normalizeCouponInput = (input: CreateCouponInput | UpdateCouponInput, isCr
   if (input.applicableCategories !== undefined) data.applicableCategories = toObjectIdList(input.applicableCategories);
   if (input.startAt !== undefined) data.startAt = toDate(input.startAt, 'startAt');
   if (input.endAt !== undefined) data.endAt = toDate(input.endAt, 'endAt');
-  if (input.isActive !== undefined) data.isActive = Boolean(input.isActive);
+  if (input.isActive !== undefined) {
+    if (typeof input.isActive !== 'boolean') throw new CouponServiceError('isActive must be a boolean', 400);
+    data.isActive = input.isActive;
+  }
 
   if (isCreate) {
     const requiredFields = ['code', 'name', 'discountType', 'discountValue', 'startAt', 'endAt'];
@@ -725,8 +752,12 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
 
   let coupon: ICoupon | null;
   try {
+    const updateFilter: Record<string, unknown> = { _id: currentCoupon._id, deletedAt: null };
+    if (typeof data.usageLimit === 'number') {
+      updateFilter.usedCount = { $lte: data.usageLimit };
+    }
     coupon = await Coupon.findOneAndUpdate(
-      { _id: currentCoupon._id, deletedAt: null },
+      updateFilter,
       { $set: data },
       { returnDocument: 'after', runValidators: true },
     );
@@ -739,6 +770,9 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
   }
 
   if (!coupon) {
+    if (typeof data.usageLimit === 'number') {
+      throw new CouponServiceError('Coupon usage changed; refresh before lowering usageLimit', 409);
+    }
     throw new CouponServiceError('Coupon not found', 404);
   }
 
@@ -754,7 +788,8 @@ const updateCouponStatus = async (id: string, isActive: boolean, actorId?: strin
     throw new CouponServiceError('Coupon not found', 404);
   }
 
-  if (isActive && currentCoupon.endAt < new Date()) {
+  const now = new Date();
+  if (isActive && currentCoupon.endAt < now) {
     throw new CouponServiceError('Expired coupon cannot be activated', 409);
   }
 
@@ -771,13 +806,16 @@ const updateCouponStatus = async (id: string, isActive: boolean, actorId?: strin
     data.updatedBy = new Types.ObjectId(actorId);
   }
 
+  const statusFilter: Record<string, unknown> = { _id: currentCoupon._id, deletedAt: null };
+  if (isActive) statusFilter.endAt = { $gte: now };
   const coupon = await Coupon.findOneAndUpdate(
-    { _id: currentCoupon._id, deletedAt: null },
+    statusFilter,
     { $set: data },
     { returnDocument: 'after', runValidators: true },
   );
 
   if (!coupon) {
+    if (isActive) throw new CouponServiceError('Expired coupon cannot be activated', 409);
     throw new CouponServiceError('Coupon not found', 404);
   }
 
@@ -809,13 +847,13 @@ const deleteCoupon = async (id: string, actorId?: string) => {
   }
 
   const coupon = await Coupon.findOneAndUpdate(
-    { _id: id, deletedAt: null },
+    { _id: id, deletedAt: null, usedCount: 0 },
     { $set: updateData },
     { returnDocument: 'after' },
   );
 
   if (!coupon) {
-    throw new CouponServiceError('Coupon not found', 404);
+    throw new CouponServiceError('Coupon usage changed and it can no longer be deleted', 409);
   }
 
   clearValidateCouponCache();
@@ -861,6 +899,9 @@ const validateCoupon = async (userId: string, input: ValidateCouponInput) => {
 };
 
 const listAvailableCoupons = async (userId: string, input: AvailableCouponsInput = {}) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new CouponServiceError('Available coupon payload must be an object', 400);
+  }
   const now = new Date();
   const page = Math.max(1, Number.isInteger(input.page) ? input.page as number : DEFAULT_PAGE);
   const limit = Math.min(

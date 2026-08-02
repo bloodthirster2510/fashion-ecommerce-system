@@ -3,7 +3,6 @@ import type { CatalogCategory, ProductListQuery } from '../catalog.types'
 type CatalogHeroProps = {
   categories: CatalogCategory[]
   query: ProductListQuery
-  fallbackCategoryId?: string
 }
 
 const getCategoryId = (category?: string | { _id: string } | null) => {
@@ -32,11 +31,11 @@ const getFallbackGenderCategory = (categories: CatalogCategory[], gender?: Produ
     .sort((left, right) => left.level - right.level || left.name.localeCompare(right.name, 'vi'))[0]
 }
 
-const resolveHeroData = (categories: CatalogCategory[], query: ProductListQuery, fallbackCategoryId?: string) => {
+const resolveHeroData = (categories: CatalogCategory[], query: ProductListQuery) => {
   const categoriesById = new Map(categories.map((category) => [category._id, category]))
   const selectedCategory = query.categoryId
     ? categoriesById.get(query.categoryId)
-    : getFallbackGenderCategory(categories, query.gender) ?? (fallbackCategoryId ? categoriesById.get(fallbackCategoryId) : undefined)
+    : getFallbackGenderCategory(categories, query.gender)
 
   if (!selectedCategory) {
     return null
@@ -58,8 +57,8 @@ const resolveHeroData = (categories: CatalogCategory[], query: ProductListQuery,
   }
 }
 
-export function CatalogHero({ categories, query, fallbackCategoryId }: CatalogHeroProps) {
-  const heroData = resolveHeroData(categories, query, fallbackCategoryId)
+export function CatalogHero({ categories, query }: CatalogHeroProps) {
+  const heroData = resolveHeroData(categories, query)
 
   if (!heroData) {
     return null

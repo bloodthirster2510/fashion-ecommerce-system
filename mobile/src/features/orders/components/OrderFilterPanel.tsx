@@ -83,18 +83,20 @@ export function OrderFilterPanel({
 
 const styles = StyleSheet.create({
   filterPanel: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    gap: spacing.sm,
-    backgroundColor: colors.background,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   searchBox: {
-    minHeight: 48,
-    borderRadius: radii.sm,
+    minHeight: 44,
+    borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
+    backgroundColor: colors.field,
+    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -117,7 +119,7 @@ const styles = StyleSheet.create({
     paddingRight: spacing.lg,
   },
   paymentFilterButton: {
-    minHeight: 36,
+    minHeight: 34,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -147,7 +149,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.goldDark,
   },
   resetFilterButton: {
-    minHeight: 36,
+    minHeight: 34,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.dangerSoft,

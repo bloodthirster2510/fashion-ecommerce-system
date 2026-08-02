@@ -4,8 +4,8 @@ import {
   formatCurrency,
   formatShippingProvider,
   formatShippingStatus,
-  getPaymentPillClass,
-  getShippingPillClass,
+  getOrderDisplayStatus,
+  getOrderProgressPercent,
   paymentMethodLabels,
   paymentStatusLabels,
 } from '../orderPresentation'
@@ -15,7 +15,6 @@ import {
   getPaymentDeadlineStatus,
 } from '../utils/orderQueue'
 import { OrderProgressRail } from './OrderProgressRail'
-import { OrderStatusPill } from './OrderStatusPill'
 
 type CopyReferenceHandler = (value: string, label: string) => void | Promise<void>
 
@@ -71,25 +70,54 @@ export function OrderTotalCell({ order }: { order: AdminOrder }) {
 }
 
 export function OrderFulfillmentCell({ order }: { order: AdminOrder }) {
-  const paymentDeadlineStatus = getPaymentDeadlineStatus(order)
-  const shippingStatus = order.shipping?.trackingCode || formatShippingStatus(order.shipping?.status)
+  const displayStatus = getOrderDisplayStatus(order)
+  const progressPercent = Math.round(getOrderProgressPercent(order.status, order.shipping?.status))
+  const isException = order.status === 'return_requested' || order.status === 'return_approved' || order.status === 'returned'
+  const progressLabel = order.status === 'cancelled'
+    ? 'Đã dừng'
+    : isException
+      ? 'Luồng trả hàng'
+      : `${progressPercent}%`
 
   return (
-    <div className="admin-order-status-cell admin-order-status-cell--combined">
-      <OrderStatusPill order={order} />
+    <div className="admin-order-status-cell admin-order-workflow-cell">
+      <div className="admin-order-status-heading">
+        <span className={`${displayStatus.className} admin-order-primary-status`}>{displayStatus.label}</span>
+        <span className="admin-order-progress-value">{progressLabel}</span>
+      </div>
       <OrderProgressRail compact shippingStatus={order.shipping?.status} status={order.status} />
-      <small className="admin-order-status-subline">
-        <span className={getPaymentPillClass(order.paymentStatus)}>
-          {paymentStatusLabels[order.paymentStatus]}
-        </span>
-        <span>{paymentMethodLabels[order.paymentMethod]}</span>
-      </small>
-      <small className="admin-order-status-subline">
-        <span className={getShippingPillClass(order.shipping?.status)}>{formatShippingProvider(order.shipping?.provider)}</span>
-        <span>{shippingStatus}</span>
-      </small>
+    </div>
+  )
+}
+
+export function OrderPaymentStatusCell({ order }: { order: AdminOrder }) {
+  const paymentDeadlineStatus = getPaymentDeadlineStatus(order)
+
+  return (
+    <div className="admin-order-operation-cell">
+      <span className={`admin-order-meta-state is-${order.paymentStatus}`}>
+        {paymentStatusLabels[order.paymentStatus]}
+      </span>
+      <span className="admin-order-operation-meta">{paymentMethodLabels[order.paymentMethod]}</span>
       {paymentDeadlineStatus ? (
-        <small className={paymentDeadlineStatus.className}>{paymentDeadlineStatus.label}</small>
+        <small className={`${paymentDeadlineStatus.className} admin-order-deadline-note`}>
+          {paymentDeadlineStatus.label}
+        </small>
+      ) : null}
+    </div>
+  )
+}
+
+export function OrderShippingStatusCell({ order }: { order: AdminOrder }) {
+  const shippingStatus = formatShippingStatus(order.shipping?.status)
+  const trackingCode = order.shipping?.trackingCode?.trim()
+
+  return (
+    <div className="admin-order-operation-cell">
+      <span className="admin-order-meta-provider">{formatShippingProvider(order.shipping?.provider)}</span>
+      <span className="admin-order-operation-meta" title={shippingStatus}>{shippingStatus}</span>
+      {trackingCode ? (
+        <span className="admin-order-tracking-code" title={trackingCode}>{trackingCode}</span>
       ) : null}
     </div>
   )

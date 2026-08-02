@@ -34,6 +34,7 @@ import {
   getPaymentDeadlineStatus,
   shouldWarnPaymentBeforeShipping,
 } from './utils/orderQueue'
+import { getLatestVNPayRefundTransaction } from './utils/vnpayReconcile'
 
 const AUDIT_LOG_PAGE_SIZE = 3
 type OrderDrawerTab = 'overview' | 'items' | 'payment' | 'shipping' | 'return' | 'history'
@@ -146,6 +147,7 @@ export function OrderDetailDrawer({
   const attention = getOrderAttention(order)
   const returnWindowStatus = getReturnWindowStatus(order)
   const paymentDeadlineStatus = getPaymentDeadlineStatus(order)
+  const latestVNPayRefundTransaction = getLatestVNPayRefundTransaction(transactions)
   const defaultDrawerTab = getDefaultDrawerTab(order)
   const visibleAuditLogs = useMemo(
     () => auditLogs.slice(0, visibleAuditLogCount),
@@ -260,18 +262,21 @@ export function OrderDetailDrawer({
           />
         ) : null}
 
-        {activeDrawerTab === (needsRefundHandling ? 'return' : 'payment') ? (
+        {activeDrawerTab === 'return' && needsRefundHandling ? (
           <OrderRefundMethodsPanel
             canAdjustPayments={canAdjustPayments}
             canManageCustomerPaymentMethods={canManageCustomerPaymentMethods}
             canReadCustomerPaymentMethods={canReadCustomerPaymentMethods}
             isActionLoading={isActionLoading}
+            isTransactionLoading={isLoading}
             needsRefundHandling={needsRefundHandling}
             order={order}
             paymentMethods={paymentMethods}
+            refundTransaction={latestVNPayRefundTransaction}
             revealedRefundAccounts={revealedRefundAccounts}
             onCopyReference={onCopyReference}
             onRefundVNPay={onRefundVNPay}
+            onReconcileVNPay={onReconcileVNPay}
             onRevealRefundAccount={onRevealRefundAccount}
             onUpdatePaymentMethodStatus={onUpdatePaymentMethodStatus}
           />

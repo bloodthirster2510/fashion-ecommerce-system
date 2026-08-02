@@ -1,10 +1,27 @@
-import { SupportMessage, SupportTicket } from '../../../database/models';
-import { addCustomerMessage, createGuestFeedback, createTicket, getCustomerTicket, toCustomerSupportMessage, toCustomerSupportTicket } from '../support.service';
+import { FaqArticle, FaqVote, SupportMessage, SupportTicket } from '../../../database/models';
+import {
+  addCustomerMessage,
+  closeCustomerTicket,
+  createGuestFeedback,
+  createTicket,
+  getCustomerTicket,
+  listFaqs,
+  voteFaq,
+  reopenCustomerTicket,
+  toCustomerSupportMessage,
+  toCustomerSupportTicket,
+} from '../support.service';
 
 jest.mock('../../../database/models', () => ({
   Coupon: { exists: jest.fn() },
-  FaqArticle: {},
-  FaqVote: {},
+  FaqArticle: {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    findOneAndUpdate: jest.fn(),
+    findByIdAndUpdate: jest.fn(),
+    countDocuments: jest.fn(),
+  },
+  FaqVote: { create: jest.fn(), deleteOne: jest.fn() },
   FAQ_CATEGORIES: ['orders', 'shipping', 'returns', 'payments', 'promotions', 'loyalty', 'account', 'other'],
   Order: { exists: jest.fn() },
   SupportMessage: { find: jest.fn(), create: jest.fn(), deleteOne: jest.fn() },
@@ -17,6 +34,8 @@ const userId = '665000000000000000000001';
 const ticketId = '665000000000000000000002';
 const mockedTicket = SupportTicket as jest.Mocked<typeof SupportTicket>;
 const mockedMessage = SupportMessage as jest.Mocked<typeof SupportMessage>;
+const mockedFaq = FaqArticle as jest.Mocked<typeof FaqArticle>;
+const mockedFaqVote = FaqVote as jest.Mocked<typeof FaqVote>;
 
 describe('support service security and state rules', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -57,6 +76,125 @@ describe('support service security and state rules', () => {
     await expect(addCustomerMessage(ticketId, userId, { body: 'Tôi muốn bổ sung thông tin.' }))
       .rejects.toMatchObject({ message: 'Closed ticket cannot receive messages', statusCode: 409 });
     expect(mockedMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('returns only published, customer-safe FAQ fields', async () => {
+    const faq = {
+      _id: '665000000000000000000006',
+      question: 'Làm sao cập nhật tài khoản?',
+      answer: 'Bạn mở hồ sơ và chọn chỉnh sửa.',
+      category: 'account',
+      helpfulCount: 3,
+      notHelpfulCount: 1,
+    };
+    const query: Record<string, jest.Mock> = {};
+    query.select = jest.fn().mockReturnValue(query);
+    query.sort = jest.fn().mockReturnValue(query);
+    query.skip = jest.fn().mockReturnValue(query);
+    query.limit = jest.fn().mockReturnValue(query);
+    query.lean = jest.fn().mockResolvedValue([faq]);
+    mockedFaq.find.mockReturnValue(query as never);
+    mockedFaq.countDocuments.mockResolvedValue(1);
+
+    await expect(listFaqs({ page: 1, limit: 20 })).resolves.toMatchObject({ items: [faq] });
+
+    expect(mockedFaq.find).toHaveBeenCalledWith({ isPublished: true });
+    expect(query.select).toHaveBeenCalledWith(
+      '_id question answer category sortOrder helpfulCount notHelpfulCount createdAt updatedAt',
+    );
+  });
+
+  it('keeps management fields available in the admin FAQ listing', async () => {
+    const query: Record<string, jest.Mock> = {};
+    query.select = jest.fn().mockReturnValue(query);
+    query.sort = jest.fn().mockReturnValue(query);
+    query.skip = jest.fn().mockReturnValue(query);
+    query.limit = jest.fn().mockReturnValue(query);
+    query.lean = jest.fn().mockResolvedValue([]);
+    mockedFaq.find.mockReturnValue(query as never);
+    mockedFaq.countDocuments.mockResolvedValue(0);
+
+    await listFaqs({ page: 1, limit: 100, publishedOnly: false });
+
+    expect(mockedFaq.find).toHaveBeenCalledWith({});
+    expect(query.select).not.toHaveBeenCalled();
+  });
+
+  it('removes a vote if the FAQ becomes unavailable before its counter update', async () => {
+    const faqId = '665000000000000000000006';
+    const voteId = '665000000000000000000007';
+    mockedFaq.findOne.mockResolvedValue({ _id: faqId, isPublished: true } as never);
+    mockedFaqVote.create.mockResolvedValue({ _id: voteId } as never);
+    const updateQuery: Record<string, jest.Mock> = {};
+    updateQuery.select = jest.fn().mockReturnValue(updateQuery);
+    updateQuery.lean = jest.fn().mockResolvedValue(null);
+    mockedFaq.findOneAndUpdate.mockReturnValue(updateQuery as never);
+    mockedFaq.findByIdAndUpdate.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) } as never);
+
+    await expect(voteFaq(faqId, userId, { value: 'helpful' }))
+      .rejects.toMatchObject({ message: 'FAQ is no longer available', statusCode: 409 });
+
+    expect(mockedFaq.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: expect.anything(), isPublished: true },
+      { $inc: { helpfulCount: 1 } },
+      { returnDocument: 'after' },
+    );
+    expect(updateQuery.select).toHaveBeenCalledWith(
+      '_id question answer category sortOrder helpfulCount notHelpfulCount createdAt updatedAt',
+    );
+    expect(mockedFaqVote.deleteOne).toHaveBeenCalledWith({ _id: voteId });
+  });
+
+  it('removes a just-created message when the ticket closes concurrently', async () => {
+    const messageId = '665000000000000000000005';
+    const messageAt = new Date('2026-08-01T10:00:00.000Z');
+    mockedTicket.findOne
+      .mockResolvedValueOnce({
+        _id: ticketId,
+        status: 'in_progress',
+        lastMessageAt: new Date('2026-08-01T09:00:00.000Z'),
+      } as never)
+      .mockResolvedValueOnce({ _id: ticketId, status: 'closed' } as never);
+    mockedMessage.create.mockResolvedValue({ _id: messageId, createdAt: messageAt } as never);
+    mockedTicket.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(addCustomerMessage(ticketId, userId, { body: 'Tôi bổ sung thêm thông tin.' }))
+      .rejects.toMatchObject({ message: 'Ticket cannot receive messages', statusCode: 409 });
+
+    expect(mockedMessage.deleteOne).toHaveBeenCalledWith({ _id: messageId });
+  });
+
+  it('scopes reopen and close transitions to the owning customer', async () => {
+    const reopenLean = jest.fn().mockResolvedValue({ _id: ticketId, status: 'in_progress' });
+    const closeLean = jest.fn().mockResolvedValue({ _id: ticketId, status: 'closed' });
+    mockedTicket.findOneAndUpdate
+      .mockReturnValueOnce({ lean: reopenLean } as never)
+      .mockReturnValueOnce({ lean: closeLean } as never);
+
+    await expect(reopenCustomerTicket(ticketId, userId)).resolves.toMatchObject({ status: 'in_progress' });
+    await expect(closeCustomerTicket(ticketId, userId)).resolves.toMatchObject({ status: 'closed' });
+
+    expect(mockedTicket.findOneAndUpdate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        _id: expect.anything(),
+        userId: expect.anything(),
+        status: 'resolved',
+        reopenDeadline: { $gte: expect.any(Date) },
+      }),
+      expect.objectContaining({ status: 'in_progress', requiresReply: true }),
+      { returnDocument: 'after' },
+    );
+    expect(mockedTicket.findOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        _id: expect.anything(),
+        userId: expect.anything(),
+        status: { $nin: ['closed', 'spam'] },
+      }),
+      expect.objectContaining({ status: 'closed', requiresReply: false }),
+      { returnDocument: 'after' },
+    );
   });
 
   it('silently accepts honeypot guest feedback without creating a ticket', async () => {
