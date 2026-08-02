@@ -115,6 +115,7 @@ export const sharedStyles = {
     borderRadius: radii.sm,
     padding: 15,
     fontSize: 16,
+    color: colors.textBody,
     backgroundColor: colors.field,
   } satisfies TextStyle,
   errorBanner: {

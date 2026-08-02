@@ -41,6 +41,7 @@ import { useOrderRealtime } from './orderRealtime';
 import { OrderCard } from './components/OrderCard';
 import { OrderFilterPanel, type PaymentFilter } from './components/OrderFilterPanel';
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 
 type OrderListNavigationProp = StackNavigationProp<RootStackParamList, 'Orders'>;
 type OrderListRouteProp = RouteProp<RootStackParamList, 'Orders'>;
@@ -132,6 +133,8 @@ const OrderListScreen = () => {
   const route = useRoute<OrderListRouteProp>();
   const isFocused = useIsFocused();
   const { logout, runWithAuth, session } = useAuth();
+  const { settings: storefrontSettings } = useStorefrontSettings();
+  const shopName = storefrontSettings.identity.name;
   const initialStatus = getOrderTab(route.params?.status ?? 'all').key;
   const ordersAccountScope = session?.user?._id ?? 'logged-out';
   const initialOrdersQueryKeyRef = React.useRef(
@@ -376,7 +379,7 @@ const OrderListScreen = () => {
           activeOpacity={0.8}
           accessibilityLabel="Trở về"
         >
-          <MaterialCommunityIcons name="arrow-left" size={27} color={colors.text} />
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
           <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
@@ -388,7 +391,7 @@ const OrderListScreen = () => {
             activeOpacity={0.8}
             accessibilityLabel="Tìm kiếm và lọc đơn hàng"
           >
-            <MaterialCommunityIcons name={isFilterOpen ? 'close' : 'magnify'} size={27} color={colors.brand} />
+            <MaterialCommunityIcons name={isFilterOpen ? 'close' : 'magnify'} size={24} color={colors.white} />
             {hasActiveFilters && !isFilterOpen ? <View style={styles.headerActionDot} /> : null}
           </TouchableOpacity>
           <TouchableOpacity
@@ -397,7 +400,7 @@ const OrderListScreen = () => {
             activeOpacity={0.8}
             accessibilityLabel="Trung tâm hỗ trợ"
           >
-            <MaterialCommunityIcons name="message-processing-outline" size={26} color={colors.brand} />
+            <MaterialCommunityIcons name="message-processing-outline" size={24} color={colors.white} />
           </TouchableOpacity>
         </View>
       </View>
@@ -455,7 +458,7 @@ const OrderListScreen = () => {
             <View style={styles.statePanel}>
               <ActivityIndicator size="large" color={colors.brand} />
               <Text style={styles.stateTitle}>Đang tải đơn hàng</Text>
-              <Text style={styles.stateText}>Fashionista đang gom lại lịch sử mua sắm của bạn.</Text>
+              <Text style={styles.stateText}>{shopName} đang gom lại lịch sử mua sắm của bạn.</Text>
             </View>
           ) : errorMessage ? (
             <View style={styles.statePanel}>
@@ -488,6 +491,7 @@ const OrderListScreen = () => {
                   key={order._id}
                   isConfirming={isConfirmingId === order._id}
                   order={order}
+                  shopName={shopName}
                   onConfirmReceived={handleConfirmReceived}
                   onOpen={(nextOrder) => navigation.navigate('OrderDetail', { orderId: nextOrder._id })}
                 />
@@ -521,26 +525,16 @@ const OrderListScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.brand,
   },
   header: {
     ...brandedHeaderStyles.container,
-    minHeight: 68,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   headerAction: {
     ...brandedHeaderStyles.action,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'transparent',
   },
   headerActionActive: {
-    backgroundColor: colors.brandSoft,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   headerActions: {
     flexDirection: 'row',
@@ -556,20 +550,16 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.danger,
     borderWidth: 1,
-    borderColor: colors.surface,
+    borderColor: colors.brand,
   },
   headerTitleGroup: {
     ...brandedHeaderStyles.titleGroup,
-    alignItems: 'flex-start',
-    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
   },
   headerTitle: {
     ...brandedHeaderStyles.title,
-    color: colors.text,
-    fontSize: 21,
-    lineHeight: 28,
     marginTop: 0,
-    textAlign: 'left',
+    textAlign: 'center',
   },
   content: {
     flex: 1,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
-import { sharedStyles } from '../../theme';
+import { colors, sharedStyles } from '../../theme';
 
 type InputProps = {
   label: string;
@@ -29,6 +29,8 @@ const Input: React.FC<InputProps> = ({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
+        placeholderTextColor={colors.textSubtle}
+        selectionColor={colors.brand}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}

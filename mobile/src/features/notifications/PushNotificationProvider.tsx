@@ -128,17 +128,17 @@ export const PushNotificationProvider = ({ children }: { children: React.ReactNo
   React.useEffect(() => {
     if (!pushNotificationCapability.remoteEnabled) return;
     let unsubscribe: (() => void) | undefined;
-    subscribeToPushTokenChanges((token) => {
+    subscribeToPushTokenChanges(() => {
       const current = stateRef.current;
-      if (!current.enabled || !current.platform || !session?.accessToken || token === current.token) return;
-      void replaceToken(token, current.platform).catch((caught) => {
+      if (!current.enabled || !session?.accessToken) return;
+      void syncRegistration(false, true).catch((caught) => {
         setError(caught instanceof Error ? caught.message : 'Không thể cập nhật push token.');
       });
     }).then((cleanup) => {
       unsubscribe = cleanup;
     }).catch(() => undefined);
     return () => unsubscribe?.();
-  }, [replaceToken, session?.accessToken]);
+  }, [session?.accessToken, syncRegistration]);
 
   React.useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {

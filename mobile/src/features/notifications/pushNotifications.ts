@@ -250,13 +250,16 @@ export const subscribeToPushNotifications = async (
 };
 
 export const subscribeToPushTokenChanges = async (
-  onToken: (token: string) => void,
+  onChange: () => void,
   moduleLoader: () => Promise<NotificationModule> = loadNotifications,
 ) => {
   const Notifications = await moduleLoader();
   if (!Notifications.addPushTokenListener) return () => undefined;
-  const subscription = Notifications.addPushTokenListener(({ data }) => {
-    if (data) onToken(data);
+  const subscription = Notifications.addPushTokenListener(() => {
+    // This listener emits the native FCM/APNs token, not an Expo push token.
+    // Treat it as an invalidation signal and let the provider request a fresh
+    // ExpoPushToken before syncing with the backend.
+    onChange();
   });
   return () => subscription.remove();
 };

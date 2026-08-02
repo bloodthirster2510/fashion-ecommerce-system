@@ -19,6 +19,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { paymentApi, PaymentApiError } from '../payments/paymentApi';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 
 type OrderSuccessNavigationProp = StackNavigationProp<RootStackParamList, 'OrderSuccess'>;
 type OrderSuccessRouteProp = RouteProp<RootStackParamList, 'OrderSuccess'>;
@@ -79,6 +80,8 @@ const OrderSuccessScreen = () => {
   const navigation = useNavigation<OrderSuccessNavigationProp>();
   const route = useRoute<OrderSuccessRouteProp>();
   const { runWithAuth, session } = useAuth();
+  const { settings: storefrontSettings } = useStorefrontSettings();
+  const shopName = storefrontSettings.identity.name;
 
   const {
     orderId,
@@ -283,7 +286,7 @@ const OrderSuccessScreen = () => {
           </View>
           <Text style={styles.heroTitle}>Đặt hàng thành công!</Text>
           <Text style={styles.heroSubtitle}>
-            Cảm ơn bạn đã mua sắm tại FashionShop
+            Cảm ơn bạn đã mua sắm tại {shopName}
           </Text>
         </View>
 

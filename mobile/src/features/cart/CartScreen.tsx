@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   RefreshControl,
@@ -442,24 +441,7 @@ const CartScreen = () => {
     }
   };
 
-  const handleRemoveItem = (item: CartItem) => {
-    if (!session?.accessToken || pendingItemId) {
-      return;
-    }
-
-    Alert.alert('Bỏ sản phẩm khỏi giỏ?', 'Bạn chắc chắn muốn bỏ sản phẩm này?', [
-      { text: 'Không', style: 'cancel' },
-      {
-        text: 'Đồng ý',
-        style: 'destructive',
-        onPress: () => {
-          void confirmRemoveItem(item);
-        },
-      },
-    ]);
-  };
-
-  const confirmRemoveItem = async (item: CartItem) => {
+  const handleRemoveItem = async (item: CartItem) => {
     if (!session?.accessToken || pendingItemId) {
       return;
     }
@@ -468,11 +450,6 @@ const CartScreen = () => {
       setPendingItemId(item._id);
       const nextCart = await runWithAuth((accessToken) => cartApi.deleteItem(accessToken, item._id));
       updateCartState(nextCart);
-      showNotice({
-        tone: 'success',
-        title: 'Đã xóa sản phẩm',
-        message: `${getItemTitle(item)} đã được bỏ khỏi giỏ hàng.`,
-      }, 3000);
     } catch (error) {
       showNotice({
         tone: 'error',
@@ -557,7 +534,7 @@ const CartScreen = () => {
             </View>
             <TouchableOpacity
               style={styles.removeButton}
-              onPress={() => handleRemoveItem(item)}
+              onPress={() => void handleRemoveItem(item)}
               accessibilityLabel="Xóa khỏi giỏ hàng"
               activeOpacity={0.82}
             >

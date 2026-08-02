@@ -143,6 +143,7 @@ describe('customer notification service', () => {
 
   it('keeps generated images actionable when only the video stage fails', async () => {
     mockedNotification.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() } as never);
+    const imageUrl = 'https://cdn.example.com/generated-outfit.jpg';
 
     await recordVirtualTryOnOutcomeNotification({
       userId,
@@ -150,6 +151,7 @@ describe('customer notification service', () => {
       outcome: 'partial_video_failed',
       outputMode: 'image_and_video',
       generatedImageCount: 4,
+      imageUrl,
       videoStatus: 'failed',
       errorCode: 'VIDEO_PROVIDER_FAILED',
       retryable: true,
@@ -167,6 +169,7 @@ describe('customer notification service', () => {
             type: 'virtual_try_on_result',
             entityId: '665000000000000000000020',
           }),
+          imageUrl,
           data: expect.objectContaining({ generatedImageCount: 4, retryable: true }),
         }),
       }),

@@ -49,6 +49,7 @@ import { OrderProductItem } from './components/OrderProductItem';
 import { OrderTimeline } from './components/OrderTimeline';
 import { ReturnRequestModal } from './components/ReturnRequestModal';
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
@@ -188,6 +189,8 @@ const OrderDetailScreen = () => {
   const navigation = useNavigation<OrderDetailNavigationProp>();
   const route = useRoute<OrderDetailRouteProp>();
   const { logout, runWithAuth, session } = useAuth();
+  const { settings: storefrontSettings } = useStorefrontSettings();
+  const shopName = storefrontSettings.identity.name;
   const orderId = route.params.orderId;
   const isFocused = useIsFocused();
   const orderAccountScope = session?.user?._id ?? 'logged-out';
@@ -614,7 +617,7 @@ const OrderDetailScreen = () => {
       Alert.alert(
         'Thông tin giao hàng',
         [
-          `Đơn vị: ${order.shipping?.provider || 'Fashionista Delivery'}`,
+          `Đơn vị: ${order.shipping?.provider || `${shopName} Delivery`}`,
           `Mã vận đơn: ${order.shipping?.trackingCode || 'Đang cập nhật'}`,
           `Trạng thái: ${getShippingStatusLabel(order.shipping?.status)}`,
           `Địa chỉ: ${formatAddress(order)}`,
@@ -767,7 +770,7 @@ const OrderDetailScreen = () => {
           <View style={styles.invoiceModal}>
             <View style={styles.invoiceHeader}>
               <View>
-                <Text style={styles.invoiceEyebrow}>FASHIONISTA</Text>
+                <Text style={styles.invoiceEyebrow}>{shopName}</Text>
                 <Text style={styles.invoiceTitle}>Hóa đơn đơn hàng</Text>
               </View>
               <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsInvoiceVisible(false)}>
@@ -1285,7 +1288,7 @@ const OrderDetailScreen = () => {
             </View>
             <Text style={styles.infoValue}>{formatAddress(order)}</Text>
             <Text style={styles.infoHint}>{order.shippingAddress.phoneNumber}</Text>
-            <Text style={styles.infoHint}>Đơn vị: {order.shipping?.provider || 'Fashionista Delivery'}</Text>
+            <Text style={styles.infoHint}>Đơn vị: {order.shipping?.provider || `${shopName} Delivery`}</Text>
             <Text style={styles.infoHint}>Mã vận đơn: {order.shipping?.trackingCode || 'Đang cập nhật'}</Text>
           </View>
         </View>

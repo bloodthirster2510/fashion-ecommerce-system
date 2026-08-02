@@ -18,15 +18,18 @@ import {
 type OrderCardProps = {
   isConfirming: boolean;
   order: CustomerOrder;
+  shopName: string;
   onConfirmReceived: (order: CustomerOrder) => void;
   onOpen: (order: CustomerOrder) => void;
 };
 
 const isPreviewableImage = (value?: string | null) => !!value && /^https?:\/\//i.test(value.trim());
+const getShopBadgeLabel = (shopName: string) => shopName.trim().slice(0, 2).toUpperCase() || 'CD';
 
 export function OrderCard({
   isConfirming,
   order,
+  shopName,
   onConfirmReceived,
   onOpen,
 }: OrderCardProps) {
@@ -62,9 +65,9 @@ export function OrderCard({
         <View style={styles.storeGroup}>
           <View style={styles.storeBadge}>
             <MaterialCommunityIcons name="shopping-outline" size={13} color={colors.white} />
-            <Text style={styles.storeBadgeText}>F+</Text>
+            <Text style={styles.storeBadgeText}>{getShopBadgeLabel(shopName)}</Text>
           </View>
-          <Text style={styles.storeName} numberOfLines={1}>Fashionista Official Store</Text>
+          <Text style={styles.storeName} numberOfLines={1}>{shopName}</Text>
         </View>
         <Text style={[styles.statusText, { color: displayState.color }]} numberOfLines={1}>
           {displayState.label}
@@ -107,7 +110,7 @@ export function OrderCard({
 
         <View style={styles.productInfo}>
           <Text style={styles.productName} numberOfLines={2}>
-            {primaryItem?.name ?? 'Sản phẩm Fashionista'}
+            {primaryItem?.name ?? 'Sản phẩm'}
           </Text>
           <View style={styles.productMetaRow}>
             <Text style={styles.productMeta} numberOfLines={1}>

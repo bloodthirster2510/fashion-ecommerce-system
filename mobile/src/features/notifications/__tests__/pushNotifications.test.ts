@@ -3,6 +3,7 @@ import {
   resolvePushNavigationTarget,
   resolvePushNotificationConfig,
   subscribeToPushNotifications,
+  subscribeToPushTokenChanges,
 } from '../pushNotifications';
 
 const response = (
@@ -149,5 +150,33 @@ describe('push navigation', () => {
       async () => notificationModule,
     )).resolves.toMatchObject({ status: 'permission_denied' });
     expect(notificationModule.requestPermissionsAsync).not.toHaveBeenCalled();
+  });
+
+  it('treats native token changes as a refresh signal instead of an Expo token', async () => {
+    let nativeTokenHandler: ((token: { data: string }) => void) | undefined;
+    const remove = jest.fn();
+    const notificationModule = {
+      getPermissionsAsync: jest.fn(),
+      requestPermissionsAsync: jest.fn(),
+      getExpoPushTokenAsync: jest.fn(),
+      setNotificationHandler: jest.fn(),
+      addNotificationResponseReceivedListener: jest.fn(),
+      addPushTokenListener: jest.fn((handler) => {
+        nativeTokenHandler = handler;
+        return { remove };
+      }),
+      getLastNotificationResponseAsync: jest.fn(),
+    };
+    const onChange = jest.fn();
+
+    const unsubscribe = await subscribeToPushTokenChanges(
+      onChange,
+      async () => notificationModule,
+    );
+    nativeTokenHandler?.({ data: 'native-fcm-token-that-backend-must-not-receive' });
+
+    expect(onChange).toHaveBeenCalledWith();
+    unsubscribe();
+    expect(remove).toHaveBeenCalled();
   });
 });
