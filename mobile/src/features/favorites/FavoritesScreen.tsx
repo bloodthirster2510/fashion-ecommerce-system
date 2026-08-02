@@ -166,7 +166,7 @@ const FavoritesScreen = () => {
       void loadFavorites('auto');
     },
     [loadFavorites],
-    { staleMs: 30 * 1000, runOnDepsChange: true },
+    { cacheScope: 'favorites:', staleMs: 30 * 1000, runOnDepsChange: true },
   );
 
   const handleSearchSubmit = () => {

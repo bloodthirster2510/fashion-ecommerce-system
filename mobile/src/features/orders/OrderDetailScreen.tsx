@@ -322,7 +322,7 @@ const OrderDetailScreen = () => {
       void loadOrder(mode);
     },
     [loadOrder, orderQueryKey],
-    { staleMs: 15 * 1000 },
+    { cacheScope: 'orders:', runOnDepsChange: true, staleMs: 15 * 1000 },
   );
 
   const orderRealtime = useOrderRealtime(session?.accessToken, (event) => {

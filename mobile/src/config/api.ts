@@ -113,6 +113,15 @@ const getOrderedApiBaseUrls = () => {
 export const apiFetch = async (path: string, init?: ApiFetchInit) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const method = init?.method?.toUpperCase() ?? 'GET';
+  const headers = new Headers(init?.headers);
+  const isRead = method === 'GET' || method === 'HEAD';
+  const fetchInit: ApiFetchInit = {
+    ...init,
+    // Public reads may use the platform HTTP cache and validators. Authenticated
+    // data and writes are kept out of the shared native HTTP cache.
+    cache: init?.cache ?? (isRead && !headers.has('Authorization') ? 'no-cache' : 'no-store'),
+    headers,
+  };
   const retryOnTimeout = init?.retryOnTimeout ?? ['GET', 'HEAD', 'OPTIONS'].includes(method);
   // Reads may fail over across known endpoints, including after session restore.
   // Writes stay on one endpoint unless a caller explicitly opts into replay.
@@ -126,7 +135,7 @@ export const apiFetch = async (path: string, init?: ApiFetchInit) => {
     const requestUrl = `${baseUrl}${normalizedPath}`;
 
     try {
-      const response = await fetchWithTimeout(requestUrl, init);
+      const response = await fetchWithTimeout(requestUrl, fetchInit);
       preferredApiBaseUrl = baseUrl;
       return response;
     } catch (error) {

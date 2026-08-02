@@ -100,7 +100,6 @@ const VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'com
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
 const hardBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
   'NO_PERSON_DETECTED',
-  'IMAGE_POLICY_BLOCKED',
 ]);
 const terminalPolicyJobErrorCodes = new Set([
   'PROVIDER_SAFETY_BLOCKED',

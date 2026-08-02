@@ -55,14 +55,14 @@ const getUploadAssetErrorAlert = (error: unknown) => {
     if (error.errorCode === 'VIRTUAL_TRY_ON_ACCOUNT_LOCKED') {
       return {
         title: 'Tài khoản bị khóa',
-        message: error.message || 'Tính năng phối đồ ảo của tài khoản đang bị khóa. Vui lòng liên hệ cửa hàng để được hỗ trợ.',
+        message: error.message || 'Tính năng phối đồ đang bị khóa. Hãy liên hệ cửa hàng để được hỗ trợ.',
       };
     }
 
     if (error.errorCode === 'IMAGE_POLICY_BLOCKED') {
       return {
         title: 'Ảnh chưa phù hợp',
-        message: 'Ảnh có thể chứa nội dung nhạy cảm hoặc phản cảm. Bạn chọn/chụp ảnh rõ người và phù hợp hơn nhé.',
+        message: 'Hãy chọn ảnh khác, rõ người hơn.',
       };
     }
 
@@ -92,7 +92,7 @@ const getUploadAssetErrorAlert = (error: unknown) => {
     if (error.errorCode === 'VALIDATION_PROVIDER_FAILED') {
       return {
         title: 'Chưa kiểm tra được ảnh',
-        message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
+        message: 'Bạn thử lại sau nhé.',
       };
     }
   }
@@ -109,7 +109,7 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
       icon: 'camera-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Cần ảnh người mặc',
       title: 'Chưa có ảnh',
-      message: 'Tải ảnh hoặc chụp ảnh rõ người trước khi phối đồ.',
+      message: 'Chọn ảnh rõ và chỉ có một người.',
       color: studioPalette.primary,
       softColor: studioPalette.primarySoft,
       borderColor: studioPalette.line,
@@ -121,8 +121,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Sẽ kiểm tra',
-      title: 'Ảnh từ kho của bạn.',
-      message: 'Bước phối đồ sẽ kiểm tra ảnh theo món bạn chọn.',
+      title: 'Ảnh đã chọn',
+      message: 'Ảnh sẽ được kiểm tra ở bước tiếp theo.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -133,8 +133,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'check' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Ảnh đã sẵn sàng',
-      title: 'Ảnh đã sẵn sàng.',
-      message: 'Bạn có thể tiếp tục chọn đồ.',
+      title: 'Ảnh đã sẵn sàng',
+      message: 'Tiếp tục chọn đồ nhé.',
       color: studioPalette.success,
       softColor: studioPalette.successSoft,
       borderColor: 'rgba(25,135,84,0.22)',
@@ -144,9 +144,9 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (warning.reasonCode === 'IMAGE_POLICY_BLOCKED') {
     return {
       icon: 'alert-octagon-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Cần đổi ảnh',
-      title: 'Ảnh không phù hợp.',
-      message: 'Ảnh bị chặn bởi chính sách an toàn. Hãy chọn ảnh khác.',
+      label: 'Có cảnh báo',
+      title: 'Ảnh cần xem lại',
+      message: 'Bạn có thể tiếp tục hoặc chọn ảnh khác.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -157,8 +157,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Cần đổi ảnh',
-      title: 'Cần ảnh người mặc.',
-      message: 'Hãy chọn ảnh có người hoặc một phần cơ thể rõ hơn.',
+      title: 'Không thấy người trong ảnh',
+      message: 'Chọn ảnh thấy rõ người hơn.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -169,8 +169,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Có cảnh báo',
-      title: 'Ảnh có nhiều người.',
-      message: 'Kết quả có thể kém chính xác. Bạn vẫn có thể tiếp tục hoặc chọn ảnh chỉ có một người chính.',
+      title: 'Ảnh có nhiều người',
+      message: 'Nên dùng ảnh chỉ có một người.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -181,8 +181,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Có thể tiếp tục',
-      title: 'Chưa kiểm tra được ảnh.',
-      message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Bạn vẫn có thể tiếp tục, nhưng kết quả có thể kém chính xác.',
+      title: 'Chưa kiểm tra được ảnh',
+      message: 'Bạn vẫn có thể tiếp tục.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -193,8 +193,8 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     return {
       icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Có cảnh báo',
-      title: 'Người trong ảnh quá nhỏ.',
-      message: 'Kết quả có thể kém chính xác. Bạn vẫn có thể tiếp tục hoặc chọn ảnh chụp gần hơn.',
+      title: 'Người trong ảnh quá nhỏ',
+      message: 'Nên chọn ảnh chụp gần hơn.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -204,7 +204,7 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   return {
     icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
     label: 'Nên kiểm tra',
-    title: 'Ảnh có thể chưa tối ưu.',
+    title: 'Ảnh chưa thật rõ',
     message: 'Bạn vẫn có thể tiếp tục.',
     color: colors.goldDark,
     softColor: colors.goldSoft,
@@ -331,7 +331,7 @@ const VirtualTryOnHomeScreen = () => {
       .catch((error: unknown) => {
         if (!isCurrent) return;
         const message = error instanceof Error ? error.message : 'Không tải được phòng phối đồ';
-        Alert.alert('Phối đồ ảo', message);
+        Alert.alert('Phối đồ', message);
       })
       .finally(() => {
         if (isCurrent) setIsLoading(false);
@@ -402,7 +402,7 @@ const VirtualTryOnHomeScreen = () => {
     if (!requireLogin()) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Cần quyền truy cập ảnh', 'Vui lòng cho phép ứng dụng truy cập thư viện ảnh.');
+      Alert.alert('Cần quyền truy cập ảnh', 'Cho phép ứng dụng truy cập thư viện ảnh.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -419,7 +419,7 @@ const VirtualTryOnHomeScreen = () => {
     if (!requireLogin()) return;
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Cần quyền camera', 'Vui lòng cho phép ứng dụng mở camera để chụp ảnh.');
+      Alert.alert('Cần quyền camera', 'Cho phép ứng dụng mở camera để chụp ảnh.');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -520,7 +520,7 @@ const VirtualTryOnHomeScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Phối đồ ảo</Text>
+          <Text style={styles.headerTitle}>Phối đồ</Text>
         </View>
         <TouchableOpacity
           style={styles.headerButton}
@@ -567,7 +567,7 @@ const VirtualTryOnHomeScreen = () => {
                   {pendingEntryPoint === 'cart' ? 'Mang từ giỏ hàng' : 'Bộ đồ được giữ lại'}
                 </Text>
                 <Text style={styles.pendingOutfitTitle}>{pendingSeedItems.length} món chờ thử</Text>
-                <Text style={styles.pendingOutfitText}>Chọn ảnh bên dưới, mỗi lượt phối tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món, phần còn lại sẽ thử lần lượt.</Text>
+                <Text style={styles.pendingOutfitText}>Chọn ảnh để bắt đầu. Mỗi lượt tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món.</Text>
               </View>
             </View>
             <View style={styles.pendingOutfitThumbRow}>
@@ -595,12 +595,11 @@ const VirtualTryOnHomeScreen = () => {
 
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroEyebrow}>Phòng phối đồ cá nhân</Text>
-            <Text style={styles.heroTitle}>Phối đồ trên ảnh của bạn</Text>
+            <Text style={styles.heroTitle}>Chọn ảnh người mặc</Text>
             <Text style={styles.heroText}>
               {pendingSeedItems.length
-                ? `${pendingSeedItems.length} món đang chờ. Chọn ảnh rõ người để bắt đầu thử từng bản phối.`
-                : 'Chọn ảnh rõ người, thêm vài món đồ phù hợp rồi xem bộ phối hoàn chỉnh.'}
+                ? `${pendingSeedItems.length} món đã sẵn sàng để thử.`
+                : 'Ảnh rõ, đủ sáng và chỉ có một người.'}
             </Text>
           </View>
 
@@ -696,7 +695,7 @@ const VirtualTryOnHomeScreen = () => {
             </View>
             <View style={styles.actionCopy}>
               <Text style={styles.primaryActionText}>Tải ảnh</Text>
-              <Text style={styles.actionMeta}>Ảnh toàn thân có sẵn</Text>
+              <Text style={styles.actionMeta}>Từ thư viện</Text>
             </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryAction} onPress={takePhoto} disabled={isUploading} activeOpacity={0.86}>
@@ -705,17 +704,24 @@ const VirtualTryOnHomeScreen = () => {
             </View>
             <View style={styles.actionCopy}>
               <Text style={styles.secondaryActionText}>Chụp mới</Text>
-              <Text style={styles.secondaryActionMeta}>Chụp ảnh mới để phối đồ</Text>
+              <Text style={styles.secondaryActionMeta}>Dùng camera</Text>
             </View>
           </TouchableOpacity>
         </View>
+
+        {isUploading ? (
+          <View style={styles.inlineLoading}>
+            <ActivityIndicator color={colors.brand} />
+            <Text style={styles.inlineLoadingText}>Đang tải và kiểm tra ảnh...</Text>
+          </View>
+        ) : null}
 
         {isAuthenticated && assetLibrary.length ? (
           <View style={styles.assetLibraryCard}>
             <View style={styles.assetLibraryHeader}>
               <View>
                 <Text style={styles.assetLibraryTitle}>Kho ảnh của bạn</Text>
-                <Text style={styles.assetLibraryText}>Chọn lại ảnh đã tải lên để phối đồ nhanh hơn.</Text>
+                <Text style={styles.assetLibraryText}>Chạm để dùng lại.</Text>
               </View>
               <Text style={styles.assetLibraryCount}>{assetLibrary.length} ảnh</Text>
             </View>
@@ -782,37 +788,18 @@ const VirtualTryOnHomeScreen = () => {
           </View>
         ) : null}
 
-        {isUploading ? (
-          <View style={styles.inlineLoading}>
-            <ActivityIndicator color={colors.brand} />
-            <Text style={styles.inlineLoadingText}>Đang tải và kiểm tra ảnh...</Text>
-          </View>
-        ) : null}
-
         {pendingJob ? (
           <TouchableOpacity style={styles.processingCard} onPress={() => openJob(pendingJob)} activeOpacity={0.86}>
             <View style={styles.progressCircle}>
               <Text style={styles.progressText}>{pendingJob.progress}%</Text>
             </View>
             <View style={styles.continueCopy}>
-              <Text style={styles.continueTitle}>Một bộ phối đang được tạo</Text>
-                <Text style={styles.continueText}>Quá trình phối đồ vẫn đang chạy trong nền.</Text>
+              <Text style={styles.continueTitle}>Đang tạo bộ phối</Text>
+              <Text style={styles.continueText}>Bạn sẽ nhận thông báo khi xong.</Text>
             </View>
             <MaterialCommunityIcons name="chevron-right" size={26} color={studioPalette.ink} />
           </TouchableOpacity>
         ) : null}
-
-        <View style={styles.guideCard}>
-          <Text style={styles.sectionTitle}>Ảnh phù hợp để phối đồ</Text>
-          {['Chỉ có một người trong ảnh', 'Thấy rõ dáng người', 'Ảnh đủ sáng và rõ nét'].map((item) => (
-            <View key={item} style={styles.guideRow}>
-              <View style={styles.guideIcon}>
-                <MaterialCommunityIcons name="check" size={16} color={colors.white} />
-              </View>
-              <Text style={styles.guideText}>{item}</Text>
-            </View>
-          ))}
-        </View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Lịch sử gần đây</Text>
@@ -857,7 +844,7 @@ const VirtualTryOnHomeScreen = () => {
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="hanger" size={34} color={colors.brand} />
             <Text style={styles.emptyTitle}>Chưa có kết quả phối đồ</Text>
-            <Text style={styles.emptyText}>Tải một ảnh của bạn và chọn sản phẩm để bắt đầu.</Text>
+            <Text style={styles.emptyText}>Chọn ảnh để bắt đầu.</Text>
           </View>
         )}
       </ScrollView>
@@ -1187,13 +1174,6 @@ const styles = StyleSheet.create({
   heroCopy: {
     gap: spacing.xs,
   },
-  heroEyebrow: {
-    color: studioPalette.primary,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
   heroTitle: {
     color: studioPalette.primaryDark,
     fontSize: 26,
@@ -1455,39 +1435,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
-  guideCard: {
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: studioPalette.line,
-  },
   sectionTitle: {
     color: colors.text,
     fontSize: 21,
     lineHeight: 27,
     fontWeight: '900',
-  },
-  guideRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  guideIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: studioPalette.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  guideText: {
-    flex: 1,
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '800',
   },
   sectionHeader: {
     flexDirection: 'row',

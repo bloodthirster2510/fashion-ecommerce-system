@@ -1,4 +1,5 @@
 import { apiFetch } from '../../config/api';
+import { invalidateAfterMutation, invalidateCatalogCaches } from '../../config/cacheInvalidation';
 import type { ApiResponse } from '../auth/types';
 import type {
   CreatedReview,
@@ -62,7 +63,10 @@ export const reviewApi = {
     input.images.slice(0, 5).forEach((image) => {
       form.append('images', { uri: image.uri, name: image.name, type: image.type } as unknown as Blob);
     });
-    return request<CreatedReview>('/reviews', token, { method: 'POST', body: form });
+    return invalidateAfterMutation(
+      request<CreatedReview>('/reviews', token, { method: 'POST', body: form }),
+      () => invalidateCatalogCaches(),
+    );
   },
   listMine: (token: string, query: { page?: number; limit?: number } = {}) => {
     const params = new URLSearchParams({
@@ -87,12 +91,18 @@ export const reviewApi = {
     input.images?.slice(0, 5).forEach((image) => {
       form.append('images', { uri: image.uri, name: image.name, type: image.type } as unknown as Blob);
     });
-    return request<CreatedReview>(`/reviews/${encodeURIComponent(reviewId)}`, token, { method: 'PATCH', body: form });
+    return invalidateAfterMutation(
+      request<CreatedReview>(`/reviews/${encodeURIComponent(reviewId)}`, token, { method: 'PATCH', body: form }),
+      () => invalidateCatalogCaches(),
+    );
   },
-  deleteMine: (token: string, reviewId: string) => request<{ reviewId: string; deleted: true }>(
-    `/reviews/${encodeURIComponent(reviewId)}`,
-    token,
-    { method: 'DELETE' },
+  deleteMine: (token: string, reviewId: string) => invalidateAfterMutation(
+    request<{ reviewId: string; deleted: true }>(
+      `/reviews/${encodeURIComponent(reviewId)}`,
+      token,
+      { method: 'DELETE' },
+    ),
+    () => invalidateCatalogCaches(),
   ),
   toggleHelpful: (token: string, reviewId: string) => request<{
     reviewId: string;

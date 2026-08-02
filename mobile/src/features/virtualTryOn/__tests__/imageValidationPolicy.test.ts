@@ -3,7 +3,6 @@ import { isImageValidationHardBlockReason } from '../imageValidationPolicy';
 describe('image validation policy', () => {
   it.each([
     'NO_PERSON_DETECTED',
-    'IMAGE_POLICY_BLOCKED',
   ])('blocks %s', (reasonCode) => {
     expect(isImageValidationHardBlockReason(reasonCode)).toBe(true);
   });
@@ -16,6 +15,7 @@ describe('image validation policy', () => {
     'IMAGE_TOO_BLURRY',
     'IMAGE_TOO_DARK',
     'IMAGE_TOO_SMALL',
+    'IMAGE_POLICY_BLOCKED',
     'VALIDATION_PROVIDER_FAILED',
   ])('keeps %s as a warning', (reasonCode) => {
     expect(isImageValidationHardBlockReason(reasonCode)).toBe(false);

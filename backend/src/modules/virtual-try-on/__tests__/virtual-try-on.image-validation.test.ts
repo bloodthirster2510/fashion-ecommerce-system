@@ -350,16 +350,20 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedDeleteFromCloudinary).not.toHaveBeenCalled();
   });
 
-  it('rejects and cleans up source image upload when the safety policy flags it', async () => {
+  it('keeps source uploads usable with a warning when the safety heuristic flags them', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'IMAGE_POLICY_BLOCKED';
 
-    await expect(virtualTryOnService.uploadAsset(userId, uploadFile, 'upload')).rejects.toMatchObject({
-      statusCode: 403,
-      errorCode: 'IMAGE_POLICY_BLOCKED',
-    });
+    const result = await virtualTryOnService.uploadAsset(userId, uploadFile, 'upload');
 
-    expect(mockedVirtualTryOnAsset.create).not.toHaveBeenCalled();
-    expect(mockedDeleteFromCloudinary).toHaveBeenCalledWith(uploadedSource.public_id);
+    expect(result.validationWarning).toMatchObject({
+      reasonCode: 'IMAGE_POLICY_BLOCKED',
+    });
+    expect(mockedVirtualTryOnAsset.create).toHaveBeenCalledWith(expect.objectContaining({
+      validationWarning: expect.objectContaining({
+        reasonCode: 'IMAGE_POLICY_BLOCKED',
+      }),
+    }));
+    expect(mockedDeleteFromCloudinary).not.toHaveBeenCalled();
   });
 
   it('rejects createJob when local validation does not detect a person', async () => {
@@ -390,17 +394,17 @@ describe('virtualTryOnService image validation', () => {
     );
   });
 
-  it('rejects createJob when the image safety policy flags the source image', async () => {
+  it('creates the job with a warning when the safety heuristic flags the source image', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'IMAGE_POLICY_BLOCKED';
 
-    await expect(virtualTryOnService.createJob(userId, createJobInput)).rejects.toMatchObject({
-      statusCode: 403,
-      errorCode: 'IMAGE_POLICY_BLOCKED',
-    });
+    const result = await virtualTryOnService.createJob(userId, createJobInput);
 
-    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
-    expect(mockedProduct.find).not.toHaveBeenCalled();
-    expect(mockedInteractionService.recordInteractionBestEffort).not.toHaveBeenCalled();
+    expect(result._id).toBe(jobId.toString());
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      'Virtual try-on source image validation warning:',
+      expect.objectContaining({ reasonCode: 'IMAGE_POLICY_BLOCKED' }),
+    );
   });
 
   it('returns a pre-check image validation result without creating a job', async () => {
@@ -535,7 +539,7 @@ describe('virtualTryOnService image validation', () => {
     }));
   });
 
-  it('keeps the safety policy terminal during Builder validation', async () => {
+  it('reports a safety warning during Builder validation without making it a submit blocker', async () => {
     process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
     process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
     mockedAxios.post.mockResolvedValue({

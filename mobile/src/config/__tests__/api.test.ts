@@ -48,4 +48,18 @@ describe('apiFetch endpoint failover', () => {
     })).rejects.toThrow('Không thể kết nối máy chủ');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('uses native HTTP cache only for public reads', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true });
+    global.fetch = fetchMock as typeof fetch;
+    const { apiFetch } = loadApi();
+
+    await apiFetch('/products');
+    await apiFetch('/orders/me', { headers: { Authorization: 'Bearer token' } });
+    await apiFetch('/orders', { method: 'POST', body: '{}' });
+
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ cache: 'no-cache' }));
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ cache: 'no-store' }));
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({ cache: 'no-store' }));
+  });
 });

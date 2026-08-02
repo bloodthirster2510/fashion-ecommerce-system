@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -179,6 +180,8 @@ const ProductDetailScreen = () => {
   );
   const [quantity, setQuantity] = React.useState(1);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
+  const [isSelectionSheetVisible, setIsSelectionSheetVisible] = React.useState(false);
+  const [selectionSheetAction, setSelectionSheetAction] = React.useState<'cart' | 'buy'>('cart');
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
   const addCartFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -344,7 +347,7 @@ const ProductDetailScreen = () => {
   useStaleFocusEffect(
     () => loadProduct(loadedProductIdRef.current === productId ? 'silent' : 'loading'),
     [loadProduct, productId],
-    { runOnDepsChange: true, staleMs: 60 * 1000 },
+    { cacheScope: productCacheKey, runOnDepsChange: true, staleMs: 60 * 1000 },
   );
 
   React.useEffect(() => {
@@ -407,8 +410,11 @@ const ProductDetailScreen = () => {
     ? getAvailableQuantityForSize(selectedVariant, selectedColorId, selectedSizeOption)
     : selectedInventory?.availableQuantity ?? 0;
   const maxPurchasableQuantity = Math.max(0, selectedAvailableQuantity);
+  const hasPurchasableOption = Boolean(
+    product?.isAvailable && product.variants.some((variant) => isVariantAvailable(variant)),
+  );
   const canCheckout = Boolean(
-    product &&
+    product?.isAvailable &&
     selectedVariant?.isActive &&
     selectedColor &&
     selectedSizeOption &&
@@ -479,23 +485,56 @@ const ProductDetailScreen = () => {
     });
   };
 
-  const handleSelectionAction = async (action: 'cart' | 'buy') => {
+  const handleOpenSelectionSheet = (action: 'cart' | 'buy') => {
+    if (!product || !hasPurchasableOption) {
+      return;
+    }
+
+    dismissAddCartFeedback();
+
+    if (!canCheckout) {
+      initializeSelection(product);
+    }
+
+    setSelectionSheetAction(action);
+    setIsSelectionSheetVisible(true);
+  };
+
+  const handleCloseSelectionSheet = () => {
+    if (!isAddingToCart) {
+      setIsSelectionSheetVisible(false);
+    }
+  };
+
+  const handleSelectionAction = async (action: 'cart' | 'buy'): Promise<boolean> => {
     if (!product || !selectedVariant || !selectedColor || !selectedSizeOption) {
       Alert.alert('Chọn sản phẩm', 'Bạn chọn đủ màu, size và số lượng trước nha.');
-      return;
+      return false;
     }
 
     if (!canCheckout) {
       Alert.alert('Tạm hết hàng', 'Biến thể này chưa sẵn sàng để mua.');
-      return;
+      return false;
     }
 
     if (!isAuthenticated || !session?.accessToken) {
-      Alert.alert('Cần đăng nhập', 'Bạn đăng nhập để thêm sản phẩm vào giỏ nha.', [
-        { text: 'Để sau', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => navigation.navigate('Login') },
-      ]);
-      return;
+      Alert.alert(
+        'Cần đăng nhập',
+        action === 'buy'
+          ? 'Bạn đăng nhập để mua sản phẩm nha.'
+          : 'Bạn đăng nhập để thêm sản phẩm vào giỏ nha.',
+        [
+          { text: 'Để sau', style: 'cancel' },
+          {
+            text: 'Đăng nhập',
+            onPress: () => {
+              setIsSelectionSheetVisible(false);
+              navigation.navigate('Login');
+            },
+          },
+        ],
+      );
+      return false;
     }
 
     try {
@@ -507,6 +546,7 @@ const ProductDetailScreen = () => {
         size: selectedSizeOption.size,
         quantity,
         isSelected: false,
+        replaceQuantity: action === 'buy',
         recommendationRequestId: route.params.recommendationRequestId,
       }));
       const checkoutCartItemId = findCartItemIdForSelection(nextCart, {
@@ -522,7 +562,7 @@ const ProductDetailScreen = () => {
         }
 
         navigation.navigate('Checkout', { cartItemIds: [checkoutCartItemId] });
-        return;
+        return true;
       }
 
       showAddCartFeedback({
@@ -530,17 +570,25 @@ const ProductDetailScreen = () => {
         variantText: `${selectedColor.color} · Size ${selectedSizeOption.size} · SL ${quantity}`,
         imageUri: selectedColor.image || selectedImage || product.productImage,
       });
-      return;
+      return true;
     } catch (error) {
       Alert.alert(
-        'Chưa thêm được giỏ hàng',
+        action === 'buy' ? 'Chưa thể mua ngay' : 'Chưa thêm được giỏ hàng',
         error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
       );
-      return;
+      return false;
     } finally {
       setIsAddingToCart(false);
     }
 
+  };
+
+  const handleConfirmSelection = async () => {
+    const wasCompleted = await handleSelectionAction(selectionSheetAction);
+
+    if (wasCompleted) {
+      setIsSelectionSheetVisible(false);
+    }
   };
 
   const handleFavoritePress = async () => {
@@ -748,6 +796,177 @@ const ProductDetailScreen = () => {
     </View>
   );
 
+  const renderSelectionControls = (detail: CatalogProductDetail) => (
+    <>
+      {detail.variants.length > 1 ? (
+        <View style={styles.selectorBlock}>
+          <Text style={styles.selectorTitle}>Kiểu dáng</Text>
+          <View style={styles.chipWrap}>
+            {detail.variants.map((variant) => {
+              const isActive = variant._id === selectedVariantId;
+              const variantAvailable = isVariantAvailable(variant);
+
+              return (
+                <TouchableOpacity
+                  key={variant._id}
+                  style={[
+                    styles.fitChip,
+                    isActive && variantAvailable && styles.fitChipActive,
+                    !variantAvailable && styles.disabledChip,
+                  ]}
+                  onPress={() => handleVariantPress(variant)}
+                  disabled={!variantAvailable}
+                  activeOpacity={0.82}
+                  accessibilityRole="button"
+                  accessibilityLabel={variant.fitType?.label ?? 'Mặc định'}
+                  accessibilityState={{ selected: isActive, disabled: !variantAvailable }}
+                >
+                  <Text
+                    style={[styles.fitChipText, isActive && variantAvailable && styles.fitChipTextActive]}
+                    numberOfLines={1}
+                  >
+                    {variant.fitType?.label ?? 'Mặc định'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.selectorBlock}>
+        <Text style={styles.selectorTitle}>Màu sắc</Text>
+
+        <View style={styles.colorChipRow}>
+          {selectedVariant?.colors.map((color) => {
+            const isActive = color._id === selectedColorId;
+            const colorAvailable = isColorAvailable(selectedVariant, color._id);
+            const swatchColor = resolveColorSwatch(color.color, color.colorCode).hex;
+
+            return (
+              <TouchableOpacity
+                key={color._id}
+                style={[
+                  styles.colorChip,
+                  isActive && colorAvailable && styles.colorChipActive,
+                  !colorAvailable && styles.disabledChip,
+                ]}
+                onPress={() => handleColorPress(color)}
+                disabled={!colorAvailable}
+                activeOpacity={0.78}
+                accessibilityRole="button"
+                accessibilityLabel={`Chọn màu ${color.color}`}
+                accessibilityState={{ selected: isActive, disabled: !colorAvailable }}
+              >
+                <View style={[styles.colorChipDot, { backgroundColor: swatchColor }]} />
+                <View style={styles.colorChipCopy}>
+                  <Text
+                    style={[styles.colorChipText, isActive && colorAvailable && styles.colorChipTextActive]}
+                    numberOfLines={1}
+                  >
+                    {color.color}
+                  </Text>
+                </View>
+                {isActive && colorAvailable ? (
+                  <View style={styles.colorChipStatus}>
+                    <MaterialCommunityIcons name="check" size={15} color={colors.brandDark} />
+                  </View>
+                ) : (
+                  <View style={styles.colorChipStatus} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.selectorBlock}>
+        <View style={styles.selectorHeader}>
+          <Text style={styles.selectorTitle}>Kích thước</Text>
+          <TouchableOpacity
+            onPress={() => Alert.alert('Hướng dẫn chọn size', 'Bảng size sẽ được nối từ category template ở bước tiếp theo.')}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.sizeGuide}>Hướng dẫn chọn size</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.sizeGrid}>
+          {selectedVariant?.sizes.map((sizeOption) => {
+            const isActive = sizeOption.size === selectedSize;
+            const sizeAvailableQuantity = getAvailableQuantityForSize(selectedVariant, selectedColorId, sizeOption);
+            const isAvailable = sizeAvailableQuantity > 0;
+
+            return (
+              <TouchableOpacity
+                key={sizeOption.size}
+                style={[
+                  styles.sizeButton,
+                  isActive && styles.sizeButtonActive,
+                  !isAvailable && styles.disabledChip,
+                ]}
+                onPress={() => setSelectedSize(sizeOption.size)}
+                disabled={!isAvailable}
+                activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel={`Size ${sizeOption.size}`}
+                accessibilityState={{ selected: isActive, disabled: !isAvailable }}
+              >
+                <Text style={[styles.sizeButtonText, isActive && styles.sizeButtonTextActive]}>
+                  {sizeOption.size}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {selectedSizeOption?.measurements.length ? (
+        <View style={styles.measurementPanel}>
+          <Text style={styles.measurementTitle}>Thông số size {selectedSizeOption.size}</Text>
+          <View style={styles.measurementGrid}>
+            {selectedSizeOption.measurements.map((measurement) => (
+              <View key={measurement.key} style={styles.measurementItem}>
+                <Text style={styles.measurementLabel} numberOfLines={1}>
+                  {measurement.label ?? measurement.key}
+                </Text>
+                <Text style={styles.measurementValue}>
+                  {measurement.value}
+                  {measurement.unit ? ` ${measurement.unit}` : ''}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.quantityRow}>
+        <Text style={styles.selectorTitle}>Số lượng</Text>
+        <View style={styles.stepper}>
+          <TouchableOpacity
+            style={[styles.stepperButton, quantity === 1 && styles.stepperButtonDisabled]}
+            onPress={() => handleQuantityChange(-1)}
+            disabled={quantity === 1}
+            activeOpacity={0.82}
+            accessibilityLabel="Giảm số lượng"
+          >
+            <MaterialCommunityIcons name="minus" size={18} color={quantity === 1 ? colors.textSubtle : colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.quantityText}>{quantity}</Text>
+          <TouchableOpacity
+            style={[styles.stepperButton, isQuantityAtLimit && styles.stepperButtonDisabled]}
+            onPress={() => handleQuantityChange(1)}
+            disabled={isQuantityAtLimit}
+            activeOpacity={0.82}
+            accessibilityLabel="Tăng số lượng"
+          >
+            <MaterialCommunityIcons name="plus" size={18} color={isQuantityAtLimit ? colors.textSubtle : colors.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </>
+  );
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -932,167 +1151,7 @@ const ProductDetailScreen = () => {
         </View>
 
         <View style={styles.selectorSection}>
-          {product.variants.length > 1 ? (
-            <View style={styles.selectorBlock}>
-              <Text style={styles.selectorTitle}>Kiểu dáng</Text>
-              <View style={styles.chipWrap}>
-                {product.variants.map((variant) => {
-                  const isActive = variant._id === selectedVariantId;
-                  const variantAvailable = isVariantAvailable(variant);
-
-                  return (
-                    <TouchableOpacity
-                      key={variant._id}
-                      style={[
-                        styles.fitChip,
-                        isActive && styles.fitChipActive,
-                        !variantAvailable && styles.disabledChip,
-                      ]}
-                      onPress={() => handleVariantPress(variant)}
-                      disabled={!variantAvailable}
-                      activeOpacity={0.82}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: isActive, disabled: !variantAvailable }}
-                    >
-                      <Text style={[styles.fitChipText, isActive && styles.fitChipTextActive]} numberOfLines={1}>
-                        {variant.fitType?.label ?? 'Mặc định'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.selectorBlock}>
-            <View style={styles.selectorHeader}>
-              <Text style={styles.selectorTitle}>Màu sắc</Text>
-              {selectedColor ? <Text style={styles.selectorHint}>{selectedColor.color}</Text> : null}
-            </View>
-
-            <View style={styles.colorChipRow}>
-              {selectedVariant?.colors.map((color) => {
-                const isActive = color._id === selectedColorId;
-                const colorAvailable = isColorAvailable(selectedVariant, color._id);
-                const swatchColor = resolveColorSwatch(color.color, color.colorCode).hex;
-
-                return (
-                  <TouchableOpacity
-                    key={color._id}
-                    style={[
-                      styles.colorChip,
-                      isActive && styles.colorChipActive,
-                      !colorAvailable && styles.disabledChip,
-                    ]}
-                    onPress={() => handleColorPress(color)}
-                    disabled={!colorAvailable}
-                    activeOpacity={0.78}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Chọn màu ${color.color}`}
-                    accessibilityState={{ selected: isActive, disabled: !colorAvailable }}
-                  >
-                    <View style={[styles.colorChipDot, { backgroundColor: swatchColor }]} />
-                    <Text
-                      style={[styles.colorChipText, isActive && styles.colorChipTextActive]}
-                      numberOfLines={1}
-                    >
-                      {color.color}
-                    </Text>
-                    {isActive ? (
-                      <MaterialCommunityIcons name="check" size={16} color={colors.brandDark} />
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          <View style={styles.selectorBlock}>
-            <View style={styles.selectorHeader}>
-              <Text style={styles.selectorTitle}>Kích thước</Text>
-              <TouchableOpacity onPress={() => Alert.alert('Hướng dẫn chọn size', 'Bảng size sẽ được nối từ category template ở bước tiếp theo.')} activeOpacity={0.82}>
-                <Text style={styles.sizeGuide}>Hướng dẫn chọn size</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.sizeGrid}>
-              {selectedVariant?.sizes.map((sizeOption) => {
-                const isActive = sizeOption.size === selectedSize;
-                const sizeAvailableQuantity = getAvailableQuantityForSize(selectedVariant, selectedColorId, sizeOption);
-                const isAvailable = sizeAvailableQuantity > 0;
-
-                return (
-                  <TouchableOpacity
-                    key={sizeOption.size}
-                    style={[
-                      styles.sizeButton,
-                      isActive && styles.sizeButtonActive,
-                      !isAvailable && styles.disabledChip,
-                    ]}
-                    onPress={() => setSelectedSize(sizeOption.size)}
-                    disabled={!isAvailable}
-                    activeOpacity={0.82}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive, disabled: !isAvailable }}
-                  >
-                    <Text style={[styles.sizeButtonText, isActive && styles.sizeButtonTextActive]}>
-                      {sizeOption.size}
-                    </Text>
-                    <Text style={[styles.sizeStockText, isActive && styles.sizeStockTextActive]} numberOfLines={1}>
-                      {isAvailable ? `Còn ${sizeAvailableQuantity}` : 'Hết hàng'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          {selectedSizeOption?.measurements.length ? (
-            <View style={styles.measurementPanel}>
-              <Text style={styles.measurementTitle}>Thông số size {selectedSizeOption.size}</Text>
-              <View style={styles.measurementGrid}>
-                {selectedSizeOption.measurements.map((measurement) => (
-                  <View key={measurement.key} style={styles.measurementItem}>
-                    <Text style={styles.measurementLabel} numberOfLines={1}>
-                      {measurement.label ?? measurement.key}
-                    </Text>
-                    <Text style={styles.measurementValue}>
-                      {measurement.value}
-                      {measurement.unit ? ` ${measurement.unit}` : ''}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.quantityRow}>
-            <Text style={styles.selectorTitle}>Số lượng</Text>
-            <View style={styles.stepper}>
-              <TouchableOpacity
-                style={[styles.stepperButton, quantity === 1 && styles.stepperButtonDisabled]}
-                onPress={() => handleQuantityChange(-1)}
-                disabled={quantity === 1}
-                activeOpacity={0.82}
-              >
-                <MaterialCommunityIcons name="minus" size={18} color={quantity === 1 ? colors.textSubtle : colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.quantityText}>{quantity}</Text>
-              <TouchableOpacity
-                style={[styles.stepperButton, isQuantityAtLimit && styles.stepperButtonDisabled]}
-                onPress={() => handleQuantityChange(1)}
-                disabled={isQuantityAtLimit}
-                activeOpacity={0.82}
-              >
-                <MaterialCommunityIcons name="plus" size={18} color={isQuantityAtLimit ? colors.textSubtle : colors.text} />
-              </TouchableOpacity>
-            </View>
-          </View>
-          <Text style={styles.stockHint}>
-            {canCheckout
-              ? `Size ${selectedSizeOption?.size}: còn ${maxPurchasableQuantity} sản phẩm`
-              : 'Tạm hết hàng cho màu/size này'}
-          </Text>
+          {renderSelectionControls(product)}
         </View>
 
         {renderProductDescription()}
@@ -1128,26 +1187,144 @@ const ProductDetailScreen = () => {
         <StorefrontFooter />
       </ScrollView>
 
+      <Modal
+        visible={isSelectionSheetVisible}
+        transparent
+        animationType="slide"
+        hardwareAccelerated
+        statusBarTranslucent
+        onRequestClose={handleCloseSelectionSheet}
+      >
+        <View style={styles.selectionModalRoot}>
+          <Pressable
+            style={styles.selectionModalBackdrop}
+            onPress={handleCloseSelectionSheet}
+            accessibilityRole="button"
+            accessibilityLabel="Đóng hộp chọn sản phẩm"
+          />
+          <View
+            style={[styles.selectionSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}
+            accessibilityViewIsModal
+          >
+            <View style={styles.selectionSheetHandle} />
+            <View style={styles.selectionSheetHeader}>
+              <View style={styles.selectionSheetHeading}>
+                <Text style={styles.selectionSheetTitle}>Chọn sản phẩm</Text>
+                <Text style={styles.selectionSheetSubtitle}>Chọn màu, kích thước và số lượng</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.selectionSheetClose}
+                onPress={handleCloseSelectionSheet}
+                disabled={isAddingToCart}
+                activeOpacity={0.82}
+                accessibilityLabel="Đóng"
+              >
+                <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.selectionProductSummary}>
+              <View style={styles.selectionProductImageWrap}>
+                {isRemoteImage(selectedColor?.image || selectedImage || product.productImage) ? (
+                  <Image
+                    source={{ uri: (selectedColor?.image || selectedImage || product.productImage).trim() }}
+                    style={styles.selectionProductImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <MaterialCommunityIcons name="tshirt-crew-outline" size={30} color={colors.brand} />
+                )}
+              </View>
+              <View style={styles.selectionProductCopy}>
+                <Text style={styles.selectionProductName} numberOfLines={2}>{product.name}</Text>
+                <Text style={styles.selectionProductPrice}>
+                  {formatCurrency((selectedVariant?.finalPrice ?? product.finalPrice) * quantity)}
+                </Text>
+                {canCheckout ? (
+                  <Text style={styles.selectionProductMeta} numberOfLines={1}>
+                    {selectedColor?.color} · Size {selectedSizeOption?.size} · SL {quantity}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            <ScrollView
+              style={styles.selectionSheetScroll}
+              contentContainerStyle={styles.selectionSheetContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {renderSelectionControls(product)}
+            </ScrollView>
+
+            <View style={styles.selectionSheetFooter}>
+              <TouchableOpacity
+                style={[
+                  styles.selectionConfirmButton,
+                  (!canCheckout || isAddingToCart) && styles.selectionConfirmButtonDisabled,
+                ]}
+                onPress={() => { void handleConfirmSelection(); }}
+                disabled={!canCheckout || isAddingToCart}
+                activeOpacity={0.86}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !canCheckout || isAddingToCart }}
+              >
+                {isAddingToCart ? <ActivityIndicator size="small" color={colors.white} /> : (
+                  <MaterialCommunityIcons
+                    name={selectionSheetAction === 'buy' ? 'flash' : 'cart-plus'}
+                    size={20}
+                    color={colors.white}
+                  />
+                )}
+                <Text style={styles.selectionConfirmButtonText}>
+                  {isAddingToCart
+                    ? selectionSheetAction === 'buy' ? 'Đang chuyển...' : 'Đang thêm...'
+                    : selectionSheetAction === 'buy' ? 'Mua ngay' : 'Thêm vào giỏ'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {renderAddCartFeedback()}
 
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
         <Pressable
-          style={[styles.bottomButton, styles.cartCta, (!canCheckout || isAddingToCart) && styles.bottomButtonDisabled]}
-          onPress={() => handleSelectionAction('cart')}
-          disabled={!canCheckout || isAddingToCart}
+          style={[
+            styles.bottomButton,
+            styles.cartCta,
+            (!hasPurchasableOption || isAddingToCart) && styles.bottomButtonDisabled,
+          ]}
+          onPress={() => handleOpenSelectionSheet('cart')}
+          disabled={!hasPurchasableOption || isAddingToCart}
         >
-          <MaterialCommunityIcons name="cart-plus" size={19} color={canCheckout && !isAddingToCart ? colors.brand : colors.textSubtle} />
-          <Text style={[styles.cartCtaText, (!canCheckout || isAddingToCart) && styles.bottomButtonTextDisabled]}>
-            {isAddingToCart ? 'Đang thêm...' : 'Thêm vào giỏ'}
+          <MaterialCommunityIcons
+            name="cart-plus"
+            size={19}
+            color={hasPurchasableOption && !isAddingToCart ? colors.brand : colors.textSubtle}
+          />
+          <Text style={[
+            styles.cartCtaText,
+            (!hasPurchasableOption || isAddingToCart) && styles.bottomButtonTextDisabled,
+          ]}>
+            Thêm vào giỏ
           </Text>
         </Pressable>
 
         <Pressable
-          style={[styles.bottomButton, styles.buyCta, (!canCheckout || isAddingToCart) && styles.bottomButtonDisabled]}
-          onPress={() => handleSelectionAction('buy')}
-          disabled={!canCheckout || isAddingToCart}
+          style={[
+            styles.bottomButton,
+            styles.buyCta,
+            (!hasPurchasableOption || isAddingToCart) && styles.bottomButtonDisabled,
+          ]}
+          onPress={() => handleOpenSelectionSheet('buy')}
+          disabled={!hasPurchasableOption || isAddingToCart}
         >
-          <Text style={[styles.buyCtaText, (!canCheckout || isAddingToCart) && styles.bottomButtonTextDisabled]}>Mua ngay</Text>
+          <Text style={[
+            styles.buyCtaText,
+            (!hasPurchasableOption || isAddingToCart) && styles.bottomButtonTextDisabled,
+          ]}>Mua ngay</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -1418,12 +1595,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '800',
   },
-  selectorHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700',
-  },
   chipWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1461,42 +1632,54 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   colorChip: {
-    minWidth: 72,
-    minHeight: 40,
+    minWidth: 0,
+    minHeight: 44,
+    alignSelf: 'flex-start',
     maxWidth: '100%',
-    borderRadius: radii.sm,
+    borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.field,
+    backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
   },
   colorChipActive: {
-    borderColor: colors.brandLight,
+    borderColor: colors.brand,
+    borderWidth: 2,
     backgroundColor: colors.brandSoft,
   },
   colorChipDot: {
-    width: 16,
-    height: 16,
+    width: 22,
+    height: 22,
     flexShrink: 0,
-    borderRadius: 8,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: colors.borderStrong,
   },
-  colorChipText: {
+  colorChipCopy: {
     flexShrink: 1,
+    minWidth: 0,
+  },
+  colorChipText: {
     color: colors.textBody,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '700',
   },
   colorChipTextActive: {
     color: colors.brandDark,
     fontWeight: '800',
+  },
+  colorChipStatus: {
+    width: 16,
+    height: 16,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sizeGuide: {
     color: colors.action,
@@ -1532,16 +1715,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   sizeButtonTextActive: {
-    color: colors.white,
-  },
-  sizeStockText: {
-    color: colors.textMuted,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '700',
-    marginTop: 1,
-  },
-  sizeStockTextActive: {
     color: colors.white,
   },
   measurementPanel: {
@@ -1614,13 +1787,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '900',
     textAlign: 'center',
-  },
-  stockHint: {
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-    textAlign: 'right',
   },
   descriptionSection: {
     marginTop: spacing.sm,
@@ -1835,6 +2001,145 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: spacing.xs,
+  },
+  selectionModalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
+  },
+  selectionModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  selectionSheet: {
+    width: '100%',
+    maxHeight: '88%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+    ...shadows.card,
+    elevation: 16,
+  },
+  selectionSheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.borderStrong,
+    marginTop: spacing.sm,
+  },
+  selectionSheetHeader: {
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  selectionSheetHeading: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selectionSheetTitle: {
+    color: colors.text,
+    fontSize: 19,
+    lineHeight: 25,
+    fontWeight: '900',
+  },
+  selectionSheetSubtitle: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  selectionSheetClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.field,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionProductSummary: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    minHeight: 88,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  selectionProductImageWrap: {
+    width: 72,
+    height: 82,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brandSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  selectionProductImage: {
+    width: '100%',
+    height: '100%',
+  },
+  selectionProductCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selectionProductName: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  selectionProductPrice: {
+    color: colors.brand,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+    marginTop: spacing.xs,
+  },
+  selectionProductMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  selectionSheetScroll: {
+    flexShrink: 1,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  selectionSheetContent: {
+    padding: spacing.md,
+    gap: spacing.lg,
+  },
+  selectionSheetFooter: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  selectionConfirmButton: {
+    minHeight: 50,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  selectionConfirmButtonDisabled: {
+    backgroundColor: colors.textSubtle,
+  },
+  selectionConfirmButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900',
   },
   addCartFeedback: {
     position: 'absolute',

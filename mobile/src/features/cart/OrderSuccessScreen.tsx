@@ -32,16 +32,14 @@ const getUrlParam = (url: string, key: string) => {
 };
 
 type PaymentStatusBadgeProps = {
-  paymentMethod: string;
+  paymentMethod: 'COD' | 'VNPAY';
   paymentStatus: string;
 };
 
 const PaymentStatusBadge = ({ paymentMethod, paymentStatus }: PaymentStatusBadgeProps) => {
   const isVnpay = paymentMethod === 'VNPAY';
-  const isMomo = paymentMethod === 'MOMO';
-  const isOnline = isVnpay || isMomo;
 
-  if (!isOnline) {
+  if (!isVnpay) {
     return (
       <View style={[styles.badge, styles.badgeCod]}>
         <MaterialCommunityIcons name="truck-delivery-outline" size={16} color={colors.text} />
@@ -54,7 +52,7 @@ const PaymentStatusBadge = ({ paymentMethod, paymentStatus }: PaymentStatusBadge
     return (
       <View style={[styles.badge, styles.badgeSuccess]}>
         <MaterialCommunityIcons name="check-circle-outline" size={16} color={colors.success} />
-        <Text style={styles.badgeTextSuccess}>Đã thanh toán qua {isVnpay ? 'VNPAY' : 'MoMo'}</Text>
+        <Text style={styles.badgeTextSuccess}>Đã thanh toán qua VNPAY</Text>
       </View>
     );
   }
@@ -72,7 +70,7 @@ const PaymentStatusBadge = ({ paymentMethod, paymentStatus }: PaymentStatusBadge
   return (
     <View style={[styles.badge, styles.badgePending]}>
       <MaterialCommunityIcons name="clock-outline" size={16} color={colors.goldText} />
-      <Text style={styles.badgeTextPending}>Chờ thanh toán qua {isVnpay ? 'VNPAY' : 'MoMo'}</Text>
+      <Text style={styles.badgeTextPending}>Chờ thanh toán qua VNPAY</Text>
     </View>
   );
 };

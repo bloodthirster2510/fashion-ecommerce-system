@@ -56,6 +56,23 @@ describe('virtual try-on result media', () => {
     })).toEqual({ status: 'failed', url: null });
   });
 
+  it('keeps generated images available while video generation is still running', () => {
+    const job = {
+      status: 'processing' as const,
+      outputMode: 'image_and_video' as const,
+      generatedImageUrl: 'https://cdn.example.com/look-1.png',
+      generatedImageUrls: [
+        'https://cdn.example.com/look-1.png',
+        'https://cdn.example.com/look-2.png',
+      ],
+      generatedVideoUrl: null,
+      videoStatus: 'processing' as const,
+    };
+
+    expect(getGeneratedTryOnImageUrls(job)).toHaveLength(2);
+    expect(getTryOnVideoPresentation(job)).toEqual({ status: 'pending', url: null });
+  });
+
   it('ignores stale video data for image-only jobs', () => {
     expect(getTryOnVideoPresentation({
       status: 'succeeded',

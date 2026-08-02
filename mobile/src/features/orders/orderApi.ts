@@ -1,4 +1,5 @@
 import { apiFetch } from '../../config/api';
+import { invalidateAfterMutation, invalidateOrderCaches } from '../../config/cacheInvalidation';
 import type { ApiResponse, ApiValidationError } from '../auth/types';
 
 const ORDER_READ_TIMEOUT_MS = 20000;
@@ -17,7 +18,7 @@ export type OrderStatus =
 
 export type OrderFilterStatus = 'all' | OrderStatus;
 
-export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK' | string;
+export type OrderPaymentMethod = 'COD' | 'VNPAY' | 'CARD' | 'BANK' | string;
 export type OrderPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded' | string;
 export type OrderReturnRequestStatus = 'requested' | 'approved' | 'rejected';
 
@@ -265,12 +266,18 @@ export const orderApi = {
       imageAttachments?: OrderEvidenceImageAttachment[];
     },
   ) =>
-    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/cancel`, token, {
-      method: 'PATCH',
-      body: payload,
-    }),
+    invalidateAfterMutation(
+      request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/cancel`, token, {
+        method: 'PATCH',
+        body: payload,
+      }),
+      invalidateOrderCaches,
+    ),
   confirmReceived: (token: string, orderId: string) =>
-    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/confirm-received`, token, { method: 'PATCH' }),
+    invalidateAfterMutation(
+      request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/confirm-received`, token, { method: 'PATCH' }),
+      invalidateOrderCaches,
+    ),
   requestReturn: (
     token: string,
     orderId: string,
@@ -280,12 +287,15 @@ export const orderApi = {
       imageAttachments?: OrderEvidenceImageAttachment[];
     },
   ) =>
-    request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/request-return`, token, {
-      method: 'PATCH',
-      body: {
-        reason,
-        ...(options?.imageUrls?.length ? { imageUrls: options.imageUrls } : {}),
-        ...(options?.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
-      },
-    }),
+    invalidateAfterMutation(
+      request<CustomerOrder>(`/orders/${encodeURIComponent(orderId)}/request-return`, token, {
+        method: 'PATCH',
+        body: {
+          reason,
+          ...(options?.imageUrls?.length ? { imageUrls: options.imageUrls } : {}),
+          ...(options?.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
+        },
+      }),
+      invalidateOrderCaches,
+    ),
 };

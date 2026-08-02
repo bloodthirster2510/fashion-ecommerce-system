@@ -1,4 +1,10 @@
-from app.validators.person_pose import _estimate_body_visibility, _estimate_visible_regions
+import numpy as np
+
+from app.validators.person_pose import (
+    _count_distinct_person_boxes,
+    _estimate_body_visibility,
+    _estimate_visible_regions,
+)
 
 
 def keypoints(*names: str) -> dict[str, float]:
@@ -78,3 +84,41 @@ def test_full_set_bottom_and_shoes_does_not_require_upper_body():
     )
 
     assert visibility == "good"
+
+
+def test_nested_partial_and_full_body_boxes_count_as_one_person():
+    boxes = np.array(
+        [
+            [0.0450, 0.1518, 0.5253, 0.6421],
+            [0.1944, 0.2607, 0.7349, 0.9549],
+            [0.0325, 0.1649, 0.7036, 0.8872],
+        ],
+        dtype=np.float32,
+    )
+
+    assert _count_distinct_person_boxes(boxes) == 1
+
+
+def test_overlapping_person_boxes_without_containment_remain_distinct():
+    boxes = np.array(
+        [
+            [10.0, 10.0, 110.0, 210.0],
+            [60.0, 20.0, 160.0, 220.0],
+        ],
+        dtype=np.float32,
+    )
+
+    assert _count_distinct_person_boxes(boxes) == 2
+
+
+def test_nested_duplicate_and_separate_person_count_as_two_people():
+    boxes = np.array(
+        [
+            [10.0, 10.0, 110.0, 210.0],
+            [20.0, 20.0, 100.0, 200.0],
+            [150.0, 20.0, 250.0, 220.0],
+        ],
+        dtype=np.float32,
+    )
+
+    assert _count_distinct_person_boxes(boxes) == 2

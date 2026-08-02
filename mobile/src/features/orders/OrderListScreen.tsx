@@ -291,7 +291,7 @@ const OrderListScreen = () => {
       void loadOrders(activeStatus, mode);
     },
     [activeStatus, getOrdersQueryKey, loadOrders],
-    { runOnDepsChange: true, staleMs: 30 * 1000 },
+    { cacheScope: 'orders:', runOnDepsChange: true, staleMs: 30 * 1000 },
   );
 
   const orderRealtime = useOrderRealtime(session?.accessToken, () => {

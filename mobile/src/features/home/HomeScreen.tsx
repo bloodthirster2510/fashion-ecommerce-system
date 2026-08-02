@@ -198,8 +198,13 @@ const HomeScreen = () => {
     };
   }, [isAuthenticated, recommendationCacheKey, runWithAuth]);
 
-  useStaleFocusEffect(loadCategories, [loadCategories], { staleMs: 60 * 1000 });
+  useStaleFocusEffect(loadCategories, [loadCategories], {
+    cacheScope: 'home:',
+    runOnDepsChange: true,
+    staleMs: 60 * 1000,
+  });
   useStaleFocusEffect(loadHomeProducts, [loadHomeProducts], {
+    cacheScope: 'home:',
     staleMs: 60 * 1000,
     runOnDepsChange: true,
   });

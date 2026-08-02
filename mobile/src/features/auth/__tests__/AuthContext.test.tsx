@@ -3,6 +3,7 @@ import { authApi } from '../authApi';
 import { AuthProvider, useAuth } from '../AuthContext';
 import { sessionStorage } from '../sessionStorage';
 import type { AuthSession } from '../types';
+import { clearUserScopedCaches } from '../../../config/cacheInvalidation';
 
 jest.mock('../authApi', () => ({
   authApi: {
@@ -19,12 +20,17 @@ jest.mock('../sessionStorage', () => ({
   },
 }));
 
+jest.mock('../../../config/cacheInvalidation', () => ({
+  clearUserScopedCaches: jest.fn(),
+}));
+
 const renderer = jest.requireActual('react-test-renderer') as {
   act: (action: () => void | Promise<void>) => Promise<void>;
   create: (element: React.ReactElement) => { unmount: () => void };
 };
 const mockedAuthApi = authApi as jest.Mocked<typeof authApi>;
 const mockedSessionStorage = sessionStorage as jest.Mocked<typeof sessionStorage>;
+const mockedClearUserScopedCaches = clearUserScopedCaches as jest.MockedFunction<typeof clearUserScopedCaches>;
 
 const session: AuthSession = {
   accessToken: 'access-token',
@@ -113,6 +119,7 @@ describe('mobile auth session lifecycle', () => {
     expect(auth.isAuthenticated).toBe(false);
     expect(mockedSessionStorage.deleteItemAsync).toHaveBeenCalledWith('fashionista.authSession');
     expect(mockedAuthApi.logout).toHaveBeenCalledWith('access-token', 'refresh-token');
+    expect(mockedClearUserScopedCaches).toHaveBeenCalledTimes(2);
   });
 
   it('shares one refresh request across concurrent authenticated actions', async () => {

@@ -87,7 +87,6 @@ const PRODUCT_PAGE_LIMIT = 30;
 const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
-const DISCOVERY_TITLE = 'Khám phá gu riêng';
 const discoveryImages = {
   male: require('../../../assets/discovery-male-model-v2.png'),
   female: require('../../../assets/discovery-female-model-v2.png'),
@@ -310,8 +309,6 @@ const getProductQueryKey = (
   accountScope,
   appliedFilters: filters,
   keyword: params?.keyword,
-  searchEventId: params?.searchEventId,
-  searchSource: params?.searchSource,
 });
 
 const getProductListCacheKey = (queryKey: string) => `catalog:list:${queryKey}`;
@@ -734,7 +731,7 @@ const ProductListScreen = () => {
   useStaleFocusEffect(
     () => loadProducts(1, 'silent'),
     [loadProducts],
-    { runOnDepsChange: true, staleMs: 60 * 1000 },
+    { cacheScope: 'catalog:list:', runOnDepsChange: true, staleMs: 60 * 1000 },
   );
 
   const openFilterSheet = () => {
@@ -904,7 +901,7 @@ const ProductListScreen = () => {
   );
 
   const screenTitle = getTitle(params);
-  const headerTitle = showDiscoveryExperience ? DISCOVERY_TITLE : screenTitle;
+  const headerTitle = params?.keyword ? 'Tìm kiếm' : 'Sản phẩm';
   const selectedGenderLabel = appliedFilters.gender
     ? genderLabels[appliedFilters.gender].toLocaleUpperCase('vi-VN')
     : 'MỌI PHONG CÁCH';
@@ -977,6 +974,14 @@ const ProductListScreen = () => {
         </View>
 
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={() => navigation.navigate('Search')}
+            accessibilityLabel="Tìm kiếm sản phẩm"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="magnify" size={23} color={colors.white} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerAction}
             onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
@@ -1396,21 +1401,22 @@ const styles = StyleSheet.create({
   header: {
     ...brandedHeaderStyles.container,
     minHeight: 64,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
   headerAction: {
     ...brandedHeaderStyles.action,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     position: 'relative',
   },
   headerEdge: {
-    width: 80,
+    width: 116,
     alignItems: 'flex-start',
   },
   headerActions: {
-    width: 80,
+    width: 116,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -1443,8 +1449,8 @@ const styles = StyleSheet.create({
   },
   title: {
     ...brandedHeaderStyles.title,
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 18,
+    lineHeight: 24,
     marginTop: 0,
     textAlign: 'center',
   },

@@ -5,7 +5,7 @@ import {
   type NavigationAction,
 } from '@react-navigation/native';
 import * as WebBrowser from 'expo-web-browser';
-import { Linking } from 'react-native';
+import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
@@ -18,10 +18,41 @@ import {
 } from './features/notifications/pushNotifications';
 import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
 import { getUrlParam, parsePasswordResetLink } from './features/auth/passwordResetLink';
+import { hydrateScreenDataCache } from './config/screenDataCache';
+import { colors } from './theme';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+const CacheBootstrap = ({ children }: { children: React.ReactNode }) => {
+  const [ready, setReady] = React.useState(false);
+
+  React.useEffect(() => {
+    let mounted = true;
+    const timeout = setTimeout(() => {
+      if (mounted) setReady(true);
+    }, 1_500);
+    hydrateScreenDataCache().finally(() => {
+      clearTimeout(timeout);
+      if (mounted) setReady(true);
+    });
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+    };
+  }, []);
+
+  if (!ready) {
+    return (
+      <View style={styles.cacheBootstrap}>
+        <ActivityIndicator color={colors.brand} />
+      </View>
+    );
+  }
+
+  return children;
+};
 
 const resetRootToHome = () => {
   if (!navigationRef.isReady()) return;
@@ -156,12 +187,23 @@ const NavigationRoot = () => {
 
 const App = () => (
   <SafeAreaProvider>
-    <StorefrontSettingsProvider>
-      <AuthProvider>
-        <NavigationRoot />
-      </AuthProvider>
-    </StorefrontSettingsProvider>
+    <CacheBootstrap>
+      <StorefrontSettingsProvider>
+        <AuthProvider>
+          <NavigationRoot />
+        </AuthProvider>
+      </StorefrontSettingsProvider>
+    </CacheBootstrap>
   </SafeAreaProvider>
 );
+
+const styles = StyleSheet.create({
+  cacheBootstrap: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    flex: 1,
+    justifyContent: 'center',
+  },
+});
 
 export default App;

@@ -1,4 +1,5 @@
 import { apiFetch } from '../../config/api';
+import { invalidateAfterMutation, invalidateNotificationCaches } from '../../config/cacheInvalidation';
 import type { ApiResponse } from '../auth/types';
 import type { PushNotificationPreferences } from './pushNotifications';
 
@@ -76,17 +77,23 @@ export const notificationApi = {
     }));
   },
   markRead: async (token: string, notificationId: string) =>
-    parse<CustomerNotificationItem>(await apiFetch(`/notifications/${notificationId}/read`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}` },
-      retryOnTimeout: false,
-    })),
+    invalidateAfterMutation(
+      parse<CustomerNotificationItem>(await apiFetch(`/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+        retryOnTimeout: false,
+      })),
+      invalidateNotificationCaches,
+    ),
   markAllRead: async (token: string) =>
-    parse<{ updatedCount: number; readAt: string }>(await apiFetch('/notifications/read-all', {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}` },
-      retryOnTimeout: false,
-    })),
+    invalidateAfterMutation(
+      parse<{ updatedCount: number; readAt: string }>(await apiFetch('/notifications/read-all', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+        retryOnTimeout: false,
+      })),
+      invalidateNotificationCaches,
+    ),
   registerPushToken: async (
     token: string,
     pushToken: string,

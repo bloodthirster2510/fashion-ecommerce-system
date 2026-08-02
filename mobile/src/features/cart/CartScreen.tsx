@@ -273,7 +273,7 @@ const CartScreen = () => {
       void loadCart('auto', { resetSelection: !shouldKeepSelectionOnFocus });
     },
     [loadCart, shouldKeepSelectionOnFocus],
-    { runOnDepsChange: true, staleMs: 20 * 1000 },
+    { cacheScope: 'cart:', runOnDepsChange: true, staleMs: 20 * 1000 },
   );
 
   const clearSelectedCartItemsLocally = React.useCallback(() => {

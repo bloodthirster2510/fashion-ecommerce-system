@@ -231,7 +231,7 @@ const NotificationsScreen = () => {
       void loadNotifications(mode === 'loading' ? 'initial' : mode);
     },
     [loadNotifications, notificationsQueryKey],
-    { runOnDepsChange: true, staleMs: 30 * 1000 },
+    { cacheScope: 'notifications:', runOnDepsChange: true, staleMs: 30 * 1000 },
   );
 
   const sections = React.useMemo(() => {
