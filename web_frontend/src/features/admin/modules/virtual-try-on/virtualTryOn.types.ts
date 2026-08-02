@@ -78,7 +78,13 @@ export type AdminVirtualTryOnSummary = {
   succeeded: number
   failed: number
   canceled: number
+  todayQueued: number
+  todayProcessing: number
+  todaySucceeded: number
+  todayFailed: number
+  todayCanceled: number
   successRate: number
+  todaySuccessRate: number
   provider: string
   videoEnabled: boolean
   videoRequested: number
@@ -161,7 +167,7 @@ export type AdminVirtualTryOnPromptTestResult = {
   reasonCode: string | null
   message: string | null
   maxLength: number
-  matchedCategory?: string
+  matchedCategory?: PromptPolicyCategory
   matchedRule?: string
 }
 
@@ -198,6 +204,45 @@ export type AdminVirtualTryOnPromptRuleFilters = {
   keyword: string
   category: PromptPolicyCategory | ''
   enabled: '' | 'true' | 'false'
+}
+
+export type AdminVirtualTryOnPromptViolationAction = 'warn' | 'temporary_block'
+
+export type AdminVirtualTryOnPromptViolation = {
+  _id: string
+  user: {
+    _id: string
+    name: string
+    email: string
+  } | null
+  promptPreview: string
+  reasonCode: string
+  matchedCategory: PromptPolicyCategory | null
+  action: AdminVirtualTryOnPromptViolationAction
+  violationCount: number
+  blockedUntil: string | null
+  isActiveBlock: boolean
+  createdAt: string
+  expiresAt: string | null
+}
+
+export type AdminVirtualTryOnPromptViolationList = {
+  items: AdminVirtualTryOnPromptViolation[]
+  pagination: {
+    page: number
+    limit: number
+    totalItems: number
+    totalPages: number
+  }
+}
+
+export type AdminVirtualTryOnPromptViolationFilters = {
+  page: number
+  keyword: string
+  category: PromptPolicyCategory | ''
+  action: AdminVirtualTryOnPromptViolationAction | ''
+  dateFrom: string
+  dateTo: string
 }
 
 export type AdminVirtualTryOnAccountLock = {

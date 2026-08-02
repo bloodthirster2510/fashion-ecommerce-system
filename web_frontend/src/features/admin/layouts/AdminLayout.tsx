@@ -166,6 +166,14 @@ const canAccessRoute = (user: AdminUser, route: NavItem) => {
     return true
   }
 
+  if (route.id === 'virtualTryOn') {
+    return [
+      'virtual_try_on.read',
+      'virtual_try_on.manage',
+      'virtual_try_on.settings',
+    ].some((permission) => hasPermission(user, permission))
+  }
+
   const requiredPermission = routePermissions[route.id]
   if (!requiredPermission || requiredPermission === 'admin') {
     return false

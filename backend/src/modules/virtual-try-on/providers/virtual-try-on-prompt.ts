@@ -402,11 +402,12 @@ const videoNegativePrompt = [
 
 export const buildVirtualTryOnVideoPrompt = (input: {
   preset: VirtualTryOnContextPreset;
+  durationSeconds: number;
   customPrompt?: string;
 }) => {
   const contextPrompt = input.customPrompt?.trim();
   const prompt = [
-    'Use the input image as the exact first frame of one continuous five-second fashion showcase',
+    `Use the input image as the exact first frame of one continuous ${input.durationSeconds}-second fashion showcase`,
     videoMotionByPreset[input.preset],
     'fabric moves gently and realistically with the body',
     'preserve the same person identity, face, hair, body proportions, skin tone, outfit design, garment color, pattern, print, logo, seams, accessories, shoes, background, lighting, and camera framing from the input image',

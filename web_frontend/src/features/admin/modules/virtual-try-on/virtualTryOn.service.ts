@@ -9,6 +9,8 @@ import type {
   AdminVirtualTryOnPromptRule,
   AdminVirtualTryOnPromptRuleFilters,
   AdminVirtualTryOnPromptRuleList,
+  AdminVirtualTryOnPromptViolationFilters,
+  AdminVirtualTryOnPromptViolationList,
   AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
   AdminVirtualTryOnSettingsConfiguration,
@@ -121,6 +123,16 @@ export const deleteVirtualTryOnPromptRule = (ruleId: string) =>
     method: 'DELETE',
   })
 
+export const listVirtualTryOnPromptViolations = (filters: AdminVirtualTryOnPromptViolationFilters) => {
+  const params = new URLSearchParams({ page: String(filters.page), limit: '20' })
+  appendIfPresent(params, 'keyword', filters.keyword.trim())
+  appendIfPresent(params, 'category', filters.category)
+  appendIfPresent(params, 'action', filters.action)
+  appendIfPresent(params, 'dateFrom', filters.dateFrom)
+  appendIfPresent(params, 'dateTo', filters.dateTo)
+  return requestAdmin<AdminVirtualTryOnPromptViolationList>(`/admin/virtual-try-on/prompt-violations?${params.toString()}`)
+}
+
 export const listVirtualTryOnAccountLocks = (filters: AdminVirtualTryOnAccountLockFilters) => {
   const params = new URLSearchParams({ page: String(filters.page), limit: '20' })
   appendIfPresent(params, 'keyword', filters.keyword.trim())
@@ -128,7 +140,7 @@ export const listVirtualTryOnAccountLocks = (filters: AdminVirtualTryOnAccountLo
   return requestAdmin<AdminVirtualTryOnAccountLockList>(`/admin/virtual-try-on/account-locks?${params.toString()}`)
 }
 
-export const lockVirtualTryOnAccount = (input: { userId: string; reason?: string }) =>
+export const lockVirtualTryOnAccount = (input: { userId: string; reason: string }) =>
   requestAdmin<AdminVirtualTryOnAccountLock>('/admin/virtual-try-on/account-locks', {
     method: 'POST',
     body: JSON.stringify(input),

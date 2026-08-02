@@ -6,6 +6,7 @@ import {
   findFirstComfyOutputFile,
   getOptionalComfyEnvValue,
   getPositiveComfyNumberEnv,
+  mapComfyPromptInputs,
   readComfyJsonFile,
   setComfyMappedInput,
   submitComfyPrompt,
@@ -88,9 +89,13 @@ const applyVideoWorkflowInputs = async (
     );
   }
 
-  const promptMapped = setComfyMappedInput(workflow, workflowMap, 'positivePrompt', input.prompt)
-    || setComfyMappedInput(workflow, workflowMap, 'prompt', input.prompt);
-  if (!promptMapped) {
+  const promptMapping = mapComfyPromptInputs(
+    workflow,
+    workflowMap,
+    input.prompt,
+    input.negativePrompt,
+  );
+  if (!promptMapping.positivePromptMapped) {
     throw new VirtualTryOnVideoProviderError(
       'Workflow map video phải khai báo positivePrompt hoặc prompt',
       500,
@@ -98,7 +103,6 @@ const applyVideoWorkflowInputs = async (
     );
   }
 
-  setComfyMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
   setComfyMappedInput(
     workflow,
     workflowMap,
@@ -123,7 +127,7 @@ const applyVideoWorkflowInputs = async (
     if (value) setComfyMappedInput(workflow, workflowMap, mapKey, value);
   });
 
-  return { client, sourceFileName };
+  return { client, sourceFileName, promptMapping };
 };
 
 export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvider => ({
@@ -143,7 +147,7 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
       }
 
       const workflow = cloneComfyJson(workflowTemplate);
-      const { client, sourceFileName } = await applyVideoWorkflowInputs(workflow, workflowMap, input);
+      const { client, sourceFileName, promptMapping } = await applyVideoWorkflowInputs(workflow, workflowMap, input);
       const providerJobId = await submitComfyPrompt(client, workflow);
 
       return {
@@ -155,6 +159,9 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
           durationSeconds: input.durationSeconds,
           resolution: input.resolution,
           generateAudio: input.generateAudio,
+          promptInputKey: promptMapping.positivePromptKey,
+          negativePromptMapped: promptMapping.negativePromptMapped,
+          negativePromptFallbackApplied: promptMapping.negativePromptFallbackApplied,
         },
       };
     } catch (error) {
