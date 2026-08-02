@@ -28,6 +28,8 @@ const ProductSection = ({
   onProductPress,
   onCartPress,
 }: ProductSectionProps) => {
+  const hasProducts = products.length > 0;
+
   return (
     <View style={styles.section}>
       <View style={styles.headerRow}>
@@ -40,12 +42,12 @@ const ProductSection = ({
         ) : null}
       </View>
 
-      {isLoading ? (
+      {isLoading && !hasProducts ? (
         <View style={styles.statePanel}>
           <ActivityIndicator color={colors.brand} />
           <Text style={styles.stateText}>Đang tải sản phẩm</Text>
         </View>
-      ) : error ? (
+      ) : error && !hasProducts ? (
         <View style={styles.statePanel}>
           <MaterialCommunityIcons name="alert-circle-outline" size={26} color={colors.danger} />
           <Text style={styles.stateText}>{error}</Text>
@@ -55,23 +57,42 @@ const ProductSection = ({
             </TouchableOpacity>
           ) : null}
         </View>
-      ) : products.length === 0 ? (
+      ) : !hasProducts ? (
         <View style={styles.statePanel}>
           <MaterialCommunityIcons name="hanger" size={28} color={colors.brand} />
           <Text style={styles.stateText}>Chưa có sản phẩm để hiển thị</Text>
         </View>
       ) : (
-        <View style={styles.grid}>
-          {products.map((product) => (
-            <View key={product._id} style={styles.gridItem}>
-              <ProductCard
-                product={product}
-                onPress={onProductPress}
-                onCartPress={onCartPress}
-              />
+        <>
+          {isLoading ? (
+            <View style={styles.inlineState}>
+              <ActivityIndicator size="small" color={colors.brand} />
+              <Text style={styles.inlineStateText}>Đang cập nhật sản phẩm</Text>
             </View>
-          ))}
-        </View>
+          ) : null}
+          {error ? (
+            <View style={styles.inlineError}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={18} color={colors.danger} />
+              <Text style={styles.inlineErrorText}>Đang hiển thị dữ liệu gần nhất.</Text>
+              {onRetry ? (
+                <TouchableOpacity onPress={onRetry} activeOpacity={0.82}>
+                  <Text style={styles.inlineRetryText}>Thử lại</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+          <View style={styles.grid}>
+            {products.map((product) => (
+              <View key={product._id} style={styles.gridItem}>
+                <ProductCard
+                  product={product}
+                  onPress={onProductPress}
+                  onCartPress={onCartPress}
+                />
+              </View>
+            ))}
+          </View>
+        </>
       )}
     </View>
   );
@@ -121,6 +142,42 @@ const styles = StyleSheet.create({
   },
   gridItem: {
     width: '47.5%',
+  },
+  inlineState: {
+    minHeight: 34,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  inlineStateText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  inlineError: {
+    minHeight: 38,
+    marginBottom: spacing.sm,
+    borderRadius: radii.xs,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  inlineErrorText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  inlineRetryText: {
+    color: colors.brand,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
   },
   statePanel: {
     minHeight: 120,

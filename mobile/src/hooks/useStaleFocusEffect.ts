@@ -7,6 +7,14 @@ type Options = {
   staleMs: number;
 };
 
+export type FocusRefreshMode = 'loading' | 'refresh' | 'silent';
+
+export const resolveFocusRefreshMode = <TMode extends Exclude<FocusRefreshMode, 'loading'>>(
+  loadedQueryKey: string | null,
+  currentQueryKey: string,
+  backgroundMode: TMode,
+): 'loading' | TMode => (loadedQueryKey === currentQueryKey ? backgroundMode : 'loading');
+
 export const useStaleFocusEffect = (
   callback: () => void | (() => void),
   deps: React.DependencyList,

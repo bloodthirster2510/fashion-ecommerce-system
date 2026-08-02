@@ -20,27 +20,54 @@ import ProductSection from './components/ProductSection';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 import { addSearchHistory, createSearchEventId } from '../search/searchHistory';
 import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type HomeNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 
 const virtualTryOnFeatureImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
 const homeDiscoverHeroImage = require('../../../assets/home-discover-hero-v2.png');
+const HOME_CATEGORIES_CACHE_KEY = 'home:categories';
+const HOME_BEST_SELLERS_CACHE_KEY = 'home:best-sellers';
+
+type HomeRecommendationCache = {
+  items: RecommendationItem[];
+  requestId: string | null;
+  algorithmVersion?: string;
+};
 
 const HomeScreen = () => {
   const navigation = useNavigation<HomeNavigationProp>();
-  const { isAuthenticated, runWithAuth } = useAuth();
+  const { isAuthenticated, runWithAuth, session } = useAuth();
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
+  const recommendationCacheKey = `home:recommendations:${session?.user?._id ?? 'guest'}`;
+  const initialCategoriesRef = React.useRef(readScreenData<CatalogCategory[]>(HOME_CATEGORIES_CACHE_KEY));
+  const initialBestSellersRef = React.useRef(readScreenData<CatalogProduct[]>(HOME_BEST_SELLERS_CACHE_KEY));
+  const initialRecommendationsRef = React.useRef(
+    readScreenData<HomeRecommendationCache>(recommendationCacheKey),
+  );
   const [isCategoryDrawerVisible, setIsCategoryDrawerVisible] = React.useState(false);
-  const [categories, setCategories] = React.useState<CatalogCategory[]>([]);
+  const [categories, setCategories] = React.useState<CatalogCategory[]>(initialCategoriesRef.current ?? []);
   const [isCategoryLoading, setIsCategoryLoading] = React.useState(false);
-  const [bestSellers, setBestSellers] = React.useState<CatalogProduct[]>([]);
-  const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
-  const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
-  const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
-  const [isProductLoading, setIsProductLoading] = React.useState(true);
+  const [bestSellers, setBestSellers] = React.useState<CatalogProduct[]>(initialBestSellersRef.current ?? []);
+  const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>(
+    initialRecommendationsRef.current?.items ?? [],
+  );
+  const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(
+    initialRecommendationsRef.current?.requestId ?? null,
+  );
+  const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string | undefined>(
+    initialRecommendationsRef.current?.algorithmVersion,
+  );
+  const [isProductLoading, setIsProductLoading] = React.useState(
+    !initialBestSellersRef.current || !initialRecommendationsRef.current,
+  );
   const [bestSellerError, setBestSellerError] = React.useState<string | null>(null);
   const [recommendationError, setRecommendationError] = React.useState<string | null>(null);
   const recommendationAuthStateRef = React.useRef(isAuthenticated);
+  const hasLoadedCategoriesRef = React.useRef(Boolean(initialCategoriesRef.current));
+  const hasLoadedHomeProductsRef = React.useRef(
+    Boolean(initialBestSellersRef.current && initialRecommendationsRef.current),
+  );
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
     if (isAuthenticated) {
@@ -88,12 +115,15 @@ const HomeScreen = () => {
     let isCurrentRequest = true;
     const controller = new AbortController();
 
-    setIsCategoryLoading(true);
+    const isInitialLoad = !hasLoadedCategoriesRef.current;
+    if (isInitialLoad) setIsCategoryLoading(true);
     catalogApi
       .getCategories({}, controller.signal, { forceRefresh: true })
       .then((items) => {
         if (isCurrentRequest) {
           setCategories(items);
+          writeScreenData(HOME_CATEGORIES_CACHE_KEY, items);
+          hasLoadedCategoriesRef.current = true;
         }
       })
       .catch(() => {
@@ -101,7 +131,7 @@ const HomeScreen = () => {
       })
       .finally(() => {
         if (isCurrentRequest) {
-          setIsCategoryLoading(false);
+          if (isInitialLoad) setIsCategoryLoading(false);
         }
       });
 
@@ -115,7 +145,8 @@ const HomeScreen = () => {
     let isCurrentRequest = true;
     const controller = new AbortController();
 
-    setIsProductLoading(true);
+    const isInitialLoad = !hasLoadedHomeProductsRef.current;
+    if (isInitialLoad) setIsProductLoading(true);
     setBestSellerError(null);
     setRecommendationError(null);
     if (recommendationAuthStateRef.current !== isAuthenticated) {
@@ -136,6 +167,7 @@ const HomeScreen = () => {
 
         if (bestSellerResult.status === 'fulfilled') {
           setBestSellers(bestSellerResult.value.items);
+          writeScreenData(HOME_BEST_SELLERS_CACHE_KEY, bestSellerResult.value.items);
         } else {
           setBestSellerError('Không tải được sản phẩm bán chạy');
         }
@@ -144,13 +176,19 @@ const HomeScreen = () => {
           setRecommendationItems(recommendationResult.value.items);
           setRecommendationRequestId(recommendationResult.value.requestId);
           setRecommendationAlgorithmVersion(recommendationResult.value.algorithmVersion);
+          writeScreenData<HomeRecommendationCache>(recommendationCacheKey, {
+            items: recommendationResult.value.items,
+            requestId: recommendationResult.value.requestId,
+            algorithmVersion: recommendationResult.value.algorithmVersion,
+          });
         } else {
           setRecommendationError('Không tải được sản phẩm gợi ý');
         }
       })
       .finally(() => {
         if (isCurrentRequest) {
-          setIsProductLoading(false);
+          hasLoadedHomeProductsRef.current = true;
+          if (isInitialLoad) setIsProductLoading(false);
         }
       });
 
@@ -158,7 +196,7 @@ const HomeScreen = () => {
       isCurrentRequest = false;
       controller.abort();
     };
-  }, [isAuthenticated, runWithAuth]);
+  }, [isAuthenticated, recommendationCacheKey, runWithAuth]);
 
   useStaleFocusEffect(loadCategories, [loadCategories], { staleMs: 60 * 1000 });
   useStaleFocusEffect(loadHomeProducts, [loadHomeProducts], {

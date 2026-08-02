@@ -44,6 +44,7 @@ import {
   isSizeAvailableForColor,
   isVariantAvailable,
 } from './productDetailSelection';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 import ProductReviewsSection from '../reviews/ProductReviewsSection';
 import type { PublicReviewList } from '../reviews/review.types';
 
@@ -51,7 +52,7 @@ type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type ReviewSummary = PublicReviewList['summary'];
-type ProductLoadMode = 'loading' | 'refresh';
+type ProductLoadMode = 'loading' | 'refresh' | 'silent';
 type AddCartFeedback = {
   id: number;
   productName: string;
@@ -148,27 +149,40 @@ const ProductDetailScreen = () => {
   const insets = useSafeAreaInsets();
   const { isAuthenticated, session, runWithAuth } = useAuth();
   const { productId } = route.params;
-  const [product, setProduct] = React.useState<CatalogProductDetail | null>(null);
+  const productCacheKey = `catalog:detail:${productId}`;
+  const initialProductRef = React.useRef(readScreenData<CatalogProductDetail>(productCacheKey));
+  const initialSelectionRef = React.useRef(
+    initialProductRef.current ? getInitialProductSelection(initialProductRef.current) : null,
+  );
+  const [product, setProduct] = React.useState<CatalogProductDetail | null>(initialProductRef.current ?? null);
   const [recommendationItems, setRecommendationItems] = React.useState<RecommendationItem[]>([]);
   const [recommendationRequestId, setRecommendationRequestId] = React.useState<string | null>(null);
   const [recommendationAlgorithmVersion, setRecommendationAlgorithmVersion] = React.useState<string>();
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoading, setIsLoading] = React.useState(!initialProductRef.current);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isRecommendationLoading, setIsRecommendationLoading] = React.useState(false);
   const [isAddingToCart, setIsAddingToCart] = React.useState(false);
   const [isFavorited, setIsFavorited] = React.useState(false);
   const [isFavoriteLoading, setIsFavoriteLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
-  const [selectedColorId, setSelectedColorId] = React.useState<string>();
-  const [selectedSize, setSelectedSize] = React.useState<string>();
-  const [selectedImage, setSelectedImage] = React.useState<string>();
+  const [selectedVariantId, setSelectedVariantId] = React.useState<string | undefined>(
+    initialSelectionRef.current?.variant?._id,
+  );
+  const [selectedColorId, setSelectedColorId] = React.useState<string | undefined>(
+    initialSelectionRef.current?.color?._id,
+  );
+  const [selectedSize, setSelectedSize] = React.useState<string | undefined>(initialSelectionRef.current?.size);
+  const [selectedImage, setSelectedImage] = React.useState<string | undefined>(
+    initialSelectionRef.current?.color?.image
+      || initialProductRef.current?.gallery[0]
+      || initialProductRef.current?.productImage,
+  );
   const [quantity, setQuantity] = React.useState(1);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
   const addCartFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadedProductIdRef = React.useRef<string | undefined>(undefined);
+  const loadedProductIdRef = React.useRef<string | undefined>(initialProductRef.current?._id);
   const productRequestIdRef = React.useRef(0);
 
   const clearAddCartFeedbackTimer = React.useCallback(() => {
@@ -259,21 +273,24 @@ const ProductDetailScreen = () => {
 
     if (mode === 'loading') setIsLoading(true);
     if (mode === 'refresh') setIsRefreshing(true);
-    setIsRecommendationLoading(false);
-    setError(null);
-    setRecommendationItems([]);
-    setRecommendationRequestId(null);
-    setRecommendationAlgorithmVersion(undefined);
-    setIsDescriptionExpanded(false);
-    setPublicReviewSummary(null);
+    if (mode === 'loading') {
+      setIsRecommendationLoading(false);
+      setError(null);
+      setRecommendationItems([]);
+      setRecommendationRequestId(null);
+      setRecommendationAlgorithmVersion(undefined);
+      setIsDescriptionExpanded(false);
+      setPublicReviewSummary(null);
+    }
 
     catalogApi
-      .getProductById(productId, controller.signal, { forceRefresh: true })
+      .getProductById(productId, controller.signal, { forceRefresh: mode !== 'loading' })
       .then((detail) => {
         if (!isCurrent()) return;
 
         loadedProductIdRef.current = detail._id;
         setProduct(detail);
+        writeScreenData(productCacheKey, detail);
         initializeSelection(detail);
         setIsRecommendationLoading(true);
 
@@ -305,9 +322,11 @@ const ProductDetailScreen = () => {
       .catch((err: unknown) => {
         if (!isCurrent()) return;
 
-        loadedProductIdRef.current = undefined;
-        setProduct(null);
-        setError(getProductDetailErrorMessage(err));
+        if (mode === 'loading') {
+          loadedProductIdRef.current = undefined;
+          setProduct(null);
+          setError(getProductDetailErrorMessage(err));
+        }
       })
       .finally(() => {
         if (!isCurrent()) return;
@@ -320,12 +339,12 @@ const ProductDetailScreen = () => {
       productRequestIdRef.current += 1;
       controller.abort();
     };
-  }, [initializeSelection, isAuthenticated, productId, runWithAuth]);
+  }, [initializeSelection, isAuthenticated, productCacheKey, productId, runWithAuth]);
 
   useStaleFocusEffect(
-    () => loadProduct(loadedProductIdRef.current === productId ? 'refresh' : 'loading'),
+    () => loadProduct(loadedProductIdRef.current === productId ? 'silent' : 'loading'),
     [loadProduct, productId],
-    { runOnDepsChange: true, staleMs: 0 },
+    { runOnDepsChange: true, staleMs: 60 * 1000 },
   );
 
   React.useEffect(() => {

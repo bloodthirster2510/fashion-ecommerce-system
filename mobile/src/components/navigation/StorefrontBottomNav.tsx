@@ -29,10 +29,18 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
   const { summary } = useCustomerNotifications();
 
   const openTab = (tab: MainTab) => {
-    if (tab === 'home') navigation.navigate('Home');
-    if (tab === 'catalog') navigation.navigate('ProductList', { title: 'Khám phá gu riêng' });
-    if (tab === 'notifications') navigation.navigate(isAuthenticated ? 'Notifications' : 'Login');
-    if (tab === 'profile') navigation.navigate(isAuthenticated ? 'Profile' : 'Login');
+    if (tab === 'home') navigation.navigate('Home', undefined, { pop: true });
+    if (tab === 'catalog') {
+      navigation.navigate('ProductList', { title: 'Khám phá gu riêng' }, { pop: true });
+    }
+    if (tab === 'notifications') {
+      if (isAuthenticated) navigation.navigate('Notifications', undefined, { pop: true });
+      else navigation.navigate('Login');
+    }
+    if (tab === 'profile') {
+      if (isAuthenticated) navigation.navigate('Profile', undefined, { pop: true });
+      else navigation.navigate('Login');
+    }
   };
 
   return (

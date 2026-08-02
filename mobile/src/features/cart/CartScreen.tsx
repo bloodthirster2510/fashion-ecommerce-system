@@ -19,17 +19,19 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi, CartApiError, type CartItem, type CartResponse } from './cartApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
 import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import { TRY_ON_QUEUE_LIMIT } from '../virtualTryOn/virtualTryOn.types';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
 type CartRouteProp = RouteProp<RootStackParamList, 'Cart'>;
 type NoticeTone = 'success' | 'error' | 'warning' | 'info';
+type CartLoadMode = 'auto' | 'loading' | 'refresh' | 'silent';
 
 type CartNotice = {
   id: number;
@@ -38,6 +40,13 @@ type CartNotice = {
   message?: string;
   actionLabel?: string;
   onAction?: () => void;
+};
+
+type CartScreenCache = {
+  cart: CartResponse;
+  recommendationItems: RecommendationItem[];
+  recommendationRequestId: string | null;
+  recommendationAlgorithmVersion: string | null;
 };
 
 const formatCurrency = (value: number) =>
@@ -85,15 +94,28 @@ const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
-  const [cart, setCart] = React.useState<CartResponse | null>(null);
-  const [cartRecommendationItems, setCartRecommendationItems] = React.useState<RecommendationItem[]>([]);
-  const [cartRecommendationRequestId, setCartRecommendationRequestId] = React.useState<string | null>(null);
-  const [cartRecommendationAlgorithmVersion, setCartRecommendationAlgorithmVersion] = React.useState<string | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const cartAccountScope = session?.user?._id ?? null;
+  const cartCacheKey = `cart:${cartAccountScope ?? 'logged-out'}`;
+  const initialCartCacheRef = React.useRef(
+    cartAccountScope ? readScreenData<CartScreenCache>(cartCacheKey) : undefined,
+  );
+  const [cart, setCart] = React.useState<CartResponse | null>(initialCartCacheRef.current?.cart ?? null);
+  const [cartRecommendationItems, setCartRecommendationItems] = React.useState<RecommendationItem[]>(
+    initialCartCacheRef.current?.recommendationItems ?? [],
+  );
+  const [cartRecommendationRequestId, setCartRecommendationRequestId] = React.useState<string | null>(
+    initialCartCacheRef.current?.recommendationRequestId ?? null,
+  );
+  const [cartRecommendationAlgorithmVersion, setCartRecommendationAlgorithmVersion] = React.useState<string | null>(
+    initialCartCacheRef.current?.recommendationAlgorithmVersion ?? null,
+  );
+  const [isLoading, setIsLoading] = React.useState(!initialCartCacheRef.current);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [pendingItemId, setPendingItemId] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<CartNotice | null>(null);
   const noticeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedCartTokenRef = React.useRef<string | null>(initialCartCacheRef.current ? cartAccountScope : null);
+  const cartRequestSequenceRef = React.useRef(0);
   const shouldKeepSelectionOnFocus = route.params?.selectionSource === 'virtualTryOn';
 
   const clearNoticeTimer = React.useCallback(() => {
@@ -125,20 +147,57 @@ const CartScreen = () => {
 
   React.useEffect(() => clearNoticeTimer, [clearNoticeTimer]);
 
+  React.useEffect(() => {
+    if (!cartAccountScope || !cart || loadedCartTokenRef.current !== cartAccountScope) return;
+    writeScreenData<CartScreenCache>(cartCacheKey, {
+      cart,
+      recommendationItems: cartRecommendationItems,
+      recommendationRequestId: cartRecommendationRequestId,
+      recommendationAlgorithmVersion: cartRecommendationAlgorithmVersion,
+    });
+  }, [
+    cart,
+    cartAccountScope,
+    cartCacheKey,
+    cartRecommendationAlgorithmVersion,
+    cartRecommendationItems,
+    cartRecommendationRequestId,
+  ]);
+
   const loadCart = React.useCallback(
-    async (silent = false, options: { resetSelection?: boolean } = {}) => {
+    async (requestedMode: CartLoadMode = 'loading', options: { resetSelection?: boolean } = {}) => {
+      const requestSequence = cartRequestSequenceRef.current + 1;
+      cartRequestSequenceRef.current = requestSequence;
+
       if (!session?.accessToken) {
+        loadedCartTokenRef.current = null;
         setCart(null);
         setCartRecommendationItems([]);
         setCartRecommendationRequestId(null);
         setCartRecommendationAlgorithmVersion(null);
         setIsLoading(false);
+        setIsRefreshing(false);
         return;
       }
 
-      if (silent) {
+      const loadMode = requestedMode === 'auto'
+        ? resolveFocusRefreshMode(loadedCartTokenRef.current, cartAccountScope!, 'silent')
+        : requestedMode;
+
+      if (
+        loadMode === 'loading'
+        && loadedCartTokenRef.current
+        && loadedCartTokenRef.current !== cartAccountScope
+      ) {
+        setCart(null);
+        setCartRecommendationItems([]);
+        setCartRecommendationRequestId(null);
+        setCartRecommendationAlgorithmVersion(null);
+      }
+
+      if (loadMode === 'refresh') {
         setIsRefreshing(true);
-      } else {
+      } else if (loadMode === 'loading') {
         setIsLoading(true);
       }
 
@@ -146,30 +205,39 @@ const CartScreen = () => {
         const nextCart = await runWithAuth((accessToken) => (
           options.resetSelection ? cartApi.selectAll(accessToken, false) : cartApi.getCart(accessToken)
         ));
+        if (cartRequestSequenceRef.current !== requestSequence) return;
         setCart(nextCart);
+        loadedCartTokenRef.current = cartAccountScope;
         void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(8, accessToken))
           .then((response) => {
+            if (cartRequestSequenceRef.current !== requestSequence) return;
             setCartRecommendationItems(response.items);
             setCartRecommendationRequestId(response.requestId);
             setCartRecommendationAlgorithmVersion(response.algorithmVersion);
           })
           .catch(() => {
-            setCartRecommendationItems([]);
-            setCartRecommendationRequestId(null);
-            setCartRecommendationAlgorithmVersion(null);
+            if (cartRequestSequenceRef.current === requestSequence && loadMode === 'loading') {
+              setCartRecommendationItems([]);
+              setCartRecommendationRequestId(null);
+              setCartRecommendationAlgorithmVersion(null);
+            }
           });
       } catch (error) {
-        showNotice({
-          tone: 'error',
-          title: 'Chưa tải được giỏ hàng',
-          message: getErrorMessage(error),
-        });
+        if (cartRequestSequenceRef.current !== requestSequence) return;
+        if (loadMode !== 'silent') {
+          showNotice({
+            tone: 'error',
+            title: 'Chưa tải được giỏ hàng',
+            message: getErrorMessage(error),
+          });
+        }
       } finally {
+        if (cartRequestSequenceRef.current !== requestSequence) return;
         setIsLoading(false);
         setIsRefreshing(false);
       }
     },
-    [runWithAuth, session?.accessToken, showNotice],
+    [cartAccountScope, runWithAuth, session?.accessToken, showNotice],
   );
 
   const recordCartRecommendationEvent = React.useCallback((item: RecommendationItem, eventType: 'impression' | 'click') => {
@@ -202,7 +270,7 @@ const CartScreen = () => {
 
   useStaleFocusEffect(
     () => {
-      void loadCart(false, { resetSelection: !shouldKeepSelectionOnFocus });
+      void loadCart('auto', { resetSelection: !shouldKeepSelectionOnFocus });
     },
     [loadCart, shouldKeepSelectionOnFocus],
     { runOnDepsChange: true, staleMs: 20 * 1000 },
@@ -368,7 +436,7 @@ const CartScreen = () => {
         title: 'Chưa cập nhật được số lượng',
         message: getErrorMessage(error),
       });
-      void loadCart(true);
+      void loadCart('silent');
     } finally {
       setPendingItemId(null);
     }
@@ -821,7 +889,7 @@ const CartScreen = () => {
         <Text style={styles.shortcutHeaderTitle}>Giỏ hàng</Text>
         <TouchableOpacity
           style={styles.shortcutHeaderAction}
-          onPress={() => loadCart(true)}
+          onPress={() => loadCart('refresh')}
           accessibilityLabel="Tải lại"
           activeOpacity={0.82}
         >
@@ -838,7 +906,7 @@ const CartScreen = () => {
         onScroll={checkRecommendationVisibility}
         scrollEventThrottle={100}
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart(true)} tintColor={colors.brand} />
+          <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart('refresh')} tintColor={colors.brand} />
         }
       >
         {renderNotice()}
