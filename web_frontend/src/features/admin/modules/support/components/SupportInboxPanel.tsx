@@ -1,4 +1,6 @@
-import { Button, EmptyState, Pagination, StatusBadge } from '../../../components/ui'
+import { useState } from 'react'
+import { AlertTriangle, ImagePlus, ListChecks, MessageSquareText, StickyNote } from 'lucide-react'
+import { Button, EmptyState, Modal, Pagination, StatusBadge } from '../../../components/ui'
 import type {
   CannedResponse,
   FaqCategory,
@@ -80,6 +82,7 @@ export function SupportInboxPanel({
   onFilesChange,
   onSendReply,
 }: SupportInboxPanelProps) {
+  const [isSpamConfirmOpen, setIsSpamConfirmOpen] = useState(false)
   const selectedTicket = detail?.ticket
   const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
     open: ['open', 'in_progress', 'resolved', 'closed', ...(canMarkSpam ? ['spam' as const] : [])],
@@ -89,18 +92,48 @@ export function SupportInboxPanel({
     closed: ['closed', 'in_progress'],
     spam: ['spam'],
   }
+  const statusActionLabels: Record<SupportTicketStatus, string> = {
+    open: 'Đưa về đã tiếp nhận',
+    in_progress: ['resolved', 'closed'].includes(selectedTicket?.status ?? '') ? 'Mở lại ticket' : 'Bắt đầu xử lý',
+    waiting_customer: 'Chờ khách bổ sung',
+    resolved: 'Đánh dấu đã giải quyết',
+    closed: 'Đóng ticket',
+    spam: 'Đánh dấu spam',
+  }
+  const handleStatusAction = (status: SupportTicketStatus) => {
+    if (status === 'spam') {
+      setIsSpamConfirmOpen(true)
+      return
+    }
+
+    void onMutateTicket({ status })
+  }
+  const handleConfirmSpam = async () => {
+    await onMutateTicket({ status: 'spam' })
+    setIsSpamConfirmOpen(false)
+  }
 
   return (
     <div className="admin-support-workspace">
       <aside className="admin-support-queue" aria-label="Danh sách ticket">
+        <header className="admin-support-queue-header">
+          <div>
+            <span>Hàng đợi</span>
+            <strong>{ticketPagination.totalItems}</strong>
+          </div>
+          <small>{tickets.length} ticket trên trang này</small>
+        </header>
         {loading ? <p className="admin-support-empty">Đang tải ticket...</p> : tickets.length ? tickets.map((ticket) => (
-          <button key={ticket._id} type="button" className={`admin-support-ticket${ticket._id === selectedId ? ' is-selected' : ''}${ticket.requiresReply ? ' needs-reply' : ''}`} onClick={() => onSelectTicket(ticket._id)}>
+          <button key={ticket._id} type="button" className={`admin-support-ticket status-${ticket.status}${ticket._id === selectedId ? ' is-selected' : ''}${ticket.requiresReply ? ' needs-reply' : ''}`} onClick={() => onSelectTicket(ticket._id)}>
             <span className="admin-support-ticket-top"><strong>{ticket.ticketCode}</strong><time>{formatDate(ticket.lastMessageAt)}</time></span>
-            <b>{ticket.subject}</b>
-            <span>{getPersonName(ticket)} · {categoryLabels[ticket.category]}</span>
+            <b title={ticket.subject}>{ticket.subject}</b>
+            <span className="admin-support-ticket-customer">{getPersonName(ticket)} <i /> {categoryLabels[ticket.category]}</span>
             <span className="admin-support-ticket-bottom">
-              <StatusBadge tone={statusTones[ticket.status]}>{statusLabels[ticket.status]}</StatusBadge>
-              <StatusBadge tone={priorityTones[ticket.priority]}>{priorityLabels[ticket.priority]}</StatusBadge>
+              <span>
+                <StatusBadge tone={statusTones[ticket.status]}>{statusLabels[ticket.status]}</StatusBadge>
+                {ticket.requiresReply ? <StatusBadge tone="danger">Cần trả lời</StatusBadge> : null}
+              </span>
+              {ticket.priority !== 'normal' ? <StatusBadge tone={priorityTones[ticket.priority]}>{priorityLabels[ticket.priority]}</StatusBadge> : null}
             </span>
           </button>
         )) : (
@@ -128,53 +161,110 @@ export function SupportInboxPanel({
                 <p>{selectedTicket.ticketCode}</p>
                 <h2>{selectedTicket.subject}</h2>
                 <span>{getPersonName(selectedTicket)} · {typeLabels[selectedTicket.type]}</span>
-                <div className="admin-support-detail-badges">
+              </div>
+              <div className="admin-support-detail-side">
+                <div className={`admin-support-detail-badges status-${selectedTicket.status}`}>
                   <StatusBadge tone={statusTones[selectedTicket.status]}>{statusLabels[selectedTicket.status]}</StatusBadge>
                   <StatusBadge tone={priorityTones[selectedTicket.priority]}>{priorityLabels[selectedTicket.priority]}</StatusBadge>
                   {selectedTicket.requiresReply ? <StatusBadge tone="danger">Cần phản hồi</StatusBadge> : null}
                 </div>
-              </div>
-              <div className="admin-support-actions">
                 {!selectedTicket.assignedTo && (
                   <Button variant="primary" disabled={submitting} onClick={() => void onMutateTicket({ assignedTo: currentUserId })}>
                     Nhận xử lý
                   </Button>
                 )}
-                <select aria-label="Người xử lý" value={typeof selectedTicket.assignedTo === 'string' ? selectedTicket.assignedTo : selectedTicket.assignedTo?._id ?? ''} disabled={submitting} onChange={(event) => void onMutateTicket({ assignedTo: event.target.value || null })}>
-                  <option value="">Chưa phân công</option>
-                  {assignees.map((person) => <option key={person._id} value={person._id}>{person.name || person.email}</option>)}
-                </select>
-                <select aria-label="Mức ưu tiên" value={selectedTicket.priority} disabled={submitting} onChange={(event) => void onMutateTicket({ priority: event.target.value as SupportPriority })}>
-                  {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-                <select aria-label="Danh mục ticket" value={selectedTicket.category} disabled={submitting} onChange={(event) => void onMutateTicket({ category: event.target.value as SupportCategory })}>
-                  {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-                <select aria-label="Trạng thái ticket" value={selectedTicket.status} disabled={submitting} onChange={(event) => void onMutateTicket({ status: event.target.value as SupportTicketStatus })}>
-                  {allowedTransitions[selectedTicket.status].map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}
-                </select>
               </div>
             </header>
 
-            {(selectedTicket.orderId || selectedTicket.couponCode || selectedTicket.context) && (
-              <div className="admin-support-context">
-                {selectedTicket.orderId && <a href="/admin/orders">Đơn: {typeof selectedTicket.orderId === 'string' ? selectedTicket.orderId : `${selectedTicket.orderId.orderCode} · ${selectedTicket.orderId.status} · ${selectedTicket.orderId.paymentStatus ?? ''}`}</a>}
-                {selectedTicket.couponCode && <span>Voucher: {selectedTicket.couponCode}</span>}
-                {selectedTicket.context?.source && <span>Nguồn: {selectedTicket.context.source}</span>}
-                {selectedTicket.context?.appPlatform && <span>Nền tảng: {selectedTicket.context.appPlatform}{selectedTicket.context.appVersion ? ` ${selectedTicket.context.appVersion}` : ''}</span>}
-                {selectedTicket.context?.screen && <span>Màn hình: {selectedTicket.context.screen}</span>}
-                {selectedTicket.context?.errorCode && <span>Mã lỗi: {selectedTicket.context.errorCode}</span>}
+            <aside className="admin-support-inspector" aria-label="Điều phối và thông tin ticket">
+            <section className="admin-support-actions" aria-labelledby="ticket-actions-title">
+              <header className="admin-support-actions-header">
+                <span className="admin-support-actions-icon"><ListChecks aria-hidden="true" /></span>
+                <div>
+                  <strong id="ticket-actions-title">Cập nhật ticket</strong>
+                  <small>{submitting ? 'Đang lưu thay đổi…' : 'Thay đổi được lưu tự động'}</small>
+                </div>
+                <span className={`admin-support-save-state${submitting ? ' is-saving' : ''}`} aria-live="polite">
+                  <i /> {submitting ? 'Đang lưu' : 'Đã đồng bộ'}
+                </span>
+              </header>
+
+              <div className="admin-support-status-action">
+                <div className={`admin-support-current-status status-${selectedTicket.status}`}>
+                  <span>Trạng thái hiện tại</span>
+                  <strong><i aria-hidden="true" /> {statusLabels[selectedTicket.status]}</strong>
+                </div>
+                <div className="admin-support-status-transition">
+                  <span>Cập nhật trạng thái</span>
+                  <div className="admin-support-status-options" role="group" aria-label="Cập nhật trạng thái ticket">
+                  {allowedTransitions[selectedTicket.status].filter((value) => value !== selectedTicket.status).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`status-${value}`}
+                      disabled={submitting}
+                      onClick={() => handleStatusAction(value)}
+                    >
+                      <i aria-hidden="true" />
+                      {statusActionLabels[value]}
+                    </button>
+                  ))}
+                  {allowedTransitions[selectedTicket.status].length === 1 ? <small>Không có thao tác trạng thái tiếp theo</small> : null}
+                  </div>
+                </div>
               </div>
-            )}
 
-            <div className="admin-support-context">
-              {typeof selectedTicket.userId === 'object' && selectedTicket.userId && <><span>Email: {selectedTicket.userId.email}</span>{selectedTicket.userId.phone && <span>SĐT: {selectedTicket.userId.phone}</span>}</>}
-              {selectedTicket.guestContact?.email && <span>Email khách: {selectedTicket.guestContact.email}</span>}
-              <span>Tạo: {formatDate(selectedTicket.createdAt)}</span>
-              {selectedTicket.firstResponseAt && <span>Phản hồi đầu: {formatDate(selectedTicket.firstResponseAt)}</span>}
-              {selectedTicket.resolvedAt && <span>Giải quyết: {formatDate(selectedTicket.resolvedAt)}</span>}
-            </div>
+              <div className="admin-support-assignment">
+                <div className="admin-support-assignment-heading">
+                  <strong>Phân công &amp; phân loại</strong>
+                  <span>Thông tin vận hành</span>
+                </div>
+                <label className="admin-support-action-field admin-support-action-field--assignee">
+                  <span>Người xử lý</span>
+                  <select aria-label="Người xử lý" value={typeof selectedTicket.assignedTo === 'string' ? selectedTicket.assignedTo : selectedTicket.assignedTo?._id ?? ''} disabled={submitting} onChange={(event) => void onMutateTicket({ assignedTo: event.target.value || null })}>
+                    <option value="">Chưa phân công</option>
+                    {assignees.map((person) => <option key={person._id} value={person._id}>{person.name || person.email}</option>)}
+                  </select>
+                </label>
+                <label className="admin-support-action-field">
+                  <span>Ưu tiên</span>
+                  <select aria-label="Mức ưu tiên" value={selectedTicket.priority} disabled={submitting} onChange={(event) => void onMutateTicket({ priority: event.target.value as SupportPriority })}>
+                    {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="admin-support-action-field admin-support-action-field--category">
+                  <span>Danh mục</span>
+                  <select aria-label="Danh mục ticket" value={selectedTicket.category} disabled={submitting} onChange={(event) => void onMutateTicket({ category: event.target.value as SupportCategory })}>
+                    {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+              </div>
+            </section>
 
+            <section className="admin-support-meta" aria-label="Thông tin ticket">
+              <div className="admin-support-meta-group">
+                <strong>Khách hàng</strong>
+                {typeof selectedTicket.userId === 'object' && selectedTicket.userId && <><span>{selectedTicket.userId.email}</span>{selectedTicket.userId.phone && <span>{selectedTicket.userId.phone}</span>}</>}
+                {selectedTicket.guestContact?.email && <span>{selectedTicket.guestContact.email}</span>}
+                <span>Tạo lúc {formatDate(selectedTicket.createdAt)}</span>
+                {selectedTicket.firstResponseAt && <span>Phản hồi đầu {formatDate(selectedTicket.firstResponseAt)}</span>}
+                {selectedTicket.resolvedAt && <span>Giải quyết {formatDate(selectedTicket.resolvedAt)}</span>}
+              </div>
+              {(selectedTicket.orderId || selectedTicket.couponCode || selectedTicket.context) && (
+                <div className="admin-support-meta-group">
+                  <strong>Liên kết &amp; nguồn</strong>
+                  {selectedTicket.orderId && <a href="/admin/orders">Đơn: {typeof selectedTicket.orderId === 'string' ? selectedTicket.orderId : `${selectedTicket.orderId.orderCode} · ${selectedTicket.orderId.status} · ${selectedTicket.orderId.paymentStatus ?? ''}`}</a>}
+                  {selectedTicket.couponCode && <span>Voucher: {selectedTicket.couponCode}</span>}
+                  {selectedTicket.context?.source && <span>Nguồn: {selectedTicket.context.source}</span>}
+                  {selectedTicket.context?.appPlatform && <span>Nền tảng: {selectedTicket.context.appPlatform}{selectedTicket.context.appVersion ? ` ${selectedTicket.context.appVersion}` : ''}</span>}
+                  {selectedTicket.context?.screen && <span>Màn hình: {selectedTicket.context.screen}</span>}
+                  {selectedTicket.context?.errorCode && <span>Mã lỗi: {selectedTicket.context.errorCode}</span>}
+                </div>
+              )}
+            </section>
+            </aside>
+
+            <section className="admin-support-conversation" aria-label="Hội thoại với khách hàng">
             <div className="admin-support-thread">
               {detail.messages.map((message) => (
                 <article key={message._id} className={`admin-support-message ${message.senderType}${message.isInternal ? ' internal' : ''}`}>
@@ -188,21 +278,58 @@ export function SupportInboxPanel({
               )}
             </div>
 
-            {!['closed', 'spam', 'resolved'].includes(selectedTicket.status) && <div className="admin-support-composer">
-              {canManage && <select value={selectedCannedId} onChange={(event) => onCannedChange(event.target.value)} aria-label="Chọn mẫu trả lời">
-                <option value="">Chọn mẫu trả lời nhanh...</option>
-                {cannedResponses.filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category)).map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}
-              </select>}
-              <textarea rows={4} value={reply} onChange={(event) => onReplyChange(event.target.value)} placeholder={isInternal ? 'Ghi chú chỉ nhân viên nhìn thấy...' : 'Nhập phản hồi cho khách hàng...'} maxLength={3000} />
-              <div>
-                <label><input type="checkbox" checked={isInternal} onChange={(event) => onInternalChange(event.target.checked)} /> Ghi chú nội bộ</label>
-                <label className="admin-support-file">Đính kèm ảnh<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))} /></label>
-                <button type="button" disabled={!reply.trim() || submitting} onClick={() => void onSendReply()}>{submitting ? 'Đang gửi...' : isInternal ? 'Lưu ghi chú' : 'Gửi phản hồi'}</button>
+            {!['closed', 'spam', 'resolved'].includes(selectedTicket.status) ? <div className={`admin-support-composer${isInternal ? ' is-internal' : ''}`}>
+              <div className="admin-support-composer-head">
+                <div className="admin-support-compose-modes" role="group" aria-label="Loại nội dung">
+                  <button type="button" className={!isInternal ? 'is-active' : ''} aria-pressed={!isInternal} onClick={() => onInternalChange(false)}><MessageSquareText aria-hidden="true" /> Phản hồi khách</button>
+                  <button type="button" className={isInternal ? 'is-active' : ''} aria-pressed={isInternal} onClick={() => onInternalChange(true)}><StickyNote aria-hidden="true" /> Ghi chú nội bộ</button>
+                </div>
+                {canManage && <select value={selectedCannedId} onChange={(event) => onCannedChange(event.target.value)} aria-label="Chọn mẫu trả lời">
+                  <option value="">Mẫu trả lời nhanh...</option>
+                  {cannedResponses.filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category)).map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}
+                </select>}
               </div>
-            </div>}
+              <textarea rows={4} value={reply} onChange={(event) => onReplyChange(event.target.value)} placeholder={isInternal ? 'Ghi chú này chỉ nhân viên nhìn thấy...' : 'Nhập nội dung phản hồi cho khách hàng...'} maxLength={3000} />
+              <div className="admin-support-composer-footer">
+                <label className="admin-support-file"><ImagePlus aria-hidden="true" /> Đính kèm ảnh<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))} /></label>
+                <span>Tối đa 3 ảnh, mỗi ảnh 5 MB</span>
+                <button className="admin-support-send" type="button" disabled={!reply.trim() || submitting} onClick={() => void onSendReply()}>{submitting ? 'Đang gửi...' : isInternal ? 'Lưu ghi chú' : 'Gửi phản hồi'}</button>
+              </div>
+            </div> : (
+              <div className="admin-support-closed-notice">
+                <strong>Ticket hiện không nhận phản hồi</strong>
+                <span>Chuyển trạng thái sang “Đang xử lý” nếu cần tiếp tục trao đổi.</span>
+              </div>
+            )}
+            </section>
           </>
         ) : <p className="admin-support-empty">Chọn một ticket để xem chi tiết.</p>}
       </main>
+
+      <Modal
+        title="Đánh dấu ticket là spam?"
+        description={selectedTicket ? `${selectedTicket.ticketCode} sẽ được đưa ra khỏi hàng đợi xử lý.` : undefined}
+        isOpen={isSpamConfirmOpen}
+        onClose={() => {
+          if (!submitting) setIsSpamConfirmOpen(false)
+        }}
+        actions={(
+          <>
+            <Button variant="secondary" disabled={submitting} onClick={() => setIsSpamConfirmOpen(false)}>Hủy</Button>
+            <Button variant="danger" disabled={submitting} onClick={() => void handleConfirmSpam()}>
+              {submitting ? 'Đang xử lý…' : 'Đánh dấu spam'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="admin-support-spam-warning">
+          <AlertTriangle aria-hidden="true" />
+          <div>
+            <strong>Chỉ tiếp tục nếu đây thực sự là nội dung rác.</strong>
+            <span>Ticket spam sẽ bị khóa phản hồi và không thể chuyển lại sang trạng thái khác.</span>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

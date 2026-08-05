@@ -96,7 +96,7 @@ const statusTones: Record<SupportTicketStatus, 'success' | 'warning' | 'danger' 
 
 const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
   low: 'neutral',
-  normal: 'info',
+  normal: 'neutral',
   high: 'warning',
   urgent: 'danger',
 }
@@ -384,6 +384,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
           <SupportTicketFilters
             filters={filters}
+            currentUserId={currentUser._id}
             canMarkSpam={canMarkSpam}
             statusLabels={statusLabels}
             priorityLabels={priorityLabels}
