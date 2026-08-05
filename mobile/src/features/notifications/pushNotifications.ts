@@ -215,7 +215,7 @@ export const resolvePushNavigationTarget = (
 };
 
 export const subscribeToPushNotifications = async (
-  onOpen: (target: PushNavigationTarget) => void,
+  onOpen: (target: PushNavigationTarget, notificationId?: string) => void,
   moduleLoader: () => Promise<NotificationModule> = loadNotifications,
 ) => {
   const Notifications = await moduleLoader();
@@ -234,10 +234,15 @@ export const subscribeToPushNotifications = async (
     if (!request) return;
     const identifier = request.identifier;
     if (identifier && handledIdentifiers.has(identifier)) return;
-    const target = resolvePushNavigationTarget(request.content.data);
+    const data = request.content.data;
+    const target = resolvePushNavigationTarget(data);
     if (!target) return;
     if (identifier) handledIdentifiers.add(identifier);
-    onOpen(target);
+    const notificationId = typeof data.notificationId === 'string'
+      ? data.notificationId.trim()
+      : '';
+    if (notificationId) onOpen(target, notificationId);
+    else onOpen(target);
   };
 
   const subscription = Notifications.addNotificationResponseReceivedListener(open);

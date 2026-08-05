@@ -107,6 +107,33 @@ describe('push notification service', () => {
     ]);
   });
 
+  it('includes the persisted notification id so opening a push can mark it read', async () => {
+    mockTokenQuery([
+      { token: 'ExpoPushToken[enabled]', preferences: { support: true } },
+    ]);
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ data: [{ status: 'ok' }] }),
+    } as unknown as Response);
+
+    await sendCustomerPush({
+      userId,
+      category: 'support',
+      title: 'Support',
+      body: 'Reply',
+      data: { type: 'support_reply', ticketId: 'ticket-1' },
+      notificationId: '665000000000000000000009',
+    });
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const messages = JSON.parse(String(request.body)) as Array<{ data: Record<string, unknown> }>;
+    expect(messages[0].data).toEqual({
+      type: 'support_reply',
+      ticketId: 'ticket-1',
+      notificationId: '665000000000000000000009',
+    });
+  });
+
   it('does not call Expo when every active token opted out of the category', async () => {
     mockTokenQuery([
       { token: 'ExpoPushToken[disabled]', preferences: { order: false } },
