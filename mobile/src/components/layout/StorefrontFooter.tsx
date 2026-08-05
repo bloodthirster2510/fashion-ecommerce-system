@@ -45,18 +45,18 @@ const StorefrontFooter = () => {
       icon: 'phone-outline' as IconName,
       url: `tel:${contact.phone.replace(/[^0-9+]/g, '')}`,
     }] : []),
+    ...(contact.hours ? [{
+      key: 'hours',
+      label: 'Giờ phục vụ',
+      value: contact.hours,
+      icon: 'clock-outline' as IconName,
+    }] : []),
     ...(contact.email ? [{
       key: 'email',
       label: 'Email',
       value: contact.email,
       icon: 'email-outline' as IconName,
       url: `mailto:${contact.email}`,
-    }] : []),
-    ...(contact.hours ? [{
-      key: 'hours',
-      label: 'Giờ phục vụ',
-      value: contact.hours,
-      icon: 'clock-outline' as IconName,
     }] : []),
     ...(contact.address ? [{
       key: 'address',
@@ -93,25 +93,30 @@ const StorefrontFooter = () => {
       </View>
 
       {contactItems.length > 0 ? (
-        <View style={styles.contactList}>
-          {contactItems.map((item, index) => {
+        <View style={styles.contactGrid}>
+          {contactItems.map((item) => {
             const content = (
               <>
                 <View style={styles.contactIcon}>
-                  <MaterialCommunityIcons name={item.icon} size={18} color={colors.gold} />
+                  <MaterialCommunityIcons name={item.icon} size={17} color={colors.gold} />
                 </View>
                 <View style={styles.contactCopy}>
                   <Text style={styles.contactLabel}>{item.label}</Text>
                   <Text style={styles.contactValue} numberOfLines={2}>{item.value}</Text>
                 </View>
-                {item.url ? <MaterialCommunityIcons name="chevron-right" size={17} color={colors.brandPale} /> : null}
               </>
             );
+
+            const itemStyle = [
+              styles.contactItem,
+              (item.key === 'email' || item.key === 'address') && styles.contactItemWide,
+              item.key === 'address' && styles.contactItemAddress,
+            ];
 
             return item.url ? (
               <TouchableOpacity
                 key={item.key}
-                style={[styles.contactItem, index < contactItems.length - 1 && styles.contactItemDivider]}
+                style={itemStyle}
                 activeOpacity={0.76}
                 accessibilityRole="link"
                 accessibilityLabel={`${item.label}: ${item.value}`}
@@ -120,7 +125,7 @@ const StorefrontFooter = () => {
                 {content}
               </TouchableOpacity>
             ) : (
-              <View key={item.key} style={[styles.contactItem, index < contactItems.length - 1 && styles.contactItemDivider]}>
+              <View key={item.key} style={itemStyle}>
                 {content}
               </View>
             );
@@ -135,23 +140,21 @@ const StorefrontFooter = () => {
           <View style={styles.sectionDot} />
           <Text style={styles.sectionEyebrow}>HỖ TRỢ NHANH</Text>
         </View>
-        <Text style={styles.sectionHint}>Thông tin bạn cần, ngay tại đây</Text>
       </View>
       <View style={styles.supportGrid}>
-        {supportLinks.map((item, index) => (
+        {supportLinks.map((item) => (
           <TouchableOpacity
             key={item.label}
-            style={[styles.supportLink, index < supportLinks.length - 2 && styles.supportLinkDivider]}
+            style={styles.supportLink}
             onPress={() => void Linking.openURL(item.url)}
             activeOpacity={0.76}
             accessibilityRole="link"
             accessibilityLabel={item.label}
           >
             <View style={styles.supportIcon}>
-              <MaterialCommunityIcons name={item.icon} size={17} color={colors.gold} />
+              <MaterialCommunityIcons name={item.icon} size={16} color={colors.gold} />
             </View>
             <Text style={styles.supportLinkText} numberOfLines={2}>{item.label}</Text>
-            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brandPale} />
           </TouchableOpacity>
         ))}
       </View>
@@ -209,36 +212,36 @@ const styles = StyleSheet.create({
   footer: {
     backgroundColor: colors.brandDark,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.xxl,
+    paddingTop: spacing.lg,
+    paddingBottom: 14,
     overflow: 'hidden',
   },
   decorativeGlow: {
     position: 'absolute',
-    top: -104,
-    right: -88,
-    width: 230,
-    height: 230,
-    borderRadius: 115,
-    backgroundColor: 'rgba(107,140,168,0.18)',
+    top: -90,
+    right: -72,
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: 'rgba(107,140,168,0.14)',
   },
   accentBar: {
-    width: 42,
-    height: 4,
+    width: 36,
+    height: 3,
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
-    marginBottom: spacing.lg,
+    marginBottom: 10,
   },
   brandRow: {
-    minHeight: 58,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   brandMark: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     borderWidth: 1,
     borderColor: 'rgba(246,199,107,0.5)',
     backgroundColor: 'rgba(246,199,107,0.12)',
@@ -256,42 +259,57 @@ const styles = StyleSheet.create({
   },
   brandEyebrow: {
     color: colors.gold,
-    fontSize: 8,
-    lineHeight: 11,
+    fontSize: 7.5,
+    lineHeight: 10,
     fontWeight: '900',
     letterSpacing: 1.15,
     marginBottom: spacing.xs,
   },
   brandName: {
     color: colors.white,
-    fontSize: 21,
-    lineHeight: 26,
+    fontSize: 19,
+    lineHeight: 22,
     fontWeight: '900',
     letterSpacing: 0.8,
   },
   brandTagline: {
     color: colors.brandPale,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 10.5,
+    lineHeight: 14,
     fontWeight: '600',
-    marginTop: spacing.xs,
+    marginTop: 2,
   },
-  contactList: {
-    marginTop: spacing.xl,
+  contactGrid: {
+    marginTop: spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: spacing.sm,
   },
   contactItem: {
-    minHeight: 54,
+    width: '48.8%',
+    minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
+    gap: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(221,231,236,0.12)',
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.055)',
   },
-  contactItemDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(221,231,236,0.12)',
+  contactItemWide: {
+    width: '100%',
+  },
+  contactItemAddress: {
+    minHeight: 52,
   },
   contactIcon: {
-    width: 24,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(246,199,107,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -301,26 +319,26 @@ const styles = StyleSheet.create({
   },
   contactLabel: {
     color: 'rgba(221,231,236,0.72)',
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 8,
+    lineHeight: 10,
     fontWeight: '800',
     letterSpacing: 0.45,
     textTransform: 'uppercase',
   },
   contactValue: {
     color: colors.white,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: '700',
     marginTop: 2,
   },
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    marginVertical: spacing.xl,
+    marginVertical: 14,
   },
   sectionHeading: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -335,39 +353,30 @@ const styles = StyleSheet.create({
   },
   sectionEyebrow: {
     color: colors.white,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: '900',
     letterSpacing: 1,
-  },
-  sectionHint: {
-    color: 'rgba(221,231,236,0.68)',
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '600',
-    marginTop: spacing.xs,
-    marginLeft: 14,
   },
   supportGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    columnGap: spacing.lg,
+    rowGap: 6,
   },
   supportLink: {
-    width: '47.5%',
-    minHeight: 52,
+    width: '48.8%',
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.md,
-  },
-  supportLinkDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(221,231,236,0.1)',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    backgroundColor: 'rgba(255,255,255,0.055)',
   },
   supportIcon: {
-    width: 22,
+    width: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -375,19 +384,23 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: colors.white,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: '700',
   },
   footerMeta: {
-    marginTop: spacing.xl,
-    paddingTop: spacing.xl,
+    marginTop: 14,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(221,231,236,0.12)',
-    gap: spacing.lg,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
   metaBlock: {
-    gap: spacing.md,
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.sm,
   },
   metaHeading: {
     flexDirection: 'row',
@@ -396,8 +409,8 @@ const styles = StyleSheet.create({
   },
   metaLabel: {
     color: colors.brandPale,
-    fontSize: 9,
-    lineHeight: 13,
+    fontSize: 7.5,
+    lineHeight: 10,
     fontWeight: '900',
     letterSpacing: 0.85,
   },
@@ -408,9 +421,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   socialButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: 'rgba(221,231,236,0.16)',
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -422,15 +435,15 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   paymentChip: {
-    minWidth: 58,
-    height: 32,
+    minWidth: 52,
+    height: 30,
     flexDirection: 'row',
     gap: spacing.xs,
     borderRadius: radii.pill,
     backgroundColor: colors.goldSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 10,
   },
   paymentText: {
     color: colors.brandDark,
@@ -443,15 +456,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    marginTop: spacing.xl,
-    paddingTop: spacing.lg,
+    marginTop: 12,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.1)',
   },
   copyright: {
     color: 'rgba(221,231,236,0.7)',
-    fontSize: 10,
-    lineHeight: 14,
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: '600',
     textAlign: 'center',
   },
