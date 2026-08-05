@@ -1,5 +1,17 @@
 import React from 'react';
-import { Alert, AppState, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,9 +19,16 @@ import { useFocusEffect, useIsFocused, useNavigation, useRoute, type RouteProp }
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useAuth } from '../auth/AuthContext';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 import { supportApi } from './supportApi';
 import { useSupportRealtime } from './supportSocket';
-import type { SupportImage, SupportMessage, SupportTicket, SupportTicketDetail } from './support.types';
+import type {
+  SupportImage,
+  SupportMessage,
+  SupportTicket,
+  SupportTicketDetail,
+  SupportTicketStatus,
+} from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import {
@@ -22,10 +41,38 @@ import {
   validateSupportImageAssets,
 } from './supportPresentation';
 
+type StatusVisual = {
+  backgroundColor: string;
+  color: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+};
+
+const statusVisuals: Record<SupportTicketStatus, StatusVisual> = {
+  open: { backgroundColor: colors.brandSoft, color: colors.brandDark, icon: 'message-text-outline' },
+  in_progress: { backgroundColor: '#EAF3FF', color: '#245C9C', icon: 'progress-clock' },
+  waiting_customer: { backgroundColor: colors.goldSoft, color: colors.goldText, icon: 'alert-circle-outline' },
+  resolved: { backgroundColor: colors.successSoft, color: colors.success, icon: 'check-circle-outline' },
+  closed: { backgroundColor: '#EEF1F3', color: colors.textMuted, icon: 'lock-outline' },
+};
+
+const formatMessageTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+  });
+};
+
 export default function SupportTicketDetailScreen() {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList, 'SupportTicketDetail'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'SupportTicketDetail'>>();
   const { runWithAuth, session } = useAuth();
+  const { settings: storefrontSettings } = useStorefrontSettings();
+  const shopName = storefrontSettings.identity.name;
+  const shopAvatarUrl = storefrontSettings.identity.avatarUrl;
   const isFocused = useIsFocused();
   const ticketId = route.params.ticketId;
 
@@ -42,6 +89,7 @@ export default function SupportTicketDetailScreen() {
   const sendingRef = React.useRef(false);
   const reopeningRef = React.useRef(false);
   const requestSequenceRef = React.useRef(0);
+  const messagesScrollRef = React.useRef<ScrollView>(null);
 
   React.useEffect(() => {
     requestSequenceRef.current += 1;
@@ -154,6 +202,19 @@ export default function SupportTicketDetailScreen() {
   const status = ticket?.status ?? 'open';
   const isClosed = status === 'closed';
   const canReopen = canReopenSupportTicket(status, ticket?.reopenDeadline);
+  const statusVisual = statusVisuals[status];
+
+  React.useEffect(() => {
+    if (!messages.length) return undefined;
+    const timer = setTimeout(() => {
+      messagesScrollRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [messages.length, staffTyping]);
+
+  const removeImage = (uri: string) => {
+    setImages((current) => current.filter((image) => image.uri !== uri));
+  };
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
@@ -161,92 +222,206 @@ export default function SupportTicketDetailScreen() {
         <TouchableOpacity style={s.back} onPress={() => navigation.goBack()}>
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Chi tiết hỗ trợ</Text>
-        {realtime.connected && <MaterialCommunityIcons name="circle-medium" size={14} color="#4ade80" style={{ marginRight: 4 }} />}
+        <View style={s.detailHeaderTitleGroup}>
+          <Text style={s.detailHeaderTitle} numberOfLines={1}>{shopName} hỗ trợ</Text>
+          <Text style={s.detailHeaderSubtitle}>Phản hồi trực tiếp với cửa hàng</Text>
+        </View>
+        <View style={s.connectionStatus}>
+          <View style={[s.connectionDot, !realtime.connected && s.connectionDotOffline]} />
+          <Text style={s.connectionText}>{realtime.connected ? 'Trực tuyến' : 'Kết nối'}</Text>
+        </View>
       </View>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        {error ? <Text style={s.error}>{error}</Text> : null}
+      <KeyboardAvoidingView
+        style={s.chatLayout}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {error ? <Text style={s.chatError}>{error}</Text> : null}
         {ticket ? (
           <>
-            <View style={s.card}>
-              <View style={s.row}>
-                <Text style={s.cardTitle}>{ticket.ticketCode}</Text>
-                <Text style={s.secondaryText}>{getSupportTicketStatusLabel(status)}</Text>
+            <View style={s.ticketSummary}>
+              <View style={s.ticketIcon}>
+                <MaterialCommunityIcons name="lifebuoy" size={21} color={colors.brand} />
               </View>
-              <Text style={s.muted}>{ticket.subject}</Text>
+              <View style={s.ticketSummaryCopy}>
+                <Text style={s.ticketCode}>{ticket.ticketCode}</Text>
+                <Text style={s.ticketSubject} numberOfLines={1}>{ticket.subject}</Text>
+              </View>
+              <View style={[s.statusPill, { backgroundColor: statusVisual.backgroundColor }]}>
+                <MaterialCommunityIcons name={statusVisual.icon} size={14} color={statusVisual.color} />
+                <Text style={[s.statusPillText, { color: statusVisual.color }]}>
+                  {getSupportTicketStatusLabel(status)}
+                </Text>
+              </View>
             </View>
 
-            {messages.map((message) => (
-              <View key={message._id} style={message.senderType === 'staff' ? s.messageStaff : s.messageCustomer}>
-                <Text style={s.cardTitle}>{message.senderType === 'staff' ? 'Shop' : 'Bạn'}</Text>
-                <Text style={s.messageText}>{message.body}</Text>
-                {message.attachments.length > 0 && (
-                  <View style={s.imageRow}>
-                    {message.attachments.map((file) => <Image key={file.publicId} source={{ uri: file.url }} style={s.image} />)}
+            <ScrollView
+              ref={messagesScrollRef}
+              style={s.messagesScroll}
+              contentContainerStyle={s.messagesContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {messages.map((message) => {
+                const isCustomer = message.senderType === 'customer';
+                return (
+                  <View
+                    key={message._id}
+                    style={[s.messageRow, isCustomer ? s.messageRowCustomer : s.messageRowStaff]}
+                  >
+                    {!isCustomer ? (
+                      <View style={s.shopAvatar}>
+                        {shopAvatarUrl ? (
+                          <Image source={{ uri: shopAvatarUrl }} style={s.shopAvatarImage} />
+                        ) : (
+                          <MaterialCommunityIcons name="storefront-outline" size={17} color={colors.brand} />
+                        )}
+                      </View>
+                    ) : null}
+                    <View style={isCustomer ? s.messageCustomer : s.messageStaff}>
+                      <Text style={[s.messageText, isCustomer && s.messageTextCustomer]}>{message.body}</Text>
+                      {message.attachments.length > 0 ? (
+                        <View style={s.messageImageRow}>
+                          {message.attachments.map((file) => (
+                            <Image key={file.publicId} source={{ uri: file.url }} style={s.messageImage} />
+                          ))}
+                        </View>
+                      ) : null}
+                      <Text style={[s.timestamp, isCustomer && s.timestampCustomer]}>
+                        {formatMessageTime(message.createdAt)}
+                      </Text>
+                    </View>
                   </View>
-                )}
-                <Text style={s.timestamp}>{new Date(message.createdAt).toLocaleString('vi-VN')}</Text>
-              </View>
-            ))}
+                );
+              })}
 
-            {staffTyping && (
-              <View style={s.messageStaff}>
-                <Text style={s.cardTitle}>Shop</Text>
-                <Text style={[s.messageText, { fontStyle: 'italic', color: colors.textSubtle }]}>Đang gõ...</Text>
-              </View>
-            )}
+              {staffTyping ? (
+                <View style={[s.messageRow, s.messageRowStaff]}>
+                  <View style={s.shopAvatar}>
+                    {shopAvatarUrl ? (
+                      <Image source={{ uri: shopAvatarUrl }} style={s.shopAvatarImage} />
+                    ) : (
+                      <MaterialCommunityIcons name="storefront-outline" size={17} color={colors.brand} />
+                    )}
+                  </View>
+                  <View style={[s.messageStaff, s.typingBubble]}>
+                    <Text style={s.typingText}>{shopName} đang nhập</Text>
+                    <Text style={s.typingDots}>•••</Text>
+                  </View>
+                </View>
+              ) : null}
 
-            {!isClosed && status !== 'resolved' && (
-              <>
-                <TextInput
-                  style={[s.input, { minHeight: 100, textAlignVertical: 'top' }]}
-                  multiline
-                  value={reply}
-                  onChangeText={(value) => {
-                    setReply(value);
-                    realtime.emitTyping(ticketId, value.trim().length > 0);
-                  }}
-                  placeholder="Bổ sung thông tin..."
-                />
-                <TouchableOpacity style={[s.button, s.secondaryButton]} onPress={chooseImages}>
-                  <Text style={s.secondaryText}>Chọn ảnh đính kèm ({images.length}/3)</Text>
-                </TouchableOpacity>
-                {images.length > 0 && <View style={s.imageRow}>{images.map((image) => <Image key={image.uri} source={{ uri: image.uri }} style={s.image} />)}</View>}
-                <TouchableOpacity style={s.button} disabled={sending || !reply.trim()} onPress={send}>
-                  <Text style={s.buttonText}>{sending ? 'Đang gửi...' : 'Gửi tin nhắn'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[s.button, s.secondaryButton]} onPress={close}>
-                  <Text style={s.secondaryText}>Đóng yêu cầu</Text>
-                </TouchableOpacity>
-              </>
-            )}
+              {canReopen ? (
+                <View style={s.conversationNotice}>
+                  <MaterialCommunityIcons name="check-circle-outline" size={21} color={colors.success} />
+                  <Text style={s.conversationNoticeText}>
+                    Vấn đề chưa được xử lý xong? Bạn có thể mở lại để tiếp tục trao đổi.
+                  </Text>
+                  <TouchableOpacity style={s.noticeAction} disabled={reopening} onPress={reopen}>
+                    <Text style={s.noticeActionText}>{reopening ? 'Đang mở...' : 'Mở lại'}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
 
-            {canReopen && (
-              <View style={[s.card, { backgroundColor: '#fff7e8', borderColor: '#f3d9a0' }]}>
-                <Text style={[s.muted, { color: '#8a6d2b' }]}>Yêu cầu đã được đánh dấu giải quyết. Vấn đề chưa hết? Mở lại để tiếp tục trao đổi.</Text>
-                <TouchableOpacity style={s.button} disabled={reopening} onPress={reopen}>
-                  <Text style={s.buttonText}>{reopening ? 'Đang mở lại...' : 'Mở lại yêu cầu'}</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+              {status === 'resolved' && !canReopen ? (
+                <View style={s.conversationNotice}>
+                  <MaterialCommunityIcons name="clock-alert-outline" size={21} color={colors.textMuted} />
+                  <Text style={s.conversationNoticeText}>
+                    Thời hạn mở lại đã hết. Hãy tạo yêu cầu mới nếu bạn vẫn cần hỗ trợ.
+                  </Text>
+                  <TouchableOpacity style={s.noticeAction} onPress={() => navigation.navigate('SupportTicketCreate')}>
+                    <Text style={s.noticeActionText}>Tạo mới</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
 
-            {status === 'resolved' && !canReopen && (
-              <View style={s.card}>
-                <Text style={s.muted}>Thời hạn mở lại yêu cầu này đã hết. Vui lòng tạo yêu cầu mới nếu bạn vẫn cần hỗ trợ.</Text>
-                <TouchableOpacity style={s.button} onPress={() => navigation.navigate('SupportTicketCreate')}><Text style={s.buttonText}>Tạo yêu cầu mới</Text></TouchableOpacity>
-              </View>
-            )}
+              {isClosed ? (
+                <View style={s.closedNotice}>
+                  <MaterialCommunityIcons name="lock-outline" size={17} color={colors.textMuted} />
+                  <Text style={s.closedNoticeText}>Yêu cầu đã đóng. Lịch sử trao đổi vẫn được lưu lại.</Text>
+                </View>
+              ) : null}
+            </ScrollView>
 
-            {isClosed && (
-              <View style={s.card}>
-                <Text style={s.muted}>Yêu cầu đã đóng. Bạn vẫn có thể xem lại lịch sử trao đổi.</Text>
+            {!isClosed && status !== 'resolved' ? (
+              <View style={s.composerPanel}>
+                {images.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={s.composerImages}
+                  >
+                    {images.map((image) => (
+                      <View key={image.uri} style={s.composerImageFrame}>
+                        <Image source={{ uri: image.uri }} style={s.composerImage} />
+                        <TouchableOpacity
+                          style={s.removeImageButton}
+                          onPress={() => removeImage(image.uri)}
+                          accessibilityLabel="Bỏ ảnh đính kèm"
+                        >
+                          <MaterialCommunityIcons name="close" size={14} color={colors.white} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : null}
+
+                <View style={s.composerRow}>
+                  <TouchableOpacity
+                    style={s.attachButton}
+                    onPress={chooseImages}
+                    disabled={sending}
+                    accessibilityLabel="Chọn ảnh đính kèm"
+                  >
+                    <MaterialCommunityIcons name="image-plus-outline" size={23} color={colors.brand} />
+                    {images.length > 0 ? (
+                      <View style={s.attachmentBadge}>
+                        <Text style={s.attachmentBadgeText}>{images.length}</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                  <TextInput
+                    style={s.chatInput}
+                    multiline
+                    value={reply}
+                    onChangeText={(value) => {
+                      setReply(value);
+                      realtime.emitTyping(ticketId, value.trim().length > 0);
+                    }}
+                    placeholder="Nhập tin nhắn..."
+                    placeholderTextColor={colors.textSubtle}
+                    maxLength={1000}
+                  />
+                  <TouchableOpacity
+                    style={[s.sendButton, (sending || !reply.trim()) && s.sendButtonDisabled]}
+                    disabled={sending || !reply.trim()}
+                    onPress={send}
+                    accessibilityLabel="Gửi tin nhắn"
+                  >
+                    {sending ? (
+                      <ActivityIndicator size="small" color={colors.white} />
+                    ) : (
+                      <MaterialCommunityIcons name="send" size={21} color={colors.white} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                <View style={s.composerFooter}>
+                  <Text style={s.composerHint}>Tối đa 3 ảnh</Text>
+                  <TouchableOpacity style={s.closeTicketAction} onPress={close}>
+                    <MaterialCommunityIcons name="check-circle-outline" size={16} color={colors.danger} />
+                    <Text style={s.closeTicketText}>Đóng yêu cầu</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            )}
+            ) : null}
           </>
         ) : (
-          <Text style={s.muted}>Đang tải...</Text>
+          <View style={s.chatLoading}>
+            <ActivityIndicator color={colors.brand} />
+            <Text style={s.muted}>Đang tải cuộc trò chuyện...</Text>
+          </View>
         )}
-      </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
