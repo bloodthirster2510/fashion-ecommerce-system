@@ -203,7 +203,7 @@ export const markCustomerNotificationRead = async (userId: string, notificationI
         },
       },
     }],
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, updatePipeline: true },
   ).lean();
 
   if (!notification) {
