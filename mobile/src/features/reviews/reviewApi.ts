@@ -3,6 +3,7 @@ import { invalidateAfterMutation, invalidateCatalogCaches } from '../../config/c
 import type { ApiResponse } from '../auth/types';
 import type {
   CreatedReview,
+  EligibleReviewItemList,
   MyReviewList,
   PublicReviewList,
   ReviewCriteria,
@@ -75,6 +76,14 @@ export const reviewApi = {
       sort: 'newest',
     });
     return request<MyReviewList>(`/reviews/me?${params.toString()}`, token);
+  },
+  listEligible: (token: string, query: { page?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams({
+      page: String(query.page ?? 1),
+      limit: String(query.limit ?? 20),
+      status: 'eligible',
+    });
+    return request<EligibleReviewItemList>(`/reviews/eligible-items?${params.toString()}`, token);
   },
   update: (token: string, reviewId: string, input: {
     rating: number;

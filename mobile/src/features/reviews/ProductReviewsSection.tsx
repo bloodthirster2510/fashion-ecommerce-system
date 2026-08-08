@@ -42,6 +42,23 @@ const formatVariant = (review: PublicReview) => {
   ].filter(Boolean).join(' / ');
 };
 
+const formatCriteria = (review: PublicReview) => {
+  const criteria = review.criteria;
+  if (!criteria) return '';
+  const fitLabel = criteria.sizeFit === 'small'
+    ? 'Hơi chật'
+    : criteria.sizeFit === 'large'
+      ? 'Hơi rộng'
+      : criteria.sizeFit === 'true_to_size'
+        ? 'Vừa vặn'
+        : '';
+  return [
+    criteria.productQuality ? `Chất lượng ${criteria.productQuality}/5` : '',
+    criteria.descriptionMatch ? `Đúng mô tả ${criteria.descriptionMatch}/5` : '',
+    fitLabel,
+  ].filter(Boolean).join(' · ');
+};
+
 const Stars = ({ rating, size = 14 }: { rating: number; size?: number }) => (
   <View style={s.stars}>
     {[1, 2, 3, 4, 5].map((value) => (
@@ -141,13 +158,19 @@ export default function ProductReviewsSection({ productId, onSummaryChange }: Pr
 
   return (
     <View>
-      <Text style={s.title}>Đánh giá của khách hàng</Text>
+      <View style={s.titleRow}>
+        <Text style={s.title}>Đánh giá từ khách hàng</Text>
+        <Text style={s.titleCount}>{data.summary.reviewCount}</Text>
+      </View>
 
       <View style={s.overview}>
         <View style={s.scoreBlock}>
-          <Text style={s.score}>{data.summary.averageRating.toFixed(1)}</Text>
-          <Stars rating={data.summary.averageRating} size={18} />
-          <Text style={s.reviewCount}>{data.summary.reviewCount} đánh giá</Text>
+          <View style={s.scoreLine}>
+            <Text style={s.score}>{data.summary.averageRating.toFixed(1)}</Text>
+            <Text style={s.scoreMax}>/ 5</Text>
+          </View>
+          <Stars rating={data.summary.averageRating} size={17} />
+          <Text style={s.reviewCount}>Điểm trung bình</Text>
         </View>
 
         <View style={s.distribution}>
@@ -165,15 +188,8 @@ export default function ProductReviewsSection({ productId, onSummaryChange }: Pr
       </View>
 
       <View style={s.promise}>
-        <Text style={s.promiseTitle}>Đánh giá sản phẩm từ người mua</Text>
-        <View style={s.promiseRow}>
-          <MaterialCommunityIcons name="check-circle" size={15} color={colors.success} />
-          <Text style={s.promiseText}>Chỉ khách đã nhận và thanh toán đơn hàng mới có thể đánh giá.</Text>
-        </View>
-        <View style={s.promiseRow}>
-          <MaterialCommunityIcons name="check-circle" size={15} color={colors.success} />
-          <Text style={s.promiseText}>Mỗi đánh giá đều được xác minh từ đơn mua thực tế.</Text>
-        </View>
+        <MaterialCommunityIcons name="shield-check-outline" size={19} color={colors.success} />
+        <Text style={s.promiseText}>Đánh giá được xác minh từ khách đã nhận và thanh toán đơn hàng.</Text>
       </View>
 
       <ScrollView
@@ -283,8 +299,13 @@ function ReviewItem({
           ) : null}
         </View>
         {review.purchasedVariant ? <Text style={s.variant}>Phân loại: {formatVariant(review)}</Text> : null}
-        <Stars rating={review.rating} />
+        <View style={s.reviewMeta}>
+          <Stars rating={review.rating} />
+          <Text style={s.metaDot}>·</Text>
+          <Text style={s.date}>{formatDate(review.createdAt)}</Text>
+        </View>
         <Text style={s.comment}>{review.comment}</Text>
+        {formatCriteria(review) ? <Text style={s.criteria}>{formatCriteria(review)}</Text> : null}
         {review.images.length ? (
           <View style={s.images}>
             {review.images.map((image) => (
@@ -298,7 +319,6 @@ function ReviewItem({
             <Text style={s.replyText}>{review.adminReply.content}</Text>
           </View>
         ) : null}
-        <Text style={s.date}>Đã đánh giá vào {formatDate(review.createdAt)}</Text>
         <TouchableOpacity
           style={[s.helpfulButton, review.hasVotedHelpful && s.helpfulButtonActive, isOwnReview && s.helpfulButtonDisabled]}
           disabled={loading || isOwnReview}
@@ -324,54 +344,59 @@ function ReviewItem({
 }
 
 const s = StyleSheet.create({
-  title: { color: colors.text, fontSize: 17, lineHeight: 23, fontWeight: '900', marginBottom: spacing.md },
-  overview: { flexDirection: 'row', borderRadius: radii.sm, backgroundColor: colors.surface, padding: spacing.md, gap: spacing.md },
-  scoreBlock: { width: 105, alignItems: 'center', justifyContent: 'center' },
-  score: { color: colors.text, fontSize: 34, lineHeight: 40, fontWeight: '900' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
+  title: { color: colors.text, fontSize: 18, lineHeight: 24, fontWeight: '800' },
+  titleCount: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  overview: { flexDirection: 'row', paddingBottom: spacing.lg, gap: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  scoreBlock: { width: 112, justifyContent: 'center' },
+  scoreLine: { flexDirection: 'row', alignItems: 'baseline' },
+  score: { color: colors.text, fontSize: 36, lineHeight: 42, fontWeight: '800', letterSpacing: -1 },
+  scoreMax: { color: colors.textMuted, fontSize: 13, fontWeight: '600', marginLeft: spacing.xs },
   stars: { flexDirection: 'row', alignItems: 'center', gap: 1 },
-  reviewCount: { color: colors.textMuted, fontSize: 11, marginTop: spacing.xs },
+  reviewCount: { color: colors.textMuted, fontSize: 10, marginTop: spacing.xs },
   distribution: { flex: 1, gap: 6 },
   distributionRow: { minHeight: 16, flexDirection: 'row', alignItems: 'center', gap: 4 },
   distributionLabel: { width: 9, color: colors.textMuted, fontSize: 11, fontWeight: '800' },
-  track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.brandPale, overflow: 'hidden' },
-  fill: { height: '100%', borderRadius: 3, backgroundColor: colors.brand },
+  track: { flex: 1, height: 4, backgroundColor: colors.border, overflow: 'hidden' },
+  fill: { height: '100%', backgroundColor: colors.goldDark },
   distributionCount: { width: 20, color: colors.textMuted, fontSize: 10, textAlign: 'right' },
-  promise: { marginTop: spacing.md, borderRadius: radii.sm, backgroundColor: colors.brandSoft, padding: spacing.md, gap: spacing.sm },
-  promiseTitle: { color: colors.text, fontSize: 13, fontWeight: '900' },
-  promiseRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  promiseText: { flex: 1, color: colors.textBody, fontSize: 11, lineHeight: 16 },
-  filters: { paddingVertical: spacing.md, gap: spacing.sm },
-  filterButton: { height: 38, paddingHorizontal: spacing.md, borderRadius: radii.xs, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
-  filterButtonActive: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
+  promise: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.md, paddingBottom: spacing.md, gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  promiseText: { flex: 1, color: colors.textMuted, fontSize: 11, lineHeight: 16 },
+  filters: { paddingVertical: spacing.sm, gap: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  filterButton: { height: 42, paddingHorizontal: 2, borderBottomWidth: 2, borderBottomColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  filterButtonActive: { borderBottomColor: colors.brandDark },
   filterText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  filterTextActive: { color: colors.brand },
+  filterTextActive: { color: colors.text },
   state: { minHeight: 100, alignItems: 'center', justifyContent: 'center' },
   empty: { color: colors.textMuted, textAlign: 'center', padding: spacing.lg },
-  list: { borderTopWidth: 1, borderTopColor: colors.border },
-  reviewItem: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
-  avatar: { width: 40, height: 40, borderRadius: 20 },
-  avatarFallback: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  list: {},
+  reviewItem: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.xl, borderBottomWidth: 1, borderBottomColor: colors.border },
+  avatar: { width: 36, height: 36, borderRadius: 18 },
+  avatarFallback: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.brandMist, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: colors.brand, fontWeight: '900' },
-  content: { flex: 1, minWidth: 0, gap: spacing.xs },
+  content: { flex: 1, minWidth: 0 },
   authorLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
-  name: { color: colors.text, fontWeight: '900' },
+  name: { color: colors.text, fontSize: 13, fontWeight: '800' },
   verifiedRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   verified: { color: colors.success, fontSize: 11, fontWeight: '800' },
-  variant: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
-  comment: { color: colors.textBody, lineHeight: 20, marginTop: spacing.xs },
-  images: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs },
-  image: { width: 62, height: 62, borderRadius: radii.sm },
-  reply: { marginTop: spacing.xs, padding: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.brand, backgroundColor: colors.brandSoft, borderRadius: radii.sm },
-  replyTitle: { color: colors.brand, fontWeight: '900', fontSize: 12 },
+  variant: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  reviewMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  metaDot: { color: colors.textSubtle, fontSize: 11 },
+  comment: { color: colors.textBody, fontSize: 14, lineHeight: 21, marginTop: spacing.sm },
+  criteria: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: spacing.sm },
+  images: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.md },
+  image: { width: 72, height: 82, borderRadius: radii.xs, backgroundColor: colors.field },
+  reply: { marginTop: spacing.md, paddingVertical: spacing.sm, paddingLeft: spacing.md, borderLeftWidth: 2, borderLeftColor: colors.brand, backgroundColor: colors.field },
+  replyTitle: { color: colors.brandDark, fontWeight: '800', fontSize: 11 },
   replyText: { color: colors.textBody, marginTop: 3, lineHeight: 18 },
-  date: { color: colors.textSubtle, fontSize: 11, marginTop: spacing.xs },
-  helpfulButton: { marginTop: spacing.xs, minHeight: 36, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radii.pill, backgroundColor: colors.field },
-  helpfulButtonActive: { backgroundColor: colors.brandSoft },
+  date: { color: colors.textSubtle, fontSize: 10 },
+  helpfulButton: { marginTop: spacing.sm, minHeight: 38, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingRight: spacing.sm },
+  helpfulButtonActive: {},
   helpfulButtonDisabled: { opacity: 0.5 },
   helpfulText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   helpfulTextActive: { color: colors.brand },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md },
-  pageButton: { minWidth: 88, height: 38, borderRadius: radii.xs, borderWidth: 1, borderColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
+  pageButton: { minWidth: 88, height: 38, borderBottomWidth: 1, borderColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm },
   pageButtonDisabled: { borderColor: colors.border, backgroundColor: colors.field },
   pageButtonText: { color: colors.brand, fontSize: 12, fontWeight: '800' },
   pageButtonTextDisabled: { color: colors.textSubtle },
