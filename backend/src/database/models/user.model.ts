@@ -2,7 +2,6 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export type UserRole = 'admin' | 'staff' | 'user';
 export type UserGender = 'male' | 'female';
-export type AuthProviderName = 'google' | 'facebook';
 export type StaffPermission =
   | 'products.read'
   | 'products.write'
@@ -51,11 +50,6 @@ export interface IUserAddress {
   isDefault: boolean;
 }
 
-export interface IUserAuthProvider {
-  provider: AuthProviderName;
-  providerId: string;
-}
-
 export interface IUserLegalConsent {
   policyVersion: string;
   acceptedAt: Date;
@@ -74,7 +68,6 @@ export interface IUser extends Document {
   loyaltyPoint: number;
   membershipUpdatedAt?: Date | null;
   refreshToken?: string | null;
-  authProviders: IUserAuthProvider[];
   permissions: StaffPermission[];
   mustChangePassword: boolean;
   createdBy?: Types.ObjectId | null;
@@ -128,14 +121,6 @@ const userAddressSchema = new Schema<IUserAddress>(
   },
 );
 
-const authProviderSchema = new Schema<IUserAuthProvider>(
-  {
-    provider: { type: String, enum: ['google', 'facebook'], required: true },
-    providerId: { type: String, required: true, trim: true },
-  },
-  { _id: false },
-);
-
 const userLegalConsentSchema = new Schema<IUserLegalConsent>(
   {
     policyVersion: { type: String, required: true, trim: true, maxlength: 40 },
@@ -175,7 +160,6 @@ const userSchema = new Schema<IUser>(
     loyaltyPoint: { type: Number, default: 0, min: 0 },
     membershipUpdatedAt: { type: Date, default: null },
     refreshToken: { type: String, default: null },
-    authProviders: { type: [authProviderSchema], default: [] },
     permissions: { type: [String], default: [] },
     mustChangePassword: { type: Boolean, default: false },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },

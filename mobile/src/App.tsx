@@ -4,7 +4,6 @@ import {
   createNavigationContainerRef,
   type NavigationAction,
 } from '@react-navigation/native';
-import * as WebBrowser from 'expo-web-browser';
 import { ActivityIndicator, Image, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
@@ -26,8 +25,6 @@ import { hydrateScreenDataCache } from './config/screenDataCache';
 import { colors } from './theme';
 
 const shopNameImage = require('../assets/ShopName.png');
-
-WebBrowser.maybeCompleteAuthSession();
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
