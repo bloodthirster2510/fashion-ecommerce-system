@@ -25,6 +25,54 @@ const defaultFaqs: Array<{ question: string; answer: string; category: FaqCatego
     category: 'loyalty',
     keywords: ['tích điểm', 'thành viên', 'hạng'],
   },
+  {
+    question: 'Tôi có thể hủy đơn hàng không?',
+    answer: 'Bạn mở chi tiết đơn và chọn Hủy đơn khi đơn vẫn còn ở trạng thái cho phép. Nếu nút Hủy đơn không còn hiển thị, hãy gửi yêu cầu hỗ trợ kèm mã đơn để shop kiểm tra.',
+    category: 'orders',
+    keywords: ['hủy đơn', 'hủy đơn hàng', 'trạng thái đơn'],
+  },
+  {
+    question: 'Shop hỗ trợ những phương thức thanh toán nào?',
+    answer: 'Shop hiện hỗ trợ thanh toán khi nhận hàng (COD) và thanh toán trực tuyến qua VNPay. Phương thức và số tiền cần thanh toán được hiển thị trước khi bạn xác nhận đặt hàng.',
+    category: 'payments',
+    keywords: ['thanh toán', 'COD', 'VNPay', 'phương thức thanh toán'],
+  },
+  {
+    question: 'Thanh toán VNPay thất bại thì làm gì?',
+    answer: 'Bạn mở chi tiết đơn và chọn Thanh toán lại khi đơn vẫn còn trong thời hạn thanh toán. Không tạo thêm đơn mới nếu đơn cũ vẫn cho phép thanh toán; nếu trạng thái chưa chính xác, hãy gửi yêu cầu hỗ trợ kèm mã đơn.',
+    category: 'payments',
+    keywords: ['VNPay thất bại', 'thanh toán lại', 'thanh toán lỗi', 'chờ thanh toán'],
+  },
+  {
+    question: 'Tại sao mã voucher không sử dụng được?',
+    answer: 'Voucher có thể chưa đến thời gian áp dụng, đã hết hạn hoặc hết lượt, chưa đạt giá trị đơn tối thiểu, không áp dụng cho sản phẩm trong giỏ hoặc không dành cho tài khoản của bạn. Hãy kiểm tra điều kiện voucher và nhập đúng mã; nếu vẫn lỗi, gửi mã voucher cho shop qua trang Hỗ trợ.',
+    category: 'promotions',
+    keywords: ['voucher', 'mã giảm giá', 'không áp dụng', 'hết hạn', 'đơn tối thiểu'],
+  },
+  {
+    question: 'Tiền hoàn được nhận bằng cách nào và mất bao lâu?',
+    answer: 'Đơn VNPay được hoàn về kênh thanh toán gốc; đơn COD được hoàn qua tài khoản ngân hàng đã xác minh. Shop gửi yêu cầu hoàn trong vòng 7 ngày làm việc sau khi nhận, kiểm tra hàng và chấp thuận khoản hoàn; thời gian tiền về còn phụ thuộc VNPay hoặc ngân hàng.',
+    category: 'payments',
+    keywords: ['hoàn tiền', 'thời gian hoàn', 'tài khoản nhận hoàn', 'VNPay', 'COD'],
+  },
+  {
+    question: 'Ai chịu phí vận chuyển khi đổi trả?',
+    answer: 'Shop chịu phí gửi trả nếu giao sai, thiếu, sản phẩm có lỗi hoặc hư hỏng không do khách hàng. Với yêu cầu đổi kích cỡ, thay đổi nhu cầu hoặc lý do không thuộc lỗi của shop, chi phí gửi trả và giao lại sẽ được thông báo để bạn xác nhận trước khi gửi.',
+    category: 'returns',
+    keywords: ['phí đổi trả', 'phí gửi trả', 'đổi kích cỡ', 'hàng lỗi'],
+  },
+  {
+    question: 'Tôi nên làm gì khi nhận sai, thiếu hoặc hàng bị hư hỏng?',
+    answer: 'Hãy giữ nguyên tem nhãn, chụp ảnh sản phẩm và kiện hàng, sau đó mở chi tiết đơn để gửi yêu cầu trả hàng trong vòng 7 ngày. Bạn cũng có thể gửi ticket Hỗ trợ kèm mã đơn và tối đa 3 ảnh để shop đối soát.',
+    category: 'returns',
+    keywords: ['giao sai', 'giao thiếu', 'hàng hư hỏng', 'hàng lỗi', 'ảnh minh chứng'],
+  },
+  {
+    question: 'Làm thế nào để thêm hoặc thay đổi địa chỉ giao hàng?',
+    answer: 'Bạn mở Tài khoản, chọn Thông tin cá nhân rồi thêm, sửa hoặc đặt một địa chỉ làm mặc định trong phần địa chỉ giao hàng. Việc thay đổi địa chỉ mặc định không làm thay đổi địa chỉ của đơn đã đặt; hãy liên hệ Hỗ trợ nếu cần kiểm tra đơn hiện tại.',
+    category: 'account',
+    keywords: ['địa chỉ giao hàng', 'địa chỉ mặc định', 'thêm địa chỉ', 'sửa địa chỉ'],
+  },
 ];
 
 export const seedSupportFaqs = async () => {
