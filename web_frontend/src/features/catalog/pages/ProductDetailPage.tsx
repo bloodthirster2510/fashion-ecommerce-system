@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Empty, Image, Spin, message } from 'antd'
+import { Alert, Button, Empty, Spin, message } from 'antd'
 import {
   CarOutlined,
   HeartOutlined,
@@ -9,7 +9,6 @@ import {
   SafetyCertificateOutlined,
   ShoppingCartOutlined,
   SwapOutlined,
-  ZoomInOutlined,
 } from '@ant-design/icons'
 import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { MainLayout } from '../../../layouts/MainLayout'
@@ -251,18 +250,7 @@ export function ProductDetailPage() {
                 <section className="product-detail-shell">
                   <section className="product-gallery" aria-label="Ảnh sản phẩm">
                     <div className="product-gallery-main">
-                      <Image
-                        rootClassName="product-gallery-image"
-                        src={selectedImage || product.productImage}
-                        alt={product.name}
-                        preview={{
-                          mask: (
-                            <span className="product-gallery-zoom-label">
-                              <ZoomInOutlined /> Xem ảnh lớn
-                            </span>
-                          ),
-                        }}
-                      />
+                      <img src={selectedImage || product.productImage} alt={product.name} />
                     </div>
 
                     <div className="product-thumbnails">
