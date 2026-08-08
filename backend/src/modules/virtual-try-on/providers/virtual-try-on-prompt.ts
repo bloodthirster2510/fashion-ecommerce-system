@@ -380,23 +380,29 @@ export const buildVirtualTryOnPrompt = (input: {
 };
 
 const videoMotionByPreset: Record<VirtualTryOnContextPreset, string> = {
-  none: 'the person makes a subtle natural weight shift and a small shoulder turn',
-  work: 'the person calmly adjusts posture with a small confident shoulder turn',
-  casual: 'the person makes a relaxed weight shift and a gentle natural turn',
-  party: 'the person makes a small elegant pose change with restrained fabric movement',
-  travel: 'the person shifts naturally while a very light breeze moves the fabric',
-  sport: 'the person makes one controlled light athletic movement without changing position',
-  date: 'the person makes a soft natural pose change with a slight friendly expression',
-  custom: 'the person makes a subtle natural weight shift and a small shoulder turn',
+  none: 'the person slowly transfers a little weight to one leg while the hips, torso, shoulders, and head follow as one connected movement, then makes a slight three-quarter turn',
+  work: 'the person gently straightens their posture, shifts weight with quiet confidence, and makes a small composed shoulder turn while keeping a relaxed professional expression',
+  casual: 'the person takes an easy breath, makes a relaxed side-to-side weight shift, and turns slightly as if naturally showing the outfit to a friend',
+  party: 'the person eases into one understated elegant pose, with a small coordinated hip and shoulder turn and a calm glance toward the camera',
+  travel: 'the person makes a relaxed sightseeing-style weight shift and slight turn while a faint steady breeze softly lifts only loose hair and fabric edges',
+  sport: 'the person makes one small controlled athletic weight shift with softly flexing knees, coordinated hips and shoulders, and both feet remaining planted',
+  date: 'the person takes a soft breath, makes a gentle pose change with a slight head tilt, and lets a subtle friendly expression appear naturally',
+  custom: 'the person slowly transfers a little weight to one leg while the hips, torso, shoulders, and head follow as one connected movement, then makes a slight three-quarter turn',
 };
 
 const videoNegativePrompt = [
-  'identity change, face change, body shape change, skin tone change',
-  'wardrobe change, garment color change, pattern change, logo change',
-  'missing garment, extra garment, fabric melting, texture morphing',
-  'flicker, jitter, frame warping, duplicated limbs, extra fingers',
-  'deformed hands, deformed face, camera cut, scene transition',
-  'background replacement, sudden zoom, text overlay, watermark',
+  'identity, face, body shape, or skin tone change',
+  'wardrobe, garment color, pattern, print, logo, accessory, or shoe change',
+  'missing or extra garment, fabric melting, texture morphing',
+  'robotic motion, stiff or frozen pose, mechanical turn, unnatural rhythm',
+  'abrupt start or stop, sudden acceleration, repeated or looping gesture',
+  'foot sliding, floating feet, body gliding, lost balance',
+  'disconnected arm motion, rubber limbs, twitching hands, fused fingers',
+  'excessive blinking, darting eyes, talking, lip movement, exaggerated expression',
+  'flicker, jitter, temporal inconsistency, warping, duplicated limbs, extra fingers',
+  'deformed hands or face, camera cut, transition, speed ramp, slow motion',
+  'camera shake or drift, pan, tilt, orbit, dolly, zoom, changing crop',
+  'moving or replaced background, lighting change, text, watermark',
   'nudity, explicit content',
 ].join(', ');
 
@@ -407,11 +413,14 @@ export const buildVirtualTryOnVideoPrompt = (input: {
 }) => {
   const contextPrompt = input.customPrompt?.trim();
   const prompt = [
-    `Use the input image as the exact first frame of one continuous ${input.durationSeconds}-second fashion showcase`,
+    `Use the input image as the exact first frame of one continuous ${input.durationSeconds}-second photorealistic fashion shot at normal real-time speed`,
+    'begin almost still, ease smoothly into one simple movement, and gently settle into a balanced final pose; use natural acceleration and deceleration with no abrupt stop',
     videoMotionByPreset[input.preset],
-    'fabric moves gently and realistically with the body',
-    'preserve the same person identity, face, hair, body proportions, skin tone, outfit design, garment color, pattern, print, logo, seams, accessories, shoes, background, lighting, and camera framing from the input image',
-    'no scene cut and no wardrobe change',
+    'keep the motion anatomically connected: planted feet and hips initiate the weight transfer, followed by the torso, shoulders, head, and relaxed visible arms and hands',
+    'add only soft breathing and, when the face is clearly visible, one relaxed blink; keep the mouth naturally still',
+    'fabric reacts a moment after the body, with subtle inertia, realistic folds, and gentle settling; heavy fabric moves less than loose fabric',
+    'locked-off camera, stable perspective and focal length; the camera and background remain still',
+    'preserve the person, face, hair, proportions, skin tone, complete outfit, garment details, accessories, shoes, background, lighting, and framing exactly as shown',
     contextPrompt ? `keep the existing user scene context: ${contextPrompt}` : '',
   ].filter(Boolean).join('. ');
 
