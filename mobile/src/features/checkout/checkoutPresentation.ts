@@ -5,6 +5,71 @@ type CheckoutItemSummary = {
   availableQuantity?: number;
 };
 
+type CheckoutRequestError = {
+  message?: string;
+  status?: number;
+  errorCode?: string;
+  data?: unknown;
+};
+
+export type CheckoutErrorPresentation = {
+  kind: 'quote_changed' | 'coupon_exhausted' | 'coupon_user_limit' | 'generic';
+  title: string;
+  message: string;
+  couponCode?: string;
+};
+
+const getCouponCodeFromError = (error: CheckoutRequestError) => {
+  if (!error.data || typeof error.data !== 'object' || !('couponCode' in error.data)) return undefined;
+  const couponCode = (error.data as { couponCode?: unknown }).couponCode;
+  return typeof couponCode === 'string' && couponCode.trim()
+    ? couponCode.trim().toUpperCase()
+    : undefined;
+};
+
+export const getCheckoutErrorPresentation = (error: unknown): CheckoutErrorPresentation => {
+  const requestError = error && typeof error === 'object' ? error as CheckoutRequestError : {};
+
+  if (requestError.status === 409 && requestError.errorCode === 'QUOTE_CHANGED') {
+    return {
+      kind: 'quote_changed',
+      title: 'Phí giao hàng đã thay đổi',
+      message: 'Phí giao hàng vừa thay đổi. Mình cần cập nhật lại tổng tiền trước khi đặt hàng.',
+    };
+  }
+
+  if (requestError.status === 409 && requestError.errorCode === 'COUPON_USAGE_LIMIT_REACHED') {
+    const couponCode = getCouponCodeFromError(requestError);
+    return {
+      kind: 'coupon_exhausted',
+      title: 'Voucher đã hết lượt',
+      message: couponCode
+        ? `Voucher ${couponCode} vừa được khách hàng khác sử dụng hết. Mình đã gỡ voucher và cập nhật lại đơn hàng.`
+        : 'Voucher vừa được khách hàng khác sử dụng hết. Mình đã gỡ voucher và cập nhật lại đơn hàng.',
+      couponCode,
+    };
+  }
+
+  if (requestError.status === 409 && requestError.errorCode === 'COUPON_PER_USER_LIMIT_REACHED') {
+    const couponCode = getCouponCodeFromError(requestError);
+    return {
+      kind: 'coupon_user_limit',
+      title: 'Đã hết lượt dùng voucher',
+      message: couponCode
+        ? `Bạn đã dùng hết số lượt cho voucher ${couponCode}. Mình đã gỡ voucher và cập nhật lại đơn hàng.`
+        : 'Bạn đã dùng hết số lượt cho voucher này. Mình đã gỡ voucher và cập nhật lại đơn hàng.',
+      couponCode,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : undefined;
+  return {
+    kind: 'generic',
+    title: 'Không đặt được hàng',
+    message: message || 'Bạn thử lại sau nha.',
+  };
+};
+
 export type CheckoutValidationIssue =
   | {
       kind: 'missing_address';

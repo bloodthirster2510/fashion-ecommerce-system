@@ -26,6 +26,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import {
   canSubmitCheckout,
+  getCheckoutErrorPresentation,
   getCheckoutItemTitle,
   getCheckoutValidationIssue,
   getShippingStatusText,
@@ -50,17 +51,7 @@ const formatCurrency = (value: number) =>
 
 const CHECKOUT_PREVIEW_DEBOUNCE_MS = 450;
 
-const getErrorMessage = (error: unknown) => {
-  if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
-    return 'Phí giao hàng vừa thay đổi. Mình cần cập nhật lại tổng tiền trước khi đặt hàng.';
-  }
-
-  if (error instanceof CartApiError && error.status === 409) {
-    return error.message || 'Dữ liệu đơn hàng vừa thay đổi. Bạn kiểm tra lại trước khi tiếp tục.';
-  }
-
-  return error instanceof Error ? error.message : 'Bạn thử lại sau nha.';
-};
+const getErrorMessage = (error: unknown) => getCheckoutErrorPresentation(error).message;
 
 const compactAddressParts = (address: UserAddress) =>
   [address.streetName, address.ward, address.province].map((item) => item?.trim()).filter(Boolean);
@@ -412,8 +403,16 @@ const CheckoutScreen = () => {
           setCheckoutPreview(null);
           setCheckoutPreviewKey('');
           if (appliedCouponCodes.length) {
+            const errorPresentation = getCheckoutErrorPresentation(error);
             setAppliedCouponCodes([]);
-            showNotice({ tone: 'warning', title: 'Voucher không còn phù hợp', message: getErrorMessage(error) });
+            setCouponCode('');
+            showNotice({
+              tone: 'warning',
+              title: errorPresentation.kind === 'coupon_exhausted' || errorPresentation.kind === 'coupon_user_limit'
+                ? errorPresentation.title
+                : 'Voucher không còn phù hợp',
+              message: errorPresentation.message,
+            });
           }
         })
         .finally(() => {
@@ -560,19 +559,42 @@ const CheckoutScreen = () => {
 
       await loadCart(true);
     } catch (error) {
-      if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
+      const errorPresentation = getCheckoutErrorPresentation(error);
+
+      if (errorPresentation.kind === 'quote_changed') {
         showNotice({
           tone: 'warning',
-          title: 'Phí giao hàng đã thay đổi',
-          message: getErrorMessage(error),
+          title: errorPresentation.title,
+          message: errorPresentation.message,
         });
+        setCheckoutPreview(null);
+        setCheckoutPreviewKey('');
+      } else if (
+        errorPresentation.kind === 'coupon_exhausted' ||
+        errorPresentation.kind === 'coupon_user_limit'
+      ) {
+        showNotice({
+          tone: 'warning',
+          title: errorPresentation.title,
+          message: errorPresentation.message,
+        });
+        setAppliedCouponCodes((currentCodes) =>
+          errorPresentation.couponCode
+            ? currentCodes.filter((code) => code !== errorPresentation.couponCode)
+            : [],
+        );
+        setCouponCode((currentCode) =>
+          !errorPresentation.couponCode || currentCode.trim().toUpperCase() === errorPresentation.couponCode
+            ? ''
+            : currentCode,
+        );
         setCheckoutPreview(null);
         setCheckoutPreviewKey('');
       } else {
         showNotice({
           tone: 'error',
-          title: 'Không đặt được hàng',
-          message: getErrorMessage(error),
+          title: errorPresentation.title,
+          message: errorPresentation.message,
         });
       }
     } finally {
@@ -625,7 +647,14 @@ const CheckoutScreen = () => {
       setCouponCode('');
       showNotice({ tone: 'success', title: 'Đã áp dụng voucher', message: `${preview.coupon.code} đã được tính vào đơn hàng.` }, 3200);
     } catch (error) {
-      showNotice({ tone: 'error', title: 'Chưa áp dụng được voucher', message: getErrorMessage(error) });
+      const errorPresentation = getCheckoutErrorPresentation(error);
+      const isCouponLimitError =
+        errorPresentation.kind === 'coupon_exhausted' || errorPresentation.kind === 'coupon_user_limit';
+      showNotice({
+        tone: isCouponLimitError ? 'warning' : 'error',
+        title: isCouponLimitError ? errorPresentation.title : 'Chưa áp dụng được voucher',
+        message: errorPresentation.message,
+      });
     } finally {
       setIsApplyingCoupon(false);
     }

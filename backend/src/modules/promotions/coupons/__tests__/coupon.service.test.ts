@@ -38,12 +38,21 @@ jest.mock('../../../../database/models', () => ({
 
 jest.mock('../../pricing/promotion-pricing.service', () => {
   class PromotionPricingError extends Error {
+    public readonly errorCode?: string;
+    public readonly data?: Record<string, unknown>;
+
     constructor(
       message: string,
       public readonly statusCode: number,
+      options?: {
+        errorCode?: string;
+        data?: Record<string, unknown>;
+      },
     ) {
       super(message);
       this.name = 'PromotionPricingError';
+      this.errorCode = options?.errorCode;
+      this.data = options?.data;
     }
   }
 
@@ -145,10 +154,29 @@ describe('couponService usage reservation', () => {
 
     await expect(
       couponService.reserveCouponUsage(userId, appliedCoupon as never),
-    ).rejects.toThrow(PromotionPricingError);
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: 'COUPON_PER_USER_LIMIT_REACHED',
+      data: { couponCode: baseCoupon.code },
+    });
 
     expect(mockedCoupon.updateOne).not.toHaveBeenCalled();
     expect(mockedCoupon.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns a stable conflict code when another checkout takes the final usage', async () => {
+    mockedCouponUsage.countDocuments.mockResolvedValue(0);
+    mockedCoupon.updateOne.mockResolvedValue({} as never);
+    mockedCoupon.findOneAndUpdate.mockResolvedValue(null);
+
+    await expect(
+      couponService.reserveCouponUsage(userId, appliedCoupon as never),
+    ).rejects.toMatchObject({
+      message: 'Coupon usage limit reached',
+      statusCode: 409,
+      errorCode: 'COUPON_USAGE_LIMIT_REACHED',
+      data: { couponCode: baseCoupon.code },
+    });
   });
 
   it('rolls back both global and per-user usage counters', async () => {

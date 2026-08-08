@@ -1002,7 +1002,10 @@ const reserveCouponUsage = async (
   const usedByUser = await (options.session ? usedByUserQuery.session(options.session) : usedByUserQuery);
 
   if (usedByUser >= coupon.perUserLimit) {
-    throw new PromotionPricingError('Coupon per-user limit reached', 409);
+    throw new PromotionPricingError('Coupon per-user limit reached', 409, {
+      errorCode: 'COUPON_PER_USER_LIMIT_REACHED',
+      data: { couponCode: coupon.code },
+    });
   }
 
   if (options.session) {
@@ -1039,7 +1042,10 @@ const reserveCouponUsage = async (
   );
 
   if (!reservedCoupon) {
-    throw new PromotionPricingError('Coupon usage limit reached', 409);
+    throw new PromotionPricingError('Coupon usage limit reached', 409, {
+      errorCode: 'COUPON_USAGE_LIMIT_REACHED',
+      data: { couponCode: coupon.code },
+    });
   }
 
   clearValidateCouponCache();

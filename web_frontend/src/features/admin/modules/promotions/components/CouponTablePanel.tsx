@@ -114,16 +114,20 @@ export function CouponTablePanel({
       key: 'time',
       header: 'Hiệu lực',
       render: (coupon) => {
-        const remainingUsage =
-          coupon.usageLimit == null
-            ? 'Không giới hạn'
-            : `${Math.max(0, coupon.usageLimit - coupon.usedCount)} / ${coupon.usageLimit}`
+        const remainingCount = coupon.usageLimit == null
+          ? null
+          : Math.max(0, coupon.usageLimit - coupon.usedCount)
+        const remainingUsage = remainingCount == null
+          ? 'Không giới hạn'
+          : remainingCount === 0
+            ? `Hết lượt (0 / ${coupon.usageLimit})`
+            : `${remainingCount} / ${coupon.usageLimit}`
 
         return (
           <div className="admin-promotion-stack-cell">
             <strong>{formatDateTime(coupon.startAt)}</strong>
             <span>Đến {formatDateTime(coupon.endAt)}</span>
-            <span>Còn lượt: {remainingUsage}</span>
+            <span>{remainingCount === 0 ? remainingUsage : `Còn lượt: ${remainingUsage}`}</span>
           </div>
         )
       },
