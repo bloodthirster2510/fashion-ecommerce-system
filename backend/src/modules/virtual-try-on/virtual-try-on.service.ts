@@ -2649,7 +2649,7 @@ const getAdminSettings = async () => {
       aspectRatio: process.env.VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO?.trim() || '3:4',
       resolution: PROVIDER === 'mock'
         ? '1440×1920'
-        : process.env.VIRTUAL_TRY_ON_COMFY_RESOLUTION?.trim() || '4K',
+        : process.env.VIRTUAL_TRY_ON_COMFY_RESOLUTION?.trim() || '2K',
       outputCount: 4,
     },
     videoEnabled: video.available,

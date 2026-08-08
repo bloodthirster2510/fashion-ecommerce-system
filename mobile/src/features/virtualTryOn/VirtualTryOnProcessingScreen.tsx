@@ -76,6 +76,11 @@ const VirtualTryOnProcessingScreen = () => {
     } : undefined);
   }, [navigation, retainedSeedItems, retainedAlternativeSeedItems]);
 
+  const returnToHome = React.useCallback(() => {
+    isFocusedRef.current = false;
+    navigation.navigate('Home', undefined, { pop: true });
+  }, [navigation]);
+
   React.useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -318,7 +323,7 @@ const VirtualTryOnProcessingScreen = () => {
                   <View style={styles.backgroundProcessingActions}>
                     <TouchableOpacity
                       style={styles.backgroundHomeButton}
-                      onPress={returnToBuilder}
+                      onPress={returnToHome}
                       activeOpacity={0.86}
                     >
                       <MaterialCommunityIcons name="home-outline" size={20} color={studioPalette.ink} />
@@ -374,11 +379,7 @@ const VirtualTryOnProcessingScreen = () => {
                 <View style={styles.canceledActions}>
                   <TouchableOpacity
                     style={styles.canceledSecondaryButton}
-                    onPress={() => navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
-                      entryPoint: 'builder',
-                      seedItems: retainedSeedItems,
-                      alternativeSeedItems: retainedAlternativeSeedItems,
-                    } : undefined)}
+                    onPress={returnToHome}
                     activeOpacity={0.86}
                   >
                     <MaterialCommunityIcons name="home-outline" size={20} color={studioPalette.ink} />

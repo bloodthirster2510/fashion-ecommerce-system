@@ -638,11 +638,7 @@ const VirtualTryOnResultScreen = () => {
         </View>
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={() => navigation.navigate('VirtualTryOnHome', hasResumeQueue ? {
-            entryPoint: 'builder',
-            seedItems: preferredResumeSeedItems,
-            alternativeSeedItems: resumeAlternativeSeedItems.length ? resumeAlternativeSeedItems : undefined,
-          } : undefined)}
+          onPress={() => navigation.navigate('Home', undefined, { pop: true })}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="home-outline" size={23} color={colors.white} />

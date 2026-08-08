@@ -111,7 +111,7 @@ const PRODUCT_PAGE_SIZE = 30;
 
 const VIDEO_DURATION_MIN_SECONDS = 5;
 const VIDEO_DURATION_MAX_SECONDS = 12;
-const VIDEO_DURATION_DEFAULT_SECONDS = 8;
+const VIDEO_DURATION_DEFAULT_SECONDS = 5;
 const VIDEO_DURATION_THUMB_SIZE = 22;
 
 const clampVideoDuration = (value: number, min: number, max: number) =>

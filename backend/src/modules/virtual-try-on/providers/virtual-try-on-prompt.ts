@@ -14,30 +14,54 @@ const contextPresetPrompts: Record<VirtualTryOnContextPreset, string[]> = {
     'make only the clothing change look natural in the existing photo',
   ],
   work: [
-    'modern office setting, polished everyday workwear mood',
-    'clean professional styling, soft indoor lighting, neat business-casual finish',
+    'a contemporary professional office with glass partitions, light wood desks, subtle green plants, and large windows',
+    'soft diffused daylight, uncluttered business environment, realistic depth, polished workday atmosphere',
   ],
   casual: [
-    'clean casual street setting, natural daylight',
-    'relaxed everyday styling, wearable lifestyle look, effortless outfit balance',
+    'a clean urban pedestrian street with modern storefronts, a few trees, and subtle city depth',
+    'natural daytime light, relaxed everyday atmosphere, realistic street perspective, softly blurred distant pedestrians',
   ],
   party: [
-    'tasteful evening event setting, elegant lighting',
-    'refined social occasion styling, flattering highlights, polished fashion finish',
+    'an upscale rooftop evening reception with elegant decor, warm decorative lights, and a distant city skyline',
+    'tasteful golden-hour-to-evening lighting, refined event atmosphere, soft background bokeh, realistic floor and depth',
   ],
   travel: [
-    'bright travel lifestyle setting, natural outdoor feel',
-    'vacation-ready styling, airy daylight, realistic movement and relaxed posture',
+    'a scenic seaside promenade with open sky, distant water, tasteful railings, and travel-destination depth',
+    'bright airy daylight, natural outdoor shadows, relaxed vacation atmosphere, realistic horizon and perspective',
   ],
   sport: [
-    'active lifestyle setting, clean sporty energy',
-    'athletic styling, breathable fabric feel, dynamic but realistic body alignment',
+    'a modern fitness studio with clean training equipment, open floor space, and large daylight windows',
+    'fresh athletic lighting, energetic but realistic environment, subtle equipment depth, clean sporty atmosphere',
   ],
   date: [
-    'warm cafe or dinner setting, natural flattering light',
-    'soft lifestyle portrait mood, tasteful styling, approachable elegant atmosphere',
+    'a cozy upscale cafe with warm pendant lights, tasteful tables, plants, and softly blurred interior details',
+    'flattering warm light, intimate but natural atmosphere, realistic indoor depth, elegant approachable mood',
   ],
   custom: [],
+};
+
+const getContextScenePromptParts = (
+  preset: VirtualTryOnContextPreset,
+  customPrompt?: string,
+) => {
+  const contextPrompt = customPrompt?.trim();
+
+  if (preset === 'none' || (preset === 'custom' && !contextPrompt)) {
+    return contextPresetPrompts.none;
+  }
+
+  const requestedScene = preset === 'custom'
+    ? [`scene requested by user: ${contextPrompt}`]
+    : contextPresetPrompts[preset];
+
+  return [
+    'background edit is required: replace the entire original background with one coherent new environment',
+    'keep the source person, facial identity, hair, pose, body proportions, selected garments, crop, camera angle, and subject scale unchanged while changing the setting',
+    ...requestedScene,
+    'rebuild the environment continuously behind and around the person; do not retain recognizable parts of the old background',
+    'match the new background perspective, ground plane, depth of field, shadows, color temperature, and light direction to the subject',
+    'blend cleanly around hair, hands, garments, and feet with no cutout halo or pasted-on appearance',
+  ];
 };
 
 export type VirtualTryOnContextPresetPreview = {
@@ -57,38 +81,38 @@ export const contextPresetPreviews: VirtualTryOnContextPresetPreview[] = [
   {
     key: 'work',
     label: 'Đi làm',
-    viPreview: 'Phong cách công sở hiện đại, ánh sáng gọn gàng, cảm giác chỉn chu và lịch sự.',
-    enPromptPreview: 'Modern office setting, polished everyday workwear mood, clean professional styling, soft indoor lighting.',
+    viPreview: 'Thay nền thành văn phòng hiện đại có vách kính, bàn gỗ sáng, cây xanh và ánh sáng cửa sổ dịu.',
+    enPromptPreview: 'Replace the background with a contemporary office, glass partitions, light wood desks, plants, and soft window light.',
   },
   {
     key: 'casual',
     label: 'Đi chơi',
-    viPreview: 'Phố thị thoải mái, ánh sáng ban ngày tự nhiên, dáng đi năng động và dễ gần.',
-    enPromptPreview: 'Clean casual street setting, natural daylight, relaxed everyday styling, effortless outfit balance.',
+    viPreview: 'Thay nền thành phố đi bộ hiện đại, có cửa hàng và cây xanh, ánh sáng ban ngày tự nhiên.',
+    enPromptPreview: 'Replace the background with a modern pedestrian street, storefronts, trees, and natural daylight.',
   },
   {
     key: 'party',
     label: 'Dự tiệc',
-    viPreview: 'Không gian tiệc tối thanh lịch, ánh sáng lung linh, phong cách chỉn chu và sang trọng.',
-    enPromptPreview: 'Tasteful evening event setting, elegant lighting, refined social occasion styling, polished fashion finish.',
+    viPreview: 'Thay nền thành tiệc tối sân thượng sang trọng, đèn vàng lung linh và đường chân trời thành phố.',
+    enPromptPreview: 'Replace the background with an upscale rooftop evening reception, warm decorative lights, and a city skyline.',
   },
   {
     key: 'travel',
     label: 'Du lịch',
-    viPreview: 'Cảm giác du lịch ngoài trời, ánh sáng tự nhiên thoáng đãng, dáng thoải mái và năng động.',
-    enPromptPreview: 'Bright travel lifestyle setting, natural outdoor feel, vacation-ready styling, airy daylight, realistic movement.',
+    viPreview: 'Thay nền thành lối đi ven biển thoáng đãng, có trời xanh, mặt nước và ánh sáng tự nhiên.',
+    enPromptPreview: 'Replace the background with a scenic seaside promenade, open sky, distant water, and bright natural daylight.',
   },
   {
     key: 'sport',
     label: 'Thể thao',
-    viPreview: 'Không gian vận động sạch sẽ, năng lượng thể thao, cảm giác vải thoáng và dáng chủ động.',
-    enPromptPreview: 'Active lifestyle setting, clean sporty energy, athletic styling, breathable fabric feel, dynamic but realistic body alignment.',
+    viPreview: 'Thay nền thành phòng tập hiện đại, không gian rộng, thiết bị gọn gàng và cửa sổ lớn.',
+    enPromptPreview: 'Replace the background with a modern fitness studio, clean equipment, open floor space, and large daylight windows.',
   },
   {
     key: 'date',
     label: 'Hẹn hò',
-    viPreview: 'Quán cà phê hoặc nhà hàng ấm cúng, ánh sáng dịu và tôn vinh, phong cách thanh lịch, gần gũi.',
-    enPromptPreview: 'Warm cafe or dinner setting, natural flattering light, soft lifestyle portrait mood, tasteful styling, approachable elegant atmosphere.',
+    viPreview: 'Thay nền thành quán cà phê ấm cúng, đèn thả vàng, bàn ghế thanh lịch và hậu cảnh xóa nhẹ.',
+    enPromptPreview: 'Replace the background with a cozy upscale cafe, warm pendant lights, tasteful tables, plants, and soft interior bokeh.',
   },
   {
     key: 'custom',
@@ -236,25 +260,25 @@ const getSingleRolePrompt = (role?: VirtualTryOnItemRole) => {
     case 'top':
       return [
         'single top try-on: replace only the upper-body garment',
-        'preserve the original pants or skirt, shoes, accessories, hand position, and background unless they are naturally occluded by the new top',
+        'preserve the original pants or skirt, shoes, accessories, and hand position unless they are naturally occluded by the new top',
         'make the top follow the torso angle, shoulder slope, arm bend, and chest depth',
       ];
     case 'bottom':
       return [
         'single bottom try-on: replace only the lower-body garment',
-        'preserve the original top, outerwear, shoes, accessories, hands, and background unless natural overlap is required at the waist',
+        'preserve the original top, outerwear, shoes, accessories, and hands unless natural overlap is required at the waist',
         'make the waistband sit on the hips or waist with correct rise, leg opening, and body perspective',
       ];
     case 'dress':
       return [
         'single dress try-on: replace the visible outfit with the selected one-piece dress',
         'the dress must read as one continuous garment from upper body to hem',
-        'preserve the person, legs, shoes, hands, hair, and background where they remain visible',
+        'preserve the person, legs, shoes, hands, and hair where they remain visible',
       ];
     case 'shoes':
       return [
         'single footwear try-on: replace only the shoes or sandals',
-        'preserve the outfit above the ankles and keep pants, dress, skin, and background unchanged',
+        'preserve the outfit above the ankles and keep pants, dress, and skin unchanged',
         'both selected shoes must be worn on the correct feet with realistic floor contact and shadows',
       ];
     case 'outerwear':
@@ -279,7 +303,7 @@ const getTopBottomPrompt = (roles: VirtualTryOnItemRole[]) => {
     'two-piece outfit try-on: combine the selected upper garment and lower garment as a coherent outfit',
     'resolve the waist overlap naturally with correct tucked, untucked, cropped, or layered behavior',
     'keep the top above the bottom with believable fabric stacking, shadows, and no duplicate waistband',
-    'preserve shoes, accessories, face, hands, hair, and background unless they are naturally occluded',
+    'preserve shoes, accessories, face, hands, and hair unless they are naturally occluded',
   ];
 
   if (hasRole(roles, 'outerwear')) {
@@ -354,8 +378,8 @@ export const buildVirtualTryOnPrompt = (input: {
 }) => {
   const garmentText = input.garments.map(describeGarment).join('; ');
   const roles = uniqueRoles(input.garments);
-  const presetPromptParts = contextPresetPrompts[input.preset] || [];
   const contextPrompt = input.customPrompt?.trim();
+  const contextScenePromptParts = getContextScenePromptParts(input.preset, contextPrompt);
   const outfitMode = input.outfitMode
     || (input.garments.length >= 3 ? 'full_set' : input.garments.length === 2 ? 'top_bottom' : 'single');
   const outfitPrompts = getOutfitModePrompts(outfitMode, roles);
@@ -366,8 +390,7 @@ export const buildVirtualTryOnPrompt = (input: {
     ...outfitPrompts,
     ...getRoleSpecificPrompts(roles),
     ...garmentFidelityParts,
-    contextPrompt ? `scene requested by user: ${contextPrompt}` : '',
-    ...presetPromptParts,
+    ...contextScenePromptParts,
     ...realismPromptParts,
   ].filter(Boolean).join('. ');
 
@@ -381,12 +404,12 @@ export const buildVirtualTryOnPrompt = (input: {
 
 const videoMotionByPreset: Record<VirtualTryOnContextPreset, string> = {
   none: 'the person slowly transfers a little weight to one leg while the hips, torso, shoulders, and head follow as one connected movement, then makes a slight three-quarter turn',
-  work: 'the person gently straightens their posture, shifts weight with quiet confidence, and makes a small composed shoulder turn while keeping a relaxed professional expression',
+  work: 'the person gently straightens their posture, shifts weight with quiet confidence, and makes a small composed shoulder turn while the face and gaze remain relaxed and steady',
   casual: 'the person takes an easy breath, makes a relaxed side-to-side weight shift, and turns slightly as if naturally showing the outfit to a friend',
-  party: 'the person eases into one understated elegant pose, with a small coordinated hip and shoulder turn and a calm glance toward the camera',
+  party: 'the person eases into one understated elegant pose with a small coordinated hip and shoulder turn while maintaining a calm steady gaze toward the camera',
   travel: 'the person makes a relaxed sightseeing-style weight shift and slight turn while a faint steady breeze softly lifts only loose hair and fabric edges',
   sport: 'the person makes one small controlled athletic weight shift with softly flexing knees, coordinated hips and shoulders, and both feet remaining planted',
-  date: 'the person takes a soft breath, makes a gentle pose change with a slight head tilt, and lets a subtle friendly expression appear naturally',
+  date: 'the person takes a soft breath and makes a gentle pose change with a slight head tilt while keeping a soft expression and steady gaze',
   custom: 'the person slowly transfers a little weight to one leg while the hips, torso, shoulders, and head follow as one connected movement, then makes a slight three-quarter turn',
 };
 
@@ -398,7 +421,8 @@ const videoNegativePrompt = [
   'abrupt start or stop, sudden acceleration, repeated or looping gesture',
   'foot sliding, floating feet, body gliding, lost balance',
   'disconnected arm motion, rubber limbs, twitching hands, fused fingers',
-  'excessive blinking, darting eyes, talking, lip movement, exaggerated expression',
+  'frequent or repeated blinking, rapid blinking, eyelid flutter, eyelid twitching, half-closed eyes, darting gaze',
+  'talking, lip movement, mouth opening, exaggerated expression',
   'flicker, jitter, temporal inconsistency, warping, duplicated limbs, extra fingers',
   'deformed hands or face, camera cut, transition, speed ramp, slow motion',
   'camera shake or drift, pan, tilt, orbit, dolly, zoom, changing crop',
@@ -417,7 +441,7 @@ export const buildVirtualTryOnVideoPrompt = (input: {
     'begin almost still, ease smoothly into one simple movement, and gently settle into a balanced final pose; use natural acceleration and deceleration with no abrupt stop',
     videoMotionByPreset[input.preset],
     'keep the motion anatomically connected: planted feet and hips initiate the weight transfer, followed by the torso, shoulders, head, and relaxed visible arms and hands',
-    'add only soft breathing and, when the face is clearly visible, one relaxed blink; keep the mouth naturally still',
+    'keep facial animation minimal: eyes stay naturally open with a calm steady gaze and stable eyelids; do not animate blinking; keep lips closed and still',
     'fabric reacts a moment after the body, with subtle inertia, realistic folds, and gentle settling; heavy fabric moves less than loose fabric',
     'locked-off camera, stable perspective and focal length; the camera and background remain still',
     'preserve the person, face, hair, proportions, skin tone, complete outfit, garment details, accessories, shoes, background, lighting, and framing exactly as shown',

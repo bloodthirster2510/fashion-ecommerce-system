@@ -87,7 +87,7 @@ const configuredFileExists = (filePath?: string) => Boolean(
 
 const VIDEO_DURATION_MIN_SECONDS = 5;
 const VIDEO_DURATION_MAX_SECONDS = 12;
-const VIDEO_DURATION_DEFAULT_SECONDS = 8;
+const VIDEO_DURATION_DEFAULT_SECONDS = 5;
 
 export const getVirtualTryOnVideoConfiguration = () => {
   const provider = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';

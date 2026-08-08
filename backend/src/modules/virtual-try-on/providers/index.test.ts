@@ -110,7 +110,7 @@ describe('virtual try-on video provider', () => {
     process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS = '';
 
     try {
-      expect(getVirtualTryOnVideoConfiguration().durationSeconds).toBe(8);
+      expect(getVirtualTryOnVideoConfiguration().durationSeconds).toBe(5);
     } finally {
       if (previousDuration === undefined) delete process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS;
       else process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS = previousDuration;
