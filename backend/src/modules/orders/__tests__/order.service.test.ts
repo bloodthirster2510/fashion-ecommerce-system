@@ -7,6 +7,7 @@ import { couponService } from '../../promotions/coupons/coupon.service';
 import { transactionService } from '../../payments/transaction.service';
 import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-pricing.types';
 import { GHNService } from '../../shipping/ghn.service';
+import { shippingAreaMappingService } from '../../shipping/shipping-area-mapping.service';
 import { loyaltyRuleService } from '../../admin/loyalty/loyalty-rule.service';
 import { interactionService } from '../../interactions/interaction.service';
 import { recommendationService } from '../../recommendations/recommendation.service';
@@ -184,6 +185,7 @@ const normalizedShippingAddress = {
   ghnMappingStatus: 'manual' as const,
   ghnMappingConfidence: null,
   ghnMappingVerifiedAt: null,
+  ghnMappingVerificationSource: null,
 };
 
 const mockUserAddressLookup = (addresses: Array<typeof shippingAddress & { _id: Types.ObjectId; isDefault: boolean }>) => {
@@ -2285,6 +2287,7 @@ describe('orderService', () => {
         ghnMappingStatus: 'mapped',
         ghnMappingConfidence: 'exact',
         ghnMappingVerifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+        ghnMappingVerificationSource: 'admin',
       },
       order_list: [
         {
@@ -2359,6 +2362,62 @@ describe('orderService', () => {
     });
     expect(mockedGHNService.createShippingOrder).not.toHaveBeenCalled();
     expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('rechecks managed mapping state before shipment creation', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000078');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-DISABLED',
+      status: 'packed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 125000,
+      shipping: { provider: 'GHN', status: 'mapping_resolved', trackingCode: null },
+      shippingAddress: {
+        customerName: 'Granji',
+        phoneNumber: '0343149695',
+        streetName: '12 Nguyen Ai Quoc',
+        province: 'Ha Noi',
+        provinceCode: '01',
+        ward: 'Ba Dinh',
+        wardCode: '00004',
+        ghnDistrictId: 1484,
+        ghnWardCode: '1A0107',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+        ghnMappingVerificationSource: 'admin',
+      },
+      order_list: [{ name: 'Basic Tee', quantity: 1, priceAtPurchased: 100000 }],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+    const resolverSpy = jest.spyOn(
+      shippingAreaMappingService,
+      'resolveStoredGhnFieldsWithManagedMapping',
+    ).mockResolvedValue({
+      ghnProvinceId: null,
+      ghnDistrictId: null,
+      ghnWardCode: null,
+      ghnMappingStatus: 'missing',
+      ghnMappingConfidence: null,
+      ghnMappingVerifiedAt: null,
+      ghnMappingVerificationSource: null,
+      source: 'managed',
+      mapping: null,
+    });
+
+    try {
+      await expect(orderService.createGhnShipment(orderId.toString())).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: 'GHN_MAPPING_REQUIRED',
+      });
+      expect(mockedGHNService.createShippingOrder).not.toHaveBeenCalled();
+    } finally {
+      resolverSpy.mockRestore();
+    }
   });
 
   it('applies a GHN webhook using the client order code relationship', async () => {

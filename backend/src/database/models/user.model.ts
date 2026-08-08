@@ -47,6 +47,7 @@ export interface IUserAddress {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
   isDefault: boolean;
 }
 
@@ -117,6 +118,11 @@ const userAddressSchema = new Schema<IUserAddress>(
       default: null,
     },
     ghnMappingVerifiedAt: { type: Date, default: null },
+    ghnMappingVerificationSource: {
+      type: String,
+      enum: ['admin', 'managed', 'seed'],
+      default: null,
+    },
     isDefault: { type: Boolean, default: false },
   },
 );

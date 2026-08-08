@@ -283,7 +283,8 @@ describe('Auth Service', () => {
           ghnProvinceId: 220,
           ghnDistrictId: 1572,
           ghnWardCode: '550108',
-          ghnMappingStatus: 'mapped',
+          ghnMappingStatus: 'manual',
+          ghnMappingVerifiedAt: null,
         })],
       }));
     });

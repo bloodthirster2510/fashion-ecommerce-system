@@ -100,8 +100,8 @@ const closedOrderStatuses = new Set<OrderStatus>(['completed', 'cancelled', 'ret
 
 export const shippingStatusLabels: Record<string, string> = {
   created: 'Đã tạo vận đơn',
-  quoted: 'Đã báo phí',
-  fallback: 'Phí cố định',
+  quoted: 'Đang chuẩn bị giao hàng',
+  fallback: 'Đang chuẩn bị giao hàng',
   ready: 'Sẵn sàng giao',
   picking: 'Đang lấy hàng',
   picked: 'Đã lấy hàng',

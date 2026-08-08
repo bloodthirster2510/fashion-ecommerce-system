@@ -80,9 +80,6 @@ const toShippingAddress = (address: UserAddress) => ({
   ghnMappingVerifiedAt: address.ghnMappingVerifiedAt ?? null,
 });
 
-const hasShippingAreaCode = (address: UserAddress | null) =>
-  Boolean((address?.ghnDistrictId && address?.ghnWardCode) || (address?.districtId && address?.wardCode));
-
 const CheckoutScreen = () => {
   const navigation = useNavigation<CheckoutNavigationProp>();
   const route = useRoute<CheckoutRouteProp>();
@@ -313,25 +310,12 @@ const CheckoutScreen = () => {
   const appliedCoupons = checkoutPreview?.coupons?.length ? checkoutPreview.coupons : appliedCoupon ? [appliedCoupon] : [];
   const appliedCouponCode = appliedCouponCodes[0] ?? null;
   const shippingQuote = checkoutPreview?.shippingQuote ?? null;
-  const shippingComparison = checkoutPreview?.shippingComparison ?? null;
   const shippingPayable = selectedCheckoutItems.length ? Math.max(0, shippingFee - shippingDiscountAmount) : 0;
   const isShippingFreeForUser = selectedCheckoutItems.length > 0 && shippingPayable === 0;
-  const addressHasShippingCodes = hasShippingAreaCode(selectedAddress);
-  const shippingQuoteIsLive =
-    shippingQuote?.provider === 'GHN' && shippingQuote.status === 'quoted' && shippingComparison?.comparisonStatus !== 'fallback';
-  const shippingNeedsAddressMapping = Boolean(selectedAddress && !shippingQuoteIsLive && !addressHasShippingCodes);
-  const shippingProviderLabel = shippingQuote?.provider === 'GHN'
-    ? 'GHN tối ưu'
-    : shippingComparison?.comparisonStatus === 'fallback'
-      ? 'Phí tạm tính'
-      : 'Giá tối ưu';
   const shippingStatusText = getShippingStatusText({
     isPreviewLoading,
     selectedItemCount: selectedCheckoutItems.length,
     hasSelectedAddress: Boolean(selectedAddress),
-    comparisonNote: shippingComparison?.note,
-    needsAddressMapping: shippingNeedsAddressMapping,
-    comparisonStatus: shippingComparison?.comparisonStatus,
     quoteStatus: shippingQuote?.status,
   });
   const savingsAmount = couponDiscountAmount + shippingDiscountAmount + membershipDiscountAmount;
@@ -837,17 +821,13 @@ const CheckoutScreen = () => {
                 <MaterialCommunityIcons name="pencil-outline" size={17} color={colors.brand} />
               </TouchableOpacity>
             </View>
-            <View style={[styles.addressQuoteRow, shippingNeedsAddressMapping && styles.addressQuoteRowWarning]}>
+            <View style={styles.addressQuoteRow}>
               <MaterialCommunityIcons
-                name={shippingNeedsAddressMapping ? 'alert-circle-outline' : 'check-circle-outline'}
+                name="check-circle-outline"
                 size={15}
-                color={shippingNeedsAddressMapping ? colors.goldText : colors.success}
+                color={colors.success}
               />
-              <Text style={[styles.addressQuoteText, shippingNeedsAddressMapping && styles.addressQuoteTextWarning]}>
-                {!shippingNeedsAddressMapping
-                  ? 'Địa chỉ đã sẵn sàng để tính phí giao hàng.'
-                  : 'Đang dùng địa chỉ đã chọn; phí giao hàng tạm tính vì chưa có dữ liệu tính phí tự động.'}
-              </Text>
+              <Text style={styles.addressQuoteText}>Địa chỉ đã được chọn để giao hàng.</Text>
             </View>
           </View>
         ) : null}
@@ -867,13 +847,7 @@ const CheckoutScreen = () => {
             {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
           </Text>
         </View>
-        <Text style={styles.shippingQuoteMeta}>{shippingProviderLabel} · {shippingStatusText}</Text>
-        {shippingNeedsAddressMapping ? (
-          <TouchableOpacity style={styles.shippingQuoteAction} onPress={() => navigation.navigate('EditProfile')} activeOpacity={0.82}>
-            <Text style={styles.shippingQuoteActionText}>Quản lý địa chỉ</Text>
-            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brand} />
-          </TouchableOpacity>
-        ) : null}
+        <Text style={styles.shippingQuoteMeta}>{shippingStatusText}</Text>
       </View>
     </View>
   );

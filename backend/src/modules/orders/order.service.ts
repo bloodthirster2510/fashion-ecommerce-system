@@ -117,6 +117,7 @@ const SHIPPING_FALLBACK_CONDITION = {
   $or: [
     { 'shippingAddress.ghnMappingStatus': { $in: ['missing', 'manual'] } },
     { 'shippingAddress.ghnMappingVerifiedAt': null },
+    { 'shippingAddress.ghnMappingVerificationSource': null },
     { 'shippingAddress.ghnMappingConfidence': null },
     { 'shippingAddress.ghnDistrictId': null },
     { 'shippingAddress.ghnWardCode': null },
@@ -1097,10 +1098,23 @@ const assertReturnWindowIsOpen = (order: IOrder) => {
   }
 };
 
-const toShippingAddressSnapshot = (address: ShippingAddressInput): ShippingAddressInput => {
+const toShippingAddressSnapshot = (
+  address: ShippingAddressInput,
+  options: { trustStoredGhnVerification?: boolean } = {},
+): ShippingAddressInput => {
   const provinceId = toNullablePositiveInteger(address.provinceId);
   const districtId = toNullablePositiveInteger(address.districtId);
-  const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields(address);
+  const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields({
+    ...address,
+    ...(!options.trustStoredGhnVerification
+      ? {
+          ghnMappingStatus: address.ghnMappingStatus === 'missing' ? 'missing' as const : 'manual' as const,
+          ghnMappingConfidence: null,
+          ghnMappingVerifiedAt: null,
+          ghnMappingVerificationSource: null,
+        }
+      : {}),
+  });
   const requireAddressText = (value: unknown, fieldLabel: string) => {
     const normalized = trimOptional(value);
 
@@ -1136,6 +1150,7 @@ const toShippingAddressSnapshot = (address: ShippingAddressInput): ShippingAddre
     ghnMappingStatus: resolvedGhnFields.ghnMappingStatus,
     ghnMappingConfidence: resolvedGhnFields.ghnMappingConfidence,
     ghnMappingVerifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    ghnMappingVerificationSource: resolvedGhnFields.ghnMappingVerificationSource,
   };
 };
 
@@ -1154,6 +1169,7 @@ const withResolvedGhnArea = (
     ghnMappingStatus: resolvedArea.status,
     ghnMappingConfidence: resolvedArea.confidence,
     ghnMappingVerifiedAt: resolvedArea.verifiedAt,
+    ghnMappingVerificationSource: resolvedArea.verificationSource,
   };
 };
 
@@ -1175,7 +1191,7 @@ const getUserShippingAddressSnapshot = async (userId: string, addressId?: string
     );
   }
 
-  return toShippingAddressSnapshot(address);
+  return toShippingAddressSnapshot(address, { trustStoredGhnVerification: true });
 };
 
 const resolveCheckoutShippingAddress = async (
@@ -2192,19 +2208,6 @@ const updateOrderStatus = async (
   return savedOrder;
 };
 
-const getOrderGhnDestination = (order: IOrder) => {
-  const toDistrictId = toNullablePositiveInteger(
-    order.shippingAddress?.ghnDistrictId ?? order.shippingAddress?.districtId,
-  );
-  const toWardCode = trimOptional(order.shippingAddress?.ghnWardCode ?? order.shippingAddress?.wardCode);
-
-  if (!toDistrictId || !toWardCode) {
-    throw new SalesServiceError('Order shipping address is missing GHN district or ward code', 400);
-  }
-
-  return { toDistrictId, toWardCode };
-};
-
 const getOrderPackageMetrics = (order: IOrder) => (
   order.order_list.reduce(
     (metrics, item) => {
@@ -2280,10 +2283,14 @@ const createGhnShipment = async (id: string) => {
     throw new SalesServiceError('GHN shipment already exists for this order', 400);
   }
 
+  const resolvedGhnFields = await shippingAreaMappingService
+    .resolveStoredGhnFieldsWithManagedMapping(order.shippingAddress);
   if (
-    order.shippingAddress?.ghnMappingStatus !== 'mapped'
-    || !order.shippingAddress?.ghnMappingConfidence
-    || !order.shippingAddress?.ghnMappingVerifiedAt
+    resolvedGhnFields.ghnMappingStatus !== 'mapped'
+    || !resolvedGhnFields.ghnMappingConfidence
+    || !resolvedGhnFields.ghnMappingVerifiedAt
+    || !resolvedGhnFields.ghnDistrictId
+    || !resolvedGhnFields.ghnWardCode
   ) {
     throw new SalesServiceError(
       'Địa chỉ chưa có mapping GHN đã xác minh. Hãy xử lý trong hàng chờ mapping trước khi tạo vận đơn.',
@@ -2292,7 +2299,16 @@ const createGhnShipment = async (id: string) => {
     );
   }
 
-  const { toDistrictId, toWardCode } = getOrderGhnDestination(order);
+  const toDistrictId = resolvedGhnFields.ghnDistrictId;
+  const toWardCode = resolvedGhnFields.ghnWardCode;
+  order.shippingAddress.ghnProvinceId = resolvedGhnFields.ghnProvinceId;
+  order.shippingAddress.ghnDistrictId = toDistrictId;
+  order.shippingAddress.ghnWardCode = toWardCode;
+  order.shippingAddress.ghnMappingStatus = 'mapped';
+  order.shippingAddress.ghnMappingConfidence = resolvedGhnFields.ghnMappingConfidence;
+  order.shippingAddress.ghnMappingVerifiedAt = resolvedGhnFields.ghnMappingVerifiedAt;
+  order.shippingAddress.ghnMappingVerificationSource =
+    resolvedGhnFields.ghnMappingVerificationSource;
   const metrics = getOrderPackageMetrics(order);
   const orderItems = order.order_list as IOrder['order_list'];
   const rawShipment = normalizeRawRecord(await GHNService.createShippingOrder({
@@ -2461,28 +2477,32 @@ const updateOrderGhnMapping = async (
   order.shippingAddress.ghnMappingStatus = 'mapped';
   order.shippingAddress.ghnMappingConfidence = confidence;
   order.shippingAddress.ghnMappingVerifiedAt = verifiedAt;
+  order.shippingAddress.ghnMappingVerificationSource = 'admin';
   if (order.shipping?.status === 'fallback') {
     order.shipping.status = 'mapping_resolved';
   }
 
+  const mappingInput = {
+    provinceCode: order.shippingAddress.provinceCode ?? String(order.shippingAddress.provinceId ?? ''),
+    provinceName: order.shippingAddress.province,
+    wardCode: order.shippingAddress.wardCode,
+    wardName: order.shippingAddress.ward,
+    ghnProvinceId,
+    ghnDistrictId,
+    ghnWardCode,
+    confidence,
+    status: 'verified' as const,
+    verifiedAt,
+    note: input.note,
+  };
   if (input.applyToFutureAddresses !== false) {
     await shippingAreaMappingService.upsertMappings({
       actorId,
       backfill: true,
-      mappings: [{
-        provinceCode: order.shippingAddress.provinceCode ?? String(order.shippingAddress.provinceId ?? ''),
-        provinceName: order.shippingAddress.province,
-        wardCode: order.shippingAddress.wardCode,
-        wardName: order.shippingAddress.ward,
-        ghnProvinceId,
-        ghnDistrictId,
-        ghnWardCode,
-        confidence,
-        status: 'verified',
-        verifiedAt,
-        note: input.note,
-      }],
+      mappings: [mappingInput],
     });
+  } else {
+    await shippingAreaMappingService.validateMapping(mappingInput);
   }
 
   return order.save();

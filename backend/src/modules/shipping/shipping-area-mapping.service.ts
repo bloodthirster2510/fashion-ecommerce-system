@@ -12,8 +12,10 @@ import {
   provinces2025,
   wards2025,
 } from '../locations/location-data';
+import { GHNService } from './ghn.service';
 
 export type MappingStatus = 'mapped' | 'missing' | 'manual';
+export type MappingVerificationSource = 'admin' | 'managed' | 'seed';
 
 export type ShippingAreaMappingLookupInput = {
   province?: string | null;
@@ -28,6 +30,7 @@ export type ShippingAreaMappingLookupInput = {
   ghnMappingStatus?: MappingStatus;
   ghnMappingConfidence?: ShippingAreaMappingConfidence | null;
   ghnMappingVerifiedAt?: Date | string | null;
+  ghnMappingVerificationSource?: MappingVerificationSource | null;
 };
 
 export type ResolvedStoredGhnFields = {
@@ -37,6 +40,7 @@ export type ResolvedStoredGhnFields = {
   ghnMappingStatus: MappingStatus;
   ghnMappingConfidence: ShippingAreaMappingConfidence | null;
   ghnMappingVerifiedAt: Date | null;
+  ghnMappingVerificationSource: MappingVerificationSource | null;
   source: 'explicit' | 'legacy' | 'mapping' | 'managed' | 'missing';
   mapping: ShippingAreaMappingRecord | null;
 };
@@ -77,7 +81,19 @@ const toDateOrNull = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const normalizeCode = (value: unknown) => trimOptional(value)?.replace(/\s+/g, '') ?? null;
+const normalizeCode = (value: unknown) => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const code = String(value).trim().replace(/\s+/g, '');
+  return code || null;
+};
+
+const normalizeAdministrativeCode = (value: unknown, width: number) => {
+  const code = normalizeCode(value);
+  return code && /^\d+$/.test(code) ? code.padStart(width, '0') : code;
+};
+
+const normalizeProvinceCode = (value: unknown) => normalizeAdministrativeCode(value, 2);
+const normalizeWardCode = (value: unknown) => normalizeAdministrativeCode(value, 5);
 
 const normalizeLabel = (value: unknown) => {
   const text = trimOptional(value);
@@ -97,8 +113,8 @@ const normalizeLabel = (value: unknown) => {
 };
 
 const buildCodeKey = (provinceCode: unknown, wardCode: unknown) => {
-  const normalizedProvinceCode = normalizeCode(provinceCode);
-  const normalizedWardCode = normalizeCode(wardCode);
+  const normalizedProvinceCode = normalizeProvinceCode(provinceCode);
+  const normalizedWardCode = normalizeWardCode(wardCode);
 
   if (!normalizedProvinceCode || !normalizedWardCode) {
     return null;
@@ -168,20 +184,47 @@ const resolveStoredGhnFields = (input: ShippingAreaMappingLookupInput): Resolved
   const hasLegacyMapping = Boolean(legacyDistrictId && legacyGhnWardCode);
   const storedVerificationDate = toDateOrNull(input.ghnMappingVerifiedAt);
   const storedConfidence = input.ghnMappingConfidence ?? null;
-  const mapping = hasExplicitMapping || hasLegacyMapping
-    ? null
-    : resolveMapping(input);
+  const storedVerificationSource = input.ghnMappingVerificationSource ?? null;
+  const hasTrustedVerificationSource = Boolean(
+    storedVerificationSource
+    && (['admin', 'managed', 'seed'] as MappingVerificationSource[])
+      .includes(storedVerificationSource),
+  );
+  const hasVerifiedExplicitMapping = Boolean(
+    hasExplicitMapping
+    && input.ghnMappingStatus === 'mapped'
+    && storedConfidence
+    && storedVerificationDate
+    && hasTrustedVerificationSource,
+  );
+  const mapping = resolveMapping(input);
 
-  if (hasExplicitMapping) {
+  if (hasVerifiedExplicitMapping) {
     return {
       ghnProvinceId: explicitGhnProvinceId ?? legacyProvinceId,
       ghnDistrictId: explicitGhnDistrictId,
       ghnWardCode: explicitGhnWardCode,
       ghnMappingStatus: 'mapped',
-      ghnMappingConfidence: storedConfidence ?? 'manual',
-      ghnMappingVerifiedAt: storedVerificationDate ?? new Date(),
+      ghnMappingConfidence: storedConfidence,
+      ghnMappingVerifiedAt: storedVerificationDate,
+      ghnMappingVerificationSource: storedVerificationSource,
       source: 'explicit',
       mapping: null,
+    };
+  }
+
+  if (mapping) {
+    const isTrustedSeedMapping = mapping.confidence === 'exact';
+    return {
+      ghnProvinceId: mapping.ghnProvinceId,
+      ghnDistrictId: mapping.ghnDistrictId,
+      ghnWardCode: mapping.ghnWardCode,
+      ghnMappingStatus: isTrustedSeedMapping ? 'mapped' : 'manual',
+      ghnMappingConfidence: mapping.confidence,
+      ghnMappingVerifiedAt: isTrustedSeedMapping ? new Date(mapping.verifiedAt) : null,
+      ghnMappingVerificationSource: isTrustedSeedMapping ? 'seed' : null,
+      source: 'mapping',
+      mapping,
     };
   }
 
@@ -190,24 +233,28 @@ const resolveStoredGhnFields = (input: ShippingAreaMappingLookupInput): Resolved
       ghnProvinceId: explicitGhnProvinceId ?? legacyProvinceId,
       ghnDistrictId: legacyDistrictId,
       ghnWardCode: legacyGhnWardCode,
-      ghnMappingStatus: input.ghnMappingStatus === 'mapped' ? 'mapped' : 'manual',
+      ghnMappingStatus: input.ghnMappingStatus === 'mapped' && hasTrustedVerificationSource
+        ? 'mapped'
+        : 'manual',
       ghnMappingConfidence: storedConfidence,
       ghnMappingVerifiedAt: storedVerificationDate,
+      ghnMappingVerificationSource: storedVerificationSource,
       source: 'legacy',
       mapping: null,
     };
   }
 
-  if (mapping) {
+  if (hasExplicitMapping) {
     return {
-      ghnProvinceId: mapping.ghnProvinceId,
-      ghnDistrictId: mapping.ghnDistrictId,
-      ghnWardCode: mapping.ghnWardCode,
-      ghnMappingStatus: 'mapped',
-      ghnMappingConfidence: mapping.confidence,
-      ghnMappingVerifiedAt: new Date(mapping.verifiedAt),
-      source: 'mapping',
-      mapping,
+      ghnProvinceId: explicitGhnProvinceId ?? legacyProvinceId,
+      ghnDistrictId: explicitGhnDistrictId,
+      ghnWardCode: explicitGhnWardCode,
+      ghnMappingStatus: input.ghnMappingStatus === 'missing' ? 'missing' : 'manual',
+      ghnMappingConfidence: storedConfidence,
+      ghnMappingVerifiedAt: null,
+      ghnMappingVerificationSource: null,
+      source: 'explicit',
+      mapping: null,
     };
   }
 
@@ -218,6 +265,7 @@ const resolveStoredGhnFields = (input: ShippingAreaMappingLookupInput): Resolved
     ghnMappingStatus: 'missing',
     ghnMappingConfidence: null,
     ghnMappingVerifiedAt: null,
+    ghnMappingVerificationSource: null,
     source: 'missing',
     mapping: null,
   };
@@ -256,37 +304,66 @@ const toManagedMappingRecord = (mapping: {
 
 const findManagedMapping = async (input: ShippingAreaMappingLookupInput) => {
   if (!ShippingAreaMapping || typeof ShippingAreaMapping.findOne !== 'function') {
-    return null;
+    return { mapping: null, unavailable: false };
   }
 
-  const provinceCode = normalizeCode(input.provinceCode);
-  const wardCode = normalizeCode(input.wardCode);
+  const provinceCode = normalizeProvinceCode(input.provinceCode);
+  const wardCode = normalizeWardCode(input.wardCode);
   const provinceKey = normalizeLabel(input.province);
   const wardKey = normalizeLabel(input.ward);
   const lookup = provinceCode && wardCode
-    ? { provider: 'GHN', provinceCode, wardCode, status: 'verified' }
+    ? { provider: 'GHN', provinceCode, wardCode }
     : provinceKey && wardKey
-      ? { provider: 'GHN', provinceKey, wardKey, status: 'verified' }
+      ? { provider: 'GHN', provinceKey, wardKey }
       : null;
 
-  if (!lookup) return null;
+  if (!lookup) return { mapping: null, unavailable: false };
 
   try {
-    return await ShippingAreaMapping.findOne(lookup).sort({ updatedAt: -1 }).lean();
+    return {
+      mapping: await ShippingAreaMapping.findOne(lookup).sort({ updatedAt: -1 }).lean(),
+      unavailable: false,
+    };
   } catch (error) {
     console.error('Failed to resolve managed GHN area mapping:', error);
-    return null;
+    return { mapping: null, unavailable: true };
   }
 };
 
 const resolveStoredGhnFieldsWithManagedMapping = async (
   input: ShippingAreaMappingLookupInput,
 ): Promise<ResolvedStoredGhnFields> => {
-  const stored = resolveStoredGhnFields(input);
-  if (stored.source !== 'missing') return stored;
+  const managedLookup = await findManagedMapping(input);
+  if (managedLookup.unavailable) {
+    return {
+      ghnProvinceId: null,
+      ghnDistrictId: null,
+      ghnWardCode: null,
+      ghnMappingStatus: 'missing',
+      ghnMappingConfidence: null,
+      ghnMappingVerifiedAt: null,
+      ghnMappingVerificationSource: null,
+      source: 'managed',
+      mapping: null,
+    };
+  }
 
-  const managed = await findManagedMapping(input);
-  if (!managed || !managed.verifiedAt) return stored;
+  const managed = managedLookup.mapping;
+  if (!managed) return resolveStoredGhnFields(input);
+
+  if (managed.status !== 'verified' || !managed.verifiedAt) {
+    return {
+      ghnProvinceId: null,
+      ghnDistrictId: null,
+      ghnWardCode: null,
+      ghnMappingStatus: managed.status === 'pending' ? 'manual' : 'missing',
+      ghnMappingConfidence: managed.confidence ?? null,
+      ghnMappingVerifiedAt: null,
+      ghnMappingVerificationSource: null,
+      source: 'managed',
+      mapping: null,
+    };
+  }
 
   const mapping = toManagedMappingRecord(managed);
   return {
@@ -296,6 +373,7 @@ const resolveStoredGhnFieldsWithManagedMapping = async (
     ghnMappingStatus: 'mapped',
     ghnMappingConfidence: mapping.confidence,
     ghnMappingVerifiedAt: new Date(mapping.verifiedAt),
+    ghnMappingVerificationSource: 'managed',
     source: 'managed',
     mapping,
   };
@@ -305,8 +383,8 @@ const normalizeUpsertInput = (
   input: ShippingAreaMappingUpsertInput,
   actorId?: string | null,
 ) => {
-  const provinceCode = normalizeCode(input.provinceCode);
-  const wardCode = normalizeCode(input.wardCode);
+  const provinceCode = normalizeProvinceCode(input.provinceCode);
+  const wardCode = normalizeWardCode(input.wardCode);
   const provinceName = trimOptional(input.provinceName);
   const wardName = trimOptional(input.wardName);
   const provinceKey = normalizeLabel(input.provinceName);
@@ -314,7 +392,7 @@ const normalizeUpsertInput = (
   const ghnProvinceId = toPositiveIntegerOrNull(input.ghnProvinceId);
   const ghnDistrictId = toPositiveIntegerOrNull(input.ghnDistrictId);
   const ghnWardCode = trimOptional(input.ghnWardCode);
-  const status = input.status ?? 'verified';
+  const status = input.status ?? 'pending';
   const confidence = input.confidence ?? 'manual';
   const verifiedAt = status === 'verified'
     ? toDateOrNull(input.verifiedAt) ?? new Date()
@@ -360,7 +438,111 @@ const normalizeUpsertInput = (
   };
 };
 
-const backfillMapping = async (mapping: ReturnType<typeof normalizeUpsertInput>) => {
+type NormalizedMapping = ReturnType<typeof normalizeUpsertInput>;
+
+type GhnHierarchyValidationCache = {
+  provinces: Promise<unknown> | null;
+  districts: Map<number, Promise<unknown>>;
+  wards: Map<number, Promise<unknown>>;
+};
+
+const createGhnHierarchyValidationCache = (): GhnHierarchyValidationCache => ({
+  provinces: null,
+  districts: new Map(),
+  wards: new Map(),
+});
+
+const readGhnLocationRows = (response: unknown) => {
+  if (typeof response !== 'object' || response === null || Array.isArray(response)) return [];
+  const data = (response as Record<string, unknown>).data;
+  return Array.isArray(data) ? data : [];
+};
+
+const hasGhnLocation = (
+  response: unknown,
+  field: 'ProvinceID' | 'DistrictID' | 'WardCode',
+  expectedValue: number | string,
+) => readGhnLocationRows(response).some((row) => (
+  typeof row === 'object'
+  && row !== null
+  && !Array.isArray(row)
+  && String((row as Record<string, unknown>)[field]) === String(expectedValue)
+));
+
+const invalidGhnHierarchyError = (mapping: NormalizedMapping, detail: string) => {
+  const error = new Error(
+    `Mapping GHN ${mapping.provinceCode}/${mapping.wardCode} không hợp lệ: ${detail}`,
+  ) as Error & { statusCode?: number };
+  error.statusCode = 400;
+  return error;
+};
+
+const validateGhnHierarchy = async (
+  mapping: NormalizedMapping,
+  cache: GhnHierarchyValidationCache,
+) => {
+  cache.provinces ??= GHNService.getProvinces();
+  if (!hasGhnLocation(await cache.provinces, 'ProvinceID', mapping.ghnProvinceId)) {
+    throw invalidGhnHierarchyError(mapping, `không tìm thấy province ${mapping.ghnProvinceId}`);
+  }
+
+  if (!cache.districts.has(mapping.ghnProvinceId)) {
+    cache.districts.set(
+      mapping.ghnProvinceId,
+      GHNService.getDistricts(mapping.ghnProvinceId),
+    );
+  }
+  if (!hasGhnLocation(
+    await cache.districts.get(mapping.ghnProvinceId),
+    'DistrictID',
+    mapping.ghnDistrictId,
+  )) {
+    throw invalidGhnHierarchyError(
+      mapping,
+      `district ${mapping.ghnDistrictId} không thuộc province ${mapping.ghnProvinceId}`,
+    );
+  }
+
+  if (!cache.wards.has(mapping.ghnDistrictId)) {
+    cache.wards.set(mapping.ghnDistrictId, GHNService.getWards(mapping.ghnDistrictId));
+  }
+  if (!hasGhnLocation(
+    await cache.wards.get(mapping.ghnDistrictId),
+    'WardCode',
+    mapping.ghnWardCode,
+  )) {
+    throw invalidGhnHierarchyError(
+      mapping,
+      `ward ${mapping.ghnWardCode} không thuộc district ${mapping.ghnDistrictId}`,
+    );
+  }
+};
+
+const validateVerifiedMappings = async (mappings: NormalizedMapping[]) => {
+  const verifiedMappings = mappings.filter((mapping) => mapping.status === 'verified');
+  if (!verifiedMappings.length) return;
+
+  const cache = createGhnHierarchyValidationCache();
+  const validationConcurrency = 10;
+  for (let index = 0; index < verifiedMappings.length; index += validationConcurrency) {
+    await Promise.all(
+      verifiedMappings
+        .slice(index, index + validationConcurrency)
+        .map((mapping) => validateGhnHierarchy(mapping, cache)),
+    );
+  }
+};
+
+const validateMapping = async (input: ShippingAreaMappingUpsertInput) => {
+  const mapping = normalizeUpsertInput({
+    ...input,
+    status: 'verified',
+  });
+  await validateVerifiedMappings([mapping]);
+  return mapping;
+};
+
+const backfillMapping = async (mapping: NormalizedMapping) => {
   const addressUpdate = {
     ghnProvinceId: mapping.ghnProvinceId,
     ghnDistrictId: mapping.ghnDistrictId,
@@ -368,6 +550,7 @@ const backfillMapping = async (mapping: ReturnType<typeof normalizeUpsertInput>)
     ghnMappingStatus: 'mapped',
     ghnMappingConfidence: mapping.confidence,
     ghnMappingVerifiedAt: mapping.verifiedAt,
+    ghnMappingVerificationSource: 'managed',
   };
   const orderUpdate = {
     ...Object.fromEntries(
@@ -421,34 +604,63 @@ const upsertMappings = async (input: {
   backfill?: boolean;
 }) => {
   const normalizedMappings = input.mappings.map((mapping) => normalizeUpsertInput(mapping, input.actorId));
-  const results = [];
+  await validateVerifiedMappings(normalizedMappings);
+
+  await ShippingAreaMapping.bulkWrite(
+    normalizedMappings.map((mapping) => ({
+      updateOne: {
+        filter: {
+          provider: 'GHN',
+          provinceCode: mapping.provinceCode,
+          wardCode: mapping.wardCode,
+        },
+        update: { $set: mapping },
+        upsert: true,
+      },
+    })),
+    { ordered: true },
+  );
+
   let backfilledOrders = 0;
   let backfilledUserDocuments = 0;
+  const backfillFailures: Array<{
+    provinceCode: string;
+    wardCode: string;
+    message: string;
+  }> = [];
 
-  for (const mapping of normalizedMappings) {
-    const saved = await ShippingAreaMapping.findOneAndUpdate(
-      {
-        provider: 'GHN',
+  const mappingsToBackfill = input.backfill
+    ? normalizedMappings.filter((mapping) => mapping.status === 'verified')
+    : [];
+  const backfillConcurrency = 10;
+  for (let index = 0; index < mappingsToBackfill.length; index += backfillConcurrency) {
+    const batch = mappingsToBackfill.slice(index, index + backfillConcurrency);
+    const results = await Promise.allSettled(batch.map((mapping) => backfillMapping(mapping)));
+    results.forEach((result, resultIndex) => {
+      const mapping = batch[resultIndex];
+      if (result.status === 'fulfilled') {
+        backfilledOrders += result.value.orders;
+        backfilledUserDocuments += result.value.userAddresses;
+        return;
+      }
+
+      backfillFailures.push({
         provinceCode: mapping.provinceCode,
         wardCode: mapping.wardCode,
-      },
-      { $set: mapping },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
-    ).lean();
-    results.push(saved);
-
-    if (input.backfill && mapping.status === 'verified') {
-      const backfillResult = await backfillMapping(mapping);
-      backfilledOrders += backfillResult.orders;
-      backfilledUserDocuments += backfillResult.userAddresses;
-    }
+        message: result.reason instanceof Error
+          ? result.reason.message
+          : 'Không thể backfill mapping GHN',
+      });
+    });
   }
 
   return {
-    items: results,
-    importedCount: results.length,
+    items: normalizedMappings,
+    importedCount: normalizedMappings.length,
     backfilledOrders,
     backfilledUserDocuments,
+    backfillFailedCount: backfillFailures.length,
+    backfillFailures,
   };
 };
 
@@ -494,45 +706,110 @@ const listMappings = async (input: {
 };
 
 const getCoverage = async () => {
-  const managedMappings = await ShippingAreaMapping.find({
-    provider: 'GHN',
-    status: 'verified',
-  })
-    .select('provinceCode wardCode')
-    .lean<Array<{ provinceCode: string; wardCode: string }>>();
-  const verifiedKeys = new Set(
-    [...shippingAreaMappingSeed, ...managedMappings]
-      .map((mapping) => buildCodeKey(mapping.provinceCode, mapping.wardCode))
-      .filter((key): key is string => Boolean(key)),
-  );
+  const managedMappings = await ShippingAreaMapping.find({ provider: 'GHN' })
+    .select('provinceCode wardCode status confidence')
+    .lean<Array<{
+      provinceCode: string;
+      wardCode: string;
+      status: ShippingAreaMappingStatus;
+      confidence: ShippingAreaMappingConfidence;
+    }>>();
+  const effectiveMappings = new Map<string, {
+    status: ShippingAreaMappingStatus;
+    confidence: ShippingAreaMappingConfidence;
+    source: 'seed' | 'managed';
+  }>();
+
+  shippingAreaMappingSeed.forEach((mapping) => {
+    const key = buildCodeKey(mapping.provinceCode, mapping.wardCode);
+    if (key) {
+      effectiveMappings.set(key, {
+        status: mapping.confidence === 'exact' ? 'verified' : 'pending',
+        confidence: mapping.confidence,
+        source: 'seed',
+      });
+    }
+  });
+  managedMappings.forEach((mapping) => {
+    const key = buildCodeKey(mapping.provinceCode, mapping.wardCode);
+    if (key) {
+      effectiveMappings.set(key, {
+        status: mapping.status,
+        confidence: mapping.confidence,
+        source: 'managed',
+      });
+    }
+  });
+
+  const getWardCoverageState = (provinceCode: string, wardCode: string) => {
+    const mapping = effectiveMappings.get(buildCodeKey(provinceCode, wardCode) ?? '');
+    const verified = mapping?.status === 'verified';
+    const productionReady = verified && (
+      mapping.confidence === 'exact'
+      || (mapping.source === 'managed' && mapping.confidence === 'manual')
+    );
+    return { mapping, verified, productionReady };
+  };
+
   const provinceRows = provinces2025.map((province) => {
     const provinceWards = wards2025.filter((ward) => ward.provinceCode === province.code);
-    const verifiedWardCount = provinceWards.filter((ward) =>
-      verifiedKeys.has(buildCodeKey(province.code, ward.code) ?? '')).length;
+    const states = provinceWards.map((ward) => getWardCoverageState(province.code, ward.code));
+    const verifiedWardCount = states.filter((state) => state.verified).length;
+    const productionReadyWardCount = states.filter((state) => state.productionReady).length;
+    const pendingWardCount = states.filter((state) => state.mapping?.status === 'pending').length;
+    const disabledWardCount = states.filter((state) => state.mapping?.status === 'disabled').length;
 
     return {
       provinceCode: province.code,
       provinceName: province.name,
       wardCount: provinceWards.length,
       verifiedWardCount,
+      productionReadyWardCount,
+      pendingWardCount,
+      disabledWardCount,
       missingWardCount: Math.max(0, provinceWards.length - verifiedWardCount),
       coveragePercent: provinceWards.length
         ? Math.round((verifiedWardCount / provinceWards.length) * 10_000) / 100
         : 100,
+      productionReadyCoveragePercent: provinceWards.length
+        ? Math.round((productionReadyWardCount / provinceWards.length) * 10_000) / 100
+        : 100,
     };
   });
   const verifiedWardCount = provinceRows.reduce((total, row) => total + row.verifiedWardCount, 0);
+  const productionReadyWardCount = provinceRows.reduce(
+    (total, row) => total + row.productionReadyWardCount,
+    0,
+  );
+  const pendingWardCount = provinceRows.reduce((total, row) => total + row.pendingWardCount, 0);
+  const disabledWardCount = provinceRows.reduce((total, row) => total + row.disabledWardCount, 0);
+  const confidenceCounts = {
+    exact: 0,
+    manual: 0,
+    legacy: 0,
+  };
+  wards2025.forEach((ward) => {
+    const mapping = effectiveMappings.get(buildCodeKey(ward.provinceCode, ward.code) ?? '');
+    if (mapping?.status === 'verified') confidenceCounts[mapping.confidence] += 1;
+  });
 
   return {
     locationDataVersion: LOCATION_DATA_VERSION,
     provinceCount: provinceRows.length,
     wardCount: wards2025.length,
     verifiedWardCount,
+    productionReadyWardCount,
+    pendingWardCount,
+    disabledWardCount,
+    confidenceCounts,
     missingWardCount: Math.max(0, wards2025.length - verifiedWardCount),
     coveragePercent: wards2025.length
       ? Math.round((verifiedWardCount / wards2025.length) * 10_000) / 100
       : 100,
-    readyForProduction: verifiedWardCount === wards2025.length,
+    productionReadyCoveragePercent: wards2025.length
+      ? Math.round((productionReadyWardCount / wards2025.length) * 10_000) / 100
+      : 100,
+    readyForProduction: productionReadyWardCount === wards2025.length,
     provinces: provinceRows,
   };
 };
@@ -552,6 +829,33 @@ const reviewMapping = async (input: {
   }
 
   const verifiedAt = input.status === 'verified' ? new Date() : null;
+  if (input.status === 'verified') {
+    const currentMapping = await ShippingAreaMapping.findById(input.id).lean();
+    if (!currentMapping) {
+      const error = new Error('Không tìm thấy mapping GHN') as Error & { statusCode?: number };
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const normalizedMapping = normalizeUpsertInput({
+      provinceCode: currentMapping.provinceCode,
+      provinceName: currentMapping.provinceName,
+      wardCode: currentMapping.wardCode,
+      wardName: currentMapping.wardName,
+      ghnProvinceId: currentMapping.ghnProvinceId,
+      ghnProvinceName: currentMapping.ghnProvinceName,
+      ghnDistrictId: currentMapping.ghnDistrictId,
+      ghnDistrictName: currentMapping.ghnDistrictName,
+      ghnWardCode: currentMapping.ghnWardCode,
+      ghnWardName: currentMapping.ghnWardName,
+      confidence: input.confidence ?? currentMapping.confidence,
+      status: 'verified',
+      verifiedAt,
+      note: input.note ?? currentMapping.note,
+    }, input.actorId);
+    await validateVerifiedMappings([normalizedMapping]);
+  }
+
   const mapping = await ShippingAreaMapping.findByIdAndUpdate(
     input.id,
     {
@@ -572,8 +876,11 @@ const reviewMapping = async (input: {
     throw error;
   }
 
-  const backfillResult = input.backfill && input.status === 'verified'
-    ? await backfillMapping(normalizeUpsertInput({
+  let backfillResult = { orders: 0, userAddresses: 0 };
+  let backfillFailure: string | null = null;
+  if (input.backfill && input.status === 'verified') {
+    try {
+      backfillResult = await backfillMapping(normalizeUpsertInput({
         provinceCode: mapping.provinceCode,
         provinceName: mapping.provinceName,
         wardCode: mapping.wardCode,
@@ -588,13 +895,20 @@ const reviewMapping = async (input: {
         status: mapping.status,
         verifiedAt: mapping.verifiedAt,
         note: mapping.note,
-      }, input.actorId))
-    : { orders: 0, userAddresses: 0 };
+      }, input.actorId));
+    } catch (error) {
+      backfillFailure = error instanceof Error
+        ? error.message
+        : 'Không thể backfill mapping GHN';
+    }
+  }
 
   return {
     mapping,
     backfilledOrders: backfillResult.orders,
     backfilledUserDocuments: backfillResult.userAddresses,
+    backfillFailed: Boolean(backfillFailure),
+    backfillFailure,
   };
 };
 
@@ -606,4 +920,5 @@ export const shippingAreaMappingService = {
   resolveStoredGhnFields,
   resolveStoredGhnFieldsWithManagedMapping,
   upsertMappings,
+  validateMapping,
 };

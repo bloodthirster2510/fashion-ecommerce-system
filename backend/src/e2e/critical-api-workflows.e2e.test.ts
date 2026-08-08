@@ -122,6 +122,7 @@ const shippingAddress = {
   ghnMappingStatus: 'mapped',
   ghnMappingConfidence: 'manual',
   ghnMappingVerifiedAt: '2026-07-29T00:00:00.000Z',
+  ghnMappingVerificationSource: 'admin',
 };
 
 const expectStatus = <T>(

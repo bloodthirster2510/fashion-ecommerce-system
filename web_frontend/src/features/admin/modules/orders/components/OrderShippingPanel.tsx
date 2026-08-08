@@ -52,6 +52,7 @@ export function OrderShippingPanel({
     order.shippingAddress.ghnMappingStatus === 'mapped' &&
     Boolean(order.shippingAddress.ghnMappingConfidence) &&
     Boolean(order.shippingAddress.ghnMappingVerifiedAt) &&
+    Boolean(order.shippingAddress.ghnMappingVerificationSource) &&
     Boolean(order.shippingAddress.ghnDistrictId) &&
     Boolean(order.shippingAddress.ghnWardCode)
 

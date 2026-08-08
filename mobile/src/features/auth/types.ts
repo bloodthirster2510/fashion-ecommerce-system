@@ -27,6 +27,7 @@ export type UserAddressPayload = {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: string | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
   isDefault: boolean;
 };
 

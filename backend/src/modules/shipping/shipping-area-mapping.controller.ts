@@ -88,10 +88,18 @@ export const importShippingAreaMappings = async (req: Request, res: Response) =>
         importedCount: result.importedCount,
         backfilledOrders: result.backfilledOrders,
         backfilledUserDocuments: result.backfilledUserDocuments,
+        backfillFailedCount: result.backfillFailedCount,
+        backfillFailures: result.backfillFailures,
       },
     });
 
-    return ok(res, result, 'Đã import mapping GHN');
+    return ok(
+      res,
+      result,
+      result.backfillFailedCount
+        ? 'Đã import mapping GHN nhưng một số backfill cần chạy lại'
+        : 'Đã import mapping GHN',
+    );
   } catch (error) {
     const { statusCode, message } = getErrorResponse(error);
     return errorResponse(res, message, statusCode);
@@ -133,10 +141,18 @@ export const reviewShippingAreaMapping = async (req: Request, res: Response) => 
       metadata: {
         backfilledOrders: result.backfilledOrders,
         backfilledUserDocuments: result.backfilledUserDocuments,
+        backfillFailed: result.backfillFailed,
+        backfillFailure: result.backfillFailure,
       },
     });
 
-    return ok(res, result, 'Đã cập nhật mapping GHN');
+    return ok(
+      res,
+      result,
+      result.backfillFailed
+        ? 'Đã cập nhật mapping GHN nhưng backfill cần chạy lại'
+        : 'Đã cập nhật mapping GHN',
+    );
   } catch (error) {
     const { statusCode, message } = getErrorResponse(error);
     return errorResponse(res, message, statusCode);

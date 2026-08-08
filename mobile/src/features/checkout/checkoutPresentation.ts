@@ -134,21 +134,13 @@ export const getShippingStatusText = (input: {
   isPreviewLoading: boolean;
   selectedItemCount: number;
   hasSelectedAddress: boolean;
-  comparisonNote?: string | null;
-  needsAddressMapping: boolean;
-  comparisonStatus?: string | null;
   quoteStatus?: string | null;
 }) => {
   if (input.isPreviewLoading) return 'Đang tính phí giao hàng...';
   if (!input.selectedItemCount) return 'Chọn sản phẩm để tính phí giao hàng.';
   if (!input.hasSelectedAddress) return 'Chọn địa chỉ nhận hàng để tính phí giao hàng.';
-  if (input.comparisonNote) return input.comparisonNote;
-  if (input.needsAddressMapping) {
-    return 'Địa chỉ này chưa có dữ liệu tính phí tự động, hệ thống đang dùng phí tạm tính.';
+  if (input.quoteStatus === 'quoted' || input.quoteStatus === 'fallback') {
+    return 'Đã tính phí giao hàng theo địa chỉ nhận hàng.';
   }
-  if (input.comparisonStatus === 'live' || input.comparisonStatus === 'partial') {
-    return 'Hệ thống đã chọn giải pháp giao hàng tối ưu cho địa chỉ này.';
-  }
-  if (input.quoteStatus === 'quoted') return 'Đã tính phí theo địa chỉ nhận hàng.';
-  return 'Đang dùng phí tạm tính, shop sẽ đối soát lại khi xử lý đơn.';
+  return 'Phí giao hàng sẽ được cập nhật tự động.';
 };

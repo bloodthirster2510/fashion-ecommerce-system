@@ -111,7 +111,7 @@ const normalizeSavedAddressesForCurrentSchema = (user: IUser) => {
       ...currentAddress,
       wardCode: currentAddress.wardCode ?? currentAddress.ghnWardCode ?? `legacy-${index + 1}`,
       isDefault: currentAddress.isDefault,
-    }));
+    }, { trustStoredGhnVerification: true }));
   });
 };
 

@@ -65,19 +65,14 @@ describe('checkout presentation helpers', () => {
       isPreviewLoading: false,
       selectedItemCount: 1,
       hasSelectedAddress: true,
-      needsAddressMapping: false,
     };
 
     expect(getShippingStatusText({ ...base, isPreviewLoading: true })).toContain('Đang tính');
     expect(getShippingStatusText({ ...base, selectedItemCount: 0 })).toContain('Chọn sản phẩm');
     expect(getShippingStatusText({ ...base, hasSelectedAddress: false })).toContain('Chọn địa chỉ');
-    expect(getShippingStatusText({ ...base, comparisonNote: 'Phí riêng từ đối tác' })).toBe(
-      'Phí riêng từ đối tác',
-    );
-    expect(getShippingStatusText({ ...base, needsAddressMapping: true })).toContain('phí tạm tính');
-    expect(getShippingStatusText({ ...base, comparisonStatus: 'partial' })).toContain('tối ưu');
     expect(getShippingStatusText({ ...base, quoteStatus: 'quoted' })).toContain('Đã tính phí');
-    expect(getShippingStatusText(base)).toContain('đối soát lại');
+    expect(getShippingStatusText({ ...base, quoteStatus: 'fallback' })).toContain('Đã tính phí');
+    expect(getShippingStatusText(base)).toContain('cập nhật tự động');
   });
 
   it('presents and identifies a voucher exhausted by a concurrent checkout', () => {

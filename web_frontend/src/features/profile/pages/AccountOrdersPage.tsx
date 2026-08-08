@@ -45,8 +45,8 @@ const paymentMethodLabels: Record<OrderPaymentMethod, string> = {
 }
 
 const shippingStatusLabels: Record<string, string> = {
-  quoted: 'Đã báo phí',
-  fallback: 'Phí cố định',
+  quoted: 'Đang chuẩn bị giao hàng',
+  fallback: 'Đang chuẩn bị giao hàng',
   ready: 'Sẵn sàng giao',
   picking: 'Đang lấy hàng',
   picked: 'Đã lấy hàng',
@@ -696,7 +696,7 @@ function AccountOrdersContent() {
                         <strong>{orderDetail.shippingAddress.customerName}</strong>
                         <span>{orderDetail.shippingAddress.phoneNumber}</span>
                         <p>{getShippingAddressLine(orderDetail)}</p>
-                        <small>{orderDetail.shipping.provider || 'Đang cập nhật'} · {getShippingStatusLabel(orderDetail.shipping.status)}</small>
+                        <small>{getShippingStatusLabel(orderDetail.shipping.status)}</small>
                         {orderDetail.shipping.trackingCode ? <small>Mã vận đơn: {orderDetail.shipping.trackingCode}</small> : null}
                       </section>
                     </div>

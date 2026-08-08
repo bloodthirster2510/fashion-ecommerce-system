@@ -19,6 +19,7 @@ export interface ShippingAddressForQuote {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | string | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
 }
 
 export interface ShippingQuoteItemInput {
@@ -73,6 +74,7 @@ export interface ShippingComparisonResult {
     status: 'mapped' | 'missing' | 'manual';
     confidence: 'exact' | 'manual' | 'legacy' | null;
     verifiedAt: Date | null;
+    verificationSource: 'admin' | 'managed' | 'seed' | null;
     source: 'explicit' | 'legacy' | 'mapping' | 'managed' | 'missing';
   };
 }

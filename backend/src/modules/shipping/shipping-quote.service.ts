@@ -170,6 +170,8 @@ const buildQuoteVersion = (input: {
         ghnProvinceId: toPositiveIntegerOrNull(input.shippingAddress.ghnProvinceId),
         ghnDistrictId: toPositiveIntegerOrNull(input.shippingAddress.ghnDistrictId),
         ghnWardCode: trimOptional(input.shippingAddress.ghnWardCode) ?? null,
+        ghnMappingVerificationSource:
+          input.shippingAddress.ghnMappingVerificationSource ?? null,
         streetName: trimOptional(input.shippingAddress.streetName) ?? null,
       }
     : null;
@@ -243,7 +245,8 @@ const quoteGhnOptions = async (input: {
   const hasVerifiedMapping =
     ghnArea.status === 'mapped'
     && Boolean(ghnArea.verifiedAt)
-    && Boolean(ghnArea.confidence);
+    && Boolean(ghnArea.confidence)
+    && Boolean(ghnArea.verificationSource);
 
   if (!toDistrictId || !toWardCode || !hasVerifiedMapping) {
     return { options: [], hadUnavailable: false, resolvedArea: ghnArea };
@@ -264,13 +267,10 @@ const quoteGhnOptions = async (input: {
   try {
     const rawServices = await GHNService.getAvailableServices({ fromDistrictId, toDistrictId });
     const availableServices = parseAvailableServices(rawServices);
-    const serviceCandidates = availableServices.length
-      ? availableServices
-      : [{
-          serviceId: 0,
-          serviceTypeId: DEFAULT_SERVICE_TYPE_ID,
-          serviceName: 'GHN',
-        }];
+    if (!availableServices.length) {
+      return { options: [], hadUnavailable: true, resolvedArea: ghnArea };
+    }
+    const serviceCandidates = availableServices;
 
     const quoteAttempts: GhnQuoteAttempt[] = await Promise.all(
       serviceCandidates.map(async (service) => {
@@ -413,6 +413,7 @@ const compareCheckout = async (input: {
       status: resolvedArea.status,
       confidence: resolvedArea.confidence,
       verifiedAt: resolvedArea.verifiedAt,
+      verificationSource: resolvedArea.verificationSource,
       source: resolvedArea.source,
     },
   };

@@ -44,6 +44,7 @@ export interface IOrderShippingAddress {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
 }
 
 export interface IOrderShipping {
@@ -188,6 +189,11 @@ const shippingAddressSchema = new Schema<IOrderShippingAddress>(
       default: null,
     },
     ghnMappingVerifiedAt: { type: Date, default: null },
+    ghnMappingVerificationSource: {
+      type: String,
+      enum: ['admin', 'managed', 'seed'],
+      default: null,
+    },
   },
   { _id: false },
 );
