@@ -596,7 +596,7 @@ describe('productService', () => {
           sizes: ['M'],
           measurementFields: [
             { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
-            { key: 'chest', label: 'Nguc', unit: 'cm', required: true, sortOrder: 2 },
+            { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
           ],
           fitTypes: [
             {
@@ -744,7 +744,7 @@ describe('productService', () => {
           availableQuantity: 12,
           measurements: [
             { key: 'shoulder', label: 'Vai', unit: 'cm', value: 42 },
-            { key: 'chest', label: 'Nguc', unit: 'cm', value: 96 },
+            { key: 'chest', label: 'Ngực', unit: 'cm', value: 96 },
           ],
         },
       ],

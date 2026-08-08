@@ -167,19 +167,19 @@ const DIVERSITY_PENALTIES = {
 };
 
 const REASON_TEXT: Record<RecommendationReasonCode, string> = {
-  same_category: 'Cung danh muc',
-  same_brand: 'Cung thuong hieu',
-  same_gender: 'Cung nhom thoi trang',
-  same_color: 'Mau sac tuong tu',
-  similar_price: 'Khoang gia tuong tu',
-  preferred_category: 'Hop danh muc ban quan tam',
-  preferred_brand: 'Hop thuong hieu ban quan tam',
-  preferred_color: 'Hop mau ban hay xem',
-  completes_outfit: 'Hoan thien set do',
-  matches_cart_style: 'Hop phong cach gio hang',
-  popular: 'Dang ban chay',
-  on_sale: 'Dang giam gia',
-  new_arrival: 'Hang moi',
+  same_category: 'Cùng danh mục',
+  same_brand: 'Cùng thương hiệu',
+  same_gender: 'Cùng nhóm thời trang',
+  same_color: 'Màu sắc tương tự',
+  similar_price: 'Khoảng giá tương tự',
+  preferred_category: 'Hợp danh mục bạn quan tâm',
+  preferred_brand: 'Hợp thương hiệu bạn quan tâm',
+  preferred_color: 'Hợp màu bạn hay xem',
+  completes_outfit: 'Hoàn thiện set đồ',
+  matches_cart_style: 'Hợp phong cách giỏ hàng',
+  popular: 'Đang bán chạy',
+  on_sale: 'Đang giảm giá',
+  new_arrival: 'Hàng mới',
 };
 
 const isRecommendationContext = (value: string): value is RecommendationContext =>

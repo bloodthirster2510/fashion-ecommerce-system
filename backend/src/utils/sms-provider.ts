@@ -175,7 +175,7 @@ export const getSmsDeliveryCapability = (): SmsDeliveryInfo => {
 
 const getOtpMessage = (otp: string) => {
   const template = readEnv('SMS_OTP_TEMPLATE')
-    || 'Ma OTP cua ban la {OTP}. Ma co hieu luc trong 5 phut.';
+    || 'Mã OTP của bạn là {OTP}. Mã có hiệu lực trong 5 phút.';
   return template.includes('{OTP}')
     ? template.split('{OTP}').join(otp)
     : `${template} ${otp}`;
@@ -309,7 +309,7 @@ const deliverWithEsms = async (phone: string, otp: string): Promise<SmsDeliveryR
         Phone: phone,
         Content: getOtpMessage(otp),
         SmsType: config.smsType,
-        IsUnicode: '0',
+        IsUnicode: '1',
         Sandbox: config.sandbox,
         RequestId: requestId,
         ...(config.brandName ? { Brandname: config.brandName } : {}),

@@ -107,7 +107,7 @@ const request = async <T>(path: string, options: RequestOptions = {}) => {
   if (!response.ok || payload.data === undefined) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new RecommendationApiError(
-      validationMessage || payload.message || 'Khong tai duoc goi y san pham',
+      validationMessage || payload.message || 'Không tải được gợi ý sản phẩm',
       payload.errors,
       response.status,
     );

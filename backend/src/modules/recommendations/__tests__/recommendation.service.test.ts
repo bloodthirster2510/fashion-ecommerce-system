@@ -89,7 +89,7 @@ const response: RecommendationResponse = {
       product: { _id: productId.toString() } as never,
       score: 0.42,
       rank: 1,
-      reason: 'Cung danh muc',
+      reason: 'Cùng danh mục',
       reasonCodes: ['same_category'],
     },
   ],
