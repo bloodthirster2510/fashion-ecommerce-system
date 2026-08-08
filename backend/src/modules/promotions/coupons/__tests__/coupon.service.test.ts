@@ -1,9 +1,6 @@
 import { Types } from 'mongoose';
 import { Coupon, CouponUsage, User } from '../../../../database/models';
-import {
-  PromotionPricingError,
-  promotionPricingService,
-} from '../../pricing/promotion-pricing.service';
+import { promotionPricingService } from '../../pricing/promotion-pricing.service';
 import {
   CouponServiceError,
   clearCouponValidationCacheForTests,
