@@ -202,11 +202,11 @@ const AppNavigator = () => {
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <Stack.Screen name="ReviewComposer" component={ReviewComposerScreen} />
       <Stack.Screen name="MyReviews" component={MyReviewsScreen} />
-      <Stack.Screen name="VirtualTryOnHome" component={VirtualTryOnHomeScreen} />
-      <Stack.Screen name="VirtualTryOnBuilder" component={VirtualTryOnBuilderScreen} />
-      <Stack.Screen name="VirtualTryOnProcessing" component={VirtualTryOnProcessingScreen} />
-      <Stack.Screen name="VirtualTryOnResult" component={VirtualTryOnResultScreen} />
-      <Stack.Screen name="VirtualTryOnHistory" component={VirtualTryOnHistoryScreen} />
+      <Stack.Screen name="VirtualTryOnHome" component={session ? VirtualTryOnHomeScreen : LoginScreen} />
+      <Stack.Screen name="VirtualTryOnBuilder" component={session ? VirtualTryOnBuilderScreen : LoginScreen} />
+      <Stack.Screen name="VirtualTryOnProcessing" component={session ? VirtualTryOnProcessingScreen : LoginScreen} />
+      <Stack.Screen name="VirtualTryOnResult" component={session ? VirtualTryOnResultScreen : LoginScreen} />
+      <Stack.Screen name="VirtualTryOnHistory" component={session ? VirtualTryOnHistoryScreen : LoginScreen} />
       <Stack.Screen name="SupportHome" component={SupportHomeScreen} />
       <Stack.Screen name="FaqList" component={FaqListScreen} />
       <Stack.Screen name="SupportTicketCreate" component={SupportTicketCreateScreen} />
