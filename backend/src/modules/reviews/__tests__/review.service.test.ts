@@ -496,6 +496,8 @@ describe('reviewService', () => {
   it('applies rating and sort filters when listing the current customer reviews', async () => {
     const myReview = populatedReview({
       product_id: { _id: productId, name: 'Basic Tee', product_image: 'tee.png' },
+      adminReply: 'Cảm ơn bạn đã chia sẻ trải nghiệm.',
+      repliedAt: new Date('2026-06-02T00:00:00.000Z'),
     });
     const findQuery = query([myReview]);
     mockedReview.find.mockReturnValue(findQuery as never);
@@ -514,6 +516,10 @@ describe('reviewService', () => {
     expect(result.items[0]).toMatchObject({
       orderId: orderId.toString(),
       orderItemId: orderItemId.toString(),
+      adminReply: {
+        content: 'Cảm ơn bạn đã chia sẻ trải nghiệm.',
+        repliedAt: new Date('2026-06-02T00:00:00.000Z'),
+      },
     });
   });
 

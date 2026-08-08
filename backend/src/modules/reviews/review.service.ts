@@ -554,9 +554,14 @@ const listMyReviews = async (userIdValue: string, query: ReviewListQueryInput = 
   return {
     items: reviews.map((rawReview) => {
       const review = rawReview as unknown as MyReviewView;
+      const serialized = serializeReview({ ...review, product_id: review.product_id._id });
       return {
         // serializeReview cần product_id thuần; thông tin product đã populate được trả riêng.
-        ...serializeReview({ ...review, product_id: review.product_id._id }),
+        ...serialized,
+        // Giữ cùng response shape với danh sách review công khai để mọi client đọc nhất quán.
+        adminReply: serialized.adminReply
+          ? { content: serialized.adminReply, repliedAt: serialized.repliedAt }
+          : null,
         product: {
           _id: review.product_id._id.toString(),
           name: review.product_id.name,
