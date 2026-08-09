@@ -91,14 +91,14 @@ const statusTones: Record<SupportTicketStatus, 'success' | 'warning' | 'danger' 
   waiting_customer: 'neutral',
   resolved: 'success',
   closed: 'neutral',
-  spam: 'danger',
+  spam: 'neutral',
 }
 
 const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
   low: 'neutral',
   normal: 'neutral',
   high: 'warning',
-  urgent: 'danger',
+  urgent: 'warning',
 }
 
 const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }

@@ -131,7 +131,7 @@ export function SupportInboxPanel({
             <span className="admin-support-ticket-bottom">
               <span>
                 <StatusBadge tone={statusTones[ticket.status]}>{statusLabels[ticket.status]}</StatusBadge>
-                {ticket.requiresReply ? <StatusBadge tone="danger">Cần trả lời</StatusBadge> : null}
+                {ticket.requiresReply ? <StatusBadge tone="warning">Cần trả lời</StatusBadge> : null}
               </span>
               {ticket.priority !== 'normal' ? <StatusBadge tone={priorityTones[ticket.priority]}>{priorityLabels[ticket.priority]}</StatusBadge> : null}
             </span>
@@ -166,7 +166,7 @@ export function SupportInboxPanel({
                 <div className={`admin-support-detail-badges status-${selectedTicket.status}`}>
                   <StatusBadge tone={statusTones[selectedTicket.status]}>{statusLabels[selectedTicket.status]}</StatusBadge>
                   <StatusBadge tone={priorityTones[selectedTicket.priority]}>{priorityLabels[selectedTicket.priority]}</StatusBadge>
-                  {selectedTicket.requiresReply ? <StatusBadge tone="danger">Cần phản hồi</StatusBadge> : null}
+                  {selectedTicket.requiresReply ? <StatusBadge tone="warning">Cần phản hồi</StatusBadge> : null}
                 </div>
                 {!selectedTicket.assignedTo && (
                   <Button variant="primary" disabled={submitting} onClick={() => void onMutateTicket({ assignedTo: currentUserId })}>
