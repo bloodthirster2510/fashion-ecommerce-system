@@ -4,11 +4,13 @@ import { searchApi, type SuggestResponse } from './searchApi';
 export type UseSuggestResult = {
   result: SuggestResponse | null;
   isLoading: boolean;
+  error: string | null;
 };
 
 export const useSuggest = (query: string): UseSuggestResult => {
   const [result, setResult] = useState<SuggestResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -17,10 +19,13 @@ export const useSuggest = (query: string): UseSuggestResult => {
       abortRef.current?.abort();
       setResult(null);
       setIsLoading(false);
+      setError(null);
       return;
     }
 
+    setResult(null);
     setIsLoading(true);
+    setError(null);
     const handle = setTimeout(() => {
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -31,10 +36,12 @@ export const useSuggest = (query: string): UseSuggestResult => {
         .then((data) => {
           if (controller.signal.aborted) return;
           setResult(data);
+          setError(null);
         })
         .catch((error: unknown) => {
           if (error instanceof Error && error.name === 'AbortError') return;
           setResult(null);
+          setError(error instanceof Error ? error.message : 'Không thể tải gợi ý tìm kiếm');
         })
         .finally(() => {
           if (controller.signal.aborted) return;
@@ -48,5 +55,5 @@ export const useSuggest = (query: string): UseSuggestResult => {
     };
   }, [query]);
 
-  return { result, isLoading };
+  return { result, isLoading, error };
 };

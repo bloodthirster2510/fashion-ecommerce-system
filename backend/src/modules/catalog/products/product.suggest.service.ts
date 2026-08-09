@@ -1,5 +1,4 @@
 import { Brand, Category, Product } from '../../../database/models';
-import { normalizeCatalogImageUrl } from '../catalog-image';
 import { tokenize, toAccentInsensitiveRegex, toTokenRegexes } from './search.util';
 import { inferGenderFromTokens, expandMaterialTokens, expandMaterialTokenGroups, buildSearchKeywordSuggestions } from './search-keywords';
 
@@ -29,6 +28,9 @@ const SUGGEST_CACHE_TTL = 60_000;
 const suggestCache = new Map<string, { data: SuggestResponse; expires: number }>();
 
 const getFinalPrice = (price: number, discount: number) => Math.round(price * (1 - discount / 100));
+
+export const resolveSuggestionImage = (variantImage?: string, productImage?: string) =>
+  (variantImage || productImage || '').trim();
 
 const getCachedSuggest = (key: string): SuggestResponse | null => {
   const cached = suggestCache.get(key);
@@ -107,7 +109,9 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
     return {
       _id: product._id.toString(),
       name: product.name,
-      image: normalizeCatalogImageUrl(variant?.colors?.[0]?.image || product.product_image) ?? product.product_image,
+      // Product writes already validate image URLs. Avoid re-validating legacy
+      // catalog data here because one older host must not break all suggestions.
+      image: resolveSuggestionImage(variant?.colors?.[0]?.image, product.product_image),
       price,
       discount,
       finalPrice: getFinalPrice(price, discount),

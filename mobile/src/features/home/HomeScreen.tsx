@@ -236,16 +236,25 @@ const HomeScreen = () => {
   };
 
   const handleSearchSubmit = (keyword: string) => {
-    void addSearchHistory(keyword);
+    const normalizedKeyword = keyword.trim().replace(/\s+/g, ' ');
+    if (!normalizedKeyword) {
+      navigation.navigate('ProductList', {
+        title: 'Tất cả sản phẩm',
+        sort: 'newest',
+      });
+      return;
+    }
+
+    void addSearchHistory(normalizedKeyword);
     recordInteraction({
       actionType: 'search',
       source: 'search',
-      metadata: { keyword },
+      metadata: { keyword: normalizedKeyword },
     });
 
     navigation.navigate('ProductList', {
-      title: `Tìm kiếm: ${keyword}`,
-      keyword,
+      title: `Tìm kiếm: ${normalizedKeyword}`,
+      keyword: normalizedKeyword,
       searchEventId: createSearchEventId(),
       searchSource: 'mobile_manual',
     });

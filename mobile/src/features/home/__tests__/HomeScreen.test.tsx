@@ -9,6 +9,7 @@ import { invalidateScreenData } from '../../../config/screenDataCache';
 
 const mockFocusCallbacks = new Set<() => void | (() => void)>();
 const mockCategoryDrawer = jest.fn((_props: Record<string, unknown>) => null);
+const mockStorefrontHeader = jest.fn((_props: Record<string, unknown>) => null);
 const mockProductSection = jest.fn((_props: Record<string, unknown>) => null);
 const mockRecommendationRail = jest.fn((_props: Record<string, unknown>) => null);
 
@@ -36,7 +37,7 @@ jest.mock('../../recommendation/recommendationApi', () => ({
   },
 }));
 jest.mock('../../recommendation/interactionApi', () => ({
-  interactionApi: { recordInteraction: jest.fn() },
+  interactionApi: { recordInteraction: jest.fn().mockResolvedValue(undefined) },
 }));
 jest.mock('../../recommendation/useRecommendationImpressions', () => ({
   useRecommendationImpressions: () => ({
@@ -53,7 +54,7 @@ jest.mock('../../search/searchHistory', () => ({
   createSearchEventId: jest.fn().mockReturnValue('search-event'),
 }));
 jest.mock('../../../components/layout/StorefrontFooter', () => () => null);
-jest.mock('../../../components/layout/StorefrontHeader', () => () => null);
+jest.mock('../../../components/layout/StorefrontHeader', () => (props: Record<string, unknown>) => mockStorefrontHeader(props));
 jest.mock('../../../components/navigation/StorefrontBottomNav', () => () => null);
 jest.mock('../components/CategoryDrawer', () => (props: Record<string, unknown>) => mockCategoryDrawer(props));
 jest.mock('../components/CategoryRail', () => () => null);
@@ -149,6 +150,36 @@ describe('HomeScreen catalog lifecycle', () => {
     );
     expect(mockedCatalogApi.getBestSellers).toHaveBeenCalledTimes(2);
     expect(mockedRecommendationApi.getPersonalRecommendations).toHaveBeenCalledTimes(2);
+  });
+
+  it('normalizes searches and opens all products for an empty submission', async () => {
+    const navigate = jest.fn();
+    mockedUseNavigation.mockReturnValue({ navigate });
+
+    await renderer.act(async () => {
+      tree = renderer.create(<HomeScreen />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const headerProps = mockStorefrontHeader.mock.calls.at(-1)?.[0] as {
+      onSearchSubmit: (keyword: string) => void;
+    };
+
+    headerProps.onSearchSubmit('  áo   sơ mi  ');
+    expect(navigate).toHaveBeenLastCalledWith('ProductList', {
+      title: 'Tìm kiếm: áo sơ mi',
+      keyword: 'áo sơ mi',
+      searchEventId: 'search-event',
+      searchSource: 'mobile_manual',
+    });
+
+    navigate.mockClear();
+    headerProps.onSearchSubmit('   ');
+    expect(navigate).toHaveBeenCalledWith('ProductList', {
+      title: 'Tất cả sản phẩm',
+      sort: 'newest',
+    });
   });
 
   it('keeps the last good Home content when a stale refresh is offline', async () => {
