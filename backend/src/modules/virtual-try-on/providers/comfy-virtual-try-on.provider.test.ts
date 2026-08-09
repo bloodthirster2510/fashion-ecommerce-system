@@ -145,6 +145,10 @@ describe('buildComfyTryOnPrompt', () => {
     expect(prompt).toContain('Cells 2, 3, and 4 may each use a different subtle, natural fashion pose');
     expect(prompt).toContain('wardrobe variation');
     expect(prompt).toContain('Reference image 2: top — White shirt, white.');
+    expect(prompt).toContain('GARMENT SOURCE OF TRUTH');
+    expect(prompt).toContain('mandatory and exclusive wardrobe source');
+    expect(prompt).toContain('not the text prompt');
+    expect(prompt).toContain('If text conflicts with a garment reference');
   });
 
   it('preserves upper-body crop instead of forcing full-body framing', () => {
@@ -191,7 +195,11 @@ describe('ComfyUI image workflow prompt policy', () => {
     expect(systemPrompt).toContain('identity and the selected catalog garments are immutable constraints');
     expect(systemPrompt).toContain('cell 1 at the top-left is the baseline');
     expect(systemPrompt).toContain('Only cells 2, 3, and 4 may use different subtle, natural fashion poses');
-    expect(systemPrompt).toContain('Never redesign, replace, recolor, omit, or add selected fashion items');
+    expect(systemPrompt).toContain('Never invent, redesign, replace, recolor, omit');
+    expect(systemPrompt).toContain('GARMENT SOURCE OF TRUTH');
+    expect(systemPrompt).toContain('authoritative selected garment or accessory from the shop catalog');
+    expect(systemPrompt).toContain('never the text prompt');
+    expect(systemPrompt).toContain('If user text conflicts with a garment reference');
     expect(systemPrompt).not.toContain('regardless of format, intent, or abstraction');
   });
 });

@@ -280,6 +280,10 @@ export const buildComfyTryOnPrompt = (
   getComfySourceFramingInstruction(sourceImageProfile),
   'Use reference image 1 as the only source for the visible person identity cues, face if visible, hair if visible, expression if visible, pose, body shape, body proportions, height cues, shoulder width, waist if visible, legs if visible, hands if visible, feet if visible, and skin tone.',
   'Never copy or blend in the face, body, pose, age, gender presentation, skin tone, background, or other garments from catalog garment reference images.',
+  'GARMENT SOURCE OF TRUTH: every selected garment or accessory must come from the garment reference images after reference image 1. Those garment images, not the text prompt, are the mandatory and exclusive wardrobe source.',
+  'Reproduce the selected garments faithfully: keep the same garment type, color, pattern, print, logo already present, fabric appearance, silhouette, neckline, sleeves, closures, seams, pockets, waistband, hem, hardware, footwear shape, and other visible construction details.',
+  'Never invent, redesign, replace, recolor, omit, combine into a different item, or add any fashion item that is not present in the selected garment references.',
+  'Treat all custom or user-written prompt text as scene context only: it may affect background, lighting, mood, occasion, and explicitly permitted pose variation, but it must not change the wardrobe. If text conflicts with a garment reference, ignore the conflicting wardrobe instruction and follow the garment reference.',
   'Do not add visible borders, gutters, labels, captions, watermarks, or extra text between grid cells.',
   usesIndividualGarmentImages
     ? [

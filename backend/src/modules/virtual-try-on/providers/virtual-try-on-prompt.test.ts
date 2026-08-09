@@ -52,6 +52,10 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('scene requested by user: warm coffee shop with window light');
     expect(result.prompt).toContain('two-piece outfit try-on');
     expect(result.prompt).toContain('resolve the waist overlap naturally');
+    expect(result.prompt).toContain('GARMENT SOURCE OF TRUTH');
+    expect(result.prompt).toContain('mandatory and exclusive source for every wardrobe item');
+    expect(result.prompt).toContain('never use preset, scene, or custom prompt text');
+    expect(result.prompt).toContain('ignore the clothing instruction and follow the selected garment image');
   });
 
   it('keeps unrelated garments unchanged for a single top try-on', () => {

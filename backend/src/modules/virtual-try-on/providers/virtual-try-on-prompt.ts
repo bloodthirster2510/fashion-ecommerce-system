@@ -200,10 +200,13 @@ const basePromptParts = [
 ];
 
 const garmentFidelityParts = [
+  'GARMENT SOURCE OF TRUTH: the selected catalog garment images are the mandatory and exclusive source for every wardrobe item in the result',
+  'never use preset, scene, or custom prompt text to invent, replace, redesign, recolor, omit, or add clothing, footwear, or accessories',
   'faithfully transfer garment type, color, fabric texture, pattern, print placement, silhouette, and visible details',
   'respect seams, buttons, zippers, pockets, collars, cuffs, waistbands, hems, pleats, shoe soles, logos already present on the catalog item, and accessory hardware',
   'keep selected catalog items recognizable while adapting them to the body perspective',
   'when the catalog image contains a model or extra clothes, use only the selected garment role and ignore unrelated garments, body parts, props, hangers, labels, and background',
+  'if preset, scene, or custom prompt text conflicts with a selected garment image, ignore the clothing instruction and follow the selected garment image',
 ];
 
 const realismPromptParts = [
@@ -389,8 +392,8 @@ export const buildVirtualTryOnPrompt = (input: {
     garmentText ? `selected garments: ${garmentText}` : '',
     ...outfitPrompts,
     ...getRoleSpecificPrompts(roles),
-    ...garmentFidelityParts,
     ...contextScenePromptParts,
+    ...garmentFidelityParts,
     ...realismPromptParts,
   ].filter(Boolean).join('. ');
 
