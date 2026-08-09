@@ -313,10 +313,6 @@ const getFinalPrice = (price: number, discount: number) => {
   return Math.round(price * (1 - discount / 100));
 };
 
-// Chuyển ObjectId hoặc giá trị tương tự ObjectId thành chuỗi an toàn.
-const toIdString = (value: Types.ObjectId | string | { toString(): string } | null | undefined) =>
-  value?.toString() ?? '';
-
 // Đánh dấu sản phẩm mới theo cùng cách hiển thị ở catalog.
 const isNewProduct = (createdAt: Date) => {
   const cutoff = new Date();
