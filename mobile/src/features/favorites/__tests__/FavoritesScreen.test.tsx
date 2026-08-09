@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../auth/AuthContext';
 import FavoritesScreen from '../FavoritesScreen';
 import { favoritesApi, type FavoriteListResponse, type FavoriteProduct } from '../favoritesApi';
+import { invalidateScreenData } from '../../../config/screenDataCache';
 
 const mockFocusCallbacks = new Set<() => void | (() => void)>();
 
@@ -109,6 +110,7 @@ describe('FavoritesScreen lifecycle', () => {
   let now = 100_000;
 
   beforeEach(() => {
+    invalidateScreenData();
     jest.clearAllMocks();
     mockFocusCallbacks.clear();
     now = 100_000;
@@ -214,6 +216,31 @@ describe('FavoritesScreen lifecycle', () => {
 
     expect(tree?.root.findAllByType(Text).map((node) => node.props.children)).toContain('Áo vẫn còn');
     expect(alertSpy).toHaveBeenCalledWith('Chưa tải được yêu thích', 'Mất kết nối');
+  });
+
+  it('keeps the current list visible during a silent stale focus refresh', async () => {
+    const current = favorite('product-a', 'Áo đang hiển thị');
+    mockedFavoritesApi.getFavorites.mockResolvedValueOnce(response([current]));
+    await renderScreen();
+
+    const refresh = deferred<FavoriteListResponse>();
+    mockedFavoritesApi.getFavorites.mockReturnValueOnce(refresh.promise);
+    now += 31_000;
+    await renderer.act(async () => {
+      Array.from(mockFocusCallbacks).forEach((callback) => callback());
+      await Promise.resolve();
+    });
+
+    const labels = tree?.root.findAllByType(Text).map((node) => node.props.children);
+    expect(labels).toContain('Áo đang hiển thị');
+    expect(labels).not.toContain('Đang tải danh sách yêu thích');
+    expect(tree?.root.findAllByType(ScrollView)[0]?.props.refreshControl.props.refreshing).toBe(false);
+
+    await renderer.act(async () => {
+      refresh.resolve(response([current]));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   });
 
   it('deduplicates removal of one product while allowing another product to be removed', async () => {

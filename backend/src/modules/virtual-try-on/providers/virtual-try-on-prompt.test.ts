@@ -147,10 +147,13 @@ describe('buildVirtualTryOnVideoPrompt', () => {
   it('uses the generated try-on image as an exact first frame and preserves the outfit', () => {
     const result = buildVirtualTryOnVideoPrompt({
       preset: 'party',
+      durationSeconds: 8,
       customPrompt: 'evening event with warm lights',
     });
 
     expect(result.prompt).toContain('exact first frame');
+    expect(result.prompt).toContain('continuous 8-second fashion showcase');
+    expect(result.prompt).not.toContain('five-second');
     expect(result.prompt).toContain('small elegant pose change');
     expect(result.prompt).toContain('outfit design, garment color, pattern, print, logo');
     expect(result.prompt).toContain('keep the existing user scene context: evening event with warm lights');

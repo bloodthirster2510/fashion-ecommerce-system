@@ -32,6 +32,7 @@ export type ProductSortOption =
 
 export type ProductListQuery = {
   keyword?: string
+  visualText?: string
   gender?: Exclude<CategoryGender, 'unisex'>
   categoryId?: string
   brandId?: string
@@ -74,6 +75,39 @@ export type ProductListItem = {
   } | null
 }
 
+export type SearchSuggestProduct = {
+  _id: string
+  name: string
+  image: string
+  price: number
+  discount: number
+  finalPrice: number
+  brandName?: string
+}
+
+export type SearchSuggestCategory = {
+  _id: string
+  name: string
+  gender: CategoryGender
+}
+
+export type SearchSuggestResponse = {
+  products: SearchSuggestProduct[]
+  categories: SearchSuggestCategory[]
+  keywords: string[]
+}
+
+export type VisualSearchProductItem = ProductListItem & {
+  visualScore: number
+  finalVisualScore: number
+  matchedImage: string
+  matchedGalleryImageId: string
+  matchedVariantId?: string
+  matchedColorVariantId?: string
+  matchedColor?: string | null
+  matchedSource: 'product_image' | 'color_variant_image'
+}
+
 export type ProductListResponse = {
   items: ProductListItem[]
   pagination: {
@@ -83,6 +117,28 @@ export type ProductListResponse = {
     totalPages: number
   }
   filters?: ProductListFilters
+}
+
+export type VisualSearchResponse = {
+  items: VisualSearchProductItem[]
+  pagination: {
+    page: 1
+    limit: number
+    totalItems: number
+    totalPages: 1
+  }
+  query: {
+    searchType: 'image' | 'text'
+    model: string
+    modelVersion: string
+    provider: 'mock' | 'http'
+    processingTimeMs: number
+    embeddingTimeMs: number
+    searchTimeMs: number
+    hydrateTimeMs: number
+    scoreThreshold: number
+    candidateCount: number
+  }
 }
 
 export type ProductListFilters = {

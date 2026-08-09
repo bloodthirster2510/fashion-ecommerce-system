@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { authApi } from './authApi';
 import { sessionStorage } from './sessionStorage';
 import type { AuthSession, SessionUser } from './types';
+import { clearUserScopedCaches } from '../../config/cacheInvalidation';
 
 type AuthContextType = {
   isAuthenticated: boolean;
@@ -99,6 +100,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = React.useCallback(async (newSession: AuthSession) => {
     await persistSession(newSession);
+    clearUserScopedCaches();
     sessionEpochRef.current += 1;
     sessionRef.current = newSession;
     setSession(newSession);
@@ -109,6 +111,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     sessionEpochRef.current += 1;
     sessionRef.current = null;
     setSession(null);
+    clearUserScopedCaches();
 
     const operations: Promise<unknown>[] = [persistSession(null)];
     if (currentSession) {
@@ -194,6 +197,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             sessionEpochRef.current += 1;
             sessionRef.current = null;
             setSession(null);
+            clearUserScopedCaches();
             persistSession(null).catch(() => undefined);
           }
 

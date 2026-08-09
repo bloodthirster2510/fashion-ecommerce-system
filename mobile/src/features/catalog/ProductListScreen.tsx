@@ -21,7 +21,7 @@ import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   catalogApi,
@@ -38,6 +38,7 @@ import {
   type InteractionPayload,
 } from '../recommendation/interactionApi';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
@@ -86,7 +87,6 @@ const PRODUCT_PAGE_LIMIT = 30;
 const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
-const DISCOVERY_TITLE = 'Khám phá gu riêng';
 const discoveryImages = {
   male: require('../../../assets/discovery-male-model-v2.png'),
   female: require('../../../assets/discovery-female-model-v2.png'),
@@ -301,10 +301,22 @@ const getCategorySelectionGroups = (
   return Array.from(groups.values());
 };
 
+const getProductQueryKey = (
+  filters: ProductListFilters,
+  params: ProductListRouteProp['params'],
+  accountScope: string,
+) => JSON.stringify({
+  accountScope,
+  appliedFilters: filters,
+  keyword: params?.keyword,
+});
+
+const getProductListCacheKey = (queryKey: string) => `catalog:list:${queryKey}`;
+
 const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
-  const { isAuthenticated, runWithAuth } = useAuth();
+  const { isAuthenticated, runWithAuth, session } = useAuth();
   const { summary: notificationSummary } = useCustomerNotifications();
   const params = route.params;
   const hasScopedCatalogRequest = Boolean(
@@ -320,24 +332,38 @@ const ProductListScreen = () => {
   );
   const opensAtDiscoveryProducts = params?.discoveryEntry === 'products';
   const showDiscoveryExperience = opensAtDiscoveryProducts || !hasScopedCatalogRequest;
+  const accountScope = session?.user?._id ?? 'guest';
+  const initialFiltersRef = React.useRef(createFiltersFromParams(params));
+  const initialProductQueryKeyRef = React.useRef(
+    getProductQueryKey(initialFiltersRef.current, params, accountScope),
+  );
+  const initialProductListRef = React.useRef(
+    readScreenData<ProductListResponse>(getProductListCacheKey(initialProductQueryKeyRef.current)),
+  );
   const insets = useSafeAreaInsets();
   const scrollViewRef = React.useRef<ScrollView>(null);
   const catalogHeadingOffsetRef = React.useRef<number | null>(null);
   const shouldScrollToCatalogRef = React.useRef(opensAtDiscoveryProducts);
   const requestIdRef = React.useRef(0);
   const isRequestInFlightRef = React.useRef(false);
-  const [products, setProducts] = React.useState<CatalogProduct[]>([]);
+  const loadedProductQueryKeyRef = React.useRef<string | null>(
+    initialProductListRef.current ? initialProductQueryKeyRef.current : null,
+  );
+  const [products, setProducts] = React.useState<CatalogProduct[]>(initialProductListRef.current?.items ?? []);
   const [appliedFilters, setAppliedFilters] = React.useState<ProductListFilters>(() =>
-    createFiltersFromParams(params),
+    initialFiltersRef.current,
   );
   const [draftFilters, setDraftFilters] = React.useState<ProductListFilters>(appliedFilters);
   const [availableFilters, setAvailableFilters] =
-    React.useState<ProductListResponse['filters']>(emptyAvailableFilters);
+    React.useState<ProductListResponse['filters']>(
+      initialProductListRef.current?.filters ?? emptyAvailableFilters,
+    );
   const [isFilterSheetVisible, setIsFilterSheetVisible] = React.useState(false);
-  const [page, setPage] = React.useState(1);
-  const [totalPages, setTotalPages] = React.useState(0);
-  const [totalItems, setTotalItems] = React.useState(0);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [page, setPage] = React.useState(initialProductListRef.current?.pagination.page ?? 1);
+  const [totalPages, setTotalPages] = React.useState(initialProductListRef.current?.pagination.totalPages ?? 0);
+  const [totalItems, setTotalItems] = React.useState(initialProductListRef.current?.pagination.totalItems ?? 0);
+  const [isLoading, setIsLoading] = React.useState(!initialProductListRef.current);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = React.useState<string | null>(null);
@@ -580,16 +606,27 @@ const ProductListScreen = () => {
     return chips;
   }, [appliedFilters, categorySelectionGroups, getBrandLabel, updateAppliedFilters]);
 
-  const loadProducts = React.useCallback((targetPage = 1) => {
+  const loadProducts = React.useCallback((
+    targetPage = 1,
+    backgroundMode: 'refresh' | 'silent' = 'refresh',
+  ) => {
     const controller = new AbortController();
     const isFirstPage = targetPage === 1;
     const requestId = requestIdRef.current + 1;
+    const productQueryKey = getProductQueryKey(appliedFilters, params, accountScope);
+    const firstPageMode = resolveFocusRefreshMode(
+      loadedProductQueryKeyRef.current,
+      productQueryKey,
+      backgroundMode,
+    );
 
     requestIdRef.current = requestId;
     isRequestInFlightRef.current = true;
 
     if (isFirstPage) {
-      setIsLoading(true);
+      setIsLoading(firstPageMode === 'loading');
+      setIsRefreshing(firstPageMode === 'refresh');
+      setIsLoadingMore(false);
       setError(null);
     } else {
       setIsLoadingMore(true);
@@ -639,6 +676,10 @@ const ProductListScreen = () => {
         setTotalPages(response.pagination.totalPages);
         setTotalItems(response.pagination.totalItems);
         setPage(response.pagination.page);
+        if (isFirstPage) {
+          loadedProductQueryKeyRef.current = productQueryKey;
+          writeScreenData(getProductListCacheKey(productQueryKey), response);
+        }
       })
       .catch((requestError: unknown) => {
         if (controller.signal.aborted || requestIdRef.current !== requestId) return;
@@ -646,11 +687,15 @@ const ProductListScreen = () => {
         const message = requestError instanceof Error ? requestError.message : 'Không thể tải sản phẩm';
 
         if (isFirstPage) {
-          setProducts([]);
-          setAvailableFilters(emptyAvailableFilters);
-          setTotalPages(0);
-          setTotalItems(0);
-          setError(message);
+          if (firstPageMode === 'loading') {
+            setProducts([]);
+            setAvailableFilters(emptyAvailableFilters);
+            setTotalPages(0);
+            setTotalItems(0);
+            setError(message);
+          } else if (firstPageMode === 'refresh') {
+            Alert.alert('Chưa cập nhật được sản phẩm', message);
+          }
         } else {
           setLoadMoreError(message);
         }
@@ -662,6 +707,7 @@ const ProductListScreen = () => {
 
         if (isFirstPage) {
           setIsLoading(false);
+          setIsRefreshing(false);
         } else {
           setIsLoadingMore(false);
         }
@@ -674,6 +720,7 @@ const ProductListScreen = () => {
     };
   }, [
     appliedFilters,
+    accountScope,
     isAuthenticated,
     params?.keyword,
     params?.searchEventId,
@@ -682,9 +729,9 @@ const ProductListScreen = () => {
   ]);
 
   useStaleFocusEffect(
-    () => loadProducts(1),
+    () => loadProducts(1, 'silent'),
     [loadProducts],
-    { runOnDepsChange: true, staleMs: 0 },
+    { cacheScope: 'catalog:list:', runOnDepsChange: true, staleMs: 60 * 1000 },
   );
 
   const openFilterSheet = () => {
@@ -825,13 +872,13 @@ const ProductListScreen = () => {
 
   const hasMoreProducts = page < totalPages;
   const loadMoreProducts = React.useCallback(() => {
-    if (isRequestInFlightRef.current || isLoading || isLoadingMore || !hasMoreProducts) {
+    if (isRequestInFlightRef.current || isLoading || isRefreshing || isLoadingMore || !hasMoreProducts) {
       return;
     }
 
     setLoadMoreError(null);
     loadProducts(page + 1);
-  }, [hasMoreProducts, isLoading, isLoadingMore, loadProducts, page]);
+  }, [hasMoreProducts, isLoading, isLoadingMore, isRefreshing, loadProducts, page]);
 
   const handleCatalogScroll = React.useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -854,7 +901,7 @@ const ProductListScreen = () => {
   );
 
   const screenTitle = getTitle(params);
-  const headerTitle = showDiscoveryExperience ? DISCOVERY_TITLE : screenTitle;
+  const headerTitle = params?.keyword ? 'Tìm kiếm' : 'Sản phẩm';
   const selectedGenderLabel = appliedFilters.gender
     ? genderLabels[appliedFilters.gender].toLocaleUpperCase('vi-VN')
     : 'MỌI PHONG CÁCH';
@@ -929,6 +976,14 @@ const ProductListScreen = () => {
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={styles.headerAction}
+            onPress={() => navigation.navigate('Search')}
+            accessibilityLabel="Tìm kiếm sản phẩm"
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="magnify" size={23} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerAction}
             onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
             accessibilityLabel="Sản phẩm yêu thích"
             activeOpacity={0.8}
@@ -943,7 +998,7 @@ const ProductListScreen = () => {
               : 'Giỏ hàng'}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+            <MaterialCommunityIcons name="cart-outline" size={23} color={colors.white} />
             {notificationSummary?.cartItems ? (
               <View style={styles.cartBadge}>
                 <Text style={styles.cartBadgeText}>
@@ -962,7 +1017,7 @@ const ProductListScreen = () => {
         showsVerticalScrollIndicator={false}
         refreshControl={(
           <RefreshControl
-            refreshing={isLoading}
+            refreshing={isRefreshing}
             onRefresh={() => { void loadProducts(1); }}
             colors={[colors.brand]}
             tintColor={colors.brand}
@@ -1346,21 +1401,22 @@ const styles = StyleSheet.create({
   header: {
     ...brandedHeaderStyles.container,
     minHeight: 64,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
   headerAction: {
     ...brandedHeaderStyles.action,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     position: 'relative',
   },
   headerEdge: {
-    width: 80,
+    width: 116,
     alignItems: 'flex-start',
   },
   headerActions: {
-    width: 80,
+    width: 116,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -1393,8 +1449,8 @@ const styles = StyleSheet.create({
   },
   title: {
     ...brandedHeaderStyles.title,
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 18,
+    lineHeight: 24,
     marginTop: 0,
     textAlign: 'center',
   },

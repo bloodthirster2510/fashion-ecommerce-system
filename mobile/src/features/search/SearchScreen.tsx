@@ -117,7 +117,7 @@ const SearchScreen = () => {
     if (!trimmed) return;
     setHistory((current) => mergeSearchHistory([trimmed], current));
     void addSearchHistory(trimmed);
-    navigation.navigate('ProductList', {
+    navigation.replace('ProductList', {
       title: `Tìm kiếm: ${trimmed}`,
       keyword: trimmed,
       searchEventId: createSearchEventId(),

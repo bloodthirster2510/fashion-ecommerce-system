@@ -94,6 +94,7 @@ export type AdminOrder = {
   _id: string
   orderCode: string
   invoiceCode?: string | null
+  invoiceIssuedAt?: string | null
   user_id: string
   order_list: AdminOrderItem[]
   subTotal: number

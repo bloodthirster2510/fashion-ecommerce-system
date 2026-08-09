@@ -4,7 +4,7 @@ import type { ApiResponse, ApiValidationError } from '../auth/types';
 const PAYMENT_METHOD_READ_TIMEOUT_MS = 20000;
 const PAYMENT_METHOD_WRITE_TIMEOUT_MS = 30000;
 
-export type PaymentMethodType = 'VNPAY' | 'MOMO' | 'BANK' | 'CARD';
+export type PaymentMethodType = 'VNPAY' | 'BANK' | 'CARD';
 export type PaymentMethodStatus = 'pending' | 'verified' | 'expired' | 'disabled';
 
 export type PaymentMethodRecord = {

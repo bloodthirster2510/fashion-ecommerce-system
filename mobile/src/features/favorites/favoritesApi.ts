@@ -1,4 +1,5 @@
 import { apiFetch } from '../../config/api';
+import { invalidateAfterMutation, invalidateFavoriteCaches } from '../../config/cacheInvalidation';
 import type { ApiResponse, ApiValidationError } from '../auth/types';
 import type { CatalogProduct, ProductSortOption } from '../catalog/catalogApi';
 
@@ -124,14 +125,20 @@ export const favoritesApi = {
       token,
     ),
   addFavorite: (token: string, productId: string) =>
-    request<FavoriteStatusResponse>('/favorites', token, {
-      method: 'POST',
-      body: { productId },
-    }),
+    invalidateAfterMutation(
+      request<FavoriteStatusResponse>('/favorites', token, {
+        method: 'POST',
+        body: { productId },
+      }),
+      invalidateFavoriteCaches,
+    ),
   removeFavorite: (token: string, productId: string) =>
-    request<FavoriteStatusResponse>(
-      `/favorites/${encodeURIComponent(productId)}`,
-      token,
-      { method: 'DELETE' },
+    invalidateAfterMutation(
+      request<FavoriteStatusResponse>(
+        `/favorites/${encodeURIComponent(productId)}`,
+        token,
+        { method: 'DELETE' },
+      ),
+      invalidateFavoriteCaches,
     ),
 };

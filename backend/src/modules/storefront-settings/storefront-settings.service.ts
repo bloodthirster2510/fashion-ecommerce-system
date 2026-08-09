@@ -110,7 +110,7 @@ const defaultSocials = () => {
 const getDefaultSettings = (): StorefrontSettingsView => ({
   configured: false,
   identity: {
-    name: envValue('SHOP_NAME') || 'FASHIONISTA',
+    name: envValue('SHOP_NAME') || 'CDShop',
     avatarUrl: safeEnvUrl('SHOP_AVATAR_URL'),
     legalName: envValue('SHOP_LEGAL_NAME'),
     taxCode: envValue('SHOP_TAX_CODE'),

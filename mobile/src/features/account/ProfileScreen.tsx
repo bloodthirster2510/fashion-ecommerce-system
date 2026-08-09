@@ -13,7 +13,6 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../auth/AuthContext';
 import { accountApi, MembershipResponse } from './accountApi';
-import { couponApi } from '../coupons/couponApi';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { getMembershipTierVisualConfig } from './membershipVisual';
@@ -30,27 +29,13 @@ type ProfileMenuItem = {
   id: string;
   icon: IconName;
   label: string;
-};
-
-type AccountStat = {
-  id: 'shipping' | 'vouchers' | 'points';
-  icon: IconName;
-  label: string;
-  value: string;
-  tone: 'blue' | 'coral' | 'gold';
-  onPress: () => void;
-};
-
-const accountStatVisuals: Record<AccountStat['tone'], { backgroundColor: string; iconColor: string }> = {
-  blue: { backgroundColor: colors.brandSoft, iconColor: colors.brand },
-  coral: { backgroundColor: '#FFF0EC', iconColor: colors.coral },
-  gold: { backgroundColor: colors.goldSoft, iconColor: colors.goldDark },
+  badgeSource?: 'cart' | 'orders' | 'support';
 };
 
 const profileMenuItems: ProfileMenuItem[] = [
   { id: 'personal-info', icon: 'account-outline', label: 'Thông tin cá nhân' },
-  { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng' },
-  { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi' },
+  { id: 'cart', icon: 'cart-outline', label: 'Giỏ hàng', badgeSource: 'cart' },
+  { id: 'orders', icon: 'package-variant-closed', label: 'Đơn hàng của tôi', badgeSource: 'orders' },
   { id: 'reviews', icon: 'star-outline', label: 'Đánh giá của tôi' },
   { id: 'favorites', icon: 'heart-outline', label: 'Sản phẩm yêu thích' },
   { id: 'outfits', icon: 'tshirt-crew-outline', label: 'Phòng phối đồ ảo' },
@@ -58,7 +43,7 @@ const profileMenuItems: ProfileMenuItem[] = [
   { id: 'vouchers', icon: 'ticket-percent-outline', label: 'Voucher & Ưu đãi' },
   { id: 'payment', icon: 'bank-outline', label: 'Tài khoản hoàn tiền' },
   { id: 'notification-settings', icon: 'bell-cog-outline', label: 'Cài đặt thông báo' },
-  { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ' },
+  { id: 'support', icon: 'help-circle-outline', label: 'Hỗ trợ', badgeSource: 'support' },
 ];
 
 const isUnauthorizedError = (error: unknown) =>
@@ -90,8 +75,6 @@ const ProfileScreen = () => {
   const { summary: notificationSummary, refresh: refreshNotifications } = useCustomerNotifications();
 
   const [membershipData, setMembershipData] = React.useState<MembershipResponse | null>(null);
-  const [voucherCount, setVoucherCount] = React.useState<number | null>(null);
-  const [shippingOrderCount, setShippingOrderCount] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     setAvatarLoadFailed(false);
@@ -101,8 +84,6 @@ const ProfileScreen = () => {
     React.useCallback(() => {
       if (!session?.accessToken) {
         setMembershipData(null);
-        setVoucherCount(null);
-        setShippingOrderCount(null);
         return;
       }
 
@@ -119,8 +100,7 @@ const ProfileScreen = () => {
             return;
           }
 
-          // Connectivity failures are reflected by the empty stats state and
-          // should not open React Native's development LogBox.
+          // Keep connectivity failures out of React Native's development LogBox.
           setMembershipData(null);
         });
       runWithAuth((accessToken) => accountApi.getMe(accessToken))
@@ -144,22 +124,6 @@ const ProfileScreen = () => {
           });
         })
         .catch(() => undefined);
-      runWithAuth((accessToken) => couponApi.getAvailableCoupons(accessToken, { page: 1, limit: 1 }))
-        .then((response) => setVoucherCount(response.pagination.totalItems))
-        .catch(() => setVoucherCount(null));
-      runWithAuth(async (accessToken) => {
-        const shippingOrders = await accountApi.getMyOrderSummary(accessToken, 'shipping');
-
-        return {
-          shippingOrderCount: shippingOrders.pagination?.totalItems ?? 0,
-        };
-      })
-        .then((summary) => {
-          setShippingOrderCount(summary.shippingOrderCount);
-        })
-        .catch(() => {
-          setShippingOrderCount(null);
-        });
       void refreshNotifications();
     }, [logout, navigation, refreshNotifications, runWithAuth, session?.accessToken, updateSessionUser])
   );
@@ -244,34 +208,12 @@ const ProfileScreen = () => {
   };
 
   const memberVisual = getMembershipTierVisualConfig(membershipData?.currentTier);
-  const accountStats: AccountStat[] = [
-    {
-      id: 'shipping',
-      icon: 'truck-delivery-outline',
-      label: 'Đơn đang giao',
-      value: shippingOrderCount === null ? '—' : shippingOrderCount.toString(),
-      tone: 'blue',
-      onPress: () => navigation.navigate('Orders', { status: 'shipping' }),
-    },
-    {
-      id: 'vouchers',
-      icon: 'ticket-percent-outline',
-      label: 'Kho voucher',
-      value: voucherCount === null ? '—' : voucherCount.toString(),
-      tone: 'coral',
-      onPress: () => navigation.navigate('Coupons'),
-    },
-    {
-      id: 'points',
-      icon: 'star-circle-outline',
-      label: 'Điểm thưởng',
-      value: membershipData
-        ? membershipData.loyaltyPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-        : '—',
-      tone: 'gold',
-      onPress: () => navigation.navigate('Membership'),
-    },
-  ];
+  const getBadgeCount = (item: ProfileMenuItem) => {
+    if (!notificationSummary || !item.badgeSource) return 0;
+    if (item.badgeSource === 'cart') return notificationSummary.cartItems;
+    if (item.badgeSource === 'orders') return notificationSummary.ordersNeedAction;
+    return notificationSummary.support.total;
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -348,76 +290,36 @@ const ProfileScreen = () => {
           </Text>
         </View>
 
-        <View style={styles.accountStatsPanel}>
-          <View style={styles.accountStatsHeader}>
-            <Text style={styles.accountStatsTitle}>Tiện ích của bạn</Text>
-            <Text style={styles.accountStatsHint}>Chạm để xem chi tiết</Text>
-          </View>
-          <View style={styles.accountStatsRow}>
-            {accountStats.map((item, index) => (
-              <React.Fragment key={item.id}>
-                <TouchableOpacity
-                  style={styles.accountStatAction}
-                  onPress={item.onPress}
-                  activeOpacity={0.72}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${item.label}: ${item.value}`}
-                >
-                  <View
-                    style={[
-                      styles.accountStatIcon,
-                      { backgroundColor: accountStatVisuals[item.tone].backgroundColor },
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={item.icon}
-                      size={22}
-                      color={accountStatVisuals[item.tone].iconColor}
-                    />
-                  </View>
-                  <Text style={styles.accountStatValue} numberOfLines={1} adjustsFontSizeToFit>
-                    {item.value}
-                  </Text>
-                  <Text style={styles.accountStatLabel} numberOfLines={2}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-                {index < accountStats.length - 1 ? <View style={styles.accountStatDivider} /> : null}
-              </React.Fragment>
-            ))}
-          </View>
-        </View>
-
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Lối tắt tài khoản</Text>
         </View>
 
         <View style={styles.menuGrid}>
-          {profileMenuItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.menuCard}
-              onPress={() => handleMenuPress(item)}
-              activeOpacity={0.82}
-            >
-              <View style={styles.iconWrap}>
-                <MaterialCommunityIcons name={item.icon} size={26} color={colors.brand} />
-                {item.id === 'orders' && notificationSummary?.ordersNeedAction ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{notificationSummary.ordersNeedAction > 99 ? '99+' : notificationSummary.ordersNeedAction}</Text>
-                  </View>
-                ) : null}
-                {item.id === 'support' && notificationSummary?.support.total ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{notificationSummary.support.total > 99 ? '99+' : notificationSummary.support.total}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.menuLabel} numberOfLines={2}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {profileMenuItems.map((item) => {
+            const badgeCount = getBadgeCount(item);
+
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.menuCard}
+                onPress={() => handleMenuPress(item)}
+                activeOpacity={0.82}
+                accessibilityLabel={badgeCount > 0 ? `${item.label}, ${badgeCount}` : item.label}
+              >
+                <View style={styles.iconWrap}>
+                  <MaterialCommunityIcons name={item.icon} size={26} color={colors.brand} />
+                  {badgeCount > 0 ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.menuLabel} numberOfLines={2}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.82}>
@@ -578,82 +480,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 10,
-  },
-  accountStatsPanel: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    ...shadows.card,
-  },
-  accountStatsHeader: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: 14,
-    paddingBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  accountStatsTitle: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '900',
-  },
-  accountStatsHint: {
-    color: colors.textSubtle,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '600',
-  },
-  accountStatsRow: {
-    minHeight: 104,
-    paddingHorizontal: spacing.sm,
-    paddingBottom: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  accountStatAction: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accountStatIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  accountStatValue: {
-    width: '100%',
-    color: colors.text,
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  accountStatLabel: {
-    minHeight: 30,
-    marginTop: 1,
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  accountStatDivider: {
-    width: 1,
-    height: 54,
-    alignSelf: 'center',
-    backgroundColor: colors.border,
   },
   sectionHeader: {
     marginTop: 20,

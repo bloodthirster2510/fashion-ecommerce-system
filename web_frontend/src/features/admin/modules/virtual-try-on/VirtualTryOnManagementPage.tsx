@@ -9,6 +9,7 @@ import {
   hideVirtualTryOnJob,
   listVirtualTryOnAccountLocks,
   listVirtualTryOnJobs,
+  listVirtualTryOnPromptViolations,
   listVirtualTryOnPromptRules,
   lockVirtualTryOnAccount,
   retryVirtualTryOnJob,
@@ -29,6 +30,8 @@ import type {
   AdminVirtualTryOnPromptRule,
   AdminVirtualTryOnPromptRuleFilters,
   AdminVirtualTryOnPromptRuleList,
+  AdminVirtualTryOnPromptViolationFilters,
+  AdminVirtualTryOnPromptViolationList,
   AdminVirtualTryOnPromptTestResult,
   AdminVirtualTryOnSettings,
   AdminVirtualTryOnSettingsConfiguration,
@@ -86,10 +89,28 @@ const videoStatusLabels: Record<AdminVirtualTryOnJob['videoStatus'], string> = {
   canceled: 'Đã hủy',
 }
 
+const processingStageLabels: Record<AdminVirtualTryOnJob['processingStage'], string> = {
+  queued: 'Đang chờ',
+  image_generation: 'Đang tạo ảnh',
+  image_persisting: 'Đang lưu ảnh',
+  video_generation: 'Đang tạo video',
+  video_persisting: 'Đang lưu video',
+  completed: 'Hoàn tất',
+}
+
+const itemRoleLabels: Record<string, string> = {
+  top: 'Áo',
+  bottom: 'Quần/váy',
+  dress: 'Đầm',
+  shoes: 'Giày',
+  outerwear: 'Áo khoác',
+  accessory: 'Phụ kiện',
+}
+
 const promptPolicyCategoryLabels: Record<PromptPolicyCategory, string> = {
   sexual_content: 'Nội dung nhạy cảm',
   violence: 'Bạo lực',
-  prompt_injection: 'Prompt injection',
+  prompt_injection: 'Can thiệp chỉ dẫn AI',
   personal_data: 'Dữ liệu cá nhân',
   hate_or_harassment: 'Thù ghét/quấy rối',
   unsafe_request: 'Yêu cầu không an toàn',
@@ -104,7 +125,16 @@ const promptPolicyCategoryOptions: PromptPolicyCategory[] = [
   'unsafe_request',
 ]
 
-type AdminTab = 'jobs' | 'promptRules' | 'accountLocks'
+type AdminTab = 'jobs' | 'promptViolations' | 'promptRules' | 'accountLocks' | 'settings'
+
+const initialPromptViolationFilters: AdminVirtualTryOnPromptViolationFilters = {
+  page: 1,
+  keyword: '',
+  category: '',
+  action: '',
+  dateFrom: '',
+  dateTo: '',
+}
 
 const initialPromptRuleFilters: AdminVirtualTryOnPromptRuleFilters = {
   page: 1,
@@ -166,6 +196,14 @@ const copyTextToClipboard = async (value: string) => {
 const getJobAgeMinutes = (job: AdminVirtualTryOnJob) =>
   Math.max(0, Math.round((Date.now() - new Date(job.createdAt).getTime()) / 60000))
 
+const getJobAgeLabel = (job: AdminVirtualTryOnJob) => {
+  const minutes = getJobAgeMinutes(job)
+  if (minutes < 60) return `${minutes} phút trước`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} giờ trước`
+  return `${Math.floor(hours / 24)} ngày trước`
+}
+
 const isPolicyClosedJob = (job: AdminVirtualTryOnJob) =>
   job.errorCode === 'PROVIDER_SAFETY_BLOCKED'
 
@@ -177,7 +215,7 @@ const getAttentionReason = (job: AdminVirtualTryOnJob) => {
   if (job.videoStatus === 'failed') return job.videoErrorCode || 'Lỗi sinh video'
   if (job.status === 'processing') return `Đang chạy ${job.progress}%`
   if (job.status === 'queued') return `Chờ ${getJobAgeMinutes(job)} phút`
-  if (job.status === 'succeeded') return 'Cần kiểm duyệt ảnh'
+  if (job.status === 'succeeded') return 'Có kết quả mới'
   return 'Đã hủy'
 }
 
@@ -193,12 +231,16 @@ const toSettingsConfiguration = (
 })
 
 export function VirtualTryOnManagementPage({ currentUser }: { currentUser: AdminUser }) {
+  const canRead = hasPermission(currentUser, 'virtual_try_on.read')
+  const canManage = hasPermission(currentUser, 'virtual_try_on.manage')
+  const canSettings = hasPermission(currentUser, 'virtual_try_on.settings')
   const [filters, setFilters] = useState(initialFilters)
   const [debouncedKeyword, setDebouncedKeyword] = useState('')
   const [data, setData] = useState<AdminVirtualTryOnJobList | null>(null)
   const [summary, setSummary] = useState<AdminVirtualTryOnSummary | null>(null)
   const [settings, setSettings] = useState<AdminVirtualTryOnSettings | null>(null)
   const [settingsDraft, setSettingsDraft] = useState<AdminVirtualTryOnSettingsConfiguration | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [rollbackVersion, setRollbackVersion] = useState('')
   const [loading, setLoading] = useState(true)
@@ -208,7 +250,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const [promptInput, setPromptInput] = useState('')
   const [promptResult, setPromptResult] = useState<AdminVirtualTryOnPromptTestResult | null>(null)
   const [promptTesting, setPromptTesting] = useState(false)
-  const [activeTab, setActiveTab] = useState<AdminTab>('jobs')
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => (
+    canRead ? 'jobs' : canManage ? 'promptViolations' : 'settings'
+  ))
   const [promptRuleFilters, setPromptRuleFilters] = useState(initialPromptRuleFilters)
   const [promptRuleData, setPromptRuleData] = useState<AdminVirtualTryOnPromptRuleList | null>(null)
   const [promptRuleLoading, setPromptRuleLoading] = useState(false)
@@ -220,15 +264,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   })
   const [promptRuleSaving, setPromptRuleSaving] = useState(false)
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+  const [promptViolationFilters, setPromptViolationFilters] = useState(initialPromptViolationFilters)
+  const [promptViolationData, setPromptViolationData] = useState<AdminVirtualTryOnPromptViolationList | null>(null)
+  const [promptViolationLoading, setPromptViolationLoading] = useState(false)
   const [accountLockFilters, setAccountLockFilters] = useState(initialAccountLockFilters)
   const [accountLockData, setAccountLockData] = useState<AdminVirtualTryOnAccountLockList | null>(null)
   const [accountLockLoading, setAccountLockLoading] = useState(false)
   const [lockForm, setLockForm] = useState<{ userId: string; reason: string }>({ userId: '', reason: '' })
   const [lockSaving, setLockSaving] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
-  const canManage = hasPermission(currentUser, 'virtual_try_on.manage')
-  const canSettings = hasPermission(currentUser, 'virtual_try_on.settings')
-
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedKeyword(filters.keyword), 350)
     return () => window.clearTimeout(timer)
@@ -239,28 +283,57 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     keyword: debouncedKeyword,
   }), [debouncedKeyword, filters])
 
-  const loadPage = useCallback(async () => {
+  const loadJobs = useCallback(async () => {
+    if (!canRead) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
-    setNotice(null)
     try {
-      const [jobs, nextSummary, nextSettings] = await Promise.all([
-        listVirtualTryOnJobs(effectiveFilters),
-        getVirtualTryOnSummary(),
-        getVirtualTryOnSettings(),
-      ])
-      setData(jobs)
-      setSummary(nextSummary)
+      setData(await listVirtualTryOnJobs(effectiveFilters))
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải lượt phối đồ' })
+    } finally {
+      setLoading(false)
+    }
+  }, [canRead, effectiveFilters])
+
+  const loadSummary = useCallback(async () => {
+    if (!canRead) return
+    try {
+      setSummary(await getVirtualTryOnSummary())
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải tổng quan phối đồ ảo' })
+    }
+  }, [canRead])
+
+  const loadSettings = useCallback(async () => {
+    if (!canSettings) return
+    setSettingsLoading(true)
+    try {
+      const nextSettings = await getVirtualTryOnSettings()
       setSettings(nextSettings)
       setSettingsDraft(toSettingsConfiguration(nextSettings))
       setRollbackVersion('')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải phối đồ ảo' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải cấu hình phối đồ ảo' })
     } finally {
-      setLoading(false)
+      setSettingsLoading(false)
     }
-  }, [effectiveFilters])
+  }, [canSettings])
 
-  useEffect(() => { void loadPage() }, [loadPage])
+  useEffect(() => { void loadJobs() }, [loadJobs])
+  useEffect(() => { void loadSummary() }, [loadSummary])
+  useEffect(() => { if (canSettings) void loadSettings() }, [canSettings, loadSettings])
+
+  useEffect(() => {
+    if (!selectedJob) return undefined
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedJob(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [selectedJob])
 
   const updateFilter = (key: keyof AdminVirtualTryOnFilters, value: string | number) => {
     setFilters((current) => ({ ...current, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }))
@@ -272,30 +345,42 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       const updated = await action()
       setSelectedJob((current) => current?._id === updated._id ? updated : current)
+      await Promise.all([loadJobs(), loadSummary()])
       setNotice({ type: 'success', message: successMessage })
-      await loadPage()
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xử lý job phối đồ' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xử lý lượt phối đồ' })
     } finally {
       setActionLoading(false)
     }
   }
 
   const handleRetry = (job: AdminVirtualTryOnJob) =>
-    runAction(() => retryVirtualTryOnJob(job._id), 'Đã đưa job vào hàng chờ xử lý lại.')
+    runAction(() => retryVirtualTryOnJob(job._id), 'Đã đưa lượt xử lý vào hàng chờ.')
 
   const handleRetryVideo = (job: AdminVirtualTryOnJob) =>
-    runAction(() => retryVirtualTryOnVideo(job._id), 'Đã đưa riêng bước sinh video vào hàng chờ xử lý lại.')
+    runAction(() => retryVirtualTryOnVideo(job._id), 'Đã đưa bước tạo video vào hàng chờ.')
 
-  const handleCancel = (job: AdminVirtualTryOnJob) =>
-    runAction(() => cancelVirtualTryOnJob(job._id), 'Đã hủy job phối đồ.')
+  const handleCancel = (job: AdminVirtualTryOnJob) => {
+    if (!window.confirm(`Hủy lượt phối đồ #${getShortId(job._id)}?`)) return
+    void runAction(() => cancelVirtualTryOnJob(job._id), 'Đã hủy lượt phối đồ.')
+  }
 
   const handleHide = (job: AdminVirtualTryOnJob) => {
-    if (!window.confirm('Ẩn job này khỏi danh sách quản trị và lịch sử khách?')) return
-    void runAction(() => hideVirtualTryOnJob(job._id), 'Đã ẩn job khỏi lịch sử.')
+    if (!window.confirm('Ẩn lượt này khỏi danh sách quản trị và lịch sử khách hàng? Hiện chưa có thao tác khôi phục trên giao diện.')) return
+    void runAction(() => hideVirtualTryOnJob(job._id), 'Đã ẩn lượt phối đồ khỏi lịch sử.')
   }
 
   const handlePromptTest = async () => {
+    if (!promptInput.trim()) {
+      setPromptResult({
+        allowed: false,
+        normalizedPrompt: null,
+        reasonCode: 'PROMPT_REQUIRED',
+        message: 'Vui lòng nhập mô tả cần kiểm tra.',
+        maxLength: settings?.promptMaxLength ?? 200,
+      })
+      return
+    }
     setPromptTesting(true)
     setPromptResult(null)
     try {
@@ -305,7 +390,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         allowed: false,
         normalizedPrompt: null,
         reasonCode: 'REQUEST_FAILED',
-        message: error instanceof Error ? error.message : 'Không thể kiểm tra prompt',
+        message: error instanceof Error ? error.message : 'Không thể kiểm tra mô tả',
         maxLength: settings?.promptMaxLength ?? 200,
       })
     } finally {
@@ -322,6 +407,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       setSettings(updated)
       setSettingsDraft(toSettingsConfiguration(updated))
       setRollbackVersion('')
+      await loadSummary()
       setNotice({ type: 'success', message: 'Đã cập nhật cấu hình phối đồ ảo.' })
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể cập nhật cấu hình phối đồ ảo' })
@@ -333,7 +419,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const handleRollbackSettings = async () => {
     if (!settings || !rollbackVersion) return
     const targetVersion = Number(rollbackVersion)
-    if (!window.confirm(`Khôi phục snapshot cấu hình v${targetVersion}? Thao tác này sẽ tạo một phiên bản mới.`)) return
+    if (!window.confirm(`Khôi phục cấu hình từ phiên bản v${targetVersion}? Hệ thống sẽ lưu thành một phiên bản mới.`)) return
     setSettingsSaving(true)
     setNotice(null)
     try {
@@ -341,6 +427,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       setSettings(updated)
       setSettingsDraft(toSettingsConfiguration(updated))
       setRollbackVersion('')
+      await loadSummary()
       setNotice({ type: 'success', message: `Đã khôi phục cấu hình từ v${targetVersion}.` })
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khôi phục cấu hình phối đồ ảo' })
@@ -351,11 +438,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const loadPromptRules = useCallback(async () => {
     setPromptRuleLoading(true)
-    setNotice(null)
     try {
       setPromptRuleData(await listVirtualTryOnPromptRules(promptRuleFilters))
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải danh sách từ khóa bị cấm' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải quy tắc nội dung' })
     } finally {
       setPromptRuleLoading(false)
     }
@@ -381,7 +467,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const handleSavePromptRule = async () => {
     if (!promptRuleForm.term.trim()) {
-      setNotice({ type: 'error', message: 'Vui lòng nhập từ khóa bị cấm' })
+      setNotice({ type: 'error', message: 'Vui lòng nhập cụm từ cần chặn' })
       return
     }
     setPromptRuleSaving(true)
@@ -389,15 +475,16 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       if (editingRuleId) {
         await updateVirtualTryOnPromptRule(editingRuleId, promptRuleForm)
-        setNotice({ type: 'success', message: 'Đã cập nhật từ khóa bị cấm.' })
+        await loadPromptRules()
+        setNotice({ type: 'success', message: 'Đã cập nhật quy tắc nội dung.' })
       } else {
         await createVirtualTryOnPromptRule(promptRuleForm)
-        setNotice({ type: 'success', message: 'Đã thêm từ khóa bị cấm.' })
+        await loadPromptRules()
+        setNotice({ type: 'success', message: 'Đã thêm quy tắc nội dung.' })
       }
       resetPromptRuleForm()
-      await loadPromptRules()
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể lưu từ khóa bị cấm' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể lưu quy tắc nội dung' })
     } finally {
       setPromptRuleSaving(false)
     }
@@ -408,30 +495,54 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       await updateVirtualTryOnPromptRule(rule._id, { enabled: !rule.enabled })
       await loadPromptRules()
+      setNotice({ type: 'success', message: rule.enabled ? 'Đã tắt quy tắc.' : 'Đã bật quy tắc.' })
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể đổi trạng thái từ khóa' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể đổi trạng thái quy tắc' })
     }
   }
 
   const handleDeletePromptRule = async (rule: AdminVirtualTryOnPromptRule) => {
-    if (!window.confirm(`Xóa từ khóa "${rule.term}" khỏi danh sách cấm?`)) return
+    if (!window.confirm(`Xóa quy tắc chặn "${rule.term}"?`)) return
     setNotice(null)
     try {
       await deleteVirtualTryOnPromptRule(rule._id)
       if (editingRuleId === rule._id) resetPromptRuleForm()
       await loadPromptRules()
+      setNotice({ type: 'success', message: 'Đã xóa quy tắc nội dung.' })
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xóa từ khóa bị cấm' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xóa quy tắc nội dung' })
     }
+  }
+
+  const loadPromptViolations = useCallback(async () => {
+    setPromptViolationLoading(true)
+    try {
+      setPromptViolationData(await listVirtualTryOnPromptViolations(promptViolationFilters))
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải lịch sử vi phạm nội dung' })
+    } finally {
+      setPromptViolationLoading(false)
+    }
+  }, [promptViolationFilters])
+
+  useEffect(() => {
+    if (activeTab === 'promptViolations') void loadPromptViolations()
+  }, [activeTab, loadPromptViolations])
+
+  const updatePromptViolationFilter = (key: keyof AdminVirtualTryOnPromptViolationFilters, value: string) => {
+    setPromptViolationFilters((current) => ({
+      ...current,
+      [key]: key === 'page' ? Number(value) : value,
+      ...(key !== 'page' ? { page: 1 } : {}),
+    }))
   }
 
   const loadAccountLocks = useCallback(async () => {
     setAccountLockLoading(true)
-    setNotice(null)
     try {
       setAccountLockData(await listVirtualTryOnAccountLocks(accountLockFilters))
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải danh sách khóa phối đồ ảo' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải danh sách tài khoản hạn chế' })
     } finally {
       setAccountLockLoading(false)
     }
@@ -460,79 +571,95 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const handleLockAccount = async () => {
     if (!lockForm.userId.trim()) {
-      setNotice({ type: 'error', message: 'Vui lòng nhập email hoặc User ID cần khóa phối đồ ảo' })
+      setNotice({ type: 'error', message: 'Vui lòng nhập email hoặc mã khách hàng' })
+      return
+    }
+    if (lockForm.reason.trim().length < 3) {
+      setNotice({ type: 'error', message: 'Vui lòng nhập lý do hạn chế từ 3 ký tự' })
       return
     }
     setLockSaving(true)
     setNotice(null)
     try {
-      await lockVirtualTryOnAccount({ userId: lockForm.userId.trim(), reason: lockForm.reason.trim() || undefined })
+      await lockVirtualTryOnAccount({ userId: lockForm.userId.trim(), reason: lockForm.reason.trim() })
       setLockForm({ userId: '', reason: '' })
       await loadAccountLocks()
-      setNotice({ type: 'success', message: 'Đã khóa tính năng phối đồ ảo cho user.' })
+      setNotice({ type: 'success', message: 'Đã hạn chế tính năng phối đồ ảo của khách hàng.' })
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khóa tính năng phối đồ ảo' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể hạn chế tính năng phối đồ ảo' })
     } finally {
       setLockSaving(false)
     }
   }
 
   const handleUnlockAccount = async (lock: AdminVirtualTryOnAccountLock) => {
-    if (!window.confirm(`Mở khóa phối đồ ảo cho ${lock.user.name || lock.user.email}?`)) return
+    if (!window.confirm(`Gỡ hạn chế phối đồ ảo cho ${lock.user.name || lock.user.email}?`)) return
     setNotice(null)
     try {
       await unlockVirtualTryOnAccount(lock.user._id)
       await loadAccountLocks()
-      setNotice({ type: 'success', message: 'Đã mở khóa tính năng phối đồ ảo.' })
+      setNotice({ type: 'success', message: 'Đã gỡ hạn chế phối đồ ảo.' })
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể mở khóa tính năng phối đồ ảo' })
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể gỡ hạn chế phối đồ ảo' })
     }
   }
 
-  const handleLockAccountById = async (userId: string, userLabel?: string) => {
-    if (!window.confirm(`Khóa tính năng phối đồ ảo cho ${userLabel || userId}?`)) return
-    setLockSaving(true)
+  const handleLockAccountById = (userId: string, userLabel?: string, reason = '') => {
+    setLockForm({ userId, reason })
+    setSelectedJob(null)
+    setActiveTab('accountLocks')
+    setNotice({
+      type: 'success',
+      message: reason
+        ? `Đã chọn ${userLabel || userId}. Kiểm tra lý do rồi xác nhận hạn chế.`
+        : `Đã chọn ${userLabel || userId}. Nhập lý do để xác nhận hạn chế.`,
+    })
+  }
+
+  const refreshActiveTab = async () => {
     setNotice(null)
-    try {
-      await lockVirtualTryOnAccount({ userId })
-      await loadAccountLocks()
-      setNotice({ type: 'success', message: 'Đã khóa tính năng phối đồ ảo cho user.' })
-    } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khóa tính năng phối đồ ảo' })
-    } finally {
-      setLockSaving(false)
+    if (activeTab === 'jobs') {
+      await Promise.all([loadJobs(), loadSummary()])
+      return
     }
+    if (activeTab === 'promptRules') {
+      await loadPromptRules()
+      return
+    }
+    if (activeTab === 'promptViolations') {
+      await loadPromptViolations()
+      return
+    }
+    if (activeTab === 'accountLocks') {
+      await loadAccountLocks()
+      return
+    }
+    await loadSettings()
   }
 
   const pagination = data?.pagination
   const jobs = data?.items ?? []
-  const activeJobCount = (summary?.queued ?? 0) + (summary?.processing ?? 0)
-  const finishedJobCount = (summary?.succeeded ?? 0) + (summary?.failed ?? 0) + (summary?.canceled ?? 0)
+  const activeJobCount = summary ? summary.queued + summary.processing : '—'
   const statusOverview = Object.entries(statusMeta).map(([status, meta]) => ({
     status: status as VirtualTryOnJobStatus,
     ...meta,
-    count: summary?.[status as VirtualTryOnJobStatus] ?? 0,
+    count: summary ? summary[status as VirtualTryOnJobStatus] : '—',
   }))
   const attentionJobs = [
     ...(summary?.latestFailedJobs ?? []),
-    ...jobs.filter((job) => ['queued', 'processing'].includes(job.status)),
+    ...jobs.filter((job) => (
+      job.videoStatus === 'failed'
+      || (job.status === 'queued' && getJobAgeMinutes(job) >= 5)
+      || (job.status === 'processing' && getJobAgeMinutes(job) >= 15)
+    )),
   ].filter((job, index, list) => list.findIndex((item) => item._id === job._id) === index).slice(0, 4)
   const reviewJobs = jobs.filter((job) => job.status === 'succeeded' && (job.generatedImageUrl || job.generatedImageUrls?.length)).slice(0, 4)
-  const productInsightMap = new Map<string, { name: string; count: number; value: number }>()
-  jobs.forEach((job) => {
-    job.selectedItems.forEach((item) => {
-      const current = productInsightMap.get(item.productId) ?? { name: item.nameSnapshot, count: 0, value: 0 }
-      current.count += 1
-      current.value += item.finalPriceSnapshot
-      productInsightMap.set(item.productId, current)
-    })
-  })
-  const productInsights = Array.from(productInsightMap.values())
-    .sort((a, b) => b.count - a.count || b.value - a.value)
-    .slice(0, 4)
-  const promptBlockRatio = settings?.promptViolationLimitPerDay
-    ? Math.min(100, Math.round(((summary?.promptBlocksToday ?? 0) / settings.promptViolationLimitPerDay) * 100))
-    : 0
+  const hasActiveFilters = Boolean(filters.keyword || filters.status || filters.provider || filters.dateFrom || filters.dateTo)
+  const isActiveTabLoading = loading
+    || settingsLoading
+    || promptRuleLoading
+    || promptViolationLoading
+    || accountLockLoading
   const generatedImages = selectedJob?.generatedImageUrls?.length
     ? selectedJob.generatedImageUrls
     : selectedJob?.generatedImageUrl
@@ -543,12 +670,12 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     <section className="admin-vto-page">
       <header className="admin-vto-ops-bar">
         <div>
-          <span>AI fitting room</span>
-          <strong>Luồng vận hành hôm nay</strong>
-          <p>Ưu tiên job lỗi, ảnh mới cần kiểm duyệt và quota provider.</p>
+          <span>Phối đồ ảo</span>
+          <strong>Vận hành và kiểm soát</strong>
+          <p>Theo dõi lượt tạo, kết quả, nội dung và giới hạn sử dụng.</p>
         </div>
-        <button type="button" onClick={() => void loadPage()} disabled={loading}>
-          {loading ? 'Đang tải...' : 'Làm mới'}
+        <button type="button" onClick={() => void refreshActiveTab()} disabled={isActiveTabLoading}>
+          {isActiveTabLoading ? 'Đang tải...' : 'Làm mới'}
         </button>
       </header>
 
@@ -558,48 +685,64 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         </div>
       ) : null}
 
-      <nav className="admin-vto-tabs" aria-label="Tab quản trị phối đồ ảo">
-        <button type="button" className={activeTab === 'jobs' ? 'is-active' : ''} onClick={() => setActiveTab('jobs')}>
-          Lượt phối đồ
-        </button>
-        <button type="button" className={activeTab === 'promptRules' ? 'is-active' : ''} onClick={() => setActiveTab('promptRules')}>
-          Từ khóa bị cấm
-        </button>
-        <button type="button" className={activeTab === 'accountLocks' ? 'is-active' : ''} onClick={() => setActiveTab('accountLocks')}>
-          Khóa phối đồ ảo
-        </button>
+      <nav className="admin-vto-tabs" aria-label="Khu vực quản trị phối đồ ảo" role="tablist">
+        {canRead ? (
+          <button type="button" role="tab" aria-selected={activeTab === 'jobs'} className={activeTab === 'jobs' ? 'is-active' : ''} onClick={() => setActiveTab('jobs')}>
+            Lượt phối đồ
+          </button>
+        ) : null}
+        {canManage ? (
+          <button type="button" role="tab" aria-selected={activeTab === 'promptViolations'} className={activeTab === 'promptViolations' ? 'is-active' : ''} onClick={() => setActiveTab('promptViolations')}>
+            Vi phạm nội dung
+          </button>
+        ) : null}
+        {canSettings ? (
+          <button type="button" role="tab" aria-selected={activeTab === 'promptRules'} className={activeTab === 'promptRules' ? 'is-active' : ''} onClick={() => setActiveTab('promptRules')}>
+            Quy tắc nội dung
+          </button>
+        ) : null}
+        {canManage ? (
+          <button type="button" role="tab" aria-selected={activeTab === 'accountLocks'} className={activeTab === 'accountLocks' ? 'is-active' : ''} onClick={() => setActiveTab('accountLocks')}>
+            Tài khoản hạn chế
+          </button>
+        ) : null}
+        {canSettings ? (
+          <button type="button" role="tab" aria-selected={activeTab === 'settings'} className={activeTab === 'settings' ? 'is-active' : ''} onClick={() => setActiveTab('settings')}>
+            Cấu hình
+          </button>
+        ) : null}
       </nav>
 
       <div className="admin-vto-stats" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
         <div className="is-primary">
-          <span>Job hôm nay</span>
-          <strong>{summary?.today ?? 0}</strong>
-          <em>{summary?.total ?? 0} job toàn hệ thống</em>
+          <span>Lượt hôm nay</span>
+          <strong>{summary?.today ?? '—'}</strong>
+          <em>{summary ? `${summary.total} lượt toàn hệ thống` : 'Chưa có dữ liệu'}</em>
         </div>
         <div>
           <span>Đang xử lý</span>
           <strong>{activeJobCount}</strong>
-          <em>{summary?.queued ?? 0} chờ · {summary?.processing ?? 0} chạy</em>
+          <em>{summary ? `${summary.queued} chờ · ${summary.processing} chạy` : 'Chưa có dữ liệu'}</em>
         </div>
         <div className="is-success">
-          <span>Tỷ lệ thành công</span>
-          <strong>{summary?.successRate ?? 0}%</strong>
-          <em>{summary?.succeeded ?? 0}/{finishedJobCount || 0} job đã kết thúc</em>
+          <span>Thành công hôm nay</span>
+          <strong>{summary ? `${summary.todaySuccessRate}%` : '—'}</strong>
+          <em>{summary ? `${summary.todaySucceeded} thành công · ${summary.todayFailed} lỗi` : 'Chưa có dữ liệu'}</em>
         </div>
         <div className="is-danger">
-          <span>Job lỗi</span>
-          <strong>{summary?.failed ?? 0}</strong>
-          <em>{summary?.latestFailedJobs.length ?? 0} lỗi gần đây · {summary?.promptBlocksToday ?? 0} khóa prompt</em>
+          <span>Lỗi hôm nay</span>
+          <strong>{summary?.todayFailed ?? '—'}</strong>
+          <em>{summary ? `${summary.promptBlocksToday} lượt tạm chặn do nội dung` : 'Chưa có dữ liệu'}</em>
         </div>
       </div>
 
-      {activeTab === 'jobs' ? (
+      {activeTab === 'jobs' || activeTab === 'settings' ? (
         <>
-        <div className="admin-vto-command-grid" aria-label="Bảng điều hành phòng phối đồ ảo">
+        <div className="admin-vto-command-grid" aria-label="Bảng điều hành phối đồ ảo" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
         <section className="admin-vto-command-card is-attention">
           <div>
             <span>Việc cần xử lý</span>
-            <strong>{(summary?.failed ?? 0) + activeJobCount}</strong>
+            <strong>{attentionJobs.length}</strong>
           </div>
           {attentionJobs.length ? (
             <div className="admin-vto-mini-list">
@@ -611,7 +754,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               ))}
             </div>
           ) : (
-            <p>Không có job lỗi hoặc đang treo.</p>
+            <p>Không có lượt lỗi hoặc xử lý chậm.</p>
           )}
           <div className="admin-vto-command-actions">
             <button type="button" onClick={() => updateFilter('status', 'failed')}>Xem lỗi</button>
@@ -621,64 +764,42 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
         <section className="admin-vto-command-card is-review">
           <div>
-            <span>Kiểm duyệt kết quả</span>
+            <span>Kết quả mới</span>
             <strong>{reviewJobs.length}</strong>
           </div>
           {reviewJobs.length ? (
             <div className="admin-vto-review-strip">
               {reviewJobs.map((job) => (
-                <button type="button" key={job._id} onClick={() => setSelectedJob(job)} aria-label={`Mở job ${getShortId(job._id)}`}>
+                <button type="button" key={job._id} onClick={() => setSelectedJob(job)} aria-label={`Mở lượt ${getShortId(job._id)}`}>
                   <img src={getJobLeadImage(job)} alt="" />
                 </button>
               ))}
             </div>
           ) : (
-            <p>Trang hiện tại chưa có ảnh thành công để kiểm duyệt.</p>
+            <p>Trang hiện tại chưa có kết quả ảnh mới.</p>
           )}
           <div className="admin-vto-command-actions">
             <button type="button" onClick={() => updateFilter('status', 'succeeded')}>Xem ảnh mới</button>
           </div>
         </section>
 
-        <section className="admin-vto-command-card is-products">
-          <div>
-            <span>Sản phẩm được thử nhiều</span>
-            <strong>{productInsights.length}</strong>
-          </div>
-          {productInsights.length ? (
-            <div className="admin-vto-product-insights">
-              {productInsights.map((item) => (
-                <div key={item.name}>
-                  <span>{item.name}</span>
-                  <strong>{item.count} lượt · {formatPrice(item.value)}</strong>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>Chưa đủ dữ liệu trong trang hiện tại.</p>
-          )}
-        </section>
-
         <section className="admin-vto-command-card is-policy">
           <div>
-            <span>Hạn mức & chính sách</span>
-            <strong>{settings?.enabled ? 'Bật' : 'Tắt'}</strong>
+            <span>Dịch vụ AI</span>
+            <strong>{summary ? (summary.provider === 'disabled' ? 'Tắt' : 'Hoạt động') : 'Chưa rõ'}</strong>
           </div>
           <dl className="admin-vto-policy-list">
-            <div><dt>Nhà cung cấp</dt><dd>{settings?.provider ?? '-'}</dd></div>
-            <div><dt>Món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
-            <div><dt>Đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
-            <div><dt>Ngưỡng khóa/user</dt><dd>{summary?.promptBlocksToday ?? 0}/{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
+            <div><dt>Dịch vụ ảnh</dt><dd>{summary?.provider ?? '-'}</dd></div>
+            <div><dt>Dịch vụ video</dt><dd>{summary ? (summary.videoEnabled ? 'Sẵn sàng' : 'Chưa sẵn sàng') : 'Chưa rõ'}</dd></div>
+            <div><dt>Vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? '—'}</dd></div>
+            <div><dt>Lượt tạm chặn</dt><dd>{summary?.promptBlocksToday ?? '—'}</dd></div>
           </dl>
-          <span className="admin-vto-policy-meter" aria-label={`Ngưỡng khóa prompt ${promptBlockRatio}%`}>
-            <i style={{ width: `${promptBlockRatio}%` }} />
-          </span>
         </section>
       </div>
 
-      <div className="admin-vto-layout" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
-        <section className="admin-vto-main">
-          <div className="admin-vto-status-board" aria-label="Tổng quan trạng thái job">
+      <div className="admin-vto-layout">
+        <section className="admin-vto-main" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
+          <div className="admin-vto-status-board" aria-label="Tổng quan trạng thái lượt phối đồ">
             <button
               type="button"
               className={`admin-vto-status-card is-overall ${filters.status ? '' : 'is-active'}`}
@@ -704,15 +825,25 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             <input
               value={filters.keyword}
               onChange={(event) => updateFilter('keyword', event.target.value)}
-              placeholder="Tìm job, khách, sản phẩm, lỗi..."
+              placeholder="Tìm mã lượt, khách hàng, sản phẩm hoặc lỗi..."
+              aria-label="Tìm lượt phối đồ"
             />
             <input
               value={filters.provider}
               onChange={(event) => updateFilter('provider', event.target.value)}
-              placeholder="Nhà cung cấp"
+              placeholder="Dịch vụ AI"
+              aria-label="Lọc theo dịch vụ AI"
             />
-            <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
-            <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} />
+            <input type="date" aria-label="Từ ngày" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
+            <input type="date" aria-label="Đến ngày" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} />
+            <button
+              type="button"
+              className="admin-vto-filter-reset"
+              disabled={!hasActiveFilters}
+              onClick={() => setFilters(initialFilters)}
+            >
+              Xóa lọc
+            </button>
           </div>
 
           <div className="admin-vto-table-shell">
@@ -724,12 +855,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <table className="admin-vto-table">
                 <thead>
                   <tr>
-                    <th>Job</th>
-                    <th>Khách</th>
+                    <th>Lượt xử lý</th>
+                    <th>Khách hàng</th>
+                    <th>Yêu cầu</th>
                     <th>Trạng thái</th>
-                    <th>Set đồ</th>
-                    <th>Bối cảnh</th>
-                    <th>Nhà cung cấp</th>
                     <th>Thời gian</th>
                     <th>Thao tác</th>
                   </tr>
@@ -751,7 +880,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                             <span className="admin-vto-job-code">
                               <strong>{getShortId(job._id)}</strong>
                               <span>{getJobResultLabel(job)}</span>
-                              <span>{outputModeLabels[job.outputMode]} · {outfitModeLabels[job.outfitMode]}</span>
+                              <span>{getJobAgeLabel(job)}</span>
                             </span>
                           </button>
                         </td>
@@ -762,28 +891,23 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           </div>
                         </td>
                         <td>
-                          <span className={`admin-vto-status ${status.className}`}>{status.label}</span>
-                          <span className="admin-vto-progress" aria-label={`Tiến trình ${job.progress}%`}>
-                            <i style={{ width: `${Math.max(0, Math.min(job.progress, 100))}%` }} />
-                          </span>
-                          <small>{job.progress}%</small>
-                        </td>
-                        <td>
                           <div className="admin-vto-products">
                             {job.selectedItems.slice(0, 2).map((item) => (
                               <span key={`${job._id}-${item.productId}-${item.nameSnapshot}`}>{item.nameSnapshot}</span>
                             ))}
                             {job.selectedItems.length > 2 ? <em>+{job.selectedItems.length - 2} món</em> : null}
-                            <strong>{formatPrice(job.totalFinalPrice)}</strong>
+                            <em>{outputModeLabels[job.outputMode]} · {outfitModeLabels[job.outfitMode]}</em>
+                            <strong>{contextLabels[job.contextPreset] ?? job.contextPreset}</strong>
                           </div>
                         </td>
                         <td>
-                          <div className="admin-vto-context-cell">
-                            <strong>{contextLabels[job.contextPreset] ?? job.contextPreset}</strong>
-                            {job.contextPrompt ? <span>{job.contextPrompt}</span> : null}
-                          </div>
+                          <span className={`admin-vto-status ${status.className}`}>{status.label}</span>
+                          <span className="admin-vto-progress" aria-label={`Tiến trình ${job.progress}%`}>
+                            <i style={{ width: `${Math.max(0, Math.min(job.progress, 100))}%` }} />
+                          </span>
+                          <small>{processingStageLabels[job.processingStage]} · {job.progress}%</small>
+                          {job.errorCode ? <small className="admin-vto-table-error">{job.errorCode}</small> : null}
                         </td>
-                        <td>{job.provider}</td>
                         <td>
                           <div className="admin-vto-date">
                             <span>{formatDate(job.createdAt)}</span>
@@ -792,15 +916,12 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         </td>
                         <td>
                           <div className="admin-vto-actions">
-                            <button type="button" onClick={() => setSelectedJob(job)}>Chi tiết</button>
+                            <button type="button" onClick={() => setSelectedJob(job)}>Xem</button>
                             {canManage && ['failed', 'canceled'].includes(job.status) && !isPolicyClosedJob(job) ? (
                               <button type="button" disabled={actionLoading} onClick={() => void handleRetry(job)}>Chạy lại</button>
                             ) : null}
                             {canManage && ['queued', 'processing'].includes(job.status) ? (
                               <button type="button" disabled={actionLoading} onClick={() => void handleCancel(job)}>Hủy</button>
-                            ) : null}
-                            {canManage ? (
-                              <button type="button" className="is-danger" disabled={actionLoading} onClick={() => handleHide(job)}>Ẩn</button>
                             ) : null}
                           </div>
                         </td>
@@ -811,15 +932,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               </table>
             ) : (
               <div className="admin-vto-empty">
-                <strong>Chưa có job phối đồ</strong>
-                <span>Khi khách tạo ảnh thử đồ, job sẽ xuất hiện tại đây.</span>
+                <strong>Chưa có lượt phối đồ</strong>
+                <span>Lượt tạo ảnh hoặc video của khách hàng sẽ xuất hiện tại đây.</span>
               </div>
             )}
           </div>
 
           {pagination && pagination.totalPages > 1 ? (
             <footer className="admin-table-footer">
-              <span>Trang {pagination.page}/{pagination.totalPages} · {pagination.totalItems} job</span>
+              <span>Trang {pagination.page}/{pagination.totalPages} · {pagination.totalItems} lượt</span>
               <div>
                 <button type="button" disabled={pagination.page <= 1} onClick={() => updateFilter('page', pagination.page - 1)}>Trước</button>
                 <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => updateFilter('page', pagination.page + 1)}>Sau</button>
@@ -828,30 +949,32 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           ) : null}
         </section>
 
-        <aside className="admin-vto-side">
+        <aside className="admin-vto-side" style={{ display: activeTab === 'settings' ? undefined : 'none' }}>
           <section className="admin-vto-panel admin-vto-settings-panel">
             <div className="admin-vto-settings-head">
               <div>
-                <h2>Cấu hình hiện tại</h2>
+                <h2>Cấu hình và trạng thái dịch vụ</h2>
                 <p>
-                  {settings?.persisted ? `Phiên bản v${settings.version}` : 'Đang dùng mặc định từ môi trường'}
+                  {settings
+                    ? settings.persisted ? `Phiên bản v${settings.version}` : 'Đang dùng cấu hình mặc định'
+                    : settingsLoading ? 'Đang tải cấu hình...' : 'Chưa có dữ liệu cấu hình'}
                   {settings?.updatedAt ? ` · cập nhật ${formatDate(settings.updatedAt)}` : ''}
                 </p>
               </div>
-              <span className={settings?.enabled ? 'is-ready' : 'is-offline'}>
-                {settings?.enabled ? 'Đang phục vụ' : 'Đang tắt'}
+              <span className={settings ? (settings.enabled ? 'is-ready' : 'is-offline') : undefined}>
+                {settings ? (settings.enabled ? 'Đang phục vụ' : 'Đang tắt') : 'Chưa có dữ liệu'}
               </span>
             </div>
             <div className="admin-vto-config-grid">
               <section className="admin-vto-config-group is-image">
                 <h3>Tạo ảnh</h3>
                 <dl>
-                  <div><dt>Trạng thái</dt><dd>{settings?.image.enabled ? 'Đang bật' : 'Đang tắt'}</dd></div>
-                  <div><dt>Nhà cung cấp ảnh</dt><dd>{settings?.image.provider ?? '-'}</dd></div>
-                  <div><dt>Model ảnh</dt><dd>{settings?.image.model ?? '-'}</dd></div>
+                  <div><dt>Trạng thái</dt><dd>{settings ? (settings.image.enabled ? 'Đang bật' : 'Đang tắt') : '-'}</dd></div>
+                  <div><dt>Dịch vụ AI</dt><dd>{settings?.image.provider ?? '-'}</dd></div>
+                  <div><dt>Mô hình AI</dt><dd>{settings?.image.model ?? '-'}</dd></div>
                   <div><dt>Đầu ra ảnh</dt><dd>{settings ? `${settings.image.outputCount} ảnh · ${settings.image.aspectRatio} · ${settings.image.resolution}` : '-'}</dd></div>
                   <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
-                  <div><dt>Job ảnh đồng thời/user</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Lượt đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
                   <div><dt>Ảnh nguồn tối đa</dt><dd>{settings ? `${settings.sourceImageMaxMb} MB` : '-'}</dd></div>
                 </dl>
               </section>
@@ -862,27 +985,27 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   <div>
                     <dt>Trạng thái</dt>
                     <dd>
-                      {settings?.videoEnabled
-                        ? 'Sẵn sàng'
-                        : settings?.video.enabled
-                          ? `Chưa sẵn sàng (${settings.video.reasonCode || 'thiếu cấu hình'})`
-                          : 'Đang tắt'}
+                      {settings
+                        ? settings.videoEnabled
+                          ? 'Sẵn sàng'
+                          : settings.video.enabled
+                            ? `Chưa sẵn sàng (${settings.video.reasonCode || 'thiếu cấu hình'})`
+                            : 'Đang tắt'
+                        : '-'}
                     </dd>
                   </div>
-                  <div><dt>Nhà cung cấp video</dt><dd>{settings?.video.provider ?? '-'}</dd></div>
-                  <div><dt>Model video</dt><dd>{settings?.video.model ?? '-'}</dd></div>
+                  <div><dt>Dịch vụ AI</dt><dd>{settings?.video.provider ?? '-'}</dd></div>
+                  <div><dt>Mô hình AI</dt><dd>{settings?.video.model ?? '-'}</dd></div>
                   <div>
                     <dt>Đầu ra video</dt>
                     <dd>
-                      Mặc định {settings?.video.durationSeconds ?? '-'} giây
-                      {' · '}
-                      {settings?.video.minDurationSeconds ?? '-'}–{settings?.video.maxDurationSeconds ?? '-'} giây
-                      {' · '}
-                      {settings?.video.resolution ?? '-'}
+                      {settings
+                        ? `Mặc định ${settings.video.durationSeconds} giây · ${settings.video.minDurationSeconds}–${settings.video.maxDurationSeconds} giây · ${settings.video.resolution}`
+                        : '-'}
                     </dd>
                   </div>
-                  <div><dt>Video/user/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
-                  <div><dt>Video đồng thời/user</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Video mỗi khách/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
+                  <div><dt>Video đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
                 </dl>
               </section>
 
@@ -891,26 +1014,26 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <dl>
                   <div>
                     <dt>Trạng thái</dt>
-                    <dd>{settings?.imageValidation.available ? 'Sẵn sàng' : 'Không sẵn sàng'}</dd>
+                    <dd>{settings ? (settings.imageValidation.available ? 'Sẵn sàng' : 'Không sẵn sàng') : '-'}</dd>
                   </div>
                   <div>
-                    <dt>Provider</dt>
+                    <dt>Dịch vụ kiểm tra</dt>
                     <dd>{settings?.imageValidation.provider ?? '-'}</dd>
                   </div>
                   <div>
-                    <dt>Chế độ resolver</dt>
+                    <dt>Cơ chế dự phòng</dt>
                     <dd>
                       {settings?.imageValidation.fallback
-                        ? 'Mock fallback'
+                        ? 'Dữ liệu mô phỏng'
                         : settings?.imageValidation.requestedProvider ?? '-'}
                     </dd>
                   </div>
                   <div>
-                    <dt>Khi provider lỗi</dt>
-                    <dd>{settings?.imageValidation.failOpen ? 'Fail-open' : 'Fail-closed'}</dd>
+                    <dt>Khi dịch vụ lỗi</dt>
+                    <dd>{settings ? (settings.imageValidation.failOpen ? 'Cho phép tiếp tục' : 'Tạm dừng yêu cầu') : '-'}</dd>
                   </div>
                   <div>
-                    <dt>Health check</dt>
+                    <dt>Phản hồi gần nhất</dt>
                     <dd>
                       {settings?.imageValidation.available
                         ? `${settings.imageValidation.latencyMs ?? 0} ms`
@@ -921,25 +1044,25 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               </section>
 
               <section className="admin-vto-config-group is-policy">
-                <h3>Prompt & an toàn</h3>
+                <h3>Mô tả & an toàn</h3>
                 <dl>
-                  <div><dt>Độ dài prompt tối đa</dt><dd>{settings?.promptMaxLength ?? '-'}</dd></div>
-                  <div><dt>Vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? 0}</dd></div>
-                  <div><dt>Prompt bị khóa hôm nay</dt><dd>{summary?.promptBlocksToday ?? 0}</dd></div>
-                  <div><dt>Ngưỡng khóa/user/ngày</dt><dd>{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
+                  <div><dt>Độ dài mô tả tối đa</dt><dd>{settings?.promptMaxLength ?? '-'}</dd></div>
+                  <div><dt>Vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? '-'}</dd></div>
+                  <div><dt>Tạm chặn hôm nay</dt><dd>{summary?.promptBlocksToday ?? '-'}</dd></div>
+                  <div><dt>Ngưỡng mỗi khách/ngày</dt><dd>{settings?.promptViolationLimitPerDay ?? '-'}</dd></div>
                 </dl>
               </section>
             </div>
             <section className="admin-vto-secret-status">
-              <strong>Cấu hình bí mật chỉ đọc từ môi trường</strong>
-              <span className={settings?.secretStatus.providerApiKeyConfigured ? 'is-ready' : 'is-offline'}>
-                API key: {settings?.secretStatus.providerApiKeyConfigured ? 'đã cấu hình' : 'chưa cấu hình'}
+              <strong>Kết nối hệ thống</strong>
+              <span className={settings ? (settings.secretStatus.providerApiKeyConfigured ? 'is-ready' : 'is-offline') : undefined}>
+                Khóa API: {settings ? (settings.secretStatus.providerApiKeyConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
               </span>
-              <span className={settings?.secretStatus.imageEndpointConfigured ? 'is-ready' : 'is-offline'}>
-                Endpoint ảnh: {settings?.secretStatus.imageEndpointConfigured ? 'đã cấu hình' : 'chưa cấu hình'}
+              <span className={settings ? (settings.secretStatus.imageEndpointConfigured ? 'is-ready' : 'is-offline') : undefined}>
+                Endpoint ảnh: {settings ? (settings.secretStatus.imageEndpointConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
               </span>
-              <span className={settings?.secretStatus.videoWorkflowConfigured ? 'is-ready' : 'is-offline'}>
-                Workflow video: {settings?.secretStatus.videoWorkflowConfigured ? 'đã cấu hình' : 'chưa cấu hình'}
+              <span className={settings ? (settings.secretStatus.videoWorkflowConfigured ? 'is-ready' : 'is-offline') : undefined}>
+                Workflow video: {settings ? (settings.secretStatus.videoWorkflowConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
               </span>
             </section>
 
@@ -959,11 +1082,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       ? { ...current, runtimeEnabled: event.target.checked }
                       : current)}
                   />
-                  <span>Cho phép khách tạo yêu cầu phối đồ ảo mới</span>
+                  <span>Cho phép tạo lượt phối đồ mới</span>
                 </label>
                 <div className="admin-vto-settings-fields">
                   <label>
-                    <span>Job ảnh đồng thời/user</span>
+                    <span>Lượt đồng thời mỗi khách</span>
                     <input
                       type="number"
                       min="1"
@@ -976,7 +1099,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     />
                   </label>
                   <label>
-                    <span>Video/user/ngày</span>
+                    <span>Video mỗi khách/ngày</span>
                     <input
                       type="number"
                       min="1"
@@ -989,7 +1112,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     />
                   </label>
                   <label>
-                    <span>Video đồng thời/user</span>
+                    <span>Video đồng thời mỗi khách</span>
                     <input
                       type="number"
                       min="1"
@@ -1002,7 +1125,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     />
                   </label>
                   <label>
-                    <span>Độ dài prompt tối đa</span>
+                    <span>Độ dài mô tả tối đa</span>
                     <input
                       type="number"
                       min="50"
@@ -1015,7 +1138,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     />
                   </label>
                   <label>
-                    <span>Vi phạm prompt/user/ngày</span>
+                    <span>Vi phạm mỗi khách/ngày</span>
                     <input
                       type="number"
                       min="1"
@@ -1038,7 +1161,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     disabled={settingsSaving || !settings.historyVersions.length}
                     aria-label="Phiên bản cấu hình cần khôi phục"
                   >
-                    <option value="">Chọn snapshot để khôi phục</option>
+                    <option value="">Chọn phiên bản để khôi phục</option>
                     {settings.historyVersions.map((version) => (
                       <option key={version} value={version}>Phiên bản v{version}</option>
                     ))}
@@ -1052,38 +1175,22 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     Khôi phục
                   </button>
                 </div>
-                <p>Provider, endpoint, workflow và API key chỉ thay đổi qua biến môi trường/deployment secret.</p>
+                <p>Dịch vụ AI, endpoint, workflow và khóa API được quản lý trong cấu hình triển khai.</p>
               </form>
             ) : (
-              <p>Chỉ tài khoản có quyền cấu hình mới chỉnh được công tắc và quota.</p>
-            )}
-          </section>
-
-          <section className="admin-vto-panel">
-            <h2>Job lỗi gần đây</h2>
-            {summary?.latestFailedJobs.length ? (
-              <div className="admin-vto-failed-list">
-                {summary.latestFailedJobs.map((job) => (
-                  <button type="button" key={job._id} onClick={() => setSelectedJob(job)}>
-                    <strong>{job.errorCode || 'UNKNOWN'}</strong>
-                    <span>{job.errorMessage || job._id}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p>Chưa có job lỗi gần đây.</p>
+              <p>{settingsLoading ? 'Đang tải cấu hình...' : 'Chưa tải được cấu hình. Hãy làm mới khi dịch vụ API sẵn sàng.'}</p>
             )}
           </section>
 
         </aside>
       </div>
 
-      {selectedJob ? (
+      {selectedJob && activeTab === 'jobs' ? (
         <div className="admin-vto-drawer-backdrop" role="presentation" onMouseDown={() => setSelectedJob(null)}>
-          <aside className="admin-vto-drawer" aria-label="Chi tiết job phối đồ" onMouseDown={(event) => event.stopPropagation()}>
+          <aside className="admin-vto-drawer" role="dialog" aria-modal="true" aria-label="Chi tiết lượt phối đồ" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
             <header>
               <div>
-                <span>Job #{getShortId(selectedJob._id)}</span>
+                <span>Lượt #{getShortId(selectedJob._id)}</span>
                 <h2>{statusMeta[selectedJob.status].label}</h2>
               </div>
               <button type="button" onClick={() => setSelectedJob(null)}>Đóng</button>
@@ -1091,7 +1198,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             <section className="admin-vto-drawer-hero">
               <div className="admin-vto-drawer-preview">
                 {getJobLeadImage(selectedJob) ? (
-                  <img src={getJobLeadImage(selectedJob)} alt="Ảnh đại diện job phối đồ" />
+                  <img src={getJobLeadImage(selectedJob)} alt="Ảnh đại diện lượt phối đồ" />
                 ) : null}
               </div>
               <div>
@@ -1103,17 +1210,17 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               </div>
             </section>
             {canManage ? (
-              <section className="admin-vto-drawer-actions" aria-label="Thao tác quản trị job">
+              <section className="admin-vto-drawer-actions" aria-label="Thao tác vận hành lượt phối đồ">
                 {['failed', 'canceled'].includes(selectedJob.status) && !isPolicyClosedJob(selectedJob) ? (
-                  <button type="button" disabled={actionLoading} onClick={() => void handleRetry(selectedJob)}>Chạy lại job</button>
+                  <button type="button" disabled={actionLoading} onClick={() => void handleRetry(selectedJob)}>Chạy lại</button>
                 ) : null}
                 {['failed', 'canceled'].includes(selectedJob.videoStatus) && generatedImages.length && !isPolicyClosedVideo(selectedJob) ? (
-                  <button type="button" disabled={actionLoading || !settings?.videoEnabled} onClick={() => void handleRetryVideo(selectedJob)}>
-                    Chạy lại riêng video
+                  <button type="button" disabled={actionLoading} onClick={() => void handleRetryVideo(selectedJob)}>
+                    Chạy lại video
                   </button>
                 ) : null}
                 {['queued', 'processing'].includes(selectedJob.status) ? (
-                  <button type="button" disabled={actionLoading} onClick={() => void handleCancel(selectedJob)}>Hủy job</button>
+                  <button type="button" disabled={actionLoading} onClick={() => void handleCancel(selectedJob)}>Hủy lượt</button>
                 ) : null}
                 <button type="button" className="is-danger" disabled={actionLoading} onClick={() => handleHide(selectedJob)}>
                   Ẩn khỏi lịch sử
@@ -1124,10 +1231,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     className="is-danger"
                     disabled={lockSaving}
                     onClick={() => {
-                      if (selectedJob.user) void handleLockAccountById(selectedJob.user._id, getUserLabel(selectedJob))
+                      if (selectedJob.user) handleLockAccountById(selectedJob.user._id, getUserLabel(selectedJob))
                     }}
                   >
-                    Khóa phối đồ ảo
+                    Hạn chế tài khoản
                   </button>
                 ) : null}
               </section>
@@ -1138,13 +1245,13 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <p>{getUserLabel(selectedJob)} · {selectedJob.user?.email ?? 'Không có email'}</p>
                 {selectedJob.user ? (
                   <div className="admin-vto-copy-grid">
-                    <button type="button" onClick={() => void handleCopyValue(selectedJob.user?._id, 'User ID', 'drawer-user-id')}>
-                      <span>{copiedKey === 'drawer-user-id' ? 'Đã copy' : 'User ID'}</span>
+                    <button type="button" onClick={() => void handleCopyValue(selectedJob.user?._id, 'mã khách hàng', 'drawer-user-id')}>
+                      <span>{copiedKey === 'drawer-user-id' ? 'Đã sao chép' : 'Mã khách hàng'}</span>
                       <strong>{selectedJob.user._id}</strong>
                     </button>
                     {selectedJob.user.email ? (
                       <button type="button" onClick={() => void handleCopyValue(selectedJob.user?.email, 'email khách hàng', 'drawer-user-email')}>
-                        <span>{copiedKey === 'drawer-user-email' ? 'Đã copy' : 'Email'}</span>
+                        <span>{copiedKey === 'drawer-user-email' ? 'Đã sao chép' : 'Email'}</span>
                         <strong>{selectedJob.user.email}</strong>
                       </button>
                     ) : null}
@@ -1156,32 +1263,32 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <h3>Thông tin kỹ thuật</h3>
               <dl>
                 <div>
-                  <dt>Job ID</dt>
+                  <dt>Mã lượt</dt>
                   <dd>
-                    <button type="button" className="admin-vto-copy-inline" onClick={() => void handleCopyValue(selectedJob._id, 'Job ID', 'drawer-job-id')}>
-                      {copiedKey === 'drawer-job-id' ? 'Đã copy' : selectedJob._id}
+                    <button type="button" className="admin-vto-copy-inline" onClick={() => void handleCopyValue(selectedJob._id, 'mã lượt', 'drawer-job-id')}>
+                      {copiedKey === 'drawer-job-id' ? 'Đã sao chép' : selectedJob._id}
                     </button>
                   </dd>
                 </div>
                 <div>
-                  <dt>Job rút gọn</dt>
+                  <dt>Mã rút gọn</dt>
                   <dd>
-                    <button type="button" className="admin-vto-copy-inline" onClick={() => void handleCopyValue(getShortId(selectedJob._id), 'mã job rút gọn', 'drawer-short-job-id')}>
-                      {copiedKey === 'drawer-short-job-id' ? 'Đã copy' : getShortId(selectedJob._id)}
+                    <button type="button" className="admin-vto-copy-inline" onClick={() => void handleCopyValue(getShortId(selectedJob._id), 'mã lượt rút gọn', 'drawer-short-job-id')}>
+                      {copiedKey === 'drawer-short-job-id' ? 'Đã sao chép' : getShortId(selectedJob._id)}
                     </button>
                   </dd>
                 </div>
-                <div><dt>Nhà cung cấp</dt><dd>{selectedJob.provider}</dd></div>
+                <div><dt>Dịch vụ AI</dt><dd>{selectedJob.provider}</dd></div>
                 <div>
-                  <dt>Mã job provider</dt>
+                  <dt>Mã xử lý AI</dt>
                   <dd>
                     {selectedJob.providerJobId ? (
                       <button
                         type="button"
                         className="admin-vto-copy-inline"
-                        onClick={() => void handleCopyValue(selectedJob.providerJobId, 'mã job provider', 'drawer-provider-job-id')}
+                        onClick={() => void handleCopyValue(selectedJob.providerJobId, 'mã xử lý AI', 'drawer-provider-job-id')}
                       >
-                        {copiedKey === 'drawer-provider-job-id' ? 'Đã copy' : selectedJob.providerJobId}
+                        {copiedKey === 'drawer-provider-job-id' ? 'Đã sao chép' : selectedJob.providerJobId}
                       </button>
                     ) : '-'}
                   </dd>
@@ -1192,11 +1299,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 ) : null}
                 <div><dt>Bối cảnh</dt><dd>{contextLabels[selectedJob.contextPreset] ?? selectedJob.contextPreset}</dd></div>
                 <div><dt>Tiến trình</dt><dd>{selectedJob.progress}%</dd></div>
-                <div><dt>Giai đoạn</dt><dd>{selectedJob.processingStage}</dd></div>
+                <div><dt>Giai đoạn</dt><dd>{processingStageLabels[selectedJob.processingStage]}</dd></div>
                 <div><dt>Trạng thái video</dt><dd>{videoStatusLabels[selectedJob.videoStatus]} · {selectedJob.videoProgress}%</dd></div>
-                <div><dt>Video provider</dt><dd>{selectedJob.videoProvider || '-'}</dd></div>
+                <div><dt>Dịch vụ video</dt><dd>{selectedJob.videoProvider || '-'}</dd></div>
                 <div>
-                  <dt>Mã video provider</dt>
+                  <dt>Mã xử lý video</dt>
                   <dd>{selectedJob.videoProviderJobId || '-'}</dd>
                 </div>
                 <div><dt>Tạo lúc</dt><dd>{formatDate(selectedJob.createdAt)}</dd></div>
@@ -1206,12 +1313,14 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               {selectedJob.videoErrorMessage ? <p className="admin-vto-error-text">{selectedJob.videoErrorCode}: {selectedJob.videoErrorMessage}</p> : null}
             </section>
             <section>
-              <h3>Kiểm duyệt ảnh</h3>
+              <h3>So sánh kết quả</h3>
               <div className="admin-vto-moderation-grid">
                 <article>
                   <span>Ảnh gốc của khách</span>
                   {selectedJob.sourceImageUrl ? (
-                    <img src={selectedJob.sourceImageUrl} alt="Ảnh gốc khách tải lên" />
+                    <a href={selectedJob.sourceImageUrl} target="_blank" rel="noreferrer" aria-label="Mở ảnh gốc kích thước đầy đủ">
+                      <img src={selectedJob.sourceImageUrl} alt="Ảnh gốc khách tải lên" />
+                    </a>
                   ) : (
                     <p>Không có ảnh gốc.</p>
                   )}
@@ -1221,11 +1330,13 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   {generatedImages.length ? (
                     <div className="admin-vto-generated-grid">
                       {generatedImages.map((imageUrl, index) => (
-                        <img key={`${imageUrl}-${index}`} src={imageUrl} alt={`Kết quả phối đồ ${index + 1}`} />
+                        <a key={`${imageUrl}-${index}`} href={imageUrl} target="_blank" rel="noreferrer" aria-label={`Mở kết quả ${index + 1} kích thước đầy đủ`}>
+                          <img src={imageUrl} alt={`Kết quả phối đồ ${index + 1}`} />
+                        </a>
                       ))}
                     </div>
                   ) : (
-                    <p>Job chưa có ảnh kết quả.</p>
+                    <p>Lượt này chưa có ảnh kết quả.</p>
                   )}
                 </article>
               </div>
@@ -1245,7 +1356,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     <img src={item.imageSnapshot} alt="" />
                     <div>
                       <strong>{item.nameSnapshot}</strong>
-                      <span>{item.role} · {item.colorSnapshot || 'Màu mặc định'}</span>
+                      <span>{itemRoleLabels[item.role] ?? item.role} · {item.colorSnapshot || 'Màu mặc định'}</span>
                     </div>
                     <em>{formatPrice(item.finalPriceSnapshot)}</em>
                   </article>
@@ -1258,31 +1369,209 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       </>
       ) : null}
 
+      {activeTab === 'promptViolations' ? (
+        <section className="admin-vto-tab-panel">
+          <div className="admin-vto-editor-card">
+            <div className="admin-vto-tab-head">
+              <h2>Vi phạm nội dung</h2>
+            </div>
+            <p className="admin-vto-tab-desc">
+              Lịch sử được lưu tối đa 90 ngày. Dữ liệu cá nhân đã được che; bản ghi không thể sửa hoặc xóa thủ công.
+            </p>
+          </div>
+
+          <div className="admin-vto-toolbar admin-vto-toolbar--violations">
+            <input
+              value={promptViolationFilters.keyword}
+              onChange={(event) => updatePromptViolationFilter('keyword', event.target.value)}
+              placeholder="Tìm khách hàng, nội dung hoặc mã lý do..."
+              aria-label="Tìm vi phạm nội dung"
+              maxLength={100}
+            />
+            <select
+              value={promptViolationFilters.category}
+              onChange={(event) => updatePromptViolationFilter('category', event.target.value)}
+              aria-label="Lọc loại vi phạm"
+            >
+              <option value="">Tất cả loại</option>
+              {promptPolicyCategoryOptions.map((category) => (
+                <option key={category} value={category}>{promptPolicyCategoryLabels[category]}</option>
+              ))}
+            </select>
+            <select
+              value={promptViolationFilters.action}
+              onChange={(event) => updatePromptViolationFilter('action', event.target.value)}
+              aria-label="Lọc mức xử lý"
+            >
+              <option value="">Tất cả xử lý</option>
+              <option value="warn">Đã cảnh báo</option>
+              <option value="temporary_block">Tạm chặn</option>
+            </select>
+            <input
+              type="date"
+              value={promptViolationFilters.dateFrom}
+              onChange={(event) => updatePromptViolationFilter('dateFrom', event.target.value)}
+              aria-label="Vi phạm từ ngày"
+            />
+            <input
+              type="date"
+              value={promptViolationFilters.dateTo}
+              onChange={(event) => updatePromptViolationFilter('dateTo', event.target.value)}
+              aria-label="Vi phạm đến ngày"
+            />
+            <button
+              type="button"
+              className="admin-vto-filter-reset"
+              disabled={!promptViolationFilters.keyword
+                && !promptViolationFilters.category
+                && !promptViolationFilters.action
+                && !promptViolationFilters.dateFrom
+                && !promptViolationFilters.dateTo}
+              onClick={() => setPromptViolationFilters(initialPromptViolationFilters)}
+            >
+              Xóa lọc
+            </button>
+          </div>
+
+          <div className="admin-vto-table-shell">
+            {promptViolationLoading ? (
+              <div className="admin-table-skeleton"><span /><span /><span /></div>
+            ) : promptViolationData?.items.length ? (
+              <table className="admin-vto-table admin-vto-violation-table">
+                <thead>
+                  <tr>
+                    <th>Thời gian</th>
+                    <th>Khách hàng</th>
+                    <th>Nội dung đã che</th>
+                    <th>Vi phạm</th>
+                    <th>Xử lý</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {promptViolationData.items.map((violation) => (
+                    <tr key={violation._id} className={violation.isActiveBlock ? 'needs-attention' : undefined}>
+                      <td>
+                        <div className="admin-vto-date">
+                          <span>{formatDate(violation.createdAt)}</span>
+                          <small>Lần {violation.violationCount} trong ngày</small>
+                        </div>
+                      </td>
+                      <td>
+                        {violation.user ? (
+                          <div className="admin-vto-user">
+                            <strong>{violation.user.name || violation.user.email || 'Không rõ'}</strong>
+                            <span>{violation.user.email || 'Không có email'}</span>
+                            <button
+                              type="button"
+                              className="admin-vto-copy-token"
+                              onClick={() => void handleCopyValue(
+                                violation.user?._id,
+                                'mã khách hàng',
+                                `violation-user-${violation._id}`,
+                              )}
+                            >
+                              {copiedKey === `violation-user-${violation._id}`
+                                ? 'Đã sao chép'
+                                : `Mã ${getShortId(violation.user._id)}`}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="admin-vto-muted-text">Tài khoản không còn tồn tại</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="admin-vto-prompt-preview">
+                          <p>{violation.promptPreview}</p>
+                          <code>{violation.reasonCode}</code>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>
+                          {violation.matchedCategory
+                            ? promptPolicyCategoryLabels[violation.matchedCategory]
+                            : 'Không xác định'}
+                        </strong>
+                      </td>
+                      <td>
+                        <span className={`admin-vto-status ${violation.action === 'warn'
+                          ? 'is-waiting'
+                          : violation.isActiveBlock ? 'is-danger' : 'is-muted'}`}>
+                          {violation.action === 'warn' ? 'Cảnh báo' : 'Tạm chặn'}
+                        </span>
+                        {violation.action === 'temporary_block' ? (
+                          <small>
+                            {violation.isActiveBlock && violation.blockedUntil
+                              ? `Đến ${formatDate(violation.blockedUntil)}`
+                              : 'Đã hết hạn'}
+                          </small>
+                        ) : null}
+                      </td>
+                      <td>
+                        <div className="admin-vto-actions">
+                          {canManage && violation.user ? (
+                            <button
+                              type="button"
+                              onClick={() => handleLockAccountById(
+                                violation.user!._id,
+                                violation.user!.name || violation.user!.email,
+                                `Vi phạm nội dung phối đồ ảo nhiều lần (${violation.reasonCode})`,
+                              )}
+                            >
+                              Hạn chế tài khoản
+                            </button>
+                          ) : <span>—</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="admin-vto-empty">
+                <strong>Không có vi phạm phù hợp</strong>
+                <span>Thử đổi bộ lọc hoặc khoảng thời gian.</span>
+              </div>
+            )}
+          </div>
+
+          {promptViolationData?.pagination && promptViolationData.pagination.totalPages > 1 ? (
+            <footer className="admin-table-footer">
+              <span>Trang {promptViolationData.pagination.page}/{promptViolationData.pagination.totalPages} · {promptViolationData.pagination.totalItems} vi phạm</span>
+              <div>
+                <button type="button" disabled={promptViolationData.pagination.page <= 1} onClick={() => updatePromptViolationFilter('page', String(promptViolationData.pagination.page - 1))}>Trước</button>
+                <button type="button" disabled={promptViolationData.pagination.page >= promptViolationData.pagination.totalPages} onClick={() => updatePromptViolationFilter('page', String(promptViolationData.pagination.page + 1))}>Sau</button>
+              </div>
+            </footer>
+          ) : null}
+        </section>
+      ) : null}
+
       {activeTab === 'promptRules' ? (
         <section className="admin-vto-tab-panel">
           <div className="admin-vto-rule-tools">
             <div className="admin-vto-editor-card">
             <div className="admin-vto-tab-head">
-              <h2>{editingRuleId ? 'Sửa từ khóa bị cấm' : 'Thêm từ khóa bị cấm'}</h2>
+              <h2>{editingRuleId ? 'Sửa quy tắc nội dung' : 'Thêm quy tắc nội dung'}</h2>
               {editingRuleId ? (
                 <button type="button" onClick={resetPromptRuleForm}>Hủy sửa</button>
               ) : null}
             </div>
             <p className="admin-vto-tab-desc">
-              Chỉ lưu nội bộ cho admin và kiểm tra ở server. Không public danh sách từ khóa này ra web/mobile của khách.
+              Quy tắc được kiểm tra tại máy chủ và không hiển thị cho khách hàng.
             </p>
             <div className="admin-vto-form-row admin-vto-form-row--stacked admin-vto-rule-editor">
               <label className="admin-vto-field admin-vto-field--wide">
-                <span>Từ khóa bị cấm</span>
+                <span>Cụm từ cần chặn</span>
                 <input
                   value={promptRuleForm.term}
                   onChange={(event) => setPromptRuleForm((current) => ({ ...current, term: event.target.value }))}
-                  placeholder="VD: tên người nổi tiếng, từ nhạy cảm, cụm prompt injection"
+                  placeholder="VD: cụm từ nhạy cảm hoặc yêu cầu không phù hợp"
                   maxLength={120}
                 />
               </label>
               <label className="admin-vto-field">
-                <span>Nhóm vi phạm</span>
+                <span>Loại vi phạm</span>
                 <select
                   value={promptRuleForm.category}
                   onChange={(event) => setPromptRuleForm((current) => ({
@@ -1297,11 +1586,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 </select>
               </label>
               <label className="admin-vto-field">
-                <span>Lý do chặn</span>
+                <span>Mã lý do (tùy chọn)</span>
                 <input
                   value={promptRuleForm.reasonCode}
                   onChange={(event) => setPromptRuleForm((current) => ({ ...current, reasonCode: event.target.value }))}
-                  placeholder="Để trống để dùng mặc định"
+                  placeholder="VD: PROMPT_UNSAFE_REQUEST"
                   maxLength={80}
                 />
               </label>
@@ -1311,24 +1600,24 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   checked={promptRuleForm.enabled}
                   onChange={(event) => setPromptRuleForm((current) => ({ ...current, enabled: event.target.checked }))}
                 />
-                <span>Đang bật</span>
+                <span>Đang áp dụng</span>
               </label>
-              {canManage ? (
+              {canSettings ? (
                 <button type="button" disabled={promptRuleSaving} onClick={() => void handleSavePromptRule()}>
-                  {promptRuleSaving ? 'Đang lưu...' : editingRuleId ? 'Cập nhật' : 'Thêm từ khóa'}
+                  {promptRuleSaving ? 'Đang lưu...' : editingRuleId ? 'Cập nhật quy tắc' : 'Thêm quy tắc'}
                 </button>
               ) : null}
             </div>
           </div>
 
             <section className="admin-vto-panel admin-vto-prompt-panel">
-              <h2>Kiểm tra prompt</h2>
-              <p>Thử ngay một mô tả với danh sách từ khóa và chính sách đang bật.</p>
+              <h2>Kiểm tra mô tả khách nhập</h2>
+              <p>Kiểm tra theo chính sách và các quy tắc đang áp dụng.</p>
               <textarea
                 value={promptInput}
                 maxLength={settings?.promptMaxLength ?? 200}
                 onChange={(event) => setPromptInput(event.target.value)}
-                placeholder="Nhập mô tả bối cảnh để kiểm tra"
+                placeholder="Nhập mô tả khách hàng có thể gửi"
                 rows={4}
               />
               <div className="admin-vto-prompt-actions">
@@ -1339,9 +1628,22 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               </div>
               {promptResult ? (
                 <div className={`admin-vto-prompt-result ${promptResult.allowed ? 'is-success' : 'is-error'}`}>
-                  <strong>{promptResult.allowed ? 'Hợp lệ' : 'Bị chặn'}</strong>
-                  <span>{promptResult.message || promptResult.reasonCode || promptResult.normalizedPrompt || 'Prompt có thể sử dụng'}</span>
-                  {promptResult.matchedRule ? <code>{promptResult.matchedRule}</code> : null}
+                  <strong>
+                    {promptResult.allowed
+                      ? 'Hợp lệ'
+                      : ['PROMPT_REQUIRED', 'REQUEST_FAILED'].includes(promptResult.reasonCode ?? '')
+                        ? 'Chưa thể kiểm tra'
+                        : 'Bị chặn'}
+                  </strong>
+                  <span>{promptResult.message || promptResult.normalizedPrompt || 'Mô tả có thể sử dụng'}</span>
+                  {!promptResult.allowed
+                    && !['PROMPT_REQUIRED', 'REQUEST_FAILED'].includes(promptResult.reasonCode ?? '')
+                    && (promptResult.matchedCategory || promptResult.reasonCode) ? (
+                    <code>
+                      {promptResult.matchedCategory ? promptPolicyCategoryLabels[promptResult.matchedCategory] : 'Nội dung không phù hợp'}
+                      {promptResult.reasonCode ? ` · ${promptResult.reasonCode}` : ''}
+                    </code>
+                  ) : null}
                 </div>
               ) : null}
             </section>
@@ -1351,13 +1653,14 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             <input
               value={promptRuleFilters.keyword}
               onChange={(event) => updatePromptRuleFilter('keyword', event.target.value)}
-              placeholder="Tìm từ khóa..."
+              placeholder="Tìm cụm từ..."
+              aria-label="Tìm cụm từ cần chặn"
             />
             <select
               value={promptRuleFilters.category}
               onChange={(event) => updatePromptRuleFilter('category', event.target.value)}
             >
-              <option value="">Tất cả nhóm</option>
+              <option value="">Tất cả loại</option>
               {promptPolicyCategoryOptions.map((category) => (
                 <option key={category} value={category}>{promptPolicyCategoryLabels[category]}</option>
               ))}
@@ -1379,9 +1682,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <table className="admin-vto-table admin-vto-rule-table">
                 <thead>
                   <tr>
-                    <th>Từ khóa</th>
-                    <th>Nhóm</th>
-                    <th>Lý do chặn</th>
+                    <th>Cụm từ</th>
+                    <th>Loại</th>
+                    <th>Mã lý do</th>
                     <th>Trạng thái</th>
                     <th>Cập nhật</th>
                     <th>Thao tác</th>
@@ -1401,15 +1704,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       <td>{formatDate(rule.updatedAt)}</td>
                       <td>
                         <div className="admin-vto-actions">
-                          {canManage ? (
+                          {canSettings ? (
                             <button type="button" onClick={() => startEditPromptRule(rule)}>Sửa</button>
                           ) : null}
-                          {canManage ? (
+                          {canSettings ? (
                             <button type="button" onClick={() => void handleTogglePromptRule(rule)}>
                               {rule.enabled ? 'Tắt' : 'Bật'}
                             </button>
                           ) : null}
-                          {canManage ? (
+                          {canSettings ? (
                             <button type="button" className="is-danger" onClick={() => void handleDeletePromptRule(rule)}>Xóa</button>
                           ) : null}
                         </div>
@@ -1420,15 +1723,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               </table>
             ) : (
               <div className="admin-vto-empty">
-                <strong>Chưa có từ khóa bị cấm</strong>
-                <span>Thêm từ khóa ở trên để chặn prompt vi phạm khi khách tạo ảnh phối đồ.</span>
+                <strong>Chưa có quy tắc nội dung</strong>
+                <span>Thêm cụm từ cần chặn để bổ sung cho chính sách mặc định.</span>
               </div>
             )}
           </div>
 
           {promptRuleData?.pagination && promptRuleData.pagination.totalPages > 1 ? (
             <footer className="admin-table-footer">
-              <span>Trang {promptRuleData.pagination.page}/{promptRuleData.pagination.totalPages} · {promptRuleData.pagination.totalItems} từ khóa</span>
+              <span>Trang {promptRuleData.pagination.page}/{promptRuleData.pagination.totalPages} · {promptRuleData.pagination.totalItems} quy tắc</span>
               <div>
                 <button type="button" disabled={promptRuleData.pagination.page <= 1} onClick={() => updatePromptRuleFilter('page', String(promptRuleData.pagination.page - 1))}>Trước</button>
                 <button type="button" disabled={promptRuleData.pagination.page >= promptRuleData.pagination.totalPages} onClick={() => updatePromptRuleFilter('page', String(promptRuleData.pagination.page + 1))}>Sau</button>
@@ -1442,15 +1745,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         <section className="admin-vto-tab-panel">
           <div className="admin-vto-editor-card">
             <div className="admin-vto-tab-head">
-              <h2>Khóa tính năng phối đồ ảo</h2>
+              <h2>Hạn chế tài khoản</h2>
             </div>
             <p className="admin-vto-tab-desc">
-              Chỉ khóa phòng phối đồ ảo của user: họ vẫn đăng nhập và mua hàng bình thường, nhưng không thể tải ảnh, kiểm tra ảnh hoặc tạo job phối đồ ảo cho đến khi được mở khóa.
+              Khách hàng vẫn đăng nhập và mua sắm, nhưng không thể tải ảnh hoặc tạo lượt phối đồ cho đến khi được gỡ hạn chế.
             </p>
             {canManage ? (
               <div className="admin-vto-form-row admin-vto-form-row--stacked admin-vto-lock-editor">
                 <label className="admin-vto-field admin-vto-field--wide">
-                  <span>Email hoặc User ID</span>
+                  <span>Email hoặc mã khách hàng</span>
                   <input
                     value={lockForm.userId}
                     onChange={(event) => setLockForm((current) => ({ ...current, userId: event.target.value }))}
@@ -1458,16 +1761,18 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   />
                 </label>
                 <label className="admin-vto-field admin-vto-field--wide">
-                  <span>Lý do khóa</span>
+                  <span>Lý do hạn chế (bắt buộc)</span>
                   <input
                     value={lockForm.reason}
                     onChange={(event) => setLockForm((current) => ({ ...current, reason: event.target.value }))}
-                    placeholder="Tùy chọn, ví dụ: spam prompt vi phạm"
+                    placeholder="VD: Gửi nội dung vi phạm nhiều lần"
+                    required
+                    minLength={3}
                     maxLength={240}
                   />
                 </label>
                 <button type="button" disabled={lockSaving} onClick={() => void handleLockAccount()}>
-                  {lockSaving ? 'Đang khóa...' : 'Khóa phối đồ ảo'}
+                  {lockSaving ? 'Đang lưu...' : 'Hạn chế tài khoản'}
                 </button>
               </div>
             ) : null}
@@ -1477,14 +1782,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             <input
               value={accountLockFilters.keyword}
               onChange={(event) => updateAccountLockFilter('keyword', event.target.value)}
-              placeholder="Tìm theo tên, email hoặc User ID..."
+              placeholder="Tìm tên, email hoặc mã khách hàng..."
+              aria-label="Tìm tài khoản hạn chế"
             />
             <select
               value={accountLockFilters.locked}
               onChange={(event) => updateAccountLockFilter('locked', event.target.value)}
             >
-              <option value="true">Đang khóa</option>
-              <option value="false">Đã mở khóa</option>
+              <option value="true">Đang hạn chế</option>
+              <option value="false">Đã gỡ hạn chế</option>
               <option value="">Tất cả</option>
             </select>
           </div>
@@ -1499,7 +1805,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     <th>Khách hàng</th>
                     <th>Trạng thái</th>
                     <th>Lý do</th>
-                    <th>Người khóa</th>
+                    <th>Người thực hiện</th>
                     <th>Thời gian</th>
                     <th>Thao tác</th>
                   </tr>
@@ -1516,31 +1822,31 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                             <button
                               type="button"
                               className="admin-vto-copy-token"
-                              onClick={() => void handleCopyValue(lock.user._id, 'User ID', copyKey)}
+                              onClick={() => void handleCopyValue(lock.user._id, 'mã khách hàng', copyKey)}
                             >
-                              {copiedKey === copyKey ? 'Đã copy' : 'ID ' + getShortId(lock.user._id)}
+                              {copiedKey === copyKey ? 'Đã sao chép' : 'Mã ' + getShortId(lock.user._id)}
                             </button>
                           </div>
                         </td>
                         <td>
                           <span className={'admin-vto-status ' + (lock.isLocked ? 'is-danger' : 'is-success')}>
-                            {lock.isLocked ? 'Đang khóa' : 'Đã mở'}
+                            {lock.isLocked ? 'Đang hạn chế' : 'Đã gỡ'}
                           </span>
                         </td>
                         <td>{lock.reason || '-'}</td>
                         <td>{lock.lockedBy?.name || lock.lockedBy?.email || '-'}</td>
                         <td>
                           <div className="admin-vto-date">
-                            {lock.lockedAt ? <span>Khóa: {formatDate(lock.lockedAt)}</span> : null}
-                            {lock.unlockedAt ? <small>Mở: {formatDate(lock.unlockedAt)}</small> : null}
+                            {lock.lockedAt ? <span>Hạn chế: {formatDate(lock.lockedAt)}</span> : null}
+                            {lock.unlockedAt ? <small>Gỡ: {formatDate(lock.unlockedAt)}</small> : null}
                           </div>
                         </td>
                         <td>
                           <div className="admin-vto-actions">
                             {canManage && lock.isLocked ? (
-                              <button type="button" onClick={() => void handleUnlockAccount(lock)}>Mở khóa</button>
+                              <button type="button" onClick={() => void handleUnlockAccount(lock)}>Gỡ hạn chế</button>
                             ) : canManage && !lock.isLocked ? (
-                              <button type="button" onClick={() => void handleLockAccountById(lock.user._id, lock.user.name || lock.user.email)}>Khóa lại</button>
+                              <button type="button" onClick={() => handleLockAccountById(lock.user._id, lock.user.name || lock.user.email)}>Hạn chế lại</button>
                             ) : null}
                           </div>
                         </td>
@@ -1551,15 +1857,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               </table>
             ) : (
               <div className="admin-vto-empty">
-                <strong>Chưa có user bị khóa phối đồ ảo</strong>
-                <span>Nhập email/User ID ở trên hoặc khóa nhanh từ chi tiết job của user vi phạm.</span>
+                <strong>Chưa có tài khoản trong danh sách</strong>
+                <span>Nhập email hoặc mã khách hàng ở trên, hoặc chọn từ chi tiết lượt phối đồ.</span>
               </div>
             )}
           </div>
 
           {accountLockData?.pagination && accountLockData.pagination.totalPages > 1 ? (
             <footer className="admin-table-footer">
-              <span>Trang {accountLockData.pagination.page}/{accountLockData.pagination.totalPages} - {accountLockData.pagination.totalItems} user</span>
+              <span>Trang {accountLockData.pagination.page}/{accountLockData.pagination.totalPages} · {accountLockData.pagination.totalItems} tài khoản</span>
               <div>
                 <button type="button" disabled={accountLockData.pagination.page <= 1} onClick={() => updateAccountLockFilter('page', String(accountLockData.pagination.page - 1))}>Trước</button>
                 <button type="button" disabled={accountLockData.pagination.page >= accountLockData.pagination.totalPages} onClick={() => updateAccountLockFilter('page', String(accountLockData.pagination.page + 1))}>Sau</button>

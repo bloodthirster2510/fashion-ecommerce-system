@@ -1,10 +1,11 @@
 import React from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { catalogApi } from '../../catalog/catalogApi';
+import { catalogApi, type CatalogProduct } from '../../catalog/catalogApi';
 import { useAuth } from '../../auth/AuthContext';
 import { recommendationApi } from '../../recommendation/recommendationApi';
 import { useCustomerNotifications } from '../../notifications/CustomerNotificationProvider';
 import HomeScreen from '../HomeScreen';
+import { invalidateScreenData } from '../../../config/screenDataCache';
 
 const mockFocusCallbacks = new Set<() => void | (() => void)>();
 const mockCategoryDrawer = jest.fn((_props: Record<string, unknown>) => null);
@@ -78,11 +79,18 @@ const mockedCatalogApi = catalogApi as jest.Mocked<typeof catalogApi>;
 const mockedRecommendationApi = recommendationApi as jest.Mocked<typeof recommendationApi>;
 const mockedNotifications = useCustomerNotifications as jest.Mock;
 
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
+};
+
 describe('HomeScreen catalog lifecycle', () => {
   let tree: ReturnType<typeof renderer.create> | null = null;
   let now = 100_000;
 
   beforeEach(() => {
+    invalidateScreenData();
     jest.clearAllMocks();
     mockFocusCallbacks.clear();
     now = 100_000;
@@ -191,5 +199,107 @@ describe('HomeScreen catalog lifecycle', () => {
     expect(categoryProps.categories).toEqual([category]);
     expect(productProps.products).toEqual([product]);
     expect(recommendationProps.items).toEqual([recommendation]);
+  });
+
+  it('keeps Home content out of the blocking loading state during a stale refresh', async () => {
+    const product = { _id: 'product-a', name: 'Áo bán chạy' } as CatalogProduct;
+    mockedCatalogApi.getBestSellers.mockResolvedValueOnce({
+      items: [product],
+      pagination: { page: 1, limit: 8, totalItems: 1, totalPages: 1 },
+    } as never);
+
+    await renderer.act(async () => {
+      tree = renderer.create(<HomeScreen />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const refresh = deferred<Awaited<ReturnType<typeof catalogApi.getBestSellers>>>();
+    mockedCatalogApi.getBestSellers.mockReturnValueOnce(refresh.promise);
+    now += 61_000;
+    await renderer.act(async () => {
+      Array.from(mockFocusCallbacks).forEach((callback) => callback());
+      await Promise.resolve();
+    });
+
+    const productProps = mockProductSection.mock.calls.at(-1)?.[0] as {
+      products: unknown[];
+      isLoading: boolean;
+    };
+    expect(productProps.products).toEqual([product]);
+    expect(productProps.isLoading).toBe(false);
+
+    await renderer.act(async () => {
+      refresh.resolve({
+        items: [product],
+        pagination: { page: 1, limit: 8, totalItems: 1, totalPages: 1 },
+        filters: { brands: [], colors: [], fitTypes: [], sizes: [], categories: [] },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it('hydrates a remounted Home screen from cache before background requests finish', async () => {
+    const product = { _id: 'product-cache', name: 'Áo lấy từ cache' } as CatalogProduct;
+    const recommendation = {
+      product,
+      score: 1,
+      rank: 1,
+      reason: 'Phù hợp',
+      reasonCodes: ['popular'],
+    };
+    mockedCatalogApi.getBestSellers.mockResolvedValueOnce({
+      items: [product],
+      pagination: { page: 1, limit: 8, totalItems: 1, totalPages: 1 },
+    } as never);
+    mockedRecommendationApi.getPersonalRecommendations.mockResolvedValueOnce({
+      items: [recommendation],
+      requestId: 'cached-request',
+      algorithmVersion: 'v1',
+      fallbackUsed: false,
+    } as never);
+
+    await renderer.act(async () => {
+      tree = renderer.create(<HomeScreen />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await renderer.act(async () => tree?.unmount());
+    tree = null;
+    mockFocusCallbacks.clear();
+
+    const bestSellerRefresh = deferred<Awaited<ReturnType<typeof catalogApi.getBestSellers>>>();
+    const recommendationRefresh = deferred<Awaited<ReturnType<typeof recommendationApi.getPersonalRecommendations>>>();
+    mockedCatalogApi.getBestSellers.mockReturnValueOnce(bestSellerRefresh.promise);
+    mockedRecommendationApi.getPersonalRecommendations.mockReturnValueOnce(recommendationRefresh.promise);
+
+    await renderer.act(async () => {
+      tree = renderer.create(<HomeScreen />);
+      await Promise.resolve();
+    });
+
+    const productProps = mockProductSection.mock.calls.at(-1)?.[0] as {
+      products: unknown[];
+      isLoading: boolean;
+    };
+    expect(productProps.products).toEqual([product]);
+    expect(productProps.isLoading).toBe(false);
+
+    await renderer.act(async () => {
+      bestSellerRefresh.resolve({
+        items: [product],
+        pagination: { page: 1, limit: 8, totalItems: 1, totalPages: 1 },
+        filters: { brands: [], colors: [], fitTypes: [], sizes: [], categories: [] },
+      });
+      recommendationRefresh.resolve({
+        items: [recommendation],
+        requestId: 'refreshed-request',
+        algorithmVersion: 'v1',
+        fallbackUsed: false,
+      } as never);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   });
 });

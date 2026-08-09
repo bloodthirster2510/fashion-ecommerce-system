@@ -19,6 +19,7 @@ import {
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
+import { isImageValidationHardBlockReason } from './imageValidationPolicy';
 import {
   TRY_ON_ACTIVE_ITEM_LIMIT,
   TRY_ON_QUEUE_LIMIT,
@@ -50,7 +51,7 @@ import {
   type OutfitSlot,
   type SlotAlternativeGroup,
   } from './virtualTryOnSelection';
-import { contextPresets, contextPresetMeta } from './contextPresets';
+import { contextPresets } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
@@ -238,42 +239,11 @@ const genderFilterOptions: Array<{ key: TryOnGenderFilter; label: string; icon: 
   { key: 'unisex', label: 'Unisex', icon: 'gender-male-female' },
 ];
 
-const imageValidationCapabilityLabel: Record<TryOnImageValidationCapabilityMode, string> = {
-  full_set: 'nhiều món',
-  top_bottom: 'áo + quần',
-  top: 'áo',
-  bottom: 'quần',
-  dress: 'váy/đầm',
-  shoes: 'giày/dép',
-  outerwear: 'áo khoác',
-  accessory: 'món khác',
-};
-
-const imageValidationCapabilityPriority: TryOnImageValidationCapabilityMode[] = [
-  'full_set',
-  'top',
-  'bottom',
-  'dress',
-  'shoes',
-  'outerwear',
-];
-
 const getSelectionCapabilityModes = (
   _outfitMode: TryOnOutfitMode,
   selectedItems: Array<Pick<TryOnSelectedItem, 'role'>>,
 ): TryOnImageValidationCapabilityMode[] => {
   return Array.from(new Set(selectedItems.map((item) => item.role as TryOnImageValidationCapabilityMode)));
-};
-
-const getSupportedImageValidationModeSummary = (result?: TryOnImageValidationResult) => {
-  const supportedModes = new Set(result?.supportedModes ?? []);
-  const orderedModes = imageValidationCapabilityPriority.filter((mode) => supportedModes.has(mode));
-  if (!orderedModes.length) return '';
-
-  return orderedModes
-    .slice(0, 4)
-    .map((mode) => imageValidationCapabilityLabel[mode])
-    .join(', ');
 };
 
 const getUnsupportedImageValidationCapability = (
@@ -311,15 +281,15 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
   },
   MULTIPLE_PEOPLE_DETECTED: {
     title: 'Ảnh có nhiều người',
-    message: 'Dùng ảnh chỉ có một người.',
+    message: 'Nên dùng ảnh chỉ có một người.',
   },
   PERSON_TOO_SMALL: {
     title: 'Người quá nhỏ',
-    message: 'Chọn ảnh chụp gần hơn.',
+    message: 'Nên chọn ảnh chụp gần hơn.',
   },
   BODY_NOT_VISIBLE: {
     title: 'Chưa đủ vùng cho món này',
-    message: 'Ảnh này chưa thấy đủ vùng cơ thể cho món đang chọn.',
+    message: 'Nên chọn ảnh thấy rõ vùng cần phối.',
   },
   POSE_NOT_SUPPORTED: {
     title: 'Tư thế khó xử lý',
@@ -338,12 +308,12 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh không phù hợp',
-    message: 'Ảnh bị chặn bởi chính sách an toàn. Hãy chọn ảnh khác.',
+    title: 'Ảnh cần xem lại',
+    message: 'Bạn có thể tiếp tục hoặc chọn ảnh khác.',
   },
   VALIDATION_PROVIDER_FAILED: {
     title: 'Chưa kiểm tra được ảnh',
-    message: 'Hệ thống kiểm tra ảnh đang gián đoạn. Vui lòng thử lại sau.',
+    message: 'Bạn vẫn có thể tiếp tục.',
   },
 };
 
@@ -419,7 +389,7 @@ const getCreateJobErrorAlert = (error: unknown) => {
     if (error.errorCode === 'VIRTUAL_TRY_ON_ACCOUNT_LOCKED') {
       return {
         title: 'Tài khoản bị khóa',
-        message: error.message || 'Tính năng phối đồ ảo của tài khoản đang bị khóa. Vui lòng liên hệ cửa hàng để được hỗ trợ.',
+        message: error.message || 'Tính năng phối đồ đang bị khóa. Hãy liên hệ cửa hàng để được hỗ trợ.',
       };
     }
 
@@ -447,7 +417,7 @@ const getCreateJobErrorAlert = (error: unknown) => {
   }
 
   return {
-    title: 'Phối đồ ảo',
+    title: 'Phối đồ',
     message: error instanceof Error ? error.message : 'Không thể tạo yêu cầu phối đồ.',
   };
 };
@@ -463,12 +433,8 @@ const getImageValidationMessage = (
     : null;
   const reasonCode = unsupportedCapability?.reasonCode ?? result?.reasonCode;
   const validationAlert = reasonCode ? imageValidationAlerts[reasonCode] : undefined;
-  const supportedSummary = getSupportedImageValidationModeSummary(result);
   if (reasonCode === 'BODY_NOT_VISIBLE') {
-    const bodyMessage = validationAlert?.message || 'Ảnh hiện tại chưa đủ vùng cơ thể.';
-    return supportedSummary
-      ? `${bodyMessage}\nCó thể thử: ${supportedSummary}.`
-      : bodyMessage;
+    return validationAlert?.message || 'Ảnh chưa đủ vùng cơ thể.';
   }
 
   const baseMessage = validationAlert?.message ||
@@ -480,27 +446,16 @@ const getImageValidationMessage = (
   return baseMessage;
 };
 
-const withSentencePeriod = (value: string) => /[.!?…]$/.test(value.trim()) ? value : `${value}.`;
-
 const getImageValidationReasonTitle = (reasonCode?: string | null) => {
-  if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc.';
-  if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người.';
-  if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này.';
-  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh không phù hợp.';
-  if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh.';
-  return reasonCode ? withSentencePeriod(imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra') : 'Ảnh cần kiểm tra.';
+  if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc';
+  if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người';
+  if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh cần xem lại';
+  if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh';
+  return reasonCode ? imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra' : 'Ảnh cần kiểm tra';
 };
 
 const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' as const;
-
-const imageValidationBlockingReasonCodes = new Set([
-  'NO_PERSON_DETECTED',
-  'MULTIPLE_PEOPLE_DETECTED',
-  'BODY_NOT_VISIBLE',
-  'PERSON_TOO_SMALL',
-  'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
-]);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
@@ -607,7 +562,6 @@ const VirtualTryOnBuilderScreen = () => {
   const [includeVideo, setIncludeVideo] = React.useState(false);
   const [videoDurationSeconds, setVideoDurationSeconds] = React.useState(VIDEO_DURATION_DEFAULT_SECONDS);
   const [capabilities, setCapabilities] = React.useState<VirtualTryOnCapabilities | null>(null);
-  const [contextPreviewLang, setContextPreviewLang] = React.useState<'vi' | 'en'>('vi');
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
   const [isProductListVisible, setIsProductListVisible] = React.useState(false);
@@ -1171,7 +1125,7 @@ const VirtualTryOnBuilderScreen = () => {
     if (
       hasCurrentImageValidationResult &&
       currentReasonCode &&
-      imageValidationBlockingReasonCodes.has(currentReasonCode)
+      isImageValidationHardBlockReason(currentReasonCode)
     ) {
       return currentReasonCode;
     }
@@ -1179,7 +1133,7 @@ const VirtualTryOnBuilderScreen = () => {
       (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
       imageValidation.key === imageValidationScanKey &&
       imageValidation.errorCode &&
-      imageValidationBlockingReasonCodes.has(imageValidation.errorCode)
+      isImageValidationHardBlockReason(imageValidation.errorCode)
     ) {
       return imageValidation.errorCode;
     }
@@ -1267,10 +1221,10 @@ const VirtualTryOnBuilderScreen = () => {
       return {
         icon: 'alert-outline' as FashionIconName,
         tone: 'warning' as const,
-        title: validationUnavailable ? 'Kiểm tra ảnh đang gián đoạn' : 'Phối đồ ảo đang tắt',
+        title: validationUnavailable ? 'Kiểm tra ảnh đang gián đoạn' : 'Tính năng đang tạm dừng',
         message: validationUnavailable
-          ? 'Hệ thống chưa thể xác minh ảnh an toàn. Vui lòng thử lại sau.'
-          : 'Tính năng phối đồ ảo hiện chưa sẵn sàng.',
+          ? 'Chưa kiểm tra được ảnh. Bạn thử lại sau nhé.'
+          : 'Bạn thử lại sau nhé.',
       };
     }
 
@@ -1306,14 +1260,11 @@ const VirtualTryOnBuilderScreen = () => {
         };
       }
 
-      const supportedSummary = getSupportedImageValidationModeSummary(imageValidation.result);
       return {
         icon: 'check-circle-outline' as FashionIconName,
         tone: 'valid' as const,
         title: 'Ảnh phù hợp',
-        message: supportedSummary
-          ? `Có thể thử: ${supportedSummary}.`
-          : 'Có thể tạo ảnh.',
+        message: 'Có thể tạo ảnh.',
       };
     }
 
@@ -1343,13 +1294,11 @@ const VirtualTryOnBuilderScreen = () => {
   const submitWarningActive = imageValidationSoftWarnsSubmit && imageValidationDisplay.tone === 'warning';
   const submitButtonLabel = sourceAssetId
     ? imageValidationBlocksSubmit
-      ? 'Không phù hợp'
-      : submitWarningActive
-      ? 'Vẫn tạo ảnh'
+      ? 'Cần đổi ảnh'
       : includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'
     : 'Chọn ảnh';
   const submitButtonIcon = sourceAssetId
-    ? imageValidationBlocksSubmit || submitWarningActive
+    ? imageValidationBlocksSubmit
       ? 'alert-circle-outline'
       : 'auto-fix'
     : 'image-plus';
@@ -1357,21 +1306,21 @@ const VirtualTryOnBuilderScreen = () => {
     ? imageValidationDisplay.title
     : includeVideo ? 'Tạo ảnh và video phối đồ?' : 'Tạo ảnh phối đồ?';
   const createConfirmText = submitWarningActive
-    ? `${imageValidationDisplay.message}\nBạn vẫn muốn tạo ảnh?`
+    ? imageValidationDisplay.message
     : includeVideo
-      ? `Hệ thống sẽ tạo 4 ảnh gợi ý trước, sau đó dùng ảnh phối đồ đầu tiên để sinh video ${videoDurationSeconds} giây.`
-      : 'Ảnh người mặc và bộ đồ đã chọn sẽ được gửi để tạo 4 gợi ý.';
+      ? `Tạo 4 ảnh và video ${videoDurationSeconds} giây.`
+      : 'Tạo 4 ảnh với bộ đồ đã chọn.';
 
   const footerLabel = (() => {
     if (imageValidationBlocksSubmit) {
       if (imageGenerationUnavailable) return 'Tạm gián đoạn';
       return imageValidationHardBlockReason === 'NO_PERSON_DETECTED'
         ? 'Cần ảnh người'
-        : 'Không phù hợp';
+        : 'Cần đổi ảnh';
     }
 
     if (submitWarningActive) {
-      return 'Có cảnh báo';
+      return 'Có thể tạo ảnh';
     }
 
     if (outfitMode === 'full_set' && selectedItems.length < 2) {
@@ -1468,7 +1417,6 @@ const VirtualTryOnBuilderScreen = () => {
   };
 
   const outfitTotal = selectedItems.reduce((sum, item) => sum + item.finalPriceSnapshot, 0);
-  const activeModeOption = outfitModes.find((mode) => mode.key === outfitMode) ?? outfitModes[0];
   const openPreviewImage = (image: BuilderPreviewImage) => {
     if (!image.uri) return;
     setPreviewImage(image);
@@ -1510,11 +1458,7 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
           )}
           <View style={styles.studioCopy}>
-            <Text style={styles.studioEyebrow}>Ảnh người mặc</Text>
-            <Text style={styles.studioTitle}>Phối đồ trên ảnh thật của bạn</Text>
-            <Text style={styles.studioText}>
-              Chọn ảnh người mặc, thêm sản phẩm và chọn bối cảnh để tạo ảnh phối đồ.
-            </Text>
+            <Text style={styles.studioTitle}>Ảnh của bạn</Text>
             <Pressable
               accessibilityRole="button"
               disabled={!imageValidationScanKey || imageValidationDisplay.tone === 'checking'}
@@ -1590,12 +1534,10 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
-        <Text style={styles.modeSegmentHint}>{activeModeOption.description}</Text>
 
         <View style={styles.outfitHeaderRow}>
           <View>
             <Text style={styles.sectionTitle}>Bộ đồ đang phối</Text>
-            <Text style={styles.sectionHint}>Thêm sản phẩm vào từng phần của bộ đồ.</Text>
           </View>
           <View style={styles.outfitProgressPill}>
             <Text style={styles.outfitProgress}>{footerLabel}</Text>
@@ -1691,7 +1633,6 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
             <View style={styles.optionalLayerCopy}>
               <Text style={styles.optionalLayerText}>Thêm áo khoác</Text>
-              <Text style={styles.optionalLayerMeta}>Không bắt buộc, dùng khi muốn khoác ngoài.</Text>
             </View>
             <MaterialCommunityIcons name="plus-circle-outline" size={22} color={tryOnPalette.primary} />
           </TouchableOpacity>
@@ -1705,9 +1646,6 @@ const VirtualTryOnBuilderScreen = () => {
               </View>
               <View style={styles.alternativeHeaderCopy}>
                 <Text style={styles.alternativeTitle}>Món chờ thử</Text>
-                <Text style={styles.alternativeText}>
-                  Chạm một món để thử ngay; món cùng vị trí sẽ được thay vào bản phối.
-                </Text>
               </View>
               <View style={styles.alternativeHeaderBadge}>
                 <Text style={styles.alternativeHeaderBadgeText}>{queueActiveCount}/{queueItems.length} đang thử</Text>
@@ -1793,133 +1731,8 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
         </TouchableOpacity>
 
-        <View style={styles.mixPreviewCard}>
-          <View style={styles.mixPreviewHeader}>
-            <View style={styles.mixPreviewHeaderCopy}>
-              <Text style={styles.mixPreviewEyebrow}>Xem trước phối đồ</Text>
-              <Text style={styles.mixPreviewTitle}>Ảnh của bạn và món đã chọn</Text>
-            </View>
-            <View style={styles.mixPreviewCount}>
-              <Text style={styles.mixPreviewCountText}>
-                {selectedItems.length ? `${selectedItems.length}/${TRY_ON_ACTIVE_ITEM_LIMIT} món` : 'Chưa chọn'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.mixBeforeAfterRow}>
-            <View style={styles.mixPortraitStage}>
-              {sourceImageUrl ? (
-                <TouchableOpacity
-                  style={styles.mixStageVisual}
-                  onPress={() => openPreviewImage({
-                    uri: sourceImageUrl,
-                    label: 'Ảnh gốc',
-                    recyclingKey: `mix-source-preview-${sourceAssetId}`,
-                    resizeMode: 'contain',
-                  })}
-                  activeOpacity={0.9}
-                >
-                  <RemoteImage uri={sourceImageUrl} style={styles.mixSourceImage} recyclingKey={`mix-source-${sourceAssetId}`} />
-                  <View style={styles.imageExpandBadge}>
-                    <MaterialCommunityIcons name="fullscreen" size={15} color={colors.white} />
-                  </View>
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.mixStageVisual}>
-                  <MaterialCommunityIcons name="account-outline" size={30} color={tryOnPalette.primary} />
-                </View>
-              )}
-              <Text style={styles.mixStageLabel}>Ảnh gốc</Text>
-            </View>
-
-            <View style={styles.mixProcessStep}>
-              <View style={styles.mixProcessIcon}>
-                <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
-              </View>
-              <Text style={styles.mixProcessText}>AI thử đồ</Text>
-              <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
-            </View>
-
-            <View style={styles.mixPortraitStage}>
-              <View style={[styles.mixStageVisual, styles.mixResultVisual]}>
-                <View style={styles.mixResultGlow} />
-                <MaterialCommunityIcons name="auto-fix" size={28} color={colors.white} />
-                <View style={styles.mixAiPreviewFrame}>
-                  <View style={styles.mixAiPersonMark}>
-                    <MaterialCommunityIcons name="account" size={24} color="#D7F4FF" />
-                  </View>
-                  <View style={styles.mixAiSparkleOne} />
-                  <View style={styles.mixAiSparkleTwo} />
-                </View>
-                <Text style={styles.mixResultHint}>Ảnh sau khi phối</Text>
-                <View style={styles.mixSparkleDot} />
-              </View>
-              <Text style={styles.mixStageLabel}>Kết quả AI</Text>
-            </View>
-          </View>
-
-          <View style={styles.mixItemsHeader}>
-            <Text style={styles.mixItemsTitle}>Sản phẩm dùng để phối</Text>
-            <Text style={styles.mixItemsMeta}>
-              {selectedItems.length ? `${selectedItems.length} món đang chọn` : 'Chọn từ các ô bên trên'}
-            </Text>
-          </View>
-          {selectedItems.length ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.mixItemList}
-            >
-              {selectedItems.map((item, index) => (
-                <TouchableOpacity
-                  key={`mix-${getSelectedItemKey(item)}`}
-                  style={styles.mixItemCard}
-                  onPress={() => openPreviewImage({
-                    uri: item.imageSnapshot,
-                    label: roleLabel[item.role],
-                    recyclingKey: `mix-garment-preview-${item.colorVariantId}`,
-                    resizeMode: 'contain',
-                  })}
-                  activeOpacity={0.88}
-                >
-                  <View style={styles.mixItemImageWrap}>
-                    <RemoteImage
-                      uri={item.imageSnapshot}
-                      style={styles.mixItemImage}
-                      recyclingKey={`mix-garment-${item.colorVariantId}`}
-                    />
-                    <View style={styles.imageExpandBadgeSmall}>
-                      <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
-                    </View>
-                  </View>
-                  <View style={styles.mixItemCopy}>
-                    <Text style={styles.mixItemRole}>{roleLabel[item.role]}</Text>
-                    <Text style={styles.mixItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
-                    <Text style={styles.mixItemVariant} numberOfLines={1}>
-                      {[item.colorSnapshot, item.size].filter(Boolean).join(' · ')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.mixItemsEmpty}>
-              <MaterialCommunityIcons name="hanger" size={22} color="#BFD8E6" />
-              <Text style={styles.mixItemsEmptyText}>Chọn áo, quần hoặc phụ kiện để xem trước tại đây.</Text>
-            </View>
-          )}
-
-          <View style={styles.mixPreviewFooter}>
-            <MaterialCommunityIcons name="shield-check-outline" size={18} color={tryOnPalette.success} />
-            <Text style={styles.mixPreviewText}>
-              AI giữ dáng người và bối cảnh ảnh gốc, chỉ thay sản phẩm đúng màu và size bạn chọn.
-            </Text>
-          </View>
-        </View>
-
         <View style={styles.sectionHeaderBlock}>
-          <Text style={styles.sectionTitle}>Bối cảnh kết quả</Text>
-          <Text style={styles.sectionHint}>Không gian, ánh sáng và dịp mặc cho ảnh cuối.</Text>
+          <Text style={styles.sectionTitle}>Bối cảnh</Text>
         </View>
         <View style={styles.contextGrid}>
           {contextOptions.map((option) => {
@@ -1937,70 +1750,6 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
-        {(() => {
-          const meta = contextPresetMeta(contextPreset);
-          if (!meta) return null;
-          const isCustom = contextPreset === 'custom';
-          const showEn = contextPreviewLang === 'en' && !isCustom;
-          const previewText = isCustom
-            ? contextPrompt.trim()
-              ? `AI sẽ hiểu: ${contextPrompt.trim()}`
-              : meta.viPreview
-            : showEn
-              ? meta.enPromptPreview
-              : meta.viPreview;
-          return (
-            <View style={styles.contextPreviewCard}>
-              <View style={styles.contextPreviewHeader}>
-                <MaterialCommunityIcons
-                  name="auto-fix"
-                  size={15}
-                  color={tryOnPalette.primary}
-                />
-                <Text style={styles.contextPreviewLabel}>AI sẽ hiểu bối cảnh này như sau</Text>
-                {!isCustom ? (
-                  <View style={styles.contextPreviewLangToggle}>
-                    <TouchableOpacity
-                      style={[
-                        styles.contextPreviewLangBtn,
-                        contextPreviewLang === 'vi' && styles.contextPreviewLangBtnActive,
-                      ]}
-                      onPress={() => setContextPreviewLang('vi')}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.contextPreviewLangText,
-                          contextPreviewLang === 'vi' && styles.contextPreviewLangTextActive,
-                        ]}
-                      >
-                        VI
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.contextPreviewLangBtn,
-                        contextPreviewLang === 'en' && styles.contextPreviewLangBtnActive,
-                      ]}
-                      onPress={() => setContextPreviewLang('en')}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.contextPreviewLangText,
-                          contextPreviewLang === 'en' && styles.contextPreviewLangTextActive,
-                        ]}
-                      >
-                        EN
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.contextPreviewText}>{previewText}</Text>
-            </View>
-          );
-        })()}
         {contextPreset === 'custom' ? (
           <TextInput
             style={styles.promptInput}
@@ -2018,10 +1767,7 @@ const VirtualTryOnBuilderScreen = () => {
             <MaterialCommunityIcons name="view-grid-outline" size={26} color={tryOnPalette.primary} />
           </View>
           <View style={styles.outputOptionCopy}>
-            <Text style={styles.outputOptionTitle}>4 ảnh gợi ý</Text>
-            <Text style={styles.outputOptionText}>
-              Kết quả trả về 4 ảnh riêng để bạn lướt và chọn ảnh ưng ý.
-            </Text>
+            <Text style={styles.outputOptionTitle}>Kết quả: 4 ảnh</Text>
           </View>
         </View>
         {capabilities?.videoGeneration.available ? (
@@ -2031,17 +1777,14 @@ const VirtualTryOnBuilderScreen = () => {
                 <MaterialCommunityIcons name="movie-open-play-outline" size={26} color={tryOnPalette.primary} />
               </View>
               <View style={styles.outputOptionCopy}>
-                <Text style={styles.outputOptionTitle}>Sinh thêm video</Text>
-                <Text style={styles.outputOptionText}>
-                  Dùng cùng mô tả phía trên và ảnh phối đồ đầu tiên để tạo video {capabilities.videoGeneration.resolution}.
-                </Text>
+                <Text style={styles.outputOptionTitle}>Thêm video</Text>
               </View>
               <Switch
                 value={includeVideo}
                 onValueChange={setIncludeVideo}
                 trackColor={{ false: tryOnPalette.line, true: tryOnPalette.primaryPale }}
                 thumbColor={includeVideo ? tryOnPalette.primary : colors.textMuted}
-                accessibilityLabel="Sinh thêm video phối đồ"
+                accessibilityLabel="Tạo thêm video phối đồ"
               />
             </View>
             {includeVideo ? (
@@ -2067,7 +1810,6 @@ const VirtualTryOnBuilderScreen = () => {
           <TouchableOpacity
             style={[
               styles.submitButton,
-              submitWarningActive && styles.submitButtonWarning,
               submitDisabled && styles.submitButtonDisabled,
             ]}
             onPress={createJob}
@@ -2155,12 +1897,12 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.confirmCancelText}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.confirmPrimaryButton, submitWarningActive && styles.confirmPrimaryButtonWarning]}
+                style={styles.confirmPrimaryButton}
                 onPress={confirmCreateJob}
                 activeOpacity={0.86}
               >
-                <Text style={[styles.confirmPrimaryText, submitWarningActive && styles.confirmPrimaryTextWarning]}>
-                  {submitWarningActive ? 'Vẫn tạo ảnh' : includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'}
+                <Text style={styles.confirmPrimaryText}>
+                  {includeVideo ? 'Tạo ảnh + video' : 'Tạo ảnh'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2735,7 +2477,6 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 27,
     fontWeight: '900',
-    marginTop: 4,
   },
   studioText: {
     color: colors.textMuted,
@@ -3863,7 +3604,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   outputOptionCard: {
-    minHeight: 96,
+    minHeight: 72,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -4045,9 +3786,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  submitButtonWarning: {
-    backgroundColor: colors.goldDark,
-  },
   submitButtonDisabled: {
     backgroundColor: colors.border,
     borderWidth: 1,
@@ -4178,9 +3916,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  confirmPrimaryButtonWarning: {
-    backgroundColor: colors.goldDark,
-  },
   confirmCancelText: {
     color: colors.textMuted,
     fontSize: 14,
@@ -4192,9 +3927,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
-  },
-  confirmPrimaryTextWarning: {
-    color: colors.white,
   },
   variantModalRoot: {
     flex: 1,

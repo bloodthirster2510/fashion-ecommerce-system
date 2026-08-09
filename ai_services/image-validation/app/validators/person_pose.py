@@ -26,6 +26,8 @@ KEYPOINT_NAMES = [
     "right_ankle",
 ]
 
+PERSON_BOX_CONTAINMENT_THRESHOLD = 0.8
+
 
 @dataclass(frozen=True)
 class NormalizedBox:
@@ -127,6 +129,45 @@ def _normalize_box(box_xyxy: np.ndarray, image_width: int, image_height: int) ->
     )
 
 
+def _intersection_over_smaller_area(left: np.ndarray, right: np.ndarray) -> float:
+    intersection_width = max(0.0, min(left[2], right[2]) - max(left[0], right[0]))
+    intersection_height = max(0.0, min(left[3], right[3]) - max(left[1], right[1]))
+    intersection = intersection_width * intersection_height
+    left_area = max(0.0, left[2] - left[0]) * max(0.0, left[3] - left[1])
+    right_area = max(0.0, right[2] - right[0]) * max(0.0, right[3] - right[1])
+    smaller_area = min(left_area, right_area)
+    return intersection / smaller_area if smaller_area > 0 else 0.0
+
+
+def _count_distinct_person_boxes(boxes_xyxy: np.ndarray) -> int:
+    """Collapse nested partial/full-body detections before counting people."""
+    box_count = len(boxes_xyxy)
+    parents = list(range(box_count))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left_index: int, right_index: int) -> None:
+        left_root = find(left_index)
+        right_root = find(right_index)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for left_index in range(box_count):
+        for right_index in range(left_index + 1, box_count):
+            containment = _intersection_over_smaller_area(
+                boxes_xyxy[left_index],
+                boxes_xyxy[right_index],
+            )
+            if containment >= PERSON_BOX_CONTAINMENT_THRESHOLD:
+                union(left_index, right_index)
+
+    return len({find(index) for index in range(box_count)})
+
+
 class YoloPoseDetector:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -171,6 +212,7 @@ class YoloPoseDetector:
         if not valid_indices:
             return PersonPoseSummary(person_count=0)
 
+        person_count = _count_distinct_person_boxes(xyxy[valid_indices])
         main_index = max(valid_indices, key=lambda index: confidences[index])
         image_height, image_width = image.shape[:2]
         main_box = _normalize_box(xyxy[main_index], image_width, image_height)
@@ -200,7 +242,7 @@ class YoloPoseDetector:
         )
 
         return PersonPoseSummary(
-            person_count=len(valid_indices),
+            person_count=person_count,
             main_person_score=_to_float(confidences[main_index]),
             main_person_box=main_box,
             body_visibility=_estimate_body_visibility(

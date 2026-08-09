@@ -1,0 +1,2 @@
+method,queryCount,recallAt1,recallAt5,recallAt10,precisionAt5,precisionAt10,mrr,ndcgAt10,avgLatencyMs,p95LatencyMs,note
+clip-vit-b-32,70,0.6714,0.8,0.8571,0.16,0.0857,0.734,0.7636,77.8,104,offline DeepFashion image retrieval evaluation

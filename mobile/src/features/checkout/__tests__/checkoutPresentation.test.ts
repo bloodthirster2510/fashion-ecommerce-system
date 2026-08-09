@@ -53,7 +53,7 @@ describe('checkout presentation helpers', () => {
       { previewIsCurrent: false },
       { isPreviewLoading: true },
       { isSubmitting: true },
-      { paymentMethod: 'MOMO' },
+      { paymentMethod: 'BANK' },
     ]) {
       expect(canSubmitCheckout({ ...validSubmitState, ...override })).toBe(false);
     }

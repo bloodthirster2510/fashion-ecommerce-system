@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, optionalAuthenticate } from '../../../middlewares/auth.middleware';
 import { authorize, requirePermission } from '../../../middlewares/role.middleware';
 import { upload, withMulterErrorHandling } from '../../../middlewares/upload.middleware';
+import visualSearchRouter from '../../visual-search/visual-search.route';
 import {
   createProduct,
   deleteProduct,
@@ -29,6 +30,7 @@ const productImageUpload = withMulterErrorHandling(
 customerProductRouter.get('/', optionalAuthenticate, getProductList);
 customerProductRouter.get('/suggest', suggestSearch);
 customerProductRouter.get('/filters', getProductFilters);
+customerProductRouter.use('/visual-search', visualSearchRouter);
 customerProductRouter.get('/:id', getProductById);
 
 adminProductRouter.get('/', productReaders, getProducts);

@@ -269,6 +269,8 @@ const LoginScreen = () => {
                 value={identifier}
                 onChangeText={handleIdentifierChange}
                 placeholder="Nhập số điện thoại hoặc email"
+                placeholderTextColor={colors.textSubtle}
+                selectionColor={colors.brand}
                 keyboardType="default"
                 autoCapitalize="none"
               />
@@ -282,6 +284,8 @@ const LoginScreen = () => {
                   value={password}
                   onChangeText={setPassword}
                   placeholder="Nhập mật khẩu"
+                  placeholderTextColor={colors.textSubtle}
+                  selectionColor={colors.brand}
                   secureTextEntry={!showPassword}
                 />
                 <TouchableOpacity
@@ -319,6 +323,8 @@ const LoginScreen = () => {
                     value={unlockCode}
                     onChangeText={(value) => setUnlockCode(value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Nhập mã OTP 6 số"
+                    placeholderTextColor={colors.textSubtle}
+                    selectionColor={colors.brand}
                     keyboardType="number-pad"
                     maxLength={6}
                     textContentType="oneTimeCode"

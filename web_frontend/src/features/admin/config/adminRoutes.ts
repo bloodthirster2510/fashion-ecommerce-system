@@ -164,7 +164,7 @@ const adminRouteRecords: AdminRoute[] = [
     id: 'virtualTryOn',
     path: '/admin/virtual-try-on',
     label: 'Phối đồ ảo',
-    helper: 'Kiểm duyệt, job AI & quota',
+    helper: 'Lượt tạo, kết quả & giới hạn',
     group: 'service',
   },
   {

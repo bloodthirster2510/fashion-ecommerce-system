@@ -1,7 +1,11 @@
 import enRules from './rules/en.json';
 import injectionRules from './rules/injection.json';
 import viRules from './rules/vi.json';
-import type { PromptPolicyRule, VirtualTryOnPromptValidationResult } from './prompt-policy.types';
+import type {
+  PromptPolicyCategory,
+  PromptPolicyRule,
+  VirtualTryOnPromptValidationResult,
+} from './prompt-policy.types';
 
 const configuredPromptMaxLength = Number(process.env.VIRTUAL_TRY_ON_PROMPT_MAX_LENGTH || 200);
 export const PROMPT_MAX_LENGTH =
@@ -13,6 +17,9 @@ const controlCharactersPattern = /[\u0000-\u001F\u007F]/g;
 const vietnameseTonePattern = /[\u0300-\u036f]/g;
 const searchSeparatorPattern = /[\s!"#$%&'()*+,.\/:;<=>?@[\\\]^_`{|}~-]+/g;
 const inWordSeparatorPattern = /([\p{L}\p{N}])[\u0021-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u007E]+(?=[\p{L}\p{N}])/gu;
+const emailAddressRedactionPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const phoneNumberRedactionPattern = /(^|[^\d])((?:\+?84|0)(?:[\s.-]?\d){9,10})(?!\d)/g;
+const longNumberRedactionPattern = /(^|[^\d])((?:\d[\s-]?){13,19})(?!\d)/g;
 
 const promptPolicyRules = [
   ...(viRules as PromptPolicyRule[]),
@@ -47,6 +54,23 @@ export const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]
 
 const normalizePrompt = (prompt?: string) =>
   prompt?.replace(controlCharactersPattern, ' ').replace(/\s+/g, ' ').trim() || undefined;
+
+export const redactVirtualTryOnPromptForAdmin = (
+  prompt: string,
+  category?: PromptPolicyCategory,
+) => {
+  const normalizedPrompt = normalizePrompt(prompt);
+  if (!normalizedPrompt) return 'Không có nội dung';
+
+  if (category === 'personal_data') {
+    return '[Nội dung chứa dữ liệu cá nhân đã được ẩn]';
+  }
+
+  return normalizedPrompt
+    .replace(emailAddressRedactionPattern, '[email đã ẩn]')
+    .replace(phoneNumberRedactionPattern, '$1[số điện thoại đã ẩn]')
+    .replace(longNumberRedactionPattern, '$1[dãy số đã ẩn]');
+};
 
 const removeVietnameseTones = (value: string) =>
   value

@@ -8,6 +8,7 @@ import type {
   ValidateVirtualTryOnAssetInput,
   VirtualTryOnListQuery,
   VirtualTryOnPromptRuleListQuery,
+  VirtualTryOnPromptViolationListQuery,
   CreatePromptRuleInput,
   UpdatePromptRuleInput,
   VirtualTryOnAccountLockListQuery,
@@ -70,6 +71,20 @@ const getPromptRuleListQuery = (req: Request): VirtualTryOnPromptRuleListQuery =
   keyword: typeof req.query.keyword === 'string' ? req.query.keyword : undefined,
   category: typeof req.query.category === 'string' ? (req.query.category as VirtualTryOnPromptRuleListQuery['category']) : undefined,
   enabled: req.query.enabled === 'true' ? true : req.query.enabled === 'false' ? false : undefined,
+});
+
+const getPromptViolationListQuery = (req: Request): VirtualTryOnPromptViolationListQuery => ({
+  page: req.query.page ? Number(req.query.page) : undefined,
+  limit: req.query.limit ? Number(req.query.limit) : undefined,
+  keyword: typeof req.query.keyword === 'string' ? req.query.keyword : undefined,
+  category: typeof req.query.category === 'string'
+    ? (req.query.category as VirtualTryOnPromptViolationListQuery['category'])
+    : undefined,
+  action: typeof req.query.action === 'string'
+    ? (req.query.action as VirtualTryOnPromptViolationListQuery['action'])
+    : undefined,
+  dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
+  dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined,
 });
 
 const getAccountLockListQuery = (req: Request): VirtualTryOnAccountLockListQuery => ({
@@ -305,6 +320,14 @@ export const hideAdminJob = async (req: Request, res: Response) => {
 export const listPromptRules = async (req: Request, res: Response) => {
   try {
     return ok(res, await virtualTryOnService.listPromptRules(getPromptRuleListQuery(req)));
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+export const listPromptViolations = async (req: Request, res: Response) => {
+  try {
+    return ok(res, await virtualTryOnService.listPromptViolations(getPromptViolationListQuery(req)));
   } catch (error) {
     return handleError(res, error);
   }

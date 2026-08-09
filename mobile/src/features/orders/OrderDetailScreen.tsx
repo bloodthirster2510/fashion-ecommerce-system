@@ -22,7 +22,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   paymentMethodsApi,
@@ -48,6 +48,8 @@ import { EvidencePicker, type EvidenceDraft } from './components/EvidencePicker'
 import { OrderProductItem } from './components/OrderProductItem';
 import { OrderTimeline } from './components/OrderTimeline';
 import { ReturnRequestModal } from './components/ReturnRequestModal';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 
 type OrderDetailNavigationProp = StackNavigationProp<RootStackParamList, 'OrderDetail'>;
 type OrderDetailRouteProp = RouteProp<RootStackParamList, 'OrderDetail'>;
@@ -187,11 +189,19 @@ const OrderDetailScreen = () => {
   const navigation = useNavigation<OrderDetailNavigationProp>();
   const route = useRoute<OrderDetailRouteProp>();
   const { logout, runWithAuth, session } = useAuth();
+  const { settings: storefrontSettings } = useStorefrontSettings();
+  const shopName = storefrontSettings.identity.name;
   const orderId = route.params.orderId;
   const isFocused = useIsFocused();
+  const orderAccountScope = session?.user?._id ?? 'logged-out';
+  const orderQueryKey = JSON.stringify({ accountScope: orderAccountScope, orderId });
+  const orderCacheKey = `orders:detail:${orderQueryKey}`;
+  const initialOrderRef = React.useRef(
+    session?.accessToken ? readScreenData<CustomerOrder>(orderCacheKey) : undefined,
+  );
 
-  const [order, setOrder] = React.useState<CustomerOrder | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [order, setOrder] = React.useState<CustomerOrder | null>(initialOrderRef.current ?? null);
+  const [isLoading, setIsLoading] = React.useState(!initialOrderRef.current);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isCancelling, setIsCancelling] = React.useState(false);
   const [isConfirmingReceived, setIsConfirmingReceived] = React.useState(false);
@@ -209,16 +219,31 @@ const OrderDetailScreen = () => {
   const [returnEvidenceImages, setReturnEvidenceImages] = React.useState<EvidenceDraft[]>([]);
   const [refundMethods, setRefundMethods] = React.useState<PaymentMethodRecord[]>([]);
   const [isRefundMethodsLoading, setIsRefundMethodsLoading] = React.useState(false);
+  const loadedOrderQueryKeyRef = React.useRef<string | null>(initialOrderRef.current ? orderQueryKey : null);
+  const orderRequestSequenceRef = React.useRef(0);
   const shouldLoadRefundMethods = Boolean(order && shouldLoadManualRefundAccount(order));
   // Lưu order_item_id đã được đánh giá để ẩn/đổi nhãn nút review trên từng dòng hàng.
   const [reviewedItemIds, setReviewedItemIds] = React.useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (order && loadedOrderQueryKeyRef.current === orderQueryKey) {
+      writeScreenData(orderCacheKey, order);
+    }
+  }, [order, orderCacheKey, orderQueryKey]);
+
   const copyReference = React.useCallback((_label: string, value: string) => {
     Clipboard.setString(value);
   }, []);
 
   const loadOrder = React.useCallback(
     async (mode: 'loading' | 'refresh' | 'silent' = 'loading') => {
+      const requestSequence = orderRequestSequenceRef.current + 1;
+      orderRequestSequenceRef.current = requestSequence;
+
       if (!session?.accessToken) {
+        loadedOrderQueryKeyRef.current = null;
+        setIsLoading(false);
+        setIsRefreshing(false);
         navigation.navigate('Login');
         return;
       }
@@ -234,7 +259,10 @@ const OrderDetailScreen = () => {
 
       try {
         const response = await runWithAuth((accessToken) => orderApi.getOrderById(accessToken, orderId));
+        if (orderRequestSequenceRef.current !== requestSequence) return;
         setOrder(response);
+        loadedOrderQueryKeyRef.current = orderQueryKey;
+        writeScreenData(orderCacheKey, response);
         // Chỉ kiểm tra các item của đơn hiện tại thay vì tải trang đầu của toàn bộ
         // lịch sử eligibility, vốn làm sai trạng thái với các đơn cũ.
         try {
@@ -247,16 +275,19 @@ const OrderDetailScreen = () => {
               eligibility: await reviewApi.getEligibility(accessToken, response._id, orderItemId),
             })),
           ));
+          if (orderRequestSequenceRef.current !== requestSequence) return;
           setReviewedItemIds(new Set(
             eligibilityResults
               .filter(({ eligibility }) => Boolean(eligibility.reviewId))
               .map(({ orderItemId }) => orderItemId),
           ));
         } catch {
+          if (orderRequestSequenceRef.current !== requestSequence) return;
           // Eligibility là dữ liệu phụ; không chặn hiển thị đơn nếu tải thất bại.
           setReviewedItemIds(new Set());
         }
       } catch (error) {
+        if (orderRequestSequenceRef.current !== requestSequence) return;
         if (mode === 'silent') {
           return;
         }
@@ -270,21 +301,31 @@ const OrderDetailScreen = () => {
           return;
         }
 
-        setErrorMessage(getErrorMessage(error));
+        if (mode === 'refresh') {
+          Alert.alert('Chưa cập nhật được đơn hàng', getErrorMessage(error));
+        } else if (mode === 'loading') {
+          setErrorMessage(getErrorMessage(error));
+        }
       } finally {
-        if (mode === 'loading') setIsLoading(false);
-        if (mode === 'refresh') setIsRefreshing(false);
+        if (orderRequestSequenceRef.current !== requestSequence) return;
+        setIsLoading(false);
+        setIsRefreshing(false);
       }
     },
-    [logout, navigation, orderId, runWithAuth, session?.accessToken],
+    [logout, navigation, orderCacheKey, orderId, orderQueryKey, runWithAuth, session?.accessToken],
   );
 
   useStaleFocusEffect(
     () => {
-      void loadOrder();
+      const mode = resolveFocusRefreshMode(
+        loadedOrderQueryKeyRef.current,
+        orderQueryKey,
+        'silent',
+      );
+      void loadOrder(mode);
     },
-    [loadOrder],
-    { staleMs: 15 * 1000 },
+    [loadOrder, orderQueryKey],
+    { cacheScope: 'orders:', runOnDepsChange: true, staleMs: 15 * 1000 },
   );
 
   const orderRealtime = useOrderRealtime(session?.accessToken, (event) => {
@@ -576,7 +617,7 @@ const OrderDetailScreen = () => {
       Alert.alert(
         'Thông tin giao hàng',
         [
-          `Đơn vị: ${order.shipping?.provider || 'Fashionista Delivery'}`,
+          `Đơn vị: ${order.shipping?.provider || `${shopName} Delivery`}`,
           `Mã vận đơn: ${order.shipping?.trackingCode || 'Đang cập nhật'}`,
           `Trạng thái: ${getShippingStatusLabel(order.shipping?.status)}`,
           `Địa chỉ: ${formatAddress(order)}`,
@@ -729,7 +770,7 @@ const OrderDetailScreen = () => {
           <View style={styles.invoiceModal}>
             <View style={styles.invoiceHeader}>
               <View>
-                <Text style={styles.invoiceEyebrow}>FASHIONISTA</Text>
+                <Text style={styles.invoiceEyebrow}>{shopName}</Text>
                 <Text style={styles.invoiceTitle}>Hóa đơn đơn hàng</Text>
               </View>
               <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsInvoiceVisible(false)}>
@@ -1247,7 +1288,7 @@ const OrderDetailScreen = () => {
             </View>
             <Text style={styles.infoValue}>{formatAddress(order)}</Text>
             <Text style={styles.infoHint}>{order.shippingAddress.phoneNumber}</Text>
-            <Text style={styles.infoHint}>Đơn vị: {order.shipping?.provider || 'Fashionista Delivery'}</Text>
+            <Text style={styles.infoHint}>Đơn vị: {order.shipping?.provider || `${shopName} Delivery`}</Text>
             <Text style={styles.infoHint}>Mã vận đơn: {order.shipping?.trackingCode || 'Đang cập nhật'}</Text>
           </View>
         </View>

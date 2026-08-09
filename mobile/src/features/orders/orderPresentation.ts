@@ -371,7 +371,6 @@ export const statusMeta: Record<OrderStatus, {
 export const paymentMethodLabels: Record<string, string> = {
   COD: 'Thanh toán khi nhận hàng',
   VNPAY: 'VNPAY',
-  MOMO: 'MoMo',
   CARD: 'Thẻ thanh toán',
   BANK: 'Chuyển khoản',
 };

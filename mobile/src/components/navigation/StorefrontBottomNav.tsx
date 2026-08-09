@@ -18,7 +18,7 @@ type Props = {
 
 const tabs: Array<{ key: MainTab; label: string; icon: IconName; activeIcon: IconName }> = [
   { key: 'home', label: 'Trang chủ', icon: 'home-outline', activeIcon: 'home' },
-  { key: 'catalog', label: 'Khám phá', icon: 'view-grid-outline', activeIcon: 'view-grid' },
+  { key: 'catalog', label: 'Sản phẩm', icon: 'view-grid-outline', activeIcon: 'view-grid' },
   { key: 'notifications', label: 'Thông báo', icon: 'bell-outline', activeIcon: 'bell' },
   { key: 'profile', label: 'Tài khoản', icon: 'account-outline', activeIcon: 'account' },
 ];
@@ -29,10 +29,18 @@ export default function StorefrontBottomNav({ activeTab }: Props) {
   const { summary } = useCustomerNotifications();
 
   const openTab = (tab: MainTab) => {
-    if (tab === 'home') navigation.navigate('Home');
-    if (tab === 'catalog') navigation.navigate('ProductList', { title: 'Khám phá gu riêng' });
-    if (tab === 'notifications') navigation.navigate(isAuthenticated ? 'Notifications' : 'Login');
-    if (tab === 'profile') navigation.navigate(isAuthenticated ? 'Profile' : 'Login');
+    if (tab === 'home') navigation.navigate('Home', undefined, { pop: true });
+    if (tab === 'catalog') {
+      navigation.navigate('ProductList', { title: 'Sản phẩm' }, { pop: true });
+    }
+    if (tab === 'notifications') {
+      if (isAuthenticated) navigation.navigate('Notifications', undefined, { pop: true });
+      else navigation.navigate('Login');
+    }
+    if (tab === 'profile') {
+      if (isAuthenticated) navigation.navigate('Profile', undefined, { pop: true });
+      else navigation.navigate('Login');
+    }
   };
 
   return (

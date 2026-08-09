@@ -69,6 +69,16 @@ export type VirtualTryOnAccountLockListQuery = {
 
 export type LockAccountInput = {
   userId: string;
-  reason?: string;
+  reason: string;
+};
+
+export type VirtualTryOnPromptViolationListQuery = {
+  page?: number;
+  limit?: number;
+  keyword?: string;
+  category?: PromptPolicyCategory;
+  action?: 'warn' | 'temporary_block';
+  dateFrom?: string;
+  dateTo?: string;
 };
 

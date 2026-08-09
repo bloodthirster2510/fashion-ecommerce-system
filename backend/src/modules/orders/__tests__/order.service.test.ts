@@ -1030,6 +1030,7 @@ describe('orderService', () => {
       _id: orderId,
       orderCode: 'FSDELIVERED',
       invoiceCode: null,
+      invoiceIssuedAt: null,
       user_id: new Types.ObjectId(userId),
       status: 'delivered',
       deliveredAt: new Date('2026-06-24T08:00:00.000Z'),
@@ -1050,6 +1051,7 @@ describe('orderService', () => {
     expect(order.status).toBe('completed');
     expect(order.paymentStatus).toBe('paid');
     expect(order.invoiceCode).toBe('INV-FSDELIVERED');
+    expect(order.invoiceIssuedAt).toEqual(new Date('2026-06-24T08:00:00.000Z'));
     expect(order.deliveredAt).toEqual(new Date('2026-06-24T08:00:00.000Z'));
     expect(order.receivedAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
@@ -2003,6 +2005,7 @@ describe('orderService', () => {
       _id: orderId,
       orderCode: 'FSAUTOCOMPLETE',
       invoiceCode: null,
+      invoiceIssuedAt: null,
       user_id: new Types.ObjectId(userId),
       status: 'delivered',
       deliveredAt,
@@ -2031,6 +2034,7 @@ describe('orderService', () => {
     expect(order.status).toBe('completed');
     expect(order.receivedAt).toBe(now);
     expect(order.invoiceCode).toBe('INV-FSAUTOCOMPLETE');
+    expect(order.invoiceIssuedAt).toBe(deliveredAt);
     expect(order.save).toHaveBeenCalledWith({ session: mockSession });
     expect(mockedEmitOrderUpdate).toHaveBeenCalledWith(
       order,

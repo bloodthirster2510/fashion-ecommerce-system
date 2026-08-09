@@ -14,6 +14,7 @@ import type {
 import type { ShippingSimulationStatus } from './orderTypes'
 import { OrderActionsPanel } from './components/OrderActionsPanel'
 import { OrderHistoryPanel } from './components/OrderHistoryPanel'
+import { OrderInvoicePanel } from './components/OrderInvoicePanel'
 import { OrderLineItemsPanel } from './components/OrderLineItemsPanel'
 import { OrderOverviewPanel } from './components/OrderOverviewPanel'
 import { OrderPaymentPanel } from './components/OrderPaymentPanel'
@@ -37,11 +38,12 @@ import {
 import { getLatestVNPayRefundTransaction } from './utils/vnpayReconcile'
 
 const AUDIT_LOG_PAGE_SIZE = 3
-type OrderDrawerTab = 'overview' | 'items' | 'payment' | 'shipping' | 'return' | 'history'
+type OrderDrawerTab = 'overview' | 'invoice' | 'items' | 'payment' | 'shipping' | 'return' | 'history'
 type OrderDrawerTabTone = 'danger' | 'warning'
 
 const orderDrawerTabs: Array<{ key: OrderDrawerTab; label: string }> = [
   { key: 'overview', label: 'Tổng quan' },
+  { key: 'invoice', label: 'Hóa đơn' },
   { key: 'items', label: 'Sản phẩm' },
   { key: 'payment', label: 'Thanh toán & xử lý' },
   { key: 'shipping', label: 'Giao hàng' },
@@ -248,7 +250,15 @@ export function OrderDetailDrawer({
 
         <div className="admin-order-drawer-body">
         {activeDrawerTab === 'overview' ? (
-          <OrderOverviewPanel order={order} onCopyReference={onCopyReference} />
+          <OrderOverviewPanel
+            order={order}
+            onCopyReference={onCopyReference}
+            onViewInvoice={() => setActiveDrawerTab('invoice')}
+          />
+        ) : null}
+
+        {activeDrawerTab === 'invoice' ? (
+          <OrderInvoicePanel order={order} onCopyReference={onCopyReference} />
         ) : null}
 
         {activeDrawerTab === 'return' ? (

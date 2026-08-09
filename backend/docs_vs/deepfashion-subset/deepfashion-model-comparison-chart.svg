@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">DeepFashion visual retrieval comparison</title>
+  <desc id="desc">Grouped bar charts comparing FashionCLIP and CLIP ViT-B/32 on retrieval quality metrics and offline embedding latency.</desc>
+  <defs>
+    <style>
+      .title { font: 600 28px Arial, sans-serif; fill: #172033; }
+      .subtitle { font: 400 15px Arial, sans-serif; fill: #526071; }
+      .panel-title { font: 600 18px Arial, sans-serif; fill: #172033; }
+      .axis { stroke: #2c3442; stroke-width: 1.2; }
+      .grid { stroke: #d9dee7; stroke-width: 1; }
+      .tick { font: 400 12px Arial, sans-serif; fill: #526071; }
+      .label { font: 500 12px Arial, sans-serif; fill: #263244; }
+      .value { font: 600 11px Arial, sans-serif; fill: #172033; }
+      .legend { font: 500 13px Arial, sans-serif; fill: #263244; }
+      .fashion { fill: #2f855a; }
+      .clip { fill: #2b6cb0; }
+      .frame { fill: none; stroke: #c7cfda; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="60" y="46" class="title">DeepFashion Image Retrieval: FashionCLIP vs CLIP</text>
+  <text x="60" y="74" class="subtitle">Subset: 70 queries, 1,000 gallery images. Higher is better for retrieval metrics; lower is better for latency.</text>
+
+  <rect x="60" y="96" width="1080" height="374" class="frame"/>
+  <text x="80" y="124" class="panel-title">Retrieval quality metrics</text>
+
+  <rect x="882" y="108" width="14" height="14" class="fashion"/>
+  <text x="904" y="120" class="legend">FashionCLIP</text>
+  <rect x="1004" y="108" width="14" height="14" class="clip"/>
+  <text x="1026" y="120" class="legend">CLIP ViT-B/32</text>
+
+  <line x1="90" y1="420" x2="1110" y2="420" class="axis"/>
+  <line x1="90" y1="140" x2="90" y2="420" class="axis"/>
+  <line x1="90" y1="420" x2="1110" y2="420" class="grid"/>
+  <line x1="90" y1="350" x2="1110" y2="350" class="grid"/>
+  <line x1="90" y1="280" x2="1110" y2="280" class="grid"/>
+  <line x1="90" y1="210" x2="1110" y2="210" class="grid"/>
+  <line x1="90" y1="140" x2="1110" y2="140" class="grid"/>
+  <text x="58" y="424" class="tick">0.00</text>
+  <text x="58" y="354" class="tick">0.25</text>
+  <text x="58" y="284" class="tick">0.50</text>
+  <text x="58" y="214" class="tick">0.75</text>
+  <text x="58" y="144" class="tick">1.00</text>
+  <text x="74" y="132" class="tick" transform="rotate(-90 74 132)">score</text>
+
+  <g>
+    <rect x="125" y="180" width="24" height="240" class="fashion"/>
+    <rect x="155" y="232" width="24" height="188" class="clip"/>
+    <text x="137" y="172" text-anchor="middle" class="value">0.857</text>
+    <text x="167" y="224" text-anchor="middle" class="value">0.671</text>
+    <text x="152" y="444" text-anchor="middle" class="label">Recall@1</text>
+  </g>
+  <g>
+    <rect x="265" y="152" width="24" height="268" class="fashion"/>
+    <rect x="295" y="196" width="24" height="224" class="clip"/>
+    <text x="277" y="144" text-anchor="middle" class="value">0.957</text>
+    <text x="307" y="188" text-anchor="middle" class="value">0.800</text>
+    <text x="292" y="444" text-anchor="middle" class="label">Recall@5</text>
+  </g>
+  <g>
+    <rect x="405" y="152" width="24" height="268" class="fashion"/>
+    <rect x="435" y="180" width="24" height="240" class="clip"/>
+    <text x="417" y="144" text-anchor="middle" class="value">0.957</text>
+    <text x="447" y="172" text-anchor="middle" class="value">0.857</text>
+    <text x="432" y="444" text-anchor="middle" class="label">Recall@10</text>
+  </g>
+  <g>
+    <rect x="545" y="366" width="24" height="54" class="fashion"/>
+    <rect x="575" y="375" width="24" height="45" class="clip"/>
+    <text x="557" y="358" text-anchor="middle" class="value">0.191</text>
+    <text x="587" y="367" text-anchor="middle" class="value">0.160</text>
+    <text x="572" y="444" text-anchor="middle" class="label">Precision@5</text>
+  </g>
+  <g>
+    <rect x="685" y="393" width="24" height="27" class="fashion"/>
+    <rect x="715" y="396" width="24" height="24" class="clip"/>
+    <text x="697" y="385" text-anchor="middle" class="value">0.096</text>
+    <text x="727" y="388" text-anchor="middle" class="value">0.086</text>
+    <text x="712" y="444" text-anchor="middle" class="label">Precision@10</text>
+  </g>
+  <g>
+    <rect x="825" y="168" width="24" height="252" class="fashion"/>
+    <rect x="855" y="214" width="24" height="206" class="clip"/>
+    <text x="837" y="160" text-anchor="middle" class="value">0.901</text>
+    <text x="867" y="206" text-anchor="middle" class="value">0.734</text>
+    <text x="852" y="444" text-anchor="middle" class="label">MRR</text>
+  </g>
+  <g>
+    <rect x="965" y="164" width="24" height="256" class="fashion"/>
+    <rect x="995" y="206" width="24" height="214" class="clip"/>
+    <text x="977" y="156" text-anchor="middle" class="value">0.916</text>
+    <text x="1007" y="198" text-anchor="middle" class="value">0.764</text>
+    <text x="992" y="444" text-anchor="middle" class="label">NDCG@10</text>
+  </g>
+
+  <rect x="60" y="506" width="1080" height="204" class="frame"/>
+  <text x="80" y="534" class="panel-title">Offline embedding latency</text>
+  <text x="80" y="558" class="subtitle">Measured during offline evaluation. Lower is better.</text>
+
+  <line x1="220" y1="680" x2="980" y2="680" class="axis"/>
+  <line x1="220" y1="550" x2="220" y2="680" class="axis"/>
+  <line x1="220" y1="680" x2="980" y2="680" class="grid"/>
+  <line x1="220" y1="647.5" x2="980" y2="647.5" class="grid"/>
+  <line x1="220" y1="615" x2="980" y2="615" class="grid"/>
+  <line x1="220" y1="582.5" x2="980" y2="582.5" class="grid"/>
+  <line x1="220" y1="550" x2="980" y2="550" class="grid"/>
+  <text x="184" y="684" class="tick">0</text>
+  <text x="178" y="651" class="tick">50</text>
+  <text x="172" y="619" class="tick">100</text>
+  <text x="172" y="586" class="tick">150</text>
+  <text x="172" y="554" class="tick">200</text>
+  <text x="204" y="542" class="tick" transform="rotate(-90 204 542)">milliseconds</text>
+
+  <g>
+    <rect x="430" y="566" width="70" height="114" class="fashion"/>
+    <text x="465" y="558" text-anchor="middle" class="value">174.8 ms</text>
+    <text x="465" y="704" text-anchor="middle" class="label">FashionCLIP</text>
+  </g>
+  <g>
+    <rect x="700" y="629" width="70" height="51" class="clip"/>
+    <text x="735" y="621" text-anchor="middle" class="value">77.8 ms</text>
+    <text x="735" y="704" text-anchor="middle" class="label">CLIP ViT-B/32</text>
+  </g>
+</svg>

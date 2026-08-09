@@ -2,7 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Alert, Animated, Easing, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -13,7 +13,6 @@ import { virtualTryOnApi } from './virtualTryOnApi';
 import { useVirtualTryOnRealtime } from './virtualTryOnRealtime';
 import type { VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
-import { tryOnRoleLabel } from './virtualTryOnSelection';
 import {
   mergeVirtualTryOnRealtimeEvent,
   preferFreshVirtualTryOnJob,
@@ -21,21 +20,6 @@ import {
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
-
-const imageSteps = [
-  'Chuẩn bị ảnh người',
-  'Tách từng món đồ',
-  'Tạo 4 gợi ý',
-  'Lưu kết quả',
-];
-
-const videoSteps = [
-  'Chuẩn bị ảnh người',
-  'Tạo 4 ảnh gợi ý',
-  'Chọn ảnh phối làm khung đầu',
-  'Sinh video chuyển động',
-  'Lưu kết quả',
-];
 
 const studioPalette = {
   ink: '#213448',
@@ -55,12 +39,14 @@ const studioPalette = {
 const VirtualTryOnProcessingScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
+  const isFocused = useIsFocused();
   const { session, runWithAuth } = useAuth();
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const progressGlow = React.useRef(new Animated.Value(0)).current;
   const hasOpenedResult = React.useRef(false);
   const mountedRef = React.useRef(true);
+  const isFocusedRef = React.useRef(isFocused);
   const jobRef = React.useRef<VirtualTryOnJob | null>(null);
   const activeJobIdRef = React.useRef(route.params.jobId);
   const loadingJobIdsRef = React.useRef(new Set<string>());
@@ -82,6 +68,7 @@ const VirtualTryOnProcessingScreen = () => {
   }, [navigation, retainedSeedItems, retainedAlternativeSeedItems]);
 
   const returnToBuilder = React.useCallback(() => {
+    isFocusedRef.current = false;
     navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
       entryPoint: 'builder',
       seedItems: retainedSeedItems,
@@ -104,10 +91,26 @@ const VirtualTryOnProcessingScreen = () => {
       jobRef.current = nextJob;
       setJob(nextJob);
     }
-    if (nextJob.status === 'succeeded' && getGeneratedTryOnImageUrls(nextJob).length > 0) {
+    if (
+      isFocusedRef.current &&
+      nextJob.status === 'succeeded' &&
+      getGeneratedTryOnImageUrls(nextJob).length > 0
+    ) {
       openResult(nextJob._id);
     }
   }, [openResult]);
+
+  React.useEffect(() => {
+    isFocusedRef.current = isFocused;
+    const currentJob = jobRef.current;
+    if (
+      isFocused &&
+      currentJob?.status === 'succeeded' &&
+      getGeneratedTryOnImageUrls(currentJob).length > 0
+    ) {
+      openResult(currentJob._id);
+    }
+  }, [isFocused, openResult]);
 
   const loadJob = React.useCallback(async () => {
     if (loadingJobIdsRef.current.has(jobId)) return;
@@ -119,7 +122,7 @@ const VirtualTryOnProcessingScreen = () => {
     } catch (error) {
       if (!mountedRef.current || activeJobIdRef.current !== jobId) return;
       const message = error instanceof Error ? error.message : 'Không tải được tiến trình phối đồ.';
-      Alert.alert('Phối đồ ảo', message);
+      Alert.alert('Phối đồ', message);
     } finally {
       loadingJobIdsRef.current.delete(jobId);
       if (mountedRef.current && activeJobIdRef.current === jobId) setIsLoading(false);
@@ -181,7 +184,7 @@ const VirtualTryOnProcessingScreen = () => {
       applyJob(nextJob);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể thử lại.';
-      Alert.alert('Phối đồ ảo', message);
+      Alert.alert('Phối đồ', message);
     }
   };
 
@@ -191,15 +194,20 @@ const VirtualTryOnProcessingScreen = () => {
       applyJob(nextJob);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể hủy yêu cầu.';
-      Alert.alert('Phối đồ ảo', message);
+      Alert.alert('Phối đồ', message);
     }
   };
 
   const rawProgress = Math.min(100, Math.max(0, Math.round(job?.progress ?? 0)));
-  const isResultMissing = job?.status === 'succeeded' && getGeneratedTryOnImageUrls(job).length === 0;
+  const generatedImageUrls = job ? getGeneratedTryOnImageUrls(job) : [];
+  const canPreviewImagesWhileVideoRuns = Boolean(
+    job?.status === 'processing' &&
+    job.outputMode === 'image_and_video' &&
+    generatedImageUrls.length > 0,
+  );
+  const isResultMissing = job?.status === 'succeeded' && generatedImageUrls.length === 0;
   const isTerminalFailure = job?.status === 'failed' || job?.status === 'canceled' || isResultMissing;
   const isVideoStage = job?.processingStage === 'video_generation' || job?.processingStage === 'video_persisting';
-  const steps = job?.outputMode === 'image_and_video' ? videoSteps : imageSteps;
   const progress = isTerminalFailure ? 0 : rawProgress;
   const progressLabel = (() => {
     switch (job?.status) {
@@ -213,7 +221,7 @@ const VirtualTryOnProcessingScreen = () => {
         return isResultMissing ? 'Không tìm thấy ảnh kết quả' : 'Đã hoàn tất';
       case 'processing':
         return isVideoStage
-          ? job.processingStage === 'video_persisting' ? 'Đang lưu video' : 'Đang sinh video'
+          ? job.processingStage === 'video_persisting' ? 'Đang lưu video' : 'Đang tạo video'
           : progress >= 100 ? 'Đang hoàn tất' : 'Đang tạo ảnh phối đồ';
       default:
         return 'Đang xử lý';
@@ -230,26 +238,12 @@ const VirtualTryOnProcessingScreen = () => {
       { skewX: '-18deg' },
     ],
   };
-  const completedStepCount = (() => {
-    switch (job?.processingStage) {
-      case 'image_generation': return 1;
-      case 'image_persisting': return job.outputMode === 'image_and_video' ? 2 : 3;
-      case 'video_generation': return 3;
-      case 'video_persisting': return 4;
-      case 'completed': return steps.length;
-      default: return 0;
-    }
-  })();
-
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={() => navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
-            entryPoint: 'builder',
-            seedItems: retainedSeedItems,
-          } : undefined)}
+          onPress={returnToBuilder}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="close" size={24} color={colors.white} />
@@ -294,15 +288,6 @@ const VirtualTryOnProcessingScreen = () => {
                           ? 'Đã hủy tạo ảnh'
                           : isVideoStage ? 'Đang tạo chuyển động từ ảnh phối' : 'Đang tạo 4 ảnh gợi ý'}
                   </Text>
-                  <Text style={styles.subtitle}>
-                    {isResultMissing
-                      ? 'Ứng dụng sẽ không dùng ảnh gốc thay cho kết quả. Bạn hãy tạo lại yêu cầu phối đồ.'
-                      : isTerminalFailure
-                        ? 'Bạn có thể thử lại hoặc đổi ảnh bất cứ lúc nào.'
-                        : isVideoStage
-                          ? 'Video chỉ dùng ảnh phối đồ đã sinh làm khung hình đầu; ảnh gốc không được gửi sang bước này.'
-                          : 'Từng ảnh sản phẩm được gửi riêng để AI phối đúng màu, size và biến thể.'}
-                  </Text>
                 </View>
               </View>
 
@@ -319,69 +304,44 @@ const VirtualTryOnProcessingScreen = () => {
               </View>
             </View>
 
-            {job?.selectedItems.length ? (
-              <View style={styles.processingItemsCard}>
-                <View style={styles.processingItemsHeader}>
-                    <Text style={styles.processingItemsTitle}>Đang xử lý từng món</Text>
-                  <Text style={styles.processingItemsMeta}>{job.selectedItems.length} món</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.processingItemList}
-                >
-                  {job.selectedItems.map((item, index) => {
-                    const itemDone = completedStepCount >= 2 && !isTerminalFailure;
-                    return (
-                      <View key={`${item.productId}-${item.colorVariantId}-${index}`} style={styles.processingItemCard}>
-                        <RemoteImage
-                          uri={item.imageSnapshot}
-                          style={styles.processingItemImage}
-                          recyclingKey={`processing-${item.colorVariantId}`}
-                        />
-                        <View style={styles.processingItemCopy}>
-                          <Text style={styles.processingItemIndex}>{tryOnRoleLabel[item.role]}</Text>
-                          <Text style={styles.processingItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
-                          <View style={[styles.processingItemStatus, itemDone && styles.processingItemStatusDone]}>
-                            <MaterialCommunityIcons
-                              name={itemDone ? 'check' : 'timer-sand'}
-                              size={12}
-                              color={itemDone ? colors.white : studioPalette.primary}
-                            />
-                            <Text style={[styles.processingItemStatusText, itemDone && styles.processingItemStatusTextDone]}>
-                              {itemDone ? 'Đã tách riêng' : 'Đang chờ'}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null}
-
-            <View style={styles.stepsCard}>
-              {steps.map((step, index) => {
-                const done = index < completedStepCount && !isTerminalFailure;
-                const active = index === completedStepCount && !isTerminalFailure;
-                return (
-                  <View key={step} style={styles.stepRow}>
-                    <View style={[styles.stepDot, done && styles.stepDotDone]}>
-                      {done ? <MaterialCommunityIcons name="check" size={14} color={colors.white} /> : null}
+              {job && ['queued', 'processing'].includes(job.status) ? (
+                <View style={styles.backgroundProcessingCard}>
+                  <View style={styles.backgroundProcessingHeader}>
+                    <View style={styles.backgroundProcessingIcon}>
+                      <MaterialCommunityIcons name="bell-check-outline" size={24} color={studioPalette.primary} />
                     </View>
-                    <View style={styles.stepCopy}>
-                      <Text style={[styles.stepText, done && styles.stepTextDone]}>{step}</Text>
-                      <Text style={styles.stepMeta}>{done ? 'Đã xong' : active ? 'Đang xử lý' : 'Đang chờ'}</Text>
+                    <View style={styles.backgroundProcessingCopy}>
+                      <Text style={styles.backgroundProcessingTitle}>Có thể rời màn hình</Text>
+                      <Text style={styles.backgroundProcessingText}>Bạn sẽ nhận thông báo khi xong.</Text>
                     </View>
                   </View>
-                );
-              })}
-            </View>
+                  <View style={styles.backgroundProcessingActions}>
+                    <TouchableOpacity
+                      style={styles.backgroundHomeButton}
+                      onPress={returnToBuilder}
+                      activeOpacity={0.86}
+                    >
+                      <MaterialCommunityIcons name="home-outline" size={20} color={studioPalette.ink} />
+                      <Text style={styles.backgroundHomeText}>Về trang chủ</Text>
+                    </TouchableOpacity>
+                    {canPreviewImagesWhileVideoRuns ? (
+                      <TouchableOpacity
+                        style={styles.previewReadyButton}
+                        onPress={() => openResult(job._id)}
+                        activeOpacity={0.86}
+                      >
+                        <MaterialCommunityIcons name="image-multiple-outline" size={20} color={colors.white} />
+                        <Text style={styles.previewReadyText}>Xem ảnh đã tạo</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
 
             {job?.status === 'failed' || isResultMissing ? (
               <View style={styles.errorCard}>
                 <Text style={styles.errorTitle}>
-                  {isResultMissing ? 'Kết quả không đầy đủ' : isProviderSafetyBlocked ? 'AI đã từ chối ảnh này' : 'Có lỗi xảy ra'}
+                  {isResultMissing ? 'Kết quả chưa đầy đủ' : isProviderSafetyBlocked ? 'Ảnh chưa phù hợp' : 'Chưa tạo được ảnh'}
                 </Text>
                 <Text style={styles.errorText}>
                   {isResultMissing
@@ -410,9 +370,7 @@ const VirtualTryOnProcessingScreen = () => {
             {job?.status === 'canceled' ? (
               <View style={styles.errorCard}>
                 <Text style={styles.errorTitle}>Đã hủy tạo ảnh</Text>
-                <Text style={styles.errorText}>
-                  Yêu cầu phối đồ đã được hủy. Bạn có thể thử lại với cùng bộ đồ hoặc đổi ảnh.
-                </Text>
+                <Text style={styles.errorText}>Bạn có thể phối lại với bộ đồ này.</Text>
                 <View style={styles.canceledActions}>
                   <TouchableOpacity
                     style={styles.canceledSecondaryButton}
@@ -441,7 +399,7 @@ const VirtualTryOnProcessingScreen = () => {
             {job && ['queued', 'processing'].includes(job.status) ? (
               <TouchableOpacity style={styles.cancelButton} onPress={cancel} activeOpacity={0.86}>
                 <MaterialCommunityIcons name="close" size={18} color={studioPalette.ink} />
-                <Text style={styles.cancelText}>{isVideoStage ? 'Hủy video, giữ lại ảnh' : 'Hủy yêu cầu'}</Text>
+                <Text style={styles.cancelText}>{isVideoStage ? 'Hủy video, giữ ảnh' : 'Hủy yêu cầu'}</Text>
               </TouchableOpacity>
             ) : null}
           </>
@@ -514,6 +472,83 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '900',
   },
+  backgroundProcessingCard: {
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  backgroundProcessingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  backgroundProcessingIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backgroundProcessingCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  backgroundProcessingTitle: {
+    color: studioPalette.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  backgroundProcessingText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  backgroundProcessingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  backgroundHomeButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  backgroundHomeText: {
+    color: studioPalette.ink,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  previewReadyButton: {
+    flex: 1.15,
+    minHeight: 46,
+    borderRadius: radii.sm,
+    backgroundColor: studioPalette.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  previewReadyText: {
+    color: colors.white,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
   previewCard: {
     borderRadius: radii.md,
     backgroundColor: studioPalette.surface,
@@ -560,13 +595,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginTop: 4,
   },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '700',
-    marginTop: spacing.sm,
-  },
   progressTrack: {
     width: '100%',
     height: 12,
@@ -611,144 +639,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     fontWeight: '900',
-  },
-  processingItemsCard: {
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: studioPalette.line,
-    ...shadows.card,
-  },
-  processingItemsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  processingItemsTitle: {
-    flex: 1,
-    color: studioPalette.ink,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '900',
-  },
-  processingItemsMeta: {
-    color: studioPalette.primary,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-  },
-  processingItemList: {
-    gap: spacing.sm,
-    paddingRight: spacing.sm,
-  },
-  processingItemCard: {
-    width: 218,
-    minHeight: 96,
-    borderRadius: radii.sm,
-    backgroundColor: studioPalette.primarySoft,
-    borderWidth: 1,
-    borderColor: studioPalette.primaryPale,
-    padding: spacing.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  processingItemImage: {
-    width: 62,
-    height: 78,
-    borderRadius: radii.xs,
-    backgroundColor: colors.surface,
-  },
-  processingItemCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  processingItemIndex: {
-    color: studioPalette.primary,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-  },
-  processingItemName: {
-    color: studioPalette.ink,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
-    marginTop: 2,
-  },
-  processingItemStatus: {
-    alignSelf: 'flex-start',
-    minHeight: 22,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    marginTop: spacing.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  processingItemStatusDone: {
-    backgroundColor: studioPalette.success,
-  },
-  processingItemStatusText: {
-    color: studioPalette.primary,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '900',
-  },
-  processingItemStatusTextDone: {
-    color: colors.white,
-  },
-  stepsCard: {
-    borderRadius: radii.md,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: studioPalette.line,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  stepDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepDotDone: {
-    backgroundColor: studioPalette.success,
-    borderColor: studioPalette.success,
-  },
-  stepCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  stepText: {
-    color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-  },
-  stepTextDone: {
-    color: colors.text,
-    fontWeight: '900',
-  },
-  stepMeta: {
-    color: colors.textSubtle,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-    marginTop: 2,
   },
   errorCard: {
     borderRadius: radii.md,

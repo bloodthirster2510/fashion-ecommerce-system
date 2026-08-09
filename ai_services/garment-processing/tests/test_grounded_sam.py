@@ -9,10 +9,11 @@ from app.providers.grounded_sam import (
 
 
 def test_role_prompts_cover_mobile_garment_roles():
-    assert {"top", "bottom", "dress", "shoes", "outerwear"}.issubset(ROLE_PROMPTS)
+    assert {"top", "bottom", "dress", "shoes", "outerwear", "accessory"}.issubset(ROLE_PROMPTS)
     assert "polo shirt" in ROLE_PROMPTS["top"]
     assert "jeans" in ROLE_PROMPTS["bottom"]
     assert "sandal" in ROLE_PROMPTS["shoes"]
+    assert {"glasses", "watch", "backpack", "jewelry"}.issubset(ROLE_PROMPTS["accessory"])
 
 
 def test_select_detections_keeps_one_best_non_shoe_item():

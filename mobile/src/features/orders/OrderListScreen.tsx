@@ -16,7 +16,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import {
   orderApi,
@@ -40,6 +40,8 @@ import {
 import { useOrderRealtime } from './orderRealtime';
 import { OrderCard } from './components/OrderCard';
 import { OrderFilterPanel, type PaymentFilter } from './components/OrderFilterPanel';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import { useStorefrontSettings } from '../storefrontSettings/StorefrontSettingsProvider';
 
 type OrderListNavigationProp = StackNavigationProp<RootStackParamList, 'Orders'>;
 type OrderListRouteProp = RouteProp<RootStackParamList, 'Orders'>;
@@ -59,6 +61,15 @@ const displayedPaymentFilters: Array<{ key: PaymentFilter; label: string }> = [
   { key: 'needs-payment', label: 'Cần thanh toán' },
   ...paymentFilters.slice(1),
 ];
+
+const getOrdersScreenQueryKey = (
+  accountScope: string,
+  status: OrderTabKey,
+  paymentFilter: PaymentFilter,
+  searchText: string,
+) => JSON.stringify({ accountScope, status, paymentFilter, searchText });
+
+const getOrdersCacheKey = (queryKey: string) => `orders:list:${queryKey}`;
 
 const getStatusesQuery = (status: OrderTabKey, filter: PaymentFilter) => {
   const tabStatuses = getOrderTab(status).statuses;
@@ -122,13 +133,28 @@ const OrderListScreen = () => {
   const route = useRoute<OrderListRouteProp>();
   const isFocused = useIsFocused();
   const { logout, runWithAuth, session } = useAuth();
+  const { settings: storefrontSettings } = useStorefrontSettings();
+  const shopName = storefrontSettings.identity.name;
   const initialStatus = getOrderTab(route.params?.status ?? 'all').key;
+  const ordersAccountScope = session?.user?._id ?? 'logged-out';
+  const initialOrdersQueryKeyRef = React.useRef(
+    getOrdersScreenQueryKey(ordersAccountScope, initialStatus, 'all', ''),
+  );
+  const initialOrdersRef = React.useRef(
+    session?.accessToken
+      ? readScreenData<OrderListResponse>(getOrdersCacheKey(initialOrdersQueryKeyRef.current))
+      : undefined,
+  );
 
   const [activeStatus, setActiveStatus] = React.useState<OrderTabKey>(initialStatus);
-  const [orders, setOrders] = React.useState<CustomerOrder[]>([]);
-  const [statusSummary, setStatusSummary] = React.useState<OrderStatusSummary | null>(null);
-  const [pagination, setPagination] = React.useState<OrderListResponse['pagination'] | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [orders, setOrders] = React.useState<CustomerOrder[]>(initialOrdersRef.current?.items ?? []);
+  const [statusSummary, setStatusSummary] = React.useState<OrderStatusSummary | null>(
+    initialOrdersRef.current?.statusSummary ?? null,
+  );
+  const [pagination, setPagination] = React.useState<OrderListResponse['pagination'] | null>(
+    initialOrdersRef.current?.pagination ?? null,
+  );
+  const [isLoading, setIsLoading] = React.useState(!initialOrdersRef.current);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [isConfirmingId, setIsConfirmingId] = React.useState<string | null>(null);
@@ -137,6 +163,27 @@ const OrderListScreen = () => {
   const [debouncedSearchText, setDebouncedSearchText] = React.useState('');
   const [paymentFilter, setPaymentFilter] = React.useState<PaymentFilter>('all');
   const [isFilterOpen, setIsFilterOpen] = React.useState(false);
+  const loadedOrdersQueryKeyRef = React.useRef<string | null>(
+    initialOrdersRef.current ? initialOrdersQueryKeyRef.current : null,
+  );
+  const ordersRequestSequenceRef = React.useRef(0);
+
+  const getOrdersQueryKey = React.useCallback((status: OrderTabKey) => getOrdersScreenQueryKey(
+    ordersAccountScope,
+    status,
+    paymentFilter,
+    debouncedSearchText,
+  ), [debouncedSearchText, ordersAccountScope, paymentFilter]);
+
+  React.useEffect(() => {
+    const queryKey = getOrdersQueryKey(activeStatus);
+    if (loadedOrdersQueryKeyRef.current !== queryKey || !pagination) return;
+    writeScreenData<OrderListResponse>(getOrdersCacheKey(queryKey), {
+      items: orders,
+      pagination,
+      ...(statusSummary ? { statusSummary } : {}),
+    });
+  }, [activeStatus, getOrdersQueryKey, orders, pagination, statusSummary]);
 
   React.useEffect(() => {
     const timeout = setTimeout(() => {
@@ -148,10 +195,17 @@ const OrderListScreen = () => {
 
   const loadOrders = React.useCallback(
     async (status: OrderTabKey, mode: 'loading' | 'refresh' | 'more' | 'silent' = 'loading', page = 1) => {
+      const requestSequence = ordersRequestSequenceRef.current + 1;
+      ordersRequestSequenceRef.current = requestSequence;
+
       if (!session?.accessToken) {
+        loadedOrdersQueryKeyRef.current = null;
         setOrders([]);
         setStatusSummary(null);
         setPagination(null);
+        setIsLoading(false);
+        setIsRefreshing(false);
+        setIsLoadingMore(false);
         navigation.navigate('Login');
         return;
       }
@@ -181,15 +235,25 @@ const OrderListScreen = () => {
             limit: ORDER_PAGE_LIMIT,
           }),
         );
+        if (ordersRequestSequenceRef.current !== requestSequence) return;
         const nextOrders = response.items.filter((order) =>
           getOrderMatchesTab(order, status) &&
           getOrderMatchesPaymentFilter(order, paymentFilter),
         );
 
         setOrders((current) => (mode === 'more' ? mergeOrdersById(current, nextOrders) : nextOrders));
+        if (mode !== 'more' && page === 1) {
+          const queryKey = getOrdersQueryKey(status);
+          loadedOrdersQueryKeyRef.current = queryKey;
+          writeScreenData<OrderListResponse>(getOrdersCacheKey(queryKey), {
+            ...response,
+            items: nextOrders,
+          });
+        }
         setStatusSummary(response.statusSummary ?? null);
         setPagination(response.pagination ?? null);
       } catch (error) {
+        if (ordersRequestSequenceRef.current !== requestSequence) return;
         if (mode === 'silent') {
           return;
         }
@@ -205,24 +269,32 @@ const OrderListScreen = () => {
 
         if (mode === 'more') {
           Alert.alert('Không thể tải thêm đơn', getErrorMessage(error));
-        } else {
+        } else if (mode === 'refresh') {
+          Alert.alert('Chưa cập nhật được đơn hàng', getErrorMessage(error));
+        } else if (mode === 'loading') {
           setErrorMessage(getErrorMessage(error));
         }
       } finally {
-        if (mode === 'loading') setIsLoading(false);
-        if (mode === 'refresh') setIsRefreshing(false);
-        if (mode === 'more') setIsLoadingMore(false);
+        if (ordersRequestSequenceRef.current !== requestSequence) return;
+        setIsLoading(false);
+        setIsRefreshing(false);
+        setIsLoadingMore(false);
       }
     },
-    [debouncedSearchText, logout, navigation, paymentFilter, runWithAuth, session?.accessToken],
+    [debouncedSearchText, getOrdersQueryKey, logout, navigation, paymentFilter, runWithAuth, session?.accessToken],
   );
 
   useStaleFocusEffect(
     () => {
-      void loadOrders(activeStatus);
+      const mode = resolveFocusRefreshMode(
+        loadedOrdersQueryKeyRef.current,
+        getOrdersQueryKey(activeStatus),
+        'silent',
+      );
+      void loadOrders(activeStatus, mode);
     },
-    [activeStatus, loadOrders],
-    { runOnDepsChange: true, staleMs: 30 * 1000 },
+    [activeStatus, getOrdersQueryKey, loadOrders],
+    { cacheScope: 'orders:', runOnDepsChange: true, staleMs: 30 * 1000 },
   );
 
   const orderRealtime = useOrderRealtime(session?.accessToken, () => {
@@ -307,7 +379,7 @@ const OrderListScreen = () => {
           activeOpacity={0.8}
           accessibilityLabel="Trở về"
         >
-          <MaterialCommunityIcons name="arrow-left" size={27} color={colors.text} />
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerTitleGroup}>
           <Text style={styles.headerTitle}>Đơn hàng của tôi</Text>
@@ -319,7 +391,7 @@ const OrderListScreen = () => {
             activeOpacity={0.8}
             accessibilityLabel="Tìm kiếm và lọc đơn hàng"
           >
-            <MaterialCommunityIcons name={isFilterOpen ? 'close' : 'magnify'} size={27} color={colors.brand} />
+            <MaterialCommunityIcons name={isFilterOpen ? 'close' : 'magnify'} size={24} color={colors.white} />
             {hasActiveFilters && !isFilterOpen ? <View style={styles.headerActionDot} /> : null}
           </TouchableOpacity>
           <TouchableOpacity
@@ -328,7 +400,7 @@ const OrderListScreen = () => {
             activeOpacity={0.8}
             accessibilityLabel="Trung tâm hỗ trợ"
           >
-            <MaterialCommunityIcons name="message-processing-outline" size={26} color={colors.brand} />
+            <MaterialCommunityIcons name="message-processing-outline" size={24} color={colors.white} />
           </TouchableOpacity>
         </View>
       </View>
@@ -386,7 +458,7 @@ const OrderListScreen = () => {
             <View style={styles.statePanel}>
               <ActivityIndicator size="large" color={colors.brand} />
               <Text style={styles.stateTitle}>Đang tải đơn hàng</Text>
-              <Text style={styles.stateText}>Fashionista đang gom lại lịch sử mua sắm của bạn.</Text>
+              <Text style={styles.stateText}>{shopName} đang gom lại lịch sử mua sắm của bạn.</Text>
             </View>
           ) : errorMessage ? (
             <View style={styles.statePanel}>
@@ -419,6 +491,7 @@ const OrderListScreen = () => {
                   key={order._id}
                   isConfirming={isConfirmingId === order._id}
                   order={order}
+                  shopName={shopName}
                   onConfirmReceived={handleConfirmReceived}
                   onOpen={(nextOrder) => navigation.navigate('OrderDetail', { orderId: nextOrder._id })}
                 />
@@ -452,26 +525,16 @@ const OrderListScreen = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.brand,
   },
   header: {
     ...brandedHeaderStyles.container,
-    minHeight: 68,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   headerAction: {
     ...brandedHeaderStyles.action,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'transparent',
   },
   headerActionActive: {
-    backgroundColor: colors.brandSoft,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   headerActions: {
     flexDirection: 'row',
@@ -487,20 +550,16 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.danger,
     borderWidth: 1,
-    borderColor: colors.surface,
+    borderColor: colors.brand,
   },
   headerTitleGroup: {
     ...brandedHeaderStyles.titleGroup,
-    alignItems: 'flex-start',
-    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
   },
   headerTitle: {
     ...brandedHeaderStyles.title,
-    color: colors.text,
-    fontSize: 21,
-    lineHeight: 28,
     marginTop: 0,
-    textAlign: 'left',
+    textAlign: 'center',
   },
   content: {
     flex: 1,

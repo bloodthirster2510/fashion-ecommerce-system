@@ -1,4 +1,26 @@
-import { PROMPT_MAX_LENGTH, validateVirtualTryOnPrompt } from './prompt-policy.service';
+import {
+  PROMPT_MAX_LENGTH,
+  redactVirtualTryOnPromptForAdmin,
+  validateVirtualTryOnPrompt,
+} from './prompt-policy.service';
+
+describe('redactVirtualTryOnPromptForAdmin', () => {
+  it('ẩn toàn bộ nội dung khi vi phạm thuộc nhóm dữ liệu cá nhân', () => {
+    expect(redactVirtualTryOnPromptForAdmin('Gửi tới john@example.com', 'personal_data'))
+      .toBe('[Nội dung chứa dữ liệu cá nhân đã được ẩn]');
+  });
+
+  it('ẩn dữ liệu cá nhân xuất hiện kèm trong các nhóm vi phạm khác', () => {
+    expect(redactVirtualTryOnPromptForAdmin(
+      'Liên hệ john@example.com hoặc 0987 654 321, thẻ 4111 1111 1111 1111',
+      'unsafe_request',
+    )).toBe('Liên hệ [email đã ẩn] hoặc [số điện thoại đã ẩn], thẻ [dãy số đã ẩn]');
+  });
+
+  it('chuẩn hóa nội dung trống trước khi trả cho admin', () => {
+    expect(redactVirtualTryOnPromptForAdmin(' \u0000  ')).toBe('Không có nội dung');
+  });
+});
 
 describe('validateVirtualTryOnPrompt', () => {
   describe('cho phép prompt hợp lệ', () => {

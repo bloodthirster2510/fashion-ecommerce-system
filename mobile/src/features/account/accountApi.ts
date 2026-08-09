@@ -81,6 +81,19 @@ const parseApiResponse = <T>(text: string): ApiResponse<T> => {
   }
 };
 
+const getTokenCacheScope = (token: string) => {
+  let first = 2166136261;
+  let second = 2246822519;
+
+  for (let index = 0; index < token.length; index += 1) {
+    const code = token.charCodeAt(index);
+    first = Math.imul(first ^ code, 16777619);
+    second = Math.imul(second ^ code, 3266489917);
+  }
+
+  return `${(first >>> 0).toString(36)}-${(second >>> 0).toString(36)}`;
+};
+
 const request = async <T>(
   path: string,
   token: string,
@@ -150,7 +163,7 @@ export const accountApi = {
     }
 
     const path = `/orders/me?${query.toString()}`;
-    const key = `orderSummary:${path}`;
+    const key = `orderSummary:${getTokenCacheScope(token)}:${path}`;
     return withCache(key, () => request<OrderListSummaryResponse>(path, token, { signal }), { ttlMs: 30 * 1000 });
   },
 };

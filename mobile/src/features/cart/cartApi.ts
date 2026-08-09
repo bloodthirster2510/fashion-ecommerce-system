@@ -1,4 +1,9 @@
 import { apiFetch } from '../../config/api';
+import {
+  invalidateAfterMutation,
+  invalidateCartCaches,
+  invalidateOrderCaches,
+} from '../../config/cacheInvalidation';
 import type { ApiResponse, ApiValidationError } from '../auth/types';
 import { getRecommendationSessionId } from '../recommendation/recommendationSession';
 
@@ -58,7 +63,7 @@ export type CartResponse = {
   };
 };
 
-export type CartPaymentMethod = 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK';
+export type CartPaymentMethod = 'COD' | 'VNPAY';
 
 export type CreateOrderPayload = {
   cartItemIds: string[];
@@ -305,18 +310,33 @@ const request = async <T>(
 export const cartApi = {
   getCart: (token: string) => request<CartResponse>('/cart', token),
   addItem: (token: string, payload: AddCartItemPayload) =>
-    request<CartResponse>('/cart/items', token, { method: 'POST', body: payload }),
+    invalidateAfterMutation(
+      request<CartResponse>('/cart/items', token, { method: 'POST', body: payload }),
+      invalidateCartCaches,
+    ),
   updateItem: (token: string, itemId: string, payload: UpdateCartItemPayload) =>
-    request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}`, token, { method: 'PUT', body: payload }),
+    invalidateAfterMutation(
+      request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}`, token, { method: 'PUT', body: payload }),
+      invalidateCartCaches,
+    ),
   selectItem: (token: string, itemId: string, isSelected: boolean) =>
-    request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}/selected`, token, {
-      method: 'PATCH',
-      body: { isSelected },
-    }),
+    invalidateAfterMutation(
+      request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}/selected`, token, {
+        method: 'PATCH',
+        body: { isSelected },
+      }),
+      invalidateCartCaches,
+    ),
   selectAll: (token: string, isSelected: boolean) =>
-    request<CartResponse>('/cart/select-all', token, { method: 'PATCH', body: { isSelected } }),
+    invalidateAfterMutation(
+      request<CartResponse>('/cart/select-all', token, { method: 'PATCH', body: { isSelected } }),
+      invalidateCartCaches,
+    ),
   deleteItem: (token: string, itemId: string) =>
-    request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}`, token, { method: 'DELETE' }),
+    invalidateAfterMutation(
+      request<CartResponse>(`/cart/items/${encodeURIComponent(itemId)}`, token, { method: 'DELETE' }),
+      invalidateCartCaches,
+    ),
   validateCoupon: (token: string, payload: ValidateCouponPayload) =>
     request<ValidateCouponResponse>('/coupons/validate', token, {
       method: 'POST',
@@ -328,5 +348,11 @@ export const cartApi = {
       body: payload,
     }),
   createOrder: (token: string, payload: CreateOrderPayload, idempotencyKey: string) =>
-    request<OrderResponse>('/orders', token, { method: 'POST', body: payload, idempotencyKey }),
+    invalidateAfterMutation(
+      request<OrderResponse>('/orders', token, { method: 'POST', body: payload, idempotencyKey }),
+      () => {
+        invalidateCartCaches();
+        invalidateOrderCaches();
+      },
+    ),
 };

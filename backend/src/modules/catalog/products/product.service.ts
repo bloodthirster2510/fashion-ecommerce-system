@@ -10,6 +10,7 @@ import {
   InventoryReservation,
   Order,
   Product,
+  ProductVisualIndex,
   type ICategory,
   type ICategoryFitType,
   type IInventory,
@@ -1663,10 +1664,27 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
     }
   }
 
-  return Product.findByIdAndUpdate(id, updateData, {
+  const updatedProduct = await Product.findByIdAndUpdate(id, updateData, {
     returnDocument: 'after',
     runValidators: true,
   });
+
+  if (
+    updatedProduct &&
+    ['category_id', 'brand_id', 'variant', 'product_image', 'isActive'].some((field) => field in updateData)
+  ) {
+    await ProductVisualIndex.updateMany(
+      { productId: updatedProduct._id, isActive: true },
+      {
+        $set: {
+          isActive: false,
+          lastSyncedAt: new Date(),
+        },
+      },
+    );
+  }
+
+  return updatedProduct;
 };
 
 const deleteProduct = async (id: string) => {
@@ -1684,6 +1702,16 @@ const deleteProduct = async (id: string) => {
   if (!product) {
     throw new ProductServiceError('Product not found', 404);
   }
+
+  await ProductVisualIndex.updateMany(
+    { productId: product._id, isActive: true },
+    {
+      $set: {
+        isActive: false,
+        lastSyncedAt: new Date(),
+      },
+    },
+  );
 
   return product;
 };
@@ -1787,6 +1815,7 @@ const permanentlyDeleteProduct = async (id: string) => {
 
   await Inventory.deleteMany({ productId: productObjectId });
   await Product.findByIdAndDelete(id);
+  await ProductVisualIndex.deleteMany({ productId: productObjectId });
 
   return product;
 };

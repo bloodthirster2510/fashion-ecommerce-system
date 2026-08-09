@@ -11,26 +11,37 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import OutfitIcon from '../../components/ui/OutfitIcon';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
+import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
 import { useCustomerNotifications } from './CustomerNotificationProvider';
 import {
   notificationApi,
   type CustomerNotificationCategory,
   type CustomerNotificationItem,
+  type CustomerNotificationList,
 } from './notificationApi';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type NotificationsNavigationProp = StackNavigationProp<RootStackParamList, 'Notifications'>;
 type NotificationFilter = 'all' | CustomerNotificationCategory;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 const PAGE_LIMIT = 20;
+type NotificationsLoadMode = 'initial' | 'refresh' | 'more' | 'silent';
+
+const getNotificationsQueryKey = (accountScope: string, filter: NotificationFilter) => JSON.stringify({
+  accountScope,
+  filter,
+});
+
+const getNotificationsCacheKey = (queryKey: string) => `notifications:${queryKey}`;
 
 const filters: Array<{ key: NotificationFilter; label: string; icon: IconName }> = [
   { key: 'all', label: 'Tất cả', icon: 'bell-outline' },
@@ -96,25 +107,64 @@ const NotificationsScreen = () => {
   const navigation = useNavigation<NotificationsNavigationProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
   const { summary, refresh: refreshSummary } = useCustomerNotifications();
-  const [items, setItems] = React.useState<CustomerNotificationItem[]>([]);
+  const notificationsAccountScope = session?.user?._id ?? 'logged-out';
+  const initialNotificationsQueryKeyRef = React.useRef(
+    getNotificationsQueryKey(notificationsAccountScope, 'all'),
+  );
+  const initialNotificationsRef = React.useRef(
+    isAuthenticated
+      ? readScreenData<CustomerNotificationList>(
+        getNotificationsCacheKey(initialNotificationsQueryKeyRef.current),
+      )
+      : undefined,
+  );
+  const [items, setItems] = React.useState<CustomerNotificationItem[]>(
+    initialNotificationsRef.current?.items ?? [],
+  );
   const [filter, setFilter] = React.useState<NotificationFilter>('all');
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoading, setIsLoading] = React.useState(!initialNotificationsRef.current);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [isMarkingAll, setIsMarkingAll] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const nextCursorRef = React.useRef<string | null>(null);
-  const hasMoreRef = React.useRef(false);
+  const nextCursorRef = React.useRef<string | null>(
+    initialNotificationsRef.current?.pagination.nextCursor ?? null,
+  );
+  const hasMoreRef = React.useRef(initialNotificationsRef.current?.pagination.hasMore ?? false);
   const isLoadingMoreRef = React.useRef(false);
   const requestSequenceRef = React.useRef(0);
+  const loadedNotificationsQueryKeyRef = React.useRef<string | null>(
+    initialNotificationsRef.current ? initialNotificationsQueryKeyRef.current : null,
+  );
+  const notificationsQueryKey = getNotificationsQueryKey(notificationsAccountScope, filter);
+
+  React.useEffect(() => {
+    if (loadedNotificationsQueryKeyRef.current !== notificationsQueryKey) return;
+    writeScreenData<CustomerNotificationList>(getNotificationsCacheKey(notificationsQueryKey), {
+      items,
+      pagination: {
+        limit: PAGE_LIMIT,
+        hasMore: hasMoreRef.current,
+        nextCursor: nextCursorRef.current,
+      },
+      unreadCount: items.filter((item) => !item.isRead).length,
+    });
+  }, [items, notificationsQueryKey]);
 
   const loadNotifications = React.useCallback(async (
-    mode: 'initial' | 'refresh' | 'more' = 'initial',
+    mode: NotificationsLoadMode = 'initial',
   ) => {
     if (!isAuthenticated || !session?.accessToken) {
+      loadedNotificationsQueryKeyRef.current = null;
       requestSequenceRef.current += 1;
       setItems([]);
+      nextCursorRef.current = null;
+      hasMoreRef.current = false;
+      isLoadingMoreRef.current = false;
       setIsLoading(false);
+      setIsRefreshing(false);
+      setIsLoadingMore(false);
+      setError(null);
       return;
     }
     if (mode === 'more' && (!hasMoreRef.current || !nextCursorRef.current || isLoadingMoreRef.current)) return;
@@ -124,7 +174,14 @@ const NotificationsScreen = () => {
       isLoadingMoreRef.current = true;
       setIsLoadingMore(true);
     }
-    else setIsLoading(true);
+    else if (mode === 'initial') {
+      setIsLoading(true);
+      if (loadedNotificationsQueryKeyRef.current !== notificationsQueryKey) {
+        setItems([]);
+        nextCursorRef.current = null;
+        hasMoreRef.current = false;
+      }
+    }
     setError(null);
     const requestSequence = requestSequenceRef.current + 1;
     requestSequenceRef.current = requestSequence;
@@ -137,12 +194,24 @@ const NotificationsScreen = () => {
       }));
       if (requestSequenceRef.current !== requestSequence) return;
       setItems((current) => mode === 'more' ? mergeUnique(current, response.items) : response.items);
+      if (mode !== 'more') {
+        loadedNotificationsQueryKeyRef.current = notificationsQueryKey;
+        writeScreenData(getNotificationsCacheKey(notificationsQueryKey), response);
+      }
       nextCursorRef.current = response.pagination.nextCursor;
       hasMoreRef.current = response.pagination.hasMore;
       if (mode !== 'more') void refreshSummary();
     } catch (loadError) {
       if (requestSequenceRef.current !== requestSequence) return;
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải lịch sử thông báo.');
+      const message = loadError instanceof Error ? loadError.message : 'Không thể tải lịch sử thông báo.';
+      if (mode === 'initial') {
+        setError(message);
+      } else if (mode !== 'silent') {
+        Alert.alert(
+          mode === 'more' ? 'Không thể tải thêm thông báo' : 'Chưa cập nhật được thông báo',
+          message,
+        );
+      }
     } finally {
       if (requestSequenceRef.current !== requestSequence) return;
       setIsLoading(false);
@@ -150,11 +219,20 @@ const NotificationsScreen = () => {
       setIsLoadingMore(false);
       isLoadingMoreRef.current = false;
     }
-  }, [filter, isAuthenticated, refreshSummary, runWithAuth, session?.accessToken]);
+  }, [filter, isAuthenticated, notificationsQueryKey, refreshSummary, runWithAuth, session?.accessToken]);
 
-  useFocusEffect(React.useCallback(() => {
-    void loadNotifications('initial');
-  }, [loadNotifications]));
+  useStaleFocusEffect(
+    () => {
+      const mode = resolveFocusRefreshMode(
+        loadedNotificationsQueryKeyRef.current,
+        notificationsQueryKey,
+        'silent',
+      );
+      void loadNotifications(mode === 'loading' ? 'initial' : mode);
+    },
+    [loadNotifications, notificationsQueryKey],
+    { cacheScope: 'notifications:', runOnDepsChange: true, staleMs: 30 * 1000 },
+  );
 
   const sections = React.useMemo(() => {
     const grouped = new Map<string, { title: string; data: CustomerNotificationItem[] }>();

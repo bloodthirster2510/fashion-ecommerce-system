@@ -16,15 +16,25 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
+import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { RemoteImage } from '../../components/media/RemoteImage';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
-import { FavoriteProduct, favoritesApi } from './favoritesApi';
+import { FavoriteProduct, favoritesApi, type FavoriteListResponse } from './favoritesApi';
+import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type FavoritesNavigationProp = StackNavigationProp<RootStackParamList, 'Favorites'>;
 
 const FAVORITE_PAGE_LIMIT = 10;
+type FavoritesLoadMode = 'auto' | 'loading' | 'refresh' | 'silent';
+
+const getFavoritesQueryKey = (accountScope: string, page: number, submittedKeyword: string) => JSON.stringify({
+  accountScope,
+  page,
+  submittedKeyword,
+});
+
+const getFavoritesCacheKey = (queryKey: string) => `favorites:${queryKey}`;
 
 const formatCurrency = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
@@ -46,23 +56,34 @@ const formatFavoriteDate = (value: string) => {
 const FavoritesScreen = () => {
   const navigation = useNavigation<FavoritesNavigationProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
-  const [items, setItems] = React.useState<FavoriteProduct[]>([]);
+  const favoritesAccountScope = session?.user?._id ?? 'logged-out';
+  const initialFavoritesQueryKeyRef = React.useRef(getFavoritesQueryKey(favoritesAccountScope, 1, ''));
+  const initialFavoritesRef = React.useRef(
+    isAuthenticated
+      ? readScreenData<FavoriteListResponse>(getFavoritesCacheKey(initialFavoritesQueryKeyRef.current))
+      : undefined,
+  );
+  const [items, setItems] = React.useState<FavoriteProduct[]>(initialFavoritesRef.current?.items ?? []);
   const [keyword, setKeyword] = React.useState('');
   const [submittedKeyword, setSubmittedKeyword] = React.useState('');
   const [page, setPage] = React.useState(1);
-  const [pagination, setPagination] = React.useState({
-    page: 1,
-    limit: FAVORITE_PAGE_LIMIT,
-    totalItems: 0,
-    totalPages: 0,
-  });
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [pagination, setPagination] = React.useState(initialFavoritesRef.current?.pagination ?? {
+      page: 1,
+      limit: FAVORITE_PAGE_LIMIT,
+      totalItems: 0,
+      totalPages: 0,
+    });
+  const [isLoading, setIsLoading] = React.useState(!initialFavoritesRef.current);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [removingProductIds, setRemovingProductIds] = React.useState<Set<string>>(() => new Set());
   const requestSequenceRef = React.useRef(0);
+  const loadedFavoritesQueryKeyRef = React.useRef<string | null>(
+    initialFavoritesRef.current ? initialFavoritesQueryKeyRef.current : null,
+  );
   const removingProductIdsRef = React.useRef(new Set<string>());
   const isMountedRef = React.useRef(true);
+  const favoritesQueryKey = getFavoritesQueryKey(favoritesAccountScope, page, submittedKeyword);
 
   React.useEffect(() => {
     isMountedRef.current = true;
@@ -75,11 +96,12 @@ const FavoritesScreen = () => {
   }, []);
 
   const loadFavorites = React.useCallback(
-    async (silent = false) => {
+    async (requestedMode: FavoritesLoadMode = 'loading') => {
       const requestSequence = requestSequenceRef.current + 1;
       requestSequenceRef.current = requestSequence;
 
       if (!isAuthenticated || !session?.accessToken) {
+        loadedFavoritesQueryKeyRef.current = null;
         setItems([]);
         setPagination({
           page: 1,
@@ -93,9 +115,13 @@ const FavoritesScreen = () => {
         return;
       }
 
-      if (silent) {
+      const loadMode = requestedMode === 'auto'
+        ? resolveFocusRefreshMode(loadedFavoritesQueryKeyRef.current, favoritesQueryKey, 'silent')
+        : requestedMode;
+
+      if (loadMode === 'refresh') {
         setIsRefreshing(true);
-      } else {
+      } else if (loadMode === 'loading') {
         setIsLoading(true);
       }
       setError(null);
@@ -112,15 +138,17 @@ const FavoritesScreen = () => {
         if (requestSequenceRef.current !== requestSequence) return;
         setItems(response.items);
         setPagination(response.pagination);
+        loadedFavoritesQueryKeyRef.current = favoritesQueryKey;
+        writeScreenData<FavoriteListResponse>(getFavoritesCacheKey(favoritesQueryKey), response);
         setPage((currentPage) => (
           currentPage === response.pagination.page ? currentPage : response.pagination.page
         ));
       } catch (loadError) {
         if (requestSequenceRef.current !== requestSequence) return;
         const message = loadError instanceof Error ? loadError.message : 'Không thể tải danh sách yêu thích';
-        if (silent) {
+        if (loadMode === 'refresh') {
           Alert.alert('Chưa tải được yêu thích', message);
-        } else {
+        } else if (loadMode === 'loading') {
           setError(message);
         }
       } finally {
@@ -130,15 +158,15 @@ const FavoritesScreen = () => {
         }
       }
     },
-    [isAuthenticated, page, runWithAuth, session?.accessToken, submittedKeyword],
+    [favoritesQueryKey, isAuthenticated, page, runWithAuth, session?.accessToken, submittedKeyword],
   );
 
   useStaleFocusEffect(
     () => {
-      void loadFavorites();
+      void loadFavorites('auto');
     },
     [loadFavorites],
-    { staleMs: 30 * 1000, runOnDepsChange: true },
+    { cacheScope: 'favorites:', staleMs: 30 * 1000, runOnDepsChange: true },
   );
 
   const handleSearchSubmit = () => {
@@ -166,7 +194,7 @@ const FavoritesScreen = () => {
       if (items.length === 1 && page > 1) {
         setPage((currentPage) => Math.max(currentPage - 1, 1));
       } else {
-        await loadFavorites(true);
+        await loadFavorites('silent');
       }
     } catch (removeError) {
       Alert.alert(
@@ -289,7 +317,7 @@ const FavoritesScreen = () => {
         activeOpacity={0.82}
         accessibilityLabel="Giỏ hàng"
       >
-        <MaterialCommunityIcons name="shopping-outline" size={23} color={colors.white} />
+        <MaterialCommunityIcons name="cart-outline" size={23} color={colors.white} />
       </TouchableOpacity>
     </View>
   );
@@ -325,7 +353,7 @@ const FavoritesScreen = () => {
           <MaterialCommunityIcons name="alert-circle-outline" size={36} color={colors.danger} />
           <Text style={styles.stateTitle}>Chưa tải được yêu thích</Text>
           <Text style={styles.stateText}>{error}</Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => loadFavorites()} activeOpacity={0.82}>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => loadFavorites('loading')} activeOpacity={0.82}>
             <Text style={styles.primaryButtonText}>Thử lại</Text>
           </TouchableOpacity>
         </View>
@@ -337,7 +365,7 @@ const FavoritesScreen = () => {
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadFavorites(true)} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadFavorites('refresh')} />}
       >
         <View style={styles.searchPanel}>
           <View style={styles.searchRow}>

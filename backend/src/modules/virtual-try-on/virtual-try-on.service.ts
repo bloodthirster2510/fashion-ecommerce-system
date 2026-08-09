@@ -59,7 +59,11 @@ import {
   type ImageValidationReasonCode,
   type ImageValidationResult,
 } from './image-validation';
-import { escapeRegExp, validateVirtualTryOnPrompt } from './prompt-policy/prompt-policy.service';
+import {
+  escapeRegExp,
+  redactVirtualTryOnPromptForAdmin,
+  validateVirtualTryOnPrompt,
+} from './prompt-policy/prompt-policy.service';
 import type { PromptPolicyCategory, PromptPolicyRule } from './prompt-policy/prompt-policy.types';
 import {
   virtualTryOnSettingsService,
@@ -72,6 +76,7 @@ import type {
   ValidateVirtualTryOnAssetInput,
   VirtualTryOnListQuery,
   VirtualTryOnPromptRuleListQuery,
+  VirtualTryOnPromptViolationListQuery,
   CreatePromptRuleInput,
   UpdatePromptRuleInput,
   VirtualTryOnAccountLockListQuery,
@@ -98,17 +103,8 @@ const PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
-const jobBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
+const hardBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
   'NO_PERSON_DETECTED',
-  'MULTIPLE_PEOPLE_DETECTED',
-  'BODY_NOT_VISIBLE',
-  'PERSON_TOO_SMALL',
-  'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
-]);
-const uploadBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
-  'IMAGE_POLICY_BLOCKED',
-  'VALIDATION_PROVIDER_FAILED',
 ]);
 const terminalPolicyJobErrorCodes = new Set([
   'PROVIDER_SAFETY_BLOCKED',
@@ -189,8 +185,8 @@ const ensureVirtualTryOnAccountEnabled = async (userObjectId: Types.ObjectId) =>
 
   throw new VirtualTryOnServiceError(
     lock.reason
-      ? `Tính năng phối đồ ảo đang bị khóa: ${lock.reason}`
-      : 'Tính năng phối đồ ảo đang bị khóa',
+      ? `Tính năng phối đồ ảo đang bị hạn chế: ${lock.reason}`
+      : 'Tính năng phối đồ ảo đang bị hạn chế',
     403,
     'VIRTUAL_TRY_ON_FEATURE_LOCKED',
     {
@@ -200,11 +196,16 @@ const ensureVirtualTryOnAccountEnabled = async (userObjectId: Types.ObjectId) =>
   );
 };
 
+const VIETNAM_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
+
 const getLocalDayRange = (value = new Date()) => {
-  const start = new Date(value);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  const vietnamTime = new Date(value.getTime() + VIETNAM_UTC_OFFSET_MS);
+  const start = new Date(Date.UTC(
+    vietnamTime.getUTCFullYear(),
+    vietnamTime.getUTCMonth(),
+    vietnamTime.getUTCDate(),
+  ) - VIETNAM_UTC_OFFSET_MS);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
 };
 
@@ -229,7 +230,7 @@ const getActorObjectId = (actorUserId?: string) =>
 
 const resolveUserForFeatureLock = async (value: unknown) => {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new VirtualTryOnServiceError('Email hoặc User ID không hợp lệ', 400);
+    throw new VirtualTryOnServiceError('Email hoặc mã khách hàng không hợp lệ', 400);
   }
 
   const identifier = value.trim().toLowerCase();
@@ -238,7 +239,7 @@ const resolveUserForFeatureLock = async (value: unknown) => {
     : await User.findOne({ email: identifier }).select('_id').lean<{ _id: Types.ObjectId } | null>();
 
   if (!user) {
-    throw new VirtualTryOnServiceError('Không tìm thấy user theo email/User ID', 404);
+    throw new VirtualTryOnServiceError('Không tìm thấy khách hàng theo email hoặc mã đã nhập', 404);
   }
 
   return user;
@@ -246,12 +247,12 @@ const resolveUserForFeatureLock = async (value: unknown) => {
 
 const normalizePromptRuleTerm = (value: unknown) => {
   if (typeof value !== 'string') {
-    throw new VirtualTryOnServiceError('Từ khóa bị cấm không hợp lệ', 400);
+    throw new VirtualTryOnServiceError('Cụm từ cần chặn không hợp lệ', 400);
   }
 
   const term = value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
   if (term.length < 2 || term.length > 120) {
-    throw new VirtualTryOnServiceError('Từ khóa bị cấm phải từ 2 đến 120 ký tự', 400);
+    throw new VirtualTryOnServiceError('Cụm từ cần chặn phải từ 2 đến 120 ký tự', 400);
   }
 
   return term;
@@ -259,7 +260,7 @@ const normalizePromptRuleTerm = (value: unknown) => {
 
 const normalizePromptRuleCategory = (value: unknown): PromptPolicyCategory => {
   if (typeof value !== 'string' || !allowedPromptPolicyCategories.has(value as PromptPolicyCategory)) {
-    throw new VirtualTryOnServiceError('Nhóm prompt policy không hợp lệ', 400);
+    throw new VirtualTryOnServiceError('Loại vi phạm không hợp lệ', 400);
   }
 
   return value as PromptPolicyCategory;
@@ -811,8 +812,10 @@ const runVideoStage = async (jobId: string) => {
     let providerMetadata = { ...(job.videoProviderMetadata || {}) };
 
     if (!providerJobId) {
+      const durationSeconds = job.videoDurationSeconds ?? videoConfiguration.durationSeconds;
       const videoPrompt = buildVirtualTryOnVideoPrompt({
         preset: job.contextPreset,
+        durationSeconds,
         customPrompt: job.contextPrompt,
       });
       job = await updateActiveVideoJob(
@@ -837,7 +840,7 @@ const runVideoStage = async (jobId: string) => {
         sourceImageUrl,
         prompt: videoPrompt.prompt,
         negativePrompt: videoPrompt.negativePrompt,
-        durationSeconds: job.videoDurationSeconds ?? videoConfiguration.durationSeconds,
+        durationSeconds,
         resolution: videoConfiguration.resolution,
         generateAudio: videoConfiguration.generateAudio,
       });
@@ -916,6 +919,7 @@ const runVideoStage = async (jobId: string) => {
         outcome: 'completed',
         outputMode: completedJob.outputMode,
         generatedImageCount: getGeneratedImageUrls(completedJob).length,
+        imageUrl: getGeneratedImageUrls(completedJob)[0] ?? null,
         videoStatus: 'succeeded',
         retryable: false,
       });
@@ -947,6 +951,7 @@ const runVideoStage = async (jobId: string) => {
         outcome: 'partial_video_failed',
         outputMode: partialJob.outputMode,
         generatedImageCount: getGeneratedImageUrls(partialJob).length,
+        imageUrl: getGeneratedImageUrls(partialJob)[0] ?? null,
         videoStatus: 'failed',
         errorCode: providerError.errorCode,
         retryable: !terminalPolicyVideoErrorCodes.has(providerError.errorCode),
@@ -1023,6 +1028,7 @@ const runProviderJob = async (jobId: string) => {
           outcome: 'completed',
           outputMode: completedJob.outputMode,
           generatedImageCount: getGeneratedImageUrls(completedJob).length,
+          imageUrl: getGeneratedImageUrls(completedJob)[0] ?? null,
           videoStatus: 'not_requested',
           retryable: false,
         });
@@ -1061,6 +1067,7 @@ const runProviderJob = async (jobId: string) => {
         outcome: isPolicyBlocked ? 'policy_blocked' : 'failed',
         outputMode: failedJob.outputMode,
         generatedImageCount: getGeneratedImageUrls(failedJob).length,
+        imageUrl: getGeneratedImageUrls(failedJob)[0] ?? null,
         videoStatus: failedJob.videoStatus,
         errorCode,
         retryable: !isPolicyBlocked,
@@ -1518,7 +1525,7 @@ const warnSourceImageForJob = async (
   const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
   const suitabilityResult = buildBodySuitabilityResult(result, outfitMode, itemRoles);
   const suitabilityWarning = getImageValidationWarning(suitabilityResult);
-  if (suitabilityWarning && jobBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
+  if (suitabilityWarning && hardBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
     throw new VirtualTryOnServiceError(
       suitabilityWarning.message,
       getImageValidationReasonStatus(suitabilityWarning.reasonCode),
@@ -1837,7 +1844,7 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
     const validationWarning = getImageValidationWarning(validationResult);
     if (
       validationWarning &&
-      uploadBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
+      hardBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
     ) {
       throw new VirtualTryOnServiceError(
         validationWarning.message,
@@ -2370,6 +2377,28 @@ type AdminJobListQuery = VirtualTryOnListQuery & {
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const parseAdminDate = (value: string, boundary: 'start' | 'end') => {
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = dateOnlyMatch
+    ? new Date(`${value}T${boundary === 'end' ? '23:59:59.999' : '00:00:00.000'}+07:00`)
+    : new Date(value);
+
+  const normalizedVietnamDate = new Date(parsed.getTime() + VIETNAM_UTC_OFFSET_MS);
+  const invalidDateOnly = dateOnlyMatch && (
+    normalizedVietnamDate.getUTCFullYear() !== Number(dateOnlyMatch[1])
+    || normalizedVietnamDate.getUTCMonth() + 1 !== Number(dateOnlyMatch[2])
+    || normalizedVietnamDate.getUTCDate() !== Number(dateOnlyMatch[3])
+  );
+
+  if (Number.isNaN(parsed.getTime()) || invalidDateOnly) {
+    throw new VirtualTryOnServiceError(
+      boundary === 'start' ? 'Ngày bắt đầu không hợp lệ' : 'Ngày kết thúc không hợp lệ',
+      400,
+    );
+  }
+  return parsed;
+};
+
 const serializeAdminJob = async (job: IVirtualTryOnJob) => {
   const user = await User.findById(job.userId)
     .select('_id name email')
@@ -2447,14 +2476,13 @@ const buildAdminJobFilter = async (query: AdminJobListQuery) => {
 
   const createdAt: Record<string, Date> = {};
   if (query.dateFrom) {
-    const dateFrom = new Date(query.dateFrom);
-    if (Number.isNaN(dateFrom.getTime())) throw new VirtualTryOnServiceError('dateFrom không hợp lệ', 400);
-    createdAt.$gte = dateFrom;
+    createdAt.$gte = parseAdminDate(query.dateFrom, 'start');
   }
   if (query.dateTo) {
-    const dateTo = new Date(query.dateTo);
-    if (Number.isNaN(dateTo.getTime())) throw new VirtualTryOnServiceError('dateTo không hợp lệ', 400);
-    createdAt.$lte = dateTo;
+    createdAt.$lte = parseAdminDate(query.dateTo, 'end');
+  }
+  if (createdAt.$gte && createdAt.$lte && createdAt.$gte > createdAt.$lte) {
+    throw new VirtualTryOnServiceError('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc', 400);
   }
   if (Object.keys(createdAt).length) filter.createdAt = createdAt;
 
@@ -2510,8 +2538,8 @@ const listAdminJobs = async (query: AdminJobListQuery) => {
 
 const getAdminSummary = async () => {
   const now = new Date();
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
+  const { start: dayStart, end: dayEnd } = getLocalDayRange(now);
+  const todayFilter = { deletedAt: null, createdAt: { $gte: dayStart, $lt: dayEnd } };
   const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
   const [
     total,
@@ -2521,6 +2549,11 @@ const getAdminSummary = async () => {
     succeeded,
     failed,
     canceled,
+    todayQueued,
+    todayProcessing,
+    todaySucceeded,
+    todayFailed,
+    todayCanceled,
     videoRequested,
     videoProcessing,
     videoSucceeded,
@@ -2530,20 +2563,28 @@ const getAdminSummary = async () => {
     latestFailedJobs,
   ] = await Promise.all([
     VirtualTryOnJob.countDocuments({ deletedAt: null }),
-    VirtualTryOnJob.countDocuments({ deletedAt: null, createdAt: { $gte: dayStart } }),
+    VirtualTryOnJob.countDocuments(todayFilter),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'queued' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'processing' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'succeeded' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'failed' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, status: 'canceled' }),
+    VirtualTryOnJob.countDocuments({ ...todayFilter, status: 'queued' }),
+    VirtualTryOnJob.countDocuments({ ...todayFilter, status: 'processing' }),
+    VirtualTryOnJob.countDocuments({ ...todayFilter, status: 'succeeded' }),
+    VirtualTryOnJob.countDocuments({ ...todayFilter, status: 'failed' }),
+    VirtualTryOnJob.countDocuments({ ...todayFilter, status: 'canceled' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, outputMode: 'image_and_video' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, videoStatus: { $in: ['queued', 'processing'] } }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, videoStatus: 'succeeded' }),
     VirtualTryOnJob.countDocuments({ deletedAt: null, videoStatus: 'failed' }),
-    VirtualTryOnPromptViolation.countDocuments({ createdAt: { $gte: dayStart } }),
-    VirtualTryOnPromptViolation.countDocuments({ action: 'temporary_block', createdAt: { $gte: dayStart } }),
+    VirtualTryOnPromptViolation.countDocuments({ createdAt: { $gte: dayStart, $lt: dayEnd } }),
+    VirtualTryOnPromptViolation.countDocuments({ action: 'temporary_block', createdAt: { $gte: dayStart, $lt: dayEnd } }),
     VirtualTryOnJob.find({ deletedAt: null, status: 'failed' }).sort({ updatedAt: -1 }).limit(5),
   ]);
+
+  const finished = succeeded + failed;
+  const todayFinished = todaySucceeded + todayFailed;
 
   return {
     total,
@@ -2553,7 +2594,13 @@ const getAdminSummary = async () => {
     succeeded,
     failed,
     canceled,
-    successRate: total ? Math.round((succeeded / total) * 100) : 0,
+    todayQueued,
+    todayProcessing,
+    todaySucceeded,
+    todayFailed,
+    todayCanceled,
+    successRate: finished ? Math.round((succeeded / finished) * 100) : 0,
+    todaySuccessRate: todayFinished ? Math.round((todaySucceeded / todayFinished) * 100) : 0,
     provider: PROVIDER,
     videoEnabled: runtimeSettings.enabled && getVideoCapabilities().available,
     videoRequested,
@@ -2725,6 +2772,7 @@ const cancelAdminJob = async (jobId: string) => {
         outcome: 'admin_canceled',
         outputMode: videoCanceledJob.outputMode,
         generatedImageCount: getGeneratedImageUrls(videoCanceledJob).length,
+        imageUrl: getGeneratedImageUrls(videoCanceledJob)[0] ?? null,
         videoStatus: 'canceled',
         errorCode: 'ADMIN_CANCELED',
         retryable: true,
@@ -2761,6 +2809,7 @@ const cancelAdminJob = async (jobId: string) => {
     outcome: 'admin_canceled',
     outputMode: job.outputMode,
     generatedImageCount: getGeneratedImageUrls(job).length,
+    imageUrl: getGeneratedImageUrls(job)[0] ?? null,
     videoStatus: job.videoStatus,
     errorCode: 'ADMIN_CANCELED',
     retryable: true,
@@ -2845,7 +2894,7 @@ const createPromptRule = async (actorUserId: string | undefined, input: CreatePr
     return serializePromptRule(rule);
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
-      throw new VirtualTryOnServiceError('Từ khóa bị cấm đã tồn tại', 409);
+      throw new VirtualTryOnServiceError('Cụm từ cần chặn đã tồn tại', 409);
     }
     throw error;
   }
@@ -2862,7 +2911,7 @@ const updatePromptRule = async (
   });
 
   if (!rule) {
-    throw new VirtualTryOnServiceError('Từ khóa bị cấm không tồn tại', 404);
+    throw new VirtualTryOnServiceError('Quy tắc nội dung không tồn tại', 404);
   }
 
   const updates: Partial<IVirtualTryOnPromptRule> = {
@@ -2881,7 +2930,7 @@ const updatePromptRule = async (
     await rule.save();
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
-      throw new VirtualTryOnServiceError('Từ khóa bị cấm đã tồn tại', 409);
+      throw new VirtualTryOnServiceError('Cụm từ cần chặn đã tồn tại', 409);
     }
     throw error;
   }
@@ -2897,10 +2946,130 @@ const deletePromptRule = async (actorUserId: string | undefined, ruleId: string)
   );
 
   if (!rule) {
-    throw new VirtualTryOnServiceError('Từ khóa bị cấm không tồn tại', 404);
+    throw new VirtualTryOnServiceError('Quy tắc nội dung không tồn tại', 404);
   }
 
   return { _id: rule._id.toString(), deleted: true };
+};
+
+type AdminPromptViolationRecord = {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  prompt: string;
+  reasonCode: string;
+  matchedCategory?: PromptPolicyCategory;
+  action: 'warn' | 'temporary_block';
+  violationCount: number;
+  blockedUntil?: Date | null;
+  expiresAt?: Date | null;
+  createdAt: Date;
+};
+
+const listPromptViolations = async (query: VirtualTryOnPromptViolationListQuery) => {
+  const { page, limit } = clampPagination(query);
+  const filter: Record<string, unknown> = {};
+
+  if (query.category) {
+    filter.matchedCategory = normalizePromptRuleCategory(query.category);
+  }
+
+  if (query.action) {
+    if (query.action !== 'warn' && query.action !== 'temporary_block') {
+      throw new VirtualTryOnServiceError('Mức xử lý không hợp lệ', 400);
+    }
+    filter.action = query.action;
+  }
+
+  const createdAt: Record<string, Date> = {};
+  if (query.dateFrom) createdAt.$gte = parseAdminDate(query.dateFrom, 'start');
+  if (query.dateTo) createdAt.$lte = parseAdminDate(query.dateTo, 'end');
+  if (createdAt.$gte && createdAt.$lte && createdAt.$gte > createdAt.$lte) {
+    throw new VirtualTryOnServiceError('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc', 400);
+  }
+  if (Object.keys(createdAt).length) filter.createdAt = createdAt;
+
+  const keyword = query.keyword?.trim();
+  if (keyword) {
+    if (keyword.length > 100) {
+      throw new VirtualTryOnServiceError('Từ khóa không được vượt quá 100 ký tự', 400);
+    }
+
+    const keywordRegex = new RegExp(escapeRegExp(keyword), 'i');
+    const userConditions: Record<string, unknown>[] = [
+      { name: keywordRegex },
+      { email: keywordRegex },
+    ];
+    if (Types.ObjectId.isValid(keyword)) {
+      userConditions.push({ _id: new Types.ObjectId(keyword) });
+    }
+    const matchedUsers = await User.find({ $or: userConditions })
+      .select('_id')
+      .lean<Array<{ _id: Types.ObjectId }>>();
+    const keywordConditions: Record<string, unknown>[] = [
+      { prompt: keywordRegex },
+      { reasonCode: keywordRegex },
+    ];
+    if (Types.ObjectId.isValid(keyword)) {
+      keywordConditions.push({ _id: new Types.ObjectId(keyword) });
+    }
+    if (matchedUsers.length) {
+      keywordConditions.push({ userId: { $in: matchedUsers.map((user) => user._id) } });
+    }
+    filter.$or = keywordConditions;
+  }
+
+  const [totalItems, violations] = await Promise.all([
+    VirtualTryOnPromptViolation.countDocuments(filter),
+    VirtualTryOnPromptViolation.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean<AdminPromptViolationRecord[]>(),
+  ]);
+
+  const userIds = Array.from(new Set(violations.map((violation) => violation.userId.toString())));
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds.map((userId) => new Types.ObjectId(userId)) } })
+      .select('_id name email')
+      .lean<Array<{ _id: Types.ObjectId; name?: string; email?: string }>>()
+    : [];
+  const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+  const now = Date.now();
+
+  return {
+    items: violations.map((violation) => {
+      const user = usersById.get(violation.userId.toString());
+      return {
+        _id: violation._id.toString(),
+        user: user
+          ? {
+              _id: user._id.toString(),
+              name: user.name ?? '',
+              email: user.email ?? '',
+            }
+          : null,
+        promptPreview: redactVirtualTryOnPromptForAdmin(
+          violation.prompt,
+          violation.matchedCategory,
+        ),
+        reasonCode: violation.reasonCode,
+        matchedCategory: violation.matchedCategory ?? null,
+        action: violation.action,
+        violationCount: violation.violationCount,
+        blockedUntil: violation.blockedUntil?.toISOString() ?? null,
+        isActiveBlock: violation.action === 'temporary_block'
+          && Boolean(violation.blockedUntil && violation.blockedUntil.getTime() > now),
+        createdAt: violation.createdAt.toISOString(),
+        expiresAt: violation.expiresAt?.toISOString() ?? null,
+      };
+    }),
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
 };
 
 const listAccountLocks = async (query: VirtualTryOnAccountLockListQuery) => {
@@ -2952,10 +3121,13 @@ const listAccountLocks = async (query: VirtualTryOnAccountLockListQuery) => {
 const lockAccount = async (actorUserId: string | undefined, input: LockAccountInput) => {
   const user = await resolveUserForFeatureLock(input?.userId);
   const userId = user._id;
-  if (input?.reason && typeof input.reason !== 'string') {
-    throw new VirtualTryOnServiceError('Lý do khóa không hợp lệ', 400);
+  if (typeof input?.reason !== 'string') {
+    throw new VirtualTryOnServiceError('Lý do hạn chế không hợp lệ', 400);
   }
-  const reason = input?.reason?.trim().slice(0, 240) || null;
+  const reason = input.reason.trim().slice(0, 240);
+  if (reason.length < 3) {
+    throw new VirtualTryOnServiceError('Vui lòng nhập lý do hạn chế từ 3 ký tự', 400);
+  }
   const actorObjectId = getActorObjectId(actorUserId);
 
   const lock = await VirtualTryOnAccountLock.findOneAndUpdate(
@@ -2995,7 +3167,7 @@ const unlockAccount = async (actorUserId: string | undefined, userId: string) =>
   );
 
   if (!lock) {
-    throw new VirtualTryOnServiceError('User chưa bị khóa tính năng phối đồ ảo', 404);
+    throw new VirtualTryOnServiceError('Khách hàng hiện không bị hạn chế phối đồ ảo', 404);
   }
 
   await notifyVirtualTryOnAccessBestEffort({
@@ -3016,11 +3188,7 @@ const getCapabilities = async () => {
     checkImageValidationProviderHealth(),
   ]);
   const runtimeAvailable = runtimeSettings.enabled && PROVIDER !== 'disabled';
-  const imageValidationAllowsRequests =
-    imageValidation.available ||
-    imageValidation.failOpen ||
-    imageValidation.provider === 'disabled';
-  const imageAvailable = runtimeAvailable && imageValidationAllowsRequests;
+  const imageAvailable = runtimeAvailable;
   const video = getVideoCapabilities();
   return {
     imageGeneration: {
@@ -3028,9 +3196,7 @@ const getCapabilities = async () => {
       provider: PROVIDER,
       ...(!imageAvailable
         ? {
-          reasonCode: runtimeAvailable
-            ? 'IMAGE_VALIDATION_UNAVAILABLE'
-            : 'VIRTUAL_TRY_ON_DISABLED',
+          reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
         }
         : {}),
     },
@@ -3040,9 +3206,7 @@ const getCapabilities = async () => {
       : {
         ...video,
         available: false,
-        reasonCode: runtimeAvailable
-          ? 'IMAGE_VALIDATION_UNAVAILABLE'
-          : 'VIRTUAL_TRY_ON_DISABLED',
+        reasonCode: 'VIRTUAL_TRY_ON_DISABLED',
       },
   };
 };
@@ -3106,6 +3270,7 @@ export const virtualTryOnService = {
   createPromptRule,
   updatePromptRule,
   deletePromptRule,
+  listPromptViolations,
   listAccountLocks,
   lockAccount,
   unlockAccount,

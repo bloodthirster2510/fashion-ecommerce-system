@@ -44,7 +44,7 @@ const fallbackSocialCandidates: Array<[StorefrontSocialPlatform, string, string]
 const fallbackSettings: StorefrontSettings = {
   configured: false,
   identity: {
-    name: env(process.env.EXPO_PUBLIC_SHOP_NAME) || 'FASHIONISTA',
+    name: env(process.env.EXPO_PUBLIC_SHOP_NAME) || 'CDShop',
     avatarUrl: safeHttpsEnv(process.env.EXPO_PUBLIC_SHOP_AVATAR_URL),
     legalName: '',
     taxCode: '',

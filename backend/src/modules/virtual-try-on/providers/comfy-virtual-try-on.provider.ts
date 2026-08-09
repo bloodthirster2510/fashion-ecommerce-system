@@ -273,6 +273,10 @@ export const buildComfyTryOnPrompt = (
 ) => [
   'Create one single 2x2 grid image for virtual fashion try-on.',
   'The full returned image must be a vertical 3:4 portrait canvas, so each cropped grid cell is also a vertical 3:4 portrait.',
+  'The grid order is fixed: cell 1 is top-left, cell 2 is top-right, cell 3 is bottom-left, and cell 4 is bottom-right.',
+  'Cell 1 is the baseline try-on: apply the selected outfit while preserving the source person pose, expression, camera angle, perspective, crop, and body alignment as closely as possible.',
+  'Cells 2, 3, and 4 may each use a different subtle, natural fashion pose, but must keep the same person identity, body shape, body proportions, skin tone, visible body coverage, camera framing, and complete selected outfit as cell 1.',
+  'Do not turn pose variation into a different person, a body transformation, a wardrobe variation, or a different crop.',
   getComfySourceFramingInstruction(sourceImageProfile),
   'Use reference image 1 as the only source for the visible person identity cues, face if visible, hair if visible, expression if visible, pose, body shape, body proportions, height cues, shoulder width, waist if visible, legs if visible, hands if visible, feet if visible, and skin tone.',
   'Never copy or blend in the face, body, pose, age, gender presentation, skin tone, background, or other garments from catalog garment reference images.',
@@ -611,6 +615,41 @@ export const setComfyMappedInput = (
   return true;
 };
 
+export const mapComfyPromptInputs = (
+  workflow: unknown,
+  workflowMap: ComfyWorkflowMap,
+  positivePrompt: string,
+  negativePrompt: string,
+) => {
+  const normalizedPositivePrompt = positivePrompt.trim();
+  const normalizedNegativePrompt = negativePrompt.trim();
+  const negativePromptMapped = Boolean(normalizedNegativePrompt)
+    && setComfyMappedInput(workflow, workflowMap, 'negativePrompt', normalizedNegativePrompt);
+  const negativePromptFallbackApplied = Boolean(normalizedNegativePrompt) && !negativePromptMapped;
+  const effectivePositivePrompt = negativePromptFallbackApplied
+    ? [
+        normalizedPositivePrompt,
+        'STRICT AVOID LIST — none of the following outcomes may appear in the result:',
+        normalizedNegativePrompt,
+      ].join('\n\n')
+    : normalizedPositivePrompt;
+
+  let positivePromptKey: 'positivePrompt' | 'prompt' | null = null;
+  if (setComfyMappedInput(workflow, workflowMap, 'positivePrompt', effectivePositivePrompt)) {
+    positivePromptKey = 'positivePrompt';
+  } else if (setComfyMappedInput(workflow, workflowMap, 'prompt', effectivePositivePrompt)) {
+    positivePromptKey = 'prompt';
+  }
+
+  return {
+    positivePromptMapped: positivePromptKey !== null,
+    positivePromptKey,
+    negativePromptMapped,
+    negativePromptFallbackApplied,
+    effectivePositivePrompt,
+  };
+};
+
 export const configureMultiGarmentInputs = (
   workflow: unknown,
   workflowMap: ComfyWorkflowMap,
@@ -778,10 +817,19 @@ const applyWorkflowInputs = async (
     multiGarmentMapped,
     input.sourceImageProfile,
   );
-  if (!setComfyMappedInput(workflow, workflowMap, 'positivePrompt', comfyPrompt)) {
-    setComfyMappedInput(workflow, workflowMap, 'prompt', comfyPrompt);
+  const promptMapping = mapComfyPromptInputs(
+    workflow,
+    workflowMap,
+    comfyPrompt,
+    input.negativePrompt,
+  );
+  if (!promptMapping.positivePromptMapped) {
+    throw new VirtualTryOnProviderError(
+      'ComfyUI workflow map must define positivePrompt or prompt',
+      500,
+      'COMFY_MAP_INVALID',
+    );
   }
-  setComfyMappedInput(workflow, workflowMap, 'negativePrompt', input.negativePrompt);
   if (input.seed !== undefined) setComfyMappedInput(workflow, workflowMap, 'seed', input.seed);
 
   const configuredModel = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
@@ -796,6 +844,9 @@ const applyWorkflowInputs = async (
     sourceFileName,
     garmentFileNames,
     model: typeof model === 'string' ? model : configuredModel,
+    promptInputKey: promptMapping.positivePromptKey,
+    negativePromptMapped: promptMapping.negativePromptMapped,
+    negativePromptFallbackApplied: promptMapping.negativePromptFallbackApplied,
   };
 };
 

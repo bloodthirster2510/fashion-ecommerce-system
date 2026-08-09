@@ -1,8 +1,70 @@
+import { readFileSync } from 'fs';
+import path from 'path';
 import {
   buildComfyTryOnPrompt,
   configureMultiGarmentInputs,
   getComfySafetyBlockReason,
+  mapComfyPromptInputs,
 } from './comfy-virtual-try-on.provider';
+
+describe('mapComfyPromptInputs', () => {
+  it('appends strict avoid constraints when the workflow has no negative prompt input', () => {
+    const workflow: Record<string, { inputs: Record<string, unknown> }> = {
+      '5': { inputs: { value: '' } },
+    };
+
+    const result = mapComfyPromptInputs(
+      workflow,
+      { inputs: { prompt: '5.inputs.value' } },
+      'keep the same person and selected outfit',
+      'identity change, wardrobe change, extra fingers',
+    );
+
+    expect(result.positivePromptMapped).toBe(true);
+    expect(result.positivePromptKey).toBe('prompt');
+    expect(result.negativePromptMapped).toBe(false);
+    expect(result.negativePromptFallbackApplied).toBe(true);
+    expect(workflow['5'].inputs.value).toContain('STRICT AVOID LIST');
+    expect(workflow['5'].inputs.value).toContain('identity change, wardrobe change, extra fingers');
+  });
+
+  it('keeps negative constraints in their dedicated input when the workflow maps one', () => {
+    const workflow: Record<string, { inputs: Record<string, unknown> }> = {
+      '5': { inputs: { value: '' } },
+      '6': { inputs: { value: '' } },
+    };
+
+    const result = mapComfyPromptInputs(
+      workflow,
+      {
+        inputs: {
+          positivePrompt: '5.inputs.value',
+          negativePrompt: '6.inputs.value',
+        },
+      },
+      'positive prompt',
+      'negative prompt',
+    );
+
+    expect(result.positivePromptKey).toBe('positivePrompt');
+    expect(result.negativePromptMapped).toBe(true);
+    expect(result.negativePromptFallbackApplied).toBe(false);
+    expect(workflow['5'].inputs.value).toBe('positive prompt');
+    expect(workflow['6'].inputs.value).toBe('negative prompt');
+  });
+
+  it('reports a missing positive prompt mapping instead of treating it as configured', () => {
+    const result = mapComfyPromptInputs(
+      {},
+      { inputs: {} },
+      'positive prompt',
+      'negative prompt',
+    );
+
+    expect(result.positivePromptMapped).toBe(false);
+    expect(result.positivePromptKey).toBeNull();
+  });
+});
 
 describe('configureMultiGarmentInputs', () => {
   it('adds one independent load/resize branch per garment and batches them after the person image', () => {
@@ -79,6 +141,9 @@ describe('buildComfyTryOnPrompt', () => {
     expect(prompt).toContain('body shape, body proportions');
     expect(prompt).toContain('Never copy or blend in the face, body, pose');
     expect(prompt).toContain('Reference image 1 is the person photo and controls the person appearance');
+    expect(prompt).toContain('Cell 1 is the baseline try-on');
+    expect(prompt).toContain('Cells 2, 3, and 4 may each use a different subtle, natural fashion pose');
+    expect(prompt).toContain('wardrobe variation');
     expect(prompt).toContain('Reference image 2: top — White shirt, white.');
   });
 
@@ -108,6 +173,26 @@ describe('buildComfyTryOnPrompt', () => {
     expect(prompt).toContain('preserve the source upper-body crop');
     expect(prompt).toContain('do not invent legs, feet, or full-body framing');
     expect(prompt).not.toContain('Each of the four cells must show a full-body photo');
+  });
+});
+
+describe('ComfyUI image workflow prompt policy', () => {
+  it('allows scene creativity while keeping identity and selected garments immutable', () => {
+    const workflow = JSON.parse(readFileSync(
+      path.resolve('config/comfy-workflows/fashion-tryon-gemini-4in1-api.json'),
+      'utf8',
+    )) as Record<string, { inputs?: Record<string, unknown> }>;
+    const defaultPrompt = String(workflow['5']?.inputs?.value || '');
+    const systemPrompt = String(workflow['9']?.inputs?.system_prompt || '');
+
+    expect(defaultPrompt).toContain('Cell 1 is the baseline try-on');
+    expect(defaultPrompt).toContain('Cells 2, 3, and 4 may each use a different subtle, natural fashion pose');
+    expect(systemPrompt).toContain('creatively compose or refine the requested background');
+    expect(systemPrompt).toContain('identity and the selected catalog garments are immutable constraints');
+    expect(systemPrompt).toContain('cell 1 at the top-left is the baseline');
+    expect(systemPrompt).toContain('Only cells 2, 3, and 4 may use different subtle, natural fashion poses');
+    expect(systemPrompt).toContain('Never redesign, replace, recolor, omit, or add selected fashion items');
+    expect(systemPrompt).not.toContain('regardless of format, intent, or abstraction');
   });
 });
 

@@ -61,9 +61,19 @@ ROLE_PROMPTS: dict[GarmentRole, list[str]] = {
     "accessory": [
         "fashion accessory",
         "handbag",
+        "shoulder bag",
+        "crossbody bag",
+        "backpack",
         "hat",
         "belt",
         "scarf",
+        "glasses",
+        "sunglasses",
+        "watch",
+        "wristwatch",
+        "necklace",
+        "bracelet",
+        "jewelry",
     ],
 }
 

@@ -15,7 +15,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
+import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
 import { useAuth } from '../auth/AuthContext';
@@ -33,7 +33,7 @@ import {
 
 type CheckoutNavigationProp = StackNavigationProp<RootStackParamList, 'Checkout'>;
 type CheckoutRouteProp = RouteProp<RootStackParamList, 'Checkout'>;
-type PaymentMethod = 'COD' | 'VNPAY' | 'MOMO';
+type PaymentMethod = 'COD' | 'VNPAY';
 type NoticeTone = 'success' | 'error' | 'warning' | 'info';
 
 type CheckoutNotice = {
@@ -118,7 +118,6 @@ const CheckoutScreen = () => {
     note: '',
   });
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const paymentMethodSelectionTouchedRef = useRef(false);
 
   const selectedAddress = useMemo(
     () =>
@@ -445,7 +444,6 @@ const CheckoutScreen = () => {
   };
 
   const handleSelectPaymentMethod = useCallback((method: PaymentMethod) => {
-    paymentMethodSelectionTouchedRef.current = true;
     setPaymentMethod(method);
   }, []);
 
@@ -470,15 +468,6 @@ const CheckoutScreen = () => {
   const handleCheckout = async () => {
     if (!session?.accessToken) {
       navigation.navigate('Login');
-      return;
-    }
-
-    if (paymentMethod === 'MOMO') {
-      showNotice({
-        tone: 'warning',
-        title: 'MoMo chưa sẵn sàng',
-        message: 'Cổng MoMo chưa được tích hợp. Bạn chọn COD hoặc VNPay để đặt hàng nha.',
-      });
       return;
     }
 
@@ -689,24 +678,22 @@ const CheckoutScreen = () => {
     method: PaymentMethod,
     title: string,
     icon: keyof typeof MaterialCommunityIcons.glyphMap,
-    disabled = false,
     subtitle?: string,
   ) => {
     const selected = paymentMethod === method;
 
     return (
       <TouchableOpacity
-        style={[styles.paymentOption, selected && styles.paymentOptionSelected, disabled && styles.paymentOptionDisabled]}
-        onPress={() => (disabled ? undefined : handleSelectPaymentMethod(method))}
-        disabled={disabled}
+        style={[styles.paymentOption, selected && styles.paymentOptionSelected]}
+        onPress={() => handleSelectPaymentMethod(method)}
         activeOpacity={0.82}
       >
         <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
           {selected ? <View style={styles.radioInner} /> : null}
         </View>
-        <MaterialCommunityIcons name={icon} size={24} color={disabled ? colors.textSubtle : colors.brand} />
+        <MaterialCommunityIcons name={icon} size={24} color={colors.brand} />
         <View style={styles.paymentTextBlock}>
-          <Text style={[styles.paymentTitle, disabled && styles.paymentTitleDisabled]}>{title}</Text>
+          <Text style={styles.paymentTitle}>{title}</Text>
           {subtitle ? <Text style={styles.paymentSubtitle}>{subtitle}</Text> : null}
         </View>
       </TouchableOpacity>
@@ -872,13 +859,34 @@ const CheckoutScreen = () => {
         </View>
       )}
       <View style={styles.checkoutItemCopy}>
-        <Text style={styles.checkoutItemName} numberOfLines={2}>{getCheckoutItemTitle(item)}</Text>
-        {item.brand?.name ? <Text style={styles.checkoutItemBrand}>{item.brand.name}</Text> : null}
-        <Text style={styles.checkoutItemVariant}>
-          {[item.color, item.size].filter(Boolean).join(' · ')}
-        </Text>
+        <View>
+          {item.brand?.name ? <Text style={styles.checkoutItemBrand} numberOfLines={1}>{item.brand.name}</Text> : null}
+          <Text style={styles.checkoutItemName} numberOfLines={2}>{getCheckoutItemTitle(item)}</Text>
+          {item.color || item.size ? (
+            <View style={styles.checkoutItemVariantRow}>
+              {item.color ? (
+                <View style={styles.checkoutItemVariantChip}>
+                  <View
+                    style={[
+                      styles.checkoutItemColorDot,
+                      { backgroundColor: item.colorCode || colors.borderStrong },
+                    ]}
+                  />
+                  <Text style={styles.checkoutItemVariantText}>{item.color}</Text>
+                </View>
+              ) : null}
+              {item.size ? (
+                <View style={styles.checkoutItemVariantChip}>
+                  <Text style={styles.checkoutItemVariantText}>Size {item.size}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
         <View style={styles.checkoutItemBottomRow}>
-          <Text style={styles.checkoutItemQuantity}>SL: {item.quantity}</Text>
+          <View style={styles.checkoutItemQuantityChip}>
+            <Text style={styles.checkoutItemQuantity}>x{item.quantity}</Text>
+          </View>
           <Text style={styles.checkoutItemPrice}>{formatCurrency(item.lineTotal)}</Text>
         </View>
       </View>
@@ -1004,9 +1012,8 @@ const CheckoutScreen = () => {
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Kênh thanh toán đơn hàng</Text>
           <View style={styles.paymentStack}>
-            {renderPaymentOption('COD', 'Thanh toán khi giao hàng (COD)', 'truck-delivery-outline', false, 'Khách hàng được kiểm tra hàng trước khi nhận.')}
-            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', false, vnpayPaymentSubtitle)}
-            {renderPaymentOption('MOMO', 'Thanh toán MoMo', 'wallet-outline', true, 'Sắp kết nối — MoMo chưa được tích hợp.')}
+            {renderPaymentOption('COD', 'Thanh toán khi giao hàng (COD)', 'truck-delivery-outline', 'Khách hàng được kiểm tra hàng trước khi nhận.')}
+            {renderPaymentOption('VNPAY', 'Thanh toán qua VNPAY', 'credit-card-outline', vnpayPaymentSubtitle)}
           </View>
         </View>
 
@@ -1062,27 +1069,37 @@ const CheckoutScreen = () => {
               )}
             </View>
 
-            <View style={styles.memberCard}>
-              <View style={styles.memberBadge}>
-                <Text style={styles.memberBadgeText}>{appliedMembership?.name?.charAt(0).toUpperCase() ?? 'M'}</Text>
+            <View style={[styles.memberCard, appliedMembership && styles.memberCardActive]}>
+              <View style={[styles.memberBadge, appliedMembership && styles.memberBadgeActive]}>
+                <MaterialCommunityIcons
+                  name={appliedMembership ? 'crown-outline' : 'account-star-outline'}
+                  size={22}
+                  color={appliedMembership ? colors.goldDark : colors.brand}
+                />
               </View>
               <View style={styles.memberInfo}>
-                <Text style={styles.memberTitle}>
-                  {appliedMembership ? `Hạng thẻ: ${appliedMembership.name}` : 'Ưu đãi thành viên'}
+                <Text style={[styles.memberEyebrow, appliedMembership && styles.memberEyebrowActive]}>
+                  Quyền lợi thành viên
                 </Text>
-                <Text style={styles.memberMeta}>
+                <Text style={[styles.memberTitle, appliedMembership && styles.memberTitleActive]}>
+                  {appliedMembership ? `Hạng ${appliedMembership.name}` : 'Chưa có hạng thành viên'}
+                </Text>
+                <Text style={[styles.memberMeta, appliedMembership && styles.memberMetaActive]}>
                   {isPreviewLoading
                     ? 'Đang tính ưu đãi theo hạng...'
                     : membershipDiscountAmount
-                    ? `Đã giảm ${formatCurrency(membershipDiscountAmount)} theo hạng hiện tại.`
+                    ? `Bạn tiết kiệm ${formatCurrency(membershipDiscountAmount)} cho đơn này.`
                     : appliedMembership
                     ? 'Hạng hiện tại chưa có giảm giá trực tiếp.'
                     : 'Đăng nhập và tích điểm để nhận ưu đãi theo hạng.'}
                 </Text>
               </View>
-              <Text style={styles.memberDiscount}>
-                {appliedMembership ? (appliedMembership.discountPercent > 0 ? `-${appliedMembership.discountPercent}%` : '0%') : '-'}
-              </Text>
+              <View style={[styles.memberDiscountPill, appliedMembership && styles.memberDiscountPillActive]}>
+                <Text style={[styles.memberDiscountLabel, appliedMembership && styles.memberDiscountLabelActive]}>Ưu đãi</Text>
+                <Text style={[styles.memberDiscount, appliedMembership && styles.memberDiscountActive]}>
+                  {appliedMembership ? (appliedMembership.discountPercent > 0 ? `-${appliedMembership.discountPercent}%` : '0%') : '--'}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -1471,61 +1488,101 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#E8ECEF',
+    ...shadows.card,
   },
   checkoutItemImage: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.sm,
+    width: 84,
+    height: 106,
+    borderRadius: 12,
     backgroundColor: colors.surface,
     resizeMode: 'cover',
   },
   checkoutItemImagePlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.sm,
-    backgroundColor: colors.surface,
+    width: 84,
+    height: 106,
+    borderRadius: 12,
+    backgroundColor: colors.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkoutItemCopy: {
     flex: 1,
-    gap: spacing.xs,
+    minWidth: 0,
+    justifyContent: 'space-between',
   },
   checkoutItemName: {
     color: colors.text,
     fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '900',
+    lineHeight: 20,
+    fontWeight: '800',
   },
   checkoutItemBrand: {
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '600',
+    color: colors.brand,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 3,
   },
-  checkoutItemVariant: {
+  checkoutItemVariantRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: spacing.sm,
+  },
+  checkoutItemVariantChip: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: radii.pill,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  checkoutItemColorDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(33, 52, 72, 0.14)',
+  },
+  checkoutItemVariantText: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '600',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
   },
   checkoutItemBottomRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    marginTop: spacing.xs,
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  checkoutItemQuantityChip: {
+    minWidth: 30,
+    height: 24,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
   },
   checkoutItemQuantity: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '700',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
   },
   checkoutItemPrice: {
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 19,
+    color: colors.brandDark,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '900',
   },
   paymentStack: {
@@ -1544,9 +1601,6 @@ const styles = StyleSheet.create({
   paymentOptionSelected: {
     borderColor: colors.brand,
     backgroundColor: colors.surface,
-  },
-  paymentOptionDisabled: {
-    opacity: 0.5,
   },
   radioOuter: {
     width: 22,
@@ -1575,9 +1629,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '900',
-  },
-  paymentTitleDisabled: {
-    color: colors.textSubtle,
   },
   paymentSubtitle: {
     color: colors.textMuted,
@@ -1680,47 +1731,97 @@ const styles = StyleSheet.create({
   memberCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.white,
+    gap: spacing.sm,
+    backgroundColor: colors.brandSoft,
     borderRadius: radii.md,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.brandPale,
+  },
+  memberCardActive: {
+    backgroundColor: colors.brandDark,
+    borderColor: colors.brandDark,
+    ...shadows.card,
   },
   memberBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.brand,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  memberBadgeText: {
-    color: colors.white,
-    fontSize: 18,
-    fontWeight: '900',
+  memberBadgeActive: {
+    backgroundColor: colors.goldSoft,
   },
   memberInfo: {
     flex: 1,
-    gap: spacing.xs,
+    minWidth: 0,
+  },
+  memberEyebrow: {
+    color: colors.brand,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    marginBottom: 1,
+  },
+  memberEyebrowActive: {
+    color: colors.gold,
   },
   memberTitle: {
     color: colors.text,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '900',
+  },
+  memberTitleActive: {
+    color: colors.white,
   },
   memberMeta: {
     color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 16,
     fontWeight: '600',
+    marginTop: 2,
+  },
+  memberMetaActive: {
+    color: 'rgba(255, 255, 255, 0.72)',
+  },
+  memberDiscountPill: {
+    minWidth: 54,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  memberDiscountPillActive: {
+    backgroundColor: 'rgba(255, 244, 222, 0.10)',
+    borderColor: 'rgba(246, 199, 107, 0.40)',
+  },
+  memberDiscountLabel: {
+    color: colors.textMuted,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  memberDiscountLabelActive: {
+    color: colors.gold,
   },
   memberDiscount: {
     color: colors.brand,
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 17,
+    lineHeight: 21,
     fontWeight: '900',
+  },
+  memberDiscountActive: {
+    color: colors.white,
   },
   summaryPanel: {
     backgroundColor: colors.white,

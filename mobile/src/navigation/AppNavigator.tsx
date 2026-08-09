@@ -75,7 +75,7 @@ export type RootStackParamList = {
   Coupons: {
     cartItemIds?: string[];
     selectedCouponCode?: string | null;
-    paymentMethod?: 'COD' | 'VNPAY' | 'MOMO';
+    paymentMethod?: 'COD' | 'VNPAY';
   } | undefined;
   Favorites: undefined;
   Notifications: undefined;
@@ -154,7 +154,7 @@ export type RootStackParamList = {
     orderId: string;
     orderCode: string;
     totalAmount: number;
-    paymentMethod: string;
+    paymentMethod: 'COD' | 'VNPAY';
     paymentStatus: 'pending' | 'awaiting' | 'paid' | 'failed';
     isProcessingPayment?: boolean;
     paymentMessage?: string;

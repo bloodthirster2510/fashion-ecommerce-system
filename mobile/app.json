@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Fashion E-commerce Mobile",
+    "name": "CDShop",
     "slug": "fashion-ecommerce-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -29,12 +29,13 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.fashionshop.app",
+      "googleServicesFile": "./google-services.json",
       "predictiveBackGestureEnabled": false
     },
     "web": {

@@ -18,6 +18,7 @@ export * from './order.model';
 export * from './otp-verification.model';
 export * from './payment-method.model';
 export * from './product.model';
+export * from './product-visual-index.model';
 export * from './review.model';
 export * from './review-helpful-vote.model';
 export * from './recommendation-event.model';

@@ -17,6 +17,7 @@ jest.mock('../virtual-try-on.controller', () => {
     hideAdminJob: noContent,
     listAccountLocks: noContent,
     listAdminJobs: noContent,
+    listPromptViolations: noContent,
     listPromptRules: noContent,
     lockAccount: noContent,
     retryAdminJob: noContent,
@@ -76,7 +77,7 @@ describe('virtual try-on settings route permissions', () => {
     role,
   });
 
-  const request = (path: string, method: 'GET' | 'PATCH' | 'POST', accessToken: string) => fetch(
+  const request = (path: string, method: 'GET' | 'PATCH' | 'POST' | 'DELETE', accessToken: string) => fetch(
     `${baseUrl}${path}`,
     {
       method,
@@ -88,11 +89,17 @@ describe('virtual try-on settings route permissions', () => {
     },
   );
 
-  it('allows read-only staff to view settings but not change them', async () => {
+  it('keeps settings and policy tools hidden from read-only staff', async () => {
     mockAccount('staff', ['virtual_try_on.read']);
 
     await expect(request('/admin/virtual-try-on/settings', 'GET', token('staff')))
-      .resolves.toMatchObject({ status: 204 });
+      .resolves.toMatchObject({ status: 403 });
+    await expect(request('/admin/virtual-try-on/prompt-rules', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 403 });
+    await expect(request('/admin/virtual-try-on/account-locks', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 403 });
+    await expect(request('/admin/virtual-try-on/prompt-violations', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 403 });
     await expect(request('/admin/virtual-try-on/settings', 'PATCH', token('staff')))
       .resolves.toMatchObject({ status: 403 });
     await expect(request('/admin/virtual-try-on/settings/rollback', 'POST', token('staff')))
@@ -102,10 +109,33 @@ describe('virtual try-on settings route permissions', () => {
   it('allows staff with the settings permission to update and roll back', async () => {
     mockAccount('staff', ['virtual_try_on.settings']);
 
+    await expect(request('/admin/virtual-try-on/settings', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/prompt-rules', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/prompt-violations', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 403 });
     await expect(request('/admin/virtual-try-on/settings', 'PATCH', token('staff')))
       .resolves.toMatchObject({ status: 204 });
     await expect(request('/admin/virtual-try-on/settings/rollback', 'POST', token('staff')))
       .resolves.toMatchObject({ status: 204 });
+  });
+
+  it('keeps account operations separate from content settings', async () => {
+    mockAccount('staff', ['virtual_try_on.manage']);
+
+    await expect(request('/admin/virtual-try-on/account-locks', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/prompt-violations', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/account-locks', 'POST', token('staff')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/account-locks/665000000000000000000002', 'DELETE', token('staff')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/settings', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 403 });
+    await expect(request('/admin/virtual-try-on/prompt-rules', 'GET', token('staff')))
+      .resolves.toMatchObject({ status: 403 });
   });
 
   it('allows admins without an explicit permission list', async () => {
@@ -114,6 +144,8 @@ describe('virtual try-on settings route permissions', () => {
     await expect(request('/admin/virtual-try-on/settings', 'PATCH', token('admin')))
       .resolves.toMatchObject({ status: 204 });
     await expect(request('/admin/virtual-try-on/settings/rollback', 'POST', token('admin')))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/virtual-try-on/prompt-violations', 'GET', token('admin')))
       .resolves.toMatchObject({ status: 204 });
   });
 });

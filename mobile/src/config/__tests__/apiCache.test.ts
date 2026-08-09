@@ -2,6 +2,7 @@ import { invalidateCache, withCache } from '../apiCache';
 
 describe('API cache refresh behavior', () => {
   beforeEach(() => invalidateCache());
+  afterEach(() => jest.restoreAllMocks());
 
   it('reuses a fresh cached value', async () => {
     const loader = jest.fn().mockResolvedValue('first');
@@ -40,5 +41,44 @@ describe('API cache refresh behavior', () => {
     const unexpectedLoader = jest.fn().mockResolvedValue('unexpected');
     await expect(withCache('product:1', unexpectedLoader, { ttlMs: 60_000 })).resolves.toBe('fresh');
     expect(unexpectedLoader).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates concurrent requests for the same key', async () => {
+    let resolveLoader: (value: string) => void = () => undefined;
+    const loader = jest.fn(() => new Promise<string>((resolve) => { resolveLoader = resolve; }));
+
+    const first = withCache('product:shared', loader, { ttlMs: 60_000 });
+    const second = withCache('product:shared', loader, { ttlMs: 60_000 });
+
+    expect(loader).toHaveBeenCalledTimes(1);
+    resolveLoader('shared');
+    await expect(Promise.all([first, second])).resolves.toEqual(['shared', 'shared']);
+  });
+
+  it('returns stale data immediately and refreshes it in the background', async () => {
+    const currentTime = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    const loader = jest.fn()
+      .mockResolvedValueOnce('cached')
+      .mockResolvedValueOnce('refreshed');
+    const options = { ttlMs: 1_000, staleWhileRevalidateMs: 5_000 };
+
+    await expect(withCache('product:swr', loader, options)).resolves.toBe('cached');
+    currentTime.mockReturnValue(2_500);
+    await expect(withCache('product:swr', loader, options)).resolves.toBe('cached');
+    await Promise.resolve();
+    await expect(withCache('product:swr', loader, options)).resolves.toBe('refreshed');
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds the number of retained entries with LRU eviction', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000);
+
+    for (let index = 0; index <= 100; index += 1) {
+      await withCache(`product:${index}`, async () => index, { ttlMs: 60_000 });
+    }
+
+    const reloader = jest.fn().mockResolvedValue('reloaded');
+    await expect(withCache('product:0', reloader, { ttlMs: 60_000 })).resolves.toBe('reloaded');
+    expect(reloader).toHaveBeenCalledTimes(1);
   });
 });

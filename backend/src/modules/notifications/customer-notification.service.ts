@@ -6,6 +6,7 @@ import {
   type CustomerNotificationCategory,
   type CustomerNotificationType,
 } from '../../database/models';
+import { storefrontSettingsService } from '../storefront-settings/storefront-settings.service';
 
 export class CustomerNotificationServiceError extends Error {
   constructor(
@@ -53,6 +54,7 @@ export type VirtualTryOnOutcomeNotificationInput = {
   outcome: VirtualTryOnNotificationOutcome;
   outputMode: 'image' | 'image_and_video';
   generatedImageCount: number;
+  imageUrl?: string | null;
   videoStatus?: string | null;
   errorCode?: string | null;
   retryable: boolean;
@@ -255,14 +257,17 @@ export const recordOrderCreatedNotification = (input: OrderNotificationInput) =>
     dedupeKey: `order:${input.orderId}:created`,
   });
 
-const orderStatusCopy: Partial<Record<string, { title: string; body: (code: string) => string }>> = {
+const orderStatusCopy: Partial<Record<string, {
+  title: string;
+  body: (code: string, context?: { shopName: string }) => string;
+}>> = {
   packed: {
     title: 'Đơn hàng đã được đóng gói',
     body: (code) => `Đơn ${code} đã sẵn sàng để bàn giao cho đơn vị vận chuyển.`,
   },
   completed: {
     title: 'Đơn hàng đã hoàn tất',
-    body: (code) => `Đơn ${code} đã hoàn tất. Cảm ơn bạn đã mua sắm cùng FASHIONISTA.`,
+    body: (code, context) => `Đơn ${code} đã hoàn tất. Cảm ơn bạn đã mua sắm cùng ${context?.shopName || 'CDShop'}.`,
   },
   cancelled: {
     title: 'Đơn hàng đã hủy',
@@ -282,16 +287,22 @@ const orderStatusCopy: Partial<Record<string, { title: string; body: (code: stri
   },
 };
 
-export const recordOrderStatusNotification = (input: OrderNotificationInput & { status: string }) => {
+export const recordOrderStatusNotification = async (input: OrderNotificationInput & { status: string }) => {
   const copy = orderStatusCopy[input.status];
-  if (!copy) return Promise.resolve(null);
+  if (!copy) return null;
+
+  const shopName = input.status === 'completed'
+    ? await storefrontSettingsService.getPublicSettings()
+      .then((settings) => settings.identity.name)
+      .catch(() => 'CDShop')
+    : 'CDShop';
 
   return createCustomerNotificationBestEffort({
     ...input,
     category: 'order',
     type: 'order_status',
     title: copy.title,
-    body: copy.body(input.orderCode),
+    body: copy.body(input.orderCode, { shopName }),
     action: orderAction(input.orderId),
     data: { orderId: input.orderId, orderCode: input.orderCode, status: input.status },
     dedupeKey: `order:${input.orderId}:status:${input.status}`,
@@ -413,6 +424,7 @@ export const recordVirtualTryOnOutcomeNotification = async (
     type: copy.type,
     title: copy.title,
     body: copy.body,
+    imageUrl: opensResult ? input.imageUrl : null,
     action: {
       type: opensResult ? 'virtual_try_on_result' : 'virtual_try_on_processing',
       label: opensResult ? 'Xem kết quả' : input.retryable ? 'Mở để thử lại' : 'Xem chi tiết',

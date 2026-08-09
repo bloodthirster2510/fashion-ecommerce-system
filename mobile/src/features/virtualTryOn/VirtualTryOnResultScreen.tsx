@@ -1,6 +1,6 @@
 import React from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, Share, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
@@ -15,8 +15,13 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { cartApi, type CartResponse } from '../cart/cartApi';
 import { virtualTryOnApi } from './virtualTryOnApi';
+import { useVirtualTryOnRealtime } from './virtualTryOnRealtime';
 import type { TryOnSeedItem, TryOnSelectedItem, VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls, getTryOnVideoPresentation } from './virtualTryOnResultMedia';
+import {
+  mergeVirtualTryOnRealtimeEvent,
+  preferFreshVirtualTryOnJob,
+} from './virtualTryOnJobState';
 import { contextPresetLabel } from './contextPresets';
 import { tryOnRoleLabel } from './virtualTryOnSelection';
 
@@ -120,7 +125,6 @@ const GeneratedVideoCard = ({
       <View style={styles.videoHeader}>
         <View>
           <Text style={styles.videoTitle}>Video phối đồ</Text>
-          <Text style={styles.videoHint}>Sinh từ ảnh phối đồ đầu tiên</Text>
         </View>
         <View style={styles.videoReadyBadge}>
           <MaterialCommunityIcons name="check" size={14} color={colors.white} />
@@ -164,7 +168,8 @@ const GeneratedVideoCard = ({
 const VirtualTryOnResultScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
-  const { runWithAuth } = useAuth();
+  const { session, runWithAuth } = useAuth();
+  const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [job, setJob] = React.useState<VirtualTryOnJob | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -183,29 +188,78 @@ const VirtualTryOnResultScreen = () => {
   const resultScrollRef = React.useRef<ScrollView>(null);
   const previewScrollRef = React.useRef<ScrollView>(null);
   const imageActionInFlightRef = React.useRef(false);
+  const mountedRef = React.useRef(true);
+  const jobRef = React.useRef<VirtualTryOnJob | null>(null);
+  const activeJobIdRef = React.useRef(route.params.jobId);
+  const loadingJobIdsRef = React.useRef(new Set<string>());
 
   const jobId = route.params.jobId;
+  activeJobIdRef.current = jobId;
   const retainedSeedItems = route.params.seedItems;
   const retainedAlternativeSeedItems = route.params.alternativeSeedItems;
   const resultCardWidth = Math.max(1, windowWidth - spacing.lg * 2);
+  const footerBottomInset = Math.max(insets.bottom, spacing.md);
 
   React.useEffect(() => {
-    let isCurrent = true;
-    runWithAuth((token) => virtualTryOnApi.getJob(token, jobId))
-      .then((nextJob) => {
-        if (isCurrent) setJob(nextJob);
-      })
-      .catch((error: unknown) => {
-        if (!isCurrent) return;
-        const message = error instanceof Error ? error.message : 'Không tải được kết quả phối đồ.';
-        Alert.alert('Phối đồ ảo', message);
-      })
-      .finally(() => {
-        if (isCurrent) setIsLoading(false);
-      });
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-    return () => { isCurrent = false; };
-  }, [jobId, runWithAuth]);
+  const applyJob = React.useCallback((incoming: VirtualTryOnJob) => {
+    if (!mountedRef.current || activeJobIdRef.current !== incoming._id) return;
+
+    const nextJob = jobRef.current
+      ? preferFreshVirtualTryOnJob(jobRef.current, incoming)
+      : incoming;
+    if (nextJob === jobRef.current) return;
+
+    jobRef.current = nextJob;
+    setJob(nextJob);
+  }, []);
+
+  const loadJob = React.useCallback(async (showError = false) => {
+    if (loadingJobIdsRef.current.has(jobId)) return;
+    loadingJobIdsRef.current.add(jobId);
+
+    try {
+      const nextJob = await runWithAuth((token) => virtualTryOnApi.getJob(token, jobId));
+      applyJob(nextJob);
+    } catch (error) {
+      if (!mountedRef.current || activeJobIdRef.current !== jobId || !showError) return;
+      const message = error instanceof Error ? error.message : 'Không tải được kết quả phối đồ.';
+      Alert.alert('Phối đồ', message);
+    } finally {
+      loadingJobIdsRef.current.delete(jobId);
+      if (mountedRef.current && activeJobIdRef.current === jobId) setIsLoading(false);
+    }
+  }, [applyJob, jobId, runWithAuth]);
+
+  const realtime = useVirtualTryOnRealtime(session?.accessToken, (event) => {
+    if (event.jobId !== jobId || !jobRef.current) return;
+    applyJob(mergeVirtualTryOnRealtimeEvent(jobRef.current, event));
+  });
+
+  React.useEffect(() => {
+    jobRef.current = null;
+    setJob(null);
+    setIsLoading(true);
+    setPlaybackFailedVideoUrl(null);
+    void loadJob(true);
+  }, [jobId, loadJob]);
+
+  React.useEffect(() => {
+    realtime.subscribeJob(jobId);
+    return () => realtime.unsubscribeJob(jobId);
+  }, [jobId, realtime]);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      if (!job || job.status === 'queued' || job.status === 'processing') {
+        void loadJob();
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [job, loadJob]);
 
   const resultImageUrls = React.useMemo(() => {
     if (!job) return [];
@@ -216,6 +270,7 @@ const VirtualTryOnResultScreen = () => {
     () => job ? getTryOnVideoPresentation(job) : { status: 'not_requested' as const, url: null },
     [job],
   );
+  const videoProgress = Math.min(100, Math.max(0, Math.round(job?.videoProgress ?? 0)));
   const isVideoPlaybackFailed = Boolean(
     videoPresentation.url && playbackFailedVideoUrl === videoPresentation.url,
   );
@@ -573,7 +628,7 @@ const VirtualTryOnResultScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.8}>
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
@@ -600,20 +655,14 @@ const VirtualTryOnResultScreen = () => {
         </View>
       ) : job ? (
         <>
-          <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + footerBottomInset }]}
+            showsVerticalScrollIndicator={false}
+          >
             {job.sourceImageUrl && activeImageUrl ? (
               <View style={styles.transformationCard}>
-                <View style={styles.transformationHeader}>
-                  <View style={styles.transformationHeaderCopy}>
-                    <Text style={styles.transformationEyebrow}>Trước · Sau</Text>
-                    <Text style={styles.transformationTitle}>Từ ảnh gốc đến bộ phối</Text>
-                  </View>
-                  <View style={styles.transformationBadge}>
-                    <MaterialCommunityIcons name="auto-fix" size={15} color={colors.white} />
-                    <Text style={styles.transformationBadgeText}>AI đã phối</Text>
-                  </View>
-                </View>
-
+                <Text style={styles.transformationTitle}>Ảnh gốc → Kết quả</Text>
                 <View style={styles.transformationFlow}>
                   <View style={styles.transformationStage}>
                     <TouchableOpacity
@@ -629,7 +678,8 @@ const VirtualTryOnResultScreen = () => {
                       <RemoteImage
                         uri={job.sourceImageUrl}
                         style={styles.transformationImage}
-                        recyclingKey={`${job._id}-source-story`}
+                        recyclingKey={`${job._id}-source-compare`}
+                        resizeMode="contain"
                       />
                       <View style={styles.imageExpandBadge}>
                         <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
@@ -639,11 +689,7 @@ const VirtualTryOnResultScreen = () => {
                   </View>
 
                   <View style={styles.transformationProcess}>
-                    <View style={styles.transformationProcessIcon}>
-                      <MaterialCommunityIcons name="auto-fix" size={20} color={colors.white} />
-                    </View>
-                    <Text style={styles.transformationProcessText}>AI phối đồ</Text>
-                    <MaterialCommunityIcons name="arrow-right" size={20} color="#BFD8E6" />
+                    <MaterialCommunityIcons name="arrow-right" size={24} color="#BFD8E6" />
                   </View>
 
                   <View style={styles.transformationStage}>
@@ -655,72 +701,22 @@ const VirtualTryOnResultScreen = () => {
                       <RemoteImage
                         uri={activeImageUrl}
                         style={styles.transformationImage}
-                        recyclingKey={`${job._id}-generated-story-${activeImageIndex}`}
+                        recyclingKey={`${job._id}-result-compare-${activeImageIndex}`}
                         resizeMode="contain"
                       />
                       <View style={styles.imageExpandBadge}>
                         <MaterialCommunityIcons name="fullscreen" size={16} color={colors.white} />
                       </View>
                     </TouchableOpacity>
-                    <Text style={styles.transformationStageLabel}>Kết quả {activeImageIndex + 1}/{resultImageUrls.length}</Text>
+                    <Text style={styles.transformationStageLabel}>Kết quả {activeImageIndex + 1}</Text>
                   </View>
-                </View>
-
-                <View style={styles.transformationItemsHeader}>
-                  <Text style={styles.transformationItemsTitle}>Các món trong bộ này</Text>
-                  <Text style={styles.transformationItemsMeta}>{job.selectedItems.length} món</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.transformationItemList}
-                >
-                  {job.selectedItems.map((item) => (
-                    <TouchableOpacity
-                      key={`story-${item.productId}-${item.colorVariantId}`}
-                      style={styles.transformationItemCard}
-                      onPress={() => openSingleImagePreview({
-                        uri: item.imageSnapshot,
-                        label: tryOnRoleLabel[item.role],
-                        recyclingKey: `story-garment-preview-${item.colorVariantId}`,
-                        resizeMode: 'contain',
-                      })}
-                      activeOpacity={0.88}
-                    >
-                      <View style={styles.transformationItemImageWrap}>
-                        <RemoteImage
-                          uri={item.imageSnapshot}
-                          style={styles.transformationItemImage}
-                          recyclingKey={`story-garment-${item.colorVariantId}`}
-                        />
-                        <View style={styles.imageExpandBadgeSmall}>
-                          <MaterialCommunityIcons name="fullscreen" size={13} color={colors.white} />
-                        </View>
-                      </View>
-                      <View style={styles.transformationItemCopy}>
-                        <Text style={styles.transformationItemIndex}>{tryOnRoleLabel[item.role]}</Text>
-                        <Text style={styles.transformationItemName} numberOfLines={2}>{item.nameSnapshot}</Text>
-                        <Text style={styles.transformationItemVariant} numberOfLines={1}>
-                          {[item.colorSnapshot, item.size].filter(Boolean).join(' · ')}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <View style={styles.transformationSummary}>
-                  <MaterialCommunityIcons name="check-decagram" size={19} color={studioPalette.success} />
-                  <Text style={styles.transformationSummaryText}>
-                    AI giữ nguyên dáng người trong ảnh gốc, thay đúng {job.selectedItems.length} món bạn chọn theo màu và size.
-                  </Text>
                 </View>
               </View>
             ) : null}
 
             <View style={styles.resultSectionHeader}>
               <View style={styles.resultSectionCopy}>
-                <Text style={styles.resultSectionTitle}>Kết quả</Text>
-                <Text style={styles.resultSectionHint}>Ảnh phối đồ AI đã sinh</Text>
+                <Text style={styles.resultSectionTitle}>Ảnh phối đồ</Text>
               </View>
               <View style={styles.resultSectionCounter}>
                 <Text style={styles.resultSectionCounterText}>
@@ -813,10 +809,6 @@ const VirtualTryOnResultScreen = () => {
 
             <View style={styles.resultActions}>
               <View style={styles.actionGroup}>
-                <View style={styles.actionGroupHeader}>
-                  <Text style={styles.actionGroupTitle}>Bộ ảnh</Text>
-                  <Text style={styles.actionGroupMeta}>{resultImageUrls.length} ảnh</Text>
-                </View>
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     style={[styles.actionButton, (!resultImageUrls.length || savingScope || sharingScope) && styles.actionButtonDisabled]}
@@ -861,6 +853,20 @@ const VirtualTryOnResultScreen = () => {
                 onShare={() => void shareVideo()}
                 onPlaybackError={handleVideoPlaybackError}
               />
+            ) : videoPresentation.status === 'pending' ? (
+              <View style={styles.videoPendingCard}>
+                <View style={styles.videoPendingIcon}>
+                  <ActivityIndicator color={studioPalette.primary} />
+                </View>
+                <View style={styles.videoPendingCopy}>
+                  <Text style={styles.videoPendingTitle}>Video đang được tạo</Text>
+                  <Text style={styles.videoPendingText}>Bạn có thể dùng bộ ảnh ngay.</Text>
+                  <View style={styles.videoPendingProgressTrack}>
+                    <View style={[styles.videoPendingProgressFill, { width: `${Math.max(6, videoProgress)}%` }]} />
+                  </View>
+                  <Text style={styles.videoPendingProgressText}>{videoProgress}%</Text>
+                </View>
+              </View>
             ) : isVideoPlaybackFailed || videoPresentation.status === 'failed' || videoPresentation.status === 'canceled' ? (
               <View style={styles.videoFailureCard}>
                 <View style={styles.videoFailureIcon}>
@@ -871,13 +877,13 @@ const VirtualTryOnResultScreen = () => {
                     {isVideoPlaybackFailed
                       ? 'Không phát được video'
                       : isVideoPolicyBlocked
-                        ? 'AI đã từ chối tạo video'
-                        : videoPresentation.status === 'canceled' ? 'Đã hủy sinh video' : 'Chưa tạo được video'}
+                        ? 'Chưa thể tạo video này'
+                        : videoPresentation.status === 'canceled' ? 'Đã hủy tạo video' : 'Chưa tạo được video'}
                   </Text>
                   <Text style={styles.videoFailureText}>
                     {isVideoPlaybackFailed
-                      ? 'Thiết bị chưa tải hoặc phát được video này. Bộ ảnh phối đồ vẫn hiển thị bình thường.'
-                      : job.videoErrorMessage || 'Bộ ảnh phối đồ vẫn được giữ nguyên. Bạn có thể thử lại riêng bước video.'}
+                      ? 'Bộ ảnh vẫn dùng bình thường.'
+                      : job.videoErrorMessage || 'Bộ ảnh vẫn được giữ lại.'}
                   </Text>
                 </View>
                 {!isVideoPolicyBlocked ? (
@@ -905,7 +911,7 @@ const VirtualTryOnResultScreen = () => {
             ) : null}
 
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Chi tiết bộ phối</Text>
+              <Text style={styles.sectionTitle}>Bộ đồ</Text>
               <Text style={styles.sectionMeta}>{job.selectedItems.length} món</Text>
             </View>
             <View style={styles.itemList}>
@@ -935,10 +941,7 @@ const VirtualTryOnResultScreen = () => {
             </View>
 
             <View style={styles.totalCard}>
-                <View>
-                <Text style={styles.totalLabel}>Tổng giá trị</Text>
-                <Text style={styles.totalSubtext}>Thêm cả bộ vào giỏ</Text>
-              </View>
+              <Text style={styles.totalLabel}>Tổng</Text>
               <Text style={styles.totalValue}>{formatPrice(job.totalFinalPrice)}</Text>
             </View>
 
@@ -949,10 +952,7 @@ const VirtualTryOnResultScreen = () => {
                     <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
                   </View>
                   <View style={styles.queueResumeCopy}>
-                    <Text style={styles.queueResumeTitle}>Phối đồ tiếp theo</Text>
-                    <Text style={styles.queueResumeText}>
-                      Bạn còn {waitingSeedCount} món chờ thử cùng ảnh này.
-                    </Text>
+                    <Text style={styles.queueResumeTitle}>Còn {waitingSeedCount} món chờ thử</Text>
                   </View>
                 </View>
                 <TouchableOpacity style={styles.queueResumeButton} onPress={resumeBuilder} activeOpacity={0.86}>
@@ -967,10 +967,7 @@ const VirtualTryOnResultScreen = () => {
                     <MaterialCommunityIcons name="reload" size={22} color={studioPalette.primary} />
                   </View>
                   <View style={styles.queueResumeCopy}>
-                    <Text style={styles.queueResumeTitle}>Phối lại</Text>
-                    <Text style={styles.queueResumeText}>
-                      Thử lại bộ đồ này hoặc đổi sản phẩm khác trên cùng ảnh người.
-                    </Text>
+                    <Text style={styles.queueResumeTitle}>Phối lại bộ này</Text>
                   </View>
                 </View>
                 <View style={styles.queueResumeButton}>
@@ -981,7 +978,7 @@ const VirtualTryOnResultScreen = () => {
             )}
           </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: footerBottomInset }]}>
             <TouchableOpacity
               style={[styles.cartButton, isAddingCart && styles.cartButtonDisabled]}
               onPress={() => addSetToCart('cart')}
@@ -1148,7 +1145,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.lg,
-    paddingBottom: 96,
     gap: spacing.lg,
   },
   badgeRow: {
@@ -1298,8 +1294,8 @@ const styles = StyleSheet.create({
   transformationCard: {
     borderRadius: radii.md,
     backgroundColor: '#172431',
-    padding: spacing.lg,
-    gap: spacing.lg,
+    padding: spacing.md,
+    gap: spacing.md,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -1577,6 +1573,60 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  videoPendingCard: {
+    borderRadius: radii.md,
+    backgroundColor: studioPalette.primarySoft,
+    borderWidth: 1,
+    borderColor: studioPalette.primaryPale,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  videoPendingIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPendingCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  videoPendingTitle: {
+    color: studioPalette.ink,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  videoPendingText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  videoPendingProgressTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  videoPendingProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: studioPalette.primary,
+  },
+  videoPendingProgressText: {
+    color: studioPalette.primary,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+    textAlign: 'right',
+    marginTop: 3,
+  },
   videoTitle: {
     color: studioPalette.ink,
     fontSize: 19,
@@ -1837,7 +1887,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
