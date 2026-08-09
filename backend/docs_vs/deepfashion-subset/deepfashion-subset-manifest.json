@@ -1,0 +1,11 @@
+{
+  "datasetRoot": "D:\\Download\\DeepFashion\\In-shop",
+  "outputDir": "C:\\Users\\DELL\\Downloads\\fashion-ecommerce\\backend\\docs_vs\\deepfashion-subset",
+  "copyImages": true,
+  "queryCount": 70,
+  "galleryCount": 1000,
+  "uniqueQueryItems": 34,
+  "uniqueGalleryItems": 340,
+  "categoryCount": 23,
+  "note": "Use the same gallery/query files for CLIP and FashionCLIP; only change embedding model."
+}

@@ -1,0 +1,2 @@
+method,queryCount,recallAt1,recallAt5,recallAt10,precisionAt5,precisionAt10,mrr,ndcgAt10,avgLatencyMs,p95LatencyMs,note
+openfashionclip,70,0.8571,0.9571,0.9571,0.1914,0.0957,0.9012,0.9155,174.7714,255,offline DeepFashion image retrieval evaluation

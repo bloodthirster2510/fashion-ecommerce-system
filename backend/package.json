@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "seed": "ts-node-dev --transpile-only src/database/seed.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "lint": "eslint . --ext .ts",
     "dev:try-on": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-try-on.ps1",
@@ -18,9 +18,16 @@
     "recommendations:backfill": "npm run build && node dist/scripts/recommendation-backfill.js",
     "recommendations:evaluate": "npm run build && node dist/scripts/recommendation-evaluate.js",
     "virtual-try-on:backfill-assets": "npm run build && node dist/scripts/virtual-try-on-backfill-assets.js",
+    "visual-search:export-gallery": "npm run build && node dist/scripts/visual-search-export-gallery.js",
+    "visual-search:backfill-index": "npm run build && node dist/scripts/visual-search-backfill-index.js",
+    "visual-search:prepare-query-set": "npm run build && node dist/scripts/visual-search-prepare-query-set.js",
+    "visual-search:query-labeling": "npm run build && node dist/scripts/visual-search-query-labeling.js",
+    "visual-search:evaluate": "npm run build && node dist/scripts/visual-search-evaluate.js",
+    "visual-search:deepfashion:prepare-subset": "npm run build && node dist/scripts/visual-search-deepfashion-prepare-subset.js",
+    "visual-search:deepfashion:evaluate-offline": "npm run build && node dist/scripts/visual-search-deepfashion-evaluate-offline.js",
     "test": "jest --passWithNoTests",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand",
-    "test:e2e:browser-server": "npm run build && node dist/e2e/browser-e2e-server.js"
+    "test:e2e:browser-server": "npm run build && tsc -p tsconfig.browser-e2e.json && node dist/e2e/browser-e2e-server.js"
   },
   "keywords": [],
   "author": "",

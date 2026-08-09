@@ -10,6 +10,7 @@ import {
   InventoryReservation,
   Order,
   Product,
+  ProductVisualIndex,
 } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput, UpdateProductInput } from '../product.types';
@@ -36,6 +37,10 @@ jest.mock('../../../../database/models', () => ({
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
+  },
+  ProductVisualIndex: {
+    deleteMany: jest.fn(),
+    updateMany: jest.fn(),
   },
   Inventory: {
     countDocuments: jest.fn(),
@@ -69,6 +74,7 @@ const mockedInventoryImport = InventoryImport as jest.Mocked<typeof InventoryImp
 const mockedInventoryReservation = InventoryReservation as jest.Mocked<typeof InventoryReservation>;
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
+const mockedProductVisualIndex = ProductVisualIndex as jest.Mocked<typeof ProductVisualIndex>;
 
 const brandId = '665000000000000000000001';
 const categoryId = '665000000000000000000002';
@@ -155,6 +161,8 @@ describe('productService', () => {
     mockedOrder.countDocuments.mockResolvedValue(0);
     mockedFavorite.countDocuments.mockResolvedValue(0);
     mockedCoupon.countDocuments.mockResolvedValue(0);
+    mockedProductVisualIndex.deleteMany.mockResolvedValue({ deletedCount: 0 } as never);
+    mockedProductVisualIndex.updateMany.mockResolvedValue({ modifiedCount: 0 } as never);
   });
 
   it('creates a product with normalized object ids and variant data', async () => {
@@ -377,6 +385,15 @@ describe('productService', () => {
         runValidators: true,
       },
     );
+    expect(mockedProductVisualIndex.updateMany).toHaveBeenCalledWith(
+      { productId: updatedProduct._id, isActive: true },
+      {
+        $set: {
+          isActive: false,
+          lastSyncedAt: expect.any(Date),
+        },
+      },
+    );
     expect(result).toBe(updatedProduct);
   });
 
@@ -404,6 +421,7 @@ describe('productService', () => {
         runValidators: true,
       },
     );
+    expect(mockedProductVisualIndex.updateMany).not.toHaveBeenCalled();
     expect(result).toBe(updatedProduct);
   });
 
@@ -419,6 +437,15 @@ describe('productService', () => {
       {
         returnDocument: 'after',
         runValidators: true,
+      },
+    );
+    expect(mockedProductVisualIndex.updateMany).toHaveBeenCalledWith(
+      { productId: product._id, isActive: true },
+      {
+        $set: {
+          isActive: false,
+          lastSyncedAt: expect.any(Date),
+        },
       },
     );
     expect(result).toBe(product);
@@ -441,6 +468,9 @@ describe('productService', () => {
       productId: new Types.ObjectId(productId),
     });
     expect(mockedProduct.findByIdAndDelete).toHaveBeenCalledWith(productId);
+    expect(mockedProductVisualIndex.deleteMany).toHaveBeenCalledWith({
+      productId: new Types.ObjectId(productId),
+    });
     expect(result).toBe(product);
   });
 

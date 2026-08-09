@@ -164,6 +164,11 @@ ai_services/**/*.pt
 ai_services/**/models/*
 !ai_services/**/models/.gitkeep
 
+# Local markdown reports/notes
+*.md
+!README.md
+!**/README.md
+
 # Local audit/fix notes
 BugList.md
 LoyaltyPromotions-Fix.md
