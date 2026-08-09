@@ -3,7 +3,7 @@ import { requestAdminNotificationRefresh } from '../../../notifications/notifica
 import {
   bulkProcessGhnShipments,
   bulkUpdateOrderStatus,
-  exportOrdersCsv,
+  exportOrdersExcel,
   type AdminOrder,
   type AdminOrderStatus,
   type BulkOrderActionResult,
@@ -201,11 +201,11 @@ export function useOrderBulkActions({
     }
   }
 
-  const handleExportCsv = async () => {
+  const handleExportExcel = async () => {
     setIsExporting(true)
     setNotice(null)
     try {
-      const result = await exportOrdersCsv(activeFilters)
+      const result = await exportOrdersExcel(activeFilters)
       downloadBlob(result.blob, result.filename)
       setNotice({
         type: result.truncated ? 'warning' : 'success',
@@ -248,7 +248,7 @@ export function useOrderBulkActions({
     clearSelection: () => setSelectedOrderIds([]),
     handleBulkGhn,
     handleBulkStatusUpdate,
-    handleExportCsv,
+    handleExportExcel,
     handleOpenLabels,
     isBulkLoading,
     isExporting,

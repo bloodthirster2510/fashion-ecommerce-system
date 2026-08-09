@@ -35,9 +35,8 @@ type OrderFilterBarProps = {
   onColumnToggle: (column: OrderTableColumnKey) => void
   onApplyDateRange: (daysAgo: number) => void
   onClearDateRange: () => void
-  onExportCsv: () => void | Promise<void>
-  onResetLookupView: () => void
-  onSaveLookupView: () => void
+  onExportExcel: () => void | Promise<void>
+  onResetLookupFilters: () => void
 }
 
 export function OrderFilterBar({
@@ -62,9 +61,8 @@ export function OrderFilterBar({
   onColumnToggle,
   onApplyDateRange,
   onClearDateRange,
-  onExportCsv,
-  onResetLookupView,
-  onSaveLookupView,
+  onExportExcel,
+  onResetLookupFilters,
 }: OrderFilterBarProps) {
   const visibleColumnSet = new Set(visibleColumns)
 
@@ -84,9 +82,9 @@ export function OrderFilterBar({
           className="admin-secondary-button"
           type="button"
           disabled={isExporting || isActionLoading}
-          onClick={() => void onExportCsv()}
+          onClick={() => void onExportExcel()}
         >
-          {isExporting ? 'Đang xuất CSV...' : 'Xuất danh sách hiện tại'}
+          {isExporting ? 'Đang xuất Excel...' : 'Xuất Excel'}
         </button>
       </div>
     )
@@ -188,19 +186,16 @@ export function OrderFilterBar({
             ))}
           </fieldset>
 
-          <div className="admin-order-saved-view-actions" aria-label="View tra cứu">
+          <div className="admin-order-lookup-actions" aria-label="Thao tác tra cứu">
             <button
               className="admin-secondary-button"
               type="button"
               disabled={isExporting || isActionLoading}
-              onClick={() => void onExportCsv()}
+              onClick={() => void onExportExcel()}
             >
-              {isExporting ? 'Đang xuất CSV...' : 'Xuất CSV'}
+              {isExporting ? 'Đang xuất Excel...' : 'Xuất Excel'}
             </button>
-            <button className="admin-secondary-button" type="button" onClick={onSaveLookupView}>
-              Lưu view
-            </button>
-            <button className="admin-secondary-button" type="button" onClick={onResetLookupView}>
+            <button className="admin-secondary-button" type="button" onClick={onResetLookupFilters}>
               Khôi phục
             </button>
           </div>

@@ -139,7 +139,7 @@
   accent-color: #111827;
 }
 
-.admin-order-saved-view-actions {
+.admin-order-lookup-actions {
   display: flex;
   align-items: end;
   align-self: end;
@@ -147,12 +147,12 @@
   gap: 8px;
 }
 
-.admin-table-toolbar.is-lookup .admin-order-saved-view-actions {
+.admin-table-toolbar.is-lookup .admin-order-lookup-actions {
   grid-column: 10 / span 3;
   justify-content: flex-end;
 }
 
-.admin-order-saved-view-actions .admin-secondary-button {
+.admin-order-lookup-actions .admin-secondary-button {
   min-height: 42px;
   padding-inline: 12px;
   font-size: 14px;
@@ -2697,11 +2697,11 @@
 
   .admin-table-toolbar.is-lookup .admin-order-date-presets,
   .admin-table-toolbar.is-lookup .admin-order-column-toggle,
-  .admin-table-toolbar.is-lookup .admin-order-saved-view-actions {
+  .admin-table-toolbar.is-lookup .admin-order-lookup-actions {
     grid-column: 1 / -1;
   }
 
-  .admin-table-toolbar.is-lookup .admin-order-saved-view-actions {
+  .admin-table-toolbar.is-lookup .admin-order-lookup-actions {
     flex-wrap: wrap;
     justify-content: flex-start;
   }

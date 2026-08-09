@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import type { Request, Response } from 'express';
 import { Types } from 'mongoose';
 import { auditLogService } from '../../audit-logs/audit-log.service';
@@ -5,6 +6,7 @@ import {
   bulkProcessGhnShipments,
   bulkUpdateOrderStatus,
   exportOrdersCsv,
+  exportOrdersExcel,
   getOrders,
   handleGhnShippingWebhook,
 } from '../order.controller';
@@ -308,5 +310,66 @@ describe('exportOrdersCsv', () => {
     expect(csv.startsWith('\uFEFF')).toBe(true);
     expect(csv).toContain(`"'=HYPERLINK(""https://example.com"")"`);
     expect(csv).toContain('"1x @Áo sơ mi"');
+  });
+});
+
+describe('exportOrdersExcel', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('exports the complete filter result as a formatted Excel workbook', async () => {
+    mockedOrderService.getOrdersForExport.mockResolvedValue({
+      items: [{
+        orderCode: 'FS-XLSX-1',
+        invoiceCode: 'INV-XLSX-1',
+        order_list: [{ quantity: 2, name: 'Áo sơ mi' }],
+        shippingAddress: {
+          customerName: 'Nguyễn Văn A',
+          phoneNumber: '0900000000',
+        },
+        createdAt: new Date('2026-07-29T00:00:00.000Z'),
+        status: 'delivered',
+        paymentMethod: 'VNPAY',
+        paymentStatus: 'paid',
+        subTotal: 200000,
+        shippingFee: 20000,
+        couponDiscountAmount: 10000,
+        shippingDiscountAmount: 0,
+        membershipDiscountAmount: 0,
+        totalAmount: 210000,
+        shipping: {
+          provider: 'GHN',
+          trackingCode: 'GHN-XLSX-1',
+          labelUrl: 'https://example.com/label.pdf',
+        },
+      }],
+      totalItems: 1,
+      truncated: false,
+    } as never);
+    const req = {
+      query: { paymentStatus: 'paid', sort: 'created_desc' },
+    } as unknown as Request;
+    const res = createResponse();
+
+    await exportOrdersExcel(req, res);
+
+    expect(mockedOrderService.getOrdersForExport).toHaveBeenCalledWith(expect.objectContaining({
+      paymentStatus: 'paid',
+      sort: 'created_desc',
+    }));
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(res.setHeader).toHaveBeenCalledWith('X-Export-Total', '1');
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(res.send.mock.calls[0][0] as Buffer);
+    const worksheet = workbook.getWorksheet('Đơn hàng');
+    expect(worksheet?.getCell('A2').value).toBe('FS-XLSX-1');
+    expect(worksheet?.getCell('E2').value).toBe('2x Áo sơ mi');
+    expect(worksheet?.getCell('M2').value).toBe(210000);
+    expect(worksheet?.autoFilter).toBe('A1:P1');
   });
 });

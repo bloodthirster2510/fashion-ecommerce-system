@@ -112,7 +112,7 @@ const refundBankAccount = {
   updatedAt: '2026-07-29T03:00:00.000Z',
 }
 
-test('admin selects orders, performs a bulk status update, exports CSV, and opens labels', async ({ page }) => {
+test('admin selects orders, performs a bulk status update, exports Excel, and opens labels', async ({ page }) => {
   let bulkPayload: Record<string, unknown> | null = null
 
   await page.route('http://localhost:5000/api/admin/orders**', async (route) => {
@@ -146,13 +146,13 @@ test('admin selects orders, performs a bulk status update, exports CSV, and open
       return
     }
 
-    if (url.pathname.endsWith('/export.csv')) {
+    if (url.pathname.endsWith('/export.xlsx')) {
       await route.fulfill({
         status: 200,
         headers: {
           ...corsHeaders,
-          'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': 'attachment; filename="orders-e2e.csv"',
+          'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'content-disposition': 'attachment; filename="orders-e2e.xlsx"',
           'x-export-total': '1',
           'x-export-truncated': 'false',
         },
@@ -179,6 +179,7 @@ test('admin selects orders, performs a bulk status update, exports CSV, and open
   await page.getByRole('button', { name: /Tra cứu đơn & hóa đơn/ }).click()
   await expect(page.getByText(order.orderCode)).toBeVisible()
   await expect(page.getByLabel('Bước tiếp theo')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Lưu view' })).toHaveCount(0)
 
   await page.getByRole('checkbox', { name: `Chọn đơn ${order.orderCode}` }).check()
   await expect(page.getByText('Thao tác với 1 đơn đã chọn')).toBeVisible()
@@ -194,9 +195,9 @@ test('admin selects orders, performs a bulk status update, exports CSV, and open
   await expect(page.getByText('Cập nhật trạng thái thành công cho 1 đơn hàng.')).toBeVisible()
 
   const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Xuất CSV' }).click()
+  await page.getByRole('button', { name: 'Xuất Excel' }).click()
   const download = await downloadPromise
-  expect(download.suggestedFilename()).toBe('orders-e2e.csv')
+  expect(download.suggestedFilename()).toBe('orders-e2e.xlsx')
 
   await page.getByRole('checkbox', { name: `Chọn đơn ${order.orderCode}` }).check()
   const popupPromise = page.waitForEvent('popup')

@@ -75,8 +75,7 @@ export function OrderListPage({
     toggleVisibleColumn,
     totalItems,
     totalPages,
-    resetLookupView,
-    saveLookupView,
+    resetLookupFilters,
     visibleColumns,
   } = useOrderListData({
     initialTabKey,
@@ -106,7 +105,7 @@ export function OrderListPage({
     clearSelection,
     handleBulkGhn,
     handleBulkStatusUpdate,
-    handleExportCsv,
+    handleExportExcel,
     handleOpenLabels,
     isBulkLoading,
     isExporting,
@@ -245,7 +244,7 @@ export function OrderListPage({
         onDateFromChange={setDateFrom}
         onDateToChange={setDateTo}
         onExpireStalePayments={handleExpireStalePayments}
-        onExportCsv={handleExportCsv}
+        onExportExcel={handleExportExcel}
         onKeywordInputChange={setKeywordInput}
         onOpenOrder={openOrder}
         onOpenLabels={handleOpenLabels}
@@ -253,8 +252,7 @@ export function OrderListPage({
         onPaymentMethodChange={setPaymentMethod}
         onPaymentStatusChange={setPaymentStatus}
         onRefresh={loadOrders}
-        onResetLookupView={resetLookupView}
-        onSaveLookupView={saveLookupView}
+        onResetLookupFilters={resetLookupFilters}
         onPageSelectionChange={togglePage}
         onSelectionChange={toggleOrder}
         onSelectTab={setActiveTabKey}

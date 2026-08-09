@@ -31,6 +31,7 @@
     "cloudinary": "^2.10.0",
     "cors": "2.8.6",
     "dotenv": "17.4.2",
+    "exceljs": "^4.4.0",
     "express": "5.2.1",
     "file-type": "^16.5.4",
     "helmet": "^8.2.0",
@@ -60,5 +61,10 @@
     "ts-jest": "^29.4.11",
     "ts-node-dev": "2.0.0",
     "typescript": "5.5.4"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }
