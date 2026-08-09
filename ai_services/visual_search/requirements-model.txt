@@ -1,0 +1,7 @@
+# Dependencies bổ sung khi chạy embedding thật bằng OpenCLIP/FashionCLIP.
+# Cài requirements.txt trước, sau đó cài torch/torchvision cùng phiên bản CPU.
+# Bộ 2.3.1 / 0.18.1 ổn định hơn trên Windows CPU, tránh lỗi fbgemm.dll của torch 2.4.0.
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1
+open_clip_torch>=2.30.0

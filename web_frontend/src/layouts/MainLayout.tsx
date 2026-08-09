@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { Button, Dropdown, Input, type MenuProps } from 'antd'
 import {
+  CameraOutlined,
   ClockCircleOutlined,
   DownOutlined,
   EnvironmentOutlined,
   FacebookFilled,
   HeartOutlined,
+  InfoCircleOutlined,
   InstagramOutlined,
   LinkOutlined,
   MailOutlined,
@@ -17,14 +19,23 @@ import {
   TikTokOutlined,
   YoutubeFilled,
 } from '@ant-design/icons'
+import { Shirt } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { fetchCart } from '../features/cart/cart.slice'
 import { catalogService } from '../features/catalog/catalog.service'
-import type { CatalogCategory, CategoryGender } from '../features/catalog/catalog.types'
+import type {
+  CatalogCategory,
+  CategoryGender,
+  SearchSuggestCategory,
+  SearchSuggestProduct,
+  SearchSuggestResponse,
+} from '../features/catalog/catalog.types'
+import { waitForInteractionBestEffort } from '../features/recommendation/interaction.service'
 import { LoginButton } from '../features/auth/components/LoginButton'
 import shopNameImage from '../assets/images/ShopName.png'
 import { useStorefrontSettings } from '../features/storefront-settings/storefrontSettings.context'
 import type { StorefrontSocialPlatform } from '../features/storefront-settings/storefrontSettings.types'
+import { formatPrice } from '../utils/formatPrice'
 
 type MainLayoutProps = {
   children: ReactNode
@@ -32,22 +43,47 @@ type MainLayoutProps = {
 
 type ApparelGender = Exclude<CategoryGender, 'unisex'>
 
+const DressIcon = () => (
+  <svg
+    className="category-nav-avatar-icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    focusable="false"
+    aria-hidden="true"
+  >
+    <path d="M9 3.8h6l1.5 3.6-2.3 1.1L12 6.7 9.8 8.5 7.5 7.4z" />
+    <path d="M10 8.1 6.8 20.2h10.4L14 8.1" />
+    <path d="M8.5 14.3h7" />
+  </svg>
+)
+
 type NavLink =
   | {
       label: string
       href: string
+      icon: ReactNode
       gender?: undefined
     }
   | {
       label: string
       href: string
+      icon: ReactNode
       gender: ApparelGender
     }
 
 const navLinks = [
-  { label: 'Giới thiệu', href: '/' },
-  { label: 'Thời trang nam', href: '/products?gender=male', gender: 'male' },
-  { label: 'Thời trang nữ', href: '/products?gender=female', gender: 'female' },
+  { label: 'Giới thiệu', href: '/', icon: <InfoCircleOutlined /> },
+  {
+    label: 'Thời trang nam',
+    href: '/products?gender=male',
+    gender: 'male',
+    icon: <Shirt className="category-nav-avatar-icon" strokeWidth={1.8} />,
+  },
+  { label: 'Thời trang nữ', href: '/products?gender=female', gender: 'female', icon: <DressIcon /> },
 ] satisfies NavLink[]
 const supportLinks = [
   { label: 'Hướng dẫn đặt hàng', href: '/support?topic=orders' },
@@ -57,6 +93,7 @@ const supportLinks = [
   { label: 'Điều khoản sử dụng', href: '/policies/terms' },
   { label: 'Tiếp nhận khiếu nại', href: '/policies/complaints' },
 ]
+const CATALOG_VISUAL_SEARCH_FILE_EVENT = 'catalog:visual-search-file-selected'
 const socialIconByPlatform = {
   facebook: FacebookFilled,
   instagram: InstagramOutlined,
@@ -78,6 +115,34 @@ const getCategoryId = (category?: Pick<CatalogCategory, '_id'> | string | null) 
 }
 
 const getCategoryHref = (category: CatalogCategory) => `/products?categoryId=${category._id}`
+
+const normalizeSearchText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLocaleLowerCase('vi-VN')
+    .trim()
+    .replace(/\s+/g, ' ')
+
+const mergeSuggestions = (primary: string[], secondary: string[], limit = 10) => {
+  const seen = new Set<string>()
+  const merged: string[] = []
+
+  ;[...primary, ...secondary].forEach((item) => {
+    const trimmed = item.trim()
+    const key = normalizeSearchText(trimmed)
+    if (!trimmed || seen.has(key)) return
+
+    seen.add(key)
+    merged.push(trimmed)
+  })
+
+  return merged.slice(0, limit)
+}
+
+const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()))
 
 const buildCategoryMenu = (categories: CatalogCategory[], gender: ApparelGender) => {
   //Lọc theo giới tính, unisex dùng chung cho cả menu nam và nữ.
@@ -133,14 +198,56 @@ function Header() {
   const [categoryError, setCategoryError] = useState('')
   const locationSearchParams = new URLSearchParams(window.location.search)
   const locationCategoryId = locationSearchParams.get('categoryId') ?? ''
-  const locationKeyword = locationSearchParams.get('keyword') ?? ''
+  const locationKeyword = locationSearchParams.get('keyword') ?? locationSearchParams.get('visualText') ?? ''
   const [searchCategoryId, setSearchCategoryId] = useState(locationCategoryId)
   const [searchKeyword, setSearchKeyword] = useState(locationKeyword)
+  const [isSearchFocused, setIsSearchFocused] = useState(false)
+  const [searchSuggest, setSearchSuggest] = useState<SearchSuggestResponse | null>(null)
+  const [isSearchSuggestLoading, setIsSearchSuggestLoading] = useState(false)
+  const searchSuggestAbortRef = useRef<AbortController | null>(null)
+  const visualSearchInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     setSearchCategoryId(locationCategoryId)
     setSearchKeyword(locationKeyword)
   }, [locationCategoryId, locationKeyword])
+
+  useEffect(() => {
+    const query = searchKeyword.trim()
+    if (query.length < 2) {
+      searchSuggestAbortRef.current?.abort()
+      setSearchSuggest(null)
+      setIsSearchSuggestLoading(false)
+      return
+    }
+
+    setIsSearchSuggestLoading(true)
+    const handle = window.setTimeout(() => {
+      searchSuggestAbortRef.current?.abort()
+      const controller = new AbortController()
+      searchSuggestAbortRef.current = controller
+
+      catalogService
+        .suggestSearch(query, { signal: controller.signal })
+        .then((data) => {
+          if (controller.signal.aborted) return
+          setSearchSuggest(data)
+        })
+        .catch((error: unknown) => {
+          if (error instanceof Error && error.name === 'AbortError') return
+          setSearchSuggest(null)
+        })
+        .finally(() => {
+          if (controller.signal.aborted) return
+          setIsSearchSuggestLoading(false)
+        })
+    }, 300)
+
+    return () => {
+      window.clearTimeout(handle)
+      searchSuggestAbortRef.current?.abort()
+    }
+  }, [searchKeyword])
 
   useEffect(() => {
     let isMounted = true
@@ -188,7 +295,7 @@ function Header() {
     () => categories.find((category) => category._id === searchCategoryId),
     [categories, searchCategoryId],
   )
-  const cartItemCount = cart?.product_list.length ?? 0
+  const cartItemCount = cart?.product_list.reduce((sum, item) => sum + item.quantity, 0) ?? 0
 
   const searchCategoryItems = useMemo<MenuProps['items']>(() => {
     const items = [...categories]
@@ -216,6 +323,118 @@ function Header() {
     setSearchCategoryId(key === 'all' ? '' : key)
   }
 
+  const runHeaderSearch = async (keywordValue: string, categoryIdValue = searchCategoryId) => {
+    const keyword = keywordValue.trim()
+    const categoryId = categoryIdValue.trim()
+    const params = new URLSearchParams()
+
+    if (keyword) {
+      params.set('keyword', keyword)
+    }
+
+    if (categoryId) {
+      params.set('categoryId', categoryId)
+    }
+
+    const nextQueryString = params.toString()
+    const nextUrl = `/products${nextQueryString ? `?${nextQueryString}` : ''}`
+
+    if (!keyword) {
+      window.location.assign(nextUrl)
+      return
+    }
+
+    setIsSearchFocused(false)
+    await waitForInteractionBestEffort({
+      actionType: 'search',
+      source: 'search',
+      metadata: {
+        keyword,
+        surface: 'web_header',
+        ...(categoryId ? { categoryId } : {}),
+      },
+    })
+
+    window.location.assign(nextUrl)
+  }
+
+  const handleSearchSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const formData = new FormData(event.currentTarget)
+    const keyword = String(formData.get('keyword') ?? '').trim()
+    const categoryId = String(formData.get('categoryId') ?? '').trim()
+
+    await runHeaderSearch(keyword, categoryId)
+  }
+
+  const handleSuggestKeywordClick = (keyword: string) => {
+    setSearchKeyword(keyword)
+    void runHeaderSearch(keyword)
+  }
+
+  const handleSuggestProductClick = async (product: SearchSuggestProduct) => {
+    setIsSearchFocused(false)
+    await waitForInteractionBestEffort({
+      productId: product._id,
+      actionType: 'search_result_click',
+      source: 'search',
+      metadata: {
+        keyword: searchKeyword.trim(),
+        surface: 'search_suggestions',
+      },
+    })
+    window.location.assign(`/products/${encodeURIComponent(product._id)}`)
+  }
+
+  const handleSuggestCategoryClick = (category: SearchSuggestCategory) => {
+    setIsSearchFocused(false)
+    window.location.assign(`/products?categoryId=${encodeURIComponent(category._id)}`)
+  }
+
+  const dispatchVisualSearchFile = (file: File) => {
+    const isProductListPage = window.location.pathname === '/products' || window.location.pathname === '/products/'
+
+    if (isProductListPage) {
+      window.dispatchEvent(new CustomEvent<File>(CATALOG_VISUAL_SEARCH_FILE_EVENT, { detail: file }))
+      return
+    }
+
+    ;(window as Window & { __pendingVisualSearchFile?: File }).__pendingVisualSearchFile = file
+    window.history.pushState(null, '', '/products')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }
+
+  const openHeaderVisualSearch = () => {
+    setIsSearchFocused(false)
+    visualSearchInputRef.current?.click()
+  }
+
+  const handleHeaderVisualSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (file) {
+      dispatchVisualSearchFile(file)
+    }
+  }
+
+  const normalizedSearchQuery = normalizeSearchText(searchKeyword)
+  const keywordSuggestions = useMemo(
+    () => mergeSuggestions(
+      searchSuggest?.keywords ?? [],
+      searchSuggest?.products.map((product) => product.name) ?? [],
+    ),
+    [searchSuggest],
+  )
+  const hasSuggestQuery = normalizedSearchQuery.length >= 2
+  const showSearchPopout = isSearchFocused && hasSuggestQuery
+  const hasSuggestContent = Boolean(
+    keywordSuggestions.length ||
+    searchSuggest?.products.length ||
+    searchSuggest?.categories.length,
+  )
+
   return (
     <header className="site-header">
       <div className="header-main">
@@ -223,7 +442,14 @@ function Header() {
           <img src={shopNameImage} alt={settings.identity.name} />
         </a>
 
-        <form className="search" action="/products" method="get" role="search">
+        <form className="search" action="/products" method="get" role="search" onSubmit={handleSearchSubmit}>
+          <input
+            ref={visualSearchInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleHeaderVisualSearchChange}
+            hidden
+          />
           <Dropdown
             disabled={isLoadingCategories || Boolean(categoryError)}
             menu={{
@@ -248,12 +474,116 @@ function Header() {
           <input type="hidden" name="categoryId" value={searchCategoryId} />
           <Input
             name="keyword"
-            placeholder="Tìm kiếm sản phẩm..."
-            aria-label="Tìm kiếm sản phẩm"
+            placeholder="Bạn muốn tìm sản phẩm nào?"
+            aria-label="Tìm sản phẩm bằng mô tả"
             value={searchKeyword}
             onChange={(event) => setSearchKeyword(event.target.value)}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setIsSearchFocused(false)}
+          />
+          <Button
+            className="search-image"
+            htmlType="button"
+            icon={<CameraOutlined />}
+            aria-label="Tìm sản phẩm bằng hình ảnh"
+            title="Tìm bằng ảnh"
+            onClick={openHeaderVisualSearch}
           />
           <Button className="search-submit" htmlType="submit" icon={<SearchOutlined />} aria-label="Tìm kiếm" />
+
+          {showSearchPopout && (
+            <div
+              className="search-popout"
+              role="listbox"
+              aria-label="Gợi ý tìm kiếm"
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              {isSearchSuggestLoading && (
+                <div className="search-popout-status">
+                  <SearchOutlined aria-hidden="true" />
+                  <span>Đang gợi ý...</span>
+                </div>
+              )}
+
+              {!isSearchSuggestLoading && hasSuggestContent && (
+                <>
+                  {keywordSuggestions.length > 0 && (
+                    <section className="search-popout-section">
+                      <h2>Gợi ý tìm kiếm</h2>
+                      <div className="search-keyword-list">
+                        {keywordSuggestions.map((keyword) => (
+                          <button
+                            key={keyword}
+                            type="button"
+                            className="search-keyword-row"
+                            onClick={() => handleSuggestKeywordClick(keyword)}
+                          >
+                            <SearchOutlined aria-hidden="true" />
+                            <span>{keyword}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {searchSuggest?.products.length ? (
+                    <section className="search-popout-section">
+                      <h2>Sản phẩm nổi bật</h2>
+                      <div className="search-product-list">
+                        {searchSuggest.products.slice(0, 3).map((product) => (
+                          <button
+                            key={product._id}
+                            type="button"
+                            className="search-product-row"
+                            onClick={() => void handleSuggestProductClick(product)}
+                          >
+                            <span className="search-product-image">
+                              {isRemoteImage(product.image)
+                                ? <img src={product.image} alt="" />
+                                : <ShopOutlined aria-hidden="true" />}
+                            </span>
+                            <span className="search-product-copy">
+                              <strong>{product.name}</strong>
+                              {product.brandName && <small>{product.brandName}</small>}
+                              <b>{formatPrice(product.finalPrice)}</b>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {searchSuggest?.categories.length ? (
+                    <section className="search-popout-section">
+                      <h2>Danh mục</h2>
+                      <div className="search-category-list">
+                        {searchSuggest.categories.map((category) => (
+                          <button
+                            key={category._id}
+                            type="button"
+                            className="search-category-row"
+                            onClick={() => handleSuggestCategoryClick(category)}
+                          >
+                            <ShopOutlined aria-hidden="true" />
+                            <span>{category.name}</span>
+                            <small>{category.gender === 'male' ? 'Nam' : category.gender === 'female' ? 'Nữ' : 'Unisex'}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+                </>
+              )}
+
+              {!isSearchSuggestLoading && searchSuggest && !hasSuggestContent && (
+                <div className="search-popout-empty">
+                  <SearchOutlined aria-hidden="true" />
+                  <strong>Chưa có gợi ý phù hợp</strong>
+                  <span>Nhấn Enter để tìm "{searchKeyword.trim()}".</span>
+                </div>
+              )}
+            </div>
+          )}
         </form>
 
         <nav className="header-actions" aria-label="Liên kết nhanh">
@@ -282,7 +612,8 @@ function Header() {
         {navLinks.map((link) => (
           <div className="category-nav-item" key={link.label}>
             <a className="category-nav-link" href={link.href}>
-              {link.label}
+              <span className="category-nav-symbol" aria-hidden="true">{link.icon}</span>
+              <span className="category-nav-text">{link.label}</span>
               {link.gender && <DownOutlined className="category-nav-icon" aria-hidden="true" />}
             </a>
 

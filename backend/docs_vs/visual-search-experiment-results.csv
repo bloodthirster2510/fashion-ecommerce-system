@@ -1,0 +1,2 @@
+method,queryCount,recallAt1,recallAt5,recallAt10,precisionAt5,precisionAt10,mrr,ndcgAt10,avgLatencyMs,p95LatencyMs,note
+openfashionclip-v2,50,1,1,1,0.46,0.246,1,0.9794,826.64,995,offline evaluation from labeled visual search queries
