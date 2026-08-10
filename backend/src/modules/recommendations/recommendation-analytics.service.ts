@@ -791,7 +791,7 @@ const collectSearchReport = async (range: Pick<AnalyticsRange, 'from' | 'to'>) =
     actionType: 'search_result_click',
   };
 
-  const [summaryRows, topKeywords, trendRows, searchResultClicks] = await Promise.all([
+  const [summaryRows, topKeywords, zeroResultKeywords, trendRows, searchResultClicks] = await Promise.all([
     SearchHistory.aggregate<SearchSummaryRow>([
       { $match: searchFilter },
       {
@@ -812,6 +812,28 @@ const collectSearchReport = async (range: Pick<AnalyticsRange, 'from' | 'to'>) =
           ...searchFilter,
           searchType: 'keyword',
           keyword: { $type: 'string', $ne: '' },
+        },
+      },
+      {
+        $group: {
+          _id: { $toLower: '$keyword' },
+          keyword: { $first: '$keyword' },
+          count: { $sum: 1 },
+          averageResultCount: { $avg: '$resultCount' },
+          lastSearchedAt: { $max: '$createdAt' },
+        },
+      },
+      { $sort: { count: -1, lastSearchedAt: -1 } },
+      { $limit: 10 },
+      { $project: { _id: 0, keyword: 1, count: 1, averageResultCount: 1, lastSearchedAt: 1 } },
+    ]),
+    SearchHistory.aggregate<SearchKeywordRow>([
+      {
+        $match: {
+          ...searchFilter,
+          searchType: 'keyword',
+          keyword: { $type: 'string', $ne: '' },
+          resultCount: 0,
         },
       },
       {
@@ -862,6 +884,10 @@ const collectSearchReport = async (range: Pick<AnalyticsRange, 'from' | 'to'>) =
     topKeywords: topKeywords.map((keyword) => ({
       ...keyword,
       averageResultCount: Math.round(keyword.averageResultCount * 10) / 10,
+    })),
+    zeroResultKeywords: zeroResultKeywords.map((keyword) => ({
+      ...keyword,
+      averageResultCount: 0,
     })),
     trend: trendRows.map((row) => ({
       date: row._id,

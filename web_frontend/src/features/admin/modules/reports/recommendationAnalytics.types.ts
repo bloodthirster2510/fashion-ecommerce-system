@@ -144,6 +144,7 @@ export type RecommendationAnalytics = {
     zeroResultRate: number
     averageResultCount: number
     topKeywords: RecommendationSearchKeyword[]
+    zeroResultKeywords: RecommendationSearchKeyword[]
     trend: RecommendationSearchTrendPoint[]
   }
   topProducts: RecommendationTopProduct[]

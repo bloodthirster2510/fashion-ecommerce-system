@@ -230,6 +230,13 @@ export const parseRecommendationAnalytics = (value: unknown): RecommendationAnal
       hasNumberFields(keyword, ['count', 'averageResultCount']) &&
       isDateString(keyword.lastSearchedAt)
     )) &&
+    Array.isArray(search.zeroResultKeywords) &&
+    search.zeroResultKeywords.every((keyword) => (
+      isRecord(keyword) &&
+      typeof keyword.keyword === 'string' &&
+      hasNumberFields(keyword, ['count', 'averageResultCount']) &&
+      isDateString(keyword.lastSearchedAt)
+    )) &&
     Array.isArray(search.trend) &&
     search.trend.every((point) => (
       isRecord(point) &&

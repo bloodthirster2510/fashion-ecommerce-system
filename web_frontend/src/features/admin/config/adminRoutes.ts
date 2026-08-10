@@ -170,8 +170,8 @@ const adminRouteRecords: AdminRoute[] = [
   {
     id: 'reports',
     path: '/admin/reports',
-    label: 'Gợi ý & tìm kiếm',
-    helper: 'Hiệu quả, funnel & chất lượng thuật toán',
+    label: 'Tìm kiếm & khám phá',
+    helper: 'Tìm kiếm, đề xuất & chuyển đổi',
     group: 'insights',
   },
   {

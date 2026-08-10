@@ -77,6 +77,7 @@ const emptyAnalytics = (): RecommendationAnalytics => ({
     zeroResultRate: 0,
     averageResultCount: 0,
     topKeywords: [],
+    zeroResultKeywords: [],
     trend: [],
   },
   topProducts: [],
