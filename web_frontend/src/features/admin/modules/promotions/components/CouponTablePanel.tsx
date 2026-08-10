@@ -162,7 +162,7 @@ export function CouponTablePanel({
 
         return (
           <div className="admin-row-actions" onClick={(event) => event.stopPropagation()}>
-            <Button variant="secondary" disabled={actionLoading} onClick={() => void onOpenDetail(coupon)}>
+            <Button className="admin-promotion-view-button" variant="secondary" disabled={actionLoading} onClick={() => void onOpenDetail(coupon)}>
               Xem
             </Button>
             <details className="admin-action-menu">

@@ -29,12 +29,9 @@ import type {
   ProductOption,
 } from './promotion.types'
 import type { PickerOption } from './components/OptionPicker'
-import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { useToast } from '../../notifications/notification-context'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import {
-  Button,
-  PageHeader,
   Pagination,
 } from '../../components/ui'
 import './promotion.css'
@@ -1344,20 +1341,36 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
   return (
     <section className="admin-ui-page admin-promotions-page" aria-busy={isLoading}>
-      <PageHeader
-        title="Khuyến mãi"
-        description="Quản lý voucher, đối tượng áp dụng, thời hạn hiệu lực và lượt sử dụng trong các chiến dịch bán hàng."
-        breadcrumbs={['Marketing', 'Voucher']}
-        actions={(
-          <Button
-            variant="primary"
+      <header className="admin-page-heading admin-promotion-heading">
+        <div>
+          <p>Marketing / Voucher</p>
+          <h1>Khuyến mãi</h1>
+          <span className="admin-promotion-heading-copy">
+            Quản lý mã giảm giá, thời hạn áp dụng và lượt sử dụng của khách hàng.
+          </span>
+        </div>
+        <div className="admin-promotion-heading-actions">
+          <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
+            Làm mới
+          </button>
+          <button
+            className="admin-secondary-button"
+            type="button"
+            disabled={actionLoading}
+            onClick={() => void exportCouponsCsv()}
+          >
+            Xuất CSV
+          </button>
+          <button
+            className="admin-primary-button"
+            type="button"
             disabled={!canManagePromotions}
             onClick={openCreateDialog}
           >
-            Tạo voucher
-          </Button>
-        )}
-      />
+            + Tạo voucher
+          </button>
+        </div>
+      </header>
 
       <PromotionKpiSummary
         summary={couponSummary}
@@ -1374,22 +1387,11 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         onClear={() => setSelectedCouponIds([])}
       />
 
-      <CampaignAnalyticsPanel currentUser={currentUser} />
-
       <PromotionFilterBar
         keywordInput={keywordInput}
         statusFilter={statusFilter}
         discountFilter={discountFilter}
-        visibilityFilter={visibilityFilter}
-        audienceFilter={audienceFilter}
-        rankFilter={rankFilter}
-        dateFromFilter={dateFromFilter}
-        dateToFilter={dateToFilter}
         sort={sort}
-        tiers={tiers}
-        isLoading={actionLoading}
-        onRefresh={() => void loadCoupons()}
-        onExport={() => void exportCouponsCsv()}
         onReset={() => {
           setKeywordInput('')
           setStatusFilter('all')
@@ -1405,34 +1407,29 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         onKeywordChange={setKeywordInput}
         onStatusChange={(value) => {
           setStatusFilter(value as CouponStatusFilter)
+          setVisibilityFilter('all')
+          setAudienceFilter('all_filter')
+          setRankFilter('')
+          setDateFromFilter('')
+          setDateToFilter('')
           setPage(1)
         }}
         onDiscountChange={(value) => {
           setDiscountFilter(value as CouponDiscountFilter)
-          setPage(1)
-        }}
-        onVisibilityChange={(value) => {
-          setVisibilityFilter(value as CouponVisibilityFilter)
-          setPage(1)
-        }}
-        onAudienceChange={(value) => {
-          setAudienceFilter(value as CouponAudienceFilter)
-          setPage(1)
-        }}
-        onRankChange={(value) => {
-          setRankFilter(value)
-          setPage(1)
-        }}
-        onDateFromChange={(value) => {
-          setDateFromFilter(value)
-          setPage(1)
-        }}
-        onDateToChange={(value) => {
-          setDateToFilter(value)
+          setVisibilityFilter('all')
+          setAudienceFilter('all_filter')
+          setRankFilter('')
+          setDateFromFilter('')
+          setDateToFilter('')
           setPage(1)
         }}
         onSortChange={(value) => {
           setSort(value as CouponSort)
+          setVisibilityFilter('all')
+          setAudienceFilter('all_filter')
+          setRankFilter('')
+          setDateFromFilter('')
+          setDateToFilter('')
           setPage(1)
         }}
       />

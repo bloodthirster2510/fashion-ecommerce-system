@@ -277,7 +277,7 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
     <section className="admin-growth-panel">
       <div className="admin-section-heading">
         <div><p>Chiến dịch & phân tích</p><h2>Hiệu quả khuyến mãi</h2></div>
-        <button className="admin-secondary-button" type="button" disabled={!canManage || loading} onClick={() => showForm ? closeForm() : openCreateForm()}>
+        <button className="admin-secondary-button admin-campaign-create-button" type="button" disabled={!canManage || loading} onClick={() => showForm ? closeForm() : openCreateForm()}>
           {showForm ? 'Đóng form' : 'Tạo chiến dịch'}
         </button>
       </div>
