@@ -210,13 +210,21 @@ const isPolicyClosedJob = (job: AdminVirtualTryOnJob) =>
 const isPolicyClosedVideo = (job: AdminVirtualTryOnJob) =>
   job.videoErrorCode === 'VIDEO_PROVIDER_SAFETY_BLOCKED'
 
-const getAttentionReason = (job: AdminVirtualTryOnJob) => {
-  if (job.status === 'failed') return job.errorCode || 'Lỗi nhà cung cấp'
-  if (job.videoStatus === 'failed') return job.videoErrorCode || 'Lỗi sinh video'
-  if (job.status === 'processing') return `Đang chạy ${job.progress}%`
-  if (job.status === 'queued') return `Chờ ${getJobAgeMinutes(job)} phút`
-  if (job.status === 'succeeded') return 'Có kết quả mới'
-  return 'Đã hủy'
+const needsAdminAttention = (job: AdminVirtualTryOnJob) => (
+  job.status === 'failed'
+  || job.videoStatus === 'failed'
+  || (job.status === 'queued' && getJobAgeMinutes(job) >= 5)
+  || (job.status === 'processing' && getJobAgeMinutes(job) >= 15)
+)
+
+const getJobPriority = (job: AdminVirtualTryOnJob) => {
+  if (job.status === 'failed' || job.videoStatus === 'failed') return 0
+  if (job.status === 'processing' && getJobAgeMinutes(job) >= 15) return 1
+  if (job.status === 'queued' && getJobAgeMinutes(job) >= 5) return 2
+  if (job.status === 'processing') return 3
+  if (job.status === 'queued') return 4
+  if (job.status === 'succeeded') return 5
+  return 6
 }
 
 const toSettingsConfiguration = (
@@ -273,6 +281,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const [lockForm, setLockForm] = useState<{ userId: string; reason: string }>({ userId: '', reason: '' })
   const [lockSaving, setLockSaving] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedKeyword(filters.keyword), 350)
     return () => window.clearTimeout(timer)
@@ -283,18 +292,18 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     keyword: debouncedKeyword,
   }), [debouncedKeyword, filters])
 
-  const loadJobs = useCallback(async () => {
+  const loadJobs = useCallback(async (silent = false) => {
     if (!canRead) {
       setLoading(false)
       return
     }
-    setLoading(true)
+    if (!silent) setLoading(true)
     try {
       setData(await listVirtualTryOnJobs(effectiveFilters))
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải lượt phối đồ' })
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [canRead, effectiveFilters])
 
@@ -325,6 +334,14 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   useEffect(() => { void loadJobs() }, [loadJobs])
   useEffect(() => { void loadSummary() }, [loadSummary])
   useEffect(() => { if (canSettings) void loadSettings() }, [canSettings, loadSettings])
+
+  useEffect(() => {
+    if (!autoRefreshEnabled || activeTab !== 'jobs' || !canRead) return undefined
+    const timer = window.setInterval(() => {
+      void Promise.all([loadJobs(true), loadSummary()])
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [activeTab, autoRefreshEnabled, canRead, loadJobs, loadSummary])
 
   useEffect(() => {
     if (!selectedJob) return undefined
@@ -639,21 +656,17 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const pagination = data?.pagination
   const jobs = data?.items ?? []
+  const orderedJobs = [...jobs].sort((left, right) => {
+    const priorityDifference = getJobPriority(left) - getJobPriority(right)
+    if (priorityDifference) return priorityDifference
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  })
   const activeJobCount = summary ? summary.queued + summary.processing : '—'
   const statusOverview = Object.entries(statusMeta).map(([status, meta]) => ({
     status: status as VirtualTryOnJobStatus,
     ...meta,
     count: summary ? summary[status as VirtualTryOnJobStatus] : '—',
   }))
-  const attentionJobs = [
-    ...(summary?.latestFailedJobs ?? []),
-    ...jobs.filter((job) => (
-      job.videoStatus === 'failed'
-      || (job.status === 'queued' && getJobAgeMinutes(job) >= 5)
-      || (job.status === 'processing' && getJobAgeMinutes(job) >= 15)
-    )),
-  ].filter((job, index, list) => list.findIndex((item) => item._id === job._id) === index).slice(0, 4)
-  const reviewJobs = jobs.filter((job) => job.status === 'succeeded' && (job.generatedImageUrl || job.generatedImageUrls?.length)).slice(0, 4)
   const hasActiveFilters = Boolean(filters.keyword || filters.status || filters.provider || filters.dateFrom || filters.dateTo)
   const isActiveTabLoading = loading
     || settingsLoading
@@ -669,14 +682,26 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   return (
     <section className="admin-vto-page">
       <header className="admin-vto-ops-bar">
-        <div>
+        <div className="admin-vto-ops-copy">
           <span>Phối đồ ảo</span>
           <strong>Vận hành và kiểm soát</strong>
           <p>Theo dõi lượt tạo, kết quả, nội dung và giới hạn sử dụng.</p>
         </div>
-        <button type="button" onClick={() => void refreshActiveTab()} disabled={isActiveTabLoading}>
-          {isActiveTabLoading ? 'Đang tải...' : 'Làm mới'}
-        </button>
+        <div className="admin-vto-ops-actions">
+          {activeTab === 'jobs' ? (
+            <label className="admin-vto-auto-refresh">
+              <input
+                type="checkbox"
+                checked={autoRefreshEnabled}
+                onChange={(event) => setAutoRefreshEnabled(event.target.checked)}
+              />
+              <span>Tự làm mới 30 giây</span>
+            </label>
+          ) : null}
+          <button type="button" onClick={() => void refreshActiveTab()} disabled={isActiveTabLoading}>
+            {isActiveTabLoading ? 'Đang tải...' : 'Làm mới'}
+          </button>
+        </div>
       </header>
 
       {notice ? (
@@ -713,92 +738,19 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         ) : null}
       </nav>
 
-      <div className="admin-vto-stats" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
-        <div className="is-primary">
-          <span>Lượt hôm nay</span>
-          <strong>{summary?.today ?? '—'}</strong>
-          <em>{summary ? `${summary.total} lượt toàn hệ thống` : 'Chưa có dữ liệu'}</em>
-        </div>
-        <div>
-          <span>Đang xử lý</span>
-          <strong>{activeJobCount}</strong>
-          <em>{summary ? `${summary.queued} chờ · ${summary.processing} chạy` : 'Chưa có dữ liệu'}</em>
-        </div>
-        <div className="is-success">
-          <span>Thành công hôm nay</span>
-          <strong>{summary ? `${summary.todaySuccessRate}%` : '—'}</strong>
-          <em>{summary ? `${summary.todaySucceeded} thành công · ${summary.todayFailed} lỗi` : 'Chưa có dữ liệu'}</em>
-        </div>
-        <div className="is-danger">
-          <span>Lỗi hôm nay</span>
-          <strong>{summary?.todayFailed ?? '—'}</strong>
-          <em>{summary ? `${summary.promptBlocksToday} lượt tạm chặn do nội dung` : 'Chưa có dữ liệu'}</em>
-        </div>
-      </div>
-
       {activeTab === 'jobs' || activeTab === 'settings' ? (
         <>
-        <div className="admin-vto-command-grid" aria-label="Bảng điều hành phối đồ ảo" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
-        <section className="admin-vto-command-card is-attention">
-          <div>
-            <span>Việc cần xử lý</span>
-            <strong>{attentionJobs.length}</strong>
-          </div>
-          {attentionJobs.length ? (
-            <div className="admin-vto-mini-list">
-              {attentionJobs.map((job) => (
-                <button type="button" key={job._id} onClick={() => setSelectedJob(job)}>
-                  <span>{getShortId(job._id)}</span>
-                  <strong>{getAttentionReason(job)}</strong>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p>Không có lượt lỗi hoặc xử lý chậm.</p>
-          )}
-          <div className="admin-vto-command-actions">
-            <button type="button" onClick={() => updateFilter('status', 'failed')}>Xem lỗi</button>
-            <button type="button" onClick={() => updateFilter('status', 'processing')}>Đang chạy</button>
-          </div>
-        </section>
-
-        <section className="admin-vto-command-card is-review">
-          <div>
-            <span>Kết quả mới</span>
-            <strong>{reviewJobs.length}</strong>
-          </div>
-          {reviewJobs.length ? (
-            <div className="admin-vto-review-strip">
-              {reviewJobs.map((job) => (
-                <button type="button" key={job._id} onClick={() => setSelectedJob(job)} aria-label={`Mở lượt ${getShortId(job._id)}`}>
-                  <img src={getJobLeadImage(job)} alt="" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p>Trang hiện tại chưa có kết quả ảnh mới.</p>
-          )}
-          <div className="admin-vto-command-actions">
-            <button type="button" onClick={() => updateFilter('status', 'succeeded')}>Xem ảnh mới</button>
-          </div>
-        </section>
-
-        <section className="admin-vto-command-card is-policy">
-          <div>
-            <span>Dịch vụ AI</span>
-            <strong>{summary ? (summary.provider === 'disabled' ? 'Tắt' : 'Hoạt động') : 'Chưa rõ'}</strong>
-          </div>
-          <dl className="admin-vto-policy-list">
-            <div><dt>Dịch vụ ảnh</dt><dd>{summary?.provider ?? '-'}</dd></div>
-            <div><dt>Dịch vụ video</dt><dd>{summary ? (summary.videoEnabled ? 'Sẵn sàng' : 'Chưa sẵn sàng') : 'Chưa rõ'}</dd></div>
-            <div><dt>Vi phạm hôm nay</dt><dd>{summary?.promptViolationsToday ?? '—'}</dd></div>
-            <div><dt>Lượt tạm chặn</dt><dd>{summary?.promptBlocksToday ?? '—'}</dd></div>
-          </dl>
-        </section>
-      </div>
-
       <div className="admin-vto-layout">
         <section className="admin-vto-main" style={{ display: activeTab === 'jobs' ? undefined : 'none' }}>
+          <div className="admin-vto-queue-summary">
+            <div>
+              <span>Hàng chờ vận hành</span>
+              <strong>{activeJobCount} lượt đang hoạt động</strong>
+            </div>
+            <p>
+              Hôm nay {summary?.today ?? '—'} lượt · {summary?.todaySucceeded ?? '—'} thành công · {summary?.todayFailed ?? '—'} lỗi
+            </p>
+          </div>
           <div className="admin-vto-status-board" aria-label="Tổng quan trạng thái lượt phối đồ">
             <button
               type="button"
@@ -851,7 +803,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               <div className="admin-table-skeleton">
                 <span /><span /><span /><span />
               </div>
-            ) : jobs.length ? (
+            ) : orderedJobs.length ? (
               <table className="admin-vto-table">
                 <thead>
                   <tr>
@@ -864,10 +816,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   </tr>
                 </thead>
                 <tbody>
-                  {jobs.map((job) => {
+                  {orderedJobs.map((job) => {
                     const status = statusMeta[job.status]
                     return (
-                      <tr key={job._id} className={job.status === 'failed' ? 'needs-attention' : undefined}>
+                      <tr key={job._id} className={needsAdminAttention(job) ? 'needs-attention' : undefined}>
                         <td>
                           <button className="admin-vto-job-link" type="button" onClick={() => setSelectedJob(job)}>
                             <span className="admin-vto-job-preview" aria-hidden="true">
@@ -916,13 +868,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         </td>
                         <td>
                           <div className="admin-vto-actions">
-                            <button type="button" onClick={() => setSelectedJob(job)}>Xem</button>
-                            {canManage && ['failed', 'canceled'].includes(job.status) && !isPolicyClosedJob(job) ? (
-                              <button type="button" disabled={actionLoading} onClick={() => void handleRetry(job)}>Chạy lại</button>
-                            ) : null}
-                            {canManage && ['queued', 'processing'].includes(job.status) ? (
-                              <button type="button" disabled={actionLoading} onClick={() => void handleCancel(job)}>Hủy</button>
-                            ) : null}
+                            <button type="button" className="is-primary" onClick={() => setSelectedJob(job)}>
+                              Xem & xử lý
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1239,7 +1187,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 ) : null}
               </section>
             ) : null}
-            <section>
+            <section className="admin-vto-drawer-customer">
               <h3>Khách hàng</h3>
               <div className="admin-vto-identity-block">
                 <p>{getUserLabel(selectedJob)} · {selectedJob.user?.email ?? 'Không có email'}</p>
@@ -1259,8 +1207,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 ) : null}
               </div>
             </section>
-            <section>
-              <h3>Thông tin kỹ thuật</h3>
+            <details className="admin-vto-drawer-technical">
+              <summary>Thông tin kỹ thuật</summary>
               <dl>
                 <div>
                   <dt>Mã lượt</dt>
@@ -1311,8 +1259,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               {selectedJob.contextPrompt ? <p>{selectedJob.contextPrompt}</p> : null}
               {selectedJob.errorMessage ? <p className="admin-vto-error-text">{selectedJob.errorCode}: {selectedJob.errorMessage}</p> : null}
               {selectedJob.videoErrorMessage ? <p className="admin-vto-error-text">{selectedJob.videoErrorCode}: {selectedJob.videoErrorMessage}</p> : null}
-            </section>
-            <section>
+            </details>
+            <section className="admin-vto-drawer-comparison">
               <h3>So sánh kết quả</h3>
               <div className="admin-vto-moderation-grid">
                 <article>
@@ -1348,7 +1296,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <p>Video: {videoStatusLabels[selectedJob.videoStatus]}{selectedJob.videoErrorMessage ? ` — ${selectedJob.videoErrorMessage}` : ''}</p>
               ) : null}
             </section>
-            <section>
+            <section className="admin-vto-drawer-products-section">
               <h3>Sản phẩm đã chọn</h3>
               <div className="admin-vto-drawer-items">
                 {selectedJob.selectedItems.map((item) => (
