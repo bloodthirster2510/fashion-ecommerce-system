@@ -42,7 +42,6 @@ import type {
   MembershipRanking,
 } from './loyalty.types'
 import './loyalty.css'
-import { LoyaltyImpactSection } from './components/LoyaltyImpactSection'
 import { LoyaltyKpiSummary } from './components/LoyaltyKpiSummary'
 import { LoyaltyRulesPanel } from './components/LoyaltyRulesPanel'
 import { LoyaltyPointsPanel } from './components/LoyaltyPointsPanel'
@@ -52,7 +51,6 @@ import { useToast } from '../../notifications/notification-context'
 import {
   Button,
   Modal,
-  PageHeader,
 } from '../../components/ui'
 
 type LoyaltyPageProps = {
@@ -603,21 +601,48 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
   }
 
   return (
-    <section className="admin-ui-page admin-loyalty-page">
-      <PageHeader
-        title="Chương trình thành viên"
-        description="Quản lý hạng thành viên, mốc điểm, quyền lợi và điều chỉnh điểm tích lũy cho khách hàng."
-        breadcrumbs={['Khách hàng', 'Thành viên']}
-        actions={(
-          <Button
-            variant="primary"
+    <section className="admin-loyalty-page">
+      <header className="admin-page-heading">
+        <div>
+          <p>Khách hàng / Thành viên</p>
+          <h1>Chương trình thành viên</h1>
+          <span className="admin-product-heading-copy">
+            Quản lý hạng thành viên, mốc điểm, quyền lợi và điều chỉnh điểm tích lũy cho khách hàng.
+          </span>
+        </div>
+        <div className="admin-loyalty-heading-actions">
+          <details className="admin-loyalty-rule-popover">
+            <summary>Quy định xếp hạng</summary>
+            <div className="admin-loyalty-policy-list" aria-label="Quy định xếp hạng thành viên">
+              {policyCards.map((item) => (
+                <div key={item.title}>
+                  <span>{item.title}</span>
+                  <strong>{item.value}</strong>
+                  <p>{item.note}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+          <details className="admin-loyalty-rule-popover">
+            <summary>Liên kết nghiệp vụ</summary>
+            <div className="admin-loyalty-policy-list" aria-label="Các màn hình bị ảnh hưởng bởi chương trình thành viên">
+              {integrationChecks.map((item) => (
+                <div key={item}>
+                  <p>{item}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+          <button
+            className="admin-primary-button"
+            type="button"
             disabled={!canManageLoyalty}
             onClick={openCreateDialog}
           >
-            Thêm hạng
-          </Button>
-        )}
-      />
+            + Thêm hạng
+          </button>
+        </div>
+      </header>
 
       <LoyaltyKpiSummary tiers={sortedTiers} formatNumber={formatNumber} />
 
@@ -627,7 +652,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
         tierKeyword={tierKeyword}
         tierStatusFilter={tierStatusFilter}
         warnings={tierConfigurationWarnings}
-        policyCards={policyCards}
         iconSymbols={membershipIconSymbols}
         isLoading={isLoading}
         actionLoading={actionLoading}
@@ -646,6 +670,8 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
         onStatusChange={openStatusDialog}
         onDelete={openDeleteDialog}
       />
+
+      <LoyaltyRulesPanel currentUser={currentUser} />
 
       <LoyaltyPointsPanel
         selectedTierFilter={selectedTierFilter}
@@ -693,10 +719,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
           if (selectedLoyaltyUser) void loadPointHistory(selectedLoyaltyUser._id, page)
         }}
       />
-
-      <LoyaltyRulesPanel currentUser={currentUser} />
-
-      <LoyaltyImpactSection items={integrationChecks} />
 
       {dialog?.type === 'create' || dialog?.type === 'edit' ? (
         <TierDialog
