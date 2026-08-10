@@ -760,11 +760,458 @@
 .admin-loyalty-impact-list span { gap: 9px; }
 .admin-loyalty-impact-list b { width: 22px; height: 22px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #18794e; background: #eef8f3; }
 
+.admin-loyalty-heading-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-page-heading .admin-loyalty-heading-actions {
+  display: flex;
+}
+
+.admin-loyalty-rule-popover {
+  position: relative;
+}
+
+.admin-loyalty-rule-popover summary {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #1f2937;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+  list-style: none;
+  box-shadow: 0 1px 1px rgba(17, 24, 39, 0.04);
+}
+
+.admin-loyalty-rule-popover summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-loyalty-rule-popover summary:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.admin-loyalty-rule-popover[open] summary {
+  border-color: #1f2d3d;
+  color: #fff;
+  background: #1f2d3d;
+}
+
+.admin-loyalty-rule-popover > .admin-loyalty-policy-list {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 18;
+  width: min(420px, calc(100vw - 48px));
+  padding: 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(31, 45, 61, 0.18);
+}
+
+.admin-loyalty-rule-popover .admin-loyalty-policy-list div {
+  padding: 12px;
+}
+
+.admin-loyalty-rule-popover .admin-loyalty-policy-list span,
+.admin-loyalty-rule-popover .admin-loyalty-policy-list strong,
+.admin-loyalty-rule-popover .admin-loyalty-policy-list p {
+  color: var(--admin-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-transform: none;
+}
+
+.admin-loyalty-rule-popover .admin-loyalty-policy-list span,
+.admin-loyalty-rule-popover .admin-loyalty-policy-list strong {
+  display: block;
+}
+
+.admin-loyalty-rule-popover .admin-loyalty-policy-list span {
+  color: var(--admin-muted);
+}
+
+.admin-loyalty-rule-popover .admin-loyalty-policy-list p {
+  margin: 4px 0 0;
+  color: var(--admin-muted);
+}
+
+.admin-loyalty-page .admin-ui-kpi-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card {
+  min-height: 86px;
+  gap: 7px;
+  padding: 15px 16px;
+  border-color: #cbd6df;
+  border-top: 3px solid #7890a5;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f8fafc 0%, #eaf0f4 100%);
+  box-shadow: 0 2px 7px rgba(31, 45, 61, 0.1);
+}
+
+.admin-loyalty-page .admin-ui-kpi-card::before {
+  display: none;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(2) {
+  border-color: #bdd3e7;
+  border-top-color: #467fb4;
+  background: linear-gradient(135deg, #f5f9fd 0%, #e1edf7 100%);
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(3) {
+  border-color: #ecd4a8;
+  border-top-color: #d79b32;
+  background: linear-gradient(135deg, #fffbf2 0%, #fff0d3 100%);
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(4) {
+  border-color: #bedbcd;
+  border-top-color: #4b8f75;
+  background: linear-gradient(135deg, #f4fbf7 0%, #e2f2e9 100%);
+}
+
+.admin-loyalty-page .admin-ui-kpi-card__label {
+  color: #5f6f80;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card__value {
+  color: #111827;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card__meta {
+  color: #5f6f80;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(2) .admin-ui-kpi-card__label {
+  color: #526f86;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(2) .admin-ui-kpi-card__value {
+  color: #111827;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(3) .admin-ui-kpi-card__label {
+  color: #806018;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(3) .admin-ui-kpi-card__value {
+  color: #111827;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(4) .admin-ui-kpi-card__label {
+  color: #526f61;
+}
+
+.admin-loyalty-page .admin-ui-kpi-card:nth-child(4) .admin-ui-kpi-card__value {
+  color: #111827;
+}
+
+.admin-loyalty-section {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.admin-loyalty-section > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-loyalty-section > header > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-loyalty-section h2 {
+  margin: 0;
+  color: var(--admin-text);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.admin-loyalty-section > header span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-loyalty-filters {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(160px, 240px) auto;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-loyalty-filters input,
+.admin-loyalty-filters select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d8e0e7;
+  border-radius: 8px;
+  color: var(--admin-text);
+  background: #fbfcfd;
+  font: inherit;
+  font-size: 14px;
+  outline: 0;
+}
+
+.admin-loyalty-filters input {
+  padding: 9px 12px;
+}
+
+.admin-loyalty-filters select {
+  padding: 0 34px 0 10px;
+}
+
+.admin-loyalty-filters input:focus,
+.admin-loyalty-filters select:focus {
+  border-color: var(--admin-accent);
+  box-shadow: 0 0 0 4px rgba(95, 134, 162, 0.14);
+}
+
+.admin-loyalty-section > .admin-smart-warning {
+  margin: 0;
+}
+
+.admin-loyalty-section > .admin-ui-empty-state {
+  min-height: 220px;
+}
+
+.admin-loyalty-tier-table {
+  min-width: 1320px;
+}
+
+.admin-loyalty-tier-table th:nth-child(1),
+.admin-loyalty-tier-table td:nth-child(1),
+.admin-loyalty-tier-table th:nth-child(4),
+.admin-loyalty-tier-table td:nth-child(4),
+.admin-loyalty-tier-table th:nth-child(5),
+.admin-loyalty-tier-table td:nth-child(5),
+.admin-loyalty-tier-table th:nth-child(6),
+.admin-loyalty-tier-table td:nth-child(6),
+.admin-loyalty-tier-table th:nth-child(7),
+.admin-loyalty-tier-table td:nth-child(7),
+.admin-loyalty-tier-table th:nth-child(8),
+.admin-loyalty-tier-table td:nth-child(8) {
+  text-align: center;
+}
+
+.admin-loyalty-tier-table th:nth-child(2),
+.admin-loyalty-tier-table td:nth-child(2) {
+  width: 170px;
+}
+
+.admin-loyalty-tier-table th:nth-child(3),
+.admin-loyalty-tier-table td:nth-child(3) {
+  width: 25%;
+}
+
+.admin-loyalty-tier-table th:nth-child(4),
+.admin-loyalty-tier-table td:nth-child(4) {
+  width: 240px;
+  min-width: 240px;
+  white-space: nowrap;
+}
+
+.admin-loyalty-tier-table th:nth-child(5),
+.admin-loyalty-tier-table td:nth-child(5) {
+  width: 110px;
+  min-width: 110px;
+  white-space: nowrap;
+}
+
+.admin-loyalty-tier-table th:nth-child(6),
+.admin-loyalty-tier-table td:nth-child(6) {
+  width: 130px;
+  min-width: 130px;
+  white-space: nowrap;
+}
+
+.admin-loyalty-tier-table th:nth-child(7),
+.admin-loyalty-tier-table td:nth-child(7) {
+  width: 170px;
+  min-width: 170px;
+  white-space: nowrap;
+}
+
+.admin-tier-level-badge {
+  width: 54px;
+  min-height: 46px;
+  display: inline-grid;
+  place-items: center;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #64748b;
+  background: #f1f5f9;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.admin-loyalty-tier-table .admin-tier-level-badge {
+  display: inline-grid;
+  margin: 0;
+  color: #64748b;
+}
+
+.admin-tier-level-badge strong {
+  color: var(--admin-text);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.admin-loyalty-tier-table .admin-loyalty-visual-preview {
+  width: 150px;
+  min-width: 150px;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  color: inherit;
+}
+
+.admin-loyalty-tier-table .admin-loyalty-visual-preview > span {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.admin-loyalty-tier-table .admin-loyalty-visual-preview strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-loyalty-tier-table .admin-loyalty-tier-cell {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--admin-text);
+}
+
+.admin-loyalty-tier-table .admin-loyalty-tier-cell strong {
+  color: var(--admin-text);
+  font-weight: 900;
+}
+
+.admin-loyalty-tier-table .admin-loyalty-tier-cell small {
+  display: block;
+  overflow: hidden;
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-loyalty-tier-table .admin-status-pill {
+  width: 112px;
+  display: inline-flex;
+  border: 0;
+  margin: 0;
+}
+
+.admin-loyalty-member-link {
+  width: max-content;
+  min-width: 40px;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.admin-loyalty-section .admin-table-refresh-indicator {
+  position: sticky;
+  bottom: 8px;
+  width: max-content;
+  margin: -50px auto 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  color: #fff;
+  background: #315f83;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 @media (max-width: 980px) {
   .admin-loyalty-rule-list article { grid-template-columns: 1fr auto; }
+  .admin-loyalty-page .admin-ui-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 780px) {
+  .admin-loyalty-heading-actions,
+  .admin-loyalty-section > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-loyalty-rule-popover,
+  .admin-loyalty-rule-popover summary,
+  .admin-loyalty-heading-actions .admin-primary-button,
+  .admin-loyalty-filters {
+    width: 100%;
+  }
+
+  .admin-loyalty-rule-popover > .admin-loyalty-policy-list {
+    position: static;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .admin-loyalty-page .admin-ui-kpi-grid,
+  .admin-loyalty-filters {
+    grid-template-columns: 1fr;
+  }
+
   .admin-loyalty-tier-filters,
   .admin-loyalty-history-date-filters { grid-template-columns: 1fr; }
   .admin-loyalty-table .admin-table thead { display: none; }
