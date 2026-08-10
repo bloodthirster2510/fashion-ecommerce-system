@@ -442,9 +442,8 @@ export function AdminDashboardPage({ currentUser }: { currentUser: AdminUser }) 
     <section className="admin-ui-page admin-dash-page" aria-busy={loading}>
       <header className="admin-dash-hero">
         <div className="admin-dash-hero-copy">
-          <span className="admin-dash-eyebrow">{currentUser.role === 'admin' ? 'Góc nhìn chủ cửa hàng' : 'Không gian làm việc của bạn'}</span>
           <h1>{getGreeting()}, {firstName}</h1>
-          <p>Theo dõi nhịp bán hàng, nhận diện rủi ro và đi thẳng tới việc cần xử lý.</p>
+          <p>Nắm nhanh doanh thu, đơn hàng và việc cần xử lý hôm nay.</p>
           <small>Cập nhật lúc {formatUpdatedAt(overview?.generatedAt ?? notificationSummary?.generatedAt)}</small>
         </div>
         <div className="admin-dash-hero-controls">
