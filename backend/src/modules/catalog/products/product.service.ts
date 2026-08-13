@@ -220,40 +220,6 @@ const assertVariantPayload = (variants?: ProductVariantInput[]) => {
   assertVariantValuesValid(variants);
 };
 
-const resolveCategoryTemplateSource = async (categoryId: string): Promise<ICategory> => {
-  assertValidObjectId(categoryId, 'category id');
-
-  const category = await Category.findById(categoryId);
-
-  if (!category) {
-    throw new ProductServiceError('Category not found', 404);
-  }
-
-  if (category.isSizeTemplateSource) {
-    return category;
-  }
-
-  if (category.sizeTemplateSourceId) {
-    const sourceCategory = await Category.findById(category.sizeTemplateSourceId);
-    if (sourceCategory) {
-      return sourceCategory;
-    }
-  }
-
-  if (category.fitTypes?.length || category.measurementFields?.length || category.sizes?.length) {
-    return category;
-  }
-
-  if (category.parent_id) {
-    const parentCategory = await Category.findById(category.parent_id);
-    if (parentCategory) {
-      return parentCategory;
-    }
-  }
-
-  return category;
-};
-
 const resolveCategoryFitTypeTemplateSource = async (categoryId: string): Promise<ICategory> => {
   assertValidObjectId(categoryId, 'category id');
 
