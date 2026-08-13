@@ -1,4 +1,5 @@
 import { Brand, Category, Product } from '../../../database/models';
+import { cacheGetJson, cacheSetJson } from '../../../utils/cache';
 import { tokenize, toAccentInsensitiveRegex, toTokenRegexes } from './search.util';
 import { inferGenderFromTokens, expandMaterialTokens, expandMaterialTokenGroups, buildSearchKeywordSuggestions } from './search-keywords';
 
@@ -25,27 +26,17 @@ export type SuggestResponse = {
 };
 
 const SUGGEST_CACHE_TTL = 60_000;
-const suggestCache = new Map<string, { data: SuggestResponse; expires: number }>();
+const SUGGEST_CACHE_NAMESPACE = 'product-suggestions';
 
 const getFinalPrice = (price: number, discount: number) => Math.round(price * (1 - discount / 100));
 
 export const resolveSuggestionImage = (variantImage?: string, productImage?: string) =>
   (variantImage || productImage || '').trim();
 
-const getCachedSuggest = (key: string): SuggestResponse | null => {
-  const cached = suggestCache.get(key);
-  if (cached && cached.expires > Date.now()) return cached.data;
-  return null;
-};
-
-const setCachedSuggest = (key: string, data: SuggestResponse) => {
-  suggestCache.set(key, { data, expires: Date.now() + SUGGEST_CACHE_TTL });
-};
-
 export const suggest = async (keyword: string, limit: number = 5): Promise<SuggestResponse> => {
   const trimmed = keyword.trim();
   const cacheKey = `${trimmed}:${limit}`;
-  const cached = getCachedSuggest(cacheKey);
+  const cached = await cacheGetJson<SuggestResponse>(SUGGEST_CACHE_NAMESPACE, cacheKey);
   if (cached) return cached;
 
   const tokens = tokenize(trimmed);
@@ -137,6 +128,6 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
     keywords,
   };
 
-  setCachedSuggest(cacheKey, result);
+  await cacheSetJson(SUGGEST_CACHE_NAMESPACE, cacheKey, result, SUGGEST_CACHE_TTL);
   return result;
 };

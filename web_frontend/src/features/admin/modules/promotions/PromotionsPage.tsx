@@ -39,6 +39,7 @@ import { CouponBulkDeleteDialog, CouponDeleteDialog } from './components/CouponD
 import { CouponDetailDialog } from './components/CouponDetailDialog'
 import { CouponFormDialog } from './components/CouponFormDialog'
 import { CouponTablePanel } from './components/CouponTablePanel'
+import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { PromotionBulkToolbar } from './components/PromotionBulkToolbar'
 import { PromotionFilterBar } from './components/PromotionFilterBar'
 import { PromotionKpiSummary } from './components/PromotionKpiSummary'
@@ -1472,6 +1473,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         isDisabled={isLoading}
         onPageChange={setPage}
       />
+
+      <CampaignAnalyticsPanel currentUser={currentUser} />
 
       {dialog?.type === 'detail' ? (
         <CouponDetailDialog

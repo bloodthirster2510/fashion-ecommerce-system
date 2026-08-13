@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T08:11:10.3786859Z",
+  "test": "two-sided exact McNemar test on paired per-case Top-K hits",
+  "cases": 142,
+  "comparisons": [
+    {
+      "task": "official_fitb_at_1",
+      "v6VsV5": { "bothHit": 43, "v6Only": 13, "otherOnly": 2, "bothMiss": 84, "pValue": 0.00738525390625 },
+      "v6VsLift": { "bothHit": 33, "v6Only": 23, "otherOnly": 25, "bothMiss": 61, "pValue": 0.8854334972865132 }
+    },
+    {
+      "task": "expanded_200_candidates_at_5",
+      "v6VsV5": { "bothHit": 1, "v6Only": 7, "otherOnly": 0, "bothMiss": 134, "pValue": 0.015625 },
+      "v6VsLift": { "bothHit": 5, "v6Only": 3, "otherOnly": 1, "bothMiss": 133, "pValue": 0.625 }
+    },
+    {
+      "task": "expanded_200_candidates_at_10",
+      "v6VsV5": { "bothHit": 6, "v6Only": 6, "otherOnly": 1, "bothMiss": 129, "pValue": 0.125 },
+      "v6VsLift": { "bothHit": 5, "v6Only": 7, "otherOnly": 3, "bothMiss": 127, "pValue": 0.34375 }
+    }
+  ]
+}

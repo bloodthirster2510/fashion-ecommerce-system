@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T07:54:40.108Z",
+  "selectionDataset": {
+    "name": "Polyvore Outfit validation Cart completion",
+    "source": "xthan/polyvore-dataset; Learning Fashion Compatibility with Bidirectional LSTMs (ACM MM 2017)",
+    "split": "Official valid_no_dup outfits; deterministic held-out item and sampled candidates",
+    "notes": "A deterministic item is held out from each validation outfit and ranked among 200 candidates. Category-level association lift is learned from train_no_dup only. Gender and brand are unavailable; the style proxy uses color words and price similarity."
+  },
+  "objective": "Maximize NDCG@5; deterministic tie-breaks: HR, MAP, MRR, Recall, Precision, Coverage",
+  "constraints": {
+    "step": 0.05,
+    "businessWeightsFixed": {
+      "home": 0.1,
+      "productDetailSimilar": 0.1,
+      "cart": 0.05
+    },
+    "note": "The public evaluation datasets lack equivalent production business signals, so their weights were not tuned."
+  },
+  "k": 5,
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.65,
+      "styleCompatibility": 0.3,
+      "popularity": 0,
+      "business": 0.05
+    }
+  },
+  "validation": {
+    "cart": {
+      "searchedConfigurations": 50,
+      "metrics": {
+        "cases": 1000,
+        "hitRateAtK": 0.023,
+        "precisionAtK": 0.0046,
+        "recallAtK": 0.023,
+        "mapAtK": 0.012267,
+        "mrrAtK": 0.012267,
+        "ndcgAtK": 0.014938,
+        "catalogCoverageAtK": 0.418362,
+        "categoryDiversityAtK": 0.9802,
+        "brandDiversityAtK": 0
+      },
+      "weights": {
+        "home": {
+          "preferenceMatch": 0.9,
+          "popularity": 0,
+          "business": 0.1
+        },
+        "productDetailSimilar": {
+          "contentSimilarity": 0.9,
+          "popularity": 0,
+          "business": 0.1
+        },
+        "cart": {
+          "complementaryRole": 0.65,
+          "styleCompatibility": 0.3,
+          "popularity": 0,
+          "business": 0.05
+        }
+      },
+      "warning": "Polyvore provides outfit-completion labels, but unavailable production attributes are represented only by the documented metadata proxy."
+    }
+  }
+}

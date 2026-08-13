@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "dataset": {
+    "name": "Schema smoke-test fixture",
+    "source": "Hand-authored non-research fixture",
+    "split": "Not applicable",
+    "notes": "Never report these results in the thesis."
+  },
+  "cases": [
+    {
+      "caseId": "HOME-SAMPLE-01",
+      "context": "home",
+      "relevantProductIds": ["home-relevant"],
+      "candidates": [
+        {
+          "productId": "home-relevant",
+          "categoryId": "tops",
+          "brandId": "brand-a",
+          "signals": { "preferenceMatch": 1, "popularity": 0.2, "business": 0.1 }
+        },
+        {
+          "productId": "home-popular",
+          "categoryId": "bottoms",
+          "brandId": "brand-b",
+          "signals": { "preferenceMatch": 0, "popularity": 1, "business": 0.1 }
+        }
+      ]
+    },
+    {
+      "caseId": "SIMILAR-SAMPLE-01",
+      "context": "product_detail_similar",
+      "relevantProductIds": ["similar-balanced"],
+      "candidates": [
+        {
+          "productId": "similar-balanced",
+          "categoryId": "tops",
+          "brandId": "brand-a",
+          "signals": { "contentSimilarity": 0.9, "cosineSimilarity": 1, "popularity": 1, "business": 1 }
+        },
+        {
+          "productId": "similar-content-only",
+          "categoryId": "tops",
+          "brandId": "brand-b",
+          "signals": { "contentSimilarity": 1, "cosineSimilarity": 0.2, "popularity": 0, "business": 0 }
+        }
+      ]
+    },
+    {
+      "caseId": "CART-SAMPLE-01",
+      "context": "cart",
+      "relevantProductIds": ["cart-outfit-match"],
+      "candidates": [
+        {
+          "productId": "cart-outfit-match",
+          "categoryId": "bottoms",
+          "brandId": "brand-a",
+          "signals": {
+            "complementaryRole": 1,
+            "styleCompatibility": 1,
+            "popularity": 0.2,
+            "business": 0.1,
+            "associationLift": 0.2
+          }
+        },
+        {
+          "productId": "cart-frequent-pair",
+          "categoryId": "accessories",
+          "brandId": "brand-b",
+          "signals": {
+            "complementaryRole": 0.1,
+            "styleCompatibility": 0,
+            "popularity": 1,
+            "business": 0,
+            "associationLift": 0.9
+          }
+        }
+      ]
+    }
+  ]
+}

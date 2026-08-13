@@ -69,6 +69,12 @@ import {
   virtualTryOnSettingsService,
   type VirtualTryOnRuntimeSettings,
 } from './virtual-try-on-settings.service';
+import {
+  enqueueVirtualTryOnJob,
+  isVirtualTryOnQueueEnabled,
+  removeVirtualTryOnJobs,
+  VirtualTryOnQueueError,
+} from './virtual-try-on.queue';
 import type {
   CreateVirtualTryOnItemInput,
   CreateVirtualTryOnJobInput,
@@ -964,6 +970,44 @@ const runVideoStage = async (jobId: string) => {
 
 const runProviderJob = async (jobId: string) => {
   try {
+    const resumableJob = await VirtualTryOnJob.findOne({
+      _id: jobId,
+      deletedAt: null,
+      status: { $in: ['queued', 'processing'] },
+    });
+    if (!resumableJob) return;
+
+    if (getGeneratedImageUrls(resumableJob).length > 0) {
+      if (resumableJob.outputMode === 'image_and_video') {
+        await enqueueVideoJob(jobId);
+        return;
+      }
+
+      const completedJob = await updateJobStatus(
+        jobId,
+        {
+          status: 'succeeded',
+          progress: 100,
+          processingStage: 'completed',
+          completedAt: new Date(),
+        },
+        'succeeded',
+      );
+      if (completedJob) {
+        await notifyVirtualTryOnOutcomeBestEffort({
+          userId: completedJob.userId.toString(),
+          jobId: completedJob._id.toString(),
+          outcome: 'completed',
+          outputMode: completedJob.outputMode,
+          generatedImageCount: getGeneratedImageUrls(completedJob).length,
+          imageUrl: getGeneratedImageUrls(completedJob)[0] ?? null,
+          videoStatus: 'not_requested',
+          retryable: false,
+        });
+      }
+      return;
+    }
+
     await delay(350);
     let job = await updateJobStatus(
       jobId,
@@ -1038,8 +1082,9 @@ const runProviderJob = async (jobId: string) => {
       return;
     }
 
-    await runVideoStage(jobId);
+    await enqueueVideoJob(jobId);
   } catch (error) {
+    if (error instanceof VirtualTryOnQueueError) throw error;
     console.error('Virtual try-on provider worker failed:', error);
     const serviceError = error instanceof VirtualTryOnServiceError
       ? error
@@ -1078,14 +1123,31 @@ const runProviderJob = async (jobId: string) => {
   }
 };
 
-const enqueueJob = (jobId: string) => {
+const enqueueJob = async (jobId: string) => {
+  if (isVirtualTryOnQueueEnabled()) {
+    await enqueueVirtualTryOnJob('image', jobId);
+    return;
+  }
   const timer = setTimeout(() => { void runProviderJob(jobId); }, 0);
   timer.unref?.();
 };
 
-const enqueueVideoJob = (jobId: string) => {
+const enqueueVideoJob = async (jobId: string) => {
+  if (isVirtualTryOnQueueEnabled()) {
+    await enqueueVirtualTryOnJob('video', jobId);
+    return;
+  }
   const timer = setTimeout(() => { void runVideoStage(jobId); }, 0);
   timer.unref?.();
+};
+
+const removeQueuedJobsBestEffort = async (jobId: string) => {
+  if (!isVirtualTryOnQueueEnabled()) return;
+  try {
+    await removeVirtualTryOnJobs(jobId);
+  } catch (error) {
+    console.warn(`[virtual-try-on-queue] Failed to remove job ${jobId}:`, error);
+  }
 };
 
 const findAssetForUser = async (userId: string, assetId: string) => {
@@ -2066,7 +2128,7 @@ const createJob = async (
   });
 
   emitJob(job, 'queued');
-  enqueueJob(job._id.toString());
+  await enqueueJob(job._id.toString());
 
   void Promise.all(
     selectedItems.map((item) =>
@@ -2205,7 +2267,7 @@ const retryJob = async (userId: string, jobId: string) => {
   await job.save();
 
   emitJob(job, 'queued');
-  enqueueJob(job._id.toString());
+  await enqueueJob(job._id.toString());
 
   return serializeJob(job);
 };
@@ -2278,7 +2340,7 @@ const retryVideoJobForFilter = async (
   await job.save();
 
   emitJob(job, 'queued');
-  enqueueVideoJob(job._id.toString());
+  await enqueueVideoJob(job._id.toString());
   return job;
 };
 
@@ -2319,6 +2381,7 @@ const cancelJob = async (userId: string, jobId: string) => {
       { returnDocument: 'after' },
     );
     if (videoCanceledJob) {
+      await removeQueuedJobsBestEffort(jobId);
       emitJob(videoCanceledJob, 'canceled');
       return serializeJob(videoCanceledJob);
     }
@@ -2346,6 +2409,7 @@ const cancelJob = async (userId: string, jobId: string) => {
     throw new VirtualTryOnServiceError('Không thể hủy yêu cầu này', 400);
   }
 
+  await removeQueuedJobsBestEffort(jobId);
   emitJob(job, 'canceled');
   return serializeJob(job);
 };
@@ -2365,6 +2429,7 @@ const deleteJob = async (userId: string, jobId: string) => {
     throw new VirtualTryOnServiceError('Yêu cầu phối đồ không tồn tại', 404);
   }
 
+  await removeQueuedJobsBestEffort(jobId);
   await deleteVirtualTryOnJobNotifications(userId, jobId);
 
   return serializeJob(job);
@@ -2729,7 +2794,7 @@ const retryAdminJob = async (jobId: string) => {
   await job.save();
 
   emitJob(job, 'queued');
-  enqueueJob(job._id.toString());
+  await enqueueJob(job._id.toString());
 
   return serializeAdminJob(job);
 };
@@ -2767,6 +2832,7 @@ const cancelAdminJob = async (jobId: string) => {
       { returnDocument: 'after' },
     );
     if (videoCanceledJob) {
+      await removeQueuedJobsBestEffort(jobId);
       emitJob(videoCanceledJob, 'canceled');
       await notifyVirtualTryOnOutcomeBestEffort({
         userId: videoCanceledJob.userId.toString(),
@@ -2804,6 +2870,7 @@ const cancelAdminJob = async (jobId: string) => {
     throw new VirtualTryOnServiceError('Không thể hủy job này', 400);
   }
 
+  await removeQueuedJobsBestEffort(jobId);
   emitJob(job, 'canceled');
   await notifyVirtualTryOnOutcomeBestEffort({
     userId: job.userId.toString(),
@@ -2833,6 +2900,7 @@ const hideAdminJob = async (jobId: string) => {
     throw new VirtualTryOnServiceError('Job phối đồ không tồn tại', 404);
   }
 
+  await removeQueuedJobsBestEffort(jobId);
   return serializeAdminJob(job);
 };
 
@@ -3231,18 +3299,45 @@ const rollbackAdminSettings = async (
   return getAdminSettings();
 };
 
-export const resumePendingVirtualTryOnVideoJobs = async () => {
+export const processVirtualTryOnImageJob = runProviderJob;
+export const processVirtualTryOnVideoJob = runVideoStage;
+
+export const resumePendingVirtualTryOnJobs = async () => {
   const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
-  if (!runtimeSettings.enabled || !getVideoCapabilities().available) return 0;
+  if (!runtimeSettings.enabled) return { image: 0, video: 0 };
   const jobs = await VirtualTryOnJob.find({
     deletedAt: null,
-    status: 'processing',
-    outputMode: 'image_and_video',
-    videoStatus: { $in: ['queued', 'processing'] },
-  }).select('_id');
-  jobs.forEach((job) => enqueueVideoJob(job._id.toString()));
-  return jobs.length;
+    status: { $in: ['queued', 'processing'] },
+  }).select(
+    '_id outputMode processingStage generatedImageUrl generatedImageUrls videoStatus',
+  );
+
+  const imageJobs: string[] = [];
+  const videoJobs: string[] = [];
+  const videoAvailable = getVideoCapabilities().available;
+  for (const job of jobs) {
+    const generatedImages = getGeneratedImageUrls(job);
+    if (
+      generatedImages.length > 0
+      && job.outputMode === 'image_and_video'
+      && videoAvailable
+      && ['queued', 'processing'].includes(job.videoStatus)
+    ) {
+      videoJobs.push(job._id.toString());
+    } else if (generatedImages.length === 0) {
+      imageJobs.push(job._id.toString());
+    }
+  }
+
+  await Promise.all([
+    ...imageJobs.map((jobId) => enqueueJob(jobId)),
+    ...videoJobs.map((jobId) => enqueueVideoJob(jobId)),
+  ]);
+  return { image: imageJobs.length, video: videoJobs.length };
 };
+
+export const resumePendingVirtualTryOnVideoJobs = async () =>
+  (await resumePendingVirtualTryOnJobs()).video;
 
 export const virtualTryOnService = {
   uploadAsset,

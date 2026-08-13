@@ -29,6 +29,12 @@ import type {
   UpdateCouponInput,
   ValidateCouponInput,
 } from './coupon.types';
+import {
+  cacheDeleteNamespace,
+  cacheGetJson,
+  cacheSetJson,
+  clearMemoryCache,
+} from '../../../utils/cache';
 
 export class CouponServiceError extends Error {
   constructor(
@@ -48,7 +54,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const VALIDATE_COUPON_CACHE_TTL_MS = 15 * 1000;
-const VALIDATE_COUPON_CACHE_MAX_ENTRIES = 500;
+const VALIDATE_COUPON_CACHE_NAMESPACE = 'coupon-validation';
 const COUPON_DISCOUNT_TYPES = new Set<CouponDiscountType>(['percent', 'fixed', 'free_shipping']);
 const ELIGIBLE_USER_TYPES = new Set<CouponEligibleUserType>(['all', 'new_user', 'member']);
 
@@ -406,13 +412,6 @@ type ValidateCouponResult = {
   appliedMembership: AppliedMembership | null;
 };
 
-type ValidateCouponCacheEntry = {
-  expiresAt: number;
-  result: ValidateCouponResult;
-};
-
-const validateCouponCache = new Map<string, ValidateCouponCacheEntry>();
-
 const getValidateCouponCacheKey = (
   userId: string,
   input: {
@@ -428,55 +427,23 @@ const getValidateCouponCacheKey = (
   return [userId, input.couponCode, input.paymentMethod, cartItemIds].join(':');
 };
 
-const getCachedValidateCouponResult = (cacheKey: string, now = Date.now()) => {
-  const cached = validateCouponCache.get(cacheKey);
+const getCachedValidateCouponResult = (cacheKey: string) =>
+  cacheGetJson<ValidateCouponResult>(VALIDATE_COUPON_CACHE_NAMESPACE, cacheKey);
 
-  if (!cached) {
-    return null;
-  }
+const clearValidateCouponCache = () =>
+  cacheDeleteNamespace(VALIDATE_COUPON_CACHE_NAMESPACE);
 
-  if (cached.expiresAt <= now) {
-    validateCouponCache.delete(cacheKey);
-    return null;
-  }
-
-  return cached.result;
-};
-
-const clearValidateCouponCache = () => {
-  validateCouponCache.clear();
-};
-
-const setCachedValidateCouponResult = (
-  cacheKey: string,
-  result: ValidateCouponResult,
-  now = Date.now(),
-) => {
-  validateCouponCache.set(cacheKey, {
-    expiresAt: now + VALIDATE_COUPON_CACHE_TTL_MS,
+const setCachedValidateCouponResult = (cacheKey: string, result: ValidateCouponResult) =>
+  cacheSetJson(
+    VALIDATE_COUPON_CACHE_NAMESPACE,
+    cacheKey,
     result,
-  });
-
-  if (validateCouponCache.size <= VALIDATE_COUPON_CACHE_MAX_ENTRIES) {
-    return;
-  }
-
-  for (const [key, value] of validateCouponCache.entries()) {
-    if (value.expiresAt <= now) {
-      validateCouponCache.delete(key);
-    }
-  }
-
-  while (validateCouponCache.size > VALIDATE_COUPON_CACHE_MAX_ENTRIES) {
-    const oldestKey = validateCouponCache.keys().next().value;
-    if (!oldestKey) break;
-    validateCouponCache.delete(oldestKey);
-  }
-};
+    VALIDATE_COUPON_CACHE_TTL_MS,
+  );
 
 export const clearCouponValidationCacheForTests = () => {
   if (process.env.NODE_ENV === 'test') {
-    clearValidateCouponCache();
+    clearMemoryCache(VALIDATE_COUPON_CACHE_NAMESPACE);
   }
 };
 
@@ -654,7 +621,7 @@ const createCoupon = async (input: CreateCouponInput, actorId?: string) => {
 
   try {
     const coupon = await Coupon.create(data);
-    clearValidateCouponCache();
+    await clearValidateCouponCache();
     return coupon;
   } catch (error) {
     if (isMongoDuplicateKeyError(error)) {
@@ -776,7 +743,7 @@ const updateCoupon = async (id: string, input: UpdateCouponInput, actorId?: stri
     throw new CouponServiceError('Coupon not found', 404);
   }
 
-  clearValidateCouponCache();
+  await clearValidateCouponCache();
   return coupon;
 };
 
@@ -819,7 +786,7 @@ const updateCouponStatus = async (id: string, isActive: boolean, actorId?: strin
     throw new CouponServiceError('Coupon not found', 404);
   }
 
-  clearValidateCouponCache();
+  await clearValidateCouponCache();
   return coupon;
 };
 
@@ -856,7 +823,7 @@ const deleteCoupon = async (id: string, actorId?: string) => {
     throw new CouponServiceError('Coupon usage changed and it can no longer be deleted', 409);
   }
 
-  clearValidateCouponCache();
+  await clearValidateCouponCache();
   return coupon;
 };
 
@@ -871,7 +838,7 @@ const validateCoupon = async (userId: string, input: ValidateCouponInput) => {
     paymentMethod: input.paymentMethod ?? 'COD',
   };
   const cacheKey = getValidateCouponCacheKey(userId, normalizedInput);
-  const cachedResult = getCachedValidateCouponResult(cacheKey);
+  const cachedResult = await getCachedValidateCouponResult(cacheKey);
 
   if (cachedResult) {
     return cachedResult;
@@ -894,7 +861,7 @@ const validateCoupon = async (userId: string, input: ValidateCouponInput) => {
     appliedMembership: pricing.appliedMembership,
   };
 
-  setCachedValidateCouponResult(cacheKey, result);
+  await setCachedValidateCouponResult(cacheKey, result);
   return result;
 };
 
@@ -1048,7 +1015,7 @@ const reserveCouponUsage = async (
     });
   }
 
-  clearValidateCouponCache();
+  await clearValidateCouponCache();
   return reservedCoupon;
 };
 
@@ -1082,7 +1049,7 @@ const rollbackCouponUsageReservation = async (
       { $inc: increment },
     );
   }
-  clearValidateCouponCache();
+  await clearValidateCouponCache();
 };
 
 const rollbackRecordedCouponUsage = async (orderId?: string, options: SessionOptions = {}) => {

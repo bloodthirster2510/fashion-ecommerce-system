@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
+import { getRedisHealth } from './config/redis';
+import { getVirtualTryOnQueueHealth } from './modules/virtual-try-on/virtual-try-on.queue';
 import routes from './routes';
 import {
   createApiRateLimitMiddleware,
@@ -44,7 +46,13 @@ app.use(
 app.use('/api', routes);
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'ok' });
+  const redis = getRedisHealth();
+  const virtualTryOnQueue = getVirtualTryOnQueueHealth();
+  const ready = (!redis.required || redis.ready) && virtualTryOnQueue.ready;
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ok' : 'degraded',
+    dependencies: { redis, virtualTryOnQueue },
+  });
 });
 
 app.get('/', (_req, res) => {

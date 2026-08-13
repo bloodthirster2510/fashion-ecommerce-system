@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T07:53:05.433Z",
+  "algorithmVersion": "v5_validation_tuned",
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.65,
+      "styleCompatibility": 0.3,
+      "popularity": 0,
+      "business": 0.05
+    }
+  },
+  "k": 1,
+  "dataset": {
+    "name": "Polyvore Outfit test Cart completion",
+    "source": "xthan/polyvore-dataset; Learning Fashion Compatibility with Bidirectional LSTMs (ACM MM 2017)",
+    "split": "Official test_no_dup outfits and fill_in_blank_test questions; first answer is ground truth",
+    "notes": "Official FITB distractors are retained in test cases, then the pool is expanded deterministically to 200 candidates. Category-level association lift is learned from train_no_dup only. Gender and brand are unavailable; the style proxy uses color words and price similarity."
+  },
+  "contexts": [
+    {
+      "context": "cart",
+      "baselineMethod": "association_lift",
+      "proposed": {
+        "cases": 1437,
+        "hitRateAtK": 0.31524,
+        "precisionAtK": 0.31524,
+        "recallAtK": 0.31524,
+        "mapAtK": 0.31524,
+        "mrrAtK": 0.31524,
+        "ndcgAtK": 0.31524,
+        "catalogCoverageAtK": 0.308551,
+        "categoryDiversityAtK": 1,
+        "brandDiversityAtK": 0
+      },
+      "baseline": {
+        "cases": 1437,
+        "hitRateAtK": 0.363953,
+        "precisionAtK": 0.363953,
+        "recallAtK": 0.363953,
+        "mapAtK": 0.363953,
+        "mrrAtK": 0.363953,
+        "ndcgAtK": 0.363953,
+        "catalogCoverageAtK": 0.316152,
+        "categoryDiversityAtK": 1,
+        "brandDiversityAtK": 0
+      },
+      "delta": {
+        "hitRateAtK": -0.048713,
+        "precisionAtK": -0.048713,
+        "recallAtK": -0.048713,
+        "mapAtK": -0.048713,
+        "mrrAtK": -0.048713,
+        "ndcgAtK": -0.048713,
+        "catalogCoverageAtK": -0.007601,
+        "categoryDiversityAtK": 0,
+        "brandDiversityAtK": 0
+      }
+    }
+  ]
+}

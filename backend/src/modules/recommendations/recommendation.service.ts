@@ -37,6 +37,21 @@ import {
   type RegisterRecommendationRequestInput,
   type SimilarRecommendationInput,
 } from './recommendation.types';
+import {
+  applyRecommendationDiversity,
+  CART_RULE_ONLY_FALLBACK_WEIGHTS,
+  calculateCartRecommendationScore,
+  calculatePersonalRecommendationScore,
+  calculateSimilarRecommendationScore,
+} from './recommendation-scoring';
+import { getCategoryAssociationModel } from './recommendation-association.service';
+
+export {
+  applyRecommendationDiversity,
+  calculateCartRecommendationScore,
+  calculatePersonalRecommendationScore,
+  calculateSimilarRecommendationScore,
+} from './recommendation-scoring';
 
 export class RecommendationServiceError extends Error {
   constructor(
@@ -132,25 +147,6 @@ const RECENT_PURCHASE_EXCLUSION_DAYS = 30;
 const INTERACTION_LOOKBACK_DAYS = 180;
 const NEW_PRODUCT_DAYS = 30;
 
-const PERSONAL_SCORE_WEIGHTS = {
-  preferenceMatch: 0.70,
-  popularity: 0.20,
-  business: 0.10,
-};
-
-const SIMILAR_SCORE_WEIGHTS = {
-  contentSimilarity: 0.65,
-  popularity: 0.25,
-  business: 0.10,
-};
-
-const CART_SCORE_WEIGHTS = {
-  complementaryRole: 0.75,
-  styleCompatibility: 0.10,
-  popularity: 0.10,
-  business: 0.05,
-};
-
 const CART_ROLE_COMPATIBILITY: Record<OutfitRole, Record<OutfitRole, number>> = {
   top: { top: 0.1, bottom: 1, dress: 0.15, set: 0.2, shoes: 0.55, accessory: 0.55, outerwear: 0.7 },
   bottom: { top: 1, bottom: 0.1, dress: 0.15, set: 0.2, shoes: 0.75, accessory: 0.5, outerwear: 0.65 },
@@ -159,11 +155,6 @@ const CART_ROLE_COMPATIBILITY: Record<OutfitRole, Record<OutfitRole, number>> = 
   shoes: { top: 0.8, bottom: 0.85, dress: 0.9, set: 0.9, shoes: 0.1, accessory: 0.4, outerwear: 0.6 },
   accessory: { top: 0.75, bottom: 0.7, dress: 0.8, set: 0.8, shoes: 0.5, accessory: 0.1, outerwear: 0.6 },
   outerwear: { top: 1, bottom: 0.9, dress: 0.8, set: 0.8, shoes: 0.65, accessory: 0.5, outerwear: 0.1 },
-};
-
-const DIVERSITY_PENALTIES = {
-  repeatedCategory: 0.08,
-  repeatedBrand: 0.04,
 };
 
 const REASON_TEXT: Record<RecommendationReasonCode, string> = {
@@ -177,6 +168,7 @@ const REASON_TEXT: Record<RecommendationReasonCode, string> = {
   preferred_color: 'Hợp màu bạn hay xem',
   completes_outfit: 'Hoàn thiện set đồ',
   matches_cart_style: 'Hợp phong cách giỏ hàng',
+  frequently_bought_together: 'Thường được mua cùng nhau',
   popular: 'Đang bán chạy',
   on_sale: 'Đang giảm giá',
   new_arrival: 'Hàng mới',
@@ -462,6 +454,26 @@ const getContentSimilarityScore = (source: ProductFeature, candidate: ProductFea
   );
 };
 
+const getBinaryContentVector = (feature: ProductFeature) => new Set([
+  ...(feature.categoryId ? [`category:${feature.categoryId}`] : []),
+  `role:${feature.role}`,
+  ...(feature.gender ? [`gender:${feature.gender}`] : []),
+  ...(feature.brandId ? [`brand:${feature.brandId}`] : []),
+  ...[...feature.colors].map((color) => `color:${color}`),
+  ...[...feature.fitTypes].map((fitType) => `fit:${fitType}`),
+  `price:${feature.priceBucket}`,
+]);
+
+export const getBinaryCosineSimilarityScore = (
+  source: ProductFeature,
+  candidate: ProductFeature,
+) => {
+  const sourceVector = getBinaryContentVector(source);
+  const candidateVector = getBinaryContentVector(candidate);
+  const dotProduct = [...sourceVector].filter((value) => candidateVector.has(value)).length;
+  return dotProduct / Math.sqrt(sourceVector.size * candidateVector.size);
+};
+
 export const getCartComplementaryRoleScore = (
   sourceRoles: OutfitRole[],
   candidateRole: OutfitRole,
@@ -474,23 +486,6 @@ export const getCartComplementaryRoleScore = (
 
   return sourceRoles.includes(candidateRole) ? Math.min(bestScore, 0.2) : bestScore;
 };
-
-export const calculateCartRecommendationScore = ({
-  complementaryRole,
-  styleCompatibility,
-  popularity,
-  business,
-}: {
-  complementaryRole: number;
-  styleCompatibility: number;
-  popularity: number;
-  business: number;
-}) => (
-  CART_SCORE_WEIGHTS.complementaryRole * complementaryRole +
-  CART_SCORE_WEIGHTS.styleCompatibility * styleCompatibility +
-  CART_SCORE_WEIGHTS.popularity * popularity +
-  CART_SCORE_WEIGHTS.business * business
-);
 
 const getGenderCompatibilityScore = (source: ProductFeature, candidate: ProductFeature) => {
   if (!source.gender || !candidate.gender) return 0.7;
@@ -637,51 +632,6 @@ const mergeProducts = (
   return [...productById.values()];
 };
 
-type DiversityCandidate = {
-  score: number;
-  productItem: {
-    _id: string;
-    category?: { _id: string } | null;
-    brand?: { _id: string } | null;
-  };
-};
-
-export const applyRecommendationDiversity = <T extends DiversityCandidate>(items: T[], limit: number) => {
-  const remaining = [...items];
-  const categoryCounts = new Map<string, number>();
-  const brandCounts = new Map<string, number>();
-  const selected: T[] = [];
-
-  while (remaining.length && selected.length < limit) {
-    let bestIndex = 0;
-    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
-
-    remaining.forEach((item, index) => {
-      const categoryId = item.productItem.category?._id ?? `unknown:${item.productItem._id}`;
-      const brandId = item.productItem.brand?._id ?? `unknown:${item.productItem._id}`;
-      const adjustedScore =
-        item.score -
-        DIVERSITY_PENALTIES.repeatedCategory * (categoryCounts.get(categoryId) ?? 0) -
-        DIVERSITY_PENALTIES.repeatedBrand * (brandCounts.get(brandId) ?? 0);
-
-      if (adjustedScore > bestAdjustedScore) {
-        bestAdjustedScore = adjustedScore;
-        bestIndex = index;
-      }
-    });
-
-    const [nextItem] = remaining.splice(bestIndex, 1);
-    const categoryId = nextItem.productItem.category?._id ?? `unknown:${nextItem.productItem._id}`;
-    const brandId = nextItem.productItem.brand?._id ?? `unknown:${nextItem.productItem._id}`;
-
-    selected.push(nextItem);
-    categoryCounts.set(categoryId, (categoryCounts.get(categoryId) ?? 0) + 1);
-    brandCounts.set(brandId, (brandCounts.get(brandId) ?? 0) + 1);
-  }
-
-  return selected;
-};
-
 const toRecommendationResponse = (
   scoredProducts: ScoredProduct[],
   limit: number,
@@ -781,12 +731,15 @@ const getSimilarRecommendations = async (
   const scoredProducts = candidates.map<ScoredProduct>((candidate) => {
     const candidateFeature = getProductFeature(candidate, inventoryByProductId);
     const contentSimilarity = getContentSimilarityScore(sourceFeature, candidateFeature);
+    const cosineSimilarity = getBinaryCosineSimilarityScore(sourceFeature, candidateFeature);
     const popularity = getPopularityScore(candidateFeature);
     const business = getBusinessScore(candidateFeature);
-    const score =
-      SIMILAR_SCORE_WEIGHTS.contentSimilarity * contentSimilarity +
-      SIMILAR_SCORE_WEIGHTS.popularity * popularity +
-      SIMILAR_SCORE_WEIGHTS.business * business;
+    const score = calculateSimilarRecommendationScore({
+      contentSimilarity,
+      cosineSimilarity,
+      popularity,
+      business,
+    });
 
     return {
       product: candidate,
@@ -855,6 +808,8 @@ const getCartRecommendations = async (
   });
   const inventoryByProductId = await getInventoryByProductId(candidates);
   const sourceRoles = sourceFeatures.map((feature) => feature.role);
+  const sourceCategoryIds = sourceFeatures.map((feature) => feature.categoryId).filter(Boolean);
+  const associationModel = await getCategoryAssociationModel();
   const scoredProducts = candidates.map<ScoredProduct>((candidate) => {
     const candidateFeature = getProductFeature(candidate, inventoryByProductId);
     const roleScore = getCartComplementaryRoleScore(sourceRoles, candidateFeature.role);
@@ -867,23 +822,31 @@ const getCartRecommendations = async (
     const bestSource = getBestCartSourceFeature(sourceFeatures, candidateFeature);
     const popularity = getPopularityScore(candidateFeature);
     const business = getBusinessScore(candidateFeature);
+    const associationLift = associationModel.score(
+      sourceCategoryIds,
+      candidateFeature.categoryId,
+    );
     const score = calculateCartRecommendationScore({
       complementaryRole,
       styleCompatibility: bestSource.styleScore,
       popularity,
       business,
-    });
+      associationLift,
+    }, associationModel.hasEvidence ? undefined : CART_RULE_ONLY_FALLBACK_WEIGHTS);
 
     return {
       product: candidate,
       productItem: mapProductListItem(candidate, inventoryByProductId),
       score,
-      reasonCodes: getCartReasonCodes({
-        source: bestSource.sourceFeature,
-        candidate: candidateFeature,
-        complementaryRole,
-        styleCompatibility: bestSource.styleScore,
-      }),
+      reasonCodes: [
+        ...getCartReasonCodes({
+          source: bestSource.sourceFeature,
+          candidate: candidateFeature,
+          complementaryRole,
+          styleCompatibility: bestSource.styleScore,
+        }),
+        ...(associationLift > 0 ? ['frequently_bought_together' as const] : []),
+      ],
     };
   });
 
@@ -983,20 +946,6 @@ const getProfileMatchScore = (profile: PreferenceProfile, feature: ProductFeatur
     0.15 * getScoreRatio(profile.priceBucketScores, feature.priceBucket)
   );
 };
-
-export const calculatePersonalRecommendationScore = ({
-  preferenceMatch,
-  popularity,
-  business,
-}: {
-  preferenceMatch: number;
-  popularity: number;
-  business: number;
-}) => (
-  PERSONAL_SCORE_WEIGHTS.preferenceMatch * preferenceMatch +
-  PERSONAL_SCORE_WEIGHTS.popularity * popularity +
-  PERSONAL_SCORE_WEIGHTS.business * business
-);
 
 const getPreferenceReasonCodes = (
   profile: PreferenceProfile,

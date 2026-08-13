@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "test": "two-sided exact McNemar test on paired Product Detail per-case hits",
+  "cases": 100,
+  "comparisons": [
+    {
+      "k": 5,
+      "bothHit": 2,
+      "v7Only": 3,
+      "v5Only": 0,
+      "bothMiss": 95,
+      "pValue": 0.25
+    },
+    {
+      "k": 10,
+      "bothHit": 5,
+      "v7Only": 4,
+      "v5Only": 0,
+      "bothMiss": 91,
+      "pValue": 0.125
+    }
+  ]
+}

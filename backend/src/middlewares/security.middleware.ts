@@ -1,6 +1,7 @@
 import type { CorsOptions } from 'cors';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import crypto from 'crypto';
+import { buildRedisKey, getRedisClient, isRedisEnabled } from '../config/redis';
 import { RateLimitBucket as PersistentRateLimitBucket } from '../database/models/rate-limit-bucket.model';
 
 type Env = NodeJS.ProcessEnv | Record<string, string | undefined>;
@@ -173,7 +174,7 @@ const completeRateLimit = (
   next();
 };
 
-export const createRateLimitMiddleware = ({
+const createMemoryRateLimitMiddleware = ({
   windowMs,
   max,
   keyPrefix = 'rate-limit',
@@ -202,6 +203,59 @@ export const createRateLimitMiddleware = ({
 
     completeRateLimit(res, next, bucket, max, currentTime);
   };
+};
+
+const REDIS_RATE_LIMIT_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return { count, ttl }
+`;
+
+const createRedisRateLimitMiddleware = ({
+  windowMs,
+  max,
+  keyPrefix = 'rate-limit',
+  now = Date.now,
+  keyGenerator,
+}: RateLimitOptions): RequestHandler => async (req, res, next) => {
+  const currentTime = now();
+  const rawKey = keyGenerator?.(req) ?? `${req.method}:${req.originalUrl}:${getClientIp(req)}`;
+  const digest = crypto.createHash('sha256').update(rawKey).digest('hex');
+  const key = buildRedisKey('rate-limit', `${keyPrefix}:${digest}`);
+
+  try {
+    const redisClient = getRedisClient();
+    if (!redisClient) throw new Error('Redis is unavailable');
+
+    const result = await redisClient.eval(REDIS_RATE_LIMIT_SCRIPT, {
+      keys: [key],
+      arguments: [String(windowMs)],
+    });
+    if (!Array.isArray(result) || result.length < 2) {
+      throw new Error('Redis returned an invalid rate-limit result');
+    }
+
+    const count = Number(result[0]);
+    const ttlMs = Number(result[1]);
+    if (!Number.isFinite(count) || !Number.isFinite(ttlMs)) {
+      throw new Error('Redis returned invalid rate-limit values');
+    }
+
+    completeRateLimit(res, next, {
+      count,
+      resetAt: currentTime + Math.max(ttlMs, 1),
+    }, max, currentTime);
+  } catch (error) {
+    console.error('Redis rate limiter failed:', error instanceof Error ? error.message : String(error));
+    res.status(503).json({ message: 'Service temporarily unavailable' });
+  }
 };
 
 const createPersistentRateLimitMiddleware = ({
@@ -256,12 +310,25 @@ const createPersistentRateLimitMiddleware = ({
 };
 
 const configuredRateLimiter = (options: RateLimitOptions, env: Env) => {
-  const usePersistentStore = env.RATE_LIMIT_STORE === 'mongo'
-    || (env.NODE_ENV === 'production' && env.RATE_LIMIT_STORE !== 'memory');
-  return usePersistentStore
-    ? createPersistentRateLimitMiddleware(options)
-    : createRateLimitMiddleware(options);
+  const configuredStore = env.RATE_LIMIT_STORE?.trim().toLowerCase();
+  if (configuredStore === 'redis' && isRedisEnabled(env)) {
+    return createRedisRateLimitMiddleware(options);
+  }
+  if (configuredStore === 'redis') {
+    return env.NODE_ENV === 'production'
+      ? createPersistentRateLimitMiddleware(options)
+      : createMemoryRateLimitMiddleware(options);
+  }
+  if (configuredStore === 'mongo' || (env.NODE_ENV === 'production' && configuredStore !== 'memory')) {
+    return createPersistentRateLimitMiddleware(options);
+  }
+  return createMemoryRateLimitMiddleware(options);
 };
+
+export const createRateLimitMiddleware = (
+  options: RateLimitOptions,
+  env: Env = process.env,
+) => configuredRateLimiter(options, env);
 
 export const createAuthRateLimitMiddleware = (env: Env = process.env) =>
   configuredRateLimiter({

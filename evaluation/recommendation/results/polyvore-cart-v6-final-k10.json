@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T08:09:11.405Z",
+  "algorithmVersion": "v6_cart_association_hybrid",
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.2,
+      "styleCompatibility": 0.25,
+      "popularity": 0,
+      "business": 0.05,
+      "associationLift": 0.5
+    }
+  },
+  "k": 10,
+  "dataset": {
+    "name": "Polyvore Outfit test Cart completion",
+    "source": "xthan/polyvore-dataset; Learning Fashion Compatibility with Bidirectional LSTMs (ACM MM 2017)",
+    "split": "Official test_no_dup outfits and fill_in_blank_test questions; first answer is ground truth",
+    "notes": "All four official FITB answers are retained when their metadata is available and all map to one of the production recommender's seven roles. Unrepresentable source items are excluded from the cart context. The pool is expanded deterministically to 200 candidates. Category-level association lift is learned from train_no_dup only. Gender and brand are unavailable; the style proxy uses color words and price similarity."
+  },
+  "contexts": [
+    {
+      "context": "cart",
+      "baselineMethod": "association_lift",
+      "proposed": {
+        "cases": 142,
+        "hitRateAtK": 0.084507,
+        "precisionAtK": 0.008451,
+        "recallAtK": 0.084507,
+        "mapAtK": 0.043749,
+        "mrrAtK": 0.043749,
+        "ndcgAtK": 0.053295,
+        "catalogCoverageAtK": 0.060468,
+        "categoryDiversityAtK": 0.994366,
+        "brandDiversityAtK": 0
+      },
+      "baseline": {
+        "cases": 142,
+        "hitRateAtK": 0.056338,
+        "precisionAtK": 0.005634,
+        "recallAtK": 0.056338,
+        "mapAtK": 0.035278,
+        "mrrAtK": 0.035278,
+        "ndcgAtK": 0.040192,
+        "catalogCoverageAtK": 0.060161,
+        "categoryDiversityAtK": 0.985915,
+        "brandDiversityAtK": 0
+      },
+      "delta": {
+        "hitRateAtK": 0.028169,
+        "precisionAtK": 0.002817,
+        "recallAtK": 0.028169,
+        "mapAtK": 0.008471,
+        "mrrAtK": 0.008471,
+        "ndcgAtK": 0.013103,
+        "catalogCoverageAtK": 0.000307,
+        "categoryDiversityAtK": 0.008451,
+        "brandDiversityAtK": 0
+      }
+    }
+  ]
+}

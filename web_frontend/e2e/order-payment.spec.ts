@@ -60,6 +60,7 @@ test('GHN shipment action unlocks only after the address mapping is verified', (
       ghnMappingStatus: 'mapped',
       ghnMappingConfidence: 'manual',
       ghnMappingVerifiedAt: '2026-07-29T00:00:00.000Z',
+      ghnMappingVerificationSource: 'admin',
     },
   } as AdminOrder
 
@@ -139,7 +140,18 @@ test('customer can retry a failed VNPay payment from the web order detail', asyn
       await route.fulfill({
         status: 200,
         headers: responseHeaders,
-        body: JSON.stringify({ data: { accessToken: 'customer-retry-access-token' } }),
+        body: JSON.stringify({
+          data: {
+            accessToken: 'customer-retry-access-token',
+            user: {
+              _id: '665000000000000000000932',
+              name: 'Khách kiểm thử',
+              email: 'customer-retry@fashion.test',
+              phone: '0900000000',
+              role: 'user',
+            },
+          },
+        }),
       })
       return
     }
@@ -176,7 +188,7 @@ test('customer can retry a failed VNPay payment from the web order detail', asyn
             status: 'confirmed',
             paymentMethod: 'VNPAY',
             paymentStatus: 'failed',
-            paymentDeadlineAt: '2026-08-04T00:00:00.000Z',
+            paymentDeadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
             shipping: { provider: null, status: 'pending', trackingCode: null },
             shippingAddress: {
               customerName: 'Khách kiểm thử',

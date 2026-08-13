@@ -1102,13 +1102,19 @@ const toShippingAddressSnapshot = (
   address: ShippingAddressInput,
   options: { trustStoredGhnVerification?: boolean } = {},
 ): ShippingAddressInput => {
-  const provinceId = toNullablePositiveInteger(address.provinceId);
-  const districtId = toNullablePositiveInteger(address.districtId);
+  const addressDocument = address as ShippingAddressInput & {
+    toObject?: () => ShippingAddressInput;
+  };
+  const normalizedAddress = typeof addressDocument.toObject === 'function'
+    ? addressDocument.toObject()
+    : address;
+  const provinceId = toNullablePositiveInteger(normalizedAddress.provinceId);
+  const districtId = toNullablePositiveInteger(normalizedAddress.districtId);
   const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields({
-    ...address,
+    ...normalizedAddress,
     ...(!options.trustStoredGhnVerification
       ? {
-          ghnMappingStatus: address.ghnMappingStatus === 'missing' ? 'missing' as const : 'manual' as const,
+          ghnMappingStatus: normalizedAddress.ghnMappingStatus === 'missing' ? 'missing' as const : 'manual' as const,
           ghnMappingConfidence: null,
           ghnMappingVerifiedAt: null,
           ghnMappingVerificationSource: null,
@@ -1126,24 +1132,24 @@ const toShippingAddressSnapshot = (
   };
   // Tài khoản được tạo trước khi bổ sung mã hành chính có thể chưa có wardCode.
   // Mapping theo tên địa phương vẫn đủ để khôi phục mã và tính phí vận chuyển.
-  const wardCode = trimOptional(address.wardCode)
+  const wardCode = trimOptional(normalizedAddress.wardCode)
     ?? trimOptional(resolvedGhnFields.mapping?.wardCode)
     ?? trimOptional(resolvedGhnFields.ghnWardCode)
     ?? 'LEGACY';
 
   return {
-    customerName: requireAddressText(address.customerName, 'customer name'),
-    province: requireAddressText(address.province, 'province'),
-    provinceCode: trimOptional(address.provinceCode)
+    customerName: requireAddressText(normalizedAddress.customerName, 'customer name'),
+    province: requireAddressText(normalizedAddress.province, 'province'),
+    provinceCode: trimOptional(normalizedAddress.provinceCode)
       ?? trimOptional(resolvedGhnFields.mapping?.provinceCode)
       ?? (provinceId ? String(provinceId) : null),
     provinceId,
-    district: trimOptional(address.district),
+    district: trimOptional(normalizedAddress.district),
     districtId,
-    ward: requireAddressText(address.ward, 'ward'),
+    ward: requireAddressText(normalizedAddress.ward, 'ward'),
     wardCode,
-    streetName: requireAddressText(address.streetName, 'street name'),
-    phoneNumber: requireAddressText(address.phoneNumber, 'phone number'),
+    streetName: requireAddressText(normalizedAddress.streetName, 'street name'),
+    phoneNumber: requireAddressText(normalizedAddress.phoneNumber, 'phone number'),
     ghnProvinceId: resolvedGhnFields.ghnProvinceId,
     ghnDistrictId: resolvedGhnFields.ghnDistrictId,
     ghnWardCode: resolvedGhnFields.ghnWardCode,

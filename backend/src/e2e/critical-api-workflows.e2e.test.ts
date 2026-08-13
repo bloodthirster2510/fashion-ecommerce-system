@@ -260,7 +260,6 @@ const previewCheckout = async (
     token,
     body: {
       cartItemIds: [cartItemId],
-      shippingAddress,
       paymentMethod,
     },
   });
@@ -280,7 +279,6 @@ const createOrder = async (
     headers: { 'Idempotency-Key': `e2e-${paymentMethod.toLowerCase()}-${Date.now()}` },
     body: {
       cartItemIds: [cartItemId],
-      shippingAddress,
       paymentMethod,
       quoteVersion,
     },
@@ -433,6 +431,15 @@ describe('critical API-backed workflows', () => {
   });
 
   it('runs VNPay create/IPN/reconcile/refund and GHN quote/create/sync/cancel through HTTP', async () => {
+    jest.spyOn(GHNService, 'getProvinces').mockResolvedValue({
+      data: [{ ProvinceID: 202 }],
+    });
+    jest.spyOn(GHNService, 'getDistricts').mockResolvedValue({
+      data: [{ DistrictID: 1442 }],
+    });
+    jest.spyOn(GHNService, 'getWards').mockResolvedValue({
+      data: [{ WardCode: '20101' }],
+    });
     jest.spyOn(GHNService, 'getAvailableServices').mockResolvedValue({
       data: [{ service_id: 53321, service_type_id: 2, short_name: 'Standard' }],
     });
@@ -463,10 +470,10 @@ describe('critical API-backed workflows', () => {
     }>('/api/shipping/rates', {
       method: 'POST',
       token: customer.accessToken,
-      body: { cartItemIds: [cartItemId], shippingAddress, paymentMethod: 'VNPAY' },
+      body: { cartItemIds: [cartItemId], paymentMethod: 'VNPAY' },
     });
     const rateData = expectStatus(rates, 200);
-    expect(rateData.shippingComparison.comparisonStatus).toBe('live');
+    expect(rateData.shippingComparison).toMatchObject({ comparisonStatus: 'live' });
 
     const order = await createOrder(
       harness,
