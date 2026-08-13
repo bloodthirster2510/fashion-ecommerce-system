@@ -29,6 +29,10 @@ export interface ICategory extends Document {
   isSizeTemplateSource: boolean;
   sizeTemplateName?: string;
   sizeTemplateSourceId?: Types.ObjectId | null;
+  sizeGuideImage?: string;
+  isFitTypeTemplateSource: boolean;
+  fitTypeTemplateName?: string;
+  fitTypeTemplateSourceId?: Types.ObjectId | null;
   sizes: string[];
   measurementFields: IMeasurementField[];
   fitTypes: ICategoryFitType[];
@@ -70,6 +74,10 @@ const categorySchema = new Schema<ICategory>(
     isSizeTemplateSource: { type: Boolean, default: false },
     sizeTemplateName: { type: String, trim: true, maxlength: 80, default: '' },
     sizeTemplateSourceId: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
+    sizeGuideImage: { type: String, trim: true, maxlength: 500, default: '' },
+    isFitTypeTemplateSource: { type: Boolean, default: false },
+    fitTypeTemplateName: { type: String, trim: true, maxlength: 80, default: '' },
+    fitTypeTemplateSourceId: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
     sizes: {
       type: [String],
       default: [],
@@ -88,6 +96,7 @@ const categorySchema = new Schema<ICategory>(
 categorySchema.index({ parent_id: 1 });
 categorySchema.index({ gender: 1, isActive: 1 });
 categorySchema.index({ sizeTemplateSourceId: 1 });
+categorySchema.index({ fitTypeTemplateSourceId: 1 });
 categorySchema.index({ name: 1, parent_id: 1, gender: 1 }, { unique: true });
 
 export const Category = models.Category || model<ICategory>('Category', categorySchema);

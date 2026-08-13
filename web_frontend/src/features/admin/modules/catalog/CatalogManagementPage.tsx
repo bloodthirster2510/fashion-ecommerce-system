@@ -12,12 +12,14 @@ import {
   listManagedCategories,
   updateManagedBrand,
   updateManagedCategory,
+  upsertManagedCategoryFitTypeTemplate,
   upsertManagedCategorySizeTemplate,
 } from './catalog.service'
 import type {
   BrandInput,
   CatalogGender,
   CategoryInput,
+  FitTypeTemplateInput,
   ManagedBrand,
   ManagedCategory,
   SizeTemplateInput,
@@ -27,6 +29,7 @@ import {
   BrandStatIcon,
   CategoryEditor,
   CategoryStatIcon,
+  FitTypeTemplateManager,
   SizeTemplateManager,
 } from './components/CatalogEditors'
 import { BrandManagementSection } from './components/BrandManagementSection'
@@ -86,6 +89,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   const [categoryPage, setCategoryPage] = useState(1)
   const [editor, setEditor] = useState<EditorState>(null)
   const [isManagingSizes, setIsManagingSizes] = useState(false)
+  const [isManagingFitTypes, setIsManagingFitTypes] = useState(false)
   const [viewingCategory, setViewingCategory] = useState<ManagedCategory | null>(null)
   const [viewingBrand, setViewingBrand] = useState<ManagedBrand | null>(null)
   const [pendingDelete, setPendingDelete] = useState<DeleteState>(null)
@@ -296,16 +300,37 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
     mutationFn: ({
       categoryId,
       input,
+      sizeGuideImageFile,
     }: {
       categoryId: string
       input: SizeTemplateInput
-    }) => upsertManagedCategorySizeTemplate(categoryId, input),
+      sizeGuideImageFile?: File | null
+    }) => upsertManagedCategorySizeTemplate(categoryId, input, sizeGuideImageFile),
     onMutate: () => {
       setNotice(null)
     },
     onSuccess: async () => {
-      setNotice({ type: 'success', message: 'Bộ size đã được áp dụng cho danh mục và danh mục con.' })
-      setIsManagingSizes(false)
+      setNotice({ type: 'success', message: 'Bộ size đã được lưu. Bạn có thể tiếp tục chỉnh các bộ size khác.' })
+      await loadCatalog()
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const saveFitTypeTemplateMutation = useMutation({
+    mutationFn: ({
+      categoryId,
+      input,
+    }: {
+      categoryId: string
+      input: FitTypeTemplateInput
+    }) => upsertManagedCategoryFitTypeTemplate(categoryId, input),
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async () => {
+      setNotice({ type: 'success', message: 'Bộ phom dáng đã được lưu. Bạn có thể tiếp tục chỉnh các bộ khác.' })
       await loadCatalog()
     },
     onError: (error) => {
@@ -336,7 +361,9 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
       } else if (mode === 'permanent') {
         await deleteManagedBrandPermanently(target.item._id)
       } else {
-        await deleteManagedBrand(target.item._id)
+        await deleteManagedBrand(target.item._id, {
+          cascadeProducts: target.item.activeProductCount > 0,
+        })
       }
 
       return { target, mode }
@@ -373,6 +400,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
     saveCategoryMutation.isPending ||
     saveBrandMutation.isPending ||
     saveSizeTemplateMutation.isPending ||
+    saveFitTypeTemplateMutation.isPending ||
     deleteCatalogMutation.isPending
 
   const handleSaveCategory = async (
@@ -394,8 +422,16 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   const handleSaveSizeTemplate = async (
     categoryId: string,
     input: SizeTemplateInput,
+    sizeGuideImageFile?: File | null,
   ) => {
-    await saveSizeTemplateMutation.mutateAsync({ categoryId, input }).catch(() => undefined)
+    await saveSizeTemplateMutation.mutateAsync({ categoryId, input, sizeGuideImageFile })
+  }
+
+  const handleSaveFitTypeTemplate = async (
+    categoryId: string,
+    input: FitTypeTemplateInput,
+  ) => {
+    await saveFitTypeTemplateMutation.mutateAsync({ categoryId, input })
   }
 
   const handleDelete = async (mode: CatalogDeleteMode = 'soft') => {
@@ -481,6 +517,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
             onPageChange={setCategoryPage}
             onAdd={() => setEditor({ type: 'category' })}
             onManageSizes={() => setIsManagingSizes(true)}
+            onManageFitTypes={() => setIsManagingFitTypes(true)}
             onView={setViewingCategory}
             onEdit={(category) => setEditor({ type: 'category', item: category })}
             onDelete={(category) => {
@@ -526,6 +563,16 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
           errorMessage={notice?.type === 'error' ? notice.message : ''}
           onClose={() => setIsManagingSizes(false)}
           onSave={handleSaveSizeTemplate}
+        />
+      ) : null}
+
+      {isManagingFitTypes ? (
+        <FitTypeTemplateManager
+          categories={categories}
+          isSaving={isSaving}
+          errorMessage={notice?.type === 'error' ? notice.message : ''}
+          onClose={() => setIsManagingFitTypes(false)}
+          onSave={handleSaveFitTypeTemplate}
         />
       ) : null}
 

@@ -87,7 +87,7 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
 
   const products = await Product.find(filter)
     .populate('brand_id', 'name')
-    .select('_id name product_image variant.price variant.discount brand_id')
+    .select('_id name product_image variant.price variant.discount variant.colors.image brand_id')
     .sort({ sold_quantity: -1 })
     .limit(limit)
     .lean();

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { ColumnHeightOutlined, TagsOutlined } from '@ant-design/icons'
+import { TagsOutlined } from '@ant-design/icons'
 import type {
   BrandInput,
   CatalogGender,
   CategoryInput,
+  CategoryFitTypeInput,
+  FitTypeTemplateInput,
   ManagedBrand,
   ManagedCategory,
-  MeasurementFieldInput,
   SizeTemplateInput,
 } from '../catalog.types'
 
@@ -100,15 +101,10 @@ const getRootCategoryIds = (categories: ManagedCategory[], categoryIds: string[]
 const getSizeTemplateLabel = (category?: ManagedCategory | null) =>
   category?.sizeTemplateName?.trim() || category?.name || ''
 
-const createEmptyMeasurementField = (sortOrder = 0): MeasurementFieldInput => ({
-  key: '',
-  label: '',
-  unit: 'cm',
-  required: true,
-  sortOrder,
-})
+const getFitTypeTemplateLabel = (category?: ManagedCategory | null) =>
+  category?.fitTypeTemplateName?.trim() || category?.name || ''
 
-const normalizeMeasurementKey = (value: string) =>
+const normalizeFitTypeKey = (value: string) =>
   value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -116,6 +112,9 @@ const normalizeMeasurementKey = (value: string) =>
     .replace(/đ/g, 'd')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
+
+const confirmDiscardChanges = () =>
+  window.confirm('Bạn có chắc chắn không thực hiện các thay đổi không?')
 
 const getCategoryPathLabel = (
   category: ManagedCategory,
@@ -202,7 +201,9 @@ function CategoryApplySelect({
 export function CatalogSection({
   title,
   actionLabel,
+  secondaryActions,
   secondaryActionLabel,
+  secondaryActionClassName,
   canWrite,
   onAdd,
   onSecondaryAction,
@@ -210,22 +211,44 @@ export function CatalogSection({
 }: {
   title: string
   actionLabel: string
+  secondaryActions?: Array<{
+    label: string
+    className?: string
+    onClick: () => void
+  }>
   secondaryActionLabel?: string
+  secondaryActionClassName?: string
   canWrite: boolean
   onAdd: () => void
   onSecondaryAction?: () => void
   children: ReactNode
 }) {
+  const sectionActions =
+    secondaryActions ??
+    (secondaryActionLabel && onSecondaryAction
+      ? [{
+          label: secondaryActionLabel,
+          className: secondaryActionClassName,
+          onClick: onSecondaryAction,
+        }]
+      : [])
+
   return (
     <section className="admin-catalog-section">
       <header>
         <h2>{title}</h2>
         <div className="admin-catalog-section-actions">
-          {secondaryActionLabel && onSecondaryAction ? (
-            <button className="admin-secondary-button" type="button" disabled={!canWrite} onClick={onSecondaryAction}>
-              {secondaryActionLabel}
+          {sectionActions.map((action) => (
+            <button
+              className={`admin-secondary-button${action.className ? ` ${action.className}` : ''}`}
+              type="button"
+              disabled={!canWrite}
+              onClick={action.onClick}
+              key={action.label}
+            >
+              {action.label}
             </button>
-          ) : null}
+          ))}
           <button className="admin-primary-button" type="button" disabled={!canWrite} onClick={onAdd}>
             {actionLabel}
           </button>
@@ -259,7 +282,7 @@ export function RowActions({
     <div className="admin-row-actions-wrapper">
       <div className="admin-row-actions">
         {onView ? (
-          <button className="admin-secondary-link" type="button" onClick={onView}>
+          <button className="admin-view-link" type="button" onClick={onView}>
             <ViewIcon />
             <span>Xem</span>
           </button>
@@ -488,7 +511,7 @@ export function SizeTemplateManager({
   isSaving: boolean
   errorMessage: string
   onClose: () => void
-  onSave: (categoryId: string, input: SizeTemplateInput) => Promise<void>
+  onSave: (categoryId: string, input: SizeTemplateInput, sizeGuideImageFile?: File | null) => Promise<void>
 }) {
   const sizeTemplateSources = useMemo(
     () => categories.filter((category) => category.isSizeTemplateSource),
@@ -502,15 +525,16 @@ export function SizeTemplateManager({
   const [templateName, setTemplateName] = useState(
     getSizeTemplateLabel(sizeTemplateSources[0]) || '',
   )
+  const [sizeGuideImageUrl, setSizeGuideImageUrl] = useState(sizeTemplateSources[0]?.sizeGuideImage ?? '')
+  const [sizeGuideImageFile, setSizeGuideImageFile] = useState<File | null>(null)
+  const [shouldClearSizeGuideImage, setShouldClearSizeGuideImage] = useState(false)
   const [sizeFields, setSizeFields] = useState<string[]>([''])
-  const [measurementFields, setMeasurementFields] = useState<MeasurementFieldInput[]>([
-    createEmptyMeasurementField(),
-  ])
   const [integrationCategoryIds, setIntegrationCategoryIds] = useState<string[]>([
     activeCategories[0]?._id ?? '',
   ])
   const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>([])
   const [localError, setLocalError] = useState('')
+  const [isDirty, setIsDirty] = useState(false)
   const childrenByParentId = useMemo(() => getCategoryChildMap(categories), [categories])
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category._id, category])),
@@ -527,7 +551,9 @@ export function SizeTemplateManager({
   useEffect(() => {
     if (!selectedTemplateId) {
       setSizeFields([''])
-      setMeasurementFields([createEmptyMeasurementField()])
+      setSizeGuideImageUrl('')
+      setSizeGuideImageFile(null)
+      setShouldClearSizeGuideImage(false)
       setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
       setExcludedCategoryIds([])
       return
@@ -543,18 +569,17 @@ export function SizeTemplateManager({
       .map((category) => category._id)
 
     setTemplateName(getSizeTemplateLabel(selectedTemplate))
+    setSizeGuideImageUrl(selectedTemplate?.sizeGuideImage ?? '')
+    setSizeGuideImageFile(null)
+    setShouldClearSizeGuideImage(false)
     setSizeFields((selectedTemplate?.sizes?.length ? selectedTemplate.sizes : ['']))
-    setMeasurementFields(
-      selectedTemplate?.measurementFields?.length
-        ? [...selectedTemplate.measurementFields].sort((first, second) => first.sortOrder - second.sortOrder)
-        : [createEmptyMeasurementField()],
-    )
     setIntegrationCategoryIds(
       integratedIds.length
         ? getRootCategoryIds(categories, integratedIds)
         : [selectedTemplateId],
     )
     setExcludedCategoryIds([])
+    setIsDirty(false)
   }, [categories, parentCategoryOptions, selectedTemplateId])
 
   const appliedCategoryIds = useMemo(() => {
@@ -594,39 +619,6 @@ export function SizeTemplateManager({
     return sizes
   }
 
-  const parseMeasurementFields = () => {
-    const fields = measurementFields
-      .map((field, index) => {
-        const label = field.label.trim()
-        const unit = field.unit.trim()
-        const key = normalizeMeasurementKey(label)
-
-        return {
-          key,
-          label,
-          unit,
-          required: field.required,
-          sortOrder: index,
-        }
-      })
-      .filter((field) => field.label || field.key)
-
-    if (fields.length === 0) {
-      throw new Error('Vui lòng nhập ít nhất một số đo.')
-    }
-
-    if (fields.some((field) => !field.label || !field.key || !field.unit)) {
-      throw new Error('Vui lòng nhập đầy đủ tên và đơn vị số đo.')
-    }
-
-    const lowercasedKeys = fields.map((field) => field.key.toLocaleLowerCase('vi'))
-    if (new Set(lowercasedKeys).size !== lowercasedKeys.length) {
-      throw new Error('Danh sách số đo đang bị trùng tên.')
-    }
-
-    return fields
-  }
-
   const parseCategoryIds = () => {
     const categoryIds = integrationCategoryIds.map((categoryId) => categoryId.trim()).filter(Boolean)
 
@@ -654,6 +646,7 @@ export function SizeTemplateManager({
   const handlePickTemplate = (categoryId: string) => {
     setLocalError('')
     setSelectedTemplateId(categoryId)
+    setIsDirty(false)
   }
 
   const handleCreateTemplate = () => {
@@ -669,56 +662,39 @@ export function SizeTemplateManager({
     setLocalError('')
     setSelectedTemplateId('')
     setTemplateName(normalizedName)
+    setSizeGuideImageUrl('')
+    setSizeGuideImageFile(null)
+    setShouldClearSizeGuideImage(false)
     setSizeFields([''])
-    setMeasurementFields([createEmptyMeasurementField()])
     setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
     setExcludedCategoryIds([])
+    setIsDirty(true)
   }
 
   const addSizeField = () => {
+    setIsDirty(true)
     setSizeFields((current) => [...current, ''])
   }
 
   const updateSizeField = (index: number, value: string) => {
+    setIsDirty(true)
     setSizeFields((current) => current.map((size, currentIndex) => (currentIndex === index ? value : size)))
   }
 
   const removeSizeField = (index: number) => {
+    setIsDirty(true)
     setSizeFields((current) => current.filter((_, currentIndex) => currentIndex !== index))
-  }
-
-  const addMeasurementField = () => {
-    setMeasurementFields((current) => [...current, createEmptyMeasurementField(current.length)])
-  }
-
-  const updateMeasurementField = (
-    index: number,
-    field: keyof MeasurementFieldInput,
-    value: string | boolean,
-  ) => {
-    setMeasurementFields((current) =>
-      current.map((measurement, currentIndex) =>
-        currentIndex === index
-          ? {
-              ...measurement,
-              [field]: value,
-            }
-          : measurement,
-      ),
-    )
-  }
-
-  const removeMeasurementField = (index: number) => {
-    setMeasurementFields((current) => current.filter((_, currentIndex) => currentIndex !== index))
   }
 
   const addIntegrationCategory = () => {
     const selectedIds = new Set(integrationCategoryIds)
     const nextCategory = parentCategoryOptions.find((category) => !selectedIds.has(category._id))
+    setIsDirty(true)
     setIntegrationCategoryIds((current) => [...current, nextCategory?._id ?? ''])
   }
 
   const updateIntegrationCategory = (index: number, categoryId: string) => {
+    setIsDirty(true)
     setIntegrationCategoryIds((current) =>
       current.map((currentCategoryId, currentIndex) =>
         currentIndex === index ? categoryId : currentCategoryId,
@@ -727,37 +703,77 @@ export function SizeTemplateManager({
   }
 
   const removeIntegrationCategory = (index: number) => {
+    setIsDirty(true)
     setIntegrationCategoryIds((current) => current.filter((_, currentIndex) => currentIndex !== index))
   }
 
+  const handleSizeGuideImageFileChange = (file: File | null, input: HTMLInputElement) => {
+    const validationError = getImageFileValidationError(file)
+    if (validationError) {
+      setSizeGuideImageFile(null)
+      setLocalError(validationError)
+      input.value = ''
+      return
+    }
+
+    setLocalError('')
+    setShouldClearSizeGuideImage(false)
+    setSizeGuideImageFile(file)
+    if (file) {
+      setIsDirty(true)
+    }
+  }
+
+  const clearSizeGuideImage = () => {
+    setSizeGuideImageFile(null)
+    setSizeGuideImageUrl('')
+    setShouldClearSizeGuideImage(true)
+    setIsDirty(true)
+  }
+
   const excludeAppliedCategory = (categoryId: string) => {
+    setIsDirty(true)
     setExcludedCategoryIds((current) => [...new Set([...current, categoryId])])
   }
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
+    if (!isDirty) return
 
     try {
       const name = parseTemplateName()
       const sizes = parseSizes()
-      const parsedMeasurementFields = parseMeasurementFields()
       const categoryIds = parseCategoryIds()
       const sourceCategoryId = selectedTemplateId || categoryIds[0]
       setLocalError('')
       void onSave(sourceCategoryId, {
         name,
         sizes,
-        measurementFields: parsedMeasurementFields,
+        measurementFields: [],
         categoryIds,
         excludedCategoryIds,
+        clearSizeGuideImage: shouldClearSizeGuideImage,
+      }, sizeGuideImageFile).then(() => {
+        setSelectedTemplateId(sourceCategoryId)
+        setSizeGuideImageFile(null)
+        setShouldClearSizeGuideImage(false)
+        setIsDirty(false)
+      }).catch((error) => {
+        setLocalError(error instanceof Error ? error.message : 'Không thể lưu bộ size.')
       })
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Thông tin bộ size không hợp lệ.')
     }
   }
 
+  const handleClose = () => {
+    if (!isDirty || confirmDiscardChanges()) {
+      onClose()
+    }
+  }
+
   return (
-    <EditorModal title="Quản lý size" isSaving={isSaving} onClose={onClose}>
+    <EditorModal title="Quản lý size" isSaving={isSaving} onClose={handleClose}>
       <form className="admin-size-template-layout" onSubmit={handleSubmit}>
         {errorMessage || localError ? (
           <p className="admin-notice is-error">{errorMessage || localError}</p>
@@ -804,7 +820,10 @@ export function SizeTemplateManager({
                 maxLength={80}
                 value={templateName}
                 placeholder="Ví dụ: Giày / Dép"
-                onChange={(event) => setTemplateName(event.target.value)}
+                onChange={(event) => {
+                  setIsDirty(true)
+                  setTemplateName(event.target.value)
+                }}
               />
             </div>
           </label>
@@ -890,64 +909,449 @@ export function SizeTemplateManager({
               + Thêm size
             </button>
           </div>
+          <label className="admin-size-inline-field">
+            <span>Ảnh hướng dẫn chọn size</span>
+            <div className="is-single">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => handleSizeGuideImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+              />
+            </div>
+            <small>JPEG, PNG hoặc WEBP, tối đa 5MB. Không bắt buộc.</small>
+          </label>
+          <ImagePreview
+            className="admin-size-guide-preview"
+            file={sizeGuideImageFile}
+            url={sizeGuideImageUrl}
+            alt="Ảnh hướng dẫn chọn size"
+          />
+          {(sizeGuideImageFile || sizeGuideImageUrl) ? (
+            <button className="admin-danger-link" type="button" disabled={isSaving} onClick={clearSizeGuideImage}>
+              Xóa ảnh hướng dẫn
+            </button>
+          ) : null}
+        </section>
+        <EditorActions isSaving={isSaving} onClose={handleClose} showSaveButton={isDirty} />
+      </form>
+    </EditorModal>
+  )
+}
+
+type FitTypeField = {
+  _id?: string
+  label: string
+  isActive: boolean
+}
+
+const createFitTypeField = (fitType?: CategoryFitTypeInput): FitTypeField => ({
+  _id: fitType?._id,
+  label: fitType?.label ?? '',
+  isActive: fitType?.isActive ?? true,
+})
+
+export function FitTypeTemplateManager({
+  categories,
+  isSaving,
+  errorMessage,
+  onClose,
+  onSave,
+}: {
+  categories: ManagedCategory[]
+  isSaving: boolean
+  errorMessage: string
+  onClose: () => void
+  onSave: (categoryId: string, input: FitTypeTemplateInput) => Promise<void>
+}) {
+  const fitTypeTemplateSources = useMemo(
+    () => categories.filter((category) => category.isFitTypeTemplateSource || Boolean(category.fitTypes?.length)),
+    [categories],
+  )
+  const activeCategories = useMemo(
+    () => categories.filter((category) => category.isActive),
+    [categories],
+  )
+  const [selectedTemplateId, setSelectedTemplateId] = useState(fitTypeTemplateSources[0]?._id ?? '')
+  const [templateName, setTemplateName] = useState(
+    getFitTypeTemplateLabel(fitTypeTemplateSources[0]) || '',
+  )
+  const [fitTypeFields, setFitTypeFields] = useState<FitTypeField[]>([createFitTypeField()])
+  const [integrationCategoryIds, setIntegrationCategoryIds] = useState<string[]>([
+    activeCategories[0]?._id ?? '',
+  ])
+  const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>([])
+  const [localError, setLocalError] = useState('')
+  const [isDirty, setIsDirty] = useState(false)
+  const childrenByParentId = useMemo(() => getCategoryChildMap(categories), [categories])
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category._id, category])),
+    [categories],
+  )
+  const parentCategoryOptions = useMemo(
+    () =>
+      activeCategories.filter(
+        (category) => !category.parent_id || (childrenByParentId.get(category._id)?.length ?? 0) > 0,
+      ),
+    [activeCategories, childrenByParentId],
+  )
+
+  useEffect(() => {
+    if (!selectedTemplateId) {
+      setFitTypeFields([createFitTypeField()])
+      setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
+      setExcludedCategoryIds([])
+      return
+    }
+
+    const selectedTemplate = categories.find((category) => category._id === selectedTemplateId)
+    const integratedIds = categories
+      .filter(
+        (category) =>
+          category._id === selectedTemplateId ||
+          category.fitTypeTemplateSourceId === selectedTemplateId,
+      )
+      .map((category) => category._id)
+
+    setTemplateName(getFitTypeTemplateLabel(selectedTemplate))
+    setFitTypeFields(
+      selectedTemplate?.fitTypes?.length
+        ? [...selectedTemplate.fitTypes]
+            .sort((first, second) => first.sortOrder - second.sortOrder)
+            .map(createFitTypeField)
+        : [createFitTypeField()],
+    )
+    setIntegrationCategoryIds(
+      integratedIds.length
+        ? getRootCategoryIds(categories, integratedIds)
+        : [selectedTemplateId],
+    )
+    setExcludedCategoryIds([])
+    setIsDirty(false)
+  }, [categories, parentCategoryOptions, selectedTemplateId])
+
+  const appliedCategoryIds = useMemo(() => {
+    const selectedIds = integrationCategoryIds.filter(Boolean)
+    if (selectedIds.length === 0) return []
+
+    return [
+      ...new Set(
+        selectedIds.flatMap((categoryId) => [...getCategoryDescendantIds(categories, categoryId)]),
+      ),
+    ].filter((categoryId) => !excludedCategoryIds.includes(categoryId))
+  }, [categories, excludedCategoryIds, integrationCategoryIds])
+
+  const appliedDetailCategories = useMemo(
+    () =>
+      appliedCategoryIds
+        .filter((categoryId) => !integrationCategoryIds.includes(categoryId))
+        .map((categoryId) => categoryById.get(categoryId))
+        .filter((category): category is ManagedCategory => Boolean(category)),
+    [appliedCategoryIds, categoryById, integrationCategoryIds],
+  )
+
+  const parseTemplateName = () => {
+    const name = templateName.trim()
+    if (!name) {
+      throw new Error('Vui lòng nhập tên bộ phom dáng.')
+    }
+    return name
+  }
+
+  const parseCategoryIds = () => {
+    const categoryIds = integrationCategoryIds.map((categoryId) => categoryId.trim()).filter(Boolean)
+
+    if (categoryIds.length === 0) {
+      throw new Error('Vui lòng chọn ít nhất một danh mục tích hợp.')
+    }
+
+    if (new Set(categoryIds).size !== categoryIds.length) {
+      throw new Error('Danh mục tích hợp đang bị trùng.')
+    }
+
+    return categoryIds
+  }
+
+  const parseFitTypes = () => {
+    const fitTypes = fitTypeFields
+      .map((field, index) => {
+        const label = field.label.trim()
+        const key = normalizeFitTypeKey(label)
+
+        return {
+          _id: field._id,
+          key,
+          label,
+          sortOrder: index,
+          isActive: field.isActive,
+        }
+      })
+      .filter((field) => field.label)
+
+    if (fitTypes.length === 0) {
+      throw new Error('Vui lòng nhập ít nhất một phom dáng.')
+    }
+
+    if (fitTypes.some((field) => !field.key || !field.label)) {
+      throw new Error('Tên phom dáng không hợp lệ.')
+    }
+
+    const keys = fitTypes.map((field) => field.key)
+    if (new Set(keys).size !== keys.length) {
+      throw new Error('Danh sách phom dáng đang bị trùng.')
+    }
+
+    return fitTypes
+  }
+
+  const handlePickTemplate = (categoryId: string) => {
+    setLocalError('')
+    setSelectedTemplateId(categoryId)
+    setIsDirty(false)
+  }
+
+  const handleCreateTemplate = () => {
+    const name = window.prompt('Tên bộ phom dáng mới')
+    if (name === null) return
+
+    const normalizedName = name.trim()
+    if (!normalizedName) {
+      setLocalError('Vui lòng nhập tên bộ phom dáng.')
+      return
+    }
+
+    setLocalError('')
+    setSelectedTemplateId('')
+    setTemplateName(normalizedName)
+    setFitTypeFields([createFitTypeField()])
+    setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
+    setExcludedCategoryIds([])
+    setIsDirty(true)
+  }
+
+  const updateFitTypeField = (index: number, value: Partial<FitTypeField>) => {
+    setIsDirty(true)
+    setFitTypeFields((current) =>
+      current.map((field, currentIndex) =>
+        currentIndex === index ? { ...field, ...value } : field,
+      ),
+    )
+  }
+
+  const addFitTypeField = () => {
+    setIsDirty(true)
+    setFitTypeFields((current) => [...current, createFitTypeField()])
+  }
+
+  const removeFitTypeField = (index: number) => {
+    setIsDirty(true)
+    setFitTypeFields((current) => current.filter((_, currentIndex) => currentIndex !== index))
+  }
+
+  const addIntegrationCategory = () => {
+    const selectedIds = new Set(integrationCategoryIds)
+    const nextCategory = parentCategoryOptions.find((category) => !selectedIds.has(category._id))
+    setIsDirty(true)
+    setIntegrationCategoryIds((current) => [...current, nextCategory?._id ?? ''])
+  }
+
+  const updateIntegrationCategory = (index: number, categoryId: string) => {
+    setIsDirty(true)
+    setIntegrationCategoryIds((current) =>
+      current.map((currentCategoryId, currentIndex) =>
+        currentIndex === index ? categoryId : currentCategoryId,
+      ),
+    )
+  }
+
+  const removeIntegrationCategory = (index: number) => {
+    setIsDirty(true)
+    setIntegrationCategoryIds((current) => current.filter((_, currentIndex) => currentIndex !== index))
+  }
+
+  const excludeAppliedCategory = (categoryId: string) => {
+    setIsDirty(true)
+    setExcludedCategoryIds((current) => [...new Set([...current, categoryId])])
+  }
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!isDirty) return
+
+    try {
+      const name = parseTemplateName()
+      const fitTypes = parseFitTypes()
+      const categoryIds = parseCategoryIds()
+      const sourceCategoryId = selectedTemplateId || categoryIds[0]
+      setLocalError('')
+      void onSave(sourceCategoryId, {
+        name,
+        fitTypes,
+        categoryIds,
+        excludedCategoryIds,
+      }).then(() => {
+        setSelectedTemplateId(sourceCategoryId)
+        setIsDirty(false)
+      }).catch((error) => {
+        setLocalError(error instanceof Error ? error.message : 'Không thể lưu bộ phom dáng.')
+      })
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Thông tin bộ phom dáng không hợp lệ.')
+    }
+  }
+
+  const handleClose = () => {
+    if (!isDirty || confirmDiscardChanges()) {
+      onClose()
+    }
+  }
+
+  return (
+    <EditorModal title="Quản lý phom dáng" isSaving={isSaving} onClose={handleClose}>
+      <form className="admin-size-template-layout" onSubmit={handleSubmit}>
+        {errorMessage || localError ? (
+          <p className="admin-notice is-error">{errorMessage || localError}</p>
+        ) : null}
+        <section className="admin-size-template-column" aria-label="Bộ phom dáng">
+          <div className="admin-size-template-heading">
+            <div>
+              <h3>Bộ phom dáng</h3>
+              <span>{fitTypeTemplateSources.length.toLocaleString('vi-VN')} bộ</span>
+            </div>
+          </div>
+          {fitTypeTemplateSources.length > 0 ? (
+            <div className="admin-size-template-picker">
+              {fitTypeTemplateSources.map((category) => (
+                <button
+                  className={category._id === selectedTemplateId ? 'is-active' : ''}
+                  type="button"
+                  key={category._id}
+                  disabled={isSaving}
+                  onClick={() => handlePickTemplate(category._id)}
+                >
+                  <strong>{getFitTypeTemplateLabel(category)}</strong>
+                  <span>{(category.fitTypes ?? []).map((item) => item.label).join(', ') || 'Chưa có phom dáng'}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={handleCreateTemplate}>
+            + Thêm bộ phom dáng
+          </button>
+        </section>
+        <section className="admin-size-template-column is-detail" aria-label="Chi tiết bộ phom dáng">
+          <div className="admin-size-template-heading">
+            <div>
+              <h3>Danh mục áp dụng</h3>
+              <span>Chi tiết bộ phom dáng</span>
+            </div>
+          </div>
+          <label className="admin-size-inline-field">
+            <span>Tên bộ phom dáng</span>
+            <div className="is-single">
+              <input
+                required
+                maxLength={80}
+                value={templateName}
+                placeholder="Ví dụ: Áo nam"
+                onChange={(event) => {
+                  setIsDirty(true)
+                  setTemplateName(event.target.value)
+                }}
+              />
+            </div>
+          </label>
+          <div className="admin-size-category-list">
+            <span>Danh mục áp dụng</span>
+            {integrationCategoryIds.map((categoryId, index) => (
+              <label className="admin-size-inline-field" key={`fit-category-${index}`}>
+                <div>
+                  <CategoryApplySelect
+                    categories={parentCategoryOptions}
+                    categoryById={categoryById}
+                    disabled={isSaving}
+                    value={categoryId}
+                    onChange={(nextCategoryId) => updateIntegrationCategory(index, nextCategoryId)}
+                  />
+                  <button
+                    className="admin-icon-button"
+                    type="button"
+                    disabled={isSaving || integrationCategoryIds.length === 1}
+                    onClick={() => removeIntegrationCategory(index)}
+                    aria-label={`Xóa danh mục tích hợp ${index + 1}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              </label>
+            ))}
+          </div>
+          <section className="admin-applied-category-tags" aria-label="Danh mục chi tiết được áp dụng">
+            <header>Danh mục chi tiết được áp dụng</header>
+            <div>
+              {appliedDetailCategories.length > 0 ? (
+                appliedDetailCategories.map((category) => (
+                  <span className={`admin-applied-category-tag level-${Math.min(category.level, 4)}`} key={category._id}>
+                    {category.name}
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => excludeAppliedCategory(category._id)}
+                      aria-label={`Xóa ${category.name} khỏi danh mục chi tiết được áp dụng`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))
+              ) : (
+                <em>Chưa có danh mục con phù hợp.</em>
+              )}
+            </div>
+          </section>
+          <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={addIntegrationCategory}>
+            + Thêm danh mục
+          </button>
           <div className="admin-size-template-subheading">
             <h4>
-              <ColumnHeightOutlined className="admin-size-heading-icon" />
-              <span>Số đo</span>
+              <TagsOutlined className="admin-size-heading-icon" />
+              <span>Phom dáng</span>
             </h4>
           </div>
-          <div className="admin-measurement-field-list">
-            {measurementFields.map((field, index) => (
-              <div className="admin-measurement-row" key={`measurement-field-${index}`}>
-                <div className="admin-measurement-row-main">
-                  <label className="admin-size-inline-field">
-                    <span>Tên số đo</span>
-                    <div className="is-single">
-                      <input
-                        required={index === 0}
-                        value={field.label}
-                        placeholder="Ví dụ: Vòng ngực"
-                        onChange={(event) => updateMeasurementField(index, 'label', event.target.value)}
-                      />
-                    </div>
-                  </label>
-                  <label className="admin-size-inline-field">
-                    <span>Đơn vị</span>
-                    <div className="is-single">
-                      <input
-                        required={index === 0}
-                        value={field.unit}
-                        placeholder="cm"
-                        onChange={(event) => updateMeasurementField(index, 'unit', event.target.value)}
-                      />
-                    </div>
-                  </label>
-                  <label className="admin-measurement-required">
+          <div className="admin-size-field-list">
+            {fitTypeFields.map((fitType, index) => (
+              <label className="admin-size-inline-field" key={`fit-type-field-${index}`}>
+                <div className="admin-fit-type-row">
+                  <input
+                    required={index === 0}
+                    value={fitType.label}
+                    placeholder={index === 0 ? 'Ví dụ: Regular fit' : 'Nhập phom dáng'}
+                    onChange={(event) => updateFitTypeField(index, { label: event.target.value })}
+                  />
+                  <span className="admin-fit-type-status">
                     <input
                       type="checkbox"
-                      checked={field.required}
-                      onChange={(event) => updateMeasurementField(index, 'required', event.target.checked)}
+                      checked={fitType.isActive}
+                      onChange={(event) => updateFitTypeField(index, { isActive: event.target.checked })}
                     />
-                    <span>Bắt buộc</span>
-                  </label>
+                    <span>Đang dùng</span>
+                  </span>
+                  <button
+                    className="admin-icon-button"
+                    type="button"
+                    disabled={isSaving || fitTypeFields.length === 1}
+                    onClick={() => removeFitTypeField(index)}
+                    aria-label={`Xóa phom dáng ${index + 1}`}
+                  >
+                    ×
+                  </button>
                 </div>
-                <button
-                  className="admin-icon-button"
-                  type="button"
-                  disabled={isSaving || measurementFields.length === 1}
-                  onClick={() => removeMeasurementField(index)}
-                  aria-label={`Xóa số đo ${index + 1}`}
-                >
-                  ×
-                </button>
-              </div>
+              </label>
             ))}
-            <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={addMeasurementField}>
-              + Thêm số đo
+            <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={addFitTypeField}>
+              + Thêm phom dáng
             </button>
           </div>
         </section>
-        <EditorActions isSaving={isSaving} onClose={onClose} />
+        <EditorActions isSaving={isSaving} onClose={handleClose} showSaveButton={isDirty} />
       </form>
     </EditorModal>
   )
@@ -1060,13 +1464,23 @@ function EditorModal({
   )
 }
 
-function EditorActions({ isSaving, onClose }: { isSaving: boolean; onClose: () => void }) {
+function EditorActions({
+  isSaving,
+  onClose,
+  showSaveButton = true,
+}: {
+  isSaving: boolean
+  onClose: () => void
+  showSaveButton?: boolean
+}) {
   return (
     <div className="admin-catalog-form-actions">
       <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={onClose}>Hủy</button>
-      <button className="admin-primary-button" type="submit" disabled={isSaving}>
-        {isSaving ? 'Đang lưu...' : 'Lưu'}
-      </button>
+      {showSaveButton ? (
+        <button className="admin-primary-button" type="submit" disabled={isSaving}>
+          {isSaving ? 'Đang lưu...' : 'Lưu'}
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -1075,10 +1489,12 @@ function ImagePreview({
   file,
   url,
   alt,
+  className = 'admin-catalog-image-preview',
 }: {
   file?: File | null
   url?: string | null
   alt: string
+  className?: string
 }) {
   const [previewUrl, setPreviewUrl] = useState(url ?? '')
 
@@ -1094,7 +1510,7 @@ function ImagePreview({
   }, [file, url])
 
   return previewUrl ? (
-    <span className="admin-catalog-image-preview">
+    <span className={className}>
       <img src={previewUrl} alt={alt} />
     </span>
   ) : null

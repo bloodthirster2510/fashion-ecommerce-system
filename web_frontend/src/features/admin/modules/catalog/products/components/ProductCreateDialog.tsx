@@ -44,13 +44,6 @@ const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể tải dữ liệu tạo sản phẩm'
 const maxImageFileSizeBytes = 5 * 1024 * 1024
 const acceptedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
-const commonAlphaSizes = ['S', 'M', 'L', 'XL']
-const commonNumericSizesByGender: Record<ProductCategoryOption['gender'], string[]> = {
-  female: ['35', '36', '37', '38', '39'],
-  male: ['39', '40', '41', '42', '43'],
-  unisex: ['36', '37', '38', '39', '40', '41', '42'],
-}
-
 const getImageFileValidationError = (file: File | null) => {
   if (!file) return ''
   if (!acceptedImageMimeTypes.has(file.type)) {
@@ -64,27 +57,20 @@ const getImageFileValidationError = (file: File | null) => {
 
 const normalizeSize = (size: string) => size.trim().toLowerCase()
 
-const createSizeMeasurement = (
-  template: ProductCategoryTemplate,
-  size: string,
-): ProductVariantInput['sizeMeasurements'][number] => ({
+const createSizeOption = (size: string): ProductVariantInput['sizeMeasurements'][number] => ({
   size: size.trim(),
-  measurements: template.templateSource.measurementFields.map((field) => ({
-    key: field.key,
-    value: 0,
-  })),
 })
 
-const getDefaultSizes = (template: ProductCategoryTemplate) => {
-  const templateSizes = template.templateSource.sizes.map((size) => size.trim()).filter(Boolean)
-  const templateSizeSet = new Set(templateSizes.map(normalizeSize))
-  const hasNumericSizes = templateSizes.some((size) => /^\d+(\.\d+)?$/.test(size))
-  const preferredSizes = hasNumericSizes
-    ? commonNumericSizesByGender[template.category.gender]
-    : commonAlphaSizes
-  const commonSizes = preferredSizes.filter((size) => templateSizeSet.has(normalizeSize(size)))
+const getSizeTemplateSource = (template: ProductCategoryTemplate) =>
+  template.sizeTemplateSource ?? template.templateSource
 
-  return commonSizes.length ? commonSizes : templateSizes.slice(0, Math.min(7, templateSizes.length))
+const getFitTypeTemplateSource = (template: ProductCategoryTemplate) =>
+  template.fitTypeTemplateSource ?? template.templateSource
+
+const getDefaultSizes = (template: ProductCategoryTemplate) => {
+  const templateSizes = getSizeTemplateSource(template).sizes.map((size) => size.trim()).filter(Boolean)
+
+  return templateSizes
 }
 
 const createVariant = (
@@ -94,7 +80,7 @@ const createVariant = (
   fitTypeId,
   price: 1000,
   discount: 0,
-  sizeMeasurements: getDefaultSizes(template).map((size) => createSizeMeasurement(template, size)),
+  sizeMeasurements: getDefaultSizes(template).map(createSizeOption),
   colors: [emptyColor()],
   isActive: true,
 })
@@ -137,7 +123,7 @@ export function ProductCreateDialog({
   }, [])
 
   const fitTypes = useMemo(
-    () => template?.templateSource.fitTypes.filter((item) => item.isActive) ?? [],
+    () => template ? getFitTypeTemplateSource(template).fitTypes.filter((item) => item.isActive) : [],
     [template],
   )
 
@@ -156,13 +142,12 @@ export function ProductCreateDialog({
     setIsLoadingTemplate(true)
     try {
       const result = await getProductCategoryTemplate(categoryId)
-      const activeFitTypes = result.templateSource.fitTypes.filter((item) => item.isActive)
+      const activeFitTypes = getFitTypeTemplateSource(result).fitTypes.filter((item) => item.isActive)
       if (
-        !result.templateSource.sizes.length ||
-        !result.templateSource.measurementFields.length ||
+        !getSizeTemplateSource(result).sizes.length ||
         !activeFitTypes.length
       ) {
-        throw new Error('Danh mục chưa có đủ cấu hình form dáng, size và số đo.')
+        throw new Error('Danh mục chưa có đủ cấu hình form dáng và size.')
       }
       setTemplate(result)
       if (options.resetVariants ?? true) {
@@ -200,10 +185,6 @@ export function ProductCreateDialog({
       discount: variant.discount,
       sizeMeasurements: variant.sizes.map((size) => ({
         size: size.size,
-        measurements: size.measurements.map((measurement) => ({
-          key: measurement.key,
-          value: measurement.value,
-        })),
       })),
       colors: variant.colors.map((color) => ({
         _id: color._id,
@@ -376,7 +357,7 @@ export function ProductCreateDialog({
               </button>
             </div>
             {isLoadingTemplate ? <p className="admin-product-create-hint">Đang tải cấu hình danh mục...</p> : null}
-            {!form.category_id ? <p className="admin-product-create-hint">Chọn danh mục để cấu hình form dáng, size và số đo.</p> : null}
+            {!form.category_id ? <p className="admin-product-create-hint">Chọn danh mục để cấu hình form dáng và size.</p> : null}
             {template
               ? variants.map((variant, variantIndex) => (
                   <VariantEditor
@@ -470,7 +451,7 @@ function VariantEditor({
   onColorRemove: (colorIndex: number) => void
   onRemove: () => void
 }) {
-  const fitTypes = template.templateSource.fitTypes.filter((item) => item.isActive)
+  const fitTypes = getFitTypeTemplateSource(template).fitTypes.filter((item) => item.isActive)
   const [newSize, setNewSize] = useState('')
 
   const handleColorImageFileChange = (
@@ -502,7 +483,7 @@ function VariantEditor({
     }
     onChange({
       ...variant,
-      sizeMeasurements: [...variant.sizeMeasurements, createSizeMeasurement(template, size)],
+      sizeMeasurements: [...variant.sizeMeasurements, createSizeOption(size)],
     })
     setNewSize('')
   }
@@ -540,7 +521,7 @@ function VariantEditor({
 
       <section className="admin-product-size-section">
         <div className="admin-product-size-heading">
-          <h4>Số đo theo size</h4>
+          <h4>Size sản phẩm</h4>
           <div className="admin-product-size-add">
             <input
               list={`product-extra-sizes-${index}`}
@@ -555,7 +536,7 @@ function VariantEditor({
               }}
             />
             <datalist id={`product-extra-sizes-${index}`}>
-              {template.templateSource.sizes
+              {getSizeTemplateSource(template).sizes
                 .filter((size) => !variant.sizeMeasurements.some(
                   (item) => normalizeSize(item.size) === normalizeSize(size),
                 ))
@@ -566,66 +547,27 @@ function VariantEditor({
             </button>
           </div>
         </div>
-        <div className="admin-product-size-table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Size</th>
-                {template.templateSource.measurementFields.map((field) => (
-                  <th key={field.key}>{field.label} ({field.unit})</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {variant.sizeMeasurements.map((sizeMeasurement, sizeIndex) => (
-                <tr key={sizeMeasurement.size}>
-                  <td>
-                    <div className="admin-product-size-name">
-                      <strong>{sizeMeasurement.size}</strong>
-                      <button
-                        type="button"
-                        aria-label={`Xóa size ${sizeMeasurement.size}`}
-                        disabled={variant.sizeMeasurements.length === 1}
-                        onClick={() => {
-                          onChange({
-                            ...variant,
-                            sizeMeasurements: variant.sizeMeasurements.filter(
-                              (_, itemIndex) => itemIndex !== sizeIndex,
-                            ),
-                          })
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </td>
-                  {sizeMeasurement.measurements.map((measurement, measurementIndex) => (
-                    <td key={measurement.key}>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.1"
-                        required={template.templateSource.measurementFields[measurementIndex]?.required}
-                        aria-label={`${template.templateSource.measurementFields[measurementIndex]?.label ?? measurement.key} size ${sizeMeasurement.size}`}
-                        value={measurement.value}
-                        onChange={(event) => {
-                          const nextSizes = variant.sizeMeasurements.map((item, itemIndex) => itemIndex !== sizeIndex ? item : {
-                            ...item,
-                            measurements: item.measurements.map((value, valueIndex) =>
-                              valueIndex === measurementIndex
-                                ? { ...value, value: Number(event.target.value) }
-                                : value,
-                            ),
-                          })
-                          onChange({ ...variant, sizeMeasurements: nextSizes })
-                        }}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="admin-product-size-list">
+          {variant.sizeMeasurements.map((sizeMeasurement, sizeIndex) => (
+            <div className="admin-product-size-chip" key={sizeMeasurement.size}>
+              <strong>{sizeMeasurement.size}</strong>
+              <button
+                type="button"
+                aria-label={`Xóa size ${sizeMeasurement.size}`}
+                disabled={variant.sizeMeasurements.length === 1}
+                onClick={() => {
+                  onChange({
+                    ...variant,
+                    sizeMeasurements: variant.sizeMeasurements.filter(
+                      (_, itemIndex) => itemIndex !== sizeIndex,
+                    ),
+                  })
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
         </div>
       </section>
 

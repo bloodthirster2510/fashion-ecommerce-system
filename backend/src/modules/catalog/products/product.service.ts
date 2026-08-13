@@ -130,10 +130,7 @@ const normalizeVariants = (variants?: ProductVariantInput[]) => {
       discount: variant.discount,
       sizeMeasurements: variant.sizeMeasurements.map((sizeMeasurement) => ({
         size: sizeMeasurement.size.trim(),
-        measurements: sizeMeasurement.measurements.map((measurement) => ({
-          key: measurement.key.trim(),
-          value: measurement.value,
-        })),
+        measurements: [],
       })),
       colors: variant.colors.map((color) => ({
         ...(color._id?.trim()
@@ -202,7 +199,7 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
     }
 
     if (!variant.sizeMeasurements?.length) {
-      throw new ProductServiceError('Variant must include at least one size measurement', 400);
+      throw new ProductServiceError('Variant must include at least one size', 400);
     }
 
     if (!variant.colors?.length) {
@@ -257,6 +254,47 @@ const resolveCategoryTemplateSource = async (categoryId: string): Promise<ICateg
   return category;
 };
 
+const resolveCategoryFitTypeTemplateSource = async (categoryId: string): Promise<ICategory> => {
+  assertValidObjectId(categoryId, 'category id');
+
+  const category = await Category.findById(categoryId);
+
+  if (!category) {
+    throw new ProductServiceError('Category not found', 404);
+  }
+
+  if (category.isFitTypeTemplateSource) {
+    return category;
+  }
+
+  if (category.fitTypeTemplateSourceId) {
+    const sourceCategory = await Category.findById(category.fitTypeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.sizeTemplateSourceId) {
+    const sourceCategory = await Category.findById(category.sizeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.fitTypes?.length) {
+    return category;
+  }
+
+  if (category.parent_id) {
+    const parentCategory = await Category.findById(category.parent_id);
+    if (parentCategory) {
+      return parentCategory;
+    }
+  }
+
+  return category;
+};
+
 const assertVariantTemplateMatchesCategory = async (
   categoryId: string,
   variants?: ProductVariantInput[],
@@ -265,40 +303,14 @@ const assertVariantTemplateMatchesCategory = async (
     return;
   }
 
-  const templateCategory = await resolveCategoryTemplateSource(categoryId);
-  const measurementKeys = templateCategory.measurementFields.map((field) => field.key.trim().toLowerCase());
-  const requiredMeasurements = templateCategory.measurementFields
-    .filter((field) => field.required)
-    .map((field) => field.key.trim().toLowerCase());
+  const templateCategory = await resolveCategoryFitTypeTemplateSource(categoryId);
   const allowedFitTypeIds = new Set(
-    templateCategory.fitTypes.map((fitType) => fitType._id.toString()),
+    (templateCategory.fitTypes ?? []).map((fitType) => fitType._id.toString()),
   );
 
   for (const variant of variants) {
     if (!allowedFitTypeIds.has(variant.fitTypeId.trim())) {
       throw new ProductServiceError('Variant fitTypeId is not valid for this category', 400);
-    }
-
-    for (const sizeMeasurement of variant.sizeMeasurements) {
-      const measurementKeysForSize = sizeMeasurement.measurements.map((measurement) => measurement.key.trim().toLowerCase());
-      for (const requiredKey of requiredMeasurements) {
-        if (!measurementKeysForSize.includes(requiredKey)) {
-          throw new ProductServiceError(
-            `Measurement ${requiredKey} is required for size ${sizeMeasurement.size}`,
-            400,
-          );
-        }
-      }
-
-      for (const measurement of sizeMeasurement.measurements) {
-        const key = measurement.key.trim().toLowerCase();
-        if (!measurementKeys.includes(key)) {
-          throw new ProductServiceError(
-            `Measurement key ${measurement.key} is not valid for this category`,
-            400,
-          );
-        }
-      }
     }
   }
 };
@@ -318,6 +330,9 @@ type PopulatedCategory = {
   image?: string;
   isSizeTemplateSource?: boolean;
   sizeTemplateSourceId?: Types.ObjectId | null;
+  sizeGuideImage?: string;
+  isFitTypeTemplateSource?: boolean;
+  fitTypeTemplateSourceId?: Types.ObjectId | null;
   sizes?: string[];
   measurementFields?: IMeasurementField[];
   fitTypes?: ICategoryFitType[];
@@ -788,6 +803,21 @@ const resolveCategoryFilter = async (query: ProductListQueryInput) => {
   return undefined;
 };
 
+const resolveActiveBrandFilter = async (brandIds?: string[]) => {
+  const filter: Record<string, unknown> = { isActive: true };
+
+  if (brandIds?.length) {
+    brandIds.forEach((brandId) => assertValidObjectId(brandId, 'brand id'));
+    filter._id = { $in: brandIds.map((brandId) => new Types.ObjectId(brandId)) };
+  }
+
+  const brands = await Brand.find(filter)
+    .select('_id')
+    .lean<Array<{ _id: Types.ObjectId }>>();
+
+  return brands.map((brand) => brand._id);
+};
+
 const toMaterialDescriptionRegex = (material: string) => {
   if (material.toLowerCase() !== 'da') {
     return toExactPhraseRegex(material);
@@ -881,10 +911,7 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
     filter.category_id = { $in: categoryIds };
   }
 
-  if (query.brandId?.length) {
-    query.brandId.forEach((brandId) => assertValidObjectId(brandId, 'brand id'));
-    filter.brand_id = { $in: query.brandId.map((brandId) => new Types.ObjectId(brandId)) };
-  }
+  filter.brand_id = { $in: await resolveActiveBrandFilter(query.brandId) };
 
   if (query.isNew) {
     filter.createdAt = { $gte: getNewProductCutoff() };
@@ -1175,7 +1202,7 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
 };
 
 const PRODUCT_DETAIL_CATEGORY_PROJECTION =
-  '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes';
+  '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizeGuideImage isFitTypeTemplateSource fitTypeTemplateSourceId sizes measurementFields fitTypes';
 
 const DEFAULT_PRODUCT_POLICIES = [
   {
@@ -1338,6 +1365,43 @@ const resolveDetailCategoryTemplate = async (category: PopulatedCategory | null)
   }
 
   if (category.fitTypes?.length || category.measurementFields?.length || category.sizes?.length) {
+    return category;
+  }
+
+  if (category.parent_id) {
+    const parentCategory = await getDetailCategoryById(category.parent_id);
+    if (parentCategory) {
+      return parentCategory;
+    }
+  }
+
+  return category;
+};
+
+const resolveDetailCategoryFitTypeTemplate = async (category: PopulatedCategory | null) => {
+  if (!category) {
+    return null;
+  }
+
+  if (category.isFitTypeTemplateSource) {
+    return category;
+  }
+
+  if (category.fitTypeTemplateSourceId) {
+    const sourceCategory = await getDetailCategoryById(category.fitTypeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.sizeTemplateSourceId) {
+    const sourceCategory = await getDetailCategoryById(category.sizeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.fitTypes?.length) {
     return category;
   }
 
@@ -1544,13 +1608,14 @@ const mapProductDetail = async (
   options: { includeInactiveVariants?: boolean } = {},
 ): Promise<ProductDetailResponse> => {
   const category = isPopulatedCategory(product.category_id) ? product.category_id : null;
-  const [templateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
+  const [templateCategory, fitTypeTemplateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
     resolveDetailCategoryTemplate(category),
+    resolveDetailCategoryFitTypeTemplate(category),
     getCategoryBreadcrumb(category),
     Inventory.find({ productId: product._id }).lean<InventoryStockDocument[]>(),
   ]);
   await repairInventoryReferencesForProduct(product._id, product.variant, inventoryItems);
-  const fitTypeMap = getFitTypeMap(templateCategory);
+  const fitTypeMap = getFitTypeMap(fitTypeTemplateCategory);
   const measurementFieldMap = getMeasurementFieldMap(templateCategory);
   const detailVariants = options.includeInactiveVariants
     ? product.variant
@@ -1591,6 +1656,7 @@ const mapProductDetail = async (
     brand: mapDetailBrand(product.brand_id),
     category: mapDetailCategory(product.category_id),
     categoryBreadcrumb,
+    sizeGuideImage: templateCategory?.sizeGuideImage?.trim() || undefined,
     variants,
     selectedVariantId: displayVariant?._id,
     colors: getDetailColors(selectableVariants),
@@ -1856,22 +1922,23 @@ const getManagementProducts = async (): Promise<ProductManagementItem[]> => {
       $set: {
         templateCategoryId: {
           $cond: [
-            { $eq: ['$category.isSizeTemplateSource', true] },
+            { $eq: ['$category.isFitTypeTemplateSource', true] },
             '$category._id',
             {
               $ifNull: [
-                '$category.sizeTemplateSourceId',
+                '$category.fitTypeTemplateSourceId',
                 {
-                  $cond: [
+                  $ifNull: [
+                    '$category.sizeTemplateSourceId',
                     {
-                      $or: [
-                        { $gt: [{ $size: { $ifNull: ['$category.fitTypes', []] } }, 0] },
-                        { $gt: [{ $size: { $ifNull: ['$category.measurementFields', []] } }, 0] },
-                        { $gt: [{ $size: { $ifNull: ['$category.sizes', []] } }, 0] },
+                      $cond: [
+                        {
+                          $gt: [{ $size: { $ifNull: ['$category.fitTypes', []] } }, 0],
+                        },
+                        '$category._id',
+                        '$category.parent_id',
                       ],
                     },
-                    '$category._id',
-                    '$category.parent_id',
                   ],
                 },
               ],

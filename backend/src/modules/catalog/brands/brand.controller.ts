@@ -13,9 +13,10 @@ const getErrorResponse = (e: unknown) => {
     };
   }
 
+  console.error('Brand controller error:', e);
   return {
     statusCode: 500,
-    message: e instanceof Error ? e.message : 'An error occurred',
+    message: 'Internal Server Error',
   };
 };
 
@@ -96,8 +97,9 @@ const updateBrand = async (req: Request, res: Response) => {
 const deleteBrand = async (req: Request, res: Response) => {
   try {
     const brandId = req.params.id as string;
+    const cascadeProducts = req.query.cascadeProducts === 'true' || req.body?.cascadeProducts === true;
 
-    const brand = await brandService.deleteBrand(brandId);
+    const brand = await brandService.deleteBrand(brandId, { cascadeProducts });
 
     return ok(res, brand);
   } catch (e: unknown) {

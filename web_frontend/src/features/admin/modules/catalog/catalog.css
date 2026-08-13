@@ -96,6 +96,42 @@
   gap: 10px;
 }
 
+.admin-catalog-section-actions .admin-catalog-size-action,
+.admin-catalog-section-actions .admin-catalog-fit-action {
+  min-height: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
+.admin-catalog-section-actions .admin-catalog-size-action {
+  border-color: #b9c8d9;
+  color: #1f2d3d;
+  background: #eaf1f8;
+}
+
+.admin-catalog-section-actions .admin-catalog-size-action:hover:not(:disabled) {
+  border-color: #8fa8bf;
+  color: #172231;
+  background: #dce8f3;
+  box-shadow: none;
+}
+
+.admin-catalog-section-actions .admin-catalog-fit-action {
+  border-color: #b9c8d9;
+  color: #1f2d3d;
+  background: #eaf1f8;
+}
+
+.admin-catalog-section-actions .admin-catalog-fit-action:hover:not(:disabled) {
+  border-color: #8fa8bf;
+  color: #172231;
+  background: #dce8f3;
+  box-shadow: none;
+}
+
 .admin-catalog-section h2 {
   margin: 0;
   color: var(--admin-text);
@@ -788,6 +824,27 @@
   grid-template-columns: 1fr;
 }
 
+.admin-size-inline-field > .admin-fit-type-row {
+  grid-template-columns: minmax(0, 1fr) minmax(112px, auto) 36px;
+  align-items: center;
+}
+
+.admin-fit-type-status {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid #dba746;
+  border-radius: 8px;
+  color: #8a5a12;
+  background: #fffaf0;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .admin-size-inline-field input,
 .admin-size-inline-field select {
   width: 100%;
@@ -809,10 +866,34 @@
   padding: 0 34px 0 10px;
 }
 
+.admin-size-inline-field .admin-fit-type-status input {
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+  accent-color: #d68718;
+}
+
 .admin-size-inline-field input:focus,
 .admin-size-inline-field select:focus {
   border-color: var(--admin-accent);
   box-shadow: 0 0 0 4px rgba(95, 134, 162, 0.14);
+}
+
+.admin-size-guide-preview {
+  width: min(100%, 520px);
+  display: block;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.admin-size-guide-preview img {
+  width: 100%;
+  max-height: 260px;
+  display: block;
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 .admin-category-apply-select {

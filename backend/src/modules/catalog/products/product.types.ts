@@ -5,7 +5,7 @@ export interface ProductMeasurementValueInput {
 
 export interface ProductSizeMeasurementInput {
   size: string;
-  measurements: ProductMeasurementValueInput[];
+  measurements?: ProductMeasurementValueInput[];
 }
 
 export interface ProductColorVariantInput {
@@ -252,6 +252,7 @@ export interface ProductDetailResponse {
     image?: string;
   } | null;
   categoryBreadcrumb: ProductCategoryBreadcrumbItem[];
+  sizeGuideImage?: string;
   variants: ProductDetailVariant[];
   selectedVariantId?: string;
   colors: ProductDetailColor[];

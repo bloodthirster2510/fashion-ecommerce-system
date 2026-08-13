@@ -41,6 +41,11 @@ export function CatalogDeleteConfirmDialog({
               Danh mục này còn {target.item.activeProductCount.toLocaleString('vi-VN')} sản
               phẩm đang bán. Nếu tạm ngừng danh mục, các sản phẩm liên quan cũng sẽ được ngừng bán.
             </p>
+          ) : target.type === 'brand' && target.item.activeProductCount > 0 ? (
+            <p className="admin-delete-blocked">
+              Thương hiệu này còn {target.item.activeProductCount.toLocaleString('vi-VN')} sản
+              phẩm đang bán. Nếu tạm ngừng thương hiệu, các sản phẩm liên quan cũng sẽ được ngừng bán.
+            </p>
           ) : null}
           <div>
             <button
@@ -82,9 +87,9 @@ export function CatalogDeleteConfirmDialog({
               <p className="admin-delete-blocked">
                 Sau khi xóa vĩnh viễn, dữ liệu này sẽ không thể khôi phục.
               </p>
-            ) : target.type === 'category' && target.item.activeProductCount > 0 ? (
+            ) : target.item.activeProductCount > 0 ? (
               <p className="admin-delete-warning">
-                Xác nhận tạm ngừng danh mục và ngừng bán{' '}
+                Xác nhận tạm ngừng {target.type === 'category' ? 'danh mục' : 'thương hiệu'} và ngừng bán{' '}
                 {target.item.activeProductCount.toLocaleString('vi-VN')} sản phẩm liên quan.
               </p>
             ) : null}

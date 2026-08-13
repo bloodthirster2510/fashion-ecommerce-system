@@ -84,8 +84,29 @@ const updateBrand = async (id: string, input: UpdateBrandInput) => {
   });
 };
 
-const deleteBrand = async (id: string) => {
+type DeleteBrandOptions = {
+  cascadeProducts?: boolean;
+};
+
+const deleteBrand = async (id: string, options: DeleteBrandOptions = {}) => {
   assertValidBrandId(id);
+  const brandObjectId = new Types.ObjectId(id);
+  const activeProductFilter = {
+    brand_id: brandObjectId,
+    isActive: true,
+  };
+  const activeProductCount = await Product.countDocuments(activeProductFilter);
+
+  if (activeProductCount > 0 && !options.cascadeProducts) {
+    throw new BrandServiceError(
+      'Thương hiệu này vẫn còn sản phẩm đang bán. Vui lòng xác nhận ngừng bán các sản phẩm liên quan trước khi tạm ngừng thương hiệu.',
+      409,
+    );
+  }
+
+  if (activeProductCount > 0) {
+    await Product.updateMany(activeProductFilter, { isActive: false });
+  }
 
   const brand = await Brand.findByIdAndUpdate(
     id,
@@ -142,17 +163,27 @@ const getBrandsForManagement = async () => {
       .select('_id name image isActive createdAt updatedAt')
       .sort({ name: 1 })
       .lean(),
-    Product.aggregate<{ _id: Types.ObjectId; count: number }>([
-      { $group: { _id: '$brand_id', count: { $sum: 1 } } },
+    Product.aggregate<{ _id: Types.ObjectId; count: number; activeCount: number }>([
+      {
+        $group: {
+          _id: '$brand_id',
+          count: { $sum: 1 },
+          activeCount: { $sum: { $cond: ['$isActive', 1, 0] } },
+        },
+      },
     ]),
   ]);
   const countByBrandId = new Map(
     productCounts.map((item) => [item._id.toString(), item.count]),
   );
+  const activeCountByBrandId = new Map(
+    productCounts.map((item) => [item._id.toString(), item.activeCount]),
+  );
 
   return brands.map((brand) => ({
     ...brand,
     productCount: countByBrandId.get(brand._id.toString()) ?? 0,
+    activeProductCount: activeCountByBrandId.get(brand._id.toString()) ?? 0,
   }));
 };
 

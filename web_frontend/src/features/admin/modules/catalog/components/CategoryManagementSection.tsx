@@ -9,6 +9,7 @@ import {
 import {
   type CatalogStatusFilter,
   genderLabels,
+  getFitTypeTemplateLabel,
   getSizeTemplateLabel,
 } from '../catalogDisplay.helpers'
 import { getPaginationItems } from '../../../utils/pagination'
@@ -40,6 +41,7 @@ type CategoryManagementSectionProps = {
   onPageChange: (page: number | ((page: number) => number)) => void
   onAdd: () => void
   onManageSizes: () => void
+  onManageFitTypes: () => void
   onView: (category: ManagedCategory) => void
   onEdit: (category: ManagedCategory) => void
   onDelete: (category: ManagedCategory) => void
@@ -63,6 +65,7 @@ export function CategoryManagementSection({
   onPageChange,
   onAdd,
   onManageSizes,
+  onManageFitTypes,
   onView,
   onEdit,
   onDelete,
@@ -81,10 +84,20 @@ export function CategoryManagementSection({
     <CatalogSection
       title="Danh mục sản phẩm"
       actionLabel="+ Thêm danh mục"
-      secondaryActionLabel="Quản lý size"
+      secondaryActions={[
+        {
+          label: 'Quản lý size',
+          className: 'admin-catalog-size-action',
+          onClick: onManageSizes,
+        },
+        {
+          label: 'Quản lý phom dáng',
+          className: 'admin-catalog-fit-action',
+          onClick: onManageFitTypes,
+        },
+      ]}
       canWrite={canWrite}
       onAdd={onAdd}
-      onSecondaryAction={onManageSizes}
     >
       <div className="admin-catalog-filters">
         <input
@@ -136,15 +149,16 @@ export function CategoryManagementSection({
               <th>Danh mục cha</th>
               <th>Giới tính</th>
               <th>Bộ size</th>
+              <th>Bộ phom dáng</th>
               <th>Số sản phẩm</th>
               <th>Trạng thái</th>
               <th>Hành động</th>
             </tr>
           </thead>
           <tbody>
-            {isLoading ? <LoadingRow colSpan={7} /> : null}
+            {isLoading ? <LoadingRow colSpan={8} /> : null}
             {!isLoading && pagination.categories.length === 0 ? (
-              <EmptyRow colSpan={7} label="Không có danh mục phù hợp." />
+              <EmptyRow colSpan={8} label="Không có danh mục phù hợp." />
             ) : null}
             {!isLoading
               ? pagination.categories.map((category) => (
@@ -167,6 +181,23 @@ export function CategoryManagementSection({
                       ) : category.sizeTemplateSourceId ? (
                         <span className="admin-size-badge">
                           {getSizeTemplateLabel(categoryById.get(category.sizeTemplateSourceId)) || 'Đã tích hợp'}
+                        </span>
+                      ) : (
+                        <span className="admin-size-badge is-empty">-</span>
+                      )}
+                    </td>
+                    <td>
+                      {category.isFitTypeTemplateSource ? (
+                        <span className="admin-size-badge is-source">
+                          {getFitTypeTemplateLabel(category)}
+                        </span>
+                      ) : category.fitTypeTemplateSourceId ? (
+                        <span className="admin-size-badge">
+                          {getFitTypeTemplateLabel(categoryById.get(category.fitTypeTemplateSourceId)) || 'Đã tích hợp'}
+                        </span>
+                      ) : category.fitTypes?.length ? (
+                        <span className="admin-size-badge is-source">
+                          {getFitTypeTemplateLabel(category)}
                         </span>
                       ) : (
                         <span className="admin-size-badge is-empty">-</span>

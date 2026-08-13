@@ -72,6 +72,16 @@ export type ProductCategoryTemplate = {
     measurementFields: ProductMeasurementField[]
     fitTypes: ProductFitTypeOption[]
   }
+  sizeTemplateSource?: ProductCategoryOption & {
+    sizes: string[]
+    measurementFields: ProductMeasurementField[]
+    fitTypes: ProductFitTypeOption[]
+  }
+  fitTypeTemplateSource?: ProductCategoryOption & {
+    sizes: string[]
+    measurementFields: ProductMeasurementField[]
+    fitTypes: ProductFitTypeOption[]
+  }
 }
 
 export type ProductVariantInput = {
@@ -81,7 +91,6 @@ export type ProductVariantInput = {
   discount: number
   sizeMeasurements: Array<{
     size: string
-    measurements: Array<{ key: string; value: number }>
   }>
   colors: Array<{
     _id?: string
