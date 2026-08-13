@@ -188,7 +188,13 @@ const userSchema = new Schema<IUser>(
 );
 
 userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ phone: 1 });
+userSchema.index(
+  { phone: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { phone: { $type: 'string' } },
+  },
+);
 userSchema.index({ membership: 1 });
 userSchema.index({ role: 1, isActive: 1 });
 
