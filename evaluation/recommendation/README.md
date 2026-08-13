@@ -5,6 +5,22 @@ recommendation contexts. Raw public datasets are downloaded locally and remain
 untracked; benchmark code, configuration, compact results, and thesis charts
 stay in the repository.
 
+The thesis workflow is split into three independent notebooks because Home,
+Product Detail, and Cart have different relevance definitions, candidate sets,
+baselines, and primary metrics:
+
+- `notebooks/home_recommendation_evaluation.ipynb`: Amazon chronological
+  next-positive-item data; 201-point grid; Most Popular baseline.
+- `notebooks/product_detail_recommendation_evaluation.ipynb`: Amazon similar
+  item proxy; 672 distinct coarse/fine configurations (682 generated minus 10
+  overlapping boundary points); cosine baseline.
+- `notebooks/cart_recommendation_evaluation.ipynb`: Polyvore outfit completion;
+  1,771-point simplex grid; Association Lift baseline and official FITB@1.
+
+Each notebook owns its data audit, validation tuning, five-fold stability audit,
+locked final evaluation, and context-specific conclusion. They use only the
+Python standard library plus IPython supplied by Jupyter.
+
 The committed `data/sample-cases.json` file is only a schema and smoke-test
 fixture. Its output is not research evidence and must not be reported in the
 thesis.
@@ -16,9 +32,9 @@ diversity reranking. Only the ranking score changes.
 
 | Context | Traditional baseline | Project score selected on validation |
 | --- | --- | --- |
-| Home | Most-popular: `score(i) = normalized training popularity(i)` | `0.90 preferenceMatch + 0.10 business` |
+| Home | Most-popular: `score(i) = normalized training popularity(i)` | Offline optimum: `1.00 preferenceMatch`; production may reserve `0.10 business` |
 | Product Detail | Cosine similarity on a binary metadata vector | v7: `0.125 weightedAttributeSimilarity + 0.875 cosineSimilarity` |
-| Cart | Association rule: rank by lift from training baskets | v6: `0.20 complementaryRole + 0.25 styleCompatibility + 0.50 associationLift + 0.05 business` |
+| Cart | Association rule: rank by lift from training baskets | Offline optimum: `0.60 styleCompatibility + 0.40 associationLift` |
 
 The proposed weights are imported from
 `backend/src/modules/recommendations/recommendation-scoring.ts`, which is also
@@ -35,8 +51,9 @@ cosine(q, i) = dot(x_q, x_i) / (norm(x_q) * norm(x_i))
 
 The earlier weighted-attribute Product Detail formula was tested against this
 independent implementation and lost on final HR and NDCG. V7 uses a two-stage
-grid search over 682 configurations on 646 validation cases: a full simplex at
-step `0.05`, followed by step `0.005` refinement around the best region. The
+grid search over 672 distinct configurations on 646 validation cases: a full
+simplex at step `0.05`, followed by step `0.005` refinement around the best
+region. The
 selected `0.125 content + 0.875 cosine` hybrid improved validation NDCG in four
 of five folds and tied in one; popularity and business both selected zero.
 Production builds cosine vectors from its richer category, role, gender,
@@ -60,12 +77,13 @@ maximum lift. The raw lift is then transformed monotonically and normalized to
 running the final test. This preserves lift ordering while putting the baseline
 on the same scale as the proposed score and diversity penalties.
 
-The v6 Cart score combines the referenced association-lift signal with the
-project-specific role and style rules. Its coefficients were selected on the
-Polyvore validation split; they were not copied from the association-rule
-paper or selected on the final test. Production falls back to the v5 rule-only
-Cart weights when the order history does not contain a supported category
-pair, so a new or sparse store does not lose half of its ranking signal.
+The Cart score combines the referenced association-lift signal with the
+project-specific role and style rules. A full 0.05-step simplex search on the
+Polyvore validation split selected `0.60 style + 0.40 lift`; the coefficient of
+the role proxy went to zero. This is an offline optimum, not a claim that roles
+are useless in production: Polyvore's derived role signal may be weak. The
+production fallback still matters when order history has no supported category
+pair.
 
 ## Input schema
 

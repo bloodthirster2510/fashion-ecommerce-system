@@ -48,7 +48,9 @@ The project formulas are compared with independently implemented
 traditional baselines on identical candidate sets: Most Popular for Home,
 binary-vector cosine similarity for Product Detail, and association-rule lift
 for Cart. Product Detail v7 was selected using 646 cases from the 2021-09-11 to
-2022-09-11 validation window. A two-stage grid searched 682 configurations and
+2022-09-11 validation window. A two-stage grid generated 682 points and
+evaluated 672 distinct configurations after removing 10 overlapping boundary
+points. It
 selected `0.125 weighted content + 0.875 cosine`, with popularity and business
 at zero. The reported final window is the non-overlapping 2022-09-11 to
 2023-09-11 period. Each case contains 200 candidates.
