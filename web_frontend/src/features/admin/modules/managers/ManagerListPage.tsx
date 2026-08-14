@@ -210,7 +210,7 @@ export function ManagerListPage() {
         permissions: expandImpliedPermissions(createForm.permissions),
       })
       setDialog(null)
-      setNotice({ type: 'success', message: 'Đã tạo tài khoản staff' })
+      setNotice({ type: 'success', message: 'Đã thêm thành viên' })
       await loadAccounts()
     } catch (error) {
       setNotice({ type: 'error', message: getErrorMessage(error) })
@@ -293,7 +293,7 @@ export function ManagerListPage() {
         </div>
 
         <button className="admin-primary-button" type="button" onClick={openCreateDialog}>
-          Tạo staff
+          Thêm thành viên
         </button>
       </header>
 
@@ -504,7 +504,7 @@ export function ManagerListPage() {
       {dialog?.type === 'create' ? (
         <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-account-create-title">
           <form className="admin-account-dialog" onSubmit={handleCreateStaff}>
-            <h2 id="admin-account-create-title">Tạo staff</h2>
+            <h2 id="admin-account-create-title">Thêm thành viên</h2>
             <div className="admin-account-form-grid">
               <label>
                 <span>Họ tên</span>
@@ -548,7 +548,7 @@ export function ManagerListPage() {
             <DialogActions
               isLoading={actionLoading}
               onCancel={closeDialog}
-              submitText="Tạo staff"
+              submitText="Thêm thành viên"
             />
           </form>
         </div>

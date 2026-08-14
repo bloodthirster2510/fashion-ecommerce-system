@@ -1392,7 +1392,7 @@ const ProductDetailScreen = () => {
         </View>
 
         <RecommendationRail
-          title="Phối tiếp gu này"
+          title="Sản phẩm tương tự"
           subtitle="Những lựa chọn cùng tinh thần với món bạn đang xem"
           items={recommendationItems}
           isLoading={isRecommendationLoading}
