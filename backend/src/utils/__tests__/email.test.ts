@@ -73,6 +73,7 @@ describe('reset password email', () => {
       shippingFee: 25_000,
       taxAmount: 0,
       totalAmount: 375_000,
+      pdf: Buffer.from('%PDF-1.4 test invoice'),
     });
 
     const [message] = getMockEmailOutbox('customer@example.com');
@@ -82,5 +83,10 @@ describe('reset password email', () => {
     expect(message.html).toContain('Áo sơ mi &lt;limited&gt;');
     expect(message.html).not.toContain('<script>alert(1)</script>');
     expect(message.html).toContain('/account/orders');
+    expect(message.attachments).toEqual([expect.objectContaining({
+      filename: 'INV-FS-001.pdf',
+      contentType: 'application/pdf',
+      content: expect.any(Buffer),
+    })]);
   });
 });

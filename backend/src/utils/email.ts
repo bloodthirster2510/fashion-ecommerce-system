@@ -182,6 +182,7 @@ export type OrderInvoiceEmailInput = {
   shippingFee: number;
   taxAmount: number;
   totalAmount: number;
+  pdf: Buffer;
 };
 
 const formatInvoiceCurrency = (value: number) => new Intl.NumberFormat('vi-VN', {
@@ -215,9 +216,14 @@ export const sendOrderInvoiceEmail = async (input: OrderInvoiceEmailInput) => {
     to: input.to,
     subject: `Hóa đơn ${input.invoiceCode} - Fashion Shop`,
     logLabel: 'order invoice',
+    attachments: [{
+      filename: `${input.invoiceCode.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`,
+      content: input.pdf,
+      contentType: 'application/pdf',
+    }],
     html: [
       `<p>Xin chào ${escapeHtml(input.customerName)},</p>`,
-      `<p>Thanh toán cho đơn hàng <strong>${escapeHtml(input.orderCode)}</strong> đã thành công. Dưới đây là hóa đơn của bạn.</p>`,
+      `<p>Thanh toán cho đơn hàng <strong>${escapeHtml(input.orderCode)}</strong> đã thành công. Hóa đơn PDF được đính kèm trong email này.</p>`,
       '<div style="margin:20px 0;padding:16px;border:1px solid #ccc;border-radius:8px">',
       '<div style="display:flex;justify-content:space-between;gap:16px">',
       '<div><strong>FASHION SHOP</strong><br><small>Hóa đơn bán hàng</small></div>',

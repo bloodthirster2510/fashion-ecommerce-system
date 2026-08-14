@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
 import { Order, User, type IOrder } from '../../database/models';
 import { sendOrderInvoiceEmail } from '../../utils/email';
+import { storefrontSettingsService } from '../storefront-settings/storefront-settings.service';
+import { buildOrderInvoicePdf } from './invoice-pdf.service';
 
 const EMAIL_CLAIM_TTL_MS = 5 * 60 * 1000;
 
@@ -64,6 +66,9 @@ export const sendPaidOrderInvoiceEmailBestEffort = async (orderId: string) => {
       return false;
     }
 
+    const storefrontSettings = await storefrontSettingsService.getPublicSettings();
+    const invoicePdf = await buildOrderInvoicePdf(claimedOrder, storefrontSettings);
+
     await sendOrderInvoiceEmail({
       to: user.email,
       orderId: claimedOrder._id.toString(),
@@ -88,6 +93,7 @@ export const sendPaidOrderInvoiceEmailBestEffort = async (orderId: string) => {
       shippingFee: claimedOrder.shippingFee,
       taxAmount: claimedOrder.taxAmount,
       totalAmount: claimedOrder.totalAmount,
+      pdf: invoicePdf,
     });
 
     await Order.updateOne(

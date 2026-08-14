@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
 import { Order, User } from '../../../database/models';
 import { sendOrderInvoiceEmail } from '../../../utils/email';
+import { storefrontSettingsService } from '../../storefront-settings/storefront-settings.service';
+import { buildOrderInvoicePdf } from '../invoice-pdf.service';
 import { sendPaidOrderInvoiceEmailBestEffort } from '../invoice-email.service';
 
 jest.mock('../../../database/models', () => ({
@@ -18,9 +20,23 @@ jest.mock('../../../utils/email', () => ({
   sendOrderInvoiceEmail: jest.fn(),
 }));
 
+jest.mock('../../storefront-settings/storefront-settings.service', () => ({
+  storefrontSettingsService: {
+    getPublicSettings: jest.fn(),
+  },
+}));
+
+jest.mock('../invoice-pdf.service', () => ({
+  buildOrderInvoicePdf: jest.fn(),
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedUser = User as jest.Mocked<typeof User>;
 const mockedSendOrderInvoiceEmail = sendOrderInvoiceEmail as jest.MockedFunction<typeof sendOrderInvoiceEmail>;
+const mockedGetPublicSettings = storefrontSettingsService.getPublicSettings as jest.MockedFunction<
+  typeof storefrontSettingsService.getPublicSettings
+>;
+const mockedBuildOrderInvoicePdf = buildOrderInvoicePdf as jest.MockedFunction<typeof buildOrderInvoicePdf>;
 
 const chainUserEmail = (email?: string) => ({
   select: jest.fn().mockReturnValue({
@@ -33,6 +49,8 @@ describe('sendPaidOrderInvoiceEmailBestEffort', () => {
     jest.clearAllMocks();
     mockedOrder.updateOne.mockResolvedValue({ acknowledged: true } as never);
     mockedSendOrderInvoiceEmail.mockResolvedValue({ mode: 'mock', provider: 'mock' });
+    mockedGetPublicSettings.mockResolvedValue({ storeName: 'CDShop' } as never);
+    mockedBuildOrderInvoicePdf.mockResolvedValue(Buffer.from('%PDF-1.4 test invoice'));
   });
 
   it('issues and sends a paid invoice once', async () => {
@@ -84,6 +102,7 @@ describe('sendPaidOrderInvoiceEmailBestEffort', () => {
       orderCode: 'FS-001',
       invoiceCode: 'INV-FS-001',
       totalAmount: 375_000,
+      pdf: expect.any(Buffer),
     }));
     expect(mockedOrder.updateOne).toHaveBeenCalledWith(
       expect.objectContaining({ _id: orderId }),

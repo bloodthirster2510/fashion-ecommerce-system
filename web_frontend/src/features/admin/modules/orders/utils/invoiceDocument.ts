@@ -52,7 +52,7 @@ const buildSellerLines = (settings: StorefrontSettings) => [
 const buildInvoiceTotals = (order: AdminOrder): Array<{ label: string; value: number; tone?: 'discount' | 'total' }> => [
   { label: 'Tiền hàng', value: order.subTotal },
   ...(order.couponDiscountAmount > 0
-    ? [{ label: `Giảm giá${order.couponCode ? ` (${order.couponCode})` : ''}`, value: -order.couponDiscountAmount, tone: 'discount' as const }]
+    ? [{ label: `Voucher giảm giá${order.couponCode ? ` (${order.couponCode})` : ''}`, value: -order.couponDiscountAmount, tone: 'discount' as const }]
     : []),
   ...(order.membershipDiscountAmount > 0
     ? [{ label: 'Ưu đãi thành viên', value: -order.membershipDiscountAmount, tone: 'discount' as const }]
