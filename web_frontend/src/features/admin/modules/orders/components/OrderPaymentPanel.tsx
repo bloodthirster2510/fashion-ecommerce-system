@@ -92,7 +92,9 @@ export function OrderPaymentPanel({
                     <dd>{formatDate(transaction.resolvedAt)}</dd>
                   </div>
                 </dl>
-                {transaction.failureReason ? <p>{transaction.failureReason}</p> : null}
+                {transaction.failureReason ? (
+                  <p>{transaction.failureReason}</p>
+                ) : null}
               </article>
             ))}
           </div>

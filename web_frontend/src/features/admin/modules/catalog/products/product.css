@@ -12,55 +12,6 @@
   padding: 20px;
 }
 
-.admin-toast-container {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 60;
-  display: grid;
-  gap: 10px;
-  pointer-events: none;
-}
-
-.admin-toast {
-  min-width: 260px;
-  max-width: 360px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  box-shadow: 0 14px 34px rgba(31, 45, 61, 0.18);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.35;
-  pointer-events: auto;
-}
-
-.admin-toast.is-success {
-  background: #eef9f2;
-  color: #276140;
-  border: 1px solid #a7d9bd;
-}
-
-.admin-toast.is-error {
-  background: var(--admin-danger-bg);
-  color: var(--admin-danger);
-  border: 1px solid #efb5a7;
-}
-
-.admin-toast-close {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-}
-
 .admin-product-create-backdrop {
   position: absolute;
   inset: 0;

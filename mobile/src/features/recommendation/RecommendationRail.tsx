@@ -51,11 +51,11 @@ const RecommendationRail = ({
   const cardWidth = Math.min(164, Math.max(148, Math.round(width * 0.4)));
 
   const renderItem = React.useCallback(
-    ({ item, index }: { item: RecommendationItem; index: number }) => {
+    ({ item }: { item: RecommendationItem }) => {
       const product = item.product;
       const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
       const originalPrice = product.originalPrice ?? product.price;
-      const isFeatured = index === 0;
+      const isPinned = item.merchandisingSource === 'admin_pinned';
 
       return (
         <TouchableOpacity
@@ -75,29 +75,27 @@ const RecommendationRail = ({
             )}
 
             <View style={styles.badgeRow}>
-              {product.isSale ? (
+              {isPinned ? (
+                <View style={styles.featuredMark}>
+                  <Text style={styles.featuredMarkText}>NỔI BẬT</Text>
+                </View>
+              ) : product.isSale ? (
                 <View style={styles.saleBadge}>
                   <Text style={styles.saleBadgeText}>
                     {product.discount > 0 ? `-${Math.round(product.discount)}%` : 'SALE'}
                   </Text>
                 </View>
               ) : null}
-              {product.isNew ? (
+              {!isPinned && !product.isSale && product.isNew ? (
                 <View style={styles.newBadge}>
                   <Text style={styles.newBadgeText}>Mới</Text>
                 </View>
               ) : null}
             </View>
 
-            {isFeatured ? (
-              <View style={styles.featuredMark}>
-                <Text style={styles.featuredMarkText}>HỢP NHẤT</Text>
-              </View>
-            ) : null}
           </View>
 
           <View style={styles.cardBody}>
-            <Text style={styles.cardIndex}>{String(index + 1).padStart(2, '0')}</Text>
             <Text style={styles.productName} numberOfLines={2}>
               {product.name}
             </Text>
@@ -111,9 +109,6 @@ const RecommendationRail = ({
                   <Text style={styles.originalPrice}>{formatCurrency(originalPrice)}</Text>
                 ) : null}
               </View>
-              <View style={styles.openButton}>
-                <MaterialCommunityIcons name="arrow-top-right" size={15} color={colors.white} />
-              </View>
             </View>
           </View>
         </TouchableOpacity>
@@ -126,16 +121,9 @@ const RecommendationRail = ({
     <View style={styles.section}>
       <View style={styles.header}>
         <View style={styles.headingCopy}>
-          <Text style={styles.eyebrow}>GỢI Ý CÓ CHỌN LỌC</Text>
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
-        {items.length ? (
-          <View style={styles.itemCount}>
-            <Text style={styles.itemCountNumber}>{items.length}</Text>
-            <Text style={styles.itemCountLabel}>MÓN</Text>
-          </View>
-        ) : null}
       </View>
 
       <View ref={trackingRef} collapsable={false}>
@@ -188,65 +176,29 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     paddingTop: spacing.xl,
     paddingBottom: spacing.lg,
-    backgroundColor: '#EEF3F1',
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: '#E1E9E6',
   },
   header: {
-    minHeight: 58,
     paddingHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: spacing.md,
+    marginBottom: spacing.md,
   },
   headingCopy: {
     flex: 1,
     minWidth: 0,
   },
-  eyebrow: {
-    color: colors.coral,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginBottom: 2,
-  },
   title: {
     color: colors.brandDark,
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '900',
-    letterSpacing: -0.45,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
   },
   subtitle: {
     color: colors.textMuted,
     fontSize: 11,
     lineHeight: 16,
     marginTop: 2,
-  },
-  itemCount: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: colors.brandPale,
-    backgroundColor: 'rgba(255,255,255,0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemCountNumber: {
-    color: colors.brandDark,
-    fontSize: 14,
-    lineHeight: 16,
-    fontWeight: '900',
-  },
-  itemCountLabel: {
-    color: colors.textMuted,
-    fontSize: 6,
-    lineHeight: 8,
-    fontWeight: '900',
-    letterSpacing: 0.8,
   },
   railContent: {
     paddingHorizontal: spacing.lg,
@@ -258,7 +210,8 @@ const styles = StyleSheet.create({
   card: {
     alignSelf: 'flex-start',
     borderRadius: radii.md,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E5EAE8',
     backgroundColor: colors.surface,
     overflow: 'hidden',
   },
@@ -315,9 +268,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   featuredMark: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
     minHeight: 21,
     borderRadius: radii.pill,
     backgroundColor: colors.gold,
@@ -333,22 +283,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
   },
   cardBody: {
-    position: 'relative',
-    minHeight: 106,
+    minHeight: 88,
     padding: spacing.md,
-  },
-  cardIndex: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.md,
-    color: colors.brandPale,
-    fontSize: 22,
-    lineHeight: 24,
-    fontWeight: '900',
   },
   productName: {
     minHeight: 36,
-    maxWidth: '84%',
     color: colors.brandDark,
     fontSize: 13,
     lineHeight: 18,
@@ -356,7 +295,7 @@ const styles = StyleSheet.create({
   },
   priceRow: {
     minHeight: 35,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -376,14 +315,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
     textDecorationLine: 'line-through',
-  },
-  openButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.brandDark,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   unavailableText: {
     color: colors.danger,

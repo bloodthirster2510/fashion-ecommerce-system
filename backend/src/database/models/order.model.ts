@@ -103,6 +103,8 @@ export interface IOrder extends Document {
   orderCode: string;
   invoiceCode?: string | null;
   invoiceIssuedAt?: Date | null;
+  invoiceEmailSentAt?: Date | null;
+  invoiceEmailSendingAt?: Date | null;
   user_id: Types.ObjectId;
   order_list: IOrderItem[];
   subTotal: number;
@@ -278,6 +280,8 @@ const orderSchema = new Schema<IOrder>(
     orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
     invoiceCode: { type: String, trim: true, default: null, maxlength: 40 },
     invoiceIssuedAt: { type: Date, default: null },
+    invoiceEmailSentAt: { type: Date, default: null, select: false },
+    invoiceEmailSendingAt: { type: Date, default: null, select: false },
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     order_list: {
       type: [orderItemSchema],

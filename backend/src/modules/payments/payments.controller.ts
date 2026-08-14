@@ -11,6 +11,7 @@ import { paymentExpiryService } from './payment-expiry.service';
 import { transactionService } from './transaction.service';
 import { PAYMENT_STATUSES, TERMINAL_PAYMENT_STATUSES } from '../orders/order.constants';
 import { orderService } from '../orders/order.service';
+import { sendPaidOrderInvoiceEmailBestEffort } from '../orders/invoice-email.service';
 
 const getErrorMessage = (err: unknown) =>
   err instanceof Error ? err.message : 'Internal Server Error';
@@ -89,6 +90,13 @@ const recordPaidRecommendationAttributionBestEffort = async (orderId: string) =>
   }
 };
 
+const runPaidOrderSideEffects = async (orderId: string) => {
+  await Promise.all([
+    recordPaidRecommendationAttributionBestEffort(orderId),
+    sendPaidOrderInvoiceEmailBestEffort(orderId),
+  ]);
+};
+
 export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<VNPaySettlementResult> => {
   if (!result.isValidSignature) {
     return { rspCode: '97', message: 'Invalid signature' };
@@ -120,7 +128,7 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   if (!transaction) {
     const latest = await transactionService.findLatestByOrderId(orderId);
     if (latest?.status === 'success') {
-      await recordPaidRecommendationAttributionBestEffort(orderId);
+      await runPaidOrderSideEffects(orderId);
       return {
         rspCode: '02',
         message: 'Order already confirmed',
@@ -147,7 +155,7 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
     ['expired', 'failed'].includes(transaction.status);
   if (transaction.status !== 'pending' && !canRecoverSuccessfulAttempt) {
     if (transaction.status === 'success') {
-      await recordPaidRecommendationAttributionBestEffort(orderId);
+      await runPaidOrderSideEffects(orderId);
     }
     return {
       rspCode: transaction.status === 'success' ? '02' : '00',
@@ -248,7 +256,7 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
 
   if (!resolvedTransaction) {
     if (isSuccess && order.paymentStatus === 'paid') {
-      await recordPaidRecommendationAttributionBestEffort(orderId);
+      await runPaidOrderSideEffects(orderId);
     }
     return {
       rspCode: '00',
@@ -261,7 +269,7 @@ export const settleVNPayPayment = async (result: VNPayResponseResult): Promise<V
   }
 
   if (isSuccess && paymentStatus === 'paid') {
-    await recordPaidRecommendationAttributionBestEffort(orderId);
+    await runPaidOrderSideEffects(orderId);
   }
 
   return {

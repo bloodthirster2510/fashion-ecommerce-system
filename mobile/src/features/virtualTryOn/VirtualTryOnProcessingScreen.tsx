@@ -17,6 +17,7 @@ import {
   mergeVirtualTryOnRealtimeEvent,
   preferFreshVirtualTryOnJob,
 } from './virtualTryOnJobState';
+import { getTryOnJobErrorMessage } from './virtualTryOnErrorMessages';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
@@ -351,9 +352,7 @@ const VirtualTryOnProcessingScreen = () => {
                 <Text style={styles.errorText}>
                   {isResultMissing
                     ? 'Hệ thống báo hoàn tất nhưng không trả ảnh phối đồ hợp lệ.'
-                    : job.errorMessage || (isProviderSafetyBlocked
-                      ? 'Bạn đổi ảnh người hoặc ảnh sản phẩm phù hợp hơn rồi tạo lại nhé.'
-                      : 'Bạn thử lại sau ít phút nhé.')}
+                    : getTryOnJobErrorMessage(job.errorCode)}
                 </Text>
                 <TouchableOpacity
                   style={styles.retryButton}

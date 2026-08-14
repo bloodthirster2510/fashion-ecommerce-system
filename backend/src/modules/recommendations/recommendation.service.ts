@@ -6,6 +6,7 @@ import {
   Order,
   Product,
   RecommendationEvent,
+  RecommendationMerchandisingRule,
   RecommendationRequest,
   RECOMMENDATION_CONTEXTS,
   RECOMMENDATION_EVENT_TYPES,
@@ -169,6 +170,7 @@ const REASON_TEXT: Record<RecommendationReasonCode, string> = {
   completes_outfit: 'Hoàn thiện set đồ',
   matches_cart_style: 'Hợp phong cách giỏ hàng',
   frequently_bought_together: 'Thường được mua cùng nhau',
+  admin_pinned: 'Nổi bật',
   popular: 'Đang bán chạy',
   on_sale: 'Đang giảm giá',
   new_arrival: 'Hàng mới',
@@ -659,6 +661,65 @@ const toRecommendationResponse = (
   };
 };
 
+export const mergeMerchandisedItems = (
+  response: RecommendationResponse,
+  pinnedItems: RecommendationItem[],
+  limit: number,
+): RecommendationResponse => {
+  const pinnedIdSet = new Set(pinnedItems.map((item) => item.product._id));
+  const items = [
+    ...pinnedItems,
+    ...response.items.filter((item) => !pinnedIdSet.has(item.product._id)),
+  ].slice(0, limit).map((item, index) => ({ ...item, rank: index + 1 }));
+
+  return { ...response, items };
+};
+
+const applyMerchandising = async (
+  response: RecommendationResponse,
+  context: RecommendationContext,
+  limit: number,
+  excludedProductIds = new Set<string>(),
+): Promise<RecommendationResponse> => {
+  const now = new Date();
+  const rule = await RecommendationMerchandisingRule.findOne({
+    context,
+    enabled: true,
+    $and: [
+      { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
+      { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
+    ],
+  }).select('pinnedProductIds').lean<{ pinnedProductIds?: Types.ObjectId[] } | null>();
+
+  const pinnedIds = (rule?.pinnedProductIds ?? [])
+    .map(String)
+    .filter((id) => !excludedProductIds.has(id));
+  if (!pinnedIds.length) return response;
+
+  const products = await fetchProducts({
+    _id: { $in: pinnedIds.map((id) => new Types.ObjectId(id)) },
+  }, pinnedIds.length);
+  const inventoryByProductId = await getInventoryByProductId(products);
+  const productById = new Map(products.map((product) => [String(product._id), product]));
+  const pinnedItems = pinnedIds.flatMap<RecommendationItem>((productId) => {
+    const product = productById.get(productId);
+    if (!product) return [];
+    const productItem = mapProductListItem(product, inventoryByProductId);
+    if (!productItem.isAvailable || productItem.finalPrice <= 0) return [];
+    return [{
+      product: productItem,
+      score: 1,
+      rank: 0,
+      reason: REASON_TEXT.admin_pinned,
+      reasonCodes: ['admin_pinned'],
+      merchandisingSource: 'admin_pinned',
+    }];
+  });
+  if (!pinnedItems.length) return response;
+
+  return mergeMerchandisedItems(response, pinnedItems, limit);
+};
+
 const getFallbackRecommendations = async ({
   limit,
   excludeProductIds = new Set<string>(),
@@ -704,7 +765,7 @@ const getSimilarCandidateFilter = (sourceFeature: ProductFeature) => {
   return conditions.length ? { $or: conditions } : {};
 };
 
-const getSimilarRecommendations = async (
+const getSimilarRecommendationsCore = async (
   input: SimilarRecommendationInput,
 ): Promise<RecommendationResponse> => {
   const limit = clampLimit(input.limit);
@@ -761,7 +822,7 @@ const getSimilarRecommendations = async (
   );
 };
 
-const getCartRecommendations = async (
+const getCartRecommendationsCore = async (
   input: CartRecommendationInput,
 ): Promise<RecommendationResponse> => {
   const limit = clampLimit(input.limit);
@@ -1034,7 +1095,7 @@ const getPersonalCandidateFilter = (
   };
 };
 
-const getPersonalRecommendations = async (
+const getPersonalRecommendationsCore = async (
   input: PersonalRecommendationInput,
 ): Promise<RecommendationResponse> => {
   const limit = clampLimit(input.limit);
@@ -1121,6 +1182,38 @@ const getPersonalRecommendations = async (
     true,
   );
 };
+
+const getSimilarRecommendations = async (input: SimilarRecommendationInput) => {
+  const limit = clampLimit(input.limit);
+  return applyMerchandising(
+    await getSimilarRecommendationsCore(input),
+    'product_detail_similar',
+    limit,
+    new Set([input.productId]),
+  );
+};
+
+const getCartRecommendations = async (input: CartRecommendationInput) => {
+  const limit = clampLimit(input.limit);
+  const userId = assertObjectId(input.userId, 'userId');
+  const cart = await Cart.findOne({ user_id: userId })
+    .select('product_list.productId')
+    .lean<{ product_list?: Array<{ productId: Types.ObjectId }> } | null>();
+  const excludedIds = new Set((cart?.product_list ?? []).map((item) => String(item.productId)));
+  return applyMerchandising(
+    await getCartRecommendationsCore(input),
+    'cart',
+    limit,
+    excludedIds,
+  );
+};
+
+const getPersonalRecommendations = async (input: PersonalRecommendationInput) =>
+  applyMerchandising(
+    await getPersonalRecommendationsCore(input),
+    'home',
+    clampLimit(input.limit),
+  );
 
 const registerRecommendationRequest = async (input: RegisterRecommendationRequestInput) => {
   if (!isRecommendationContext(input.context)) {

@@ -836,8 +836,19 @@ const applyWorkflowInputs = async (
   }
   if (input.seed !== undefined) setComfyMappedInput(workflow, workflowMap, 'seed', input.seed);
 
-  const configuredModel = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
-  if (configuredModel) setComfyMappedInput(workflow, workflowMap, 'model', configuredModel);
+  const configuredModel = input.model?.trim()
+    || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_MODEL');
+  if (
+    configuredModel
+    && !setComfyMappedInput(workflow, workflowMap, 'model', configuredModel)
+    && input.model?.trim()
+  ) {
+    throw new VirtualTryOnProviderError(
+      'ComfyUI workflow map must define a model input before runtime model switching is enabled',
+      500,
+      'COMFY_MAP_INVALID',
+    );
+  }
   const configuredAspectRatio = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO');
   if (configuredAspectRatio) setComfyMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
   const configuredResolution = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_RESOLUTION');
@@ -1011,9 +1022,18 @@ export const createComfyVirtualTryOnProvider = (): VirtualTryOnProvider => ({
         readComfyJsonFile<unknown>(workflowPath),
         readComfyJsonFile<ComfyWorkflowMap>(workflowMapPath),
       ]);
-      const workflow = cloneComfyJson(workflowTemplate);
-      const mappedInputs = await applyWorkflowInputs(client, workflow, workflowMap, input, timeoutMs);
-      const promptId = await submitComfyPrompt(client, workflow);
+      let mappedInputs: Record<string, unknown> = { resumed: true };
+      let promptId = input.providerJobId?.trim() || '';
+      if (!promptId) {
+        const workflow = cloneComfyJson(workflowTemplate);
+        mappedInputs = await applyWorkflowInputs(client, workflow, workflowMap, input, timeoutMs);
+        promptId = await submitComfyPrompt(client, workflow);
+        await input.onProviderJobSubmitted?.(promptId, {
+          provider: '/fashionshop-tryon',
+          promptId,
+          mappedInputs,
+        });
+      }
       const history = await waitForComfyHistory(client, promptId, timeoutMs, pollIntervalMs, rateLimitBackoffMs);
 
       const imageFiles = findOutputFiles(history, workflowMap.outputs?.imageNodeIds || [], ['images']);

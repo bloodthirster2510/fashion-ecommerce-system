@@ -57,6 +57,10 @@ import {
   recordOrderPaymentNotification,
   recordOrderStatusNotification,
 } from '../notifications/customer-notification.service';
+import {
+  generateInvoiceCode,
+  sendPaidOrderInvoiceEmailBestEffort,
+} from './invoice-email.service';
 import type {
   AdjustOrderPaymentStatusInput,
   CancelOrderInput,
@@ -395,11 +399,6 @@ const getGatewayProvider = (paymentMethod: OrderPaymentMethod) => {
   return null;
 };
 
-const generateInvoiceCode = (order: Pick<IOrder, '_id' | 'orderCode'>) => {
-  const base = order.orderCode?.trim().toUpperCase() || toIdString(order._id).slice(-10).toUpperCase();
-  return `INV-${base}`.slice(0, 40);
-};
-
 const ensureDeliveredInvoiceCode = (order: IOrder) => {
   if (order.status !== 'delivered' && order.status !== 'completed') return;
 
@@ -577,6 +576,7 @@ const triggerOrderStatusChange = async (
 
   if (before.paymentStatus !== 'paid' && order.paymentStatus === 'paid') {
     await recordRecommendationOrderLifecycle(order, 'payment_completed');
+    await sendPaidOrderInvoiceEmailBestEffort(order._id.toString());
   }
 
   if (before.paymentStatus !== order.paymentStatus) {
@@ -626,6 +626,7 @@ const triggerOrderPaymentChange = async (
 
   if (before.paymentStatus !== 'paid' && order.paymentStatus === 'paid') {
     await recordRecommendationOrderLifecycle(order, 'payment_completed');
+    await sendPaidOrderInvoiceEmailBestEffort(order._id.toString());
   }
 
   await recordOrderPaymentNotification({

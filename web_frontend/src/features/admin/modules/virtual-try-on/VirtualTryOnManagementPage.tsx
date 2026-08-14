@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useToast } from '../../notifications/notification-context'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
 import {
   cancelVirtualTryOnJob,
@@ -125,6 +126,100 @@ const promptPolicyCategoryOptions: PromptPolicyCategory[] = [
   'unsafe_request',
 ]
 
+const providerDisplayNames: Record<string, string> = {
+  comfy: 'ComfyUI',
+  comfy_kling: 'ComfyUI / Kling',
+  custom_model: 'Mô hình kiểm tra ảnh',
+  mock: 'Mô phỏng nội bộ',
+  disabled: 'Đã tắt',
+}
+
+const systemCodeLabels: Record<string, string> = {
+  ACTIVE_JOB_EXISTS: 'Khách hàng đang có một lượt xử lý khác',
+  ACTIVE_VIDEO_JOB_EXISTS: 'Khách hàng đang có một video được xử lý',
+  ADMIN_CANCELED: 'Quản trị viên đã hủy yêu cầu',
+  USER_CANCELED: 'Khách hàng đã hủy yêu cầu',
+  COMFY_CONFIG_INVALID: 'Cấu hình dịch vụ tạo ảnh không hợp lệ',
+  COMFY_CONFIG_MISSING: 'Thiếu cấu hình dịch vụ tạo ảnh',
+  COMFY_HISTORY_REQUEST_FAILED: 'Không thể kiểm tra kết quả tạo ảnh',
+  COMFY_MAP_INVALID: 'Ánh xạ quy trình tạo ảnh không hợp lệ',
+  COMFY_NO_CREDITS: 'Tài khoản dịch vụ tạo ảnh đã hết lượt sử dụng',
+  COMFY_OUTPUT_MISSING: 'Dịch vụ không trả về ảnh kết quả',
+  COMFY_PROMPT_REJECTED: 'Dịch vụ tạo ảnh từ chối yêu cầu',
+  COMFY_RATE_LIMITED: 'Dịch vụ tạo ảnh đang quá tải',
+  COMFY_REQUEST_FAILED: 'Không thể gửi yêu cầu tạo ảnh',
+  COMFY_TIMEOUT: 'Tạo ảnh quá thời gian chờ',
+  COMFY_UPLOAD_FAILED: 'Không thể tải ảnh lên dịch vụ',
+  COMFY_VIDEO_REQUEST_FAILED: 'Không thể gửi yêu cầu tạo video',
+  DUPLICATE_ITEM_ROLE: 'Có sản phẩm trùng vai trò trong bộ phối',
+  GARMENT_PROCESSING_FAILED: 'Không thể xử lý ảnh sản phẩm',
+  GARMENT_PROCESSING_ITEM_UNUSABLE: 'Ảnh sản phẩm không phù hợp để phối đồ',
+  GARMENT_PROCESSING_OUTPUT_MISSING: 'Thiếu ảnh sản phẩm sau khi xử lý',
+  IMAGE_POLICY_BLOCKED: 'Ảnh không đáp ứng chính sách sử dụng',
+  IMAGE_TOO_BLURRY: 'Ảnh quá mờ',
+  IMAGE_TOO_DARK: 'Ảnh quá tối',
+  IMAGE_TOO_SMALL: 'Độ phân giải ảnh quá thấp',
+  IMAGE_VALIDATION_DISABLED: 'Kiểm tra ảnh đang tắt',
+  IMAGE_VALIDATION_HEALTH_INVALID: 'Dịch vụ kiểm tra ảnh phản hồi không hợp lệ',
+  IMAGE_VALIDATION_PROVIDER_NOT_IMPLEMENTED: 'Dịch vụ kiểm tra ảnh chưa được hỗ trợ',
+  IMAGE_VALIDATION_UNREACHABLE: 'Không thể kết nối dịch vụ kiểm tra ảnh',
+  IMAGE_VALIDATION_URL_MISSING: 'Thiếu địa chỉ dịch vụ kiểm tra ảnh',
+  MULTIPLE_PEOPLE_DETECTED: 'Ảnh có nhiều hơn một người',
+  NO_PERSON_DETECTED: 'Không tìm thấy người trong ảnh',
+  PERSON_TOO_SMALL: 'Người trong ảnh quá nhỏ',
+  POLICY_VIOLATION_JOB_CLOSED: 'Yêu cầu đã đóng do vi phạm chính sách',
+  POSE_NOT_SUPPORTED: 'Tư thế trong ảnh chưa được hỗ trợ',
+  PROMPT_HATE_OR_HARASSMENT: 'Nội dung thù ghét hoặc quấy rối',
+  PROMPT_INJECTION: 'Nội dung có dấu hiệu can thiệp chỉ dẫn AI',
+  PROMPT_INVALID: 'Mô tả không hợp lệ',
+  PROMPT_PERSONAL_DATA: 'Mô tả chứa dữ liệu cá nhân',
+  PROMPT_POLICY_DAILY_LIMIT_REACHED: 'Đã đạt giới hạn vi phạm trong ngày',
+  PROMPT_POLICY_TEMPORARY_BLOCKED: 'Tài khoản đang bị hạn chế tạm thời',
+  PROMPT_REQUIRED: 'Chưa nhập mô tả',
+  PROMPT_SEXUAL_CONTENT: 'Nội dung nhạy cảm',
+  PROMPT_TOO_LONG: 'Mô tả vượt quá độ dài cho phép',
+  PROMPT_UNSAFE_REQUEST: 'Yêu cầu không an toàn',
+  PROMPT_VIOLENCE: 'Nội dung bạo lực',
+  PROVIDER_FAILED: 'Dịch vụ AI xử lý không thành công',
+  PROVIDER_NOT_CONFIGURED: 'Dịch vụ AI chưa được cấu hình',
+  PROVIDER_OUTPUT_MISSING: 'Dịch vụ AI không trả về kết quả',
+  PROVIDER_SAFETY_BLOCKED: 'Dịch vụ AI từ chối vì lý do an toàn',
+  REQUEST_FAILED: 'Không thể thực hiện yêu cầu',
+  USING_MOCK_FALLBACK: 'Đang dùng cơ chế mô phỏng dự phòng',
+  VALIDATION_PROVIDER_FAILED: 'Không thể kiểm tra ảnh nguồn',
+  VIDEO_COMFY_BASE_URL_MISSING: 'Thiếu địa chỉ dịch vụ tạo video',
+  VIDEO_DAILY_LIMIT_REACHED: 'Khách hàng đã đạt giới hạn video trong ngày',
+  VIDEO_DURATION_INVALID: 'Thời lượng video không hợp lệ',
+  VIDEO_GENERATION_DISABLED: 'Tính năng tạo video đang tắt',
+  VIDEO_MOCK_OUTPUT_MISSING: 'Thiếu video mô phỏng',
+  VIDEO_OUTPUT_MISSING: 'Dịch vụ không trả về video kết quả',
+  VIDEO_PROVIDER_CONFIG_INVALID: 'Cấu hình dịch vụ tạo video không hợp lệ',
+  VIDEO_PROVIDER_CONFIG_MISSING: 'Thiếu cấu hình dịch vụ tạo video',
+  VIDEO_PROVIDER_DISABLED: 'Dịch vụ tạo video đang tắt',
+  VIDEO_PROVIDER_FAILED: 'Tạo video không thành công',
+  VIDEO_PROVIDER_NO_CREDITS: 'Tài khoản dịch vụ tạo video đã hết lượt sử dụng',
+  VIDEO_PROVIDER_NOT_CONFIGURED: 'Dịch vụ tạo video chưa được cấu hình',
+  VIDEO_PROVIDER_RATE_LIMITED: 'Dịch vụ tạo video đang quá tải',
+  VIDEO_PROVIDER_SAFETY_BLOCKED: 'Dịch vụ tạo video từ chối vì lý do an toàn',
+  VIDEO_PROVIDER_SUBMIT_FAILED: 'Không thể gửi yêu cầu tạo video',
+  VIDEO_PROVIDER_TIMEOUT: 'Tạo video quá thời gian chờ',
+  VIDEO_RETRY_NOT_ALLOWED: 'Lượt này không thể tạo lại video',
+  VIDEO_SOURCE_IMAGE_MISSING: 'Thiếu ảnh nguồn để tạo video',
+  VIDEO_WORKFLOW_MAP_MISSING: 'Thiếu ánh xạ quy trình tạo video',
+  VIDEO_WORKFLOW_MISSING: 'Thiếu quy trình tạo video',
+  VIRTUAL_TRY_ON_DISABLED: 'Tính năng phối đồ ảo đang tắt',
+  VIRTUAL_TRY_ON_FEATURE_LOCKED: 'Tài khoản đang bị hạn chế phối đồ ảo',
+}
+
+const getProviderDisplayName = (provider: string | null | undefined) => (
+  provider ? providerDisplayNames[provider] || provider : '-'
+)
+
+const getSystemCodeLabel = (
+  code: string | null | undefined,
+  fallback = 'Không thể hoàn tất yêu cầu',
+) => code ? systemCodeLabels[code] || fallback : fallback
+
 type AdminTab = 'jobs' | 'promptViolations' | 'promptRules' | 'accountLocks' | 'settings'
 
 const initialPromptViolationFilters: AdminVirtualTryOnPromptViolationFilters = {
@@ -231,6 +326,10 @@ const toSettingsConfiguration = (
   settings: AdminVirtualTryOnSettings,
 ): AdminVirtualTryOnSettingsConfiguration => ({
   runtimeEnabled: settings.runtimeEnabled,
+  imageProvider: settings.image.provider as AdminVirtualTryOnSettingsConfiguration['imageProvider'],
+  imageModel: settings.image.model,
+  videoProvider: settings.video.provider as AdminVirtualTryOnSettingsConfiguration['videoProvider'],
+  videoModel: settings.video.model,
   maxConcurrentJobsPerUser: settings.maxConcurrentJobsPerUser,
   maxVideoJobsPerUserPerDay: settings.maxVideoJobsPerUserPerDay,
   maxConcurrentVideoJobsPerUser: settings.maxConcurrentVideoJobsPerUser,
@@ -238,7 +337,78 @@ const toSettingsConfiguration = (
   promptViolationLimitPerDay: settings.promptViolationLimitPerDay,
 })
 
+const customModelOption = '__custom_model__'
+
+const modelDisplayNames: Record<string, string> = {
+  'gemini-3-pro-image-preview': 'Gemini 3 Pro Image',
+  'Nano Banana 2 (Gemini 3.1 Flash Image)': 'Nano Banana 2 · Gemini 3.1 Flash',
+  'kling-v3-omni': 'Kling 3.0 Omni',
+  mock: 'Mô phỏng nội bộ',
+}
+
+const getModelDisplayName = (model: string | null | undefined) => (
+  model ? modelDisplayNames[model] || model : '-'
+)
+
+function ModelPicker({
+  id,
+  value,
+  options,
+  enabled,
+  inactiveLabel,
+  onChange,
+}: {
+  id: string
+  value: string
+  options: string[]
+  enabled: boolean
+  inactiveLabel: string
+  onChange: (value: string) => void
+}) {
+  const availableOptions = Array.from(new Set(options.filter((model) => model && model !== 'mock')))
+  const usesCustomModel = enabled && !availableOptions.includes(value)
+
+  return (
+    <div className={`admin-vto-model-picker${usesCustomModel ? ' is-custom' : ''}`}>
+      <label htmlFor={id}>Mô hình AI</label>
+      <select
+        id={id}
+        value={enabled ? (usesCustomModel ? customModelOption : value) : value}
+        disabled={!enabled}
+        title={enabled ? value : inactiveLabel}
+        onChange={(event) => onChange(event.target.value === customModelOption ? '' : event.target.value)}
+      >
+        {!enabled ? (
+          <option value={value}>{inactiveLabel}</option>
+        ) : (
+          <>
+            {availableOptions.map((model) => (
+              <option key={model} value={model}>{modelDisplayNames[model] || model}</option>
+            ))}
+            <option value={customModelOption}>Mô hình khác...</option>
+          </>
+        )}
+      </select>
+      {usesCustomModel ? (
+        <div className="admin-vto-custom-model">
+          <label htmlFor={`${id}-custom`}>Tên mô hình trong quy trình</label>
+          <input
+            id={`${id}-custom`}
+            value={value}
+            maxLength={120}
+            required
+            autoFocus
+            placeholder="Ví dụ: ten-mo-hinh"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function VirtualTryOnManagementPage({ currentUser }: { currentUser: AdminUser }) {
+  const { showBottomToast } = useToast()
   const canRead = hasPermission(currentUser, 'virtual_try_on.read')
   const canManage = hasPermission(currentUser, 'virtual_try_on.manage')
   const canSettings = hasPermission(currentUser, 'virtual_try_on.settings')
@@ -253,7 +423,6 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const [rollbackVersion, setRollbackVersion] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [selectedJob, setSelectedJob] = useState<AdminVirtualTryOnJob | null>(null)
   const [promptInput, setPromptInput] = useState('')
   const [promptResult, setPromptResult] = useState<AdminVirtualTryOnPromptTestResult | null>(null)
@@ -301,20 +470,20 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       setData(await listVirtualTryOnJobs(effectiveFilters))
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải lượt phối đồ' })
+      if (!silent) showBottomToast(error instanceof Error ? error.message : 'Không thể tải lượt phối đồ', 'error')
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [canRead, effectiveFilters])
+  }, [canRead, effectiveFilters, showBottomToast])
 
-  const loadSummary = useCallback(async () => {
+  const loadSummary = useCallback(async (silent = false) => {
     if (!canRead) return
     try {
       setSummary(await getVirtualTryOnSummary())
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải tổng quan phối đồ ảo' })
+      if (!silent) showBottomToast(error instanceof Error ? error.message : 'Không thể tải tổng quan phối đồ ảo', 'error')
     }
-  }, [canRead])
+  }, [canRead, showBottomToast])
 
   const loadSettings = useCallback(async () => {
     if (!canSettings) return
@@ -325,11 +494,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       setSettingsDraft(toSettingsConfiguration(nextSettings))
       setRollbackVersion('')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải cấu hình phối đồ ảo' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể tải cấu hình phối đồ ảo', 'error')
     } finally {
       setSettingsLoading(false)
     }
-  }, [canSettings])
+  }, [canSettings, showBottomToast])
 
   useEffect(() => { void loadJobs() }, [loadJobs])
   useEffect(() => { void loadSummary() }, [loadSummary])
@@ -338,7 +507,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   useEffect(() => {
     if (!autoRefreshEnabled || activeTab !== 'jobs' || !canRead) return undefined
     const timer = window.setInterval(() => {
-      void Promise.all([loadJobs(true), loadSummary()])
+      void Promise.all([loadJobs(true), loadSummary(true)])
     }, 30_000)
     return () => window.clearInterval(timer)
   }, [activeTab, autoRefreshEnabled, canRead, loadJobs, loadSummary])
@@ -358,14 +527,13 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const runAction = async (action: () => Promise<AdminVirtualTryOnJob>, successMessage: string) => {
     setActionLoading(true)
-    setNotice(null)
     try {
       const updated = await action()
       setSelectedJob((current) => current?._id === updated._id ? updated : current)
       await Promise.all([loadJobs(), loadSummary()])
-      setNotice({ type: 'success', message: successMessage })
+      showBottomToast(successMessage, 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xử lý lượt phối đồ' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể xử lý lượt phối đồ', 'error')
     } finally {
       setActionLoading(false)
     }
@@ -403,13 +571,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       setPromptResult(await testVirtualTryOnPrompt(promptInput))
     } catch (error) {
-      setPromptResult({
-        allowed: false,
-        normalizedPrompt: null,
-        reasonCode: 'REQUEST_FAILED',
-        message: error instanceof Error ? error.message : 'Không thể kiểm tra mô tả',
-        maxLength: settings?.promptMaxLength ?? 200,
-      })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể kiểm tra mô tả', 'error')
     } finally {
       setPromptTesting(false)
     }
@@ -418,16 +580,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
   const handleSaveSettings = async () => {
     if (!settings || !settingsDraft) return
     setSettingsSaving(true)
-    setNotice(null)
     try {
       const updated = await updateVirtualTryOnSettings(settings.version, settingsDraft)
       setSettings(updated)
       setSettingsDraft(toSettingsConfiguration(updated))
       setRollbackVersion('')
       await loadSummary()
-      setNotice({ type: 'success', message: 'Đã cập nhật cấu hình phối đồ ảo.' })
+      showBottomToast('Đã cập nhật cấu hình phối đồ ảo.', 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể cập nhật cấu hình phối đồ ảo' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể cập nhật cấu hình phối đồ ảo', 'error')
     } finally {
       setSettingsSaving(false)
     }
@@ -438,16 +599,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     const targetVersion = Number(rollbackVersion)
     if (!window.confirm(`Khôi phục cấu hình từ phiên bản v${targetVersion}? Hệ thống sẽ lưu thành một phiên bản mới.`)) return
     setSettingsSaving(true)
-    setNotice(null)
     try {
       const updated = await rollbackVirtualTryOnSettings(settings.version, targetVersion)
       setSettings(updated)
       setSettingsDraft(toSettingsConfiguration(updated))
       setRollbackVersion('')
       await loadSummary()
-      setNotice({ type: 'success', message: `Đã khôi phục cấu hình từ v${targetVersion}.` })
+      showBottomToast(`Đã khôi phục cấu hình từ v${targetVersion}.`, 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể khôi phục cấu hình phối đồ ảo' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể khôi phục cấu hình phối đồ ảo', 'error')
     } finally {
       setSettingsSaving(false)
     }
@@ -458,11 +618,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       setPromptRuleData(await listVirtualTryOnPromptRules(promptRuleFilters))
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải quy tắc nội dung' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể tải quy tắc nội dung', 'error')
     } finally {
       setPromptRuleLoading(false)
     }
-  }, [promptRuleFilters])
+  }, [promptRuleFilters, showBottomToast])
 
   useEffect(() => {
     if (activeTab === 'promptRules') void loadPromptRules()
@@ -484,50 +644,47 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const handleSavePromptRule = async () => {
     if (!promptRuleForm.term.trim()) {
-      setNotice({ type: 'error', message: 'Vui lòng nhập cụm từ cần chặn' })
+      showBottomToast('Vui lòng nhập cụm từ cần chặn', 'warning')
       return
     }
     setPromptRuleSaving(true)
-    setNotice(null)
     try {
       if (editingRuleId) {
         await updateVirtualTryOnPromptRule(editingRuleId, promptRuleForm)
         await loadPromptRules()
-        setNotice({ type: 'success', message: 'Đã cập nhật quy tắc nội dung.' })
+        showBottomToast('Đã cập nhật quy tắc nội dung.', 'success')
       } else {
         await createVirtualTryOnPromptRule(promptRuleForm)
         await loadPromptRules()
-        setNotice({ type: 'success', message: 'Đã thêm quy tắc nội dung.' })
+        showBottomToast('Đã thêm quy tắc nội dung.', 'success')
       }
       resetPromptRuleForm()
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể lưu quy tắc nội dung' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể lưu quy tắc nội dung', 'error')
     } finally {
       setPromptRuleSaving(false)
     }
   }
 
   const handleTogglePromptRule = async (rule: AdminVirtualTryOnPromptRule) => {
-    setNotice(null)
     try {
       await updateVirtualTryOnPromptRule(rule._id, { enabled: !rule.enabled })
       await loadPromptRules()
-      setNotice({ type: 'success', message: rule.enabled ? 'Đã tắt quy tắc.' : 'Đã bật quy tắc.' })
+      showBottomToast(rule.enabled ? 'Đã tắt quy tắc.' : 'Đã bật quy tắc.', 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể đổi trạng thái quy tắc' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể đổi trạng thái quy tắc', 'error')
     }
   }
 
   const handleDeletePromptRule = async (rule: AdminVirtualTryOnPromptRule) => {
     if (!window.confirm(`Xóa quy tắc chặn "${rule.term}"?`)) return
-    setNotice(null)
     try {
       await deleteVirtualTryOnPromptRule(rule._id)
       if (editingRuleId === rule._id) resetPromptRuleForm()
       await loadPromptRules()
-      setNotice({ type: 'success', message: 'Đã xóa quy tắc nội dung.' })
+      showBottomToast('Đã xóa quy tắc nội dung.', 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể xóa quy tắc nội dung' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể xóa quy tắc nội dung', 'error')
     }
   }
 
@@ -536,11 +693,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       setPromptViolationData(await listVirtualTryOnPromptViolations(promptViolationFilters))
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải lịch sử vi phạm nội dung' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể tải lịch sử vi phạm nội dung', 'error')
     } finally {
       setPromptViolationLoading(false)
     }
-  }, [promptViolationFilters])
+  }, [promptViolationFilters, showBottomToast])
 
   useEffect(() => {
     if (activeTab === 'promptViolations') void loadPromptViolations()
@@ -559,11 +716,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     try {
       setAccountLockData(await listVirtualTryOnAccountLocks(accountLockFilters))
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tải danh sách tài khoản hạn chế' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể tải danh sách tài khoản hạn chế', 'error')
     } finally {
       setAccountLockLoading(false)
     }
-  }, [accountLockFilters])
+  }, [accountLockFilters, showBottomToast])
 
   useEffect(() => {
     if (activeTab === 'accountLocks') void loadAccountLocks()
@@ -582,28 +739,27 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
         setCopiedKey((current) => (current === copyKey ? null : current))
       }, 1200)
     } catch {
-      setNotice({ type: 'error', message: `Không thể sao chép ${label}.` })
+      showBottomToast(`Không thể sao chép ${label}.`, 'error')
     }
   }
 
   const handleLockAccount = async () => {
     if (!lockForm.userId.trim()) {
-      setNotice({ type: 'error', message: 'Vui lòng nhập email hoặc mã khách hàng' })
+      showBottomToast('Vui lòng nhập email hoặc mã khách hàng', 'warning')
       return
     }
     if (lockForm.reason.trim().length < 3) {
-      setNotice({ type: 'error', message: 'Vui lòng nhập lý do hạn chế từ 3 ký tự' })
+      showBottomToast('Vui lòng nhập lý do hạn chế từ 3 ký tự', 'warning')
       return
     }
     setLockSaving(true)
-    setNotice(null)
     try {
       await lockVirtualTryOnAccount({ userId: lockForm.userId.trim(), reason: lockForm.reason.trim() })
       setLockForm({ userId: '', reason: '' })
       await loadAccountLocks()
-      setNotice({ type: 'success', message: 'Đã hạn chế tính năng phối đồ ảo của khách hàng.' })
+      showBottomToast('Đã hạn chế tính năng phối đồ ảo của khách hàng.', 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể hạn chế tính năng phối đồ ảo' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể hạn chế tính năng phối đồ ảo', 'error')
     } finally {
       setLockSaving(false)
     }
@@ -611,13 +767,12 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const handleUnlockAccount = async (lock: AdminVirtualTryOnAccountLock) => {
     if (!window.confirm(`Gỡ hạn chế phối đồ ảo cho ${lock.user.name || lock.user.email}?`)) return
-    setNotice(null)
     try {
       await unlockVirtualTryOnAccount(lock.user._id)
       await loadAccountLocks()
-      setNotice({ type: 'success', message: 'Đã gỡ hạn chế phối đồ ảo.' })
+      showBottomToast('Đã gỡ hạn chế phối đồ ảo.', 'success')
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể gỡ hạn chế phối đồ ảo' })
+      showBottomToast(error instanceof Error ? error.message : 'Không thể gỡ hạn chế phối đồ ảo', 'error')
     }
   }
 
@@ -625,16 +780,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
     setLockForm({ userId, reason })
     setSelectedJob(null)
     setActiveTab('accountLocks')
-    setNotice({
-      type: 'success',
-      message: reason
+    showBottomToast(
+      reason
         ? `Đã chọn ${userLabel || userId}. Kiểm tra lý do rồi xác nhận hạn chế.`
         : `Đã chọn ${userLabel || userId}. Nhập lý do để xác nhận hạn chế.`,
-    })
+      'info',
+    )
   }
 
   const refreshActiveTab = async () => {
-    setNotice(null)
     if (activeTab === 'jobs') {
       await Promise.all([loadJobs(), loadSummary()])
       return
@@ -703,12 +857,6 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           </button>
         </div>
       </header>
-
-      {notice ? (
-        <div className={`admin-vto-notice ${notice.type === 'error' ? 'is-error' : 'is-success'}`} role="alert">
-          {notice.message}
-        </div>
-      ) : null}
 
       <nav className="admin-vto-tabs" aria-label="Khu vực quản trị phối đồ ảo" role="tablist">
         {canRead ? (
@@ -780,12 +928,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
               placeholder="Tìm mã lượt, khách hàng, sản phẩm hoặc lỗi..."
               aria-label="Tìm lượt phối đồ"
             />
-            <input
+            <select
               value={filters.provider}
               onChange={(event) => updateFilter('provider', event.target.value)}
-              placeholder="Dịch vụ AI"
               aria-label="Lọc theo dịch vụ AI"
-            />
+            >
+              <option value="">Tất cả dịch vụ AI</option>
+              <option value="comfy">ComfyUI</option>
+              <option value="mock">Mô phỏng nội bộ</option>
+            </select>
             <input type="date" aria-label="Từ ngày" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
             <input type="date" aria-label="Đến ngày" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} />
             <button
@@ -818,6 +969,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <tbody>
                   {orderedJobs.map((job) => {
                     const status = statusMeta[job.status]
+                    const displayedErrorCode = job.errorCode || job.videoErrorCode
                     return (
                       <tr key={job._id} className={needsAdminAttention(job) ? 'needs-attention' : undefined}>
                         <td>
@@ -849,7 +1001,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                             ))}
                             {job.selectedItems.length > 2 ? <em>+{job.selectedItems.length - 2} món</em> : null}
                             <em>{outputModeLabels[job.outputMode]} · {outfitModeLabels[job.outfitMode]}</em>
-                            <strong>{contextLabels[job.contextPreset] ?? job.contextPreset}</strong>
+                            <strong>{contextLabels[job.contextPreset] ?? 'Bối cảnh tùy chỉnh'}</strong>
                           </div>
                         </td>
                         <td>
@@ -858,7 +1010,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                             <i style={{ width: `${Math.max(0, Math.min(job.progress, 100))}%` }} />
                           </span>
                           <small>{processingStageLabels[job.processingStage]} · {job.progress}%</small>
-                          {job.errorCode ? <small className="admin-vto-table-error">{job.errorCode}</small> : null}
+                          {displayedErrorCode ? (
+                            <small className="admin-vto-table-error" title={`Mã kỹ thuật: ${displayedErrorCode}`}>
+                              {getSystemCodeLabel(displayedErrorCode)}
+                            </small>
+                          ) : null}
                         </td>
                         <td>
                           <div className="admin-vto-date">
@@ -918,8 +1074,8 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <h3>Tạo ảnh</h3>
                 <dl>
                   <div><dt>Trạng thái</dt><dd>{settings ? (settings.image.enabled ? 'Đang bật' : 'Đang tắt') : '-'}</dd></div>
-                  <div><dt>Dịch vụ AI</dt><dd>{settings?.image.provider ?? '-'}</dd></div>
-                  <div><dt>Mô hình AI</dt><dd>{settings?.image.model ?? '-'}</dd></div>
+                  <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(settings?.image.provider)}</dd></div>
+                  <div><dt>Mô hình AI</dt><dd>{getModelDisplayName(settings?.image.model)}</dd></div>
                   <div><dt>Đầu ra ảnh</dt><dd>{settings ? `${settings.image.outputCount} ảnh · ${settings.image.aspectRatio} · ${settings.image.resolution}` : '-'}</dd></div>
                   <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
                   <div><dt>Lượt đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
@@ -937,13 +1093,13 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         ? settings.videoEnabled
                           ? 'Sẵn sàng'
                           : settings.video.enabled
-                            ? `Chưa sẵn sàng (${settings.video.reasonCode || 'thiếu cấu hình'})`
+                            ? `Chưa sẵn sàng: ${getSystemCodeLabel(settings.video.reasonCode, 'Thiếu cấu hình')}`
                             : 'Đang tắt'
                         : '-'}
                     </dd>
                   </div>
-                  <div><dt>Dịch vụ AI</dt><dd>{settings?.video.provider ?? '-'}</dd></div>
-                  <div><dt>Mô hình AI</dt><dd>{settings?.video.model ?? '-'}</dd></div>
+                  <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(settings?.video.provider)}</dd></div>
+                  <div><dt>Mô hình AI</dt><dd>{getModelDisplayName(settings?.video.model)}</dd></div>
                   <div>
                     <dt>Đầu ra video</dt>
                     <dd>
@@ -966,14 +1122,14 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   </div>
                   <div>
                     <dt>Dịch vụ kiểm tra</dt>
-                    <dd>{settings?.imageValidation.provider ?? '-'}</dd>
+                    <dd>{getProviderDisplayName(settings?.imageValidation.provider)}</dd>
                   </div>
                   <div>
                     <dt>Cơ chế dự phòng</dt>
                     <dd>
                       {settings?.imageValidation.fallback
                         ? 'Dữ liệu mô phỏng'
-                        : settings?.imageValidation.requestedProvider ?? '-'}
+                        : getProviderDisplayName(settings?.imageValidation.requestedProvider)}
                     </dd>
                   </div>
                   <div>
@@ -985,7 +1141,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     <dd>
                       {settings?.imageValidation.available
                         ? `${settings.imageValidation.latencyMs ?? 0} ms`
-                        : settings?.imageValidation.reasonCode ?? '-'}
+                        : getSystemCodeLabel(settings?.imageValidation.reasonCode, 'Chưa có phản hồi')}
                     </dd>
                   </div>
                 </dl>
@@ -1004,13 +1160,13 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
             <section className="admin-vto-secret-status">
               <strong>Kết nối hệ thống</strong>
               <span className={settings ? (settings.secretStatus.providerApiKeyConfigured ? 'is-ready' : 'is-offline') : undefined}>
-                Khóa API: {settings ? (settings.secretStatus.providerApiKeyConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
+                Khóa kết nối (API): {settings ? (settings.secretStatus.providerApiKeyConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
               </span>
               <span className={settings ? (settings.secretStatus.imageEndpointConfigured ? 'is-ready' : 'is-offline') : undefined}>
-                Endpoint ảnh: {settings ? (settings.secretStatus.imageEndpointConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
+                Địa chỉ dịch vụ ảnh: {settings ? (settings.secretStatus.imageEndpointConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
               </span>
               <span className={settings ? (settings.secretStatus.videoWorkflowConfigured ? 'is-ready' : 'is-offline') : undefined}>
-                Workflow video: {settings ? (settings.secretStatus.videoWorkflowConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
+                Quy trình tạo video: {settings ? (settings.secretStatus.videoWorkflowConfigured ? 'đã cấu hình' : 'chưa cấu hình') : 'chưa có dữ liệu'}
               </span>
             </section>
 
@@ -1032,6 +1188,89 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   />
                   <span>Cho phép tạo lượt phối đồ mới</span>
                 </label>
+                <section className="admin-vto-model-settings" aria-labelledby="vto-model-settings-title">
+                  <header>
+                    <div>
+                      <strong id="vto-model-settings-title">Mô hình xử lý</strong>
+                      <span>Áp dụng cho lượt mới và lượt được chạy lại.</span>
+                    </div>
+                    <span className="admin-vto-model-live">Áp dụng ngay, không cần khởi động lại</span>
+                  </header>
+                  <div className="admin-vto-model-grid">
+                    <fieldset>
+                      <legend>Tạo ảnh</legend>
+                      <label>
+                        <span>Dịch vụ AI</span>
+                        <select
+                          value={settingsDraft.imageProvider}
+                          onChange={(event) => setSettingsDraft((current) => {
+                            if (!current) return current
+                            const imageProvider = event.target.value as AdminVirtualTryOnSettingsConfiguration['imageProvider']
+                            const suggestedModel = settings.modelOptions.imageModels.find((model) => model !== 'mock') || 'workflow_default'
+                            return {
+                              ...current,
+                              imageProvider,
+                              imageModel: imageProvider === 'mock'
+                                ? 'mock'
+                                : current.imageModel === 'mock' ? suggestedModel : current.imageModel,
+                            }
+                          })}
+                        >
+                          {settings.modelOptions.imageProviders.map((provider) => (
+                            <option key={provider} value={provider}>{provider === 'comfy' ? 'ComfyUI' : provider === 'mock' ? 'Mô phỏng' : 'Tắt'}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <ModelPicker
+                        id="vto-image-model"
+                        value={settingsDraft.imageModel}
+                        options={settings.modelOptions.imageModels}
+                        enabled={settingsDraft.imageProvider === 'comfy'}
+                        inactiveLabel={settingsDraft.imageProvider === 'mock' ? 'Mô phỏng nội bộ' : 'Không áp dụng'}
+                        onChange={(imageModel) => setSettingsDraft((current) => current
+                          ? { ...current, imageModel }
+                          : current)}
+                      />
+                    </fieldset>
+
+                    <fieldset>
+                      <legend>Tạo video</legend>
+                      <label>
+                        <span>Dịch vụ AI</span>
+                        <select
+                          value={settingsDraft.videoProvider}
+                          onChange={(event) => setSettingsDraft((current) => {
+                            if (!current) return current
+                            const videoProvider = event.target.value as AdminVirtualTryOnSettingsConfiguration['videoProvider']
+                            const suggestedModel = settings.modelOptions.videoModels.find((model) => model !== 'mock') || 'kling-v3-omni'
+                            return {
+                              ...current,
+                              videoProvider,
+                              videoModel: videoProvider === 'mock'
+                                ? 'mock'
+                                : current.videoModel === 'mock' ? suggestedModel : current.videoModel,
+                            }
+                          })}
+                        >
+                          {settings.modelOptions.videoProviders.map((provider) => (
+                            <option key={provider} value={provider}>{provider === 'comfy_kling' ? 'ComfyUI / Kling' : provider === 'mock' ? 'Mô phỏng' : 'Tắt'}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <ModelPicker
+                        id="vto-video-model"
+                        value={settingsDraft.videoModel}
+                        options={settings.modelOptions.videoModels}
+                        enabled={settingsDraft.videoProvider === 'comfy_kling'}
+                        inactiveLabel={settingsDraft.videoProvider === 'mock' ? 'Mô phỏng nội bộ' : 'Không áp dụng'}
+                        onChange={(videoModel) => setSettingsDraft((current) => current
+                          ? { ...current, videoModel }
+                          : current)}
+                      />
+                    </fieldset>
+                  </div>
+                  <p>Dịch vụ AI được giới hạn theo các tích hợp hiện có. Tên mô hình phải tồn tại trong quy trình ComfyUI tương ứng.</p>
+                </section>
                 <div className="admin-vto-settings-fields">
                   <label>
                     <span>Lượt đồng thời mỗi khách</span>
@@ -1123,10 +1362,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     Khôi phục
                   </button>
                 </div>
-                <p>Dịch vụ AI, endpoint, workflow và khóa API được quản lý trong cấu hình triển khai.</p>
+                <p>Địa chỉ dịch vụ, quy trình xử lý và khóa kết nối vẫn được quản lý trong cấu hình triển khai để bảo vệ thông tin nhạy cảm.</p>
               </form>
             ) : (
-              <p>{settingsLoading ? 'Đang tải cấu hình...' : 'Chưa tải được cấu hình. Hãy làm mới khi dịch vụ API sẵn sàng.'}</p>
+              <p>{settingsLoading ? 'Đang tải cấu hình...' : 'Chưa tải được cấu hình. Hãy làm mới khi dịch vụ kết nối sẵn sàng.'}</p>
             )}
           </section>
 
@@ -1195,7 +1434,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   <div className="admin-vto-copy-grid">
                     <button type="button" onClick={() => void handleCopyValue(selectedJob.user?._id, 'mã khách hàng', 'drawer-user-id')}>
                       <span>{copiedKey === 'drawer-user-id' ? 'Đã sao chép' : 'Mã khách hàng'}</span>
-                      <strong>{selectedJob.user._id}</strong>
+                      <strong>{copiedKey === 'drawer-user-id' ? 'Đã sao chép' : 'Sao chép mã khách hàng'}</strong>
                     </button>
                     {selectedJob.user.email ? (
                       <button type="button" onClick={() => void handleCopyValue(selectedJob.user?.email, 'email khách hàng', 'drawer-user-email')}>
@@ -1226,7 +1465,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     </button>
                   </dd>
                 </div>
-                <div><dt>Dịch vụ AI</dt><dd>{selectedJob.provider}</dd></div>
+                <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(selectedJob.provider)}</dd></div>
                 <div>
                   <dt>Mã xử lý AI</dt>
                   <dd>
@@ -1242,14 +1481,16 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   </dd>
                 </div>
                 <div><dt>Đầu ra</dt><dd>{outputModeLabels[selectedJob.outputMode]}</dd></div>
+                <div><dt>Mô hình ảnh</dt><dd>{getModelDisplayName(selectedJob.imageModel)}</dd></div>
                 {selectedJob.outputMode === 'image_and_video' ? (
                   <div><dt>Thời lượng video</dt><dd>{selectedJob.videoDurationSeconds ?? '-'} giây</dd></div>
                 ) : null}
-                <div><dt>Bối cảnh</dt><dd>{contextLabels[selectedJob.contextPreset] ?? selectedJob.contextPreset}</dd></div>
+                <div><dt>Bối cảnh</dt><dd>{contextLabels[selectedJob.contextPreset] ?? 'Bối cảnh tùy chỉnh'}</dd></div>
                 <div><dt>Tiến trình</dt><dd>{selectedJob.progress}%</dd></div>
                 <div><dt>Giai đoạn</dt><dd>{processingStageLabels[selectedJob.processingStage]}</dd></div>
                 <div><dt>Trạng thái video</dt><dd>{videoStatusLabels[selectedJob.videoStatus]} · {selectedJob.videoProgress}%</dd></div>
-                <div><dt>Dịch vụ video</dt><dd>{selectedJob.videoProvider || '-'}</dd></div>
+                <div><dt>Dịch vụ video</dt><dd>{getProviderDisplayName(selectedJob.videoProvider)}</dd></div>
+                <div><dt>Mô hình video</dt><dd>{getModelDisplayName(selectedJob.videoModel)}</dd></div>
                 <div>
                   <dt>Mã xử lý video</dt>
                   <dd>{selectedJob.videoProviderJobId || '-'}</dd>
@@ -1257,8 +1498,16 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <div><dt>Tạo lúc</dt><dd>{formatDate(selectedJob.createdAt)}</dd></div>
               </dl>
               {selectedJob.contextPrompt ? <p>{selectedJob.contextPrompt}</p> : null}
-              {selectedJob.errorMessage ? <p className="admin-vto-error-text">{selectedJob.errorCode}: {selectedJob.errorMessage}</p> : null}
-              {selectedJob.videoErrorMessage ? <p className="admin-vto-error-text">{selectedJob.videoErrorCode}: {selectedJob.videoErrorMessage}</p> : null}
+              {selectedJob.errorCode ? (
+                <p className="admin-vto-error-text" title={[selectedJob.errorCode, selectedJob.errorMessage].filter(Boolean).join(': ')}>
+                  {getSystemCodeLabel(selectedJob.errorCode)}
+                </p>
+              ) : null}
+              {selectedJob.videoErrorCode ? (
+                <p className="admin-vto-error-text" title={[selectedJob.videoErrorCode, selectedJob.videoErrorMessage].filter(Boolean).join(': ')}>
+                  {getSystemCodeLabel(selectedJob.videoErrorCode)}
+                </p>
+              ) : null}
             </details>
             <section className="admin-vto-drawer-comparison">
               <h3>So sánh kết quả</h3>
@@ -1293,7 +1542,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   {selectedJob.generatedVideoUrl ? <video src={selectedJob.generatedVideoUrl} controls /> : null}
                 </div>
               ) : selectedJob.outputMode === 'image_and_video' ? (
-                <p>Video: {videoStatusLabels[selectedJob.videoStatus]}{selectedJob.videoErrorMessage ? ` — ${selectedJob.videoErrorMessage}` : ''}</p>
+                <p>
+                  Video: {videoStatusLabels[selectedJob.videoStatus]}
+                  {selectedJob.videoErrorCode ? ` — ${getSystemCodeLabel(selectedJob.videoErrorCode)}` : ''}
+                </p>
               ) : null}
             </section>
             <section className="admin-vto-drawer-products-section">
@@ -1304,7 +1556,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     <img src={item.imageSnapshot} alt="" />
                     <div>
                       <strong>{item.nameSnapshot}</strong>
-                      <span>{itemRoleLabels[item.role] ?? item.role} · {item.colorSnapshot || 'Màu mặc định'}</span>
+                      <span>{itemRoleLabels[item.role] ?? 'Sản phẩm phối đồ'} · {item.colorSnapshot || 'Màu mặc định'}</span>
                     </div>
                     <em>{formatPrice(item.finalPriceSnapshot)}</em>
                   </article>
@@ -1431,7 +1683,9 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       <td>
                         <div className="admin-vto-prompt-preview">
                           <p>{violation.promptPreview}</p>
-                          <code>{violation.reasonCode}</code>
+                          <code title={`Mã kỹ thuật: ${violation.reasonCode}`}>
+                            {getSystemCodeLabel(violation.reasonCode, 'Nội dung không phù hợp')}
+                          </code>
                         </div>
                       </td>
                       <td>
@@ -1463,7 +1717,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                               onClick={() => handleLockAccountById(
                                 violation.user!._id,
                                 violation.user!.name || violation.user!.email,
-                                `Vi phạm nội dung phối đồ ảo nhiều lần (${violation.reasonCode})`,
+                                `Vi phạm nội dung phối đồ ảo nhiều lần: ${getSystemCodeLabel(violation.reasonCode, 'Nội dung không phù hợp')}`,
                               )}
                             >
                               Hạn chế tài khoản
@@ -1589,7 +1843,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     && (promptResult.matchedCategory || promptResult.reasonCode) ? (
                     <code>
                       {promptResult.matchedCategory ? promptPolicyCategoryLabels[promptResult.matchedCategory] : 'Nội dung không phù hợp'}
-                      {promptResult.reasonCode ? ` · ${promptResult.reasonCode}` : ''}
+                      {promptResult.reasonCode ? ` · ${getSystemCodeLabel(promptResult.reasonCode, 'Nội dung không phù hợp')}` : ''}
                     </code>
                   ) : null}
                 </div>
@@ -1643,7 +1897,11 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     <tr key={rule._id} className={rule.enabled ? undefined : 'is-muted-row'}>
                       <td><strong>{rule.term}</strong></td>
                       <td>{promptPolicyCategoryLabels[rule.category]}</td>
-                      <td><code>{rule.reasonCode}</code></td>
+                      <td>
+                        <code title={`Mã kỹ thuật: ${rule.reasonCode}`}>
+                          {getSystemCodeLabel(rule.reasonCode, 'Quy tắc tùy chỉnh')}
+                        </code>
+                      </td>
                       <td>
                         <span className={`admin-vto-status ${rule.enabled ? 'is-success' : 'is-muted'}`}>
                           {rule.enabled ? 'Bật' : 'Tắt'}

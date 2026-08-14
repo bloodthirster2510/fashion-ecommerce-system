@@ -102,6 +102,7 @@ export type RecommendationRecentRequest = {
 
 export type RecommendationAnalytics = {
   generatedAt: string
+  currentAlgorithmVersion: string
   range: {
     from: string
     to: string

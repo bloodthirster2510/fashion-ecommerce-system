@@ -28,6 +28,10 @@ const actor = {
 };
 const configuration = {
   enabled: true,
+  imageProvider: 'comfy' as const,
+  imageModel: 'flux-fill-dev.safetensors',
+  videoProvider: 'comfy_kling' as const,
+  videoModel: 'kling-v3-omni',
   maxConcurrentJobsPerUser: 2,
   maxVideoJobsPerUserPerDay: 5,
   maxConcurrentVideoJobsPerUser: 1,
@@ -73,6 +77,36 @@ describe('virtualTryOnSettingsService', () => {
     expect(result).not.toHaveProperty('endpoint');
   });
 
+  it('keeps legacy settings on Comfy when the environment provider has a leading slash', async () => {
+    const previousProvider = process.env.VIRTUAL_TRY_ON_PROVIDER;
+    const previousModel = process.env.VIRTUAL_TRY_ON_COMFY_MODEL;
+    process.env.VIRTUAL_TRY_ON_PROVIDER = '/fashionshop-tryon';
+    process.env.VIRTUAL_TRY_ON_COMFY_MODEL = 'gemini-3-pro-image-preview';
+    mockFindOne({
+      key: 'virtual_try_on',
+      enabled: true,
+      version: 2,
+      history: [],
+      maxConcurrentJobsPerUser: 1,
+      maxVideoJobsPerUserPerDay: 3,
+      maxConcurrentVideoJobsPerUser: 1,
+      promptMaxLength: 200,
+      promptViolationLimitPerDay: 5,
+    });
+
+    try {
+      await expect(virtualTryOnSettingsService.getRuntimeSettings()).resolves.toMatchObject({
+        imageProvider: 'comfy',
+        imageModel: 'gemini-3-pro-image-preview',
+      });
+    } finally {
+      if (previousProvider === undefined) delete process.env.VIRTUAL_TRY_ON_PROVIDER;
+      else process.env.VIRTUAL_TRY_ON_PROVIDER = previousProvider;
+      if (previousModel === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_MODEL;
+      else process.env.VIRTUAL_TRY_ON_COMFY_MODEL = previousModel;
+    }
+  });
+
   it('rejects invalid configuration before writing', async () => {
     await expect(virtualTryOnSettingsService.updateSettings({
       expectedVersion: 0,
@@ -80,6 +114,27 @@ describe('virtualTryOnSettingsService', () => {
     }, actor)).rejects.toBeInstanceOf(VirtualTryOnSettingsServiceError);
 
     expect(mockedSettings.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported providers and empty model names', async () => {
+    await expect(virtualTryOnSettingsService.updateSettings({
+      expectedVersion: 0,
+      configuration: { ...configuration, imageProvider: 'unknown' },
+    }, actor)).rejects.toMatchObject({ statusCode: 400 });
+
+    await expect(virtualTryOnSettingsService.updateSettings({
+      expectedVersion: 0,
+      configuration: { ...configuration, videoModel: '   ' },
+    }, actor)).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('returns configured model suggestions without exposing secrets', () => {
+    const options = virtualTryOnSettingsService.getModelOptions(configuration);
+
+    expect(options.imageProviders).toEqual(['comfy', 'mock', 'disabled']);
+    expect(options.videoProviders).toEqual(['comfy_kling', 'mock', 'disabled']);
+    expect(options.imageModels).toContain(configuration.imageModel);
+    expect(options.videoModels).toContain(configuration.videoModel);
   });
 
   it.each([

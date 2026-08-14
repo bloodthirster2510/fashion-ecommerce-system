@@ -29,6 +29,8 @@ import type {
   RecommendationMetricSnapshot,
   RecommendationSegment,
 } from './recommendationAnalytics.types'
+import { hasPermission, type AdminUser } from '../auth/adminSession'
+import { RecommendationMerchandisingPanel } from './RecommendationMerchandisingPanel'
 import './recommendationReports.css'
 
 type MetricKey = keyof Pick<
@@ -38,11 +40,12 @@ type MetricKey = keyof Pick<
 
 type CssVars = CSSProperties & Record<`--${string}`, string>
 
-type ReportTab = 'search' | 'recommendations'
+type ReportTab = 'search' | 'recommendations' | 'merchandising'
 
 const reportTabs: Array<{ value: ReportTab; label: string }> = [
   { value: 'search', label: 'Tìm kiếm' },
   { value: 'recommendations', label: 'Đề xuất sản phẩm' },
+  { value: 'merchandising', label: 'Điều phối gợi ý' },
 ]
 
 const contextLabels: Record<RecommendationContext, string> = {
@@ -105,6 +108,20 @@ const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: Recomm
     actionLabel: string
     href: string
   }> = []
+
+  const currentVersionImpressions = analytics.segments
+    .filter((segment) => segment.algorithmVersion === analytics.currentAlgorithmVersion)
+    .reduce((total, segment) => total + segment.metrics.impressions, 0)
+
+  if (!analytics.filters.algorithmVersion && currentVersionImpressions < 100) {
+    items.push({
+      title: 'Dữ liệu thuật toán hiện tại còn ít',
+      detail: `${analytics.currentAlgorithmVersion} mới có ${formatNumber(currentVersionImpressions)} lượt hiển thị; chưa nên dùng CTR của phiên bản cũ để kết luận hiệu quả.`,
+      tone: 'warn',
+      actionLabel: 'Xem so sánh phiên bản',
+      href: '#rec-model-health',
+    })
+  }
 
   if (bestSegment) {
     items.push({
@@ -540,7 +557,7 @@ function SegmentTable({ segments }: { segments: RecommendationSegment[] }) {
   )
 }
 
-export function RecommendationReportsPage() {
+export function RecommendationReportsPage({ currentUser }: { currentUser: AdminUser }) {
   const initialFilters = useMemo(() => buildDefaultRecommendationAnalyticsFilters(), [])
   const [filters, setFilters] = useState<RecommendationAnalyticsFilters>(() => ({ ...initialFilters }))
   const [appliedFilters, setAppliedFilters] = useState<RecommendationAnalyticsFilters>(() => ({ ...initialFilters }))
@@ -578,7 +595,15 @@ export function RecommendationReportsPage() {
     if (filters.algorithmVersion?.trim()) versions.add(filters.algorithmVersion.trim())
     return Array.from(versions).sort()
   }, [analytics?.segments, filters.algorithmVersion])
-  const bestSegment = useMemo(() => analytics ? getBestRecommendationSegment(analytics.segments) : null, [analytics])
+  const bestSegment = useMemo(() => {
+    if (!analytics) return null
+    const relevantSegments = analytics.filters.algorithmVersion
+      ? analytics.segments
+      : analytics.segments.filter(
+        (segment) => segment.algorithmVersion === analytics.currentAlgorithmVersion,
+      )
+    return getBestRecommendationSegment(relevantSegments)
+  }, [analytics])
   const insightItems = useMemo(() => analytics ? getInsightItems(analytics, bestSegment) : [], [analytics, bestSegment])
   const hasRecommendationData = Boolean(analytics && (
     analytics.summary.requests > 0 ||
@@ -589,12 +614,12 @@ export function RecommendationReportsPage() {
   const hasAnyData = hasRecommendationData || hasSearchData
 
   return (
-    <section className="admin-ui-page admin-rec-page" aria-busy={loading}>
+    <section className="admin-ui-page admin-rec-page" aria-busy={activeTab !== 'merchandising' && loading}>
       <PageHeader
         title="Tìm kiếm & khám phá"
         description="Hiệu suất tìm kiếm và đề xuất sản phẩm trên cửa hàng."
         breadcrumbs={['Báo cáo', 'Tìm kiếm & khám phá']}
-        actions={(
+        actions={activeTab === 'merchandising' ? undefined : (
           <Button
             variant="primary"
             icon={<RefreshCcw aria-hidden="true" />}
@@ -609,6 +634,11 @@ export function RecommendationReportsPage() {
       <div className="admin-rec-tabs">
         <Tabs items={reportTabs} value={activeTab} onChange={setActiveTab} ariaLabel="Nhóm báo cáo tìm kiếm và khám phá" />
       </div>
+
+      {activeTab === 'merchandising' ? (
+        <RecommendationMerchandisingPanel canManage={hasPermission(currentUser, 'catalog.write')} />
+      ) : (
+        <>
 
       <form className="admin-rec-filters" onSubmit={(event) => {
         event.preventDefault()
@@ -770,6 +800,8 @@ export function RecommendationReportsPage() {
         </>
       ) : (
         <div className="admin-rec-loading">{loading ? 'Đang tải báo cáo...' : 'Chưa có dữ liệu báo cáo.'}</div>
+      )}
+        </>
       )}
     </section>
   )

@@ -1440,3 +1440,151 @@
   .admin-rec-table-heading { align-items: flex-start; flex-direction: column; }
   .admin-rec-table-switch { max-width: 100%; overflow-x: auto; }
 }
+.admin-merchandising {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-merchandising-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+}
+
+.admin-merchandising-heading > div { display: grid; gap: 5px; }
+.admin-merchandising-heading span { display: inline-flex; align-items: center; gap: 6px; color: var(--admin-accent); font-size: 11px; font-weight: 850; }
+.admin-merchandising-heading span svg { width: 15px; height: 15px; }
+.admin-merchandising-heading h2 { margin: 0; color: var(--admin-text); font-size: 20px; }
+.admin-merchandising-heading p { margin: 0; color: var(--admin-text-muted); font-size: 13px; }
+
+.admin-merchandising-contexts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-merchandising-contexts button {
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: 10px;
+  color: var(--admin-text);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-merchandising-contexts button:hover { border-color: #b8c9d2; background: #f8fafb; }
+.admin-merchandising-contexts button.is-active { border-color: var(--admin-accent); box-shadow: inset 3px 0 0 var(--admin-accent); background: #f7fafb; }
+.admin-merchandising-contexts strong { font-size: 13px; }
+.admin-merchandising-contexts span { color: var(--admin-text-muted); font-size: 11px; line-height: 1.4; }
+
+.admin-merchandising-schedule {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(190px, 0.7fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: 10px;
+  background: #f8fafb;
+}
+
+.admin-merchandising-schedule > label:not(.admin-merchandising-switch) { display: grid; gap: 6px; }
+.admin-merchandising-schedule > label > span { display: flex; align-items: center; gap: 6px; color: var(--admin-text-muted); font-size: 11px; font-weight: 750; }
+.admin-merchandising-schedule > label > span svg { width: 14px; height: 14px; }
+.admin-merchandising-schedule input[type='datetime-local'] { min-height: 38px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; color: var(--admin-text); background: #fff; font: inherit; font-size: 12px; }
+.admin-merchandising-switch { display: flex; align-items: center; gap: 10px; padding-right: 10px; border-right: 1px solid var(--admin-border); }
+.admin-merchandising-switch input { width: 18px; height: 18px; accent-color: var(--admin-accent); }
+.admin-merchandising-switch > span { display: grid !important; gap: 2px !important; }
+.admin-merchandising-switch strong { color: var(--admin-text); font-size: 12px; }
+.admin-merchandising-switch small { color: var(--admin-text-muted); font-size: 10px; font-weight: 600; }
+
+.admin-merchandising-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.admin-merchandising-pinned,
+.admin-merchandising-picker {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  background: #fff;
+}
+
+.admin-merchandising-pinned > header,
+.admin-merchandising-picker > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-merchandising-pinned h3,
+.admin-merchandising-picker h3 { margin: 0; color: var(--admin-text); font-size: 15px; }
+.admin-merchandising-pinned header p,
+.admin-merchandising-picker header p { margin: 3px 0 0; color: var(--admin-text-muted); font-size: 11px; }
+.admin-merchandising-pinned > header > span { padding: 4px 8px; border-radius: 999px; color: var(--admin-text-muted); background: #eef2f4; font-size: 11px; font-weight: 800; }
+
+.admin-merchandising-pinned > article,
+.admin-merchandising-candidates article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid #e2e8eb;
+  border-radius: 9px;
+}
+
+.admin-merchandising-pinned > article > b { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 7px; color: var(--admin-accent); background: #eef4f7; font-size: 11px; }
+.admin-merchandising-pinned img,
+.admin-merchandising-candidates img,
+.admin-merchandising-image-placeholder { width: 48px; height: 48px; display: block; border-radius: 7px; object-fit: cover; background: #eef1f2; }
+.admin-merchandising-pinned article > div:not(.admin-merchandising-row-actions),
+.admin-merchandising-candidates article > div { min-width: 0; display: grid; gap: 3px; }
+.admin-merchandising-pinned article strong,
+.admin-merchandising-candidates article strong { overflow: hidden; color: var(--admin-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-merchandising-pinned article span,
+.admin-merchandising-candidates article span { overflow: hidden; color: var(--admin-text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.admin-merchandising-row-actions { display: flex; gap: 4px; }
+.admin-merchandising-row-actions button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid var(--admin-border); border-radius: 7px; color: var(--admin-text-muted); background: #fff; cursor: pointer; }
+.admin-merchandising-row-actions button:hover:not(:disabled) { color: var(--admin-text); background: #f3f6f7; }
+.admin-merchandising-row-actions button.is-remove:hover:not(:disabled) { color: var(--admin-danger); background: var(--admin-danger-bg); }
+.admin-merchandising-row-actions button:disabled { opacity: 0.35; cursor: not-allowed; }
+.admin-merchandising-row-actions svg { width: 14px; height: 14px; }
+
+.admin-merchandising-search { min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: #fff; }
+.admin-merchandising-search:focus-within { border-color: var(--admin-accent); box-shadow: 0 0 0 3px rgba(55, 91, 111, 0.1); }
+.admin-merchandising-search svg { width: 15px; height: 15px; color: var(--admin-text-muted); }
+.admin-merchandising-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--admin-text); background: transparent; font: inherit; font-size: 12px; }
+.admin-merchandising-candidates { max-height: 480px; display: grid; gap: 7px; overflow: auto; }
+.admin-merchandising-candidates article { grid-template-columns: 42px minmax(0, 1fr) auto; }
+.admin-merchandising-candidates img,
+.admin-merchandising-candidates .admin-merchandising-image-placeholder { width: 42px; height: 42px; }
+.admin-merchandising-candidates button { min-height: 30px; display: inline-flex; align-items: center; gap: 4px; padding: 0 9px; border: 1px solid var(--admin-border); border-radius: 7px; color: var(--admin-accent); background: #fff; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; }
+.admin-merchandising-candidates button:hover:not(:disabled) { background: #eef4f7; }
+.admin-merchandising-candidates button:disabled { opacity: 0.45; cursor: not-allowed; }
+.admin-merchandising-candidates button svg { width: 13px; height: 13px; }
+.admin-merchandising-no-result { margin: 20px 0; color: var(--admin-text-muted); font-size: 12px; text-align: center; }
+
+@media (max-width: 980px) {
+  .admin-merchandising-heading { flex-direction: column; }
+  .admin-merchandising-contexts,
+  .admin-merchandising-grid { grid-template-columns: 1fr; }
+  .admin-merchandising-schedule { grid-template-columns: 1fr 1fr; }
+  .admin-merchandising-switch { grid-column: 1 / -1; padding: 0 0 10px; border-right: 0; border-bottom: 1px solid var(--admin-border); }
+}
+
+@media (max-width: 640px) {
+  .admin-merchandising-schedule { grid-template-columns: 1fr; }
+  .admin-merchandising-switch { grid-column: auto; }
+  .admin-merchandising-pinned > article { grid-template-columns: auto 42px minmax(0, 1fr); }
+  .admin-merchandising-row-actions { grid-column: 2 / -1; justify-content: flex-end; }
+}

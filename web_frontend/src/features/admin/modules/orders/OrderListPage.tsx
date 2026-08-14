@@ -1,5 +1,7 @@
 ﻿import { useCallback, useState } from 'react'
+import { useEffect } from 'react'
 import './order.css'
+import { useToast } from '../../notifications/notification-context'
 import { OrderActionDialog } from './OrderActionDialog'
 import { OrderDetailDrawer } from './OrderDetailDrawer'
 import { OrderWorkspacePanel } from './components/OrderWorkspacePanel'
@@ -40,6 +42,7 @@ export function OrderListPage({
   lockPaymentSection = false,
   initialTabKey,
 }: OrdersPageProps) {
+  const { showBottomToast } = useToast()
   const {
     activePaymentSectionKey,
     activeFilters,
@@ -83,6 +86,12 @@ export function OrderListPage({
     paymentSection,
   })
   const [notice, setNotice] = useState<Notice | null>(null)
+
+  useEffect(() => {
+    if (!notice) return
+    showBottomToast(notice.message, notice.type, notice.action)
+    setNotice(null)
+  }, [notice, showBottomToast])
 
   const canUpdateOrders =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('orders.update'))
@@ -181,10 +190,11 @@ export function OrderListPage({
 
     try {
       await writeClipboardText(value)
+      showBottomToast(`Đã sao chép ${label}.`, 'success')
     } catch {
-      setNotice({ type: 'error', message: `Không thể sao chép ${label}.` })
+      showBottomToast(`Không thể sao chép ${label}.`, 'error')
     }
-  }, [])
+  }, [showBottomToast])
 
   const closeDrawer = () => {
     if (!actionLoading) {
@@ -217,7 +227,6 @@ export function OrderListPage({
         isLookupMode={isLookupMode}
         keywordInput={keywordInput}
         labelCount={labelCount}
-        notice={notice}
         operationalSummary={operationalSummary}
         orders={orders}
         page={page}

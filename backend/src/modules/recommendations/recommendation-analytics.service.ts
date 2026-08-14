@@ -8,6 +8,7 @@ import {
   type RecommendationContext,
   type RecommendationEventType,
 } from '../../database/models';
+import { RECOMMENDATION_ALGORITHM_VERSION } from './recommendation.types';
 
 type RecommendationAnalyticsQuery = {
   from?: unknown;
@@ -1099,6 +1100,7 @@ const getRecommendationAnalytics = async (query: RecommendationAnalyticsQuery = 
 
   return {
     generatedAt: new Date(),
+    currentAlgorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
     range: {
       from: range.from,
       to: range.to,

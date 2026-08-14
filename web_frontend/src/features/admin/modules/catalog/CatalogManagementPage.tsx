@@ -37,6 +37,7 @@ import { CatalogDeleteConfirmDialog } from './components/CatalogDeleteConfirmDia
 import { CategoryManagementSection } from './components/CategoryManagementSection'
 import { BrandDetailDialog, CategoryDetailDialog } from './components/CatalogDetailDialogs'
 import type { CatalogDeleteMode, CatalogStatusFilter } from './catalogDisplay.helpers'
+import { useToast } from '../../notifications/notification-context'
 import './catalog.css'
 
 type CatalogManagementPageProps = {
@@ -78,6 +79,7 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
 }
 
 function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
+  const { showToast } = useToast()
   const [categories, setCategories] = useState<ManagedCategory[]>([])
   const [brands, setBrands] = useState<ManagedBrand[]>([])
   const [categoryKeyword, setCategoryKeyword] = useState('')
@@ -124,14 +126,10 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   }, [loadCatalog])
 
   useEffect(() => {
-    if (notice?.type !== 'success') return
-
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null)
-    }, 4500)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [notice])
+    if (!notice) return
+    showToast(notice.message, notice.type)
+    if (notice.type === 'success') setNotice(null)
+  }, [notice, showToast])
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category._id, category.name])),
@@ -472,22 +470,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
           </span>
         </div>
       </div>
-
-      {notice ? (
-        <div className="admin-toast-container" aria-live="polite" aria-atomic="true">
-          <div className={`admin-toast is-${notice.type}`}>
-            <span>{notice.message}</span>
-            <button
-              type="button"
-              className="admin-toast-close"
-              onClick={() => setNotice(null)}
-              aria-label="Đóng thông báo"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       {loadError ? (
         <div className="admin-empty-state" role="alert">

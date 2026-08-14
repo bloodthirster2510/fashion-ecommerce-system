@@ -10,6 +10,7 @@ import {
   calculateSimilarRecommendationScore,
   getCartComplementaryRoleScore,
   inferOutfitRole,
+  mergeMerchandisedItems,
   recommendationService,
 } from '../recommendation.service';
 import {
@@ -18,6 +19,35 @@ import {
 } from '../recommendation.types';
 import { interactionService } from '../../interactions/interaction.service';
 import { CART_RULE_ONLY_FALLBACK_WEIGHTS } from '../recommendation-scoring';
+
+describe('recommendation merchandising', () => {
+  it('keeps pinned items first, removes duplicates, and recalculates ranks', () => {
+    const product = (id: string) => ({ _id: id }) as never;
+    const response = {
+      requestId: 'rec_request',
+      algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
+      fallbackUsed: false,
+      items: [
+        { product: product('pinned'), score: 0.8, rank: 1, reason: 'Popular', reasonCodes: ['popular'] },
+        { product: product('organic'), score: 0.7, rank: 2, reason: 'Popular', reasonCodes: ['popular'] },
+      ],
+    } as RecommendationResponse;
+    const pinned = [{
+      product: product('pinned'),
+      score: 1,
+      rank: 0,
+      reason: 'Nổi bật',
+      reasonCodes: ['admin_pinned' as const],
+      merchandisingSource: 'admin_pinned' as const,
+    }];
+
+    const result = mergeMerchandisedItems(response, pinned, 2);
+
+    expect(result.items.map((item) => item.product._id)).toEqual(['pinned', 'organic']);
+    expect(result.items.map((item) => item.rank)).toEqual([1, 2]);
+    expect(result.items[0].merchandisingSource).toBe('admin_pinned');
+  });
+});
 
 jest.mock('../../../database/models', () => ({
   Cart: {},

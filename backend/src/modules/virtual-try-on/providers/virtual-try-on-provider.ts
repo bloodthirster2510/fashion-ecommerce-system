@@ -39,7 +39,13 @@ export type VirtualTryOnProviderInput = {
   };
   prompt: string;
   negativePrompt: string;
+  model?: string;
   seed?: number;
+  providerJobId?: string | null;
+  onProviderJobSubmitted?: (
+    providerJobId: string,
+    metadata?: Record<string, unknown>,
+  ) => Promise<void>;
 };
 
 export type VirtualTryOnProviderBinaryOutput = {

@@ -33,9 +33,6 @@
 .admin-vto-ops-bar button { padding: 0 14px; white-space: nowrap; }
 .admin-vto-ops-bar button:disabled,
 .admin-vto-actions button:disabled { cursor: not-allowed; opacity: .55; }
-.admin-vto-notice { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 800; }
-.admin-vto-notice.is-error { border: 1px solid #efc0b6; color: #9b351e; background: #fff5f2; }
-.admin-vto-notice.is-success { border: 1px solid #bddcc9; color: #286648; background: #f3fbf6; }
 
 .admin-vto-stats { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin: 0 0 10px; }
 .admin-vto-stats > div {
@@ -267,6 +264,30 @@
 .admin-vto-settings-form { display: grid; gap: 10px; margin-top: 10px; padding: 11px; border: 1px solid #dfe6eb; border-radius: 8px; background: #fbfcfd; }
 .admin-vto-settings-switch { display: flex; align-items: center; gap: 8px; color: var(--admin-text); font-size: 12px; font-weight: 900; }
 .admin-vto-settings-switch input { width: 16px; height: 16px; accent-color: var(--admin-accent); }
+.admin-vto-model-settings { display: grid; gap: 10px; padding: 12px; border: 1px solid #d9e4ea; border-radius: 9px; background: #fff; }
+.admin-vto-model-settings > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-vto-model-settings > header > div { display: grid; gap: 2px; }
+.admin-vto-model-settings > header strong { color: var(--admin-text); font-size: 12px; }
+.admin-vto-model-settings > header span,
+.admin-vto-model-settings > p { color: #728091; font-size: 10px; }
+.admin-vto-model-settings .admin-vto-model-live { padding: 4px 7px; border-radius: 999px; color: #286648; background: #edf8f2; font-weight: 850; white-space: nowrap; }
+.admin-vto-model-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.admin-vto-model-grid fieldset { min-width: 0; display: grid; grid-template-columns: minmax(130px,.7fr) minmax(180px,1.3fr); gap: 9px; margin: 0; padding: 10px; border: 1px solid #e2e8ed; border-radius: 8px; }
+.admin-vto-model-grid legend { padding: 0 5px; color: #456273; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
+.admin-vto-model-grid label { min-width: 0; display: grid; gap: 5px; }
+.admin-vto-model-grid label > span,
+.admin-vto-model-picker > label,
+.admin-vto-custom-model > label { color: #5f6f80; font-size: 10px; font-weight: 850; }
+.admin-vto-model-picker,
+.admin-vto-custom-model { min-width: 0; display: grid; gap: 5px; }
+.admin-vto-custom-model { margin-top: 2px; padding-top: 8px; border-top: 1px solid #edf1f4; }
+.admin-vto-model-grid input,
+.admin-vto-model-grid select { min-width: 0; width: 100%; height: 36px; border: 1px solid #d8e0e7; border-radius: 7px; padding: 0 9px; color: var(--admin-text); background: #fff; outline: none; font: inherit; font-size: 12px; font-weight: 750; }
+.admin-vto-model-grid input:focus,
+.admin-vto-model-grid select:focus { border-color: var(--admin-accent); box-shadow: 0 0 0 3px rgba(95,134,162,.12); }
+.admin-vto-model-grid input:disabled,
+.admin-vto-model-grid select:disabled { color: #81909d; background: #f1f4f6; cursor: not-allowed; }
+.admin-vto-model-settings > p { margin: 0; }
 .admin-vto-settings-fields { display: grid; grid-template-columns: repeat(5,minmax(120px,1fr)); gap: 8px; }
 .admin-vto-settings-fields label { display: grid; gap: 5px; }
 .admin-vto-settings-fields span { color: #5f6f80; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
@@ -406,6 +427,7 @@
   .admin-vto-config-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .admin-vto-config-group.is-policy { grid-column: 1 / -1; }
   .admin-vto-settings-fields { grid-template-columns: repeat(3,minmax(120px,1fr)); }
+  .admin-vto-model-grid { grid-template-columns: 1fr; }
   .admin-vto-command-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 920px) {
@@ -427,6 +449,8 @@
   .admin-vto-settings-head,
   .admin-vto-settings-actions { align-items: stretch; flex-direction: column; }
   .admin-vto-settings-fields { grid-template-columns: 1fr; }
+  .admin-vto-model-settings > header { flex-direction: column; }
+  .admin-vto-model-grid fieldset { grid-template-columns: 1fr; }
   .admin-vto-settings-actions select { max-width: none; }
   .admin-vto-ops-bar { align-items: flex-start; flex-direction: column; }
   .admin-vto-ops-actions { width: 100%; justify-content: space-between; }

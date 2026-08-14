@@ -1,11 +1,17 @@
 import { readFileSync } from 'fs';
 import path from 'path';
+import axios from 'axios';
 import {
   buildComfyTryOnPrompt,
   configureMultiGarmentInputs,
+  createComfyVirtualTryOnProvider,
   getComfySafetyBlockReason,
   mapComfyPromptInputs,
 } from './comfy-virtual-try-on.provider';
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe('mapComfyPromptInputs', () => {
   it('appends strict avoid constraints when the workflow has no negative prompt input', () => {
@@ -256,5 +262,76 @@ describe('getComfySafetyBlockReason', () => {
     });
 
     expect(reason).toBeNull();
+  });
+});
+
+describe('ComfyUI job resumption', () => {
+  it('polls an existing prompt id without submitting a duplicate workflow', async () => {
+    const previous = {
+      workflow: process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH,
+      map: process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH,
+      baseUrl: process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL,
+    };
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH = path.resolve(
+      'config/comfy-workflows/fashion-tryon-gemini-4in1-api.json',
+    );
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH = path.resolve(
+      'config/comfy-workflows/fashion-tryon-gemini-4in1-map.json',
+    );
+    process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL = 'http://localhost:8188';
+
+    const get = jest.fn(async (url: string) => {
+      if (url.includes('history')) {
+        return {
+          data: {
+            'prompt-existing': {
+              outputs: {
+                '12': { images: [{ filename: 'result.png', type: 'output' }] },
+              },
+            },
+          },
+          headers: {},
+        };
+      }
+      return {
+        data: Uint8Array.from([1, 2, 3]).buffer,
+        headers: { 'content-type': 'image/png' },
+      };
+    });
+    const post = jest.fn();
+    jest.spyOn(axios, 'create').mockReturnValue({
+      defaults: { baseURL: 'http://localhost:8188' },
+      get,
+      post,
+    } as never);
+    const onProviderJobSubmitted = jest.fn();
+
+    try {
+      const result = await createComfyVirtualTryOnProvider().generate({
+        jobId: 'job-1',
+        userId: 'user-1',
+        sourceImageUrl: 'https://example.com/person.png',
+        outfitMode: 'single',
+        outputMode: 'image',
+        garments: [],
+        context: { preset: 'none', preserveOriginalBackground: true },
+        prompt: 'Try on the selected outfit',
+        negativePrompt: 'Do not alter identity',
+        providerJobId: 'prompt-existing',
+        onProviderJobSubmitted,
+      });
+
+      expect(result.providerJobId).toBe('prompt-existing');
+      expect(result.images).toHaveLength(1);
+      expect(post).not.toHaveBeenCalled();
+      expect(onProviderJobSubmitted).not.toHaveBeenCalled();
+    } finally {
+      if (previous.workflow === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH;
+      else process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH = previous.workflow;
+      if (previous.map === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH;
+      else process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH = previous.map;
+      if (previous.baseUrl === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL;
+      else process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL = previous.baseUrl;
+    }
   });
 });

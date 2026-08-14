@@ -49,6 +49,10 @@ export const updateVirtualTryOnSettings = (
       expectedVersion,
       configuration: {
         enabled: configuration.runtimeEnabled,
+        imageProvider: configuration.imageProvider,
+        imageModel: configuration.imageModel,
+        videoProvider: configuration.videoProvider,
+        videoModel: configuration.videoModel,
         maxConcurrentJobsPerUser: configuration.maxConcurrentJobsPerUser,
         maxVideoJobsPerUserPerDay: configuration.maxVideoJobsPerUserPerDay,
         maxConcurrentVideoJobsPerUser: configuration.maxConcurrentVideoJobsPerUser,

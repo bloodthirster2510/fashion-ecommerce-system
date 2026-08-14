@@ -22,6 +22,7 @@ export * from './product-visual-index.model';
 export * from './review.model';
 export * from './review-helpful-vote.model';
 export * from './recommendation-event.model';
+export * from './recommendation-merchandising-rule.model';
 export * from './recommendation-request.model';
 export * from './search-history.model';
 export * from './shipping-area-mapping.model';

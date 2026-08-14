@@ -9,7 +9,7 @@ export function SupportKpiSummary({ summary }: SupportKpiSummaryProps) {
     <section className="admin-support-overview" aria-labelledby="support-queue-overview">
       <div className="admin-support-overview-heading">
         <div>
-          <span>Hàng đợi</span>
+          <span>Tổng quan hàng đợi</span>
           <h2 id="support-queue-overview">{summary?.totalOpen ?? 0} ticket đang mở</h2>
         </div>
         <p>Cập nhật theo thời gian thực</p>
@@ -30,10 +30,6 @@ export function SupportKpiSummary({ summary }: SupportKpiSummaryProps) {
           <strong>{summary?.overdue ?? 0}</strong>
           <small>Cần kiểm tra SLA</small>
         </article>
-      </div>
-      <div className="admin-support-overview-secondary" aria-label="Trạng thái tham khảo">
-        <span className="is-waiting">Chờ khách <strong>{summary?.waitingCustomer ?? 0}</strong></span>
-        <span className="is-resolved">Đã giải quyết <strong>{summary?.resolved ?? 0}</strong></span>
       </div>
     </section>
   )

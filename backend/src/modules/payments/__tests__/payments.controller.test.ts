@@ -5,6 +5,7 @@ import { transactionService } from '../transaction.service';
 import { handleVNPayIpn, handleVNPayReturn, settleVNPayPayment } from '../payments.controller';
 import * as paymentService from '../payments.service';
 import { orderService } from '../../orders/order.service';
+import { sendPaidOrderInvoiceEmailBestEffort } from '../../orders/invoice-email.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -39,6 +40,10 @@ jest.mock('../../orders/order.service', () => ({
   },
 }));
 
+jest.mock('../../orders/invoice-email.service', () => ({
+  sendPaidOrderInvoiceEmailBestEffort: jest.fn(),
+}));
+
 jest.mock('../../audit-logs/audit-log.service', () => ({
   auditLogService: {
     recordAuditLogBestEffort: jest.fn(),
@@ -48,6 +53,9 @@ jest.mock('../../audit-logs/audit-log.service', () => ({
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
 const mockedOrderService = orderService as jest.Mocked<typeof orderService>;
+const mockedSendPaidOrderInvoiceEmail = sendPaidOrderInvoiceEmailBestEffort as jest.MockedFunction<
+  typeof sendPaidOrderInvoiceEmailBestEffort
+>;
 const startSessionSpy = jest.spyOn(mongoose, 'startSession');
 
 type MockSession = {
@@ -71,6 +79,7 @@ describe('settleVNPayPayment', () => {
     startSessionSpy.mockResolvedValue(mockSession as never);
     mockedOrder.updateOne.mockResolvedValue({ matchedCount: 1 } as never);
     mockedOrderService.recordRecommendationPaymentCompleted.mockResolvedValue({} as never);
+    mockedSendPaidOrderInvoiceEmail.mockResolvedValue(true);
   });
 
   it('fails closed when VNPay callback amount is missing', async () => {
@@ -170,6 +179,7 @@ describe('settleVNPayPayment', () => {
     expect(mockedOrderService.recordRecommendationPaymentCompleted).toHaveBeenCalledWith(
       orderId.toString(),
     );
+    expect(mockedSendPaidOrderInvoiceEmail).toHaveBeenCalledWith(orderId.toString());
     expect(result).toMatchObject({
       rspCode: '00',
       transactionStatus: 'success',

@@ -511,7 +511,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
     }
 
     if (renderedSection === 'reports') {
-      return <RecommendationReportsPage />
+      return <RecommendationReportsPage currentUser={currentUser} />
     }
 
     if (renderedSection === 'settings') {

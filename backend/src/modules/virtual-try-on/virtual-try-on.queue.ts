@@ -10,9 +10,14 @@ type VirtualTryOnQueueJob = {
   jobId: string;
 };
 
+export type VirtualTryOnQueueProcessorContext = {
+  attemptsMade: number;
+  maxAttempts: number;
+};
+
 type VirtualTryOnQueueProcessors = {
-  image: (jobId: string) => Promise<void>;
-  video: (jobId: string) => Promise<void>;
+  image: (jobId: string, context?: VirtualTryOnQueueProcessorContext) => Promise<void>;
+  video: (jobId: string, context?: VirtualTryOnQueueProcessorContext) => Promise<void>;
 };
 
 export class VirtualTryOnQueueError extends Error {
@@ -152,7 +157,10 @@ const createWorker = (
 ) => {
   const worker = new Worker<VirtualTryOnQueueJob>(
     QUEUE_NAMES[stage],
-    async (job: Job<VirtualTryOnQueueJob>) => processor(job.data.jobId),
+    async (job: Job<VirtualTryOnQueueJob>) => processor(job.data.jobId, {
+      attemptsMade: job.attemptsMade,
+      maxAttempts: Math.max(1, Number(job.opts.attempts) || 1),
+    }),
     { connection, prefix, concurrency },
   );
   worker.on('failed', (job, error) => {

@@ -98,7 +98,7 @@ const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 
   low: 'neutral',
   normal: 'neutral',
   high: 'warning',
-  urgent: 'warning',
+  urgent: 'danger',
 }
 
 const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }

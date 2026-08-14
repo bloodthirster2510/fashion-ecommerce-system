@@ -13,6 +13,7 @@ import { interactionService } from '../../interactions/interaction.service';
 import { recommendationService } from '../../recommendations/recommendation.service';
 import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
 import { emitOrderUpdate } from '../../realtime/order.gateway';
+import { sendPaidOrderInvoiceEmailBestEffort } from '../invoice-email.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -118,6 +119,11 @@ jest.mock('../../notifications/customer-notification.service', () => ({
   recordOrderStatusNotification: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('../invoice-email.service', () => ({
+  generateInvoiceCode: jest.fn((order: { orderCode: string }) => `INV-${order.orderCode}`),
+  sendPaidOrderInvoiceEmailBestEffort: jest.fn().mockResolvedValue(true),
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
@@ -128,6 +134,9 @@ const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
+const mockedSendPaidOrderInvoiceEmail = sendPaidOrderInvoiceEmailBestEffort as jest.MockedFunction<
+  typeof sendPaidOrderInvoiceEmailBestEffort
+>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
 const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyaltyRuleService>;
 const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
@@ -1058,6 +1067,7 @@ describe('orderService', () => {
     expect(order.receivedAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
+    expect(mockedSendPaidOrderInvoiceEmail).toHaveBeenCalledWith(orderId.toString());
     expect(result).toBe(order);
   });
 

@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import type { OrderActionDialogInput, OrderActionDialogState, ShippingUpdateDialogValues } from './orderTypes'
 import {
+  formatCurrency,
   getShippingUpdateDialogValues,
   paymentMethodLabels,
   paymentMethodStatusLabels,
@@ -140,7 +141,9 @@ export function OrderActionDialog({
     if (action.type === 'shipping') return 'Cập nhật vận đơn'
     if (action.type === 'cancel-ghn') return 'Hủy vận đơn GHN'
     if (action.type === 'payment-status' && action.nextStatus === 'refunded') {
-      return action.order.paymentMethod === 'VNPAY' ? 'Gửi đến VNPay' : 'Xác nhận đã hoàn'
+      return action.order.paymentMethod === 'VNPAY'
+        ? `Hoàn ${formatCurrency(action.order.totalAmount)} qua VNPay`
+        : 'Xác nhận đã hoàn'
     }
     if (action.type === 'payment-status') return 'Cập nhật trạng thái'
     return 'Cập nhật tài khoản hoàn tiền'
@@ -153,7 +156,7 @@ export function OrderActionDialog({
     if (action.type === 'shipping') return 'Cập nhật vận đơn'
     if (action.type === 'cancel-ghn') return 'Hủy vận đơn GHN'
     if (action.type === 'payment-status' && action.nextStatus === 'refunded') {
-      return action.order.paymentMethod === 'VNPAY' ? 'Gửi lệnh hoàn tiền VNPay' : 'Xác nhận hoàn tiền thủ công'
+      return action.order.paymentMethod === 'VNPAY' ? 'Xác nhận hoàn tiền qua VNPay' : 'Xác nhận hoàn tiền thủ công'
     }
     if (action.type === 'payment-status') return 'Điều chỉnh thanh toán'
     return 'Cập nhật tài khoản hoàn tiền'
@@ -179,7 +182,7 @@ export function OrderActionDialog({
     }
     if (action.type === 'payment-status') {
       if (action.nextStatus === 'refunded' && action.order.paymentMethod === 'VNPAY') {
-        return 'Hệ thống sẽ gửi lệnh hoàn toàn phần đến VNPay cho giao dịch gốc. Tiền không được chuyển vào tài khoản hoàn mà khách đã khai báo.'
+        return 'Kiểm tra đúng đơn và số tiền trước khi gửi. VNPay sẽ hoàn về nguồn thanh toán ban đầu.'
       }
 
       if (action.nextStatus === 'refunded') {
@@ -221,6 +224,14 @@ export function OrderActionDialog({
         </header>
 
         <p className="admin-order-action-helper">{helper}</p>
+
+        {action.type === 'payment-status' && action.nextStatus === 'refunded' && action.order.paymentMethod === 'VNPAY' ? (
+          <dl className="admin-order-action-summary" aria-label="Thông tin xác nhận hoàn tiền">
+            <div><dt>Đơn hàng</dt><dd>{action.order.orderCode}</dd></div>
+            <div><dt>Nguồn hoàn</dt><dd>VNPay · giao dịch gốc</dd></div>
+            <div className="is-amount"><dt>Số tiền</dt><dd>{formatCurrency(action.order.totalAmount)}</dd></div>
+          </dl>
+        ) : null}
 
         {action.type === 'shipping' ? (
           <div className="admin-order-action-grid">

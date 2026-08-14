@@ -1,6 +1,7 @@
 import {
   createVirtualTryOnProvider,
   createVirtualTryOnVideoProvider,
+  getVirtualTryOnImageConfiguration,
   getVirtualTryOnVideoConfiguration,
 } from './index';
 
@@ -19,9 +20,65 @@ describe('createVirtualTryOnProvider', () => {
       generate: expect.any(Function),
     }));
   });
+
+  it('reports missing ComfyUI image workflow configuration', () => {
+    const previous = {
+      workflow: process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH,
+      map: process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH,
+      baseUrl: process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL,
+      serviceUrl: process.env.VIRTUAL_TRY_ON_SERVICE_URL,
+    };
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH = '';
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH = '';
+    delete process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL;
+    delete process.env.VIRTUAL_TRY_ON_SERVICE_URL;
+
+    try {
+      expect(getVirtualTryOnImageConfiguration({ provider: 'comfy' })).toEqual({
+        provider: 'comfy',
+        ready: false,
+        issues: expect.arrayContaining([
+          'COMFY_WORKFLOW_MISSING',
+          'COMFY_WORKFLOW_MAP_MISSING',
+          'COMFY_BASE_URL_MISSING',
+        ]),
+      });
+    } finally {
+      Object.entries(previous).forEach(([key, value]) => {
+        const envName = {
+          workflow: 'VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH',
+          map: 'VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH',
+          baseUrl: 'VIRTUAL_TRY_ON_COMFY_BASE_URL',
+          serviceUrl: 'VIRTUAL_TRY_ON_SERVICE_URL',
+        }[key]!;
+        if (value === undefined) delete process.env[envName];
+        else process.env[envName] = value;
+      });
+    }
+  });
+
+  it('keeps the self-contained mock image provider available', () => {
+    expect(getVirtualTryOnImageConfiguration({ provider: 'mock' })).toEqual({
+      provider: 'mock',
+      ready: true,
+      issues: [],
+    });
+  });
 });
 
 describe('virtual try-on video provider', () => {
+  it('uses the runtime provider and model override', () => {
+    expect(getVirtualTryOnVideoConfiguration({
+      provider: 'disabled',
+      model: 'runtime-video-model',
+    })).toEqual(expect.objectContaining({
+      provider: 'disabled',
+      model: 'runtime-video-model',
+      ready: false,
+      issues: expect.arrayContaining(['VIDEO_PROVIDER_DISABLED']),
+    }));
+  });
+
   it.each(['comfy_kling', 'comfy-kling', 'kling'])(
     'supports the Kling ComfyUI alias %s',
     (providerName) => {

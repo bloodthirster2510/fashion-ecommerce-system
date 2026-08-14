@@ -18,6 +18,7 @@ export type RecommendationReasonCode =
   | 'completes_outfit'
   | 'matches_cart_style'
   | 'frequently_bought_together'
+  | 'admin_pinned'
   | 'popular'
   | 'on_sale'
   | 'new_arrival';
@@ -28,6 +29,7 @@ export interface RecommendationItem {
   rank: number;
   reason: string;
   reasonCodes: RecommendationReasonCode[];
+  merchandisingSource?: 'admin_pinned' | 'algorithm';
 }
 
 export interface RecommendationResponse {

@@ -3,7 +3,9 @@ import { authenticate, requireActiveAccount } from '../../middlewares/auth.middl
 import { authorize, requirePermission } from '../../middlewares/role.middleware';
 import {
   getRecommendationAnalytics,
+  listRecommendationMerchandisingRules,
   previewRecommendations,
+  updateRecommendationMerchandisingRule,
 } from './recommendation.controller';
 
 const adminRecommendationRouter = Router();
@@ -11,5 +13,7 @@ const adminRecommendationRouter = Router();
 adminRecommendationRouter.use(authenticate, requireActiveAccount, authorize('admin', 'staff'));
 adminRecommendationRouter.get('/analytics', requirePermission('reports.read'), getRecommendationAnalytics);
 adminRecommendationRouter.get('/preview', requirePermission('reports.read'), previewRecommendations);
+adminRecommendationRouter.get('/merchandising', requirePermission('reports.read'), listRecommendationMerchandisingRules);
+adminRecommendationRouter.put('/merchandising/:context', requirePermission('catalog.write'), updateRecommendationMerchandisingRule);
 
 export default adminRecommendationRouter;

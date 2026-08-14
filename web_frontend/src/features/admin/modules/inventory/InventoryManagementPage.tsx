@@ -25,6 +25,7 @@ import type {
 } from './inventory.types'
 import { getPaginationItems } from '../../utils/pagination'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
+import { useToast } from '../../notifications/notification-context'
 import { ImportDialog, InventoryHistoryDialog } from './components/ImportLotDialogs'
 import { InventoryReceiptDialog } from './components/ReceiptFormDialog'
 import { InventoryReceiptListDialog } from './components/ReceiptListDialog'
@@ -155,6 +156,7 @@ export function InventoryManagementPage({
 function InventoryManagementContent({
   currentUser,
 }: InventoryManagementPageProps) {
+  const { showToast } = useToast()
   const tableShellRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarContentRef = useRef<HTMLDivElement>(null)
@@ -217,14 +219,10 @@ function InventoryManagementContent({
   }, [loadData])
 
   useEffect(() => {
-    if (notice?.type !== 'success') return
-
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null)
-    }, 4500)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [notice])
+    if (!notice) return
+    showToast(notice.message, notice.type)
+    if (notice.type === 'success') setNotice(null)
+  }, [notice, showToast])
 
   // Ghép số tồn với tên, ảnh, danh mục và màu của sản phẩm để hiển thị dễ đọc.
   const rows = useMemo<InventoryRow[]>(() => {
@@ -596,22 +594,6 @@ function InventoryManagementContent({
           ))}
         </div>
       </section>
-
-      {notice ? (
-        <div className="admin-toast-container" aria-live="polite" aria-atomic="true">
-          <div className={`admin-toast is-${notice.type}`}>
-            <span>{notice.message}</span>
-            <button
-              type="button"
-              className="admin-toast-close"
-              onClick={() => setNotice(null)}
-              aria-label="Đóng thông báo"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       {loadError ? (
         <div className="admin-empty-state" role="alert">

@@ -185,6 +185,8 @@ export const parseRecommendationAnalytics = (value: unknown): RecommendationAnal
   const { range, filters, summary, comparison, coverage, diversity, search } = value
   const valid = (
     isDateString(value.generatedAt) &&
+    typeof value.currentAlgorithmVersion === 'string' &&
+    value.currentAlgorithmVersion.trim() !== '' &&
     isRecord(range) &&
     ['from', 'to', 'previousFrom', 'previousTo'].every((field) => isDateString(range[field])) &&
     isRecord(filters) &&

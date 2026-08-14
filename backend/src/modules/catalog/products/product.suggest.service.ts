@@ -25,7 +25,7 @@ export type SuggestResponse = {
   keywords: string[];
 };
 
-const SUGGEST_CACHE_TTL = 60_000;
+const SUGGEST_CACHE_TTL = 5 * 60_000;
 const SUGGEST_CACHE_NAMESPACE = 'product-suggestions';
 
 const getFinalPrice = (price: number, discount: number) => Math.round(price * (1 - discount / 100));

@@ -18,6 +18,7 @@ export type AdminVirtualTryOnJob = {
   outputMode: 'image' | 'image_and_video'
   videoDurationSeconds?: number | null
   provider: string
+  imageModel?: string | null
   providerJobId?: string | null
   sourceImageUrl?: string | null
   selectedItemCount: number
@@ -36,6 +37,7 @@ export type AdminVirtualTryOnJob = {
   videoProgress: number
   videoSourceImageUrl?: string | null
   videoProvider?: string | null
+  videoModel?: string | null
   videoProviderJobId?: string | null
   videoErrorCode?: string | null
   videoErrorMessage?: string | null
@@ -105,6 +107,12 @@ export type AdminVirtualTryOnSettings = {
   persisted: boolean
   updatedAt: string | null
   historyVersions: number[]
+  modelOptions: {
+    imageProviders: Array<'comfy' | 'mock' | 'disabled'>
+    videoProviders: Array<'comfy_kling' | 'mock' | 'disabled'>
+    imageModels: string[]
+    videoModels: string[]
+  }
   secretStatus: {
     providerApiKeyConfigured: boolean
     imageEndpointConfigured: boolean
@@ -159,7 +167,12 @@ export type AdminVirtualTryOnSettingsConfiguration = Pick<
   | 'maxConcurrentVideoJobsPerUser'
   | 'promptMaxLength'
   | 'promptViolationLimitPerDay'
->
+> & {
+  imageProvider: 'comfy' | 'mock' | 'disabled'
+  imageModel: string
+  videoProvider: 'comfy_kling' | 'mock' | 'disabled'
+  videoModel: string
+}
 
 export type AdminVirtualTryOnPromptTestResult = {
   allowed: boolean

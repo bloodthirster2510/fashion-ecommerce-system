@@ -33,6 +33,7 @@ import {
   lowStockThreshold,
   pageSize,
 } from './productDisplay.helpers'
+import { useToast } from '../../../notifications/notification-context'
 import './product.css'
 
 type ProductManagementPageProps = {
@@ -45,6 +46,7 @@ type Notice = {
 } | null
 
 export function ProductManagementPage({ currentUser }: ProductManagementPageProps) {
+  const { showToast } = useToast()
   const tableShellRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarContentRef = useRef<HTMLDivElement>(null)
@@ -71,14 +73,10 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    if (notice?.type !== 'success') return
-
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null)
-    }, 4500)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [notice])
+    if (!notice) return
+    showToast(notice.message, notice.type)
+    if (notice.type === 'success') setNotice(null)
+  }, [notice, showToast])
   const canWrite =
     currentUser.role === 'admin' || currentUser.permissions?.includes('products.write') === true
 
@@ -397,21 +395,6 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
         </div>
       ) : (
         <>
-          {notice ? (
-            <div className="admin-toast-container" aria-live="polite" aria-atomic="true">
-              <div className={`admin-toast is-${notice.type}`}>
-                <span>{notice.message}</span>
-                <button
-                  type="button"
-                  className="admin-toast-close"
-                  onClick={() => setNotice(null)}
-                  aria-label="Đóng thông báo"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          ) : null}
           <ProductTable
             products={pagination.items}
             isLoading={isLoading}

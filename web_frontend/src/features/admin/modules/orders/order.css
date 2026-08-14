@@ -159,20 +159,6 @@
   white-space: nowrap;
 }
 
-.admin-order-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.admin-order-notice .admin-link-button {
-  flex: 0 0 auto;
-  border-color: currentColor;
-  color: inherit;
-  background: rgba(255, 255, 255, 0.62);
-}
-
 .admin-order-bulk-toolbar {
   position: sticky;
   bottom: 12px;
@@ -1265,23 +1251,6 @@
   min-height: 38px;
 }
 
-.admin-order-invoice-notice {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid #e6d0a2;
-  border-radius: 9px;
-  color: #8a5b18;
-  background: #fff9ec;
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.admin-order-invoice-notice.is-error {
-  border-color: #efc1ba;
-  color: #a63e2d;
-  background: #fff3f1;
-}
-
 .admin-order-invoice-sheet {
   width: min(900px, 100%);
   margin: 0 auto;
@@ -2189,6 +2158,18 @@
   gap: 10px;
 }
 
+.admin-refund-panel > .admin-primary-button,
+.admin-refund-panel > .admin-secondary-button {
+  width: fit-content;
+  justify-self: end;
+  box-shadow: none;
+}
+
+.admin-refund-primary-action {
+  min-height: 40px;
+  padding-inline: 16px;
+}
+
 .admin-vnpay-environment {
   width: fit-content;
   padding: 4px 8px;
@@ -2262,6 +2243,15 @@
   background: #f6fbf7;
 }
 
+.admin-refund-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: #dfe6e2;
+  background: #fff;
+}
+
 .admin-refund-panel-header span,
 .admin-refund-transfer-content > span,
 .admin-refund-account-card > div > span {
@@ -2271,11 +2261,49 @@
   text-transform: uppercase;
 }
 
+.admin-refund-panel-header span {
+  color: var(--admin-muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: none;
+}
+
 .admin-refund-panel-header strong {
   color: #1f6b43;
   font-size: 20px;
   font-weight: 950;
 }
+
+.admin-refund-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e1e8e4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.admin-refund-meta div { min-width: 0; display: grid; gap: 3px; }
+.admin-refund-meta .is-wide { grid-column: 1 / -1; }
+.admin-refund-meta dt { color: var(--admin-muted); font-size: 11px; font-weight: 750; }
+.admin-refund-meta dd { margin: 0; overflow-wrap: anywhere; color: var(--admin-text); font-size: 12px; font-weight: 750; }
+
+.admin-order-action-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid #dfe6e2;
+  border-radius: 10px;
+  background: #f8faf9;
+}
+
+.admin-order-action-summary div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.admin-order-action-summary dt { color: var(--admin-muted); font-size: 12px; font-weight: 750; }
+.admin-order-action-summary dd { margin: 0; color: var(--admin-text); font-size: 13px; font-weight: 800; text-align: right; }
+.admin-order-action-summary .is-amount dd { color: #1f6b43; font-size: 18px; }
 
 .admin-refund-transfer-content strong {
   width: fit-content;

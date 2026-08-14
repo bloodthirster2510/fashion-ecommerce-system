@@ -38,14 +38,14 @@
 }
 .admin-support-overview {
   display: grid;
-  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 3fr) minmax(150px, 0.75fr);
+  grid-template-columns: minmax(210px, 0.8fr) minmax(0, 3fr);
   align-items: stretch;
   gap: 8px;
   overflow: hidden;
   padding: 8px;
   border: 1px solid var(--admin-border);
   border-radius: 14px;
-  background: #f3f6f7;
+  background: #f7f9fa;
   box-shadow: var(--admin-shadow-sm);
 }
 .admin-support-overview-heading {
@@ -55,7 +55,8 @@
   gap: 10px;
   padding: 14px 18px;
   border-radius: 10px;
-  background: linear-gradient(145deg, #edf5f8, #f8fbfc);
+  border: 1px solid #e1e7ea;
+  background: #fff;
 }
 .admin-support-overview-heading span {
   color: var(--admin-text-muted);
@@ -89,13 +90,14 @@
   gap: 2px 10px;
   padding: 14px 16px;
   border-radius: 10px;
+  border: 1px solid #e1e7ea;
   background: #fff;
 }
 .admin-support-overview-focus article.is-primary {
-  box-shadow: inset 0 0 0 1px #cfe0e8;
-  background: linear-gradient(145deg, #edf6fa, #f8fbfc);
+  box-shadow: none;
+  background: #fff;
 }
-.admin-support-overview-focus article.is-unassigned { background: #fff9ee; }
+.admin-support-overview-focus article.is-unassigned { background: #fff; }
 .admin-support-overview-focus article.is-overdue { background: #fff; }
 .admin-support-overview-focus article.is-overdue.has-alert {
   box-shadow: inset 0 0 0 1px #f1d0cc;
@@ -124,29 +126,9 @@
   font-size: 22px;
   line-height: 1;
 }
-.admin-support-overview-focus .is-primary strong { color: #245f82; }
-.admin-support-overview-focus .is-unassigned strong { color: #9a5b08; }
+.admin-support-overview-focus .is-primary strong,
+.admin-support-overview-focus .is-unassigned strong { color: var(--admin-text); }
 .admin-support-overview-focus .has-alert strong { color: #b42318; }
-.admin-support-overview-secondary {
-  display: grid;
-  align-content: center;
-  gap: 6px;
-}
-.admin-support-overview-secondary span {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: var(--admin-text-muted);
-  background: #fff;
-  font-size: 11px;
-}
-.admin-support-overview-secondary .is-waiting { background: #f5f1fc; }
-.admin-support-overview-secondary .is-waiting strong { color: #6842a8; }
-.admin-support-overview-secondary .is-resolved { background: #edf8f3; }
-.admin-support-overview-secondary .is-resolved strong { color: #167453; }
-.admin-support-overview-secondary strong { color: var(--admin-text); }
 .admin-support-filters {
   position: relative;
   display: grid;
@@ -352,13 +334,13 @@
 }
 .admin-support-workspace {
   display: grid;
-  grid-template-columns: minmax(270px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(250px, 292px) minmax(0, 1fr);
   height: clamp(640px, calc(100vh - 170px), 860px);
   min-height: 0;
   border: 1px solid #dce5e9;
   border-radius: 14px;
   background: var(--admin-surface);
-  box-shadow: 0 10px 28px rgba(27, 55, 72, 0.07);
+  box-shadow: 0 6px 20px rgba(27, 55, 72, 0.05);
   overflow: hidden;
 }
 .admin-support-queue {
@@ -368,7 +350,7 @@
   max-height: none;
   min-height: 0;
   overflow: auto;
-  background: #f8fafb;
+  background: #fff;
 }
 .admin-support-queue-header {
   position: sticky;
@@ -426,8 +408,8 @@
 .admin-support-ticket {
   display: grid;
   width: 100%;
-  gap: 7px;
-  padding: 14px 15px;
+  gap: 5px;
+  padding: 12px 14px;
   border: 0;
   border-bottom: 1px solid #e2e9ed;
   background: transparent;
@@ -437,20 +419,18 @@
 }
 .admin-support-ticket:hover,
 .admin-support-ticket.is-selected {
-  background: #f4f9fb;
+  background: #f5f8fa;
 }
-.admin-support-ticket:hover { box-shadow: inset 0 0 0 1px #dbe7ed; }
+.admin-support-ticket:hover { box-shadow: none; }
 .admin-support-ticket.is-selected {
   position: relative;
-  background: linear-gradient(90deg, #edf6fa, #f9fcfd);
-  box-shadow: inset 3px 0 #315f83, inset 0 0 0 1px #d4e4eb;
+  background: #eef4f7;
+  box-shadow: inset 3px 0 #315f83;
 }
 .admin-support-ticket.needs-reply {
-  background: #fffdfc;
+  background: transparent;
 }
-.admin-support-ticket.needs-reply:not(.is-selected) {
-  box-shadow: inset 3px 0 var(--admin-danger);
-}
+.admin-support-ticket.needs-reply.is-selected { background: #eef4f7; }
 .admin-support-ticket-top,
 .admin-support-ticket-bottom {
   display: flex;
@@ -525,12 +505,21 @@
   background: #e7f0f4;
 }
 .admin-support-detail {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.admin-support-detail.is-inspector-collapsed .admin-support-inspector {
+  display: none;
+}
+
+.admin-support-detail.is-inspector-collapsed .admin-support-conversation {
+  grid-column: 1;
 }
 .admin-support-detail-header {
   grid-column: 1 / -1;
@@ -568,18 +557,41 @@
 .admin-support-detail-side .admin-ui-button {
   min-height: 32px;
 }
+
+.admin-support-inspector-toggle {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  color: var(--admin-text-muted);
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.admin-support-inspector-toggle:hover { color: var(--admin-text); background: #f5f7f8; }
+.admin-support-inspector-toggle svg { width: 15px; height: 15px; }
 .admin-support-inspector {
-  grid-column: 2;
+  z-index: 3;
+  grid-column: 1;
   grid-row: 2;
+  justify-self: end;
+  width: min(340px, 100%);
   min-width: 0;
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 10px;
   overflow-y: auto;
   padding: 14px;
   border-left: 1px solid #dce6eb;
-  background: #f5f8f9;
+  background: #f7f9fa;
+  box-shadow: -12px 0 28px rgba(31, 55, 68, 0.12);
 }
 .admin-support-conversation {
   grid-column: 1;
@@ -602,21 +614,7 @@
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-.admin-support-actions-icon {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 10px;
-  color: #245f82;
-  background: #e6f1f7;
-}
-.admin-support-actions-icon svg {
-  width: 17px;
-  height: 17px;
+  gap: 8px;
 }
 .admin-support-actions-header > div {
   display: grid;
@@ -624,11 +622,7 @@
 }
 .admin-support-actions-header strong {
   color: var(--admin-text);
-  font-size: 13px;
-}
-.admin-support-actions-header small {
-  color: var(--admin-text-muted);
-  font-size: 10px;
+  font-size: 14px;
 }
 .admin-support-save-state {
   display: inline-flex;
@@ -658,11 +652,12 @@
   align-content: start;
   align-items: end;
   gap: 10px;
-  padding: 11px;
-  border: 1px solid #d7e4ea;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 4px 14px rgba(42, 74, 91, 0.05);
+  padding: 11px 0 0;
+  border: 0;
+  border-top: 1px solid #dfe7eb;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .admin-support-current-status > span,
 .admin-support-status-transition > span,
@@ -771,10 +766,11 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 9px;
   align-items: end;
-  padding: 12px;
+  padding: 12px 0 0;
   border: 1px solid #e0e7ea;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.66);
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: transparent;
 }
 .admin-support-assignment-heading {
   display: grid;
@@ -845,10 +841,11 @@
 .admin-support-meta {
   display: grid;
   gap: 10px;
-  padding: 12px;
+  padding: 12px 0 0;
   border: 1px solid #e0e7ea;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.75);
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: transparent;
 }
 .admin-support-meta-group {
   min-width: 0;
@@ -903,17 +900,17 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   overflow: auto;
   min-height: 300px;
   max-height: none;
-  padding: 20px 22px;
-  background: #f8fafb;
+  padding: 20px 24px;
+  background: #f5f7f8;
 }
 .admin-support-message {
   align-self: flex-start;
   max-width: min(78%, 680px);
-  padding: 12px 14px;
+  padding: 10px 13px;
   border-radius: 4px 14px 14px;
   background: #fff;
   border: 1px solid #dce5e9;
@@ -959,7 +956,7 @@
 .admin-support-composer {
   display: grid;
   gap: 9px;
-  padding: 12px 18px 14px;
+  padding: 10px 18px 12px;
   border-top: 1px solid #e3eaee;
   background: #fff;
 }
@@ -975,7 +972,7 @@
   box-sizing: border-box;
 }
 .admin-support-composer textarea {
-  min-height: 92px;
+  min-height: 74px;
   border-color: #c8d6dd;
   background: #fbfcfd;
   font: inherit;

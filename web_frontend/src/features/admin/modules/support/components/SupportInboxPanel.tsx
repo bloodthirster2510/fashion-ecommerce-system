@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, ImagePlus, ListChecks, MessageSquareText, StickyNote } from 'lucide-react'
+import { AlertTriangle, ImagePlus, MessageSquareText, PanelRightClose, PanelRightOpen, StickyNote } from 'lucide-react'
 import { Button, EmptyState, Modal, Pagination, StatusBadge } from '../../../components/ui'
 import type {
   CannedResponse,
@@ -83,6 +83,7 @@ export function SupportInboxPanel({
   onSendReply,
 }: SupportInboxPanelProps) {
   const [isSpamConfirmOpen, setIsSpamConfirmOpen] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const selectedTicket = detail?.ticket
   const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
     open: ['open', 'in_progress', 'resolved', 'closed', ...(canMarkSpam ? ['spam' as const] : [])],
@@ -121,7 +122,7 @@ export function SupportInboxPanel({
             <span>Hàng đợi</span>
             <strong>{ticketPagination.totalItems}</strong>
           </div>
-          <small>{tickets.length} ticket trên trang này</small>
+          {ticketPagination.totalPages > 1 ? <small>Trang {ticketPagination.page}/{ticketPagination.totalPages}</small> : null}
         </header>
         {loading ? <p className="admin-support-empty">Đang tải ticket...</p> : tickets.length ? tickets.map((ticket) => (
           <button key={ticket._id} type="button" className={`admin-support-ticket status-${ticket.status}${ticket._id === selectedId ? ' is-selected' : ''}${ticket.requiresReply ? ' needs-reply' : ''}`} onClick={() => onSelectTicket(ticket._id)}>
@@ -130,8 +131,9 @@ export function SupportInboxPanel({
             <span className="admin-support-ticket-customer">{getPersonName(ticket)} <i /> {categoryLabels[ticket.category]}</span>
             <span className="admin-support-ticket-bottom">
               <span>
-                <StatusBadge tone={statusTones[ticket.status]}>{statusLabels[ticket.status]}</StatusBadge>
-                {ticket.requiresReply ? <StatusBadge tone="warning">Cần trả lời</StatusBadge> : null}
+                {ticket.requiresReply
+                  ? <StatusBadge tone="warning">Cần trả lời</StatusBadge>
+                  : <StatusBadge tone={statusTones[ticket.status]}>{statusLabels[ticket.status]}</StatusBadge>}
               </span>
               {ticket.priority !== 'normal' ? <StatusBadge tone={priorityTones[ticket.priority]}>{priorityLabels[ticket.priority]}</StatusBadge> : null}
             </span>
@@ -153,7 +155,7 @@ export function SupportInboxPanel({
         ) : null}
       </aside>
 
-      <main className="admin-support-detail">
+      <main className={`admin-support-detail${inspectorOpen ? '' : ' is-inspector-collapsed'}`}>
         {detailLoading ? <p className="admin-support-empty">Đang tải hội thoại...</p> : selectedTicket ? (
           <>
             <header className="admin-support-detail-header">
@@ -165,37 +167,41 @@ export function SupportInboxPanel({
               <div className="admin-support-detail-side">
                 <div className={`admin-support-detail-badges status-${selectedTicket.status}`}>
                   <StatusBadge tone={statusTones[selectedTicket.status]}>{statusLabels[selectedTicket.status]}</StatusBadge>
-                  <StatusBadge tone={priorityTones[selectedTicket.priority]}>{priorityLabels[selectedTicket.priority]}</StatusBadge>
-                  {selectedTicket.requiresReply ? <StatusBadge tone="warning">Cần phản hồi</StatusBadge> : null}
+                  {selectedTicket.priority !== 'normal' ? <StatusBadge tone={priorityTones[selectedTicket.priority]}>{priorityLabels[selectedTicket.priority]}</StatusBadge> : null}
+                  {selectedTicket.requiresReply ? <StatusBadge tone="warning">Cần trả lời</StatusBadge> : null}
                 </div>
                 {!selectedTicket.assignedTo && (
                   <Button variant="primary" disabled={submitting} onClick={() => void onMutateTicket({ assignedTo: currentUserId })}>
                     Nhận xử lý
                   </Button>
                 )}
+                <button
+                  className="admin-support-inspector-toggle"
+                  type="button"
+                  aria-expanded={inspectorOpen}
+                  aria-controls="support-ticket-inspector"
+                  onClick={() => setInspectorOpen((open) => !open)}
+                >
+                  {inspectorOpen ? <PanelRightClose aria-hidden="true" /> : <PanelRightOpen aria-hidden="true" />}
+                  {inspectorOpen ? 'Đóng thông tin' : 'Thông tin'}
+                </button>
               </div>
             </header>
 
-            <aside className="admin-support-inspector" aria-label="Điều phối và thông tin ticket">
+            <aside id="support-ticket-inspector" className="admin-support-inspector" aria-label="Điều phối và thông tin ticket">
             <section className="admin-support-actions" aria-labelledby="ticket-actions-title">
               <header className="admin-support-actions-header">
-                <span className="admin-support-actions-icon"><ListChecks aria-hidden="true" /></span>
                 <div>
-                  <strong id="ticket-actions-title">Cập nhật ticket</strong>
-                  <small>{submitting ? 'Đang lưu thay đổi…' : 'Thay đổi được lưu tự động'}</small>
+                  <strong id="ticket-actions-title">Thông tin phiếu hỗ trợ</strong>
                 </div>
                 <span className={`admin-support-save-state${submitting ? ' is-saving' : ''}`} aria-live="polite">
-                  <i /> {submitting ? 'Đang lưu' : 'Đã đồng bộ'}
+                  <i /> {submitting ? 'Đang lưu' : 'Đã lưu'}
                 </span>
               </header>
 
               <div className="admin-support-status-action">
-                <div className={`admin-support-current-status status-${selectedTicket.status}`}>
-                  <span>Trạng thái hiện tại</span>
-                  <strong><i aria-hidden="true" /> {statusLabels[selectedTicket.status]}</strong>
-                </div>
                 <div className="admin-support-status-transition">
-                  <span>Cập nhật trạng thái</span>
+                  <span>Thao tác nhanh</span>
                   <div className="admin-support-status-options" role="group" aria-label="Cập nhật trạng thái ticket">
                   {allowedTransitions[selectedTicket.status].filter((value) => value !== selectedTicket.status).map((value) => (
                     <button
@@ -217,7 +223,6 @@ export function SupportInboxPanel({
               <div className="admin-support-assignment">
                 <div className="admin-support-assignment-heading">
                   <strong>Phân công &amp; phân loại</strong>
-                  <span>Thông tin vận hành</span>
                 </div>
                 <label className="admin-support-action-field admin-support-action-field--assignee">
                   <span>Người xử lý</span>
