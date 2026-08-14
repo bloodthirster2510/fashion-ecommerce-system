@@ -709,7 +709,7 @@ describe('productService', () => {
     expect(productDetailQuery.populate).toHaveBeenCalledWith('brand_id', '_id name image');
     expect(productDetailQuery.populate).toHaveBeenCalledWith(
       'category_id',
-      '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes',
+      '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizeGuideImage isFitTypeTemplateSource fitTypeTemplateSourceId sizes measurementFields fitTypes',
     );
     expect(result).toMatchObject({
       _id: productId,
