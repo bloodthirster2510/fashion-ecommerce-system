@@ -25,15 +25,62 @@ import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/paginati
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHistory'>;
 type LoadMode = 'initial' | 'refresh' | 'more';
+type HistoryFilter = 'all' | VirtualTryOnJob['status'];
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 const PAGE_SIZE = 20;
 
-const statusLabel: Record<VirtualTryOnJob['status'], string> = {
-  queued: 'Đang chờ',
-  processing: 'Đang xử lý',
-  succeeded: 'Đã xong',
-  failed: 'Bị lỗi',
-  canceled: 'Đã hủy',
+const statusPresentation: Record<VirtualTryOnJob['status'], {
+  label: string;
+  icon: IconName;
+  color: string;
+  backgroundColor: string;
+}> = {
+  queued: {
+    label: 'Đang chờ',
+    icon: 'clock-outline',
+    color: colors.goldText,
+    backgroundColor: colors.goldSoft,
+  },
+  processing: {
+    label: 'Đang xử lý',
+    icon: 'creation',
+    color: '#6D4DC3',
+    backgroundColor: '#F2ECFF',
+  },
+  succeeded: {
+    label: 'Hoàn thành',
+    icon: 'check-circle-outline',
+    color: colors.success,
+    backgroundColor: colors.successSoft,
+  },
+  failed: {
+    label: 'Bị lỗi',
+    icon: 'alert-circle-outline',
+    color: colors.danger,
+    backgroundColor: colors.dangerSoft,
+  },
+  canceled: {
+    label: 'Đã hủy',
+    icon: 'close-circle-outline',
+    color: colors.textMuted,
+    backgroundColor: '#EEF1F4',
+  },
 };
+
+const historyFilters: Array<{
+  key: HistoryFilter;
+  label: string;
+  icon: IconName;
+  color: string;
+}> = [
+  { key: 'all', label: 'Tất cả', icon: 'view-grid-outline', color: colors.brand },
+  ...Object.entries(statusPresentation).map(([key, presentation]) => ({
+    key: key as VirtualTryOnJob['status'],
+    label: presentation.label,
+    icon: presentation.icon,
+    color: presentation.color,
+  })),
+];
 
 const formatDate = (value: string) => {
   try {
@@ -59,6 +106,7 @@ const VirtualTryOnHistoryScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const { runWithAuth } = useAuth();
   const { refresh: refreshNotifications } = useCustomerNotifications();
+  const [filter, setFilter] = React.useState<HistoryFilter>('all');
   const [jobs, setJobs] = React.useState<VirtualTryOnJob[]>([]);
   const [pagination, setPagination] = React.useState<PageInfo | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -79,6 +127,7 @@ const VirtualTryOnHistoryScreen = () => {
       const response = await runWithAuth((token) => virtualTryOnApi.getJobs(token, {
         page,
         limit: PAGE_SIZE,
+        status: filter === 'all' ? undefined : filter,
       }));
       if (requestSequenceRef.current !== requestSequence) return;
       setJobs((current) => mode === 'more' ? mergePageItems(current, response.items) : response.items);
@@ -94,7 +143,7 @@ const VirtualTryOnHistoryScreen = () => {
       setIsRefreshing(false);
       setIsLoadingMore(false);
     }
-  }, [runWithAuth]);
+  }, [filter, runWithAuth]);
 
   useFocusEffect(React.useCallback(() => {
     void loadJobs();
@@ -141,6 +190,43 @@ const VirtualTryOnHistoryScreen = () => {
         <View style={styles.headerSpacer} />
       </View>
 
+      <View style={styles.tabsPanel}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsContent}
+        >
+          {historyFilters.map((option) => {
+            const isActive = option.key === filter;
+
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={styles.tabButton}
+                onPress={() => {
+                  if (!isActive) setFilter(option.key);
+                }}
+                activeOpacity={0.84}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+              >
+                <View style={styles.tabLabelRow}>
+                  <MaterialCommunityIcons
+                    name={option.icon}
+                    size={17}
+                    color={isActive ? option.color : colors.textMuted}
+                  />
+                  <Text style={[styles.tabLabel, isActive && { color: option.color, fontWeight: '900' }]}>
+                    {option.label}
+                  </Text>
+                </View>
+                {isActive ? <View style={[styles.tabIndicator, { backgroundColor: option.color }]} /> : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
@@ -168,6 +254,7 @@ const VirtualTryOnHistoryScreen = () => {
           <>
             {jobs.map((job) => {
               const imageCount = getJobImageCount(job);
+              const presentation = statusPresentation[job.status];
 
               return (
                 <TouchableOpacity key={job._id} style={styles.jobCard} onPress={() => openJob(job)} activeOpacity={0.86}>
@@ -193,7 +280,10 @@ const VirtualTryOnHistoryScreen = () => {
                       </TouchableOpacity>
                     </View>
                     <View style={styles.metaRow}>
-                      <Text style={styles.badge}>{statusLabel[job.status]}</Text>
+                      <View style={[styles.badge, { backgroundColor: presentation.backgroundColor }]}>
+                        <MaterialCommunityIcons name={presentation.icon} size={13} color={presentation.color} />
+                        <Text style={[styles.badgeText, { color: presentation.color }]}>{presentation.label}</Text>
+                      </View>
                       <Text style={styles.date}>{formatDate(job.createdAt)}</Text>
                     </View>
                     <Text style={styles.price}>{job.totalFinalPrice ? `${job.selectedItems.length} món - ${job.totalFinalPrice.toLocaleString('vi-VN')}đ` : `${job.selectedItems.length} món`}</Text>
@@ -213,9 +303,19 @@ const VirtualTryOnHistoryScreen = () => {
           </>
         ) : (
           <View style={styles.emptyState}>
-            <MaterialCommunityIcons name="hanger" size={36} color={colors.brand} />
-            <Text style={styles.emptyTitle}>Chưa có lịch sử</Text>
-            <Text style={styles.emptyText}>Các kết quả phối đồ của bạn sẽ xuất hiện tại đây.</Text>
+            <MaterialCommunityIcons
+              name={filter === 'all' ? 'hanger' : statusPresentation[filter].icon}
+              size={36}
+              color={filter === 'all' ? colors.brand : statusPresentation[filter].color}
+            />
+            <Text style={styles.emptyTitle}>
+              {filter === 'all' ? 'Chưa có lịch sử' : `Chưa có kết quả ${statusPresentation[filter].label.toLowerCase()}`}
+            </Text>
+            <Text style={styles.emptyText}>
+              {filter === 'all'
+                ? 'Các kết quả phối đồ của bạn sẽ xuất hiện tại đây.'
+                : 'Bạn có thể chọn trạng thái khác để xem các lượt phối đồ.'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -255,6 +355,41 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: 40,
+  },
+  tabsPanel: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tabsContent: {
+    paddingHorizontal: spacing.xs,
+  },
+  tabButton: {
+    minHeight: 54,
+    minWidth: 96,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabLabel: {
+    color: colors.textBody,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    bottom: 0,
+    height: 3,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
   },
   content: {
     flex: 1,
@@ -329,15 +464,18 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   badge: {
-    color: colors.white,
+    minHeight: 23,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  badgeText: {
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '900',
-    backgroundColor: colors.brand,
-    borderRadius: radii.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    overflow: 'hidden',
   },
   date: {
     color: colors.textMuted,
