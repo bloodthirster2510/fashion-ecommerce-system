@@ -108,8 +108,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 log "fetching origin/main"
-git fetch --prune origin main:refs/remotes/origin/main
-target_sha="$(git rev-parse origin/main)"
+git fetch origin main
+target_sha="$(git rev-parse FETCH_HEAD)"
 current_sha="$(git rev-parse HEAD)"
 mkdir -p "$STATE_DIR"
 
@@ -140,9 +140,9 @@ fi
 
 if git show-ref --verify --quiet refs/heads/main; then
   git switch main
-  git merge --ff-only origin/main
+  git merge --ff-only "$target_sha"
 else
-  git switch --create main --track origin/main
+  git switch --create main "$target_sha"
 fi
 
 declare -a services=()
