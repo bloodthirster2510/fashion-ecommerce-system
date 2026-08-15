@@ -15,16 +15,22 @@
       }
     },
     "preview": {
+      "autoIncrement": true,
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://192.168.1.5:5000/api",
-        "EXPO_PUBLIC_API_HOST": "192.168.1.5",
-        "EXPO_PUBLIC_API_PORT": "5000",
-        "EXPO_PUBLIC_API_DEBUG_LOGS": "true"
+        "EXPO_PUBLIC_API_URL": "https://cdshopfashion.duckdns.org/api",
+        "EXPO_PUBLIC_API_DEBUG_LOGS": "false"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://cdshopfashion.duckdns.org/api",
+        "EXPO_PUBLIC_API_DEBUG_LOGS": "false"
+      }
     }
   },
   "submit": {
