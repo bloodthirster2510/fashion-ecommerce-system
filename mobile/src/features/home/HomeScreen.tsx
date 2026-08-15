@@ -9,7 +9,7 @@ import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav
 import { colors, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { catalogApi, CatalogCategory, CatalogGender, CatalogProduct } from '../catalog/catalogApi';
+import { catalogApi, CatalogCategory, CatalogProduct } from '../catalog/catalogApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
 import RecommendationRail from '../recommendation/RecommendationRail';
@@ -231,18 +231,6 @@ const HomeScreen = () => {
     navigation.navigate('ProductList', params);
   };
 
-  const handleGenderSelect = (gender: CatalogGender) => {
-    navigateToProductList({
-      title:
-        gender === 'male'
-          ? 'Thời trang nam'
-          : gender === 'female'
-            ? 'Thời trang nữ'
-            : 'Thời trang unisex',
-      gender,
-    });
-  };
-
   const handleCategorySelect = (category: CatalogCategory) => {
     navigateToProductList({
       title: category.name,
@@ -386,7 +374,6 @@ const HomeScreen = () => {
         isLoading={isCategoryLoading}
         onClose={() => setIsCategoryDrawerVisible(false)}
         onSelectAll={() => navigateToProductList({ title: 'Tất cả sản phẩm' })}
-        onSelectGender={handleGenderSelect}
         onSelectCategory={handleCategorySelect}
       />
       <StorefrontBottomNav activeTab="home" />
