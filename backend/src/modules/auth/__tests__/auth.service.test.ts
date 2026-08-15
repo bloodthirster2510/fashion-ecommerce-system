@@ -78,12 +78,11 @@ describe('Auth Service', () => {
   });
 
   describe('sendOtp', () => {
-    it('should not reveal whether phone already exists', async () => {
+    it('should reject when phone already exists', async () => {
       (User.findOne as jest.Mock).mockResolvedValue({ phone: '0900000000' });
-      await expect(sendOtp('0900000000')).resolves.toEqual({
-        mode: 'mock',
-        provider: 'mock',
-        testOtp: '123456',
+      await expect(sendOtp('0900000000')).rejects.toEqual({
+        status: 409,
+        message: 'Số điện thoại đã được sử dụng',
       });
       expect(sendOtpSms).not.toHaveBeenCalled();
     });
@@ -238,6 +237,49 @@ describe('Auth Service', () => {
       expect(mockUser.save).not.toHaveBeenCalled();
     });
 
+    it('should register user successfully without an email', async () => {
+      (verifyOtpToken as jest.Mock).mockReturnValue(true);
+      (User.findOne as jest.Mock).mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+      (jwt.sign as jest.Mock).mockReturnValueOnce('access_token').mockReturnValueOnce('refresh_token');
+      const mockUser = {
+        _id: { toString: () => 'user123' },
+        name: 'Test',
+        phone: '0900000000',
+        role: 'user',
+        save: jest.fn(),
+        refreshToken: '',
+      };
+      (User.create as jest.Mock).mockResolvedValue(mockUser);
+
+      const result = await registerUser({
+        name: 'Test',
+        password: 'password123',
+        phone: '0900000000',
+        gender: 'male',
+        dateOfBirth: '1990-01-01',
+        otpToken: 'valid_token',
+        acceptedTerms: true,
+        policyVersion: LEGAL_POLICY_VERSION,
+        address: {
+          customerName: 'Test',
+          province: 'Cần Thơ',
+          ward: 'An Khánh',
+          wardCode: '00123',
+          streetName: '123 Đường 3/2',
+          phoneNumber: '0900000000',
+          isDefault: true,
+        },
+      });
+
+      expect(result.accessToken).toBe('access_token');
+      expect(result.user.email).toBe('');
+      expect(User.findOne).toHaveBeenCalledWith({ $or: [{ phone: '0900000000' }] });
+      expect(User.create).toHaveBeenCalledWith(expect.not.objectContaining({
+        email: expect.any(String),
+      }));
+    });
+
     it('should backfill GHN fields for 2025 addresses during registration', async () => {
       (verifyOtpToken as jest.Mock).mockReturnValue(true);
       (User.findOne as jest.Mock).mockResolvedValue(null);
@@ -295,7 +337,7 @@ describe('Auth Service', () => {
       (User.findOne as jest.Mock).mockResolvedValue(null);
       await expect(loginUser('test@test.com', 'password')).rejects.toEqual({
         status: 401,
-        message: 'Thông tin đăng nhập không chính xác',
+        message: 'Thông tin đăng nhập không chính xác.',
       });
       expect(recordFailedLogin).toHaveBeenCalledWith('test@test.com');
     });
@@ -304,7 +346,7 @@ describe('Auth Service', () => {
       (User.findOne as jest.Mock).mockResolvedValue({ isActive: false });
       await expect(loginUser('test@test.com', 'password')).rejects.toEqual({
         status: 403,
-        message: 'Tài khoản không còn hoạt động',
+        message: 'Tài khoản không còn hoạt động.',
       });
     });
 
@@ -314,7 +356,7 @@ describe('Auth Service', () => {
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
       await expect(loginUser('test@test.com', 'password')).rejects.toEqual({
         status: 401,
-        message: 'Thông tin đăng nhập không chính xác',
+        message: 'Thông tin đăng nhập không chính xác.',
       });
       expect(recordFailedLogin).toHaveBeenCalledWith('test@test.com', mockUser);
     });

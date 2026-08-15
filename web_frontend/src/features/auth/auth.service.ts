@@ -1,6 +1,15 @@
 import { axiosClient } from '../../services/axiosClient'
 import { tokenService } from '../../services/tokenService'
-import type { ApiResponse, AuthSession, LoginUnlockResult, OtpDeliveryInfo, Province, RegisterPayload, Ward } from './auth.types'
+import type {
+  ApiResponse,
+  AuthSession,
+  LoginUnlockResult,
+  OtpDeliveryInfo,
+  PasswordRecoveryResult,
+  Province,
+  RegisterPayload,
+  Ward,
+} from './auth.types'
 import { AuthApiError } from './auth.types'
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
@@ -76,6 +85,20 @@ export const authService = {
     return request<null>('/auth/login/unlock/verify', {
       method: 'POST',
       body: JSON.stringify({ identifier, otp }),
+    })
+  },
+
+  forgotPassword(identifier: string) {
+    return request<PasswordRecoveryResult>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    })
+  },
+
+  resetPassword(identifier: string, token: string, newPassword: string, confirmPassword: string) {
+    return request<null>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, token, newPassword, confirmPassword }),
     })
   },
 

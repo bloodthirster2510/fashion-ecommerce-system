@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { User, type IUser } from '../../database/models/user.model';
+import { OAuth2Client } from 'google-auth-library';
+import { User, type AuthProviderName, type IUser } from '../../database/models/user.model';
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -123,7 +124,7 @@ const isProfileCompleted = (user: IUser) =>
 const toSessionUser = (user: IUser) => ({
   _id: user._id,
   name: user.name,
-  email: user.email,
+  email: user.email ?? '',
   phone: user.phone ?? '',
   role: user.role,
   permissions: user.permissions ?? [],
@@ -132,11 +133,44 @@ const toSessionUser = (user: IUser) => ({
   profileCompleted: isProfileCompleted(user),
 });
 
+const createSocialUser = async (data: {
+  provider: AuthProviderName;
+  providerId: string;
+  name: string;
+  email: string;
+}) => {
+  return User.create({
+    name: data.name,
+    email: data.email.toLowerCase(),
+    password: await hashPassword(crypto.randomBytes(32).toString('hex')),
+    role: 'user',
+    isActive: true,
+    profileCompleted: false,
+    authProviders: [{ provider: data.provider, providerId: data.providerId }],
+    address: [],
+  });
+};
+
+const linkAuthProvider = async (user: IUser, provider: AuthProviderName, providerId: string) => {
+  const alreadyLinked = user.authProviders.some(
+    (item) => item.provider === provider && item.providerId === providerId,
+  );
+
+  if (!alreadyLinked) {
+    user.authProviders.push({ provider, providerId });
+    await User.updateOne(
+      { _id: user._id },
+      { $addToSet: { authProviders: { provider, providerId } } },
+    );
+  }
+};
+
 export const sendOtp = async (phone: string): Promise<SmsDeliveryInfo> => {
   assertAuthIdentifierNotThrottled('send-otp', phone);
-  const capability = getSmsDeliveryCapability();
   const existingUser = await User.findOne({ phone });
-  if (existingUser) return capability;
+  if (existingUser) {
+    throw { status: 409, message: 'Số điện thoại đã được sử dụng' };
+  }
 
   const delivery = await sendOtpSms(phone);
   return {
@@ -156,7 +190,7 @@ export const verifyOtp = async (phone: string, otp: string): Promise<string> => 
 
 export const registerUser = async (data: {
   name: string;
-  email: string;
+  email?: string;
   password: string;
   phone: string;
   gender: string;
@@ -174,12 +208,16 @@ export const registerUser = async (data: {
     throw { status: 400, message: 'Số điện thoại chưa được xác thực' };
   }
 
-  const existingUser = await User.findOne({
-    $or: [{ email: data.email.toLowerCase() }, { phone: data.phone }],
-  });
+  const normalizedEmail = data.email?.trim().toLowerCase() || '';
+  const duplicateContacts: Array<Record<string, string>> = [{ phone: data.phone }];
+  if (normalizedEmail) {
+    duplicateContacts.push({ email: normalizedEmail });
+  }
+
+  const existingUser = await User.findOne({ $or: duplicateContacts });
 
   if (existingUser) {
-    if (existingUser.email === data.email.toLowerCase()) {
+    if (normalizedEmail && existingUser.email === normalizedEmail) {
       throw { status: 409, message: 'Email đã được sử dụng' };
     }
     throw { status: 409, message: 'Số điện thoại đã được sử dụng' };
@@ -193,7 +231,7 @@ export const registerUser = async (data: {
 
   const user = await User.create({
     name: data.name,
-    email: data.email.toLowerCase(),
+    ...(normalizedEmail ? { email: normalizedEmail } : {}),
     password: hashedPassword,
     phone: data.phone,
     gender: data.gender,
@@ -207,7 +245,7 @@ export const registerUser = async (data: {
     },
   });
 
-  const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const payload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
@@ -235,17 +273,17 @@ const loginWithPassword = async (
   if (!user) {
     await comparePassword(password, DUMMY_PASSWORD_HASH);
     await recordFailedLogin(normalizedIdentifier);
-    throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
+    throw { status: 401, message: 'Thông tin đăng nhập không chính xác.' };
   }
 
   if (!user.isActive) {
-    throw { status: 403, message: 'Tài khoản không còn hoạt động' };
+    throw { status: 403, message: 'Tài khoản không còn hoạt động.' };
   }
 
   const isPasswordValid = await comparePassword(password, user.password);
   if (!isPasswordValid) {
     await recordFailedLogin(normalizedIdentifier, user);
-    throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
+    throw { status: 401, message: 'Thông tin đăng nhập không chính xác.' };
   }
 
   await clearLoginSecurity(normalizedIdentifier, user);
@@ -254,7 +292,7 @@ const loginWithPassword = async (
     throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
   }
 
-  const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const payload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
@@ -339,7 +377,7 @@ export const refreshAccessToken = async (token: string) => {
     throw { status: 403, message: 'Tài khoản đã bị khóa' };
   }
 
-  const newPayload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const newPayload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const newAccessToken = generateAccessToken(newPayload);
   const newRefreshToken = generateRefreshToken(newPayload);
 
@@ -477,5 +515,146 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     passwordChangedAt: new Date(),
   });
   await revokeUserDeviceAccess(userId);
-  await clearLoginSecurity(user.email, user);
+  await clearLoginSecurity(user.email ?? user.phone, user);
+};
+
+const googleClient = process.env.GOOGLE_CLIENT_ID
+  ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
+  : null;
+
+const generateUserTokens = async (user: IUser) => {
+  const payload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
+  const accessToken = generateAccessToken(payload);
+  const refreshToken = generateRefreshToken(payload);
+
+  await Promise.all([
+    updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() }),
+    clearLoginSecurity(user.email ?? user.phone, user),
+  ]);
+
+  return {
+    accessToken,
+    refreshToken,
+    user: toSessionUser(user),
+  };
+};
+
+export const socialLogin = async (provider: AuthProviderName, idToken: string) => {
+  if (provider === 'google') {
+    return googleLogin(idToken);
+  }
+  if (provider === 'facebook') {
+    return facebookLogin(idToken);
+  }
+  throw { status: 400, message: `Đăng nhập qua ${provider} chưa được hỗ trợ` };
+};
+
+const googleLogin = async (idToken: string) => {
+  if (!googleClient) {
+    throw { status: 500, message: 'Google Sign-In chưa được cấu hình' };
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch {
+    throw { status: 400, message: 'Google token không hợp lệ' };
+  }
+
+  if (!payload || !payload.email) {
+    throw { status: 400, message: 'Không thể xác thực với Google' };
+  }
+
+  const { sub: googleId, email, name } = payload;
+
+  let user = await User.findOne({ 'authProviders.provider': 'google', 'authProviders.providerId': googleId });
+
+  if (!user) {
+    user = await User.findOne({ email: email.toLowerCase() });
+
+    if (user) {
+      await linkAuthProvider(user, 'google', googleId!);
+    } else {
+      user = await createSocialUser({
+        provider: 'google',
+        providerId: googleId!,
+        name: name || email.split('@')[0],
+        email: email.toLowerCase(),
+      });
+    }
+  }
+
+  if (!user.isActive) {
+    throw { status: 403, message: 'Tài khoản không còn hoạt động' };
+  }
+
+  return generateUserTokens(user);
+};
+const facebookLogin = async (accessToken: string) => {
+  const appId = process.env.FACEBOOK_APP_ID?.trim();
+  const appSecret = process.env.FACEBOOK_APP_SECRET?.trim();
+
+  if (!appId || !appSecret) {
+    throw { status: 500, message: 'Facebook Sign-In chưa được cấu hình' };
+  }
+
+  let fbUser;
+  try {
+    const debugResponse = await fetch(
+      `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`,
+    );
+    const debugPayload = await debugResponse.json();
+    const debugData = debugPayload?.data;
+
+    if (!debugData?.is_valid || debugData.app_id !== appId || !debugData.user_id) {
+      throw new Error('Invalid Facebook token');
+    }
+
+    const response = await fetch(
+      `https://graph.facebook.com/me?fields=id,name,email&access_token=${accessToken}`,
+    );
+    fbUser = await response.json();
+
+    if (fbUser.error) {
+      throw new Error(fbUser.error.message);
+    }
+
+    if (!fbUser.id || fbUser.id !== debugData.user_id) {
+      throw new Error('Invalid Facebook token');
+    }
+  } catch {
+    throw { status: 400, message: 'Facebook token không hợp lệ' };
+  }
+
+  const { id: facebookId, name, email } = fbUser;
+  const userEmail = email || `${facebookId}@facebook.com`;
+
+  let user = await User.findOne({ 'authProviders.provider': 'facebook', 'authProviders.providerId': facebookId });
+
+  if (!user) {
+    if (email) {
+      user = await User.findOne({ email: email.toLowerCase() });
+    }
+
+    if (user) {
+      await linkAuthProvider(user, 'facebook', facebookId);
+    } else {
+      user = await createSocialUser({
+        provider: 'facebook',
+        providerId: facebookId,
+        name: name || `Facebook User`,
+        email: userEmail.toLowerCase(),
+      });
+    }
+  }
+
+  if (!user.isActive) {
+    throw { status: 403, message: 'Tài khoản không còn hoạt động' };
+  }
+
+  return generateUserTokens(user);
 };

@@ -35,6 +35,17 @@ export type OtpDeliveryInfo = {
   testOtp?: string
 }
 
+export type EmailDeliveryInfo = {
+  mode: 'mock' | 'real'
+  provider: 'mock' | 'smtp'
+  testToken?: string
+  testUrl?: string
+}
+
+export type PasswordRecoveryResult =
+  | { method: 'email'; delivery?: EmailDeliveryInfo }
+  | { method: 'phone'; delivery?: OtpDeliveryInfo }
+
 export type LoginUnlockResult = {
   method: 'email' | 'phone'
   delivery: {
@@ -49,7 +60,7 @@ export type LoginUnlockResult = {
 export type RegisterPayload = {
   name: string
   phone: string
-  email: string
+  email?: string
   gender: 'male' | 'female'
   dateOfBirth: string
   address: {

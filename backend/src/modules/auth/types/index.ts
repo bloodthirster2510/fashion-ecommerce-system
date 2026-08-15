@@ -33,7 +33,7 @@ export type UserAddressPayload = {
 export type RegisterPayload = {
   name: string;
   phone: string;
-  email: string;
+  email?: string;
   gender: 'male' | 'female';
   dateOfBirth: string;
   address: UserAddressPayload;

@@ -174,9 +174,73 @@ describe('auth controller logout', () => {
     expect(authService.logoutWithRefreshToken).toHaveBeenCalledWith('valid_refresh');
     expect(res.status).toHaveBeenCalledWith(204);
   });
+
+  it('logs out with the refresh cookie when no access token is available', async () => {
+    (authService.logoutWithRefreshToken as jest.Mock).mockResolvedValue(undefined);
+    const res = createResponse();
+
+    await logout(createRequest({
+      body: {},
+      cookie: 'fashion_refresh_token=cookie_refresh',
+    }), res);
+
+    expect(authService.logoutWithAccessToken).not.toHaveBeenCalled();
+    expect(authService.logoutWithRefreshToken).toHaveBeenCalledWith('cookie_refresh');
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'fashion_refresh_token',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/api/auth',
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
+
+  it('clears the refresh cookie and still returns success when logout invalidation fails', async () => {
+    (authService.logoutWithRefreshToken as jest.Mock).mockRejectedValue(new Error('database unavailable'));
+    const res = createResponse();
+
+    await logout(createRequest({
+      body: {},
+      cookie: 'fashion_refresh_token=cookie_refresh',
+    }), res);
+
+    expect(authService.logoutWithRefreshToken).toHaveBeenCalledWith('cookie_refresh');
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'fashion_refresh_token',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/api/auth',
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(204);
+  });
 });
 
 describe('auth controller login lock response', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('rejects an invalid email or phone number before authentication', async () => {
+    const res = createResponse();
+
+    await login(createRequest({
+      body: { identifier: 'not-a-valid-identifier', password: 'Password@123' },
+      cookieMode: false,
+    }), res);
+
+    expect(authService.loginUser).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Dữ liệu không hợp lệ',
+      errors: [{
+        field: 'identifier',
+        message: 'Email hoặc số điện thoại không hợp lệ.',
+      }],
+    });
+  });
+
   it('returns the structured lock contract and Retry-After header', async () => {
     (authService.loginUser as jest.Mock).mockRejectedValue(new LoginSecurityError(
       'Tài khoản tạm khóa',
