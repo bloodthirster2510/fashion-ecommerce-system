@@ -8,6 +8,7 @@ import HomeScreen from '../HomeScreen';
 import { invalidateScreenData } from '../../../config/screenDataCache';
 
 const mockFocusCallbacks = new Set<() => void | (() => void)>();
+const mockFocusCleanups = new Map<() => void | (() => void), () => void>();
 const mockCategoryDrawer = jest.fn((_props: Record<string, unknown>) => null);
 const mockStorefrontHeader = jest.fn((_props: Record<string, unknown>) => null);
 const mockProductSection = jest.fn((_props: Record<string, unknown>) => null);
@@ -19,7 +20,14 @@ jest.mock('@react-navigation/native', () => {
     useNavigation: jest.fn(),
     useFocusEffect: (callback: () => void | (() => void)) => {
       mockFocusCallbacks.add(callback);
-      ReactModule.useEffect(callback, [callback]);
+      ReactModule.useEffect(() => {
+        const cleanup = callback();
+        if (cleanup) mockFocusCleanups.set(callback, cleanup);
+        return () => {
+          mockFocusCleanups.delete(callback);
+          cleanup?.();
+        };
+      }, [callback]);
     },
   };
 });
@@ -94,6 +102,7 @@ describe('HomeScreen catalog lifecycle', () => {
     invalidateScreenData();
     jest.clearAllMocks();
     mockFocusCallbacks.clear();
+    mockFocusCleanups.clear();
     now = 100_000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);
     mockedUseNavigation.mockReturnValue({ navigate: jest.fn() });
@@ -150,6 +159,48 @@ describe('HomeScreen catalog lifecycle', () => {
     );
     expect(mockedCatalogApi.getBestSellers).toHaveBeenCalledTimes(2);
     expect(mockedRecommendationApi.getPersonalRecommendations).toHaveBeenCalledTimes(2);
+  });
+
+  it('restarts an interrupted initial load when Home regains focus before becoming stale', async () => {
+    const initialCategories = deferred<Awaited<ReturnType<typeof catalogApi.getCategories>>>();
+    const initialBestSellers = deferred<Awaited<ReturnType<typeof catalogApi.getBestSellers>>>();
+    const initialRecommendations = deferred<Awaited<ReturnType<typeof recommendationApi.getPersonalRecommendations>>>();
+    mockedCatalogApi.getCategories
+      .mockReturnValueOnce(initialCategories.promise)
+      .mockResolvedValueOnce([]);
+    mockedCatalogApi.getBestSellers
+      .mockReturnValueOnce(initialBestSellers.promise)
+      .mockResolvedValueOnce({
+        items: [],
+        pagination: { page: 1, limit: 8, totalItems: 0, totalPages: 0 },
+      } as never);
+    mockedRecommendationApi.getPersonalRecommendations
+      .mockReturnValueOnce(initialRecommendations.promise)
+      .mockResolvedValueOnce({
+        items: [],
+        requestId: 'request-retry',
+        algorithmVersion: 'v1',
+        fallbackUsed: false,
+      });
+
+    await renderer.act(async () => {
+      tree = renderer.create(<HomeScreen />);
+      await Promise.resolve();
+    });
+
+    expect((mockProductSection.mock.calls.at(-1)?.[0] as { isLoading: boolean }).isLoading).toBe(true);
+
+    await renderer.act(async () => {
+      Array.from(mockFocusCleanups.values()).forEach((cleanup) => cleanup());
+      Array.from(mockFocusCallbacks).forEach((callback) => callback());
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockedCatalogApi.getCategories).toHaveBeenCalledTimes(2);
+    expect(mockedCatalogApi.getBestSellers).toHaveBeenCalledTimes(2);
+    expect(mockedRecommendationApi.getPersonalRecommendations).toHaveBeenCalledTimes(2);
+    expect((mockProductSection.mock.calls.at(-1)?.[0] as { isLoading: boolean }).isLoading).toBe(false);
   });
 
   it('normalizes searches and opens all products for an empty submission', async () => {

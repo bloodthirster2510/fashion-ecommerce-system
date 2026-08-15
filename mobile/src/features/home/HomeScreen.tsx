@@ -68,6 +68,14 @@ const HomeScreen = () => {
   const hasLoadedHomeProductsRef = React.useRef(
     Boolean(initialBestSellersRef.current && initialRecommendationsRef.current),
   );
+  const shouldForceCategoriesLoad = React.useCallback(
+    () => !hasLoadedCategoriesRef.current,
+    [],
+  );
+  const shouldForceHomeProductsLoad = React.useCallback(
+    () => !hasLoadedHomeProductsRef.current,
+    [],
+  );
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
     if (isAuthenticated) {
@@ -200,11 +208,13 @@ const HomeScreen = () => {
 
   useStaleFocusEffect(loadCategories, [loadCategories], {
     cacheScope: 'home:',
+    forceRunWhen: shouldForceCategoriesLoad,
     runOnDepsChange: true,
     staleMs: 60 * 1000,
   });
   useStaleFocusEffect(loadHomeProducts, [loadHomeProducts], {
     cacheScope: 'home:',
+    forceRunWhen: shouldForceHomeProductsLoad,
     staleMs: 60 * 1000,
     runOnDepsChange: true,
   });
