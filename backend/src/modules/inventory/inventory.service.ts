@@ -2,31 +2,41 @@ import mongoose, { Types, type ClientSession } from 'mongoose';
 import {
   Inventory,
   InventoryImport,
+  InventoryMovement,
   InventoryReceipt,
   InventoryReservation,
+  InventoryStocktake,
+  InventorySupplier,
   Product,
+  type IInventory,
   type IInventoryImport,
   type IInventoryImportDetail,
   type IInventoryReceipt,
   type IInventoryReceiptLineDetail,
   type IInventoryReservation,
+  type IInventoryStocktake,
   type IProductVariant,
+  type InventoryMovementType,
   type InventoryReservationStatus,
 } from '../../database/models';
 import type {
   AdjustInventoryInput,
+  CreateStocktakeInput,
   CreateInventoryImportInput,
   CreateInventoryReceiptInput,
   InventoryImportDetailInput,
   InventoryImportListQueryInput,
   InventoryListQueryInput,
+  InventoryMovementListQueryInput,
   InventoryReceiptLineInput,
   InventoryReceiptListQueryInput,
   InventoryReceiptStatus,
   InventoryReservationItemInput,
   ReservationSelectorInput,
   ReserveInventoryInput,
+  UpdateInventoryThresholdInput,
   UpdateInventoryReceiptInput,
+  UpsertInventorySupplierInput,
 } from './inventory.types';
 
 export class InventoryServiceError extends Error {
@@ -52,11 +62,55 @@ type SessionOptions = {
   session?: ClientSession;
 };
 
+const isTransactionUnsupportedError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('Transaction numbers are only allowed on a replica set member or mongos') ||
+    message.includes('Transactions are not supported') ||
+    message.includes('This MongoDB deployment does not support retryable writes')
+  );
+};
+
+const runWithOptionalTransaction = async (
+  operation: (options: SessionOptions) => Promise<void>,
+) => {
+  const session = await mongoose.startSession();
+
+  try {
+    try {
+      await session.withTransaction(async () => operation({ session }));
+      return;
+    } catch (error) {
+      if (!isTransactionUnsupportedError(error)) {
+        throw error;
+      }
+    }
+  } finally {
+    await session.endSession();
+  }
+
+  await operation({});
+};
+
 type CreateImportOptions = SessionOptions & {
   importCode?: string;
   receiptId?: Types.ObjectId;
   receiptCode?: string;
+  createdBy?: Types.ObjectId | null;
 };
+
+type InventorySnapshot = Pick<
+  IInventory,
+  | '_id'
+  | 'productId'
+  | 'variantId'
+  | 'colorVariantId'
+  | 'size'
+  | 'sku'
+  | 'quantity'
+  | 'reservedQuantity'
+  | 'availableQuantity'
+>;
 
 const assertValidObjectId = (id: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -75,6 +129,10 @@ const toIdString = (value: Types.ObjectId | string | { toString(): string } | nu
 
 const normalizeSize = (value: string) => value.trim();
 const normalizeSupplierName = (value: string | undefined) => value?.trim().slice(0, 120) ?? '';
+const normalizeShortText = (value: string | undefined, maxLength = 160) =>
+  value?.trim().slice(0, maxLength) ?? '';
+const normalizeLongText = (value: string | undefined, maxLength = 1000) =>
+  value?.trim().slice(0, maxLength) ?? '';
 
 const assertPositiveInteger = (
   value: number,
@@ -290,6 +348,23 @@ const buildReceiptFilter = (query: InventoryReceiptListQueryInput) => {
   return filter;
 };
 
+const buildMovementFilter = (query: InventoryMovementListQueryInput) => {
+  const filter: Record<string, unknown> = buildInventoryFilter(query);
+
+  if (query.type) {
+    filter.type = query.type;
+  }
+
+  if (query.from || query.to) {
+    filter.createdAt = {
+      ...(query.from ? { $gte: query.from } : {}),
+      ...(query.to ? { $lte: query.to } : {}),
+    };
+  }
+
+  return filter;
+};
+
 const normalizeReceiptCode = (value: string | undefined) =>
   value?.trim().toUpperCase().slice(0, MAX_IMPORT_CODE_LENGTH);
 
@@ -418,13 +493,75 @@ const getInventoryByIdOrThrow = async (id: string) => {
   return inventory;
 };
 
-const didMatchUpdate = (result: unknown) => {
-  if (typeof result !== 'object' || result === null) {
-    return true;
+const createMovement = async (
+  inventory: InventorySnapshot,
+  delta: {
+    quantityDelta: number;
+    reservedDelta?: number;
+    availableDelta?: number;
+  },
+  options: SessionOptions & {
+    type: InventoryMovementType;
+    reason?: string;
+    note?: string;
+    sourceId?: Types.ObjectId | null;
+    sourceCode?: string;
+    sourceType?: string;
+    createdBy?: Types.ObjectId | null;
+  },
+) => {
+  const reservedDelta = delta.reservedDelta ?? 0;
+  const availableDelta = delta.availableDelta ?? 0;
+  const payload = {
+    inventoryId: inventory._id,
+    productId: inventory.productId,
+    variantId: inventory.variantId,
+    colorVariantId: inventory.colorVariantId,
+    size: inventory.size,
+    sku: inventory.sku,
+    type: options.type,
+    quantityDelta: delta.quantityDelta,
+    reservedDelta,
+    availableDelta,
+    quantityBefore: inventory.quantity - delta.quantityDelta,
+    quantityAfter: inventory.quantity,
+    reservedBefore: inventory.reservedQuantity - reservedDelta,
+    reservedAfter: inventory.reservedQuantity,
+    availableBefore: inventory.availableQuantity - availableDelta,
+    availableAfter: inventory.availableQuantity,
+    reason: normalizeShortText(options.reason),
+    note: normalizeLongText(options.note),
+    sourceId: options.sourceId ?? null,
+    sourceCode: normalizeShortText(options.sourceCode, 80),
+    sourceType: normalizeShortText(options.sourceType, 40),
+    createdBy: options.createdBy ?? null,
+  };
+
+  if (options.session) {
+    await InventoryMovement.create([payload], { session: options.session });
+    return;
   }
 
-  const matchedCount = (result as { matchedCount?: unknown }).matchedCount;
-  return typeof matchedCount === 'number' ? matchedCount > 0 : true;
+  await InventoryMovement.create(payload);
+};
+
+const upsertSupplierByName = async (supplierName: string, options: SessionOptions = {}) => {
+  const name = normalizeSupplierName(supplierName);
+  if (!name) return;
+
+  const update = {
+    $setOnInsert: {
+      name,
+      isActive: true,
+    },
+  };
+
+  if (options.session) {
+    await InventorySupplier.updateOne({ name }, update, { upsert: true, session: options.session });
+    return;
+  }
+
+  await InventorySupplier.updateOne({ name }, update, { upsert: true });
 };
 
 const createImportAndAdjustInventory = async (
@@ -459,11 +596,12 @@ const createImportAndAdjustInventory = async (
   const [createdImportRecord] = await InventoryImport.create([importPayload], {
     ...(options.session ? { session: options.session } : {}),
   });
+  await upsertSupplierByName(supplierName, options);
 
   for (const item of detail) {
     const sku = buildSku(input.productId, input.variantId, input.colorVariantId, item.size);
 
-    await Inventory.findOneAndUpdate(
+    const updatedInventory = await Inventory.findOneAndUpdate(
       {
         productId,
         variantId,
@@ -490,18 +628,38 @@ const createImportAndAdjustInventory = async (
         ...(options.session ? { session: options.session } : {}),
       },
     );
+
+    if (updatedInventory) {
+      await createMovement(
+        updatedInventory,
+        {
+          quantityDelta: item.quantity,
+          availableDelta: item.quantity,
+        },
+        {
+          type: 'import',
+          reason: options.receiptId ? 'Xác nhận phiếu nhập' : 'Nhập kho',
+          sourceId: createdImportRecord._id,
+          sourceCode: createdImportRecord.importCode,
+          sourceType: options.receiptId ? 'receipt' : 'import',
+          createdBy: options.createdBy ?? null,
+          session: options.session,
+        },
+      );
+    }
   }
 
   return createdImportRecord;
 };
 
-const createImport = async (input: CreateInventoryImportInput) => {
+const createImport = async (input: CreateInventoryImportInput, createdBy?: string) => {
   const session = await mongoose.startSession();
   let importRecord: IInventoryImport | null = null;
+  const createdById = createdBy ? toObjectId(createdBy, 'createdBy') : null;
 
   try {
     await session.withTransaction(async () => {
-      importRecord = await createImportAndAdjustInventory(input, { session });
+      importRecord = await createImportAndAdjustInventory(input, { createdBy: createdById, session });
     });
   } finally {
     await session.endSession();
@@ -588,6 +746,47 @@ const getImports = async (query: InventoryImportListQueryInput) => {
       totalPages: Math.ceil(totalItems / limit),
     },
   };
+};
+
+const getInventoryThreshold = async () => {
+  const item = await Inventory.findOne()
+    .sort({ updatedAt: -1 })
+    .select('lowStockThreshold')
+    .lean();
+
+  return { lowStockThreshold: item?.lowStockThreshold ?? 5 };
+};
+
+const getMovements = async (query: InventoryMovementListQueryInput) => {
+  const { page, limit } = clampPagination(query);
+  const filter = buildMovementFilter(query);
+
+  const [items, totalItems] = await Promise.all([
+    InventoryMovement.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    InventoryMovement.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+    },
+  };
+};
+
+const updateInventoryThreshold = async (input: UpdateInventoryThresholdInput) => {
+  assertPositiveInteger(input.lowStockThreshold, 'lowStockThreshold', 0, 100_000);
+
+  await Inventory.updateMany({}, { $set: { lowStockThreshold: input.lowStockThreshold } });
+
+  return { lowStockThreshold: input.lowStockThreshold };
 };
 
 const getReceipts = async (query: InventoryReceiptListQueryInput) => {
@@ -792,6 +991,7 @@ const confirmReceipt = async (id: string) => {
             importCode: buildReceiptImportCode(receipt.receiptCode, lineIndex),
             receiptId: receipt._id,
             receiptCode: receipt.receiptCode,
+            createdBy: receipt.createdBy ?? null,
             session,
           },
         );
@@ -849,7 +1049,7 @@ const getImportById = async (id: string) => {
 
 const decrementInventoryForImport = async (
   importRecord: IInventoryImport,
-  options: { session: ClientSession },
+  options: { session: ClientSession; createdBy?: Types.ObjectId | null },
 ) => {
   const importDetails = importRecord.detail as InventoryImportDetailInput[];
 
@@ -858,7 +1058,7 @@ const decrementInventoryForImport = async (
   }
 
   for (const item of importDetails) {
-    const updateResult = await Inventory.updateOne(
+    const updatedInventory = await Inventory.findOneAndUpdate(
       {
         productId: importRecord.productId,
         variantId: importRecord.variantId,
@@ -873,19 +1073,41 @@ const decrementInventoryForImport = async (
           availableQuantity: -item.quantity,
         },
       },
-      { session: options.session },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+        session: options.session,
+      },
     );
 
-    if (!didMatchUpdate(updateResult)) {
+    if (!updatedInventory) {
       throw new InventoryServiceError('Cannot delete import because imported stock has been used or reserved', 409);
     }
+
+    await createMovement(
+      updatedInventory,
+      {
+        quantityDelta: -item.quantity,
+        availableDelta: -item.quantity,
+      },
+      {
+        type: 'import_delete',
+        reason: 'Xóa lô nhập',
+        sourceId: importRecord._id,
+        sourceCode: importRecord.importCode,
+        sourceType: 'import',
+        createdBy: options.createdBy ?? null,
+        session: options.session,
+      },
+    );
   }
 };
 
-const deleteImport = async (id: string) => {
+const deleteImport = async (id: string, createdBy?: string) => {
   assertValidObjectId(id, 'import id');
   const session = await mongoose.startSession();
   let deletedImport: IInventoryImport | null = null;
+  const createdById = createdBy ? toObjectId(createdBy, 'createdBy') : null;
 
   try {
     await session.withTransaction(async () => {
@@ -898,7 +1120,7 @@ const deleteImport = async (id: string) => {
         throw new InventoryServiceError('Cannot delete an import lot generated from a receipt', 409);
       }
 
-      await decrementInventoryForImport(importRecord, { session });
+      await decrementInventoryForImport(importRecord, { createdBy: createdById, session });
       await importRecord.deleteOne({ session });
       deletedImport = importRecord;
     });
@@ -913,8 +1135,11 @@ const deleteImport = async (id: string) => {
   return deletedImport;
 };
 
-const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
+const adjustInventory = async (id: string, input: AdjustInventoryInput, createdBy?: string) => {
   assertValidObjectId(id, 'inventory id');
+  const reason = normalizeShortText(input.reason);
+  const note = normalizeLongText(input.note);
+  const createdById = createdBy ? toObjectId(createdBy, 'createdBy') : null;
 
   if (input.quantity === undefined && input.deltaQuantity === undefined) {
     throw new InventoryServiceError('quantity or deltaQuantity is required', 400);
@@ -924,10 +1149,11 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
     throw new InventoryServiceError('Use either quantity or deltaQuantity, not both', 400);
   }
 
-  const session = await mongoose.startSession();
+  if (!reason) {
+    throw new InventoryServiceError('reason is required', 400);
+  }
 
-  try {
-    await session.withTransaction(async () => {
+  await runWithOptionalTransaction(async ({ session }) => {
       const inventoryId = new Types.ObjectId(id);
       const updateFilter: Record<string, unknown> = { _id: inventoryId };
       let updatePipeline: Record<string, unknown>[];
@@ -968,7 +1194,8 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
         {
           returnDocument: 'before',
           runValidators: true,
-          session,
+          updatePipeline: true,
+          ...(session ? { session } : {}),
         },
       );
 
@@ -997,7 +1224,7 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
         selector,
         Math.abs(deltaQuantity),
         deltaQuantity < 0 ? 'consume' : 'restore',
-        { session },
+        { ...(session ? { session } : {}) },
       );
 
       if (deltaQuantity < 0 && unadjustedQuantity > 0) {
@@ -1005,12 +1232,37 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput) => {
       }
 
       if (deltaQuantity > 0 && unadjustedQuantity > 0) {
-        await createAdjustmentImport(selector, unadjustedQuantity, { session });
+        await createAdjustmentImport(selector, unadjustedQuantity, { ...(session ? { session } : {}) });
       }
-    });
-  } finally {
-    await session.endSession();
-  }
+
+      await createMovement(
+        {
+          _id: previousInventory._id,
+          productId: previousInventory.productId,
+          variantId: previousInventory.variantId,
+          colorVariantId: previousInventory.colorVariantId,
+          size: previousInventory.size,
+          sku: previousInventory.sku,
+          quantity: previousInventory.quantity + deltaQuantity,
+          reservedQuantity: previousInventory.reservedQuantity,
+          availableQuantity: previousInventory.availableQuantity + deltaQuantity,
+        } as InventorySnapshot,
+        {
+          quantityDelta: deltaQuantity,
+          availableDelta: deltaQuantity,
+        },
+        {
+          type: 'adjustment',
+          reason,
+          note,
+          sourceId: previousInventory._id,
+          sourceCode: previousInventory.sku,
+          sourceType: 'inventory_adjustment',
+          createdBy: createdById,
+          ...(session ? { session } : {}),
+        },
+      );
+  });
 
   return getInventoryByIdOrThrow(id);
 };
@@ -1265,6 +1517,23 @@ const reserveInventory = async (input: ReserveInventoryInput, options: SessionOp
         throw new InventoryServiceError('Insufficient available inventory', 409);
       }
 
+      await createMovement(
+        inventory,
+        {
+          quantityDelta: 0,
+          reservedDelta: item.quantity,
+          availableDelta: -item.quantity,
+        },
+        {
+          type: 'reservation',
+          reason: 'Giữ hàng cho đơn',
+          sourceId: orderId,
+          sourceCode: orderId?.toString(),
+          sourceType: 'order',
+          session: options.session,
+        },
+      );
+
       reservedItems.push(item);
 
       const reservationPayload = {
@@ -1348,11 +1617,34 @@ const transitionReservations = async (
         },
       };
 
-      if (options.session) {
-        await Inventory.updateOne(filter, update, { session: options.session });
-      } else {
-        await Inventory.updateOne(filter, update);
+      const updatedInventory = options.session
+        ? await Inventory.findOneAndUpdate(filter, update, {
+            returnDocument: 'after',
+            runValidators: true,
+            session: options.session,
+          })
+        : await Inventory.findOneAndUpdate(filter, update, {
+            returnDocument: 'after',
+            runValidators: true,
+          });
+      if (!updatedInventory) {
+        throw new InventoryServiceError('Active reservation inventory not found', 409);
       }
+      await createMovement(
+        updatedInventory,
+        {
+          quantityDelta: -reservation.quantity,
+          reservedDelta: -reservation.quantity,
+        },
+        {
+          type: 'sale_commit',
+          reason: 'Hoàn tất giữ hàng',
+          sourceId: reservation.orderId ?? null,
+          sourceCode: reservation.orderId?.toString(),
+          sourceType: 'order',
+          session: options.session,
+        },
+      );
       committedItems.push({
         productId: reservation.productId,
         variantId: reservation.variantId,
@@ -1375,11 +1667,35 @@ const transitionReservations = async (
         },
       };
 
-      if (options.session) {
-        await Inventory.updateOne(filter, update, { session: options.session });
-      } else {
-        await Inventory.updateOne(filter, update);
+      const updatedInventory = options.session
+        ? await Inventory.findOneAndUpdate(filter, update, {
+            returnDocument: 'after',
+            runValidators: true,
+            session: options.session,
+          })
+        : await Inventory.findOneAndUpdate(filter, update, {
+            returnDocument: 'after',
+            runValidators: true,
+          });
+      if (!updatedInventory) {
+        throw new InventoryServiceError('Active reservation inventory not found', 409);
       }
+      await createMovement(
+        updatedInventory,
+        {
+          quantityDelta: 0,
+          reservedDelta: -reservation.quantity,
+          availableDelta: reservation.quantity,
+        },
+        {
+          type: status === 'expired' ? 'reservation_expire' : 'reservation_release',
+          reason: status === 'expired' ? 'Hết hạn giữ hàng' : 'Hủy giữ hàng',
+          sourceId: reservation.orderId ?? null,
+          sourceCode: reservation.orderId?.toString(),
+          sourceType: 'order',
+          session: options.session,
+        },
+      );
     }
 
     reservation.status = status;
@@ -1422,22 +1738,223 @@ const expireReservations = async (now = new Date()) => {
   );
 };
 
+const listSuppliers = async () => {
+  return InventorySupplier.find().sort({ isActive: -1, name: 1 }).lean();
+};
+
+const createSupplier = async (input: UpsertInventorySupplierInput) => {
+  const name = normalizeSupplierName(input.name);
+  if (!name) {
+    throw new InventoryServiceError('Supplier name is required', 400);
+  }
+
+  try {
+    return await InventorySupplier.create({
+      name,
+      phone: normalizeShortText(input.phone, 40),
+      email: normalizeShortText(input.email, 120).toLowerCase(),
+      address: normalizeShortText(input.address, 300),
+      note: normalizeLongText(input.note),
+      isActive: input.isActive ?? true,
+    });
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new InventoryServiceError('Supplier already exists', 409);
+    }
+
+    throw error;
+  }
+};
+
+const updateSupplier = async (id: string, input: Partial<UpsertInventorySupplierInput>) => {
+  assertValidObjectId(id, 'supplier id');
+  const supplier = await InventorySupplier.findById(id);
+  if (!supplier) {
+    throw new InventoryServiceError('Supplier not found', 404);
+  }
+
+  if (input.name !== undefined) {
+    const name = normalizeSupplierName(input.name);
+    if (!name) {
+      throw new InventoryServiceError('Supplier name is required', 400);
+    }
+    supplier.name = name;
+  }
+  if (input.phone !== undefined) supplier.phone = normalizeShortText(input.phone, 40);
+  if (input.email !== undefined) supplier.email = normalizeShortText(input.email, 120).toLowerCase();
+  if (input.address !== undefined) supplier.address = normalizeShortText(input.address, 300);
+  if (input.note !== undefined) supplier.note = normalizeLongText(input.note);
+  if (input.isActive !== undefined) supplier.isActive = Boolean(input.isActive);
+
+  try {
+    return await supplier.save();
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new InventoryServiceError('Supplier already exists', 409);
+    }
+
+    throw error;
+  }
+};
+
+const deleteSupplier = async (id: string) => {
+  return updateSupplier(id, { isActive: false });
+};
+
+const buildStocktakeCode = () => {
+  const timestamp = new Date().toISOString().slice(2, 19).replace(/\D/g, '');
+  const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+
+  return `KK-${timestamp}-${suffix}`;
+};
+
+const createStocktake = async (input: CreateStocktakeInput, createdBy?: string) => {
+  if (!input.lines?.length) {
+    throw new InventoryServiceError('Stocktake lines are required', 400);
+  }
+
+  const createdById = createdBy ? toObjectId(createdBy, 'createdBy') : null;
+  let stocktake: IInventoryStocktake | null = null;
+
+  await runWithOptionalTransaction(async ({ session }) => {
+      const seen = new Set<string>();
+      const lines = [];
+
+      for (const line of input.lines) {
+        assertValidObjectId(line.inventoryId, 'inventoryId');
+        assertPositiveInteger(line.countedQuantity, 'countedQuantity', 0);
+        if (seen.has(line.inventoryId)) {
+          throw new InventoryServiceError('Duplicate inventory item in stocktake', 400);
+        }
+        seen.add(line.inventoryId);
+
+        const inventoryQuery = Inventory.findById(line.inventoryId);
+        const inventory = await (session ? inventoryQuery.session(session) : inventoryQuery);
+        if (!inventory) {
+          throw new InventoryServiceError('Inventory item not found', 404);
+        }
+        if (line.countedQuantity < inventory.reservedQuantity) {
+          throw new InventoryServiceError('countedQuantity cannot be lower than reservedQuantity', 400);
+        }
+
+        const difference = line.countedQuantity - inventory.quantity;
+        lines.push({
+          inventoryId: inventory._id,
+          productId: inventory.productId,
+          variantId: inventory.variantId,
+          colorVariantId: inventory.colorVariantId,
+          size: inventory.size,
+          sku: inventory.sku,
+          systemQuantity: inventory.quantity,
+          countedQuantity: line.countedQuantity,
+          difference,
+          reason: normalizeShortText(line.reason || 'Kiểm kê kho'),
+        });
+
+        if (difference === 0) continue;
+
+        const updatedInventory = await Inventory.findOneAndUpdate(
+          { _id: inventory._id, reservedQuantity: { $lte: line.countedQuantity } },
+          [
+            {
+              $set: {
+                quantity: line.countedQuantity,
+                availableQuantity: { $subtract: [line.countedQuantity, '$reservedQuantity'] },
+              },
+            },
+          ],
+          {
+            returnDocument: 'after',
+            runValidators: true,
+            updatePipeline: true,
+            ...(session ? { session } : {}),
+          },
+        );
+        if (!updatedInventory) {
+          throw new InventoryServiceError('countedQuantity cannot be lower than reservedQuantity', 400);
+        }
+
+        const selector = {
+          productId: inventory.productId,
+          variantId: inventory.variantId,
+          colorVariantId: inventory.colorVariantId,
+          size: inventory.size,
+        };
+        const unadjustedQuantity = await adjustImportRemainingQuantity(
+          selector,
+          Math.abs(difference),
+          difference < 0 ? 'consume' : 'restore',
+          { ...(session ? { session } : {}) },
+        );
+        if (difference < 0 && unadjustedQuantity > 0) {
+          throw new InventoryServiceError('Cannot decrease inventory below remaining import lots', 409);
+        }
+        if (difference > 0 && unadjustedQuantity > 0) {
+          await createAdjustmentImport(selector, unadjustedQuantity, { ...(session ? { session } : {}) });
+        }
+
+        await createMovement(
+          updatedInventory,
+          {
+            quantityDelta: difference,
+            availableDelta: difference,
+          },
+          {
+            type: 'stocktake',
+            reason: normalizeShortText(line.reason || 'Kiểm kê kho'),
+            note: input.note,
+            sourceCode: input.stocktakeCode,
+            sourceType: 'stocktake',
+            createdBy: createdById,
+            ...(session ? { session } : {}),
+          },
+        );
+      }
+
+      const stocktakePayload = {
+        stocktakeCode: normalizeReceiptCode(input.stocktakeCode) || buildStocktakeCode(),
+        status: 'posted',
+        note: normalizeLongText(input.note),
+        lines,
+        createdBy: createdById,
+        postedAt: new Date(),
+      };
+      stocktake = session
+        ? (await InventoryStocktake.create([stocktakePayload], { session }))[0]
+        : await InventoryStocktake.create(stocktakePayload);
+  });
+
+  if (!stocktake) {
+    throw new InventoryServiceError('Failed to create stocktake', 500);
+  }
+
+  return stocktake;
+};
+
 export const inventoryService = {
   createImport,
   createReceipt,
   getInventory,
   getLowStockInventory,
+  getInventoryThreshold,
   getImports,
+  getMovements,
   getReceipts,
   getReceiptById,
   getImportSuppliers,
   getImportById,
+  updateInventoryThreshold,
   updateReceipt,
   confirmReceipt,
   cancelReceipt,
   deleteImport,
   adjustInventory,
   deleteInventory,
+  listSuppliers,
+  createSupplier,
+  updateSupplier,
+  deleteSupplier,
+  createStocktake,
   restoreImportRemainingQuantities,
   reserveInventory,
   releaseReservations,

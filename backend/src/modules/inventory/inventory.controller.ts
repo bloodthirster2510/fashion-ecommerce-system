@@ -4,13 +4,16 @@ import { productService } from '../catalog/products/product.service';
 import { InventoryServiceError, inventoryService } from './inventory.service';
 import type {
   AdjustInventoryInput,
+  CreateStocktakeInput,
   CreateInventoryImportInput,
   CreateInventoryReceiptInput,
   InventoryImportListQueryInput,
   InventoryListQueryInput,
+  InventoryMovementListQueryInput,
   InventoryReceiptListQueryInput,
   InventoryReceiptStatus,
   UpdateInventoryReceiptInput,
+  UpsertInventorySupplierInput,
   ReserveInventoryInput,
 } from './inventory.types';
 
@@ -152,6 +155,13 @@ const parseReceiptQuery = (req: Request): InventoryReceiptListQueryInput => ({
   limit: parsePositiveInteger(req.query.limit, 'limit'),
 });
 
+const parseMovementQuery = (req: Request): InventoryMovementListQueryInput => ({
+  ...parseInventoryQuery(req),
+  type: parseString(req.query.type),
+  from: parseDate(req.query.from, 'from'),
+  to: parseDate(req.query.to, 'to'),
+});
+
 const parseBodyDate = (value: unknown, fieldName: string) => {
   if (value === undefined || value === null || value === '') {
     return undefined;
@@ -214,6 +224,26 @@ const getLowStockInventory = async (req: Request, res: Response) => {
 const getImports = async (req: Request, res: Response) => {
   try {
     const result = await inventoryService.getImports(parseImportQuery(req));
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getInventoryThreshold = async (_req: Request, res: Response) => {
+  try {
+    const result = await inventoryService.getInventoryThreshold();
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getMovements = async (req: Request, res: Response) => {
+  try {
+    const result = await inventoryService.getMovements(parseMovementQuery(req));
     return ok(res, result);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
@@ -311,7 +341,7 @@ const createImport = async (req: Request, res: Response) => {
       return errorResponse(res, 'productId, variantId, colorVariantId, and detail are required', 400);
     }
 
-    const importRecord = await inventoryService.createImport(body);
+    const importRecord = await inventoryService.createImport(body, getAuthenticatedUserId(req));
     return created(res, importRecord);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
@@ -330,9 +360,11 @@ const adjustInventory = async (req: Request, res: Response) => {
         req.body.deltaQuantity !== undefined
           ? Number(req.body.deltaQuantity)
           : undefined,
+      reason: parseString(req.body.reason),
+      note: parseString(req.body.note),
     };
 
-    const inventory = await inventoryService.adjustInventory(req.params.id as string, input);
+    const inventory = await inventoryService.adjustInventory(req.params.id as string, input, getAuthenticatedUserId(req));
     return ok(res, inventory);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
@@ -342,8 +374,76 @@ const adjustInventory = async (req: Request, res: Response) => {
 
 const deleteImport = async (req: Request, res: Response) => {
   try {
-    const importRecord = await inventoryService.deleteImport(req.params.id as string);
+    const importRecord = await inventoryService.deleteImport(req.params.id as string, getAuthenticatedUserId(req));
     return ok(res, importRecord);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const updateInventoryThreshold = async (req: Request, res: Response) => {
+  try {
+    const result = await inventoryService.updateInventoryThreshold({
+      lowStockThreshold: Number(req.body.lowStockThreshold),
+    });
+    return ok(res, result);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const getSuppliers = async (_req: Request, res: Response) => {
+  try {
+    const suppliers = await inventoryService.listSuppliers();
+    return ok(res, suppliers);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const createSupplier = async (req: Request, res: Response) => {
+  try {
+    const supplier = await inventoryService.createSupplier(req.body as UpsertInventorySupplierInput);
+    return created(res, supplier);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const updateSupplier = async (req: Request, res: Response) => {
+  try {
+    const supplier = await inventoryService.updateSupplier(
+      req.params.id as string,
+      req.body as Partial<UpsertInventorySupplierInput>,
+    );
+    return ok(res, supplier);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const deleteSupplier = async (req: Request, res: Response) => {
+  try {
+    const supplier = await inventoryService.deleteSupplier(req.params.id as string);
+    return ok(res, supplier);
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const createStocktake = async (req: Request, res: Response) => {
+  try {
+    const stocktake = await inventoryService.createStocktake(
+      req.body as CreateStocktakeInput,
+      getAuthenticatedUserId(req),
+    );
+    return created(res, stocktake);
   } catch (e: unknown) {
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
@@ -419,19 +519,27 @@ export {
   commitReservations,
   createImport,
   createReceipt,
+  createStocktake,
+  createSupplier,
   deleteInventory,
   deleteImport,
+  deleteSupplier,
   expireReservations,
   getImportById,
   getImportSuppliers,
   getImports,
   getInventory,
   getInventoryProducts,
+  getInventoryThreshold,
   getLowStockInventory,
+  getMovements,
   getReceiptById,
   getReceipts,
+  getSuppliers,
   confirmReceipt,
   releaseReservations,
   reserveInventory,
+  updateInventoryThreshold,
   updateReceipt,
+  updateSupplier,
 };
