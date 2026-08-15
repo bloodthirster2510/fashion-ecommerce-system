@@ -6,6 +6,7 @@ readonly STATE_DIR="/home/ubuntu/.local/state/fashion-ecommerce"
 readonly STATE_FILE="${STATE_DIR}/deployed-sha"
 readonly LOCK_FILE="/tmp/fashion-ecommerce-deploy.lock"
 readonly PUBLIC_URL="https://cdshopfashion.duckdns.org"
+readonly CHECK_RUNS_URL="https://api.github.com/repos/bloodthirster2510/fashion-ecommerce-system/commits"
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -33,6 +34,64 @@ wait_for_service() {
 
   log "$service did not become healthy before timeout"
   return 1
+}
+
+github_checks_passed() {
+  local sha="$1"
+  local response_file http_code
+  response_file="$(mktemp)"
+
+  http_code="$(curl --silent --show-error \
+    --output "$response_file" \
+    --write-out '%{http_code}' \
+    --header 'Accept: application/vnd.github+json' \
+    --header 'User-Agent: fashion-ecommerce-deployer' \
+    "$CHECK_RUNS_URL/$sha/check-runs?per_page=100")"
+
+  if [[ "$http_code" != "200" ]]; then
+    log "GitHub check-runs API returned HTTP $http_code; deployment will retry"
+    rm -f "$response_file"
+    return 1
+  fi
+
+  if ! python3 - "$response_file" <<'PY'
+import json
+import sys
+
+required = {
+    "backend-ci",
+    "web-frontend-ci",
+    "mobile-frontend-ci",
+    "compose-validation",
+}
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    runs = json.load(stream).get("check_runs", [])
+
+latest = {}
+for run in runs:
+    name = run.get("name")
+    if name in required:
+        latest[name] = run
+
+missing = sorted(required - latest.keys())
+pending = sorted(
+    name
+    for name, run in latest.items()
+    if run.get("status") != "completed" or run.get("conclusion") != "success"
+)
+
+if missing or pending:
+    print(f"waiting for checks; missing={missing}, not-successful={pending}")
+    raise SystemExit(1)
+PY
+  then
+    rm -f "$response_file"
+    return 1
+  fi
+
+  rm -f "$response_file"
+  return 0
 }
 
 exec 9>"$LOCK_FILE"
@@ -64,6 +123,11 @@ fi
 
 if [[ "$deployed_sha" == "$target_sha" ]]; then
   log "production is already at $target_sha"
+  exit 0
+fi
+
+if ! github_checks_passed "$target_sha"; then
+  log "production checks have not passed for $target_sha; leaving the current version running"
   exit 0
 fi
 
