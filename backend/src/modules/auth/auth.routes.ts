@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as authController from './auth.controller';
-import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticate, requireActiveAccount } from '../../middlewares/auth.middleware';
+import { authorize } from '../../middlewares/role.middleware';
 import { createAuthRateLimitMiddleware } from '../../middlewares/security.middleware';
 
 const router = Router();
@@ -13,6 +14,13 @@ router.post('/login', authRateLimit, authController.login);
 router.post('/login/unlock/request', authRateLimit, authController.requestLoginUnlock);
 router.post('/login/unlock/verify', authRateLimit, authController.verifyLoginUnlock);
 router.post('/admin/login', authRateLimit, authController.adminLogin);
+router.get(
+  '/admin/session',
+  authenticate,
+  requireActiveAccount,
+  authorize('admin', 'staff'),
+  authController.getAdminSession,
+);
 router.post('/logout', authController.logout);
 router.post('/refresh-token', authRateLimit, authController.refreshToken);
 router.post('/forgot-password', authRateLimit, authController.forgotPassword);

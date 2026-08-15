@@ -1,4 +1,4 @@
-import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword, clearAuthRequestThrottleForTests } from '../auth.service';
+import { sendOtp, verifyOtp, registerUser, loginUser, loginAdminUser, getAdminSessionUser, logoutUser, refreshAccessToken, forgotPassword, resetPassword, changePassword, clearAuthRequestThrottleForTests } from '../auth.service';
 import { LEGAL_POLICY_VERSION } from '../legal-policy';
 import { User } from '../../../database/models/user.model';
 import { PushToken } from '../../../database/models/push-token.model';
@@ -446,6 +446,11 @@ describe('Auth Service', () => {
       const result = await refreshAccessToken('old_token');
       expect(result.accessToken).toBe('new_access');
       expect(result.refreshToken).toBe('new_refresh');
+      expect(result.user).toMatchObject({
+        _id: mockUser._id,
+        email: 'test@test.com',
+        role: 'user',
+      });
       expect(User.updateOne).toHaveBeenCalledWith(
         { _id: mockUser._id },
         { $set: { refreshToken: hashToken('new_refresh') } },
@@ -471,6 +476,35 @@ describe('Auth Service', () => {
       });
       expect(jwt.sign).not.toHaveBeenCalled();
       expect(User.updateOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getAdminSessionUser', () => {
+    it('returns the latest staff permissions from the database', async () => {
+      (User.findById as jest.Mock).mockResolvedValue({
+        _id: 'staff-1',
+        name: 'Staff',
+        email: 'staff@example.com',
+        role: 'staff',
+        isActive: true,
+        permissions: ['orders.read', 'orders.update'],
+      });
+
+      await expect(getAdminSessionUser('staff-1')).resolves.toMatchObject({
+        _id: 'staff-1',
+        role: 'staff',
+        permissions: ['orders.read', 'orders.update'],
+      });
+    });
+
+    it('rejects inactive staff sessions', async () => {
+      (User.findById as jest.Mock).mockResolvedValue({
+        _id: 'staff-1',
+        role: 'staff',
+        isActive: false,
+      });
+
+      await expect(getAdminSessionUser('staff-1')).rejects.toMatchObject({ status: 403 });
     });
   });
 

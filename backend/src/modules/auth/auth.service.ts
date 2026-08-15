@@ -275,6 +275,20 @@ export const loginAdminUser = async (identifier: string, password: string) => {
   return loginWithPassword(identifier, password, { allowedRoles: ['admin', 'staff'] });
 };
 
+export const getAdminSessionUser = async (userId: string) => {
+  const user = await User.findById(userId);
+
+  if (!user?.isActive) {
+    throw { status: 403, message: 'Tài khoản không còn hoạt động' };
+  }
+
+  if (user.role !== 'admin' && user.role !== 'staff') {
+    throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
+  }
+
+  return toSessionUser(user);
+};
+
 export const requestLoginUnlock = (identifier: string, channel?: 'email' | 'phone') => (
   requestLoginUnlockChallenge(identifier, channel)
 );
@@ -331,7 +345,11 @@ export const refreshAccessToken = async (token: string) => {
 
   await updateAuthFields(user, { refreshToken: hashRefreshToken(newRefreshToken) });
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+    user: toSessionUser(user),
+  };
 };
 
 export const forgotPassword = async (identifier: string) => {

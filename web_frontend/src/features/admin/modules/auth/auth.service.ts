@@ -1,6 +1,7 @@
 import type {
   AdminLoginCredentials,
   AdminSession,
+  AdminUser,
   ChangePasswordPayload,
 } from './auth.types'
 import { API_BASE_URL } from '../../../../config/api'
@@ -19,6 +20,17 @@ type ApiResponse<T> = {
 type RefreshTokenResponse = {
   accessToken: string
   refreshToken?: string
+  user?: AdminUser
+}
+
+export class AdminAuthError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'AdminAuthError'
+    this.status = status
+  }
 }
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
@@ -29,7 +41,7 @@ const parseResponse = async <T>(response: Response, fallbackMessage: string) => 
   const result = (await response.json().catch(() => ({}))) as ApiResponse<T>
 
   if (!response.ok || result.data === undefined) {
-    throw new Error(result.message || fallbackMessage)
+    throw new AdminAuthError(result.message || fallbackMessage, response.status)
   }
 
   return result.data
@@ -75,7 +87,7 @@ const performAdminSessionRefresh = async () => {
   )
   const nextSession: AdminSession = {
     accessToken: result.accessToken,
-    user: storedUser,
+    user: result.user ?? storedUser,
   }
 
   if (getAdminSessionRevision() !== sessionRevision) {
@@ -101,6 +113,17 @@ export const refreshAdminSession = () => {
   adminRefreshRequest = request
   adminRefreshRequestRevision = currentRevision
   return request
+}
+
+export const getCurrentAdminUser = async (accessToken: string): Promise<AdminUser> => {
+  const response = await fetch(`${API_BASE_URL}/auth/admin/session`, {
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  return parseResponse<AdminUser>(response, 'Không thể cập nhật quyền tài khoản')
 }
 
 export const changeAdminPassword = async (

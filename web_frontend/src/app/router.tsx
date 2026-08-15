@@ -7,15 +7,25 @@ import {
   clearAdminSession,
   getAdminSession,
   hasStoredAdminUser,
+  saveAdminSession,
   type AdminSession,
 } from '../features/admin/modules/auth/adminSession'
 import {
   ADMIN_DEFAULT_PATH,
   ADMIN_LOGIN_PATH,
 } from '../features/admin/config/adminRoutes'
-import { logoutAdmin, refreshAdminSession } from '../features/admin/modules/auth/auth.service'
+import {
+  AdminAuthError,
+  getCurrentAdminUser,
+  logoutAdmin,
+  refreshAdminSession,
+} from '../features/admin/modules/auth/auth.service'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
+const ADMIN_SESSION_SYNC_INTERVAL_MS = 15_000
+
+const haveSameAdminUser = (left: AdminSession['user'], right: AdminSession['user']) =>
+  JSON.stringify(left) === JSON.stringify(right)
 
 const AdminLayout = lazy(() =>
   import('../features/admin/layouts/AdminLayout').then((module) => ({ default: module.AdminLayout })),
@@ -141,6 +151,66 @@ export function Router() {
       isCancelled = true
     }
   }, [adminSession, path, replacePath])
+
+  const adminAccessToken = adminSession?.accessToken
+  const adminMustChangePassword = adminSession?.user.mustChangePassword
+
+  useEffect(() => {
+    if (!path.startsWith('/admin') || !adminAccessToken || adminMustChangePassword) {
+      return
+    }
+
+    let isCancelled = false
+    let isSyncing = false
+    const accessToken = adminAccessToken
+
+    const expireSession = () => {
+      window.dispatchEvent(new Event('admin-session-expired'))
+    }
+
+    const syncAdminUser = async () => {
+      if (isSyncing) return
+      isSyncing = true
+
+      try {
+        const user = await getCurrentAdminUser(accessToken)
+        if (isCancelled) return
+
+        const currentSession = getAdminSession()
+        if (!currentSession || currentSession.accessToken !== accessToken) return
+        if (haveSameAdminUser(currentSession.user, user)) return
+
+        const nextSession = { ...currentSession, user }
+        saveAdminSession(nextSession)
+        setAdminSession(nextSession)
+      } catch (error) {
+        if (isCancelled) return
+
+        if (error instanceof AdminAuthError && error.status === 401) {
+          try {
+            const refreshedSession = await refreshAdminSession()
+            if (!isCancelled) setAdminSession(refreshedSession)
+          } catch {
+            if (!isCancelled) expireSession()
+          }
+        } else if (error instanceof AdminAuthError && error.status === 403) {
+          expireSession()
+        }
+      } finally {
+        isSyncing = false
+      }
+    }
+
+    void syncAdminUser()
+    const intervalId = window.setInterval(() => void syncAdminUser(), ADMIN_SESSION_SYNC_INTERVAL_MS)
+    window.addEventListener('focus', syncAdminUser)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', syncAdminUser)
+    }
+  }, [adminAccessToken, adminMustChangePassword, path])
 
   useEffect(() => {
     if (!path.startsWith('/admin')) {

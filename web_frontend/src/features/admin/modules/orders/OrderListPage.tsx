@@ -103,6 +103,8 @@ export function OrderListPage({
       currentUser.permissions?.includes('customers.read') ||
       currentUser.permissions?.includes('customers.manage'),
     )
+  const canReadAuditLogs =
+    currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('audit.read'))
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
   const {
@@ -145,6 +147,7 @@ export function OrderListPage({
     setSelectedOrder,
     transactions,
   } = useOrderDetailData({
+    canReadAuditLogs,
     canReadCustomerPaymentMethods,
     setNotice,
   })
@@ -272,6 +275,7 @@ export function OrderListPage({
         <OrderDetailDrawer
           canAdjustPayments={canAdjustPayments}
           canManageCustomerPaymentMethods={canManageCustomerPaymentMethods}
+          canReadAuditLogs={canReadAuditLogs}
           canReadCustomerPaymentMethods={canReadCustomerPaymentMethods}
           canUpdateOrders={canUpdateOrders}
           revealedRefundAccounts={revealedRefundAccounts}

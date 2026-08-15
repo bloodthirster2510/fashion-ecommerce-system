@@ -87,6 +87,7 @@ const getDefaultDrawerTab = (order: AdminOrder): OrderDrawerTab => {
 export function OrderDetailDrawer({
   canAdjustPayments,
   canManageCustomerPaymentMethods,
+  canReadAuditLogs,
   canReadCustomerPaymentMethods,
   canUpdateOrders,
   isActionLoading,
@@ -115,6 +116,7 @@ export function OrderDetailDrawer({
 }: {
   canAdjustPayments: boolean
   canManageCustomerPaymentMethods: boolean
+  canReadAuditLogs: boolean
   canReadCustomerPaymentMethods: boolean
   canUpdateOrders: boolean
   isActionLoading: boolean
@@ -227,7 +229,7 @@ export function OrderDetailDrawer({
         ) : null}
 
         <nav className="admin-order-drawer-tabs" aria-label="Nhóm thông tin đơn hàng">
-          {orderDrawerTabs.map((tab) => {
+          {orderDrawerTabs.filter((tab) => tab.key !== 'history' || canReadAuditLogs).map((tab) => {
             const tone = getDrawerTabTone(order, tab.key)
 
             return (

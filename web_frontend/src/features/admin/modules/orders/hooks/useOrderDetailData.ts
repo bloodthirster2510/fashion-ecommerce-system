@@ -18,9 +18,11 @@ const needsCustomerRefundAccount = (order: AdminOrder) =>
   order.paymentMethod !== 'VNPAY'
 
 export function useOrderDetailData({
+  canReadAuditLogs,
   canReadCustomerPaymentMethods,
   setNotice,
 }: {
+  canReadAuditLogs: boolean
   canReadCustomerPaymentMethods: boolean
   setNotice: (notice: Notice | null) => void
 }) {
@@ -49,7 +51,9 @@ export function useOrderDetailData({
         canReadCustomerPaymentMethods && needsCustomerRefundAccount(orderDetail)
           ? listCustomerPaymentMethods(orderDetail.user_id).catch(() => [])
           : Promise.resolve([]),
-        listAuditLogs({ targetType: 'Order', targetId: orderId, limit: 20 }),
+        canReadAuditLogs
+          ? listAuditLogs({ targetType: 'Order', targetId: orderId, limit: 20 })
+          : Promise.resolve({ items: [] }),
       ])
       setSelectedOrder(orderDetail)
       setTransactions(orderTransactions)
@@ -60,7 +64,7 @@ export function useOrderDetailData({
     } finally {
       setIsDrawerLoading(false)
     }
-  }, [canReadCustomerPaymentMethods, setNotice])
+  }, [canReadAuditLogs, canReadCustomerPaymentMethods, setNotice])
 
   const openOrder = useCallback((order: AdminOrder) => {
     setSelectedOrder(order)

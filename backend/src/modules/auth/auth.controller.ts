@@ -192,6 +192,18 @@ export const adminLogin = async (req: Request, res: Response) => {
   }
 };
 
+export const getAdminSession = async (req: Request, res: Response) => {
+  try {
+    const user = await authService.getAdminSessionUser(req.user!.userId);
+    return ok(res, user);
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
+      return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
+    }
+    return res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
 export const logout = async (req: Request, res: Response) => {
   const useRefreshTokenCookie = isRefreshTokenCookieMode(req);
 
