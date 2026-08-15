@@ -1,5 +1,5 @@
 [Unit]
-Description=Deploy the verified fashion ecommerce main branch
+Description=Deploy the verified fashion ecommerce branch
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
@@ -10,6 +10,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/fashion-ecommerce-system
 Environment=HOME=/home/ubuntu
+Environment=DEPLOY_BRANCH=develop
 ExecStart=/usr/bin/bash /home/ubuntu/fashion-ecommerce-system/ops/deploy-production.sh
 Nice=10
 IOSchedulingClass=best-effort

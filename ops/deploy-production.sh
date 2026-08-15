@@ -7,6 +7,7 @@ readonly STATE_FILE="${STATE_DIR}/deployed-sha"
 readonly LOCK_FILE="/tmp/fashion-ecommerce-deploy.lock"
 readonly PUBLIC_URL="https://cdshopfashion.duckdns.org"
 readonly CHECK_RUNS_URL="https://api.github.com/repos/bloodthirster2510/fashion-ecommerce-system/commits"
+readonly DEPLOY_BRANCH="${DEPLOY_BRANCH:-develop}"
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -107,8 +108,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-log "fetching origin/main"
-git fetch origin main
+log "fetching origin/$DEPLOY_BRANCH"
+git fetch origin "$DEPLOY_BRANCH"
 target_sha="$(git rev-parse FETCH_HEAD)"
 current_sha="$(git rev-parse HEAD)"
 mkdir -p "$STATE_DIR"
@@ -138,11 +139,11 @@ else
   changed_files="$(git diff --name-only "$deployed_sha" "$target_sha")"
 fi
 
-if git show-ref --verify --quiet refs/heads/main; then
-  git switch main
+if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
+  git switch "$DEPLOY_BRANCH"
   git merge --ff-only "$target_sha"
 else
-  git switch --create main "$target_sha"
+  git switch --create "$DEPLOY_BRANCH" "$target_sha"
 fi
 
 declare -a services=()
