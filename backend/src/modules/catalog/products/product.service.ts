@@ -45,6 +45,15 @@ import {
   expandMaterialTokenGroups,
   isMaterialToken,
 } from './search-keywords';
+import {
+  getProductDetailCache,
+  getProductFiltersCache,
+  getProductListCache,
+  invalidateProductCatalogCache,
+  setProductDetailCache,
+  setProductFiltersCache,
+  setProductListCache,
+} from './product.cache';
 
 export class ProductServiceError extends Error {
   constructor(
@@ -735,10 +744,19 @@ const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_des
   sort === 'price_asc' || sort === 'price_desc';
 
 const isRelevanceSort = (query: ProductListQueryInput) =>
-  query.sort === 'relevance' && Boolean(query.keyword?.trim());
+  (query.sort === 'relevance' || (!query.sort && Boolean(query.keyword?.trim()))) &&
+  Boolean(query.keyword?.trim());
 
 const toFlexiblePhraseRegex = (tokens: string[]) =>
   new RegExp(tokens.map((token) => toAccentInsensitiveRegex(token).source).join('\\s+'), 'i');
+
+const toExactPhraseBoundaryRegex = (tokens: string[]) =>
+  new RegExp(
+    `(?:^|[^0-9A-Za-zÀ-ỹĐđ])${tokens
+      .map((token) => toAccentInsensitiveRegex(token).source)
+      .join('\\s+')}(?=$|[^0-9A-Za-zÀ-ỹĐđ])`,
+    'i',
+  );
 
 const regexMatchExpression = (input: string | Record<string, unknown>, regex: RegExp) => ({
   $regexMatch: {
@@ -813,9 +831,11 @@ const buildSearchRelevanceScoreExpression = (keyword?: string) => {
 
   const tokenGroups = expandMaterialTokenGroups(tokens);
   const phraseRegex = toFlexiblePhraseRegex(tokens);
+  const exactPhraseRegex = toExactPhraseBoundaryRegex(tokens);
   const scoreExpressions: Record<string, unknown>[] = [
+    scoreWhen(regexMatchExpression('$name', exactPhraseRegex), 240),
     scoreWhen(regexMatchExpression('$name', phraseRegex), 120),
-    scoreWhen(buildAllGroupsFieldMatchExpression('$name', tokenGroups), 60),
+    scoreWhen(buildAllGroupsFieldMatchExpression('$name', tokenGroups), 70),
     scoreWhen(regexMatchExpression('$description', phraseRegex), 15),
   ];
 
@@ -824,7 +844,10 @@ const buildSearchRelevanceScoreExpression = (keyword?: string) => {
 
     scoreExpressions.push(
       scoreWhen(buildFieldGroupMatchExpression('$name', group), 18),
-      scoreWhen(buildFieldGroupMatchExpression('$materialNormalized', group), isMaterialGroup ? 32 : 8),
+      scoreWhen(
+        buildFieldGroupMatchExpression('$materialNormalized', group),
+        isMaterialGroup ? 45 : 8,
+      ),
       scoreWhen(buildVariantColorGroupMatchExpression(group), 16),
       scoreWhen(buildVariantSizeGroupMatchExpression(group), 10),
       scoreWhen(buildFieldGroupMatchExpression('$description', group), isMaterialGroup ? 8 : 3),
@@ -1985,7 +2008,7 @@ const createProduct = async (input: CreateProductInput) => {
   assertVariantPayload(input.variant);
   await assertVariantTemplateMatchesCategory(input.category_id, input.variant);
 
-  return Product.create({
+  const product = await Product.create({
     category_id: new Types.ObjectId(input.category_id),
     name: input.name.trim(),
     brand_id: new Types.ObjectId(input.brand_id),
@@ -1994,6 +2017,9 @@ const createProduct = async (input: CreateProductInput) => {
     product_image: normalizeProductImageUrl(input.product_image),
     isActive: input.isActive ?? true,
   });
+
+  await invalidateProductCatalogCache();
+  return product;
 };
 
 const updateProduct = async (id: string, input: UpdateProductInput) => {
@@ -2066,6 +2092,7 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
     );
   }
 
+  await invalidateProductCatalogCache();
   return updatedProduct;
 };
 
@@ -2095,6 +2122,7 @@ const deleteProduct = async (id: string) => {
     },
   );
 
+  await invalidateProductCatalogCache();
   return product;
 };
 
@@ -2198,6 +2226,7 @@ const permanentlyDeleteProduct = async (id: string) => {
   await Inventory.deleteMany({ productId: productObjectId });
   await Product.findByIdAndDelete(id);
   await ProductVisualIndex.deleteMany({ productId: productObjectId });
+  await invalidateProductCatalogCache();
 
   return product;
 };
@@ -2367,6 +2396,11 @@ const getActiveProducts = () => {
 };
 
 const getProductList = async (query: ProductListQueryInput): Promise<ProductListResponse> => {
+  const cached = await getProductListCache(query);
+  if (cached) {
+    return cached;
+  }
+
   const { page, limit } = clampPagination(query);
   const filter = await buildProductListFilter(query);
   const sort = getSortOption(query.sort);
@@ -2415,7 +2449,7 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
     ),
   );
 
-  return {
+  const result: ProductListResponse = {
     items: products.map((product) => mapProductListItem(product, query, inventoryByProductId)),
     pagination: {
       page,
@@ -2425,11 +2459,21 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
     },
     ...(filters ? { filters } : {}),
   };
+
+  await setProductListCache(query, result);
+  return result;
 };
 
 const getProductFilters = async (query: ProductListQueryInput) => {
+  const cached = await getProductFiltersCache(query);
+  if (cached) {
+    return cached;
+  }
+
   const filter = await buildProductListFilter(query);
-  return getProductListFilters(filter, query);
+  const result = await getProductListFilters(filter, query);
+  await setProductFiltersCache(query, result);
+  return result;
 };
 
 const getProductById = async (id: string) => {
@@ -2450,6 +2494,10 @@ const getProductDetailById = async (
 ): Promise<ProductDetailResponse> => {
   assertValidObjectId(id, 'product id');
   const activeOnly = options.activeOnly ?? true;
+  const cached = await getProductDetailCache(id, activeOnly);
+  if (cached) {
+    return cached;
+  }
 
   const product = await Product.findOne({
     _id: id,
@@ -2463,7 +2511,9 @@ const getProductDetailById = async (
     throw new ProductServiceError('Product not found', 404);
   }
 
-  return mapProductDetail(product, { includeInactiveVariants: !activeOnly });
+  const result = await mapProductDetail(product, { includeInactiveVariants: !activeOnly });
+  await setProductDetailCache(id, activeOnly, result);
+  return result;
 };
 
 export const productService = {

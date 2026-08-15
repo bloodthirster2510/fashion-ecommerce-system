@@ -14,6 +14,7 @@ import {
 } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput, UpdateProductInput } from '../product.types';
+import { clearMemoryCache } from '../../../../utils/cache';
 
 jest.mock('../../../../database/models', () => ({
   Brand: {
@@ -117,6 +118,7 @@ const createProductInput: CreateProductInput = {
 describe('productService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    clearMemoryCache();
     mockedBrand.findById.mockResolvedValue({ _id: brandId } as never);
     mockedCategory.findById.mockResolvedValue({
       _id: categoryId,
@@ -1318,6 +1320,7 @@ describe('productService', () => {
 
     await productService.getProductList({
       keyword: 'áo polo mềm',
+      sort: 'name_asc',
       includeFilters: false,
     });
     const filter = mockedProduct.find.mock.calls[0][0] as unknown as {
@@ -1341,7 +1344,7 @@ describe('productService', () => {
     };
     mockedProduct.find.mockReturnValue(productListQuery as never);
 
-    await productService.getProductList({ keyword: 'leather', includeFilters: false });
+    await productService.getProductList({ keyword: 'leather', sort: 'name_asc', includeFilters: false });
     const leatherFilter = mockedProduct.find.mock.calls[0][0] as unknown as {
       $and: Array<{ $or: Array<{ description?: RegExp }> }>;
     };
@@ -1356,7 +1359,7 @@ describe('productService', () => {
       'Chất liệu viscose co giãn, giữ ấm và không gây kích ứng lên da nhạy cảm',
     ))).toBe(false);
 
-    await productService.getProductList({ keyword: 'wool', includeFilters: false });
+    await productService.getProductList({ keyword: 'wool', sort: 'name_asc', includeFilters: false });
     const woolFilter = mockedProduct.find.mock.calls[1][0] as unknown as {
       $and: Array<{ $or: Array<{ description?: RegExp }> }>;
     };

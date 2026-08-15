@@ -38,6 +38,7 @@ import type {
   UpdateInventoryReceiptInput,
   UpsertInventorySupplierInput,
 } from './inventory.types';
+import { invalidateProductCatalogCache } from '../catalog/products/product.cache';
 
 export class InventoryServiceError extends Error {
   constructor(
@@ -669,6 +670,7 @@ const createImport = async (input: CreateInventoryImportInput, createdBy?: strin
     throw new InventoryServiceError('Failed to create import', 500);
   }
 
+  await invalidateProductCatalogCache();
   return importRecord;
 };
 
@@ -1007,6 +1009,7 @@ const confirmReceipt = async (id: string) => {
     throw new InventoryServiceError('Failed to confirm receipt', 500);
   }
 
+  await invalidateProductCatalogCache();
   return confirmedReceipt;
 };
 
@@ -1132,6 +1135,7 @@ const deleteImport = async (id: string, createdBy?: string) => {
     throw new InventoryServiceError('Failed to delete import', 500);
   }
 
+  await invalidateProductCatalogCache();
   return deletedImport;
 };
 
@@ -1264,7 +1268,9 @@ const adjustInventory = async (id: string, input: AdjustInventoryInput, createdB
       );
   });
 
-  return getInventoryByIdOrThrow(id);
+  const inventory = await getInventoryByIdOrThrow(id);
+  await invalidateProductCatalogCache();
+  return inventory;
 };
 
 const createAdjustmentImport = async (
@@ -1397,6 +1403,8 @@ const restoreImportRemainingQuantities = async (
   for (const item of items) {
     await adjustImportRemainingQuantity(item, item.quantity, 'restore');
   }
+
+  await invalidateProductCatalogCache();
 };
 
 const deleteInventory = async (id: string) => {
@@ -1407,6 +1415,7 @@ const deleteInventory = async (id: string) => {
   }
 
   await inventory.deleteOne();
+  await invalidateProductCatalogCache();
   return inventory;
 };
 
@@ -1559,6 +1568,7 @@ const reserveInventory = async (input: ReserveInventoryInput, options: SessionOp
     throw error;
   }
 
+  await invalidateProductCatalogCache();
   return reservations;
 };
 
@@ -1710,14 +1720,15 @@ const transitionReservations = async (
     await consumeImportRemainingQuantities(committedItems, options);
   }
 
+  await invalidateProductCatalogCache();
   return reservations;
 };
 
-const releaseReservations = (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
+const releaseReservations = async (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
   return transitionReservations(selector, 'released', options);
 };
 
-const commitReservations = (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
+const commitReservations = async (selector: ReservationSelectorInput, options: SessionOptions = {}) => {
   return transitionReservations(selector, 'committed', options);
 };
 
@@ -1731,11 +1742,13 @@ const expireReservations = async (now = new Date()) => {
     return [];
   }
 
-  return transitionReservations(
+  const expiredReservations = await transitionReservations(
     { reservationIds: reservations.map((reservation) => reservation._id.toString()) },
     'expired',
     { allowEmpty: true },
   );
+
+  return expiredReservations;
 };
 
 const listSuppliers = async () => {
