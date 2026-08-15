@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, InteractionManager, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -218,7 +218,13 @@ const HomeScreen = () => {
     staleMs: 60 * 1000,
     runOnDepsChange: true,
   });
-  useFocusEffect(React.useCallback(() => { void refreshNotifications(); }, [refreshNotifications]));
+  useFocusEffect(React.useCallback(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      void refreshNotifications();
+    });
+
+    return () => task.cancel();
+  }, [refreshNotifications]));
 
   const navigateToProductList = (params?: RootStackParamList['ProductList']) => {
     setIsCategoryDrawerVisible(false);

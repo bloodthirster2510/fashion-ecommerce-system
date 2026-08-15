@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Easing,
+  FlatList,
   Image,
   Modal,
   Pressable,
@@ -17,7 +18,7 @@ import {
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -85,7 +86,6 @@ type CategorySelectionGroup = {
 };
 
 const PRODUCT_PAGE_LIMIT = 30;
-const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
 const discoveryImages = {
@@ -345,6 +345,7 @@ const getProductListCacheKey = (queryKey: string) => `catalog:list:${queryKey}`;
 const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
+  const isFocused = useIsFocused();
   const { isAuthenticated, runWithAuth, session } = useAuth();
   const { summary: notificationSummary } = useCustomerNotifications();
   const params = route.params;
@@ -370,7 +371,7 @@ const ProductListScreen = () => {
     readScreenData<ProductListResponse>(getProductListCacheKey(initialProductQueryKeyRef.current)),
   );
   const insets = useSafeAreaInsets();
-  const scrollViewRef = React.useRef<ScrollView>(null);
+  const productListRef = React.useRef<FlatList<CatalogProduct>>(null);
   const catalogHeadingOffsetRef = React.useRef<number | null>(null);
   const shouldScrollToCatalogRef = React.useRef(opensAtDiscoveryProducts);
   const requestIdRef = React.useRef(0);
@@ -420,13 +421,13 @@ const ProductListScreen = () => {
   );
 
   const scrollToTop = React.useCallback((animated = true) => {
-    scrollViewRef.current?.scrollTo({ y: 0, animated });
+    productListRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
 
   const scrollToCatalogHeading = React.useCallback((catalogHeadingOffset: number) => {
     requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollTo({
-        y: Math.max(catalogHeadingOffset - spacing.md, 0),
+      productListRef.current?.scrollToOffset({
+        offset: Math.max(catalogHeadingOffset - spacing.md, 0),
         animated: false,
       });
     });
@@ -463,6 +464,10 @@ const ProductListScreen = () => {
   }, [isLoading, scrollToCatalogHeading]);
 
   React.useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+
     const revealAnimation = Animated.timing(heroReveal, {
       toValue: 1,
       duration: 460,
@@ -493,7 +498,7 @@ const ProductListScreen = () => {
       revealAnimation.stop();
       floatAnimation.stop();
     };
-  }, [garmentFloat, heroReveal]);
+  }, [garmentFloat, heroReveal, isFocused]);
 
   const categorySelectionGroups = React.useMemo(
     () => getCategorySelectionGroups(appliedFilters.categoryId, availableFilters.categories, params?.title),
@@ -921,22 +926,12 @@ const ProductListScreen = () => {
 
   const handleCatalogScroll = React.useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const { contentOffset } = event.nativeEvent;
       const shouldShowScrollTop = contentOffset.y > SCROLL_TOP_VISIBILITY_OFFSET;
 
       setShowScrollTop((current) => (current === shouldShowScrollTop ? current : shouldShowScrollTop));
-
-      if (contentSize.height <= layoutMeasurement.height) {
-        return;
-      }
-
-      const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-
-      if (distanceFromBottom <= LOAD_MORE_SCROLL_THRESHOLD) {
-        loadMoreProducts();
-      }
     },
-    [loadMoreProducts],
+    [],
   );
 
   const screenTitle = getTitle(params);
@@ -1061,8 +1056,22 @@ const ProductListScreen = () => {
         </View>
       </View>
 
-      <ScrollView
-        ref={scrollViewRef}
+      <FlatList
+        ref={productListRef}
+        data={!isLoading && !error ? products : []}
+        keyExtractor={(product) => product._id}
+        renderItem={({ item, index }) => (
+          <View style={styles.gridItem}>
+            <ProductCard
+              product={item}
+              animationIndex={index}
+              onPress={handleProductPress}
+              onCartPress={handleCartPress}
+            />
+          </View>
+        )}
+        numColumns={2}
+        columnWrapperStyle={styles.grid}
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -1075,8 +1084,14 @@ const ProductListScreen = () => {
           />
         )}
         onScroll={handleCatalogScroll}
+        onEndReached={loadMoreProducts}
+        onEndReachedThreshold={0.35}
         scrollEventThrottle={16}
-      >
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        ListHeaderComponent={(
+          <>
         {showDiscoveryExperience ? (
           <>
             <Animated.View
@@ -1323,43 +1338,31 @@ const ProductListScreen = () => {
               <Text style={styles.retryText}>Xem tất cả</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <>
-            <View style={styles.grid}>
-              {products.map((product, index) => (
-                <View key={product._id} style={styles.gridItem}>
-                  <ProductCard
-                    product={product}
-                    animationIndex={index}
-                    onPress={handleProductPress}
-                    onCartPress={handleCartPress}
-                  />
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.loadMoreArea}>
-              {isLoadingMore ? (
-                <>
-                  <ActivityIndicator color={colors.brand} />
-                  <Text style={styles.loadMoreText}>Đang tải thêm sản phẩm...</Text>
-                </>
-              ) : loadMoreError ? (
-                <>
-                  <Text style={styles.loadMoreErrorText}>{loadMoreError}</Text>
-                  <TouchableOpacity style={styles.loadMoreRetryButton} onPress={loadMoreProducts} activeOpacity={0.82}>
-                    <Text style={styles.loadMoreRetryText}>Thử lại</Text>
-                  </TouchableOpacity>
-                </>
-              ) : hasMoreProducts ? (
-                <Text style={styles.loadMoreText}>Kéo xuống để xem thêm</Text>
-              ) : (
-                <Text style={styles.endOfListText}>Bạn đã xem hết {totalItems} sản phẩm</Text>
-              )}
-            </View>
+        ) : null}
           </>
         )}
-      </ScrollView>
+        ListFooterComponent={!isLoading && !error && products.length ? (
+          <View style={styles.loadMoreArea}>
+            {isLoadingMore ? (
+              <>
+                <ActivityIndicator color={colors.brand} />
+                <Text style={styles.loadMoreText}>Đang tải thêm sản phẩm...</Text>
+              </>
+            ) : loadMoreError ? (
+              <>
+                <Text style={styles.loadMoreErrorText}>{loadMoreError}</Text>
+                <TouchableOpacity style={styles.loadMoreRetryButton} onPress={loadMoreProducts} activeOpacity={0.82}>
+                  <Text style={styles.loadMoreRetryText}>Thử lại</Text>
+                </TouchableOpacity>
+              </>
+            ) : hasMoreProducts ? (
+              <Text style={styles.loadMoreText}>Kéo xuống để xem thêm</Text>
+            ) : (
+              <Text style={styles.endOfListText}>Bạn đã xem hết {totalItems} sản phẩm</Text>
+            )}
+          </View>
+        ) : null}
+      />
 
       {showScrollTop ? (
         <TouchableOpacity
@@ -2055,9 +2058,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
   },
   gridItem: {
     width: '48.6%',
