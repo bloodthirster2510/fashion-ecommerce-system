@@ -46,6 +46,7 @@ type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'Produc
 type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 type MultiFilterKey = 'categoryId' | 'brandId';
+type ProductListSortOption = ProductSortOption | 'default';
 
 type ProductListFilters = {
   gender?: CatalogGender;
@@ -55,7 +56,7 @@ type ProductListFilters = {
   maxPrice?: number;
   isSale?: boolean;
   isNew?: boolean;
-  sort: ProductSortOption;
+  sort: ProductListSortOption;
 };
 
 type ActiveChip = {
@@ -101,7 +102,8 @@ const emptyAvailableFilters: ProductListResponse['filters'] = {
   categories: [],
 };
 
-const sortOptions: Array<{ label: string; value: ProductSortOption }> = [
+const sortOptions: Array<{ label: string; value: ProductListSortOption }> = [
+  { label: 'Mặc định', value: 'default' },
   { label: 'Liên quan', value: 'relevance' },
   { label: 'Mới nhất', value: 'newest' },
   { label: 'Bán chạy', value: 'best_seller' },
@@ -128,8 +130,11 @@ const pricePresets = [
   { label: 'Trên 500k', minPrice: 500000, maxPrice: undefined },
 ];
 
-const getDefaultSort = (params?: RootStackParamList['ProductList']): ProductSortOption =>
-  params?.keyword ? 'relevance' : 'newest';
+const getDefaultSort = (params?: RootStackParamList['ProductList']): ProductListSortOption =>
+  params?.keyword ? 'relevance' : 'default';
+
+const getApiSort = (sort: ProductListSortOption): ProductSortOption | undefined =>
+  sort === 'default' ? undefined : sort;
 
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -702,7 +707,7 @@ const ProductListScreen = () => {
       maxPrice: appliedFilters.maxPrice,
       isNew: appliedFilters.isNew,
       isSale: appliedFilters.isSale,
-      sort: appliedFilters.sort,
+      sort: getApiSort(appliedFilters.sort),
       page: targetPage,
       limit: PRODUCT_PAGE_LIMIT,
     };
