@@ -207,7 +207,7 @@ function InventoryReceiptViewDialog({
               </div>
               <div className="admin-receipt-view-detail">
                 <header>
-                  <span>Form dáng</span>
+                  <span>Phom dáng</span>
                   <span>Màu sắc</span>
                   <span>Size / Số lượng</span>
                   <span>Đơn giá</span>

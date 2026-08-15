@@ -9,26 +9,44 @@ import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-q
 import type { AdminUser } from '../auth/adminSession'
 import type { ManagedProduct } from '../catalog/products/product.types'
 import {
-  createInventoryImport,
-  deleteInventoryImport,
+  adjustInventory,
+  createInventoryStocktake,
+  createInventorySupplier,
+  deleteInventorySupplier,
   listInventoryImportsByColor,
+  listInventoryMovementsByColor,
+  listInventoryMovements,
   listInventory,
   listInventoryProducts,
   listInventoryReceipts,
-  listInventorySuppliers,
+  getInventoryThreshold,
+  listManagedInventorySuppliers,
+  updateInventorySupplier,
+  updateInventoryThreshold,
 } from './inventory.service'
 import type {
-  CreateInventoryImportInput,
+  AdjustInventoryInput,
+  CreateInventoryStocktakeInput,
   InventoryImport,
   InventoryItem,
+  InventoryMovement,
+  InventoryMovementType,
   InventoryReceipt,
+  InventorySupplier,
+  UpsertInventorySupplierInput,
 } from './inventory.types'
 import { getPaginationItems } from '../../utils/pagination'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import { useToast } from '../../notifications/notification-context'
-import { ImportDialog, InventoryHistoryDialog } from './components/ImportLotDialogs'
+import { InventoryHistoryDialog } from './components/ImportLotDialogs'
 import { InventoryReceiptDialog } from './components/ReceiptFormDialog'
 import { InventoryReceiptListDialog } from './components/ReceiptListDialog'
+import {
+  InventoryAdjustDialog,
+  InventoryStocktakeDialog,
+  InventorySupplierDialog,
+  InventoryThresholdDialog,
+} from './components/InventoryOperationsDialogs'
 import { ChevronIcon, EmptyRow, FilterSelect, SearchIcon, ViewIcon, WarningIcon } from './components/InventoryUi'
 import type {
   InventoryColorGroup,
@@ -38,6 +56,7 @@ import type {
   StockStatus,
 } from './inventory.view-types'
 import {
+  formatDate,
   formatInputDate,
   formatNumber,
   getErrorMessage,
@@ -54,6 +73,29 @@ type InventoryManagementPageProps = {
 }
 
 const inventoryMutationClient = new QueryClient()
+const movementPageSize = 12
+const movementLabels: Record<InventoryMovementType, string> = {
+  import: 'Nhập kho',
+  import_delete: 'Xóa lô nhập',
+  adjustment: 'Điều chỉnh',
+  sale_commit: 'Bán hàng',
+  reservation: 'Giữ hàng',
+  reservation_release: 'Hủy giữ',
+  reservation_expire: 'Hết hạn giữ',
+  stocktake: 'Kiểm kê',
+}
+
+const movementTypeOptions: Array<{ value: InventoryMovementType | 'all'; label: string }> = [
+  { value: 'all', label: 'Tất cả biến động' },
+  { value: 'import', label: 'Nhập kho' },
+  { value: 'adjustment', label: 'Điều chỉnh' },
+  { value: 'stocktake', label: 'Kiểm kê' },
+  { value: 'sale_commit', label: 'Bán hàng' },
+  { value: 'reservation', label: 'Giữ hàng' },
+  { value: 'reservation_release', label: 'Hủy giữ' },
+  { value: 'reservation_expire', label: 'Hết hạn giữ' },
+  { value: 'import_delete', label: 'Xóa lô nhập' },
+]
 
 // Dựng lại phần chi tiết màu đang xem sau khi số tồn thay đổi.
 const buildViewingColorGroup = (
@@ -85,62 +127,28 @@ const buildViewingColorGroup = (
   }
 }
 
-// Khi xóa một lô nhập, trừ số tồn ngay trên màn hình mà không tải lại toàn bộ kho.
-const subtractDeletedImportFromInventory = (
-  items: InventoryItem[],
-  importRecord: InventoryImport,
+const replaceInventoryItem = (items: InventoryItem[], updatedItem: InventoryItem) =>
+  items.map((item) => (item._id === updatedItem._id ? updatedItem : item))
+
+const uniqueTextValues = (values: Array<string | undefined>) =>
+  [...new Set(values.map((value) => value?.trim()).filter(Boolean))]
+
+const getInventoryWarningCounts = (
+  rows: InventoryRow[],
+  threshold: number,
+  keyBuilder: (row: InventoryRow) => string,
 ) => {
-  const deletedQuantityBySize = new Map(
-    importRecord.detail.map((detail) => [detail.size.toLowerCase(), detail.quantity]),
-  )
+  const lowKeys = new Set<string>()
+  const outKeys = new Set<string>()
 
-  return items.map((item) => {
-    if (
-      item.productId !== importRecord.productId ||
-      item.variantId !== importRecord.variantId ||
-      item.colorVariantId !== importRecord.colorVariantId
-    ) {
-      return item
-    }
-
-    const deletedQuantity = deletedQuantityBySize.get(item.size.toLowerCase()) ?? 0
-    if (!deletedQuantity) return item
-
-    return {
-      ...item,
-      quantity: Math.max(0, item.quantity - deletedQuantity),
-      availableQuantity: Math.max(0, item.availableQuantity - deletedQuantity),
-    }
+  rows.forEach((row) => {
+    const key = keyBuilder(row)
+    if (!key) return
+    if (row.availableQuantity === 0) outKeys.add(key)
+    else if (row.availableQuantity <= threshold) lowKeys.add(key)
   })
-}
 
-// Khi tạo lô nhập mới, cộng số tồn ngay trên màn hình.
-const addCreatedImportToInventory = (
-  items: InventoryItem[],
-  importRecord: InventoryImport,
-) => {
-  const importedQuantityBySize = new Map(
-    importRecord.detail.map((detail) => [detail.size.toLowerCase(), detail.quantity]),
-  )
-
-  return items.map((item) => {
-    if (
-      item.productId !== importRecord.productId ||
-      item.variantId !== importRecord.variantId ||
-      item.colorVariantId !== importRecord.colorVariantId
-    ) {
-      return item
-    }
-
-    const importedQuantity = importedQuantityBySize.get(item.size.toLowerCase()) ?? 0
-    if (!importedQuantity) return item
-
-    return {
-      ...item,
-      quantity: item.quantity + importedQuantity,
-      availableQuantity: item.availableQuantity + importedQuantity,
-    }
-  })
+  return { low: lowKeys.size, out: outKeys.size }
 }
 
 export function InventoryManagementPage({
@@ -167,16 +175,29 @@ function InventoryManagementContent({
   const [brand, setBrand] = useState('all')
   const [fitType, setFitType] = useState('all')
   const [status, setStatus] = useState<StockStatus>('all')
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [page, setPage] = useState(1)
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set())
   const [viewing, setViewing] = useState<InventoryColorGroup | null>(null)
   const [importHistory, setImportHistory] = useState<InventoryImport[]>([])
+  const [movementHistory, setMovementHistory] = useState<InventoryMovement[]>([])
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([])
+  const [movementType, setMovementType] = useState<InventoryMovementType | 'all'>('all')
+  const [movementPage, setMovementPage] = useState(1)
+  const [movementTotalItems, setMovementTotalItems] = useState(0)
+  const [movementTotalPages, setMovementTotalPages] = useState(1)
+  const [isMovementListLoading, setIsMovementListLoading] = useState(false)
+  const [movementListError, setMovementListError] = useState('')
   const [receipts, setReceipts] = useState<InventoryReceipt[]>([])
-  const [supplierOptions, setSupplierOptions] = useState<string[]>([])
+  const [managedSuppliers, setManagedSuppliers] = useState<InventorySupplier[]>([])
+  const [globalLowStockThreshold, setGlobalLowStockThreshold] = useState(lowStockThreshold)
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
-  const [importing, setImporting] = useState<InventoryColorGroup | null>(null)
+  const [adjusting, setAdjusting] = useState<InventoryColorGroup | null>(null)
+  const [isThresholdDialogOpen, setIsThresholdDialogOpen] = useState(false)
+  const [stocktaking, setStocktaking] = useState<InventoryColorGroup | null>(null)
+  const [isSupplierDialogOpen, setIsSupplierDialogOpen] = useState(false)
   const [isReceiptFormOpen, setIsReceiptFormOpen] = useState(false)
   const [isReceiptListOpen, setIsReceiptListOpen] = useState(false)
   const [editingReceipt, setEditingReceipt] = useState<InventoryReceipt | null>(null)
@@ -186,6 +207,26 @@ function InventoryManagementContent({
   const canWrite =
     currentUser.role === 'admin' ||
     currentUser.permissions?.includes('inventory.write') === true
+  const hasAdvancedFilters = category !== 'all' || brand !== 'all' || fitType !== 'all'
+
+  const loadMovementList = useCallback(async () => {
+    setIsMovementListLoading(true)
+    setMovementListError('')
+    try {
+      const result = await listInventoryMovements({
+        page: movementPage,
+        limit: movementPageSize,
+        type: movementType,
+      })
+      setInventoryMovements(result.items)
+      setMovementTotalItems(result.pagination.totalItems)
+      setMovementTotalPages(Math.max(1, result.pagination.totalPages))
+    } catch (error) {
+      setMovementListError(getErrorMessage(error))
+    } finally {
+      setIsMovementListLoading(false)
+    }
+  }, [movementPage, movementType])
 
   // Tải dữ liệu chính của trang: số tồn, thông tin sản phẩm, phiếu nhập và nhà cung cấp.
   const loadData = useCallback(async () => {
@@ -202,9 +243,12 @@ function InventoryManagementContent({
       if (receiptResult) {
         setReceipts(receiptResult.items)
       }
-      void listInventorySuppliers()
-        .then(setSupplierOptions)
-        .catch(() => setSupplierOptions([]))
+      void getInventoryThreshold()
+        .then((result) => setGlobalLowStockThreshold(result.lowStockThreshold))
+        .catch(() => setGlobalLowStockThreshold(lowStockThreshold))
+      void listManagedInventorySuppliers()
+        .then(setManagedSuppliers)
+        .catch(() => setManagedSuppliers([]))
       return { inventoryItems: inventoryResult.items, productItems: productResult }
     } catch (error) {
       setLoadError(getErrorMessage(error))
@@ -223,6 +267,10 @@ function InventoryManagementContent({
     showToast(notice.message, notice.type)
     if (notice.type === 'success') setNotice(null)
   }, [notice, showToast])
+
+  useEffect(() => {
+    void loadMovementList()
+  }, [loadMovementList])
 
   // Ghép số tồn với tên, ảnh, danh mục và màu của sản phẩm để hiển thị dễ đọc.
   const rows = useMemo<InventoryRow[]>(() => {
@@ -250,6 +298,19 @@ function InventoryManagementContent({
     [products],
   )
 
+  const productById = useMemo(
+    () => new Map(products.map((product) => [product._id, product])),
+    [products],
+  )
+
+  const getMovementContext = (movement: InventoryMovement) => {
+    const product = productById.get(movement.productId)
+    const variant = product?.variants.find((item) => item._id === movement.variantId)
+    const color = variant?.colors.find((item) => item._id === movement.colorVariantId)
+
+    return { product, variant, color }
+  }
+
   const stats = useMemo(
     () => {
       const total = inventory.reduce((sum, item) => sum + item.availableQuantity, 0)
@@ -258,21 +319,20 @@ function InventoryManagementContent({
         low: inventory.filter(
           (item) =>
             item.availableQuantity > 0 &&
-            item.availableQuantity <= lowStockThreshold,
+            item.availableQuantity <= globalLowStockThreshold,
         ).length,
         out: inventory.filter((item) => item.availableQuantity === 0).length,
       }
     },
-    [inventory],
+    [globalLowStockThreshold, inventory],
   )
 
-  // Lọc trước rồi mới gom nhóm, để phân trang theo sản phẩm thay vì từng size.
+  // Lọc các thuộc tính trước rồi mới lọc trạng thái ở cấp nhóm, để không làm mất bối cảnh size.
   const pagination = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLocaleLowerCase('vi')
     const groupsByProduct = new Map<string, InventoryProductGroup>()
 
     rows.forEach((row) => {
-      const rowStatus = getStatus(row.availableQuantity).id
       const matchesKeyword =
         !normalizedKeyword ||
         [row.product?.name, row.sku, row.color?.color, row.size].some((value) =>
@@ -282,8 +342,7 @@ function InventoryManagementContent({
         matchesKeyword &&
         (category === 'all' || row.product?.categoryName === category) &&
         (brand === 'all' || row.product?.brandName === brand) &&
-        (fitType === 'all' || row.variant?.fitTypeLabel === fitType) &&
-        (status === 'all' || rowStatus === status)
+        (fitType === 'all' || row.variant?.fitTypeLabel === fitType)
 
       if (!matchesFilters) return
 
@@ -296,7 +355,22 @@ function InventoryManagementContent({
       groupsByProduct.set(row.productId, group)
     })
 
-    const filtered = [...groupsByProduct.values()]
+    const matchesStockStatus = (group: InventoryProductGroup) => {
+      if (status === 'all') return true
+
+      const hasOut = group.rows.some((row) => row.availableQuantity === 0)
+      const hasLow = group.rows.some(
+        (row) =>
+          row.availableQuantity > 0 &&
+          row.availableQuantity <= globalLowStockThreshold,
+      )
+
+      if (status === 'warning') return hasLow || hasOut
+
+      return group.rows.length > 0 && !hasLow && !hasOut
+    }
+
+    const filtered = [...groupsByProduct.values()].filter(matchesStockStatus)
     const totalPages = Math.max(1, Math.ceil(filtered.length / inventoryPageSize))
     const safePage = Math.min(page, totalPages)
     const startIndex = (safePage - 1) * inventoryPageSize
@@ -308,7 +382,7 @@ function InventoryManagementContent({
       start: filtered.length ? startIndex + 1 : 0,
       end: Math.min(startIndex + inventoryPageSize, filtered.length),
     }
-  }, [brand, category, fitType, keyword, page, rows, status])
+  }, [brand, category, fitType, globalLowStockThreshold, keyword, page, rows, status])
 
   useEffect(() => setPage(1), [brand, category, fitType, keyword, status])
 
@@ -383,6 +457,7 @@ function InventoryManagementContent({
     setBrand('all')
     setFitType('all')
     setStatus('all')
+    setShowAdvancedFilters(false)
   }
 
   const toggleExpanded = (
@@ -397,37 +472,19 @@ function InventoryManagementContent({
     })
   }
 
-  // Tạo lô nhập xong thì cập nhật số tồn ngay, không bắt trang tải lại toàn bộ.
-  const createImportMutation = useMutation({
-    mutationFn: createInventoryImport,
+  const adjustInventoryMutation = useMutation({
+    mutationFn: ({ inventoryId, input }: { inventoryId: string; input: AdjustInventoryInput }) =>
+      adjustInventory(inventoryId, input),
     onMutate: () => {
       setNotice(null)
     },
-    onSuccess: (createdImport) => {
-      const nextInventory = addCreatedImportToInventory(inventory, createdImport)
-      setImporting(null)
+    onSuccess: (updatedItem) => {
+      const nextInventory = replaceInventoryItem(inventory, updatedItem)
       setInventory(nextInventory)
-      setViewing((current) => {
-        if (
-          !current ||
-          current.productId !== createdImport.productId ||
-          current.variantId !== createdImport.variantId ||
-          current.colorVariantId !== createdImport.colorVariantId
-        ) {
-          return current
-        }
-
-        return buildViewingColorGroup(nextInventory, products, current)
-      })
-      const supplierName = createdImport.supplierName?.trim()
-      if (supplierName) {
-        setSupplierOptions((current) =>
-          current.includes(supplierName)
-            ? current
-            : [...current, supplierName].sort(),
-        )
-      }
-      setNotice({ type: 'success', message: 'Kho đã được cập nhật với phiếu nhập mới.' })
+      setAdjusting(null)
+      setViewing((current) => (current ? buildViewingColorGroup(nextInventory, products, current) : current))
+      setNotice({ type: 'success', message: 'Tồn kho đã được điều chỉnh và ghi vào sổ kho.' })
+      void loadMovementList()
       requestAdminNotificationRefresh()
     },
     onError: (error) => {
@@ -435,73 +492,91 @@ function InventoryManagementContent({
     },
   })
 
-  // Xóa lô nhập chỉ tải lại lịch sử của màu đang xem, còn số tồn được trừ ngay tại màn hình.
-  const deleteImportMutation = useMutation({
-    mutationFn: async (importId: string) => {
-      if (!viewing) {
-        throw new Error('Chưa chọn màu sản phẩm để xóa lô nhập.')
-      }
-
-      const currentViewing = viewing
-      const localDeletedImport = importHistory.find((item) => item._id === importId)
-      const deletedImportResult = await deleteInventoryImport(importId)
-      const deletedImport = localDeletedImport ?? deletedImportResult
-      const result = await listInventoryImportsByColor(
-        currentViewing.productId,
-        currentViewing.variantId,
-        currentViewing.colorVariantId,
-      )
-
-      return { deletedImport, result }
-    },
+  const thresholdMutation = useMutation({
+    mutationFn: (nextThreshold: number) =>
+      updateInventoryThreshold({ lowStockThreshold: nextThreshold }),
     onMutate: () => {
-      setHistoryError('')
+      setNotice(null)
     },
-    onSuccess: ({ deletedImport, result }) => {
-      if (deletedImport) {
-        const nextInventory = subtractDeletedImportFromInventory(inventory, deletedImport)
-        setInventory(nextInventory)
-        setViewing((current) => {
-          if (
-            !current ||
-            current.productId !== deletedImport.productId ||
-            current.variantId !== deletedImport.variantId ||
-            current.colorVariantId !== deletedImport.colorVariantId
-          ) {
-            return current
-          }
+    onSuccess: (result) => {
+      setGlobalLowStockThreshold(result.lowStockThreshold)
+      setIsThresholdDialogOpen(false)
+      setNotice({ type: 'success', message: 'Ngưỡng cảnh báo kho đã được cập nhật.' })
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
 
-          return buildViewingColorGroup(nextInventory, products, current)
-        })
-      }
-
-      setImportHistory(result.items)
-      setNotice({ type: 'success', message: 'Lô nhập đã được xóa và tồn kho đã được cập nhật.' })
+  const stocktakeMutation = useMutation({
+    mutationFn: (input: CreateInventoryStocktakeInput) => createInventoryStocktake(input),
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async () => {
+      setStocktaking(null)
+      await loadData()
+      await loadMovementList()
+      setNotice({ type: 'success', message: 'Phiếu kiểm kê đã được ghi nhận và tồn kho đã cập nhật.' })
       requestAdminNotificationRefresh()
     },
     onError: (error) => {
-      setHistoryError(getErrorMessage(error))
+      setNotice({ type: 'error', message: getErrorMessage(error) })
     },
   })
-  const isImportMutating = createImportMutation.isPending || deleteImportMutation.isPending
 
-  const handleCreateImport = async (input: CreateInventoryImportInput) => {
-    await createImportMutation.mutateAsync(input).catch(() => undefined)
-  }
+  const supplierMutation = useMutation({
+    mutationFn: async (
+      action:
+        | { type: 'create'; input: UpsertInventorySupplierInput }
+        | { type: 'update'; id: string; input: Partial<UpsertInventorySupplierInput> }
+        | { type: 'delete'; id: string },
+    ) => {
+      if (action.type === 'create') return createInventorySupplier(action.input)
+      if (action.type === 'update') return updateInventorySupplier(action.id, action.input)
+      return deleteInventorySupplier(action.id)
+    },
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async () => {
+      const suppliers = await listManagedInventorySuppliers().catch(() => [])
+      setManagedSuppliers(suppliers)
+      setNotice({ type: 'success', message: 'Danh sách nhà cung cấp đã được cập nhật.' })
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const isOperationSaving =
+    adjustInventoryMutation.isPending ||
+    thresholdMutation.isPending ||
+    stocktakeMutation.isPending ||
+    supplierMutation.isPending
 
   // Chỉ tải lịch sử lô nhập khi admin mở phần xem chi tiết màu.
   const handleViewHistory = async (colorGroup: InventoryColorGroup) => {
     setViewing(colorGroup)
     setImportHistory([])
+    setMovementHistory([])
     setHistoryError('')
     setIsHistoryLoading(true)
     try {
-      const result = await listInventoryImportsByColor(
-        colorGroup.productId,
-        colorGroup.variantId,
-        colorGroup.colorVariantId,
-      )
-      setImportHistory(result.items)
+      const [importResult, movementResult] = await Promise.all([
+        listInventoryImportsByColor(
+          colorGroup.productId,
+          colorGroup.variantId,
+          colorGroup.colorVariantId,
+        ),
+        listInventoryMovementsByColor(
+          colorGroup.productId,
+          colorGroup.variantId,
+          colorGroup.colorVariantId,
+        ),
+      ])
+      setImportHistory(importResult.items)
+      setMovementHistory(movementResult.items)
     } catch (error) {
       setHistoryError(getErrorMessage(error))
     } finally {
@@ -509,8 +584,27 @@ function InventoryManagementContent({
     }
   }
 
-  const handleDeleteImport = async (importId: string) => {
-    await deleteImportMutation.mutateAsync(importId).catch(() => undefined)
+  const handleAdjustInventory = async (
+    inventoryId: string,
+    quantity: number,
+    reason: string,
+    note: string,
+  ) => {
+    await adjustInventoryMutation.mutateAsync({
+      inventoryId,
+      input: { quantity, reason, note },
+    }).catch(() => undefined)
+  }
+
+  const handleUpdateThreshold = async (nextThreshold: number) => {
+    await thresholdMutation.mutateAsync(nextThreshold).catch(() => undefined)
+  }
+
+  const handleCreateStocktake = async (
+    lines: Array<{ inventoryId: string; countedQuantity: number; reason?: string }>,
+    note: string,
+  ) => {
+    await stocktakeMutation.mutateAsync({ lines, note }).catch(() => undefined)
   }
 
   return (
@@ -535,6 +629,12 @@ function InventoryManagementContent({
           <button className="admin-secondary-button" type="button" onClick={() => setIsReceiptListOpen(true)}>
             Danh sách phiếu nhập
           </button>
+          <button className="admin-secondary-button" type="button" onClick={() => setIsSupplierDialogOpen(true)}>
+            Nhà cung cấp
+          </button>
+          <button className="admin-secondary-button" type="button" onClick={() => setIsThresholdDialogOpen(true)}>
+            Ngưỡng cảnh báo
+          </button>
           <button className="admin-secondary-button" type="button" onClick={() => void loadData()}>
             Làm mới
           </button>
@@ -555,33 +655,42 @@ function InventoryManagementContent({
       </div>
 
       <section className="admin-inventory-toolbar">
-        <label className="admin-inventory-search">
-          <SearchIcon />
-          <input
-            type="search"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            placeholder="Tìm tên sản phẩm, SKU..."
-          />
-        </label>
-        <div className="admin-inventory-filters">
-          <FilterSelect value={category} onChange={setCategory} label="Danh mục" options={filterOptions.categories} />
-          <FilterSelect value={brand} onChange={setBrand} label="Thương hiệu" options={filterOptions.brands} />
-          <FilterSelect value={fitType} onChange={setFitType} label="Fit type" options={filterOptions.fitTypes} />
-          <select value={status} onChange={(event) => setStatus(event.target.value as StockStatus)} aria-label="Trạng thái kho">
-            <option value="all">Trạng thái kho</option>
-            <option value="available">Còn hàng</option>
-            <option value="low">Sắp hết</option>
-            <option value="out">Hết hàng</option>
+        <div className="admin-inventory-primary-filters">
+          <label className="admin-inventory-search">
+            <SearchIcon />
+            <input
+              type="search"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder="Tìm tên sản phẩm, màu, size..."
+            />
+          </label>
+          <select value={status} onChange={(event) => setStatus(event.target.value as StockStatus)} aria-label="Cảnh báo tồn kho">
+            <option value="all">Tất cả tồn kho</option>
+            <option value="warning">Cần xử lý</option>
+            <option value="available">Đủ hàng</option>
           </select>
+          <button
+            className={`admin-secondary-button${showAdvancedFilters || hasAdvancedFilters ? ' is-active' : ''}`}
+            type="button"
+            onClick={() => setShowAdvancedFilters((current) => !current)}
+          >
+            Bộ lọc nâng cao{hasAdvancedFilters ? ' (đang dùng)' : ''}
+          </button>
           <button className="admin-secondary-button" type="button" onClick={resetFilters}>Đặt lại</button>
         </div>
+        {showAdvancedFilters || hasAdvancedFilters ? (
+          <div className="admin-inventory-filters">
+            <FilterSelect value={category} onChange={setCategory} label="Danh mục" options={filterOptions.categories} />
+            <FilterSelect value={brand} onChange={setBrand} label="Thương hiệu" options={filterOptions.brands} />
+            <FilterSelect value={fitType} onChange={setFitType} label="Phom dáng" options={filterOptions.fitTypes} />
+          </div>
+        ) : null}
         <div className="admin-inventory-tabs" aria-label="Lọc nhanh tồn kho">
           {[
-            ['all', 'Tất cả'],
-            ['available', 'Còn hàng'],
-            ['low', 'Sắp hết'],
-            ['out', 'Hết hàng'],
+            ['all', 'Tất cả tồn kho'],
+            ['warning', 'Cần xử lý'],
+            ['available', 'Đủ hàng'],
           ].map(([value, label]) => (
             <button
               className={status === value ? 'is-active' : ''}
@@ -619,11 +728,14 @@ function InventoryManagementContent({
               {!isLoading && pagination.items.length === 0 ? <EmptyRow label="Không có tồn kho phù hợp." /> : null}
               {!isLoading ? pagination.items.flatMap((group) => {
                 const total = group.rows.reduce((sum, row) => sum + row.availableQuantity, 0)
-                const low = group.rows.filter(
-                  (row) => row.availableQuantity > 0 && row.availableQuantity <= lowStockThreshold,
-                ).length
-                const out = group.rows.filter((row) => row.availableQuantity === 0).length
-                const productStatus = getStatus(group.rows)
+                const warningCounts = getInventoryWarningCounts(
+                  group.rows,
+                  globalLowStockThreshold,
+                  (row) => `${row.variantId}:${row.colorVariantId}:${row.size.trim().toLowerCase()}`,
+                )
+                const low = warningCounts.low
+                const out = warningCounts.out
+                const productStatus = getStatus(group.rows, globalLowStockThreshold)
                 const isProductExpanded = expandedProducts.has(group.productId)
                 const rowsByVariant = new Map<string, InventoryRow[]>()
                 group.rows.forEach((row) => {
@@ -658,7 +770,10 @@ function InventoryManagementContent({
                         const isVariantExpanded = expandedVariants.has(variantKey)
                         const variantTotal = variantRows.reduce((sum, row) => sum + row.availableQuantity, 0)
                         const variantWarnings = variantRows.filter(
-                          (row) => row.availableQuantity > 0 && row.availableQuantity <= lowStockThreshold,
+                          (row) => row.availableQuantity <= globalLowStockThreshold,
+                        )
+                        const variantWarningLabels = uniqueTextValues(
+                          variantWarnings.map((row) => `${row.color?.color || '-'} / ${row.size}`),
                         )
                         const rowsByColor = new Map<string, InventoryColorGroup>()
                         variantRows.forEach((row) => {
@@ -683,12 +798,12 @@ function InventoryManagementContent({
                                 onClick={() => toggleExpanded(variantKey, setExpandedVariants)}
                               >
                                 <ChevronIcon expanded={isVariantExpanded} />
-                                <span>Fit type</span>
+                                <span>Phom dáng</span>
                                 <strong>{variantRows[0]?.variant?.fitTypeLabel || '-'}</strong>
                                 {variantWarnings.length ? (
                                   <span className="admin-variant-warning">
                                     <WarningIcon />
-                                    {variantWarnings.map((row) => `${row.color?.color} / ${row.size}`).join(', ')} đang thiếu hàng
+                                    {variantWarningLabels.join(', ')} đang thiếu hàng
                                   </span>
                                 ) : null}
                                 <small>{formatNumber(variantTotal)} sản phẩm</small>
@@ -708,12 +823,15 @@ function InventoryManagementContent({
                                 const lowRows = colorGroup.rows.filter(
                                   (row) =>
                                     row.availableQuantity > 0 &&
-                                    row.availableQuantity <= lowStockThreshold,
+                                    row.availableQuantity <= globalLowStockThreshold,
                                 )
                                 const outRows = colorGroup.rows.filter(
                                   (row) => row.availableQuantity === 0,
                                 )
-                                const colorStatus = getStatus(colorGroup.rows)
+                                const uniqueSizeCount = uniqueTextValues(colorGroup.rows.map((row) => row.size)).length
+                                const lowSizes = uniqueTextValues(lowRows.map((row) => row.size))
+                                const outSizes = uniqueTextValues(outRows.map((row) => row.size))
+                                const colorStatus = getStatus(colorGroup.rows, globalLowStockThreshold)
                                         return (
                                           <article className="admin-inventory-color-block" key={colorGroup.colorVariantId}>
                                             <div className="admin-option-name">
@@ -726,7 +844,7 @@ function InventoryManagementContent({
                                             </div>
                                             <div className="admin-inventory-color-block-field">
                                               <span>Số size</span>
-                                              <strong>{colorGroup.rows.length} size</strong>
+                                              <strong>{uniqueSizeCount} size</strong>
                                             </div>
                                             <div className="admin-inventory-color-block-field">
                                               <span>Tồn kho</span>
@@ -738,9 +856,9 @@ function InventoryManagementContent({
                                                 <span className="admin-color-warning">
                                                   <WarningIcon />
                                                   <span>
-                                                    {lowRows.length ? `Sắp hết: ${lowRows.map((row) => row.size).join(', ')}` : ''}
-                                                    {lowRows.length && outRows.length ? ' · ' : ''}
-                                                    {outRows.length ? `Hết: ${outRows.map((row) => row.size).join(', ')}` : ''}
+                                                    {lowSizes.length ? `Sắp hết: ${lowSizes.join(', ')}` : ''}
+                                                    {lowSizes.length && outSizes.length ? ' · ' : ''}
+                                                    {outSizes.length ? `Hết: ${outSizes.join(', ')}` : ''}
                                                   </span>
                                                 </span>
                                               ) : <span className="admin-stock-safe">Đủ hàng</span>}
@@ -752,6 +870,8 @@ function InventoryManagementContent({
                                             <div className="admin-inventory-color-block-field">
                                               <span>Hành động</span>
                                               <div className="admin-inventory-actions">
+                                                <button className="admin-secondary-link" type="button" disabled={!canWrite} onClick={() => setAdjusting(colorGroup)}>Điều chỉnh</button>
+                                                <button className="admin-secondary-link" type="button" disabled={!canWrite} onClick={() => setStocktaking(colorGroup)}>Kiểm kê</button>
                                                 <button className="admin-secondary-link" type="button" onClick={() => void handleViewHistory(colorGroup)}><ViewIcon /> Xem</button>
                                               </div>
                                             </div>
@@ -810,25 +930,137 @@ function InventoryManagementContent({
         </div>
       </footer>
 
+      <section className="admin-inventory-movement-panel" aria-labelledby="inventory-movement-log-title">
+        <header>
+          <div>
+            <span>Sổ kho</span>
+            <h2 id="inventory-movement-log-title">Biến động kho hàng</h2>
+          </div>
+          <div>
+            <select
+              value={movementType}
+              onChange={(event) => {
+                setMovementType(event.target.value as InventoryMovementType | 'all')
+                setMovementPage(1)
+              }}
+              aria-label="Lọc loại biến động kho"
+            >
+              {movementTypeOptions.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <button className="admin-secondary-button" type="button" onClick={() => void loadMovementList()}>
+              Làm mới
+            </button>
+          </div>
+        </header>
+        <div className="admin-inventory-movement-table">
+          <header>
+            <span>Thời gian</span>
+            <span>Sản phẩm</span>
+            <span>Phom dáng</span>
+            <span>Màu</span>
+            <span>Size</span>
+            <span>Loại</span>
+            <span>Thay đổi</span>
+            <span>Tồn sau</span>
+            <span>Lý do</span>
+          </header>
+          {isMovementListLoading ? <p>Đang tải biến động kho...</p> : null}
+          {movementListError ? <p className="admin-notice is-error">{movementListError}</p> : null}
+          {!isMovementListLoading && !movementListError && inventoryMovements.length === 0 ? (
+            <p>Chưa có biến động kho phù hợp.</p>
+          ) : null}
+          {!isMovementListLoading && !movementListError ? inventoryMovements.map((movement) => {
+            const context = getMovementContext(movement)
+
+            return (
+              <article key={movement._id}>
+                <span>{formatDate(movement.createdAt)}</span>
+                <strong>{context.product?.name || movement.sku || '-'}</strong>
+                <span>{context.variant?.fitTypeLabel || '-'}</span>
+                <span>{context.color?.color || '-'}</span>
+                <span>{movement.size}</span>
+                <span>{movementLabels[movement.type] ?? movement.type}</span>
+                <strong className={movement.quantityDelta < 0 ? 'is-negative' : 'is-positive'}>
+                  {movement.quantityDelta > 0 ? '+' : ''}{formatNumber(movement.quantityDelta)}
+                </strong>
+                <span>{formatNumber(movement.quantityAfter)}</span>
+                <span>{movement.reason || '-'}</span>
+              </article>
+            )
+          }) : null}
+        </div>
+        <footer>
+          <span>Hiển thị {inventoryMovements.length ? ((movementPage - 1) * movementPageSize) + 1 : 0}–{Math.min(movementPage * movementPageSize, movementTotalItems)} / {movementTotalItems}</span>
+          <div>
+            <button
+              className="admin-secondary-button"
+              type="button"
+              disabled={movementPage <= 1 || isMovementListLoading}
+              onClick={() => setMovementPage((value) => Math.max(1, value - 1))}
+            >
+              Trước
+            </button>
+            <span>{movementPage} / {movementTotalPages}</span>
+            <button
+              className="admin-secondary-button"
+              type="button"
+              disabled={movementPage >= movementTotalPages || isMovementListLoading}
+              onClick={() => setMovementPage((value) => Math.min(movementTotalPages, value + 1))}
+            >
+              Sau
+            </button>
+          </div>
+        </footer>
+      </section>
+
       {viewing ? (
         <InventoryHistoryDialog
           group={viewing}
           imports={importHistory}
+          movements={movementHistory}
           isLoading={isHistoryLoading}
           errorMessage={historyError}
-          isDeleting={isImportMutating}
-          onDeleteImport={handleDeleteImport}
           onClose={() => setViewing(null)}
         />
       ) : null}
-      {importing ? (
-        <ImportDialog
-          row={importing}
-          supplierOptions={supplierOptions}
-          isSaving={isImportMutating}
+      {adjusting ? (
+        <InventoryAdjustDialog
+          group={adjusting}
+          isSaving={isOperationSaving}
           errorMessage={notice?.type === 'error' ? notice.message : ''}
-          onClose={() => setImporting(null)}
-          onSave={handleCreateImport}
+          onClose={() => setAdjusting(null)}
+          onSave={handleAdjustInventory}
+        />
+      ) : null}
+      {isThresholdDialogOpen ? (
+        <InventoryThresholdDialog
+          value={globalLowStockThreshold}
+          isSaving={isOperationSaving}
+          errorMessage={notice?.type === 'error' ? notice.message : ''}
+          onClose={() => setIsThresholdDialogOpen(false)}
+          onSave={handleUpdateThreshold}
+        />
+      ) : null}
+      {stocktaking ? (
+        <InventoryStocktakeDialog
+          group={stocktaking}
+          isSaving={isOperationSaving}
+          errorMessage={notice?.type === 'error' ? notice.message : ''}
+          onClose={() => setStocktaking(null)}
+          onSave={handleCreateStocktake}
+        />
+      ) : null}
+      {isSupplierDialogOpen ? (
+        <InventorySupplierDialog
+          suppliers={managedSuppliers}
+          isSaving={isOperationSaving}
+          errorMessage={notice?.type === 'error' ? notice.message : ''}
+          onClose={() => setIsSupplierDialogOpen(false)}
+          onCreate={(input) => supplierMutation.mutateAsync({ type: 'create', input }).then(() => undefined)}
+          onUpdate={(id, input) => supplierMutation.mutateAsync({ type: 'update', id, input }).then(() => undefined)}
+          onDisable={(id) => supplierMutation.mutateAsync({ type: 'delete', id }).then(() => undefined)}
         />
       ) : null}
       {isReceiptFormOpen ? (
@@ -839,8 +1071,10 @@ function InventoryManagementContent({
           editingReceipt={editingReceipt}
           canWrite={canWrite}
           products={products}
+          suppliers={managedSuppliers}
           onSaved={async () => {
             await loadData()
+            await loadMovementList()
           }}
           onClose={() => {
             setIsReceiptFormOpen(false)

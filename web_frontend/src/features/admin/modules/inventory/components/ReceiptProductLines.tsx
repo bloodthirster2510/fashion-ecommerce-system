@@ -63,7 +63,7 @@ export function ReceiptProductBlock({
         >
           <div className="admin-receipt-lines-head">
             <span>Ảnh</span>
-            <span>Form dáng</span>
+            <span>Phom dáng</span>
             <span>Màu sắc</span>
             {sizeOptions.map((size) => (
               <span className="admin-receipt-size-heading" key={size}>Size {size}</span>
@@ -123,7 +123,7 @@ function ReceiptProductLineRow({
       </div>
       <select
         value={line.variantId}
-        aria-label="Form dáng"
+        aria-label="Phom dáng"
         onChange={(event) =>
           onChange((current) => ({
             ...current,
@@ -134,7 +134,7 @@ function ReceiptProductLineRow({
           }))
         }
       >
-        <option value="">Chọn form dáng</option>
+        <option value="">Chọn phom dáng</option>
         {product.variants.map((variant) => (
           <option value={variant._id} key={variant._id}>
             {variant.fitTypeLabel}
@@ -168,7 +168,7 @@ function ReceiptProductLineRow({
           key={size}
           disabled={!isActive}
           value={line.quantities[size] ?? ''}
-          title={isActive ? `Tồn hiện tại size ${size}: ${formatNumber(getAvailableQuantity(size))}` : 'Chọn form dáng và màu sắc trước'}
+          title={isActive ? `Tồn hiện tại size ${size}: ${formatNumber(getAvailableQuantity(size))}` : 'Chọn phom dáng và màu sắc trước'}
           aria-label={`Số lượng nhập size ${size}`}
           onChange={(event) =>
             onChange((current) => ({

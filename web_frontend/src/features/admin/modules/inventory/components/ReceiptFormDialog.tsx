@@ -12,6 +12,7 @@ import {
   updateInventoryReceipt,
 } from '../inventory.service'
 import type {
+  InventorySupplier,
   InventoryReceipt,
   InventoryReceiptLine,
 } from '../inventory.types'
@@ -39,6 +40,7 @@ export function InventoryReceiptDialog({
   editingReceipt,
   canWrite,
   products,
+  suppliers,
   onSaved,
   onClose,
 }: {
@@ -48,6 +50,7 @@ export function InventoryReceiptDialog({
   editingReceipt: InventoryReceipt | null
   canWrite: boolean
   products: ManagedProduct[]
+  suppliers: InventorySupplier[]
   onSaved: () => Promise<void>
   onClose: () => void
 }) {
@@ -76,6 +79,14 @@ export function InventoryReceiptDialog({
   const categoryOptions = useMemo(
     () => [...new Set(products.map((product) => product.categoryName).filter(Boolean))].sort(),
     [products],
+  )
+  const supplierOptions = useMemo(
+    () =>
+      suppliers
+        .filter((supplier) => supplier.isActive || supplier.name === supplierName)
+        .map((supplier) => supplier.name)
+        .sort((left, right) => left.localeCompare(right, 'vi')),
+    [supplierName, suppliers],
   )
 
   const filteredProducts = useMemo(() => {
@@ -133,7 +144,7 @@ export function InventoryReceiptDialog({
     lineId: string,
     updater: (line: ReceiptProductLine) => ReceiptProductLine,
   ) => {
-    // Luôn giữ một dòng trống để admin có thể chọn thêm form dáng hoặc màu tiếp theo.
+    // Luôn giữ một dòng trống để admin có thể chọn thêm phom dáng hoặc màu tiếp theo.
     updateProductLines(productId, (lines) => {
       const nextLines = lines.map((line) => (line.id === lineId ? updater(line) : line))
       const hasDraftLine = nextLines.some((line) => !line.variantId || !line.colorVariantId)
@@ -259,13 +270,19 @@ export function InventoryReceiptDialog({
             </label>
             <label>
               <span>Nhà cung cấp</span>
-              <input
+              <select
                 value={supplierName}
-                maxLength={120}
-                placeholder="Nhập tên nhà cung cấp"
                 disabled={isReceiptSaving}
                 onChange={(event) => setSupplierName(event.target.value)}
-              />
+              >
+                <option value="">Chọn nhà cung cấp</option>
+                {supplierOptions.map((supplier) => (
+                  <option value={supplier} key={supplier}>{supplier}</option>
+                ))}
+                {supplierName && !supplierOptions.includes(supplierName) ? (
+                  <option value={supplierName}>{supplierName}</option>
+                ) : null}
+              </select>
             </label>
             <label>
               <span>Ngày nhập hàng</span>
