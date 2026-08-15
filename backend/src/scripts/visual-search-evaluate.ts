@@ -101,6 +101,21 @@ const resolveLabelsPath = () => {
   return resolveWorkspacePath(FALLBACK_LABELS_PATH);
 };
 
+// Override cấu hình embedding cho evaluation qua catalog/MongoDB, tránh dùng nhầm .env cũ.
+const applyEmbeddingOverrides = () => {
+  const provider = getStringArg('provider');
+  const serviceUrl = getStringArg('embedding-service-url');
+  const model = getStringArg('model');
+  const modelVersion = getStringArg('model-version');
+  const timeoutMs = getStringArg('embedding-timeout-ms');
+
+  if (provider) process.env.VISUAL_EMBEDDING_PROVIDER = provider;
+  if (serviceUrl) process.env.VISUAL_EMBEDDING_SERVICE_URL = serviceUrl;
+  if (model) process.env.VISUAL_EMBEDDING_MODEL = model;
+  if (modelVersion) process.env.VISUAL_EMBEDDING_VERSION = modelVersion;
+  if (timeoutMs) process.env.VISUAL_EMBEDDING_TIMEOUT_MS = timeoutMs;
+};
+
 // Tách một dòng CSV, có xử lý ô chứa dấu phẩy trong dấu nháy.
 const parseCsvLine = (line: string) => {
   const values: string[] = [];
@@ -409,12 +424,13 @@ const getEvaluationOptions = (label: QueryLabel): VisualSearchQueryOptions => {
 
 // Luồng chính: đọc nhãn, chạy từng ảnh qua hệ thống và xuất báo cáo đánh giá.
 const run = async () => {
+  applyEmbeddingOverrides();
   const labelsPath = resolveLabelsPath();
   const summaryOutput = resolveWorkspacePath(getStringArg('output', DEFAULT_SUMMARY_OUTPUT)!);
   const detailOutput = resolveWorkspacePath(getStringArg('detail-output', DEFAULT_DETAIL_OUTPUT)!);
   const method = getStringArg(
     'method',
-    `${process.env.VISUAL_EMBEDDING_MODEL ?? 'visual-search'}-${process.env.VISUAL_EMBEDDING_PROVIDER ?? 'mock'}`,
+    `${process.env.VISUAL_EMBEDDING_MODEL ?? 'visual-search'}-${process.env.VISUAL_EMBEDDING_PROVIDER ?? 'http'}`,
   )!;
   const maxQueries = getNumberArg('max-queries');
   const csvContent = await fs.readFile(labelsPath, 'utf8');

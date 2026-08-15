@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">DeepFashion model comparison chart</title>
+  <desc id="desc">Comparison of CLIP ViT-B/32, Marqo FashionCLIP, and FashionCLIP 2.0 on DeepFashion In-shop subset with retrieval metrics and latency.</desc>
+  <rect width="1280" height="760" fill="#ffffff"/>
+  <text x="60" y="48" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#172033">DeepFashion In-shop Subset - Visual Retrieval Model Comparison</text>
+  <text x="60" y="76" font-family="Arial, sans-serif" font-size="14" fill="#5b6475">Gallery: 1000 images | Query: 70 images | Metrics: higher is better except latency</text>
+
+  <g font-family="Arial, sans-serif" font-size="13" fill="#263244">
+    <rect x="60" y="98" width="14" height="14" rx="2" fill="#4f80ff"/>
+    <text x="82" y="110">CLIP ViT-B/32</text>
+    <rect x="210" y="98" width="14" height="14" rx="2" fill="#22a06b"/>
+    <text x="232" y="110">Marqo FashionCLIP</text>
+    <rect x="405" y="98" width="14" height="14" rx="2" fill="#f59f2f"/>
+    <text x="427" y="110">FashionCLIP 2.0</text>
+  </g>
+
+  <text x="60" y="145" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033">Retrieval quality metrics</text>
+  <text x="60" y="166" font-family="Arial, sans-serif" font-size="12" fill="#6d7688">Score scale: 0.0 to 1.0</text>
+
+  <g transform="translate(72 190)">
+    <rect x="0" y="0" width="836" height="360" fill="none" stroke="#d7dce5"/>
+    <g stroke="#e8ebf1" stroke-width="1">
+      <line x1="0" y1="360" x2="836" y2="360"/>
+      <line x1="0" y1="288" x2="836" y2="288"/>
+      <line x1="0" y1="216" x2="836" y2="216"/>
+      <line x1="0" y1="144" x2="836" y2="144"/>
+      <line x1="0" y1="72" x2="836" y2="72"/>
+      <line x1="0" y1="0" x2="836" y2="0"/>
+    </g>
+    <g font-family="Arial, sans-serif" font-size="11" fill="#687386" text-anchor="end">
+      <text x="-10" y="364">0.0</text>
+      <text x="-10" y="292">0.2</text>
+      <text x="-10" y="220">0.4</text>
+      <text x="-10" y="148">0.6</text>
+      <text x="-10" y="76">0.8</text>
+      <text x="-10" y="4">1.0</text>
+    </g>
+
+    <g font-family="Arial, sans-serif" font-size="10" text-anchor="middle">
+      <g transform="translate(44 0)">
+        <rect x="-31" y="118.3" width="20" height="241.7" fill="#4f80ff"/>
+        <rect x="-8" y="51.4" width="20" height="308.6" fill="#22a06b"/>
+        <rect x="15" y="77.1" width="20" height="282.9" fill="#f59f2f"/>
+        <text x="-21" y="111.3" fill="#263244">0.671</text>
+        <text x="2" y="44.4" fill="#263244">0.857</text>
+        <text x="25" y="70.1" fill="#263244">0.786</text>
+        <text x="0" y="388" font-size="12" fill="#263244">Recall@1</text>
+      </g>
+
+      <g transform="translate(168 0)">
+        <rect x="-31" y="72" width="20" height="288" fill="#4f80ff"/>
+        <rect x="-8" y="15.4" width="20" height="344.6" fill="#22a06b"/>
+        <rect x="15" y="36" width="20" height="324" fill="#f59f2f"/>
+        <text x="-21" y="65" fill="#263244">0.800</text>
+        <text x="2" y="8.4" fill="#263244">0.957</text>
+        <text x="25" y="29" fill="#263244">0.900</text>
+        <text x="0" y="388" font-size="12" fill="#263244">Recall@5</text>
+      </g>
+
+      <g transform="translate(292 0)">
+        <rect x="-31" y="51.4" width="20" height="308.6" fill="#4f80ff"/>
+        <rect x="-8" y="15.4" width="20" height="344.6" fill="#22a06b"/>
+        <rect x="15" y="25.7" width="20" height="334.3" fill="#f59f2f"/>
+        <text x="-21" y="44.4" fill="#263244">0.857</text>
+        <text x="2" y="8.4" fill="#263244">0.957</text>
+        <text x="25" y="18.7" fill="#263244">0.929</text>
+        <text x="0" y="388" font-size="12" fill="#263244">Recall@10</text>
+      </g>
+
+      <g transform="translate(416 0)">
+        <rect x="-31" y="302.4" width="20" height="57.6" fill="#4f80ff"/>
+        <rect x="-8" y="291.1" width="20" height="68.9" fill="#22a06b"/>
+        <rect x="15" y="295.2" width="20" height="64.8" fill="#f59f2f"/>
+        <text x="-21" y="295.4" fill="#263244">0.160</text>
+        <text x="2" y="284.1" fill="#263244">0.191</text>
+        <text x="25" y="288.2" fill="#263244">0.180</text>
+        <text x="0" y="388" font-size="12" fill="#263244">Precision@5</text>
+      </g>
+
+      <g transform="translate(540 0)">
+        <rect x="-31" y="329.1" width="20" height="30.9" fill="#4f80ff"/>
+        <rect x="-8" y="325.5" width="20" height="34.5" fill="#22a06b"/>
+        <rect x="15" y="326.6" width="20" height="33.4" fill="#f59f2f"/>
+        <text x="-21" y="322.1" fill="#263244">0.086</text>
+        <text x="2" y="318.5" fill="#263244">0.096</text>
+        <text x="25" y="319.6" fill="#263244">0.093</text>
+        <text x="0" y="388" font-size="12" fill="#263244">Precision@10</text>
+      </g>
+
+      <g transform="translate(664 0)">
+        <rect x="-31" y="95.8" width="20" height="264.2" fill="#4f80ff"/>
+        <rect x="-8" y="35.6" width="20" height="324.4" fill="#22a06b"/>
+        <rect x="15" y="57.2" width="20" height="302.8" fill="#f59f2f"/>
+        <text x="-21" y="88.8" fill="#263244">0.734</text>
+        <text x="2" y="28.6" fill="#263244">0.901</text>
+        <text x="25" y="50.2" fill="#263244">0.841</text>
+        <text x="0" y="388" font-size="12" fill="#263244">MRR</text>
+      </g>
+
+      <g transform="translate(788 0)">
+        <rect x="-31" y="85.1" width="20" height="274.9" fill="#4f80ff"/>
+        <rect x="-8" y="30.4" width="20" height="329.6" fill="#22a06b"/>
+        <rect x="15" y="49.5" width="20" height="310.5" fill="#f59f2f"/>
+        <text x="-21" y="78.1" fill="#263244">0.764</text>
+        <text x="2" y="23.4" fill="#263244">0.916</text>
+        <text x="25" y="42.5" fill="#263244">0.863</text>
+        <text x="0" y="388" font-size="12" fill="#263244">NDCG@10</text>
+      </g>
+    </g>
+  </g>
+
+  <text x="985" y="145" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#172033">Latency</text>
+  <text x="985" y="166" font-family="Arial, sans-serif" font-size="12" fill="#6d7688">Milliseconds, lower is better</text>
+
+  <g transform="translate(990 190)">
+    <rect x="0" y="0" width="230" height="360" fill="none" stroke="#d7dce5"/>
+    <g stroke="#e8ebf1" stroke-width="1">
+      <line x1="0" y1="360" x2="230" y2="360"/>
+      <line x1="0" y1="270" x2="230" y2="270"/>
+      <line x1="0" y1="180" x2="230" y2="180"/>
+      <line x1="0" y1="90" x2="230" y2="90"/>
+      <line x1="0" y1="0" x2="230" y2="0"/>
+    </g>
+    <g font-family="Arial, sans-serif" font-size="11" fill="#687386" text-anchor="end">
+      <text x="-10" y="364">0</text>
+      <text x="-10" y="274">60</text>
+      <text x="-10" y="184">120</text>
+      <text x="-10" y="94">180</text>
+      <text x="-10" y="4">240</text>
+    </g>
+    <g font-family="Arial, sans-serif" font-size="11" text-anchor="middle">
+      <g transform="translate(68 0)">
+        <rect x="-32" y="239.9" width="20" height="120.1" fill="#4f80ff"/>
+        <rect x="-8" y="85.3" width="20" height="274.7" fill="#22a06b"/>
+        <rect x="16" y="230.7" width="20" height="129.3" fill="#f59f2f"/>
+        <text x="-22" y="232.9" fill="#263244">80.1</text>
+        <text x="2" y="78.3" fill="#263244">183.1</text>
+        <text x="26" y="223.7" fill="#263244">86.2</text>
+        <text x="0" y="388" font-size="12" fill="#263244">Avg</text>
+      </g>
+      <g transform="translate(166 0)">
+        <rect x="-32" y="216" width="20" height="144" fill="#4f80ff"/>
+        <rect x="-8" y="39" width="20" height="321" fill="#22a06b"/>
+        <rect x="16" y="211.5" width="20" height="148.5" fill="#f59f2f"/>
+        <text x="-22" y="209" fill="#263244">96</text>
+        <text x="2" y="32" fill="#263244">214</text>
+        <text x="26" y="204.5" fill="#263244">99</text>
+        <text x="0" y="388" font-size="12" fill="#263244">P95</text>
+      </g>
+    </g>
+  </g>
+
+  <g font-family="Arial, sans-serif" font-size="14" fill="#263244">
+    <text x="72" y="630" font-weight="700">Main finding</text>
+    <text x="72" y="656">Marqo FashionCLIP achieves the best retrieval quality on this subset: Recall@1 = 0.8571, MRR = 0.9012, NDCG@10 = 0.9155.</text>
+    <text x="72" y="681">FashionCLIP 2.0 improves over CLIP ViT-B/32 while keeping latency close to the CLIP baseline.</text>
+  </g>
+</svg>
