@@ -11,8 +11,13 @@ export type ManagedCategory = {
   isSizeTemplateSource?: boolean
   sizeTemplateName?: string
   sizeTemplateSourceId?: string | null
+  sizeGuideImage?: string
+  isFitTypeTemplateSource?: boolean
+  fitTypeTemplateName?: string
+  fitTypeTemplateSourceId?: string | null
   sizes?: string[]
   measurementFields?: MeasurementFieldInput[]
+  fitTypes?: CategoryFitTypeInput[]
   isActive: boolean
   productCount: number
   activeProductCount: number
@@ -24,6 +29,7 @@ export type ManagedBrand = {
   image: string
   isActive: boolean
   productCount: number
+  activeProductCount: number
 }
 
 export type CategoryInput = {
@@ -42,6 +48,14 @@ export type SizeTemplateInput = {
   measurementFields: MeasurementFieldInput[]
   categoryIds: string[]
   excludedCategoryIds?: string[]
+  clearSizeGuideImage?: boolean
+}
+
+export type FitTypeTemplateInput = {
+  name: string
+  fitTypes: CategoryFitTypeInput[]
+  categoryIds: string[]
+  excludedCategoryIds?: string[]
 }
 
 export type MeasurementFieldInput = {
@@ -50,6 +64,14 @@ export type MeasurementFieldInput = {
   unit: string
   required: boolean
   sortOrder: number
+}
+
+export type CategoryFitTypeInput = {
+  _id?: string
+  key: string
+  label: string
+  sortOrder: number
+  isActive?: boolean
 }
 
 export type BrandInput = {

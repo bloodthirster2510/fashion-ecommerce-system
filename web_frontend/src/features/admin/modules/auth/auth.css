@@ -132,8 +132,7 @@
   font-weight: 800;
 }
 
-.admin-login-submit,
-.admin-login-secondary {
+.admin-login-submit {
   height: 48px;
   border-radius: 8px;
   cursor: pointer;
@@ -164,23 +163,10 @@
   opacity: 0.72;
 }
 
-.admin-login-secondary {
-  border: 1px solid #d4dde5;
-  color: #233445;
-  background: #fff;
-}
-
-.admin-login-secondary:hover {
-  border-color: #b8c5d0;
-  background: #f7f9fb;
-  box-shadow: 0 8px 18px rgba(31, 45, 61, 0.1);
-  transform: translateY(-1px);
-}
-
 .admin-login-footnote {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-top: 22px;
   color: #718293;
@@ -201,7 +187,7 @@
   color: #fff;
   background:
     linear-gradient(145deg, rgba(31, 45, 61, 0.92), rgba(84, 119, 146, 0.82)),
-    url('../../../../assets/hero.png') center 54% / min(390px, 54vw) auto no-repeat,
+    url('../../../../assets/images/Hero2.png') center / cover no-repeat,
     #1f2d3d;
 }
 

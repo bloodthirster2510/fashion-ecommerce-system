@@ -5,7 +5,7 @@ import {
   saveAdminSession,
   type AdminUser,
 } from './adminSession'
-import { refreshAdminSession } from './auth.service'
+import { getCurrentAdminUser, refreshAdminSession } from './auth.service'
 
 const values = new Map<string, string>()
 const localStorageMock = {
@@ -26,8 +26,8 @@ const user: AdminUser = {
   role: 'admin',
 }
 
-const refreshResponse = (accessToken: string) => new Response(JSON.stringify({
-  data: { accessToken },
+const refreshResponse = (accessToken: string, refreshedUser: AdminUser = user) => new Response(JSON.stringify({
+  data: { accessToken, user: refreshedUser },
 }), {
   status: 200,
   headers: { 'Content-Type': 'application/json' },
@@ -94,7 +94,7 @@ test.describe('admin refresh lifecycle', () => {
     await Promise.resolve()
 
     expect(fetchCalls).toBe(2)
-    pendingResponses[1](refreshResponse('next-refreshed-access'))
+    pendingResponses[1](refreshResponse('next-refreshed-access', nextUser))
     await expect(nextRefresh).resolves.toEqual({
       accessToken: 'next-refreshed-access',
       user: nextUser,
@@ -106,5 +106,40 @@ test.describe('admin refresh lifecycle', () => {
       accessToken: 'next-refreshed-access',
       user: nextUser,
     })
+  })
+
+  test('uses fresh permissions returned by the refresh endpoint', async () => {
+    const latestUser = {
+      ...user,
+      role: 'staff',
+      permissions: ['orders.read'],
+    }
+    const refresh = refreshAdminSession()
+    await Promise.resolve()
+    pendingResponses[0](new Response(JSON.stringify({
+      data: { accessToken: 'next-access', user: latestUser },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await expect(refresh).resolves.toEqual({
+      accessToken: 'next-access',
+      user: latestUser,
+    })
+    expect(getAdminSession()?.user).toEqual(latestUser)
+  })
+
+  test('loads the current admin user with the access token', async () => {
+    const latestUser = { ...user, role: 'staff', permissions: ['products.read'] }
+    globalThis.fetch = (async (_input, init) => {
+      expect(init?.headers).toEqual({ Authorization: 'Bearer current-access' })
+      return new Response(JSON.stringify({ data: latestUser }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+
+    await expect(getCurrentAdminUser('current-access')).resolves.toEqual(latestUser)
   })
 })

@@ -5,6 +5,7 @@ import {
   recommendationService,
 } from './recommendation.service';
 import { recommendationAnalyticsService } from './recommendation-analytics.service';
+import { recommendationMerchandisingService } from './recommendation-merchandising.service';
 import type { RecommendationEventInput } from './recommendation.types';
 
 const hasStatusCode = (value: unknown): value is { statusCode: number } =>
@@ -199,6 +200,31 @@ const getRecommendationAnalytics = async (req: Request, res: Response) => {
   }
 };
 
+const listRecommendationMerchandisingRules = async (_req: Request, res: Response) => {
+  try {
+    return ok(res, await recommendationMerchandisingService.listRules());
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const updateRecommendationMerchandisingRule = async (req: Request, res: Response) => {
+  try {
+    const context = parseString(req.params.context);
+    if (!context) return errorResponse(res, 'context is required', 400);
+    const body = isRecord(req.body) ? req.body : {};
+    return ok(res, await recommendationMerchandisingService.updateRule(
+      context,
+      body,
+      req.user?.userId,
+    ));
+  } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
 const createRecommendationEvent = async (req: Request, res: Response) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
@@ -233,6 +259,8 @@ export {
   getCartRecommendations,
   getMyRecommendations,
   getRecommendationAnalytics,
+  listRecommendationMerchandisingRules,
   getSimilarProducts,
   previewRecommendations,
+  updateRecommendationMerchandisingRule,
 };

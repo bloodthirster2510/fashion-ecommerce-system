@@ -1,7 +1,7 @@
 import { resolveGhnArea } from '../ghn-area-resolver';
 
 describe('resolveGhnArea', () => {
-  it('maps Hanoi Ba Dinh 2025 ward to seeded GHN data', () => {
+  it('keeps the representative Hanoi seed pending manual verification', () => {
     const result = resolveGhnArea({
       province: 'Thanh pho Ha Noi',
       provinceCode: '01',
@@ -15,14 +15,15 @@ describe('resolveGhnArea', () => {
       provinceId: 201,
       districtId: 1484,
       wardCode: '1A0107',
-      status: 'mapped',
+      status: 'manual',
       confidence: 'manual',
-      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      verifiedAt: null,
+      verificationSource: null,
       source: 'mapping',
     });
   });
 
-  it('maps Can Tho ward codes to seeded GHN data when no GHN fields are stored yet', () => {
+  it('keeps a manual Can Tho seed pending verification', () => {
     const result = resolveGhnArea({
       province: 'Thành phố Cần Thơ',
       provinceCode: '92',
@@ -36,9 +37,10 @@ describe('resolveGhnArea', () => {
       provinceId: 220,
       districtId: 1572,
       wardCode: '550108',
-      status: 'mapped',
+      status: 'manual',
       confidence: 'manual',
-      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      verifiedAt: null,
+      verificationSource: null,
       source: 'mapping',
     });
   });
@@ -57,14 +59,15 @@ describe('resolveGhnArea', () => {
       provinceId: 220,
       districtId: 1572,
       wardCode: '550108',
-      status: 'mapped',
+      status: 'manual',
       confidence: 'manual',
-      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+      verifiedAt: null,
+      verificationSource: null,
       source: 'mapping',
     });
   });
 
-  it('records explicit GHN codes as a verified manual mapping', () => {
+  it('does not let unverified explicit codes override a seeded mapping', () => {
     const result = resolveGhnArea({
       province: 'Thành phố Cần Thơ',
       provinceCode: '92',
@@ -83,11 +86,12 @@ describe('resolveGhnArea', () => {
       provider: 'GHN',
       provinceId: 220,
       districtId: 1572,
-      wardCode: '550109',
-      status: 'mapped',
+      wardCode: '550108',
+      status: 'manual',
       confidence: 'manual',
-      verifiedAt: new Date('2026-07-29T00:00:00.000Z'),
-      source: 'explicit',
+      verifiedAt: null,
+      verificationSource: null,
+      source: 'mapping',
     });
   });
 });

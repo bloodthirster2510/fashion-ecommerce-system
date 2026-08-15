@@ -243,7 +243,8 @@ describe('User Service', () => {
       expect(result[1].ghnProvinceId).toBe(220);
       expect(result[1].ghnDistrictId).toBe(1572);
       expect(result[1].ghnWardCode).toBe('550108');
-      expect(result[1].ghnMappingStatus).toBe('mapped');
+      expect(result[1].ghnMappingStatus).toBe('manual');
+      expect(result[1].ghnMappingVerifiedAt).toBeNull();
       expect(result[1].isDefault).toBe(true);
       expect(user.save).toHaveBeenCalled();
     });

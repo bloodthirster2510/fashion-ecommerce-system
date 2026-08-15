@@ -11,3 +11,6 @@ export const genderLabels: Record<CatalogGender, string> = {
 
 export const getSizeTemplateLabel = (category?: ManagedCategory | null) =>
   category?.sizeTemplateName?.trim() || category?.name || ''
+
+export const getFitTypeTemplateLabel = (category?: ManagedCategory | null) =>
+  category?.fitTypeTemplateName?.trim() || category?.name || ''

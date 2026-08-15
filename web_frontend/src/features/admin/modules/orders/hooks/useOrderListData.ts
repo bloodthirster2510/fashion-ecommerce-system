@@ -22,40 +22,10 @@ import {
 } from '../orderPresentation'
 import { defaultOrderTableColumns } from '../utils/orderTableColumns'
 
-const orderLookupViewStorageKey = 'admin.orders.lookupView'
-
-type OrderLookupSavedView = {
-  dateFrom?: string
-  dateTo?: string
-  keywordInput?: string
-  paymentMethod?: AdminOrderPaymentMethod | 'all'
-  paymentStatus?: AdminOrderPaymentStatus | 'all'
-  sort?: AdminOrderListSort
-  visibleColumns?: OrderTableColumnKey[]
-}
-
-const getSavedLookupView = (): OrderLookupSavedView | null => {
-  try {
-    const rawView = window.localStorage.getItem(orderLookupViewStorageKey)
-    if (!rawView) return null
-
-    return JSON.parse(rawView) as OrderLookupSavedView
-  } catch {
-    return null
-  }
-}
-
 const getUrlLookupKeyword = () =>
   new URLSearchParams(window.location.search).get('keyword')?.trim() ?? ''
 
 const getDefaultLookupDateFrom = () => getRelativeDateInput(30)
-
-const normalizeVisibleColumns = (columns?: OrderTableColumnKey[]) => {
-  const allowedColumns = new Set(defaultOrderTableColumns)
-  const normalizedColumns = (columns ?? defaultOrderTableColumns).filter((column) => allowedColumns.has(column))
-
-  return normalizedColumns.length > 0 ? normalizedColumns : defaultOrderTableColumns
-}
 
 const formatDateInput = (date: Date) => {
   const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000
@@ -77,10 +47,7 @@ export function useOrderListData({
   lockPaymentSection: boolean
   paymentSection: PaymentSectionKey
 }) {
-  const savedLookupView = !lockPaymentSection ? getSavedLookupView() : null
-  const initialKeyword = !lockPaymentSection
-    ? getUrlLookupKeyword() || savedLookupView?.keywordInput || ''
-    : ''
+  const initialKeyword = !lockPaymentSection ? getUrlLookupKeyword() : ''
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [keywordInput, setKeywordInput] = useState(initialKeyword)
   const [keyword, setKeyword] = useState(initialKeyword.trim())
@@ -88,14 +55,12 @@ export function useOrderListData({
   const [activeTabKey, setActiveTabKey] = useState(() => (
     resolveInitialTabKey(initialTabKey, lockPaymentSection, paymentSection)
   ))
-  const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>(savedLookupView?.paymentMethod ?? 'all')
-  const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>(savedLookupView?.paymentStatus ?? 'all')
-  const [dateFrom, setDateFrom] = useState(() => (lockPaymentSection ? '' : savedLookupView?.dateFrom ?? getDefaultLookupDateFrom()))
-  const [dateTo, setDateTo] = useState(savedLookupView?.dateTo ?? '')
-  const [sort, setSort] = useState<AdminOrderListSort>(savedLookupView?.sort ?? 'created_desc')
-  const [visibleColumns, setVisibleColumns] = useState<OrderTableColumnKey[]>(() =>
-    normalizeVisibleColumns(savedLookupView?.visibleColumns),
-  )
+  const [paymentMethod, setPaymentMethod] = useState<AdminOrderPaymentMethod | 'all'>('all')
+  const [paymentStatus, setPaymentStatus] = useState<AdminOrderPaymentStatus | 'all'>('all')
+  const [dateFrom, setDateFrom] = useState(() => (lockPaymentSection ? '' : getDefaultLookupDateFrom()))
+  const [dateTo, setDateTo] = useState('')
+  const [sort, setSort] = useState<AdminOrderListSort>('created_desc')
+  const [visibleColumns, setVisibleColumns] = useState<OrderTableColumnKey[]>(defaultOrderTableColumns)
   const [page, setPage] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
@@ -142,20 +107,17 @@ export function useOrderListData({
   ])
 
   useEffect(() => {
-    const currentSavedLookupView = !lockPaymentSection ? getSavedLookupView() : null
-    const currentKeyword = !lockPaymentSection
-      ? getUrlLookupKeyword() || currentSavedLookupView?.keywordInput || ''
-      : ''
+    const currentKeyword = !lockPaymentSection ? getUrlLookupKeyword() : ''
 
     setActivePaymentSectionKey(paymentSection)
-    setPaymentMethod(lockPaymentSection ? paymentSection === 'cod' ? 'COD' : 'all' : currentSavedLookupView?.paymentMethod ?? 'all')
-    setPaymentStatus(lockPaymentSection ? 'all' : currentSavedLookupView?.paymentStatus ?? 'all')
+    setPaymentMethod(lockPaymentSection && paymentSection === 'cod' ? 'COD' : 'all')
+    setPaymentStatus('all')
     setKeywordInput(currentKeyword)
     setKeyword(currentKeyword.trim())
-    setDateFrom(lockPaymentSection ? '' : currentSavedLookupView?.dateFrom ?? getDefaultLookupDateFrom())
-    setDateTo(currentSavedLookupView?.dateTo ?? '')
-    setSort(currentSavedLookupView?.sort ?? 'created_desc')
-    setVisibleColumns(normalizeVisibleColumns(currentSavedLookupView?.visibleColumns))
+    setDateFrom(lockPaymentSection ? '' : getDefaultLookupDateFrom())
+    setDateTo('')
+    setSort('created_desc')
+    setVisibleColumns(defaultOrderTableColumns)
     setActiveTabKey(resolveInitialTabKey(initialTabKey, lockPaymentSection, paymentSection))
     setPage(1)
   }, [initialTabKey, lockPaymentSection, paymentSection])
@@ -225,23 +187,7 @@ export function useOrderListData({
     })
   }
 
-  const saveLookupView = () => {
-    window.localStorage.setItem(
-      orderLookupViewStorageKey,
-      JSON.stringify({
-        dateFrom,
-        dateTo,
-        keywordInput,
-        paymentMethod,
-        paymentStatus,
-        sort,
-        visibleColumns,
-      } satisfies OrderLookupSavedView),
-    )
-  }
-
-  const resetLookupView = () => {
-    window.localStorage.removeItem(orderLookupViewStorageKey)
+  const resetLookupFilters = () => {
     setKeywordInput('')
     setKeyword('')
     setPaymentMethod('all')
@@ -289,8 +235,7 @@ export function useOrderListData({
     toggleVisibleColumn,
     totalItems,
     totalPages,
-    resetLookupView,
-    saveLookupView,
+    resetLookupFilters,
     visibleColumns,
   }
 }

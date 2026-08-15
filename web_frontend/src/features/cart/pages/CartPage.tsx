@@ -27,8 +27,11 @@ export function CartPage() {
   const [placingOrder, setPlacingOrder] = useState(false)
   const previewRequest = useRef(0)
   const checkoutIdempotencyKey = useRef<string | null>(null)
+  const didAutoSelectInitialCart = useRef(false)
   const selectedItems = useMemo(() => cart?.product_list.filter((item) => item.isSelected && item.isAvailable) ?? [], [cart])
   const selectedIds = useMemo(() => selectedItems.map((item) => item._id), [selectedItems])
+  const cartItemCount = useMemo(() => cart?.product_list.reduce((sum, item) => sum + item.quantity, 0) ?? 0, [cart])
+  const selectedSubTotal = useMemo(() => selectedItems.reduce((sum, item) => sum + item.quantity * item.priceAtAddedTime, 0), [selectedItems])
   const allSelected = Boolean(cart?.product_list.length && cart.product_list.every((item) => !item.isAvailable || item.isSelected))
 
   useEffect(() => { void dispatch(fetchCart()) }, [dispatch])
@@ -56,6 +59,19 @@ export function CartPage() {
       })
       .finally(() => { if (requestId === previewRequest.current) setPreviewLoading(false) })
   }, [addressId, appliedCoupon, paymentMethod, selectedIds])
+
+  useEffect(() => {
+    if (isLoading || didAutoSelectInitialCart.current || !cart?.product_list.length) return
+
+    didAutoSelectInitialCart.current = true
+
+    const hasAvailableItem = cart.product_list.some((item) => item.isAvailable)
+    const hasSelectedAvailableItem = cart.product_list.some((item) => item.isSelected && item.isAvailable)
+
+    if (hasAvailableItem && !hasSelectedAvailableItem) {
+      void dispatch(toggleAllCartItems(true))
+    }
+  }, [cart, dispatch, isLoading])
 
   useEffect(() => { if (error) message.error(error) }, [error])
   useEffect(() => {
@@ -117,7 +133,7 @@ export function CartPage() {
           <div className="cart-column">
             <header className="cart-title-row">
               <h1><ShoppingCartOutlined /> Giỏ hàng</h1>
-              <span>{cart?.summary.itemCount || 0} sản phẩm</span>
+              <span>{cartItemCount} sản phẩm</span>
             </header>
             {!!cart?.product_list.length && (
               <div className="select-all-row">
@@ -140,7 +156,7 @@ export function CartPage() {
               )}
             </Spin>
             {!!cart?.product_list.length && (
-              <OrderSummary preview={preview} coupon={couponInput} loading={previewLoading} placingOrder={placingOrder}
+              <OrderSummary preview={preview} fallbackSubTotal={selectedSubTotal} coupon={couponInput} loading={previewLoading} placingOrder={placingOrder}
                 disabled={!selectedIds.length || !addressId || !preview} onCouponChange={setCouponInput}
                 onApplyCoupon={applyCoupon} onOrder={() => void placeOrder()} />
             )}

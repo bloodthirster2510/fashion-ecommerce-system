@@ -877,14 +877,14 @@
     height: auto;
     min-height: auto;
     flex: 0 0 auto;
-    padding: 18px;
+    padding: 12px 16px;
     overflow-y: visible;
   }
 
   .admin-layout.is-sidebar-collapsed .admin-sidebar {
     width: 100%;
     flex-basis: auto;
-    padding: 18px;
+    padding: 12px 16px;
   }
 
   .admin-shell {
@@ -893,21 +893,18 @@
   }
 
   .admin-brand {
-    padding: 0 0 18px;
+    display: block;
+    padding: 0 0 10px;
   }
 
   .admin-layout.is-sidebar-collapsed .admin-brand {
     justify-content: flex-start;
     gap: 8px;
-    padding: 0 0 18px;
+    padding: 0;
   }
 
   .admin-layout.is-sidebar-collapsed .admin-brand-row {
     justify-content: flex-start;
-  }
-
-  .admin-layout.is-sidebar-collapsed .admin-brand-logo-frame {
-    display: block;
   }
 
   .admin-layout.is-sidebar-collapsed .admin-brand-copy {
@@ -915,14 +912,7 @@
   }
 
   .admin-brand-logo-frame {
-    width: 100%;
-    height: 74px;
-  }
-
-  .admin-brand-logo-frame img {
-    width: 278px;
-    top: -47px;
-    left: -34px;
+    display: none !important;
   }
 
   .admin-layout.is-sidebar-collapsed .admin-sidebar-toggle {
@@ -939,6 +929,10 @@
     gap: 8px;
     overflow-x: auto;
     padding-bottom: 4px;
+  }
+
+  .admin-layout.is-sidebar-collapsed .admin-nav {
+    display: none;
   }
 
   .admin-nav-group {
@@ -977,17 +971,45 @@
     overflow: visible;
   }
 
+  .admin-topbar {
+    gap: 10px;
+    padding: 12px 16px;
+  }
+
+  .admin-topbar-title {
+    display: none;
+  }
+
+  .admin-command-trigger {
+    width: 100%;
+    max-width: none;
+  }
+
   .admin-profile-summary {
     max-width: 100%;
   }
 
   .admin-topbar-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: stretch;
-    flex-direction: column;
+    gap: 8px;
   }
 
   .admin-notification-center {
-    align-self: flex-start;
+    align-self: center;
+  }
+
+  .admin-profile-summary {
+    min-width: 0;
+  }
+
+  .admin-profile-summary strong {
+    max-width: 120px;
+  }
+
+  .admin-logout-button {
+    padding: 0 10px;
   }
 
   .admin-notification-panel {

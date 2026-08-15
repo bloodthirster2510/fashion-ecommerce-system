@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
-import { Alert, Button, Empty, Modal, Segmented, Skeleton, Spin, Tag, message } from 'antd'
+import { Alert, Button, Empty, Input, Modal, Pagination, Segmented, Skeleton, Spin, Tag, Tooltip, message } from 'antd'
+import { DownloadOutlined, FileTextOutlined, PrinterOutlined, StopOutlined, UndoOutlined } from '@ant-design/icons'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { requestCustomer } from '../../../services/customerHttp'
 import { ProfileSidebar } from '../components/ProfileSidebar'
 import { useAppSelector } from '../../../app/hooks'
+import {
+  fallbackStorefrontSettings,
+  fetchStorefrontSettings,
+  readCachedStorefrontSettings,
+} from '../../storefront-settings/storefrontSettings.service'
 import { orderService } from '../../orders/order.service'
 import { useOrderRealtime } from '../../orders/orderRealtime'
 import type {
@@ -15,7 +21,18 @@ import type {
   OrderStatus,
   PaymentStatusResult,
 } from '../../orders/order.types'
+import {
+  downloadInvoicePdf,
+  formatInvoiceDate,
+  getInvoiceDeliveryAddress,
+  getInvoiceDiscountTotal,
+  getInvoiceIssuedAt,
+  printInvoice,
+} from '../../admin/modules/orders/utils/invoiceDocument'
 import '../profile.css'
+
+const ORDER_PAGE_SIZE = 10
+type AccountOrderFilter = 'all' | 'needs-payment' | 'active' | 'shipping' | 'completed'
 
 const orderStatusLabels: Record<OrderStatus, string> = {
   confirmed: 'Đã xác nhận',
@@ -45,8 +62,8 @@ const paymentMethodLabels: Record<OrderPaymentMethod, string> = {
 }
 
 const shippingStatusLabels: Record<string, string> = {
-  quoted: 'Đã báo phí',
-  fallback: 'Phí cố định',
+  quoted: 'Đang chuẩn bị giao hàng',
+  fallback: 'Đang chuẩn bị giao hàng',
   ready: 'Sẵn sàng giao',
   picking: 'Đang lấy hàng',
   picked: 'Đã lấy hàng',
@@ -61,6 +78,17 @@ const progressStatuses: OrderStatus[] = ['confirmed', 'packed', 'shipping', 'del
 const money = (value: number) => `${new Intl.NumberFormat('vi-VN').format(value)}đ`
 const closedPaymentActionStatuses = new Set(['completed', 'cancelled', 'returned'])
 const paymentActionStatuses = new Set(['pending', 'failed'])
+const accountOrderFilterQuery: Record<AccountOrderFilter, Parameters<typeof orderService.getMine>[0]> = {
+  all: {},
+  'needs-payment': {
+    paymentMethod: 'VNPAY',
+    paymentStatuses: ['pending', 'failed'],
+    statuses: ['confirmed', 'packed', 'shipping', 'delivered', 'return_requested', 'return_approved'],
+  },
+  active: { statuses: ['confirmed', 'packed'] },
+  shipping: { statuses: ['shipping', 'delivered'] },
+  completed: { statuses: ['completed', 'cancelled', 'returned'] },
+}
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
@@ -99,6 +127,13 @@ const orderNeedsPaymentAction = (order: CustomerOrder) =>
   order.paymentMethod === 'VNPAY' &&
   paymentActionStatuses.has(order.paymentStatus) &&
   !closedPaymentActionStatuses.has(order.status)
+
+const canCancelOrder = (order: CustomerOrder) => ['confirmed', 'packed'].includes(order.status)
+const canRequestReturnOrder = (order: CustomerOrder) => ['delivered', 'completed'].includes(order.status)
+
+const getReviewableOrderItems = (order: CustomerOrder) => (
+  order.status === 'completed' && order.paymentStatus === 'paid' ? order.order_list : []
+)
 
 const getOrderAlert = (order: CustomerOrder) => {
   if (orderNeedsPaymentAction(order)) {
@@ -178,40 +213,67 @@ export function AccountOrdersPage() {
 const customerOrdersMutationClient = new QueryClient()
 type CustomerOrderLoadMode = 'loading' | 'refresh' | 'silent'
 
-// Lấy câu báo lỗi dễ hiểu để hiển thị cho khách hàng.
+const emptyOrderPagination: CustomerOrderListResponse['pagination'] = {
+  page: 1,
+  limit: ORDER_PAGE_SIZE,
+  totalItems: 0,
+  totalPages: 0,
+}
+
 const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error ? error.message : fallback
 )
 
+type OrderListMutationInput = {
+  page: number
+  filter: AccountOrderFilter
+  mode?: CustomerOrderLoadMode
+}
+
 // Quản lý việc tải danh sách đơn hàng của khách.
 function useCustomerOrderListMutation() {
   const [orders, setOrders] = useState<CustomerOrder[]>([])
+  const [pagination, setPagination] = useState<CustomerOrderListResponse['pagination']>(emptyOrderPagination)
+  const [statusSummary, setStatusSummary] = useState<CustomerOrderListResponse['statusSummary']>()
+  const [operationalSummary, setOperationalSummary] = useState<CustomerOrderListResponse['operationalSummary']>()
   const [mode, setMode] = useState<CustomerOrderLoadMode>('loading')
   const [hasLoaded, setHasLoaded] = useState(false)
 
   const { isPending, mutateAsync } = useMutation({
-    mutationFn: async (nextMode: CustomerOrderLoadMode = 'loading') => {
-      const result = await requestCustomer<CustomerOrderListResponse>('/orders/me?page=1&limit=100')
-      return { result, mode: nextMode }
+    mutationFn: async ({ page, filter, mode: nextMode = 'loading' }: OrderListMutationInput) => {
+      const result = await orderService.getMine({
+        ...accountOrderFilterQuery[filter],
+        page,
+        limit: ORDER_PAGE_SIZE,
+      })
+      return { result, filter, mode: nextMode }
     },
-    onMutate: (nextMode = 'loading') => {
+    onMutate: ({ mode: nextMode = 'loading' }) => {
       setMode(nextMode)
     },
-    onSuccess: ({ result }) => {
+    onSuccess: ({ result, filter }) => {
       setOrders(result.items)
+      setPagination(result.pagination)
+      if (filter === 'all' || !statusSummary) {
+        setStatusSummary(result.statusSummary)
+        setOperationalSummary(result.operationalSummary)
+      }
     },
     onSettled: () => {
       setHasLoaded(true)
     },
   })
 
-  const loadOrdersAsync = useCallback(async (nextMode: CustomerOrderLoadMode = 'loading') => {
-    const { result } = await mutateAsync(nextMode)
+  const loadOrdersAsync = useCallback(async (input: OrderListMutationInput) => {
+    const { result } = await mutateAsync(input)
     return result
   }, [mutateAsync])
 
   return {
     orders,
+    pagination,
+    statusSummary,
+    operationalSummary,
     isLoading: !hasLoaded || (isPending && mode === 'loading'),
     isRefreshing: isPending && mode === 'refresh',
     loadOrdersAsync,
@@ -296,11 +358,27 @@ function useCustomerOrderDetailMutation() {
 // Hiển thị trang quản lý đơn hàng trong tài khoản khách.
 function AccountOrdersContent() {
   const user = useAppSelector((state) => state.auth.currentUser)
-  const [filter, setFilter] = useState<'all' | 'needs-payment' | 'active' | 'shipping' | 'completed'>('all')
+  const [filter, setFilter] = useState<AccountOrderFilter>('all')
+  const [page, setPage] = useState(1)
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [cancelOrderTarget, setCancelOrderTarget] = useState<CustomerOrder | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null)
+  const [returnOrderTarget, setReturnOrderTarget] = useState<CustomerOrder | null>(null)
+  const [returnReason, setReturnReason] = useState('')
+  const [returningOrderId, setReturningOrderId] = useState<string | null>(null)
+  const [invoiceTarget, setInvoiceTarget] = useState<CustomerOrder | null>(null)
+  const [invoiceDownloading, setInvoiceDownloading] = useState(false)
+  const [invoiceActionError, setInvoiceActionError] = useState('')
+  const [settingsWarning, setSettingsWarning] = useState('')
+  const [storefrontSettings, setStorefrontSettings] = useState(() =>
+    readCachedStorefrontSettings() ?? fallbackStorefrontSettings)
   const {
     orders,
+    pagination,
+    statusSummary,
+    operationalSummary,
     isLoading: loading,
     isRefreshing: refreshing,
     loadOrdersAsync,
@@ -317,16 +395,19 @@ function AccountOrdersContent() {
     loadOrderDetailAsync,
   } = useCustomerOrderDetailMutation()
 
-  // Tải lại danh sách đơn theo kiểu phù hợp: lần đầu, bấm tải lại, hoặc cập nhật nền.
+  // Tải lại danh sách đơn hàng, hiển thị thông báo lỗi nếu có.
   const load = useCallback(async (mode: CustomerOrderLoadMode = 'refresh') => {
     try {
-      await loadOrdersAsync(mode)
+      const result = await loadOrdersAsync({ page, filter, mode })
+      if (result.pagination.totalPages > 0 && page > result.pagination.totalPages) {
+        setPage(result.pagination.totalPages)
+      }
     } catch (error) {
       if (mode !== 'silent') {
         message.error(error instanceof Error ? error.message : 'Không thể tải đơn hàng')
       }
     }
-  }, [loadOrdersAsync])
+  }, [filter, loadOrdersAsync, page])
 
   // Sao chép mã đơn, mã hóa đơn hoặc mã vận đơn.
   const copyReference = useCallback(async (value: string, label: string) => {
@@ -339,16 +420,48 @@ function AccountOrdersContent() {
     }
   }, [])
 
-  // Mở popup chi tiết và tải thông tin mới nhất của đơn.
+
   const openOrderDetail = useCallback((orderId: string) => {
     setSelectedOrderId(orderId)
     loadOrderDetail(orderId)
   }, [loadOrderDetail])
 
-  // Đóng popup chi tiết và dọn dữ liệu đang xem.
   const closeOrderDetail = () => {
     setSelectedOrderId(null)
     clearOrderDetail()
+  }
+
+  const openCancelOrder = (order: CustomerOrder) => {
+    setCancelOrderTarget(order)
+    setCancelReason('')
+  }
+
+  const closeCancelOrder = () => {
+    if (cancellingOrderId) return
+    setCancelOrderTarget(null)
+    setCancelReason('')
+  }
+
+  const openReturnOrder = (order: CustomerOrder) => {
+    setReturnOrderTarget(order)
+    setReturnReason('')
+  }
+
+  const closeReturnOrder = () => {
+    if (returningOrderId) return
+    setReturnOrderTarget(null)
+    setReturnReason('')
+  }
+
+  const openInvoice = (order: CustomerOrder) => {
+    setInvoiceTarget(order)
+    setInvoiceActionError('')
+  }
+
+  const closeInvoice = () => {
+    if (invoiceDownloading) return
+    setInvoiceTarget(null)
+    setInvoiceActionError('')
   }
 
   const orderRealtime = useOrderRealtime((event) => {
@@ -377,6 +490,19 @@ function AccountOrdersContent() {
       document.removeEventListener('visibilitychange', refreshVisibleOrders)
     }
   }, [load, orderRealtime.connected])
+
+  useEffect(() => {
+    let active = true
+    void fetchStorefrontSettings()
+      .then((settings) => {
+        if (active) setStorefrontSettings(settings)
+      })
+      .catch(() => {
+        if (active) setSettingsWarning('Không tải được thông tin cửa hàng mới nhất; hóa đơn đang dùng thông tin dự phòng.')
+      })
+
+    return () => { active = false }
+  }, [])
 
   const confirmReceived = async (orderId: string) => {
     try {
@@ -438,13 +564,85 @@ function AccountOrdersContent() {
     }
   }
 
-  const visibleOrders = orders.filter((order) => {
-    if (filter === 'needs-payment') return orderNeedsPaymentAction(order)
-    if (filter === 'active') return ['confirmed', 'packed'].includes(order.status)
-    if (filter === 'shipping') return ['shipping', 'delivered'].includes(order.status)
-    if (filter === 'completed') return ['completed', 'cancelled', 'returned'].includes(order.status)
-    return true
-  })
+  const statusCount = (status: OrderStatus) => statusSummary?.[status] ?? 0
+  const tabCounts = {
+    all: filter === 'all' ? pagination.totalItems : statusSummary?.all ?? 0,
+    needsPayment: filter === 'needs-payment'
+      ? pagination.totalItems
+      : operationalSummary?.paymentRisk ?? orders.filter(orderNeedsPaymentAction).length,
+    active: filter === 'active' ? pagination.totalItems : statusCount('confirmed') + statusCount('packed'),
+    shipping: filter === 'shipping' ? pagination.totalItems : statusCount('shipping') + statusCount('delivered'),
+    completed: filter === 'completed'
+      ? pagination.totalItems
+      : statusCount('completed') + statusCount('cancelled') + statusCount('returned'),
+  }
+
+  const submitCancelOrder = async () => {
+    if (!cancelOrderTarget) return
+
+    try {
+      setCancellingOrderId(cancelOrderTarget._id)
+      const reason = cancelReason.trim()
+      const updatedOrder = await orderService.cancel(cancelOrderTarget._id, reason)
+      if (selectedOrderId === updatedOrder._id) {
+        setOrderDetail(updatedOrder)
+        setDetailPayment(await orderService.getPaymentStatus(updatedOrder._id).catch(() => detailPayment))
+      }
+      message.success('Đã hủy đơn hàng.')
+      setCancelOrderTarget(null)
+      setCancelReason('')
+      await load('refresh')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Không thể hủy đơn hàng.')
+    } finally {
+      setCancellingOrderId(null)
+    }
+  }
+
+  const submitReturnOrder = async () => {
+    if (!returnOrderTarget || returnReason.trim().length < 5) return
+
+    try {
+      setReturningOrderId(returnOrderTarget._id)
+      const updatedOrder = await orderService.requestReturn(returnOrderTarget._id, returnReason.trim())
+      if (selectedOrderId === updatedOrder._id) {
+        setOrderDetail(updatedOrder)
+        setDetailPayment(await orderService.getPaymentStatus(updatedOrder._id).catch(() => detailPayment))
+      }
+      message.success('Đã gửi yêu cầu trả hàng.')
+      setReturnOrderTarget(null)
+      setReturnReason('')
+      await load('refresh')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Không thể gửi yêu cầu trả hàng.')
+    } finally {
+      setReturningOrderId(null)
+    }
+  }
+
+  const handlePrintInvoice = () => {
+    if (!invoiceTarget) return
+    setInvoiceActionError('')
+    try {
+      printInvoice(invoiceTarget, storefrontSettings)
+    } catch (error) {
+      setInvoiceActionError(error instanceof Error ? error.message : 'Không thể mở bản in hóa đơn.')
+    }
+  }
+
+  const handleDownloadInvoice = async () => {
+    if (!invoiceTarget) return
+    setInvoiceDownloading(true)
+    setInvoiceActionError('')
+    try {
+      await downloadInvoicePdf(invoiceTarget, storefrontSettings)
+    } catch (error) {
+      setInvoiceActionError(error instanceof Error ? error.message : 'Không thể tải PDF hóa đơn.')
+    } finally {
+      setInvoiceDownloading(false)
+    }
+  }
+
   const detailActiveStep = orderDetail ? progressStatuses.indexOf(orderDetail.status) : -1
   const detailTotalDiscount = (orderDetail?.couponDiscountAmount || 0) + (orderDetail?.membershipDiscountAmount || 0)
   const detailNetShipping = orderDetail ? getNetShipping(orderDetail) : 0
@@ -453,35 +651,62 @@ function AccountOrdersContent() {
     <MainLayout>
       <main className="account-page">
         <div className="account-shell">
-          <ProfileSidebar name={user?.name} avatarImage={user?.avatarImage} selectedKey="orders" />
+          <ProfileSidebar name={user?.name} avatarImage={user?.avatarImage} role={user?.role} selectedKey="orders" />
           <section className="account-content">
             <div className="account-section-heading">
               <h1>Đơn hàng của tôi</h1>
-              <Button loading={refreshing && !loading} onClick={() => void load()}>
-                Tải lại
-              </Button>
+              <div className="account-section-actions">
+                <span className="account-policy-label">Chính sách</span>
+                <Tooltip title="Quy định trả hàng">
+                  <Button
+                    className="account-policy-button"
+                    href="/policies/returns"
+                    icon={<FileTextOutlined />}
+                    aria-label="Xem quy định trả hàng"
+                  >
+                    Đổi trả
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Quy định hủy đơn">
+                  <Button
+                    className="account-policy-button"
+                    href="/policies/terms"
+                    icon={<StopOutlined />}
+                    aria-label="Xem quy định hủy đơn"
+                  >
+                    Hủy đơn
+                  </Button>
+                </Tooltip>
+                <Button loading={refreshing && !loading} onClick={() => void load()}>
+                  Tải lại
+                </Button>
+              </div>
             </div>
 
             <Segmented
               className="account-order-filters"
               value={filter}
-              onChange={(value) => setFilter(value as typeof filter)}
+              onChange={(value) => {
+                setFilter(value as AccountOrderFilter)
+                setPage(1)
+              }}
               options={[
-                { label: 'Tất cả', value: 'all' },
-                { label: `Cần thanh toán (${orders.filter(orderNeedsPaymentAction).length})`, value: 'needs-payment' },
-                { label: 'Đang xử lý', value: 'active' },
-                { label: 'Đang giao', value: 'shipping' },
-                { label: 'Lịch sử', value: 'completed' },
+                { label: `Tất cả (${tabCounts.all})`, value: 'all' },
+                { label: `Cần thanh toán (${tabCounts.needsPayment})`, value: 'needs-payment' },
+                { label: `Đang xử lý (${tabCounts.active})`, value: 'active' },
+                { label: `Đang giao (${tabCounts.shipping})`, value: 'shipping' },
+                { label: `Lịch sử (${tabCounts.completed})`, value: 'completed' },
               ]}
             />
 
             <Spin spinning={loading}>
-              {!visibleOrders.length && !loading ? (
+              {!orders.length && !loading ? (
                 <Empty description="Chưa có đơn hàng" />
               ) : (
                 <div className="account-order-list">
-                  {visibleOrders.map((order) => {
+                  {orders.map((order) => {
                     const alert = getOrderAlert(order)
+                    const reviewableItems = getReviewableOrderItems(order)
 
                     return (
                     <article className="account-order-card" key={order._id}>
@@ -553,11 +778,6 @@ function AccountOrdersContent() {
                             <strong>{item.name}</strong>
                             <span>{item.color} · Size {item.size} · SL {item.quantity}</span>
                           </div>
-                          {order.status === 'completed' && order.paymentStatus === 'paid' ? (
-                            <Button href={`/products/${item.productId}?compose=1&orderId=${order._id}&orderItemId=${item._id}`}>
-                              Viết đánh giá
-                            </Button>
-                          ) : null}
                         </div>
                       ))}
                       <footer>
@@ -577,6 +797,39 @@ function AccountOrdersContent() {
                             Đã nhận hàng
                           </Button>
                         ) : null}
+                        {canCancelOrder(order) ? (
+                          <Button
+                            danger
+                            className="account-order-cancel-button"
+                            loading={cancellingOrderId === order._id}
+                            onClick={() => openCancelOrder(order)}
+                          >
+                            Hủy đơn
+                          </Button>
+                        ) : null}
+                        {canRequestReturnOrder(order) ? (
+                          <Button
+                            icon={<UndoOutlined />}
+                            loading={returningOrderId === order._id}
+                            onClick={() => openReturnOrder(order)}
+                          >
+                            Yêu cầu trả hàng
+                          </Button>
+                        ) : null}
+                        {reviewableItems.map((item, index) => (
+                          <Button
+                            className="account-order-review-button"
+                            href={`/products/${item.productId}?compose=1&orderId=${order._id}&orderItemId=${item._id}`}
+                            key={item._id}
+                          >
+                            {reviewableItems.length > 1 ? `Đánh giá ${index + 1}` : 'Viết đánh giá'}
+                          </Button>
+                        ))}
+                        {order.invoiceCode ? (
+                          <Button icon={<FileTextOutlined />} onClick={() => openInvoice(order)}>
+                            Xem hóa đơn
+                          </Button>
+                        ) : null}
                         <Button onClick={() => openOrderDetail(order._id)}>
                           Xem chi tiết
                         </Button>
@@ -588,6 +841,16 @@ function AccountOrdersContent() {
                 </div>
               )}
             </Spin>
+            {pagination.totalItems > ORDER_PAGE_SIZE && (
+              <Pagination
+                className="account-order-pagination"
+                current={pagination.page}
+                pageSize={ORDER_PAGE_SIZE}
+                total={pagination.totalItems}
+                showSizeChanger={false}
+                onChange={setPage}
+              />
+            )}
             <Alert
               type="info"
               message="VNPay cần được thanh toán trước khi shop đóng gói/giao hàng. COD được ghi nhận đã thanh toán khi đơn vị vận chuyển báo giao thành công."
@@ -600,7 +863,6 @@ function AccountOrdersContent() {
               width={960}
               footer={[
                 <Button key="close" onClick={closeOrderDetail}>Đóng</Button>,
-                orderDetail ? <Button key="open-page" href={`/orders/${orderDetail._id}`}>Mở trang chi tiết</Button> : null,
                 orderDetail && detailPayment?.canPayNow ? (
                   <Button key="pay" type="primary" loading={payingOrderId === orderDetail._id} onClick={() => void retryVNPayPayment(orderDetail)}>
                     {orderDetail.paymentStatus === 'failed' ? 'Thanh toán lại' : 'Thanh toán VNPay'}
@@ -609,6 +871,16 @@ function AccountOrdersContent() {
                 orderDetail?.status === 'delivered' ? (
                   <Button key="received" type="primary" onClick={() => void confirmReceived(orderDetail._id)}>
                     Đã nhận hàng
+                  </Button>
+                ) : null,
+                orderDetail && canRequestReturnOrder(orderDetail) ? (
+                  <Button key="return" icon={<UndoOutlined />} loading={returningOrderId === orderDetail._id} onClick={() => openReturnOrder(orderDetail)}>
+                    Yêu cầu trả hàng
+                  </Button>
+                ) : null,
+                orderDetail?.invoiceCode ? (
+                  <Button key="invoice" icon={<FileTextOutlined />} onClick={() => openInvoice(orderDetail)}>
+                    Xem hóa đơn
                   </Button>
                 ) : null,
               ].filter(Boolean)}
@@ -664,7 +936,7 @@ function AccountOrdersContent() {
                             <img src={item.image} alt="" />
                             <div>
                               <strong>{item.name}</strong>
-                              <span>{[item.color, `Size ${item.size}`, item.fitType, item.sku].filter(Boolean).join(' · ')}</span>
+                              <span>{[item.color, `Size ${item.size}`, item.fitType].filter(Boolean).join(' · ')}</span>
                             </div>
                             <b>{money(item.priceAtPurchased)} × {item.quantity}</b>
                           </article>
@@ -696,7 +968,7 @@ function AccountOrdersContent() {
                         <strong>{orderDetail.shippingAddress.customerName}</strong>
                         <span>{orderDetail.shippingAddress.phoneNumber}</span>
                         <p>{getShippingAddressLine(orderDetail)}</p>
-                        <small>{orderDetail.shipping.provider || 'Đang cập nhật'} · {getShippingStatusLabel(orderDetail.shipping.status)}</small>
+                        <small>{getShippingStatusLabel(orderDetail.shipping.status)}</small>
                         {orderDetail.shipping.trackingCode ? <small>Mã vận đơn: {orderDetail.shipping.trackingCode}</small> : null}
                       </section>
                     </div>
@@ -711,6 +983,148 @@ function AccountOrdersContent() {
                   </div>
                 ) : null}
               </Skeleton>
+            </Modal>
+
+            <Modal
+              className="customer-invoice-modal"
+              title={invoiceTarget?.invoiceCode ? `Hóa đơn ${invoiceTarget.invoiceCode}` : 'Hóa đơn'}
+              open={Boolean(invoiceTarget)}
+              width={920}
+              footer={[
+                <Button key="close" onClick={closeInvoice}>Đóng</Button>,
+                <Button key="print" icon={<PrinterOutlined />} onClick={handlePrintInvoice}>In</Button>,
+                <Button
+                  key="download"
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  loading={invoiceDownloading}
+                  onClick={() => void handleDownloadInvoice()}
+                >
+                  Tải PDF
+                </Button>,
+              ]}
+              onCancel={closeInvoice}
+            >
+              {settingsWarning ? <Alert className="customer-invoice-alert" type="warning" showIcon message={settingsWarning} /> : null}
+              {invoiceActionError ? <Alert className="customer-invoice-alert" type="error" showIcon message={invoiceActionError} /> : null}
+
+              {invoiceTarget ? (
+                <article className="customer-invoice-sheet">
+                  <header className="customer-invoice-header">
+                    <div>
+                      <h2>{storefrontSettings.identity.name}</h2>
+                      <strong>{storefrontSettings.identity.legalName || storefrontSettings.identity.name}</strong>
+                      {storefrontSettings.identity.taxCode ? <span>Mã số thuế: {storefrontSettings.identity.taxCode}</span> : null}
+                      {storefrontSettings.contact.address ? <span>{storefrontSettings.contact.address}</span> : null}
+                      <span>{[storefrontSettings.contact.phone, storefrontSettings.contact.email].filter(Boolean).join(' · ')}</span>
+                    </div>
+                    <div>
+                      <span>HÓA ĐƠN BÁN HÀNG</span>
+                      <strong>{invoiceTarget.invoiceCode}</strong>
+                      <small>Phát hành {formatInvoiceDate(getInvoiceIssuedAt(invoiceTarget))}</small>
+                    </div>
+                  </header>
+
+                  <section className="customer-invoice-parties">
+                    <div>
+                      <span>NGƯỜI MUA / NGƯỜI NHẬN</span>
+                      <strong>{invoiceTarget.shippingAddress.customerName}</strong>
+                      <p>{invoiceTarget.shippingAddress.phoneNumber}</p>
+                      <p>{getInvoiceDeliveryAddress(invoiceTarget)}</p>
+                    </div>
+                    <dl>
+                      <div><dt>Mã đơn</dt><dd>{invoiceTarget.orderCode}</dd></div>
+                      <div><dt>Thanh toán</dt><dd>{paymentMethodLabels[invoiceTarget.paymentMethod]}</dd></div>
+                      <div><dt>Trạng thái</dt><dd>{paymentStatusLabels[invoiceTarget.paymentStatus]}</dd></div>
+                    </dl>
+                  </section>
+
+                  <div className="customer-invoice-table-wrap">
+                    <table className="customer-invoice-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Sản phẩm</th>
+                          <th>SL</th>
+                          <th>Đơn giá</th>
+                          <th>Thành tiền</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoiceTarget.order_list.map((item, index) => (
+                          <tr key={item._id}>
+                            <td>{index + 1}</td>
+                            <td>
+                              <strong>{item.name}</strong>
+                              <span>{[item.color, `Size ${item.size}`, item.fitType].filter(Boolean).join(' / ')}</span>
+                            </td>
+                            <td>{item.quantity}</td>
+                            <td>{money(item.priceAtPurchased)}</td>
+                            <td><strong>{money(item.priceAtPurchased * item.quantity)}</strong></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <section className="customer-invoice-summary">
+                    <div>{invoiceTarget.orderNote ? <p><b>Ghi chú:</b> {invoiceTarget.orderNote}</p> : null}</div>
+                    <dl>
+                      <div><dt>Tiền hàng</dt><dd>{money(invoiceTarget.subTotal)}</dd></div>
+                      {getInvoiceDiscountTotal(invoiceTarget) > 0 ? <div><dt>Tổng ưu đãi</dt><dd>-{money(getInvoiceDiscountTotal(invoiceTarget))}</dd></div> : null}
+                      <div><dt>Phí vận chuyển</dt><dd>{money(invoiceTarget.shippingFee)}</dd></div>
+                      {invoiceTarget.taxAmount > 0 ? <div><dt>Thuế</dt><dd>{money(invoiceTarget.taxAmount)}</dd></div> : null}
+                      <div><dt>Tổng thanh toán</dt><dd>{money(invoiceTarget.totalAmount)}</dd></div>
+                    </dl>
+                  </section>
+
+                  <footer>Chứng từ bán hàng nội bộ, không thay thế hóa đơn điện tử hoặc hóa đơn VAT theo quy định pháp luật.</footer>
+                </article>
+              ) : null}
+            </Modal>
+
+            <Modal
+              title={cancelOrderTarget ? `Hủy đơn ${cancelOrderTarget.orderCode}` : 'Hủy đơn'}
+              open={Boolean(cancelOrderTarget)}
+              okText="Hủy đơn"
+              cancelText="Đóng"
+              okButtonProps={{ danger: true, loading: Boolean(cancellingOrderId) }}
+              onCancel={closeCancelOrder}
+              onOk={() => void submitCancelOrder()}
+            >
+              <div className="account-cancel-order-form">
+                <p>Đơn chỉ có thể hủy khi shop chưa bàn giao vận chuyển. Bạn có thể nhập lý do để shop hỗ trợ nhanh hơn.</p>
+                <Input.TextArea
+                  value={cancelReason}
+                  maxLength={500}
+                  rows={4}
+                  showCount
+                  placeholder="Ví dụ: Tôi muốn đổi size hoặc thay đổi địa chỉ nhận hàng"
+                  onChange={(event) => setCancelReason(event.target.value)}
+                />
+              </div>
+            </Modal>
+
+            <Modal
+              title={returnOrderTarget ? `Yêu cầu trả hàng ${returnOrderTarget.orderCode}` : 'Yêu cầu trả hàng'}
+              open={Boolean(returnOrderTarget)}
+              okText="Gửi yêu cầu"
+              cancelText="Đóng"
+              okButtonProps={{ disabled: returnReason.trim().length < 5, loading: Boolean(returningOrderId) }}
+              onCancel={closeReturnOrder}
+              onOk={() => void submitReturnOrder()}
+            >
+              <div className="account-cancel-order-form">
+                <p>Vui lòng mô tả lý do trả hàng và tình trạng sản phẩm để shop kiểm tra, duyệt yêu cầu và hướng dẫn bước hoàn tiền phù hợp.</p>
+                <Input.TextArea
+                  value={returnReason}
+                  maxLength={500}
+                  rows={4}
+                  showCount
+                  placeholder="Ví dụ: Sản phẩm bị lỗi đường may hoặc tôi nhận sai size"
+                  onChange={(event) => setReturnReason(event.target.value)}
+                />
+              </div>
             </Modal>
           </section>
         </div>

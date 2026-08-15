@@ -27,6 +27,8 @@ import type {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
+const DEFAULT_REVIEW_MUTATION_WINDOW_DAYS = 30;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 // Các kiểu *View mô tả kết quả sau khi Mongoose populate và lean.
 // Chúng giúp phần serialize không phụ thuộc trực tiếp vào Mongoose Document.
@@ -108,6 +110,28 @@ const normalizePagination = (query: ReviewListQueryInput) => ({
   page: Math.max(query.page ?? DEFAULT_PAGE, DEFAULT_PAGE),
   limit: Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT),
 });
+
+const getReviewMutationWindowDays = () => {
+  const configured = Number(process.env.REVIEW_MUTATION_WINDOW_DAYS);
+  return Number.isFinite(configured) && configured >= 0
+    ? configured
+    : DEFAULT_REVIEW_MUTATION_WINDOW_DAYS;
+};
+
+const getReviewMutationDeadline = (createdAt: Date) =>
+  new Date(createdAt.getTime() + getReviewMutationWindowDays() * DAY_IN_MS);
+
+const canMutateReview = (createdAt: Date, now = new Date()) =>
+  now.getTime() <= getReviewMutationDeadline(createdAt).getTime();
+
+const assertReviewCanMutate = (createdAt: Date, action: 'edited' | 'deleted') => {
+  if (!canMutateReview(createdAt)) {
+    throw new ReviewServiceError(
+      `Reviews can only be ${action} within ${getReviewMutationWindowDays()} days after submission`,
+      403,
+    );
+  }
+};
 
 export const REVIEW_MODERATION_RULES = {
   offensiveWords: ['đồ ngu', 'ngu ngốc', 'khốn nạn', 'lừa đảo', 'óc chó', 'vô học'],
@@ -207,6 +231,9 @@ const serializeReview = (review: ReviewView) => {
           avatarImage: user.avatarImage ?? null,
         }
       : { _id: review.user_id.toString(), name: null, avatarImage: null },
+    canEdit: canMutateReview(review.createdAt),
+    canDelete: canMutateReview(review.createdAt),
+    mutationDeadline: getReviewMutationDeadline(review.createdAt),
     createdAt: review.createdAt,
     updatedAt: review.updatedAt,
   };
@@ -554,9 +581,14 @@ const listMyReviews = async (userIdValue: string, query: ReviewListQueryInput = 
   return {
     items: reviews.map((rawReview) => {
       const review = rawReview as unknown as MyReviewView;
+      const serialized = serializeReview({ ...review, product_id: review.product_id._id });
       return {
         // serializeReview cần product_id thuần; thông tin product đã populate được trả riêng.
-        ...serializeReview({ ...review, product_id: review.product_id._id }),
+        ...serialized,
+        // Giữ cùng response shape với danh sách review công khai để mọi client đọc nhất quán.
+        adminReply: serialized.adminReply
+          ? { content: serialized.adminReply, repliedAt: serialized.repliedAt }
+          : null,
         product: {
           _id: review.product_id._id.toString(),
           name: review.product_id.name,
@@ -658,9 +690,10 @@ const updateReview = async (
   const userId = toObjectId(userIdValue, 'userId');
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
   const existingReview = await Review.findOne({ _id: reviewId, user_id: userId })
-    .select('_id images')
+    .select('_id images createdAt')
     .lean();
   if (!existingReview) throw new ReviewServiceError('Review not found', 404);
+  assertReviewCanMutate(existingReview.createdAt, 'edited');
 
   const currentImages = (existingReview.images ?? []) as Array<IReviewImage | string>;
   const requestedImageIds = input.keepImageIds === undefined
@@ -686,6 +719,7 @@ const updateReview = async (
     // Lọc kèm user_id để người dùng chỉ sửa được review của chính mình.
     const review = await Review.findOne({ _id: reviewId, user_id: userId }).session(session);
     if (!review) throw new ReviewServiceError('Review not found', 404);
+    assertReviewCanMutate(review.createdAt, 'edited');
 
     const wasHidden = review.moderationStatus === 'hidden';
     const previousStatus = review.moderationStatus;
@@ -746,8 +780,11 @@ const deleteReview = async (userIdValue: string, reviewIdValue: string) => {
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
   // Lọc kèm user_id để không lộ việc review có tồn tại nhưng thuộc người khác.
   const result = await withReviewTransaction(async (session) => {
-    const review = await Review.findOneAndDelete({ _id: reviewId, user_id: userId }, { session });
+    const review = await Review.findOne({ _id: reviewId, user_id: userId }).session(session);
     if (!review) throw new ReviewServiceError('Review not found', 404);
+    assertReviewCanMutate(review.createdAt, 'deleted');
+
+    await Review.deleteOne({ _id: reviewId }, { session });
     await ReviewHelpfulVote.deleteMany({ review_id: reviewId }, { session });
     await refreshProductRating(review.product_id, session);
     return {

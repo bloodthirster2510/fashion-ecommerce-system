@@ -17,7 +17,7 @@ export function ProductStats({ stats }: ProductStatsProps) {
         ['Tổng sản phẩm', stats.total, 'is-total'],
         ['Đã bán', stats.sold, 'is-sold'],
         ['Tồn kho', stats.stock, 'is-stock'],
-        ['Sắp hết hàng', stats.warning, 'is-warning'],
+        ['Cần xử lý', stats.warning, 'is-warning'],
         ['Ngừng bán', stats.inactive, 'is-inactive'],
       ].map(([label, value, className]) => (
         <div className={String(className)} key={String(label)}>

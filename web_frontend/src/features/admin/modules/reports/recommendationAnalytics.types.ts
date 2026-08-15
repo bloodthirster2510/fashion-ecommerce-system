@@ -102,6 +102,7 @@ export type RecommendationRecentRequest = {
 
 export type RecommendationAnalytics = {
   generatedAt: string
+  currentAlgorithmVersion: string
   range: {
     from: string
     to: string
@@ -144,6 +145,7 @@ export type RecommendationAnalytics = {
     zeroResultRate: number
     averageResultCount: number
     topKeywords: RecommendationSearchKeyword[]
+    zeroResultKeywords: RecommendationSearchKeyword[]
     trend: RecommendationSearchTrendPoint[]
   }
   topProducts: RecommendationTopProduct[]

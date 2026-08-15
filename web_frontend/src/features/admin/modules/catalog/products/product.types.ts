@@ -9,6 +9,7 @@ export type ProductColor = {
   color: string
   colorCode?: string
   image: string
+  isActive: boolean
   inventory: ProductInventoryItem[]
 }
 
@@ -72,6 +73,16 @@ export type ProductCategoryTemplate = {
     measurementFields: ProductMeasurementField[]
     fitTypes: ProductFitTypeOption[]
   }
+  sizeTemplateSource?: ProductCategoryOption & {
+    sizes: string[]
+    measurementFields: ProductMeasurementField[]
+    fitTypes: ProductFitTypeOption[]
+  }
+  fitTypeTemplateSource?: ProductCategoryOption & {
+    sizes: string[]
+    measurementFields: ProductMeasurementField[]
+    fitTypes: ProductFitTypeOption[]
+  }
 }
 
 export type ProductVariantInput = {
@@ -81,13 +92,13 @@ export type ProductVariantInput = {
   discount: number
   sizeMeasurements: Array<{
     size: string
-    measurements: Array<{ key: string; value: number }>
   }>
   colors: Array<{
     _id?: string
     color: string
     colorCode?: string
     image: string
+    isActive?: boolean
   }>
   isActive: boolean
 }
@@ -130,6 +141,7 @@ export type ProductDetailResponse = {
       color: string
       colorCode?: string
       image: string
+      isActive: boolean
     }>
     sizes: Array<{
       size: string
@@ -137,6 +149,13 @@ export type ProductDetailResponse = {
         key: string
         value: number
       }>
+    }>
+    inventory: Array<{
+      colorVariantId: string
+      size: string
+      sku: string
+      availableQuantity: number
+      isAvailable: boolean
     }>
   }>
 }

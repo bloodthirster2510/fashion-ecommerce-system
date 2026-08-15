@@ -9,6 +9,7 @@ import type {
   CreateCategoryInput,
   MeasurementFieldInput,
   UpdateCategoryInput,
+  UpsertCategoryFitTypeTemplateInput,
   UpsertCategorySizeTemplateInput,
 } from './categories.type';
 
@@ -109,13 +110,25 @@ const normalizeCategoryImageUrl = (imageUrl: string) => {
   }
 };
 
+const normalizeOptionalCategoryImageUrl = (imageUrl?: string) => {
+  const trimmedUrl = String(imageUrl ?? '').trim();
+
+  return trimmedUrl ? normalizeCategoryImageUrl(trimmedUrl) : '';
+};
+
+const normalizeStoredImageUrl = (imageUrl?: string | null) => String(imageUrl ?? '').trim();
+
 const normalizeMeasurementFields = (items?: MeasurementFieldInput[]) => {
   if (!items) {
     return [];
   }
 
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new CategoryServiceError('measurementFields must be a non-empty array', 400);
+  if (!Array.isArray(items)) {
+    throw new CategoryServiceError('measurementFields must be an array', 400);
+  }
+
+  if (items.length === 0) {
+    return [];
   }
 
   const normalized = items.map((item) => {
@@ -177,7 +190,12 @@ const normalizeSizes = (sizes?: string[]) => {
   return normalized;
 };
 
-const normalizeFitTypes = (items?: CategoryFitTypeInput[]) => {
+type ExistingCategoryFitType = {
+  _id: Types.ObjectId;
+  key: string;
+};
+
+const normalizeFitTypes = (items?: CategoryFitTypeInput[], existingItems: ExistingCategoryFitType[] = []) => {
   if (!items) {
     return [];
   }
@@ -185,6 +203,10 @@ const normalizeFitTypes = (items?: CategoryFitTypeInput[]) => {
   if (!Array.isArray(items) || items.length === 0) {
     throw new CategoryServiceError('fitTypes must be a non-empty array', 400);
   }
+
+  const existingIdByKey = new Map(
+    existingItems.map((item) => [String(item.key).trim().toLowerCase(), item._id]),
+  );
 
   const normalized = items.map((item) => {
     if (!item || typeof item !== 'object') {
@@ -201,7 +223,9 @@ const normalizeFitTypes = (items?: CategoryFitTypeInput[]) => {
     }
 
     return {
-      _id: new Types.ObjectId(),
+      _id: item._id && Types.ObjectId.isValid(item._id)
+        ? new Types.ObjectId(item._id)
+        : existingIdByKey.get(key.toLowerCase()) ?? new Types.ObjectId(),
       key,
       label,
       sortOrder,
@@ -237,9 +261,30 @@ const assertValidSizeTemplateSourceId = async (sizeTemplateSourceId?: string | n
   return new Types.ObjectId(sizeTemplateSourceId);
 };
 
+const assertValidFitTypeTemplateSourceId = async (fitTypeTemplateSourceId?: string | null) => {
+  if (fitTypeTemplateSourceId === undefined || fitTypeTemplateSourceId === null) {
+    return null;
+  }
+
+  assertValidCategoryId(fitTypeTemplateSourceId);
+
+  const sourceCategory = await Category.findById(fitTypeTemplateSourceId);
+
+  if (!sourceCategory) {
+    throw new CategoryServiceError('Fit type template source category not found', 404);
+  }
+
+  if (!sourceCategory.isFitTypeTemplateSource) {
+    throw new CategoryServiceError('Referenced category is not a fit type template source', 400);
+  }
+
+  return new Types.ObjectId(fitTypeTemplateSourceId);
+};
+
 const createCategory = async (input: CreateCategoryInput) => {
   const parentCategory = await assertValidParentId(input.parent_id);
   const sizeTemplateSourceId = await assertValidSizeTemplateSourceId(input.sizeTemplateSourceId);
+  const fitTypeTemplateSourceId = await assertValidFitTypeTemplateSourceId(input.fitTypeTemplateSourceId);
   const level = parentCategory ? parentCategory.level + 1 : 1;
   const gender = parentCategory ? parentCategory.gender : input.gender;
 
@@ -267,6 +312,12 @@ const createCategory = async (input: CreateCategoryInput) => {
     isLeaf: input.isLeaf ?? false,
     isSizeTemplateSource: input.isSizeTemplateSource ?? false,
     sizeTemplateSourceId: sizeTemplateSourceId,
+    ...(input.sizeGuideImage !== undefined
+      ? { sizeGuideImage: normalizeOptionalCategoryImageUrl(input.sizeGuideImage) }
+      : {}),
+    isFitTypeTemplateSource: input.isFitTypeTemplateSource ?? false,
+    fitTypeTemplateName: input.fitTypeTemplateName?.trim() ?? '',
+    fitTypeTemplateSourceId,
     sizes: normalizeSizes(input.sizes),
     measurementFields: normalizeMeasurementFields(input.measurementFields),
     fitTypes: normalizeFitTypes(input.fitTypes),
@@ -281,6 +332,7 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
       ? await assertValidParentId(input.parent_id, id)
       : undefined;
   const sizeTemplateSourceId = await assertValidSizeTemplateSourceId(input.sizeTemplateSourceId);
+  const fitTypeTemplateSourceId = await assertValidFitTypeTemplateSourceId(input.fitTypeTemplateSourceId);
 
   const category = await Category.findById(id);
 
@@ -327,11 +379,20 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   if (input.parent_id !== undefined || input.gender !== undefined) {
     updateData.gender = nextGender;
   }
-  if (input.image !== undefined) updateData.image = normalizeCategoryImageUrl(input.image);
+  if (
+    input.image !== undefined &&
+    normalizeStoredImageUrl(input.image) !== normalizeStoredImageUrl(category.image)
+  ) {
+    updateData.image = normalizeCategoryImageUrl(input.image);
+  }
   if (input.description !== undefined) updateData.description = input.description.trim();
   if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
   if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;
   if (input.sizeTemplateSourceId !== undefined) updateData.sizeTemplateSourceId = sizeTemplateSourceId;
+  if (input.sizeGuideImage !== undefined) updateData.sizeGuideImage = normalizeOptionalCategoryImageUrl(input.sizeGuideImage);
+  if (input.isFitTypeTemplateSource !== undefined) updateData.isFitTypeTemplateSource = input.isFitTypeTemplateSource;
+  if (input.fitTypeTemplateName !== undefined) updateData.fitTypeTemplateName = input.fitTypeTemplateName.trim();
+  if (input.fitTypeTemplateSourceId !== undefined) updateData.fitTypeTemplateSourceId = fitTypeTemplateSourceId;
   if (input.sizes !== undefined) {
     updateData.sizes = normalizeSizes(input.sizes);
   }
@@ -339,7 +400,7 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
     updateData.measurementFields = normalizeMeasurementFields(input.measurementFields);
   }
   if (input.fitTypes !== undefined) {
-    updateData.fitTypes = normalizeFitTypes(input.fitTypes);
+    updateData.fitTypes = normalizeFitTypes(input.fitTypes, category.fitTypes);
   }
   if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
@@ -392,6 +453,9 @@ const upsertCategorySizeTemplate = async (
     ? normalizeMeasurementFields(input.measurementFields)
     : sourceCategory.measurementFields;
   const templateName = String(input.name ?? '').trim();
+  const sizeGuideImage = input.sizeGuideImage !== undefined
+    ? normalizeOptionalCategoryImageUrl(input.sizeGuideImage)
+    : sourceCategory.sizeGuideImage ?? '';
   const categories = await Category.find()
     .select('_id parent_id')
     .lean<CategoryManagementDocument[]>();
@@ -402,6 +466,7 @@ const upsertCategorySizeTemplate = async (
       ),
     ),
   ].filter((categoryId) => !excludedCategoryIds.includes(categoryId));
+  const targetCategoryObjectIds = targetCategoryIds.map((categoryId) => new Types.ObjectId(categoryId));
   const descendantIds = targetCategoryIds
     .filter((categoryId) => categoryId !== id)
     .map((categoryId) => new Types.ObjectId(categoryId));
@@ -412,6 +477,7 @@ const upsertCategorySizeTemplate = async (
       isSizeTemplateSource: true,
       sizeTemplateName: templateName || sourceCategory.sizeTemplateName || sourceCategory.name,
       sizeTemplateSourceId: null,
+      sizeGuideImage,
       sizes: normalizedSizes,
       measurementFields: normalizedMeasurementFields,
     },
@@ -436,6 +502,18 @@ const upsertCategorySizeTemplate = async (
     );
   }
 
+  await Category.updateMany(
+    {
+      sizeTemplateSourceId: updatedCategory._id,
+      _id: { $nin: targetCategoryObjectIds },
+    },
+    {
+      isSizeTemplateSource: false,
+      sizeTemplateSourceId: null,
+    },
+    { runValidators: true },
+  );
+
   if (excludedCategoryIds.length > 0) {
     await Category.updateMany(
       {
@@ -445,6 +523,115 @@ const upsertCategorySizeTemplate = async (
       {
         isSizeTemplateSource: false,
         sizeTemplateSourceId: null,
+      },
+      { runValidators: true },
+    );
+  }
+
+  return updatedCategory;
+};
+
+const upsertCategoryFitTypeTemplate = async (
+  id: string,
+  input: UpsertCategoryFitTypeTemplateInput,
+) => {
+  assertValidCategoryId(id);
+  const integrationCategoryIds = Array.isArray(input.categoryIds) && input.categoryIds.length > 0
+    ? input.categoryIds.map((categoryId) => String(categoryId))
+    : [id];
+  const excludedCategoryIds = Array.isArray(input.excludedCategoryIds)
+    ? [...new Set(input.excludedCategoryIds.map((categoryId) => String(categoryId)))]
+    : [];
+
+  if (!integrationCategoryIds.includes(id)) {
+    integrationCategoryIds.unshift(id);
+  }
+  const uniqueIntegrationCategoryIds = [...new Set(integrationCategoryIds)];
+
+  uniqueIntegrationCategoryIds.forEach(assertValidCategoryId);
+  excludedCategoryIds.forEach(assertValidCategoryId);
+
+  const sourceCategory = await Category.findById(id);
+
+  if (!sourceCategory) {
+    throw new CategoryServiceError('Category not found', 404);
+  }
+
+  const integrationCategoryCount = await Category.countDocuments({
+    _id: { $in: uniqueIntegrationCategoryIds.map((categoryId) => new Types.ObjectId(categoryId)) },
+  });
+
+  if (integrationCategoryCount !== uniqueIntegrationCategoryIds.length) {
+    throw new CategoryServiceError('One or more integrated categories were not found', 404);
+  }
+
+  const normalizedFitTypes = normalizeFitTypes(input.fitTypes, sourceCategory.fitTypes);
+  const templateName = String(input.name ?? '').trim();
+  const categories = await Category.find()
+    .select('_id parent_id')
+    .lean<CategoryManagementDocument[]>();
+  const targetCategoryIds = [
+    ...new Set(
+      uniqueIntegrationCategoryIds.flatMap((categoryId) =>
+        getDescendantIdsFromCategories(categories, categoryId),
+      ),
+    ),
+  ].filter((categoryId) => !excludedCategoryIds.includes(categoryId));
+  const targetCategoryObjectIds = targetCategoryIds.map((categoryId) => new Types.ObjectId(categoryId));
+  const descendantIds = targetCategoryIds
+    .filter((categoryId) => categoryId !== id)
+    .map((categoryId) => new Types.ObjectId(categoryId));
+
+  const updatedCategory = await Category.findByIdAndUpdate(
+    id,
+    {
+      isFitTypeTemplateSource: true,
+      fitTypeTemplateName: templateName || sourceCategory.fitTypeTemplateName || sourceCategory.name,
+      fitTypeTemplateSourceId: null,
+      fitTypes: normalizedFitTypes,
+    },
+    {
+      returnDocument: 'after',
+      runValidators: true,
+    },
+  );
+
+  if (!updatedCategory) {
+    throw new CategoryServiceError('Category not found', 404);
+  }
+
+  if (descendantIds.length > 0) {
+    await Category.updateMany(
+      { _id: { $in: descendantIds } },
+      {
+        isFitTypeTemplateSource: false,
+        fitTypeTemplateSourceId: updatedCategory._id,
+      },
+      { runValidators: true },
+    );
+  }
+
+  await Category.updateMany(
+    {
+      fitTypeTemplateSourceId: updatedCategory._id,
+      _id: { $nin: targetCategoryObjectIds },
+    },
+    {
+      isFitTypeTemplateSource: false,
+      fitTypeTemplateSourceId: null,
+    },
+    { runValidators: true },
+  );
+
+  if (excludedCategoryIds.length > 0) {
+    await Category.updateMany(
+      {
+        _id: { $in: excludedCategoryIds.map((categoryId) => new Types.ObjectId(categoryId)) },
+        fitTypeTemplateSourceId: updatedCategory._id,
+      },
+      {
+        isFitTypeTemplateSource: false,
+        fitTypeTemplateSourceId: null,
       },
       { runValidators: true },
     );
@@ -564,7 +751,10 @@ const deleteCategoryPermanently = async (id: string) => {
     Product.countDocuments({ category_id: categoryObjectId }),
     Category.countDocuments({
       _id: { $ne: categoryObjectId },
-      sizeTemplateSourceId: categoryObjectId,
+      $or: [
+        { sizeTemplateSourceId: categoryObjectId },
+        { fitTypeTemplateSourceId: categoryObjectId },
+      ],
     }),
     Coupon.countDocuments({
       deletedAt: null,
@@ -603,7 +793,7 @@ const getCategories = () => {
 const getCategoriesForManagement = async () => {
   const [categories, productCounts] = await Promise.all([
     Category.find()
-      .select('_id name parent_id level gender image description isSizeTemplateSource sizeTemplateName sizeTemplateSourceId sizes measurementFields isActive createdAt updatedAt')
+      .select('_id name parent_id level gender image description isSizeTemplateSource sizeTemplateName sizeTemplateSourceId sizeGuideImage isFitTypeTemplateSource fitTypeTemplateName fitTypeTemplateSourceId sizes measurementFields fitTypes isActive createdAt updatedAt')
       .sort({ gender: 1, level: 1, name: 1 })
       .lean(),
     Product.aggregate<{ _id: Types.ObjectId; count: number; activeCount: number }>([
@@ -697,6 +887,39 @@ const resolveCategorySizeTemplateSource = async (category: Partial<{ isSizeTempl
   throw new CategoryServiceError('Size template source category not found', 404);
 };
 
+const resolveCategoryFitTypeTemplateSource = async (category: Partial<{ isFitTypeTemplateSource: boolean; fitTypeTemplateSourceId?: Types.ObjectId | null; sizeTemplateSourceId?: Types.ObjectId | null; parent_id?: Types.ObjectId | null; fitTypes?: unknown[] }>) => {
+  if (category.isFitTypeTemplateSource) {
+    return category;
+  }
+
+  if (category.fitTypeTemplateSourceId) {
+    const sourceCategory = await Category.findById(category.fitTypeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.sizeTemplateSourceId) {
+    const sourceCategory = await Category.findById(category.sizeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.fitTypes?.length) {
+    return category;
+  }
+
+  if (category.parent_id) {
+    const parentCategory = await Category.findById(category.parent_id);
+    if (parentCategory) {
+      return parentCategory;
+    }
+  }
+
+  throw new CategoryServiceError('Fit type template source category not found', 404);
+};
+
 const getCategoryTemplateById = async (id: string) => {
   assertValidCategoryId(id);
 
@@ -706,11 +929,16 @@ const getCategoryTemplateById = async (id: string) => {
     throw new CategoryServiceError('Category not found', 404);
   }
 
-  const sourceCategory = await resolveCategorySizeTemplateSource(category);
+  const [sizeTemplateSource, fitTypeTemplateSource] = await Promise.all([
+    resolveCategorySizeTemplateSource(category),
+    resolveCategoryFitTypeTemplateSource(category),
+  ]);
 
   return {
     category,
-    templateSource: sourceCategory,
+    templateSource: sizeTemplateSource,
+    sizeTemplateSource,
+    fitTypeTemplateSource,
   };
 };
 
@@ -730,6 +958,7 @@ export const categoryService = {
   createCategory,
   updateCategory,
   upsertCategorySizeTemplate,
+  upsertCategoryFitTypeTemplate,
   deleteCategory,
   deleteCategoryPermanently,
   getCategories,

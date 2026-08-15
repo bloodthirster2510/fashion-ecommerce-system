@@ -112,8 +112,8 @@ export const resolveSaleItem = async (
   }
 
   const color = variant.colors.find((item: IColorVariant) => toIdString(item._id) === colorVariantIdValue);
-  if (!color) {
-    throw new SalesServiceError('Color variant not found', 404);
+  if (!color || color.isActive === false) {
+    throw new SalesServiceError('Color variant is not available', 404);
   }
 
   const hasSize = variant.sizeMeasurements.some(

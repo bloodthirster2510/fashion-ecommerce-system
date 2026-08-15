@@ -24,13 +24,16 @@ export type UserAddressPayload = {
   ghnDistrictId?: number | null;
   ghnWardCode?: string | null;
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+  ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+  ghnMappingVerifiedAt?: Date | string | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
   isDefault: boolean;
 };
 
 export type RegisterPayload = {
   name: string;
   phone: string;
-  email: string;
+  email?: string;
   gender: 'male' | 'female';
   dateOfBirth: string;
   address: UserAddressPayload;

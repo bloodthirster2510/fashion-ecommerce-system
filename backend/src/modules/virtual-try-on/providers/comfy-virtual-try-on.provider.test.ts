@@ -1,11 +1,17 @@
 import { readFileSync } from 'fs';
 import path from 'path';
+import axios from 'axios';
 import {
   buildComfyTryOnPrompt,
   configureMultiGarmentInputs,
+  createComfyVirtualTryOnProvider,
   getComfySafetyBlockReason,
   mapComfyPromptInputs,
 } from './comfy-virtual-try-on.provider';
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe('mapComfyPromptInputs', () => {
   it('appends strict avoid constraints when the workflow has no negative prompt input', () => {
@@ -145,6 +151,10 @@ describe('buildComfyTryOnPrompt', () => {
     expect(prompt).toContain('Cells 2, 3, and 4 may each use a different subtle, natural fashion pose');
     expect(prompt).toContain('wardrobe variation');
     expect(prompt).toContain('Reference image 2: top — White shirt, white.');
+    expect(prompt).toContain('GARMENT SOURCE OF TRUTH');
+    expect(prompt).toContain('mandatory and exclusive wardrobe source');
+    expect(prompt).toContain('not the text prompt');
+    expect(prompt).toContain('If text conflicts with a garment reference');
   });
 
   it('preserves upper-body crop instead of forcing full-body framing', () => {
@@ -191,7 +201,11 @@ describe('ComfyUI image workflow prompt policy', () => {
     expect(systemPrompt).toContain('identity and the selected catalog garments are immutable constraints');
     expect(systemPrompt).toContain('cell 1 at the top-left is the baseline');
     expect(systemPrompt).toContain('Only cells 2, 3, and 4 may use different subtle, natural fashion poses');
-    expect(systemPrompt).toContain('Never redesign, replace, recolor, omit, or add selected fashion items');
+    expect(systemPrompt).toContain('Never invent, redesign, replace, recolor, omit');
+    expect(systemPrompt).toContain('GARMENT SOURCE OF TRUTH');
+    expect(systemPrompt).toContain('authoritative selected garment or accessory from the shop catalog');
+    expect(systemPrompt).toContain('never the text prompt');
+    expect(systemPrompt).toContain('If user text conflicts with a garment reference');
     expect(systemPrompt).not.toContain('regardless of format, intent, or abstraction');
   });
 });
@@ -248,5 +262,76 @@ describe('getComfySafetyBlockReason', () => {
     });
 
     expect(reason).toBeNull();
+  });
+});
+
+describe('ComfyUI job resumption', () => {
+  it('polls an existing prompt id without submitting a duplicate workflow', async () => {
+    const previous = {
+      workflow: process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH,
+      map: process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH,
+      baseUrl: process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL,
+    };
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH = path.resolve(
+      'config/comfy-workflows/fashion-tryon-gemini-4in1-api.json',
+    );
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH = path.resolve(
+      'config/comfy-workflows/fashion-tryon-gemini-4in1-map.json',
+    );
+    process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL = 'http://localhost:8188';
+
+    const get = jest.fn(async (url: string) => {
+      if (url.includes('history')) {
+        return {
+          data: {
+            'prompt-existing': {
+              outputs: {
+                '12': { images: [{ filename: 'result.png', type: 'output' }] },
+              },
+            },
+          },
+          headers: {},
+        };
+      }
+      return {
+        data: Uint8Array.from([1, 2, 3]).buffer,
+        headers: { 'content-type': 'image/png' },
+      };
+    });
+    const post = jest.fn();
+    jest.spyOn(axios, 'create').mockReturnValue({
+      defaults: { baseURL: 'http://localhost:8188' },
+      get,
+      post,
+    } as never);
+    const onProviderJobSubmitted = jest.fn();
+
+    try {
+      const result = await createComfyVirtualTryOnProvider().generate({
+        jobId: 'job-1',
+        userId: 'user-1',
+        sourceImageUrl: 'https://example.com/person.png',
+        outfitMode: 'single',
+        outputMode: 'image',
+        garments: [],
+        context: { preset: 'none', preserveOriginalBackground: true },
+        prompt: 'Try on the selected outfit',
+        negativePrompt: 'Do not alter identity',
+        providerJobId: 'prompt-existing',
+        onProviderJobSubmitted,
+      });
+
+      expect(result.providerJobId).toBe('prompt-existing');
+      expect(result.images).toHaveLength(1);
+      expect(post).not.toHaveBeenCalled();
+      expect(onProviderJobSubmitted).not.toHaveBeenCalled();
+    } finally {
+      if (previous.workflow === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH;
+      else process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH = previous.workflow;
+      if (previous.map === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH;
+      else process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH = previous.map;
+      if (previous.baseUrl === undefined) delete process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL;
+      else process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL = previous.baseUrl;
+    }
   });
 });

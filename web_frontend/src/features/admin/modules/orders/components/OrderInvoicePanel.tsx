@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Copy, Download, Printer, ReceiptText } from 'lucide-react'
+import { useToast } from '../../../notifications/notification-context'
 import {
   fallbackStorefrontSettings,
   fetchStorefrontSettings,
@@ -24,10 +25,9 @@ export function OrderInvoicePanel({
   order: AdminOrder
   onCopyReference: (value: string, label: string) => void
 }) {
+  const { showBottomToast } = useToast()
   const [settings, setSettings] = useState<StorefrontSettings>(() =>
     readCachedStorefrontSettings() ?? fallbackStorefrontSettings)
-  const [settingsWarning, setSettingsWarning] = useState('')
-  const [actionError, setActionError] = useState('')
   const [downloading, setDownloading] = useState(false)
   const [failedAvatarUrl, setFailedAvatarUrl] = useState('')
 
@@ -38,11 +38,11 @@ export function OrderInvoicePanel({
         if (active) setSettings(nextSettings)
       })
       .catch(() => {
-        if (active) setSettingsWarning('Không tải được cấu hình mới nhất; hóa đơn đang dùng thông tin cửa hàng dự phòng.')
+        if (active) showBottomToast('Không tải được cấu hình mới nhất; hóa đơn đang dùng thông tin cửa hàng dự phòng.', 'warning')
       })
 
     return () => { active = false }
-  }, [])
+  }, [showBottomToast])
 
   const totalDiscount = getInvoiceDiscountTotal(order)
   const issuedAt = getInvoiceIssuedAt(order)
@@ -50,21 +50,21 @@ export function OrderInvoicePanel({
   const showAvatar = Boolean(avatarUrl) && failedAvatarUrl !== avatarUrl
 
   const handlePrint = () => {
-    setActionError('')
     try {
       printInvoice(order, settings)
+      showBottomToast('Đã mở bản in hóa đơn.', 'success')
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Không thể mở bản in hóa đơn.')
+      showBottomToast(error instanceof Error ? error.message : 'Không thể mở bản in hóa đơn.', 'error')
     }
   }
 
   const handleDownload = async () => {
     setDownloading(true)
-    setActionError('')
     try {
       await downloadInvoicePdf(order, settings)
+      showBottomToast('Đã tải tệp PDF hóa đơn.', 'success')
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Không thể tạo tệp PDF hóa đơn.')
+      showBottomToast(error instanceof Error ? error.message : 'Không thể tạo tệp PDF hóa đơn.', 'error')
     } finally {
       setDownloading(false)
     }
@@ -76,7 +76,7 @@ export function OrderInvoicePanel({
         <ReceiptText aria-hidden="true" />
         <div>
           <h3>Hóa đơn chưa được phát hành</h3>
-          <p>Hệ thống phát hành mã và chứng từ hóa đơn khi đơn chuyển sang Đã giao hoặc Hoàn tất.</p>
+          <p>Hệ thống phát hành mã và chứng từ hóa đơn khi thanh toán thành công (COD được ghi nhận khi giao hàng).</p>
         </div>
       </section>
     )
@@ -100,9 +100,6 @@ export function OrderInvoicePanel({
           </button>
         </div>
       </header>
-
-      {settingsWarning ? <p className="admin-order-invoice-notice is-warning">{settingsWarning}</p> : null}
-      {actionError ? <p className="admin-order-invoice-notice is-error" role="alert">{actionError}</p> : null}
 
       <article className="admin-order-invoice-sheet">
         <header className="admin-order-invoice-heading">
@@ -172,7 +169,7 @@ export function OrderInvoicePanel({
                   <td>{index + 1}</td>
                   <td>
                     <strong>{item.name}</strong>
-                    <span>{item.color} / {item.size} / {item.fitType} · SKU {item.sku}</span>
+                    <span>{item.color} / {item.size} / {item.fitType}</span>
                   </td>
                   <td>{item.quantity}</td>
                   <td>{formatCurrency(item.priceAtPurchased)}</td>

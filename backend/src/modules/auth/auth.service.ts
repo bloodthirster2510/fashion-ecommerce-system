@@ -124,7 +124,7 @@ const isProfileCompleted = (user: IUser) =>
 const toSessionUser = (user: IUser) => ({
   _id: user._id,
   name: user.name,
-  email: user.email,
+  email: user.email ?? '',
   phone: user.phone ?? '',
   role: user.role,
   permissions: user.permissions ?? [],
@@ -167,9 +167,10 @@ const linkAuthProvider = async (user: IUser, provider: AuthProviderName, provide
 
 export const sendOtp = async (phone: string): Promise<SmsDeliveryInfo> => {
   assertAuthIdentifierNotThrottled('send-otp', phone);
-  const capability = getSmsDeliveryCapability();
   const existingUser = await User.findOne({ phone });
-  if (existingUser) return capability;
+  if (existingUser) {
+    throw { status: 409, message: 'Số điện thoại đã được sử dụng' };
+  }
 
   const delivery = await sendOtpSms(phone);
   return {
@@ -189,7 +190,7 @@ export const verifyOtp = async (phone: string, otp: string): Promise<string> => 
 
 export const registerUser = async (data: {
   name: string;
-  email: string;
+  email?: string;
   password: string;
   phone: string;
   gender: string;
@@ -207,12 +208,16 @@ export const registerUser = async (data: {
     throw { status: 400, message: 'Số điện thoại chưa được xác thực' };
   }
 
-  const existingUser = await User.findOne({
-    $or: [{ email: data.email.toLowerCase() }, { phone: data.phone }],
-  });
+  const normalizedEmail = data.email?.trim().toLowerCase() || '';
+  const duplicateContacts: Array<Record<string, string>> = [{ phone: data.phone }];
+  if (normalizedEmail) {
+    duplicateContacts.push({ email: normalizedEmail });
+  }
+
+  const existingUser = await User.findOne({ $or: duplicateContacts });
 
   if (existingUser) {
-    if (existingUser.email === data.email.toLowerCase()) {
+    if (normalizedEmail && existingUser.email === normalizedEmail) {
       throw { status: 409, message: 'Email đã được sử dụng' };
     }
     throw { status: 409, message: 'Số điện thoại đã được sử dụng' };
@@ -226,7 +231,7 @@ export const registerUser = async (data: {
 
   const user = await User.create({
     name: data.name,
-    email: data.email.toLowerCase(),
+    ...(normalizedEmail ? { email: normalizedEmail } : {}),
     password: hashedPassword,
     phone: data.phone,
     gender: data.gender,
@@ -240,7 +245,7 @@ export const registerUser = async (data: {
     },
   });
 
-  const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const payload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
@@ -268,17 +273,17 @@ const loginWithPassword = async (
   if (!user) {
     await comparePassword(password, DUMMY_PASSWORD_HASH);
     await recordFailedLogin(normalizedIdentifier);
-    throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
+    throw { status: 401, message: 'Thông tin đăng nhập không chính xác.' };
   }
 
   if (!user.isActive) {
-    throw { status: 403, message: 'Tài khoản không còn hoạt động' };
+    throw { status: 403, message: 'Tài khoản không còn hoạt động.' };
   }
 
   const isPasswordValid = await comparePassword(password, user.password);
   if (!isPasswordValid) {
     await recordFailedLogin(normalizedIdentifier, user);
-    throw { status: 401, message: 'Thông tin đăng nhập không chính xác' };
+    throw { status: 401, message: 'Thông tin đăng nhập không chính xác.' };
   }
 
   await clearLoginSecurity(normalizedIdentifier, user);
@@ -287,7 +292,7 @@ const loginWithPassword = async (
     throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
   }
 
-  const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const payload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
@@ -306,6 +311,20 @@ export const loginUser = async (identifier: string, password: string) => {
 
 export const loginAdminUser = async (identifier: string, password: string) => {
   return loginWithPassword(identifier, password, { allowedRoles: ['admin', 'staff'] });
+};
+
+export const getAdminSessionUser = async (userId: string) => {
+  const user = await User.findById(userId);
+
+  if (!user?.isActive) {
+    throw { status: 403, message: 'Tài khoản không còn hoạt động' };
+  }
+
+  if (user.role !== 'admin' && user.role !== 'staff') {
+    throw { status: 403, message: 'Tài khoản không có quyền truy cập trang quản trị' };
+  }
+
+  return toSessionUser(user);
 };
 
 export const requestLoginUnlock = (identifier: string, channel?: 'email' | 'phone') => (
@@ -358,13 +377,17 @@ export const refreshAccessToken = async (token: string) => {
     throw { status: 403, message: 'Tài khoản đã bị khóa' };
   }
 
-  const newPayload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const newPayload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const newAccessToken = generateAccessToken(newPayload);
   const newRefreshToken = generateRefreshToken(newPayload);
 
   await updateAuthFields(user, { refreshToken: hashRefreshToken(newRefreshToken) });
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+    user: toSessionUser(user),
+  };
 };
 
 export const forgotPassword = async (identifier: string) => {
@@ -492,7 +515,7 @@ export const changePassword = async (userId: string, currentPassword: string, ne
     passwordChangedAt: new Date(),
   });
   await revokeUserDeviceAccess(userId);
-  await clearLoginSecurity(user.email, user);
+  await clearLoginSecurity(user.email ?? user.phone, user);
 };
 
 const googleClient = process.env.GOOGLE_CLIENT_ID
@@ -500,13 +523,13 @@ const googleClient = process.env.GOOGLE_CLIENT_ID
   : null;
 
 const generateUserTokens = async (user: IUser) => {
-  const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
+  const payload: JwtPayload = { userId: user._id.toString(), email: user.email ?? '', role: user.role };
   const accessToken = generateAccessToken(payload);
   const refreshToken = generateRefreshToken(payload);
 
   await Promise.all([
     updateAuthFields(user, { refreshToken: hashRefreshToken(refreshToken), lastLoginAt: new Date() }),
-    clearLoginSecurity(user.email, user),
+    clearLoginSecurity(user.email ?? user.phone, user),
   ]);
 
   return {
@@ -571,7 +594,6 @@ const googleLogin = async (idToken: string) => {
 
   return generateUserTokens(user);
 };
-
 const facebookLogin = async (accessToken: string) => {
   const appId = process.env.FACEBOOK_APP_ID?.trim();
   const appSecret = process.env.FACEBOOK_APP_SECRET?.trim();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, InteractionManager, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -67,6 +67,14 @@ const HomeScreen = () => {
   const hasLoadedCategoriesRef = React.useRef(Boolean(initialCategoriesRef.current));
   const hasLoadedHomeProductsRef = React.useRef(
     Boolean(initialBestSellersRef.current && initialRecommendationsRef.current),
+  );
+  const shouldForceCategoriesLoad = React.useCallback(
+    () => !hasLoadedCategoriesRef.current,
+    [],
+  );
+  const shouldForceHomeProductsLoad = React.useCallback(
+    () => !hasLoadedHomeProductsRef.current,
+    [],
   );
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
@@ -200,15 +208,23 @@ const HomeScreen = () => {
 
   useStaleFocusEffect(loadCategories, [loadCategories], {
     cacheScope: 'home:',
+    forceRunWhen: shouldForceCategoriesLoad,
     runOnDepsChange: true,
     staleMs: 60 * 1000,
   });
   useStaleFocusEffect(loadHomeProducts, [loadHomeProducts], {
     cacheScope: 'home:',
+    forceRunWhen: shouldForceHomeProductsLoad,
     staleMs: 60 * 1000,
     runOnDepsChange: true,
   });
-  useFocusEffect(React.useCallback(() => { void refreshNotifications(); }, [refreshNotifications]));
+  useFocusEffect(React.useCallback(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      void refreshNotifications();
+    });
+
+    return () => task.cancel();
+  }, [refreshNotifications]));
 
   const navigateToProductList = (params?: RootStackParamList['ProductList']) => {
     setIsCategoryDrawerVisible(false);
@@ -236,16 +252,25 @@ const HomeScreen = () => {
   };
 
   const handleSearchSubmit = (keyword: string) => {
-    void addSearchHistory(keyword);
+    const normalizedKeyword = keyword.trim().replace(/\s+/g, ' ');
+    if (!normalizedKeyword) {
+      navigation.navigate('ProductList', {
+        title: 'Tất cả sản phẩm',
+        sort: 'newest',
+      });
+      return;
+    }
+
+    void addSearchHistory(normalizedKeyword);
     recordInteraction({
       actionType: 'search',
       source: 'search',
-      metadata: { keyword },
+      metadata: { keyword: normalizedKeyword },
     });
 
     navigation.navigate('ProductList', {
-      title: `Tìm kiếm: ${keyword}`,
-      keyword,
+      title: `Tìm kiếm: ${normalizedKeyword}`,
+      keyword: normalizedKeyword,
       searchEventId: createSearchEventId(),
       searchSource: 'mobile_manual',
     });

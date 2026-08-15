@@ -6,6 +6,7 @@ import {
   getDisplayPrice,
   getInventory,
   getInventoryStatus,
+  isProductSelling,
   getStockMeta,
 } from '../productDisplay.helpers'
 import {
@@ -24,6 +25,7 @@ type ProductTableProps = {
   expandedProducts: Set<string>
   expandedVariants: Set<string>
   loadingEditorProductId: string | null
+  lowStockThreshold: number
   tableShellRef: RefObject<HTMLDivElement | null>
   onToggleProduct: (productId: string) => void
   onToggleVariant: (variantKey: string) => void
@@ -45,6 +47,7 @@ export function ProductTable({
   expandedProducts,
   expandedVariants,
   loadingEditorProductId,
+  lowStockThreshold,
   tableShellRef,
   onToggleProduct,
   onToggleVariant,
@@ -61,7 +64,7 @@ export function ProductTable({
             <th>Sản phẩm</th>
             <th>Nhãn hiệu</th>
             <th>Loại trang phục</th>
-            <th>Form dáng</th>
+            <th>Phom dáng</th>
             <th>Màu sắc</th>
             <th>Giá</th>
             <th>Tồn kho</th>
@@ -80,7 +83,7 @@ export function ProductTable({
           {!isLoading
             ? products.map((product) => {
                 const inventory = getInventory(product)
-                const stock = getStockMeta(inventory)
+                const stock = getStockMeta(inventory, lowStockThreshold)
                 const colorCount = new Set(
                   product.variants.flatMap((variant) =>
                     variant.colors.map((color) => color.color.toLocaleLowerCase('vi')),
@@ -89,6 +92,7 @@ export function ProductTable({
                 const isExpanded = expandedProducts.has(product._id)
                 const displayVariant = product.variants[0]
                 const isEditorLoadingForProduct = loadingEditorProductId === product._id
+                const isSelling = isProductSelling(product)
 
                 return [
                   <tr className="admin-product-row" key={product._id}>
@@ -140,8 +144,8 @@ export function ProductTable({
                     <td><strong>{formatNumber(stock.total)}</strong></td>
                     <td><StockWarning low={stock.low} out={stock.out} /></td>
                     <td>
-                      <span className={`admin-product-status ${product.isActive ? 'is-active' : 'is-inactive'}`}>
-                        {product.isActive ? 'Đang bán' : 'Ngừng bán'}
+                      <span className={`admin-product-status ${isSelling ? 'is-active' : 'is-inactive'}`}>
+                        {isSelling ? 'Đang bán' : 'Ngừng bán'}
                       </span>
                     </td>
                     <td>
@@ -187,7 +191,7 @@ export function ProductTable({
                                 onClick={() => onToggleVariant(variantKey)}
                               >
                                 <ChevronIcon expanded={isVariantExpanded} />
-                                <span className="admin-tree-level-label is-fit">Form dáng</span>
+                                <span className="admin-tree-level-label is-fit">Phom dáng</span>
                                 <strong>{variant.fitTypeLabel}</strong>
                               </button>
                             </td>
@@ -198,10 +202,11 @@ export function ProductTable({
                                   <td colSpan={10}>
                                     <div className="admin-variant-block-list">
                                       {variant.colors.map((color) => {
-                                        const stock = getStockMeta(color.inventory)
+                                        const stock = getStockMeta(color.inventory, lowStockThreshold)
                                         const status = getInventoryStatus(
                                           color.inventory,
-                                          variant.isActive,
+                                          variant.isActive && color.isActive,
+                                          lowStockThreshold,
                                         )
 
                                         return (
@@ -229,7 +234,7 @@ export function ProductTable({
                                                       productName: product.name,
                                                       fitTypeLabel: variant.fitTypeLabel,
                                                       color,
-                                                      isActive: variant.isActive,
+                                                      isActive: variant.isActive && color.isActive,
                                                     })
                                                   }
                                                 >

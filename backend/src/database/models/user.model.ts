@@ -48,12 +48,8 @@ export interface IUserAddress {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
   isDefault: boolean;
-}
-
-export interface IUserAuthProvider {
-  provider: AuthProviderName;
-  providerId: string;
 }
 
 export interface IUserLegalConsent {
@@ -61,9 +57,14 @@ export interface IUserLegalConsent {
   acceptedAt: Date;
 }
 
+export interface IUserAuthProvider {
+  provider: AuthProviderName;
+  providerId: string;
+}
+
 export interface IUser extends Document {
   name: string;
-  email: string;
+  email?: string;
   password: string;
   role: UserRole;
   phone: string;
@@ -74,7 +75,6 @@ export interface IUser extends Document {
   loyaltyPoint: number;
   membershipUpdatedAt?: Date | null;
   refreshToken?: string | null;
-  authProviders: IUserAuthProvider[];
   permissions: StaffPermission[];
   mustChangePassword: boolean;
   createdBy?: Types.ObjectId | null;
@@ -92,6 +92,7 @@ export interface IUser extends Document {
   avatarPublicId?: string | null;
   isActive: boolean;
   legalConsent?: IUserLegalConsent | null;
+  authProviders: IUserAuthProvider[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -124,16 +125,13 @@ const userAddressSchema = new Schema<IUserAddress>(
       default: null,
     },
     ghnMappingVerifiedAt: { type: Date, default: null },
+    ghnMappingVerificationSource: {
+      type: String,
+      enum: ['admin', 'managed', 'seed'],
+      default: null,
+    },
     isDefault: { type: Boolean, default: false },
   },
-);
-
-const authProviderSchema = new Schema<IUserAuthProvider>(
-  {
-    provider: { type: String, enum: ['google', 'facebook'], required: true },
-    providerId: { type: String, required: true, trim: true },
-  },
-  { _id: false },
 );
 
 const userLegalConsentSchema = new Schema<IUserLegalConsent>(
@@ -144,12 +142,19 @@ const userLegalConsentSchema = new Schema<IUserLegalConsent>(
   { _id: false },
 );
 
+const userAuthProviderSchema = new Schema<IUserAuthProvider>(
+  {
+    provider: { type: String, enum: ['google', 'facebook'], required: true },
+    providerId: { type: String, required: true, trim: true, maxlength: 255 },
+  },
+  { _id: false },
+);
+
 const userSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, trim: true, minlength: 2, maxlength: 60 },
     email: {
       type: String,
-      required: true,
       trim: true,
       lowercase: true,
       maxlength: 254,
@@ -175,7 +180,6 @@ const userSchema = new Schema<IUser>(
     loyaltyPoint: { type: Number, default: 0, min: 0 },
     membershipUpdatedAt: { type: Date, default: null },
     refreshToken: { type: String, default: null },
-    authProviders: { type: [authProviderSchema], default: [] },
     permissions: { type: [String], default: [] },
     mustChangePassword: { type: Boolean, default: false },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -193,14 +197,39 @@ const userSchema = new Schema<IUser>(
     avatarPublicId: { type: String, default: null, maxlength: 255 },
     isActive: { type: Boolean, default: false },
     legalConsent: { type: userLegalConsentSchema, default: null },
+    authProviders: { type: [userAuthProviderSchema], default: [] },
   },
   { timestamps: true },
 );
 
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ phone: 1 });
+userSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      email: { $type: 'string' },
+    },
+  },
+);
+userSchema.index(
+  { phone: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { phone: { $type: 'string' } },
+  },
+);
 userSchema.index({ membership: 1 });
 userSchema.index({ role: 1, isActive: 1 });
+userSchema.index(
+  { 'authProviders.provider': 1, 'authProviders.providerId': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'authProviders.provider': { $type: 'string' },
+      'authProviders.providerId': { $type: 'string' },
+    },
+  },
+);
 
 export const User = models.User || model<IUser>('User', userSchema);
 

@@ -10,6 +10,7 @@ import {
   InventoryReservation,
   Order,
   Product,
+  ProductVisualIndex,
 } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput, UpdateProductInput } from '../product.types';
@@ -36,6 +37,10 @@ jest.mock('../../../../database/models', () => ({
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
+  },
+  ProductVisualIndex: {
+    deleteMany: jest.fn(),
+    updateMany: jest.fn(),
   },
   Inventory: {
     countDocuments: jest.fn(),
@@ -69,6 +74,7 @@ const mockedInventoryImport = InventoryImport as jest.Mocked<typeof InventoryImp
 const mockedInventoryReservation = InventoryReservation as jest.Mocked<typeof InventoryReservation>;
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
+const mockedProductVisualIndex = ProductVisualIndex as jest.Mocked<typeof ProductVisualIndex>;
 
 const brandId = '665000000000000000000001';
 const categoryId = '665000000000000000000002';
@@ -155,6 +161,8 @@ describe('productService', () => {
     mockedOrder.countDocuments.mockResolvedValue(0);
     mockedFavorite.countDocuments.mockResolvedValue(0);
     mockedCoupon.countDocuments.mockResolvedValue(0);
+    mockedProductVisualIndex.deleteMany.mockResolvedValue({ deletedCount: 0 } as never);
+    mockedProductVisualIndex.updateMany.mockResolvedValue({ modifiedCount: 0 } as never);
   });
 
   it('creates a product with normalized object ids and variant data', async () => {
@@ -303,6 +311,72 @@ describe('productService', () => {
     });
   });
 
+  it('throws 400 when variant color name is blank', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        variant: [
+          {
+            ...createProductInput.variant![0],
+            colors: [
+              {
+                ...createProductInput.variant![0].colors[0],
+                color: '   ',
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Variant color is required',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when variant color image is blank', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        variant: [
+          {
+            ...createProductInput.variant![0],
+            colors: [
+              {
+                ...createProductInput.variant![0].colors[0],
+                image: '   ',
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Variant color image is required',
+      statusCode: 400,
+    });
+  });
+
+  it('throws 400 when variant size is blank', async () => {
+    await expect(
+      productService.createProduct({
+        ...createProductInput,
+        variant: [
+          {
+            ...createProductInput.variant![0],
+            sizeMeasurements: [
+              {
+                ...createProductInput.variant![0].sizeMeasurements[0],
+                size: '   ',
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Variant size is required',
+      statusCode: 400,
+    });
+  });
+
   it('throws 400 when product id is invalid', async () => {
     await expect(productService.updateProduct('invalid-id', { name: 'Updated' })).rejects.toMatchObject({
       message: 'Invalid product id',
@@ -377,7 +451,148 @@ describe('productService', () => {
         runValidators: true,
       },
     );
+    expect(mockedProductVisualIndex.updateMany).toHaveBeenCalledWith(
+      { productId: updatedProduct._id, isActive: true },
+      {
+        $set: {
+          isActive: false,
+          lastSyncedAt: expect.any(Date),
+        },
+      },
+    );
     expect(result).toBe(updatedProduct);
+  });
+
+  it('throws 400 when removing a color option that still has inventory records', async () => {
+    const variantId = new Types.ObjectId('665000000000000000000011');
+    const keptColorId = new Types.ObjectId('665000000000000000000012');
+    const removedColorId = new Types.ObjectId('665000000000000000000013');
+    const product = {
+      _id: new Types.ObjectId(productId),
+      category_id: new Types.ObjectId(categoryId),
+      product_image: productImageUrl,
+      variant: [
+        {
+          _id: variantId,
+          fitTypeId: new Types.ObjectId('665000000000000000000010'),
+          price: 199000,
+          discount: 0,
+          sizeMeasurements: [{ size: 'M', measurements: [] }],
+          colors: [
+            { _id: keptColorId, color: 'Black', image: colorImageUrl },
+            { _id: removedColorId, color: 'White', image: colorImageUrl },
+          ],
+        },
+      ],
+    };
+    mockedProduct.findById.mockResolvedValue(product as never);
+    mockedInventory.countDocuments.mockResolvedValueOnce(1);
+
+    await expect(
+      productService.updateProduct(productId, {
+        variant: [
+          {
+            _id: variantId.toString(),
+            fitTypeId: '665000000000000000000010',
+            price: 199000,
+            discount: 0,
+            sizeMeasurements: [{ size: 'M' }],
+            colors: [
+              {
+                _id: keptColorId.toString(),
+                color: 'Black',
+                image: colorImageUrl,
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Không thể xóa màu đang có tồn kho.',
+      statusCode: 400,
+    });
+
+    expect(mockedProduct.findByIdAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('throws 400 when removing a size that still has inventory records', async () => {
+    const variantId = new Types.ObjectId('665000000000000000000011');
+    const colorId = new Types.ObjectId('665000000000000000000012');
+    const product = {
+      _id: new Types.ObjectId(productId),
+      category_id: new Types.ObjectId(categoryId),
+      product_image: productImageUrl,
+      variant: [
+        {
+          _id: variantId,
+          fitTypeId: new Types.ObjectId('665000000000000000000010'),
+          price: 199000,
+          discount: 0,
+          sizeMeasurements: [
+            { size: 'M', measurements: [] },
+            { size: 'L', measurements: [] },
+          ],
+          colors: [{ _id: colorId, color: 'Black', image: colorImageUrl }],
+        },
+      ],
+    };
+    mockedProduct.findById.mockResolvedValue(product as never);
+    mockedInventory.countDocuments.mockResolvedValueOnce(1);
+
+    await expect(
+      productService.updateProduct(productId, {
+        variant: [
+          {
+            _id: variantId.toString(),
+            fitTypeId: '665000000000000000000010',
+            price: 199000,
+            discount: 0,
+            sizeMeasurements: [{ size: 'M' }],
+            colors: [
+              {
+                _id: colorId.toString(),
+                color: 'Black',
+                image: colorImageUrl,
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      message: 'Không thể xóa size đang có tồn kho.',
+      statusCode: 400,
+    });
+
+    expect(mockedProduct.findByIdAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('throws 400 when removing a variant that still has inventory records', async () => {
+    const variantId = new Types.ObjectId('665000000000000000000011');
+    const colorId = new Types.ObjectId('665000000000000000000012');
+    const product = {
+      _id: new Types.ObjectId(productId),
+      category_id: new Types.ObjectId(categoryId),
+      product_image: productImageUrl,
+      variant: [
+        {
+          _id: variantId,
+          fitTypeId: new Types.ObjectId('665000000000000000000010'),
+          price: 199000,
+          discount: 0,
+          sizeMeasurements: [{ size: 'M', measurements: [] }],
+          colors: [{ _id: colorId, color: 'Black', image: colorImageUrl }],
+        },
+      ],
+    };
+    mockedProduct.findById.mockResolvedValue(product as never);
+    mockedInventory.countDocuments.mockResolvedValueOnce(1);
+
+    await expect(productService.updateProduct(productId, { variant: [] })).rejects.toMatchObject({
+      message: 'Không thể xóa phom dáng đang có tồn kho.',
+      statusCode: 400,
+    });
+
+    expect(mockedProduct.findByIdAndUpdate).not.toHaveBeenCalled();
   });
 
   it('does not let product updates override system-owned rating metrics', async () => {
@@ -404,6 +619,7 @@ describe('productService', () => {
         runValidators: true,
       },
     );
+    expect(mockedProductVisualIndex.updateMany).not.toHaveBeenCalled();
     expect(result).toBe(updatedProduct);
   });
 
@@ -419,6 +635,15 @@ describe('productService', () => {
       {
         returnDocument: 'after',
         runValidators: true,
+      },
+    );
+    expect(mockedProductVisualIndex.updateMany).toHaveBeenCalledWith(
+      { productId: product._id, isActive: true },
+      {
+        $set: {
+          isActive: false,
+          lastSyncedAt: expect.any(Date),
+        },
       },
     );
     expect(result).toBe(product);
@@ -441,6 +666,9 @@ describe('productService', () => {
       productId: new Types.ObjectId(productId),
     });
     expect(mockedProduct.findByIdAndDelete).toHaveBeenCalledWith(productId);
+    expect(mockedProductVisualIndex.deleteMany).toHaveBeenCalledWith({
+      productId: new Types.ObjectId(productId),
+    });
     expect(result).toBe(product);
   });
 
@@ -596,7 +824,7 @@ describe('productService', () => {
           sizes: ['M'],
           measurementFields: [
             { key: 'shoulder', label: 'Vai', unit: 'cm', required: true, sortOrder: 1 },
-            { key: 'chest', label: 'Nguc', unit: 'cm', required: true, sortOrder: 2 },
+            { key: 'chest', label: 'Ngực', unit: 'cm', required: true, sortOrder: 2 },
           ],
           fitTypes: [
             {
@@ -679,7 +907,7 @@ describe('productService', () => {
     expect(productDetailQuery.populate).toHaveBeenCalledWith('brand_id', '_id name image');
     expect(productDetailQuery.populate).toHaveBeenCalledWith(
       'category_id',
-      '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes',
+      '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizeGuideImage isFitTypeTemplateSource fitTypeTemplateSourceId sizes measurementFields fitTypes',
     );
     expect(result).toMatchObject({
       _id: productId,
@@ -744,7 +972,7 @@ describe('productService', () => {
           availableQuantity: 12,
           measurements: [
             { key: 'shoulder', label: 'Vai', unit: 'cm', value: 42 },
-            { key: 'chest', label: 'Nguc', unit: 'cm', value: 96 },
+            { key: 'chest', label: 'Ngực', unit: 'cm', value: 96 },
           ],
         },
       ],
@@ -890,6 +1118,11 @@ describe('productService', () => {
 
     mockedProduct.find.mockReturnValue(productListQuery as never);
     mockedProduct.countDocuments.mockResolvedValue(1);
+    mockedBrand.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId(brandId) }]),
+    } as never);
     mockedInventory.find.mockReturnValue({
       lean: jest.fn().mockResolvedValue([]),
     } as never);
@@ -898,6 +1131,9 @@ describe('productService', () => {
     const productFilter = mockedProduct.find.mock.calls[0][0] as unknown as Record<string, unknown>;
 
     expect(productFilter).not.toHaveProperty('_id');
+    expect(productFilter).toMatchObject({
+      brand_id: { $in: [new Types.ObjectId(brandId)] },
+    });
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({
       _id: productId,

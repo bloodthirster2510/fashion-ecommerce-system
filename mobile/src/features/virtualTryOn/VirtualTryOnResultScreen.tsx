@@ -24,6 +24,7 @@ import {
 } from './virtualTryOnJobState';
 import { contextPresetLabel } from './contextPresets';
 import { tryOnRoleLabel } from './virtualTryOnSelection';
+import { getTryOnVideoErrorMessage } from './virtualTryOnErrorMessages';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnResult'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnResult'>;
@@ -638,11 +639,7 @@ const VirtualTryOnResultScreen = () => {
         </View>
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={() => navigation.navigate('VirtualTryOnHome', hasResumeQueue ? {
-            entryPoint: 'builder',
-            seedItems: preferredResumeSeedItems,
-            alternativeSeedItems: resumeAlternativeSeedItems.length ? resumeAlternativeSeedItems : undefined,
-          } : undefined)}
+          onPress={() => navigation.navigate('Home', undefined, { pop: true })}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="home-outline" size={23} color={colors.white} />
@@ -883,7 +880,7 @@ const VirtualTryOnResultScreen = () => {
                   <Text style={styles.videoFailureText}>
                     {isVideoPlaybackFailed
                       ? 'Bộ ảnh vẫn dùng bình thường.'
-                      : job.videoErrorMessage || 'Bộ ảnh vẫn được giữ lại.'}
+                      : getTryOnVideoErrorMessage(job.videoErrorCode)}
                   </Text>
                 </View>
                 {!isVideoPolicyBlocked ? (

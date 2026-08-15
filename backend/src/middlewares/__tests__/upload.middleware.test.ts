@@ -6,6 +6,7 @@ const pngBuffer = Buffer.from(
   'base64',
 );
 const jpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00]);
+const webpBuffer = Buffer.from('RIFF\x04\x00\x00\x00WEBPVP8 ', 'binary');
 
 const createFile = (buffer: Buffer, mimetype: string) =>
   ({
@@ -20,6 +21,7 @@ describe('upload middleware image sniffing', () => {
       files: {
         image: [createFile(pngBuffer, 'image/png')],
         variants: [createFile(jpegBuffer, 'image/jpeg')],
+        thumbnail: [createFile(webpBuffer, 'image/webp')],
       },
     } as unknown as Request;
 

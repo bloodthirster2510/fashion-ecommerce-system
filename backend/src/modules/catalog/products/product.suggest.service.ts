@@ -1,5 +1,5 @@
 import { Brand, Category, Product } from '../../../database/models';
-import { normalizeCatalogImageUrl } from '../catalog-image';
+import { cacheGetJson, cacheSetJson } from '../../../utils/cache';
 import { tokenize, toAccentInsensitiveRegex, toTokenRegexes } from './search.util';
 import { inferGenderFromTokens, expandMaterialTokens, expandMaterialTokenGroups, buildSearchKeywordSuggestions } from './search-keywords';
 
@@ -25,25 +25,18 @@ export type SuggestResponse = {
   keywords: string[];
 };
 
-const SUGGEST_CACHE_TTL = 60_000;
-const suggestCache = new Map<string, { data: SuggestResponse; expires: number }>();
+const SUGGEST_CACHE_TTL = 5 * 60_000;
+const SUGGEST_CACHE_NAMESPACE = 'product-suggestions';
 
 const getFinalPrice = (price: number, discount: number) => Math.round(price * (1 - discount / 100));
 
-const getCachedSuggest = (key: string): SuggestResponse | null => {
-  const cached = suggestCache.get(key);
-  if (cached && cached.expires > Date.now()) return cached.data;
-  return null;
-};
-
-const setCachedSuggest = (key: string, data: SuggestResponse) => {
-  suggestCache.set(key, { data, expires: Date.now() + SUGGEST_CACHE_TTL });
-};
+export const resolveSuggestionImage = (variantImage?: string, productImage?: string) =>
+  (variantImage || productImage || '').trim();
 
 export const suggest = async (keyword: string, limit: number = 5): Promise<SuggestResponse> => {
   const trimmed = keyword.trim();
   const cacheKey = `${trimmed}:${limit}`;
-  const cached = getCachedSuggest(cacheKey);
+  const cached = await cacheGetJson<SuggestResponse>(SUGGEST_CACHE_NAMESPACE, cacheKey);
   if (cached) return cached;
 
   const tokens = tokenize(trimmed);
@@ -94,7 +87,7 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
 
   const products = await Product.find(filter)
     .populate('brand_id', 'name')
-    .select('_id name product_image variant.price variant.discount brand_id')
+    .select('_id name product_image variant.price variant.discount variant.colors.image brand_id')
     .sort({ sold_quantity: -1 })
     .limit(limit)
     .lean();
@@ -107,7 +100,9 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
     return {
       _id: product._id.toString(),
       name: product.name,
-      image: normalizeCatalogImageUrl(variant?.colors?.[0]?.image || product.product_image) ?? product.product_image,
+      // Product writes already validate image URLs. Avoid re-validating legacy
+      // catalog data here because one older host must not break all suggestions.
+      image: resolveSuggestionImage(variant?.colors?.[0]?.image, product.product_image),
       price,
       discount,
       finalPrice: getFinalPrice(price, discount),
@@ -133,6 +128,6 @@ export const suggest = async (keyword: string, limit: number = 5): Promise<Sugge
     keywords,
   };
 
-  setCachedSuggest(cacheKey, result);
+  await cacheSetJson(SUGGEST_CACHE_NAMESPACE, cacheKey, result, SUGGEST_CACHE_TTL);
   return result;
 };

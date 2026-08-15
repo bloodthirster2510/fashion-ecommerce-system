@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Easing,
+  FlatList,
   Image,
   Modal,
   Pressable,
@@ -17,7 +18,7 @@ import {
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -42,6 +43,7 @@ import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
+type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 type MultiFilterKey = 'categoryId' | 'brandId';
 
@@ -84,7 +86,6 @@ type CategorySelectionGroup = {
 };
 
 const PRODUCT_PAGE_LIMIT = 30;
-const LOAD_MORE_SCROLL_THRESHOLD = 420;
 const SCROLL_TOP_VISIBILITY_OFFSET = 360;
 const STOREFRONT_BOTTOM_NAV_HEIGHT = 70;
 const discoveryImages = {
@@ -276,6 +277,28 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
     .sort((a, b) => sortCategoriesByLevelAndName(a.representative, b.representative));
 };
 
+const getCategoryGroupSelectionIds = (group: CategoryFilterGroup) => uniqueStrings([
+  ...group.categoryIds,
+  ...group.options.flatMap((option) => option.categoryIds),
+]);
+
+const normalizeCategoryLabel = (label: string) => label
+  .trim()
+  .toLocaleLowerCase('vi-VN')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd');
+
+const getCategoryRailIcon = (label: string): MaterialIconName => {
+  const normalizedLabel = normalizeCategoryLabel(label);
+
+  if (normalizedLabel.includes('giay') || normalizedLabel.includes('dep')) return 'shoe-sneaker';
+  if (normalizedLabel.includes('set') || normalizedLabel.includes('bo')) return 'layers-triple-outline';
+  if (normalizedLabel.includes('ao')) return 'tshirt-crew-outline';
+  if (normalizedLabel.includes('quan')) return 'hanger';
+  return 'wardrobe-outline';
+};
+
 const getCategorySelectionGroups = (
   categoryIds: string[],
   categories: CatalogCategory[],
@@ -301,6 +324,12 @@ const getCategorySelectionGroups = (
   return Array.from(groups.values());
 };
 
+const discoveryGenderOptions = [
+  { label: 'Tất cả', value: undefined, icon: 'account-group-outline' },
+  { label: 'Nam', value: 'male', icon: 'gender-male' },
+  { label: 'Nữ', value: 'female', icon: 'gender-female' },
+] as const;
+
 const getProductQueryKey = (
   filters: ProductListFilters,
   params: ProductListRouteProp['params'],
@@ -316,6 +345,7 @@ const getProductListCacheKey = (queryKey: string) => `catalog:list:${queryKey}`;
 const ProductListScreen = () => {
   const navigation = useNavigation<ProductListNavigationProp>();
   const route = useRoute<ProductListRouteProp>();
+  const isFocused = useIsFocused();
   const { isAuthenticated, runWithAuth, session } = useAuth();
   const { summary: notificationSummary } = useCustomerNotifications();
   const params = route.params;
@@ -341,7 +371,7 @@ const ProductListScreen = () => {
     readScreenData<ProductListResponse>(getProductListCacheKey(initialProductQueryKeyRef.current)),
   );
   const insets = useSafeAreaInsets();
-  const scrollViewRef = React.useRef<ScrollView>(null);
+  const productListRef = React.useRef<FlatList<CatalogProduct>>(null);
   const catalogHeadingOffsetRef = React.useRef<number | null>(null);
   const shouldScrollToCatalogRef = React.useRef(opensAtDiscoveryProducts);
   const requestIdRef = React.useRef(0);
@@ -391,13 +421,13 @@ const ProductListScreen = () => {
   );
 
   const scrollToTop = React.useCallback((animated = true) => {
-    scrollViewRef.current?.scrollTo({ y: 0, animated });
+    productListRef.current?.scrollToOffset({ offset: 0, animated });
   }, []);
 
   const scrollToCatalogHeading = React.useCallback((catalogHeadingOffset: number) => {
     requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollTo({
-        y: Math.max(catalogHeadingOffset - spacing.md, 0),
+      productListRef.current?.scrollToOffset({
+        offset: Math.max(catalogHeadingOffset - spacing.md, 0),
         animated: false,
       });
     });
@@ -434,6 +464,10 @@ const ProductListScreen = () => {
   }, [isLoading, scrollToCatalogHeading]);
 
   React.useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+
     const revealAnimation = Animated.timing(heroReveal, {
       toValue: 1,
       duration: 460,
@@ -464,7 +498,7 @@ const ProductListScreen = () => {
       revealAnimation.stop();
       floatAnimation.stop();
     };
-  }, [garmentFloat, heroReveal]);
+  }, [garmentFloat, heroReveal, isFocused]);
 
   const categorySelectionGroups = React.useMemo(
     () => getCategorySelectionGroups(appliedFilters.categoryId, availableFilters.categories, params?.title),
@@ -490,6 +524,16 @@ const ProductListScreen = () => {
           : availableFilters.categories,
       ),
     [availableFilters.categories, draftFilters.gender],
+  );
+
+  const categoryRailGroups = React.useMemo(
+    () =>
+      buildCategoryFilterGroups(
+        appliedFilters.gender
+          ? availableFilters.categories.filter((category) => category.gender === appliedFilters.gender)
+          : availableFilters.categories,
+      ),
+    [appliedFilters.gender, availableFilters.categories],
   );
 
   const visibleGenderOptions = React.useMemo(() => {
@@ -882,22 +926,12 @@ const ProductListScreen = () => {
 
   const handleCatalogScroll = React.useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      const { contentOffset } = event.nativeEvent;
       const shouldShowScrollTop = contentOffset.y > SCROLL_TOP_VISIBILITY_OFFSET;
 
       setShowScrollTop((current) => (current === shouldShowScrollTop ? current : shouldShowScrollTop));
-
-      if (contentSize.height <= layoutMeasurement.height) {
-        return;
-      }
-
-      const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-
-      if (distanceFromBottom <= LOAD_MORE_SCROLL_THRESHOLD) {
-        loadMoreProducts();
-      }
     },
-    [loadMoreProducts],
+    [],
   );
 
   const screenTitle = getTitle(params);
@@ -905,10 +939,15 @@ const ProductListScreen = () => {
   const selectedGenderLabel = appliedFilters.gender
     ? genderLabels[appliedFilters.gender].toLocaleUpperCase('vi-VN')
     : 'MỌI PHONG CÁCH';
+  const activeCategoryRailGroupKey = categoryRailGroups.find((group) =>
+    getCategoryGroupSelectionIds(group).some((categoryId) => appliedFilters.categoryId.includes(categoryId)),
+  )?.key;
+  const isAllCategoryRailActive = !activeCategoryRailGroupKey;
 
   const renderGenderSpotlight = (gender: 'male' | 'female') => {
     const isMale = gender === 'male';
     const active = appliedFilters.gender === gender;
+    const muted = Boolean(appliedFilters.gender && !active);
     const label = isMale ? 'NAM' : 'NỮ';
 
     return (
@@ -917,6 +956,7 @@ const ProductListScreen = () => {
         style={[
           styles.genderCard,
           isMale ? styles.genderCardMale : styles.genderCardFemale,
+          muted && styles.genderCardMuted,
           active && styles.genderCardActive,
         ]}
         onPress={() => selectDiscoveryGender(gender)}
@@ -925,12 +965,18 @@ const ProductListScreen = () => {
         accessibilityLabel={`Xem thời trang ${label.toLocaleLowerCase('vi-VN')}`}
         activeOpacity={0.88}
       >
+        {active ? (
+          <View style={styles.genderSelectedBadge}>
+            <MaterialCommunityIcons name="check" size={11} color={colors.white} />
+            <Text style={styles.genderSelectedBadgeText}>Đang chọn</Text>
+          </View>
+        ) : null}
         <View style={styles.genderCardCopy}>
           <View style={[styles.genderIcon, !isMale && styles.genderIconFemale]}>
             <MaterialCommunityIcons
               name={isMale ? 'gender-male' : 'gender-female'}
               size={15}
-              color={isMale ? colors.white : '#9B4C55'}
+              color={isMale ? colors.brandDark : '#9B4C55'}
             />
           </View>
           <Text style={[styles.genderLabel, !isMale && styles.genderLabelFemale]}>{label}</Text>
@@ -1010,8 +1056,22 @@ const ProductListScreen = () => {
         </View>
       </View>
 
-      <ScrollView
-        ref={scrollViewRef}
+      <FlatList
+        ref={productListRef}
+        data={!isLoading && !error ? products : []}
+        keyExtractor={(product) => product._id}
+        renderItem={({ item, index }) => (
+          <View style={styles.gridItem}>
+            <ProductCard
+              product={item}
+              animationIndex={index}
+              onPress={handleProductPress}
+              onCartPress={handleCartPress}
+            />
+          </View>
+        )}
+        numColumns={2}
+        columnWrapperStyle={styles.grid}
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -1024,8 +1084,14 @@ const ProductListScreen = () => {
           />
         )}
         onScroll={handleCatalogScroll}
+        onEndReached={loadMoreProducts}
+        onEndReachedThreshold={0.35}
         scrollEventThrottle={16}
-      >
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        ListHeaderComponent={(
+          <>
         {showDiscoveryExperience ? (
           <>
             <Animated.View
@@ -1084,18 +1150,33 @@ const ProductListScreen = () => {
                   <Text style={styles.sectionEyebrow}>CHỌN TỦ ĐỒ</Text>
                   <Text style={styles.audienceTitle}>Bạn đang tìm đồ cho ai?</Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.allStylesButton, !appliedFilters.gender && styles.allStylesButtonActive]}
-                  onPress={() => selectDiscoveryGender(undefined)}
-                  activeOpacity={0.82}
-                >
-                  <Text style={[
-                    styles.allStylesButtonText,
-                    !appliedFilters.gender && styles.allStylesButtonTextActive,
-                  ]}>
-                    Tất cả
-                  </Text>
-                </TouchableOpacity>
+              </View>
+              <View style={styles.audienceSelector} accessibilityRole="tablist">
+                {discoveryGenderOptions.map((option) => {
+                  const active = appliedFilters.gender === option.value;
+
+                  return (
+                    <TouchableOpacity
+                      key={option.label}
+                      style={[styles.audienceOption, active && styles.audienceOptionActive]}
+                      onPress={() => selectDiscoveryGender(option.value)}
+                      activeOpacity={0.82}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`Đối tượng: ${option.label}`}
+                    >
+                      <MaterialCommunityIcons
+                        name={option.icon}
+                        size={17}
+                        color={active ? colors.white : colors.textMuted}
+                      />
+                      <Text style={[styles.audienceOptionText, active && styles.audienceOptionTextActive]}>
+                        {option.label}
+                      </Text>
+                      {active ? <MaterialCommunityIcons name="check-circle" size={15} color={colors.white} /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
               <View style={styles.genderGrid}>
                 {renderGenderSpotlight('male')}
@@ -1130,29 +1211,77 @@ const ProductListScreen = () => {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.sortRow}
+          style={styles.categoryScroller}
+          contentContainerStyle={styles.categoryRail}
         >
-          {sortOptions.map((option) => {
-            const active = appliedFilters.sort === option.value;
+          <TouchableOpacity
+            style={styles.categoryTab}
+            onPress={() => updateAppliedFilters((current) => ({ ...current, categoryId: [] }))}
+            activeOpacity={0.82}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isAllCategoryRailActive }}
+            accessibilityLabel="Danh mục: Tất cả"
+          >
+            <View style={[
+              styles.categoryTabIcon,
+              isAllCategoryRailActive && styles.categoryTabIconActive,
+            ]}>
+              <MaterialCommunityIcons
+                name="view-grid-outline"
+                size={23}
+                color={isAllCategoryRailActive ? colors.brandDark : colors.textMuted}
+              />
+            </View>
+            <Text style={[
+              styles.categoryTabLabel,
+              isAllCategoryRailActive && styles.categoryTabLabelActive,
+            ]}>
+              Tất cả
+            </Text>
+            {isAllCategoryRailActive ? <View style={styles.categoryTabIndicator} /> : null}
+          </TouchableOpacity>
+
+          {categoryRailGroups.map((group) => {
+            const active = activeCategoryRailGroupKey === group.key;
+            const categoryIcon = getCategoryRailIcon(group.label);
 
             return (
               <TouchableOpacity
-                key={option.value}
-                style={[styles.sortChip, active && styles.sortChipActive]}
-                onPress={() => updateAppliedFilters((current) => ({ ...current, sort: option.value }))}
+                key={group.key}
+                style={styles.categoryTab}
+                onPress={() => updateAppliedFilters((current) => ({
+                  ...current,
+                  categoryId: active ? [] : group.categoryIds,
+                }))}
                 activeOpacity={0.82}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Danh mục: ${group.label}`}
               >
-                <MaterialCommunityIcons
-                  name={active ? 'check-circle' : 'sort'}
-                  size={16}
-                  color={active ? colors.white : colors.brand}
-                />
-                <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>
-                  {option.label}
+                <View style={[styles.categoryTabIcon, active && styles.categoryTabIconActive]}>
+                  <MaterialCommunityIcons
+                    name={categoryIcon}
+                    size={23}
+                    color={active ? colors.brandDark : colors.textMuted}
+                  />
+                </View>
+                <Text
+                  style={[styles.categoryTabLabel, active && styles.categoryTabLabelActive]}
+                  numberOfLines={2}
+                >
+                  {group.label}
                 </Text>
+                {active ? <View style={styles.categoryTabIndicator} /> : null}
               </TouchableOpacity>
             );
           })}
+
+          {isLoading && !categoryRailGroups.length ? (
+            <View style={styles.categoryLoadingTab}>
+              <ActivityIndicator size="small" color={colors.brand} />
+              <Text style={styles.categoryTabLabel}>Đang tải</Text>
+            </View>
+          ) : null}
         </ScrollView>
 
         {activeChips.length ? (
@@ -1209,43 +1338,31 @@ const ProductListScreen = () => {
               <Text style={styles.retryText}>Xem tất cả</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <>
-            <View style={styles.grid}>
-              {products.map((product, index) => (
-                <View key={product._id} style={styles.gridItem}>
-                  <ProductCard
-                    product={product}
-                    animationIndex={index}
-                    onPress={handleProductPress}
-                    onCartPress={handleCartPress}
-                  />
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.loadMoreArea}>
-              {isLoadingMore ? (
-                <>
-                  <ActivityIndicator color={colors.brand} />
-                  <Text style={styles.loadMoreText}>Đang tải thêm sản phẩm...</Text>
-                </>
-              ) : loadMoreError ? (
-                <>
-                  <Text style={styles.loadMoreErrorText}>{loadMoreError}</Text>
-                  <TouchableOpacity style={styles.loadMoreRetryButton} onPress={loadMoreProducts} activeOpacity={0.82}>
-                    <Text style={styles.loadMoreRetryText}>Thử lại</Text>
-                  </TouchableOpacity>
-                </>
-              ) : hasMoreProducts ? (
-                <Text style={styles.loadMoreText}>Kéo xuống để xem thêm</Text>
-              ) : (
-                <Text style={styles.endOfListText}>Bạn đã xem hết {totalItems} sản phẩm</Text>
-              )}
-            </View>
+        ) : null}
           </>
         )}
-      </ScrollView>
+        ListFooterComponent={!isLoading && !error && products.length ? (
+          <View style={styles.loadMoreArea}>
+            {isLoadingMore ? (
+              <>
+                <ActivityIndicator color={colors.brand} />
+                <Text style={styles.loadMoreText}>Đang tải thêm sản phẩm...</Text>
+              </>
+            ) : loadMoreError ? (
+              <>
+                <Text style={styles.loadMoreErrorText}>{loadMoreError}</Text>
+                <TouchableOpacity style={styles.loadMoreRetryButton} onPress={loadMoreProducts} activeOpacity={0.82}>
+                  <Text style={styles.loadMoreRetryText}>Thử lại</Text>
+                </TouchableOpacity>
+              </>
+            ) : hasMoreProducts ? (
+              <Text style={styles.loadMoreText}>Kéo xuống để xem thêm</Text>
+            ) : (
+              <Text style={styles.endOfListText}>Bạn đã xem hết {totalItems} sản phẩm</Text>
+            )}
+          </View>
+        ) : null}
+      />
 
       {showScrollTop ? (
         <TouchableOpacity
@@ -1286,6 +1403,21 @@ const ProductListScreen = () => {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.sheetContent}
             >
+              {renderGroup(
+                'Sắp xếp',
+                <View style={styles.choiceWrap}>
+                  {sortOptions.map((option) =>
+                    renderChoice(
+                      option.label,
+                      draftFilters.sort === option.value,
+                      () => setDraftFilters((current) => ({ ...current, sort: option.value })),
+                      undefined,
+                      option.value,
+                    ),
+                  )}
+                </View>,
+              )}
+
               {renderGroup(
                 'Đối tượng',
                 <View style={styles.choiceWrap}>
@@ -1588,9 +1720,6 @@ const styles = StyleSheet.create({
   },
   audienceHeading: {
     minHeight: 42,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
   sectionEyebrow: {
@@ -1608,28 +1737,40 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     marginTop: 2,
   },
-  allStylesButton: {
-    minHeight: 32,
+  audienceSelector: {
+    minHeight: 42,
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  audienceOption: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 34,
+    borderRadius: radii.pill,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: spacing.xs,
   },
-  allStylesButtonActive: {
-    borderColor: colors.brandDark,
+  audienceOptionActive: {
     backgroundColor: colors.brandDark,
   },
-  allStylesButtonText: {
+  audienceOptionText: {
     color: colors.textMuted,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '900',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
   },
-  allStylesButtonTextActive: {
+  audienceOptionTextActive: {
     color: colors.white,
+    fontWeight: '900',
   },
   genderGrid: {
     flexDirection: 'row',
@@ -1641,19 +1782,42 @@ const styles = StyleSheet.create({
     minWidth: 0,
     height: 108,
     borderRadius: radii.md,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.border,
     overflow: 'hidden',
   },
   genderCardMale: {
-    backgroundColor: '#29445A',
+    backgroundColor: '#E6EEF2',
   },
   genderCardFemale: {
-    backgroundColor: '#F4DFDC',
+    backgroundColor: '#F5E8E6',
   },
   genderCardActive: {
-    borderColor: colors.goldDark,
+    borderWidth: 2,
+    borderColor: colors.brandDark,
     ...shadows.card,
+  },
+  genderCardMuted: {
+    opacity: 0.7,
+  },
+  genderSelectedBadge: {
+    position: 'absolute',
+    zIndex: 4,
+    top: spacing.sm,
+    right: spacing.sm,
+    minHeight: 20,
+    borderRadius: radii.pill,
+    paddingHorizontal: 7,
+    backgroundColor: colors.brandDark,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  genderSelectedBadgeText: {
+    color: colors.white,
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: '900',
   },
   genderCardCopy: {
     width: '60%',
@@ -1666,7 +1830,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(35,61,80,0.09)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 3,
@@ -1675,7 +1839,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(155,76,85,0.1)',
   },
   genderLabel: {
-    color: colors.white,
+    color: colors.brandDark,
     fontSize: 17,
     lineHeight: 20,
     fontWeight: '900',
@@ -1685,7 +1849,7 @@ const styles = StyleSheet.create({
     color: '#763D46',
   },
   genderCaption: {
-    color: colors.brandPale,
+    color: colors.textMuted,
     fontSize: 8,
     lineHeight: 11,
     fontWeight: '700',
@@ -1748,37 +1912,71 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
-  sortRow: {
-    minHeight: 38,
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingRight: spacing.sm,
+  categoryScroller: {
+    flexGrow: 0,
+    height: 88,
+    maxHeight: 88,
+    marginHorizontal: -spacing.md,
     marginBottom: spacing.md,
-  },
-  sortChip: {
-    minHeight: 34,
-    borderRadius: radii.pill,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
+  },
+  categoryRail: {
+    minHeight: 88,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'stretch',
+  },
+  categoryTab: {
+    position: 'relative',
+    width: 82,
+    height: 88,
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    paddingBottom: 7,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  categoryTabIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
   },
-  sortChipActive: {
+  categoryTabIconActive: {
+    backgroundColor: colors.brandMist,
+  },
+  categoryTabLabel: {
+    marginTop: 4,
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  categoryTabLabelActive: {
+    color: colors.brandDark,
+    fontWeight: '900',
+  },
+  categoryTabIndicator: {
+    position: 'absolute',
+    left: 11,
+    right: 11,
+    bottom: 0,
+    height: 3,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
     backgroundColor: colors.brandDark,
-    borderColor: colors.brandDark,
   },
-  sortChipText: {
-    color: colors.brand,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '800',
-  },
-  sortChipTextActive: {
-    color: colors.white,
+  categoryLoadingTab: {
+    width: 82,
+    height: 88,
+    paddingTop: 14,
+    alignItems: 'center',
   },
   activeFiltersPanel: {
     minHeight: 40,
@@ -1860,9 +2058,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
   },
   gridItem: {
     width: '48.6%',

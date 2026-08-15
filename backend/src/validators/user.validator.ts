@@ -1,4 +1,5 @@
 import { ValidationError } from './auth.validator';
+import { customerBirthDateMessage, isValidCustomerBirthDate } from './birth-date.validator';
 
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 
@@ -7,29 +8,6 @@ const isPositiveNumber = (value: unknown) => typeof value === 'number' && Number
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 );
-
-const isValidBirthDate = (value: unknown) => {
-  if (typeof value !== 'string') return false;
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (
-    date.getUTCFullYear() !== year
-    || date.getUTCMonth() !== month - 1
-    || date.getUTCDate() !== day
-  ) return false;
-
-  const today = new Date();
-  let age = today.getUTCFullYear() - year;
-  const birthdayHasPassed = today.getUTCMonth() + 1 > month
-    || (today.getUTCMonth() + 1 === month && today.getUTCDate() >= day);
-  if (!birthdayHasPassed) age -= 1;
-  return age >= 13 && age <= 100;
-};
 
 export const validateUpdateProfile = (body: unknown): ValidationError[] => {
   if (!isRecord(body)) {
@@ -56,10 +34,10 @@ export const validateUpdateProfile = (body: unknown): ValidationError[] => {
   }
 
   if (body.dateOfBirth !== undefined) {
-    if (!isValidBirthDate(body.dateOfBirth)) {
+    if (!isValidCustomerBirthDate(body.dateOfBirth)) {
       errors.push({
         field: 'dateOfBirth',
-        message: 'Ngày sinh không hợp lệ hoặc độ tuổi phải từ 13 đến 100',
+        message: customerBirthDateMessage,
       });
     }
   }

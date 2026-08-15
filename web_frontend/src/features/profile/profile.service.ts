@@ -22,25 +22,21 @@ export type UserAddress = {
   isDefault: boolean
 }
 
-type GhnMasterDataResponse<T> = {
-  data: T[]
+export type LocationProvince = {
+  name: string
+  code: string
 }
 
-export type GhnProvince = {
-  ProvinceID: number
-  ProvinceName: string
+export type LocationWard = {
+  name: string
+  code: string
+  provinceCode?: string
 }
 
-export type GhnDistrict = {
-  DistrictID: number
-  DistrictName: string
-  ProvinceID?: number
-}
-
-export type GhnWard = {
-  WardCode: string
-  WardName: string
-  DistrictID?: number
+type LocationWardsResponse = {
+  province: LocationProvince
+  wards: LocationWard[]
+  manualEntryAllowed: boolean
 }
 
 export type UpdateProfilePayload = {
@@ -150,19 +146,13 @@ export const profileService = {
     })
   },
 
-  async getGhnProvinces() {
-    const result = await request<GhnMasterDataResponse<GhnProvince>>('/ghn/provinces')
-    return result.data
+  getLocationProvinces() {
+    return request<LocationProvince[]>('/locations/provinces')
   },
 
-  async getGhnDistricts(provinceId: number) {
-    const result = await request<GhnMasterDataResponse<GhnDistrict>>(`/ghn/districts?provinceId=${provinceId}`)
-    return result.data
-  },
-
-  async getGhnWards(districtId: number) {
-    const result = await request<GhnMasterDataResponse<GhnWard>>(`/ghn/wards?districtId=${districtId}`)
-    return result.data
+  async getLocationWards(provinceCode: string) {
+    const result = await request<LocationWardsResponse>(`/locations/provinces/${provinceCode}/wards`)
+    return result.wards
   },
 
   updateAddress(addressId: string, payload: Partial<UserAddress>) {

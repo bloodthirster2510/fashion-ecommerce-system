@@ -5,23 +5,29 @@ import {
   adjustInventory,
   cancelReceipt,
   commitReservations,
-  createImport,
   createReceipt,
+  createStocktake,
+  createSupplier,
   deleteInventory,
-  deleteImport,
+  deleteSupplier,
   expireReservations,
   getImportById,
   getImportSuppliers,
   getImports,
   getInventory,
   getInventoryProducts,
+  getInventoryThreshold,
   getLowStockInventory,
+  getMovements,
   getReceiptById,
   getReceipts,
+  getSuppliers,
   confirmReceipt,
   releaseReservations,
   reserveInventory,
+  updateInventoryThreshold,
   updateReceipt,
+  updateSupplier,
 } from './inventory.controller';
 
 const router = Router();
@@ -32,6 +38,14 @@ const canWriteInventory = [...canManageInventory, requirePermission('inventory.w
 router.get('/', canReadInventory, getInventory);
 router.get('/products', canReadInventory, getInventoryProducts);
 router.get('/low-stock', canReadInventory, getLowStockInventory);
+router.get('/threshold', canReadInventory, getInventoryThreshold);
+router.patch('/threshold', canWriteInventory, updateInventoryThreshold);
+router.get('/movements', canReadInventory, getMovements);
+router.get('/suppliers', canReadInventory, getSuppliers);
+router.post('/suppliers', canWriteInventory, createSupplier);
+router.patch('/suppliers/:id', canWriteInventory, updateSupplier);
+router.delete('/suppliers/:id', canWriteInventory, deleteSupplier);
+router.post('/stocktakes', canWriteInventory, createStocktake);
 router.get('/receipts', canReadInventory, getReceipts);
 router.post('/receipts', canWriteInventory, createReceipt);
 router.get('/receipts/:id', canReadInventory, getReceiptById);
@@ -39,10 +53,8 @@ router.patch('/receipts/:id', canWriteInventory, updateReceipt);
 router.post('/receipts/:id/confirm', canWriteInventory, confirmReceipt);
 router.post('/receipts/:id/cancel', canWriteInventory, cancelReceipt);
 router.get('/imports', canReadInventory, getImports);
-router.post('/imports', canWriteInventory, createImport);
 router.get('/imports/suppliers', canReadInventory, getImportSuppliers);
 router.get('/imports/:id', canReadInventory, getImportById);
-router.delete('/imports/:id', canWriteInventory, deleteImport);
 router.patch('/:id/adjust', canWriteInventory, adjustInventory);
 router.delete('/:id', canWriteInventory, deleteInventory);
 router.post('/reserve', canWriteInventory, reserveInventory);

@@ -6,6 +6,7 @@ export type VirtualTryOnVideoProviderInput = {
   sourceImageUrl: string;
   prompt: string;
   negativePrompt: string;
+  model?: string;
   durationSeconds: number;
   resolution: string;
   generateAudio: boolean;

@@ -2,6 +2,16 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export type InventoryReservationStatus = 'active' | 'committed' | 'released' | 'expired';
 export type InventoryReceiptStatus = 'draft' | 'confirmed' | 'cancelled';
+export type InventoryMovementType =
+  | 'import'
+  | 'import_delete'
+  | 'adjustment'
+  | 'sale_commit'
+  | 'reservation'
+  | 'reservation_release'
+  | 'reservation_expire'
+  | 'stocktake';
+export type InventoryStocktakeStatus = 'draft' | 'posted' | 'cancelled';
 
 export interface IInventory extends Document {
   productId: Types.ObjectId;
@@ -12,6 +22,7 @@ export interface IInventory extends Document {
   quantity: number;
   reservedQuantity: number;
   availableQuantity: number;
+  lowStockThreshold: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -77,6 +88,69 @@ export interface IInventoryReservation extends Document {
   quantity: number;
   status: InventoryReservationStatus;
   expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IInventoryMovement extends Document {
+  inventoryId?: Types.ObjectId | null;
+  productId: Types.ObjectId;
+  variantId: Types.ObjectId;
+  colorVariantId: Types.ObjectId;
+  size: string;
+  sku?: string;
+  type: InventoryMovementType;
+  quantityDelta: number;
+  reservedDelta: number;
+  availableDelta: number;
+  quantityBefore: number;
+  quantityAfter: number;
+  reservedBefore: number;
+  reservedAfter: number;
+  availableBefore: number;
+  availableAfter: number;
+  reason?: string;
+  note?: string;
+  sourceId?: Types.ObjectId | null;
+  sourceCode?: string;
+  sourceType?: string;
+  createdBy?: Types.ObjectId | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IInventorySupplier extends Document {
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  note?: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IInventoryStocktakeLine {
+  inventoryId: Types.ObjectId;
+  productId: Types.ObjectId;
+  variantId: Types.ObjectId;
+  colorVariantId: Types.ObjectId;
+  size: string;
+  sku?: string;
+  systemQuantity: number;
+  countedQuantity: number;
+  difference: number;
+  reason?: string;
+}
+
+export interface IInventoryStocktake extends Document {
+  stocktakeCode: string;
+  status: InventoryStocktakeStatus;
+  note?: string;
+  lines: IInventoryStocktakeLine[];
+  createdBy?: Types.ObjectId | null;
+  postedAt?: Date | null;
+  cancelledAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -275,6 +349,13 @@ const inventorySchema = new Schema<IInventory>(
       min: 0,
       validate: integerMinValidator(0),
     },
+    lowStockThreshold: {
+      type: Number,
+      required: true,
+      default: 5,
+      min: 0,
+      validate: integerMinValidator(0),
+    },
   },
   { timestamps: true },
 );
@@ -319,6 +400,100 @@ const inventoryReservationSchema = new Schema<IInventoryReservation>(
   { timestamps: true },
 );
 
+const inventoryMovementSchema = new Schema<IInventoryMovement>(
+  {
+    inventoryId: { type: Schema.Types.ObjectId, ref: 'Inventory', default: null },
+    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    variantId: { type: Schema.Types.ObjectId, required: true },
+    colorVariantId: { type: Schema.Types.ObjectId, required: true },
+    size: { type: String, required: true, trim: true, minlength: 1, maxlength: 10 },
+    sku: { type: String, trim: true, uppercase: true, maxlength: 80, default: '' },
+    type: {
+      type: String,
+      enum: [
+        'import',
+        'import_delete',
+        'adjustment',
+        'sale_commit',
+        'reservation',
+        'reservation_release',
+        'reservation_expire',
+        'stocktake',
+      ],
+      required: true,
+    },
+    quantityDelta: { type: Number, required: true },
+    reservedDelta: { type: Number, required: true, default: 0 },
+    availableDelta: { type: Number, required: true, default: 0 },
+    quantityBefore: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    quantityAfter: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    reservedBefore: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    reservedAfter: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    availableBefore: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    availableAfter: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    reason: { type: String, trim: true, maxlength: 160, default: '' },
+    note: { type: String, trim: true, maxlength: 1000, default: '' },
+    sourceId: { type: Schema.Types.ObjectId, default: null },
+    sourceCode: { type: String, trim: true, maxlength: 80, default: '' },
+    sourceType: { type: String, trim: true, maxlength: 40, default: '' },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+  { timestamps: true },
+);
+
+const inventorySupplierSchema = new Schema<IInventorySupplier>(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 120, unique: true },
+    phone: { type: String, trim: true, maxlength: 40, default: '' },
+    email: { type: String, trim: true, lowercase: true, maxlength: 120, default: '' },
+    address: { type: String, trim: true, maxlength: 300, default: '' },
+    note: { type: String, trim: true, maxlength: 1000, default: '' },
+    isActive: { type: Boolean, default: true },
+  },
+  { timestamps: true },
+);
+
+const inventoryStocktakeLineSchema = new Schema<IInventoryStocktakeLine>(
+  {
+    inventoryId: { type: Schema.Types.ObjectId, ref: 'Inventory', required: true },
+    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    variantId: { type: Schema.Types.ObjectId, required: true },
+    colorVariantId: { type: Schema.Types.ObjectId, required: true },
+    size: { type: String, required: true, trim: true, minlength: 1, maxlength: 10 },
+    sku: { type: String, trim: true, uppercase: true, maxlength: 80, default: '' },
+    systemQuantity: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    countedQuantity: { type: Number, required: true, min: 0, validate: integerMinValidator(0) },
+    difference: { type: Number, required: true },
+    reason: { type: String, trim: true, maxlength: 160, default: '' },
+  },
+  { _id: false },
+);
+
+const inventoryStocktakeSchema = new Schema<IInventoryStocktake>(
+  {
+    stocktakeCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40, unique: true },
+    status: {
+      type: String,
+      enum: ['draft', 'posted', 'cancelled'],
+      default: 'posted',
+      required: true,
+    },
+    note: { type: String, trim: true, maxlength: 1000, default: '' },
+    lines: {
+      type: [inventoryStocktakeLineSchema],
+      required: true,
+      validate: {
+        validator: (value: IInventoryStocktakeLine[]) => value.length > 0,
+        message: 'Stocktake must include at least one line',
+      },
+    },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    postedAt: { type: Date, default: null },
+    cancelledAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
+
 inventoryImportSchema.index({ productId: 1, variantId: 1, colorVariantId: 1, createdAt: -1 });
 inventoryImportSchema.index({ supplierName: 1 });
 inventoryImportSchema.index({ receiptId: 1 });
@@ -328,6 +503,12 @@ inventoryReceiptSchema.index({ supplierName: 1 });
 inventorySchema.index({ productId: 1, variantId: 1, colorVariantId: 1, size: 1 }, { unique: true });
 inventorySchema.index({ sku: 1 }, { unique: true });
 inventorySchema.index({ availableQuantity: 1 });
+inventoryMovementSchema.index({ productId: 1, variantId: 1, colorVariantId: 1, size: 1, createdAt: -1 });
+inventoryMovementSchema.index({ inventoryId: 1, createdAt: -1 });
+inventoryMovementSchema.index({ type: 1, createdAt: -1 });
+inventorySupplierSchema.index({ name: 1 }, { unique: true });
+inventoryStocktakeSchema.index({ stocktakeCode: 1 }, { unique: true });
+inventoryStocktakeSchema.index({ status: 1, createdAt: -1 });
 inventoryReservationSchema.index({ status: 1, expiresAt: 1 });
 inventoryReservationSchema.index({ orderId: 1 });
 inventoryReservationSchema.index({ userId: 1, status: 1 });
@@ -341,3 +522,12 @@ export const Inventory =
 export const InventoryReservation =
   models.InventoryReservation ||
   model<IInventoryReservation>('InventoryReservation', inventoryReservationSchema);
+export const InventoryMovement =
+  models.InventoryMovement ||
+  model<IInventoryMovement>('InventoryMovement', inventoryMovementSchema);
+export const InventorySupplier =
+  models.InventorySupplier ||
+  model<IInventorySupplier>('InventorySupplier', inventorySupplierSchema);
+export const InventoryStocktake =
+  models.InventoryStocktake ||
+  model<IInventoryStocktake>('InventoryStocktake', inventoryStocktakeSchema);

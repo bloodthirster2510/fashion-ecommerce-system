@@ -13,7 +13,7 @@ type RegisterModalProps = {
 type RegisterFormValues = {
   name: string
   phone: string
-  email: string
+  email?: string
   otp: string
   gender: 'male' | 'female'
   birthDay: number
@@ -34,6 +34,8 @@ type ProvinceOption = {
 }
 
 const vietnamPhonePattern = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/
+const minimumRegistrationAge = 16
+const maximumRegistrationAge = 100
 
 // Danh sách ngày, tháng, năm được tạo tại frontend vì đây là dữ liệu cố định.
 // Tỉnh/thành và phường/xã không dùng danh sách tĩnh: chúng được lấy từ API location của backend.
@@ -46,9 +48,9 @@ const monthOptions = Array.from({ length: 12 }, (_, index) => ({
   value: index + 1,
 }))
 const currentYear = new Date().getFullYear()
-const yearOptions = Array.from({ length: 100 }, (_, index) => ({
-  label: String(currentYear - index),
-  value: currentYear - index,
+const yearOptions = Array.from({ length: maximumRegistrationAge - minimumRegistrationAge + 1 }, (_, index) => ({
+  label: String(currentYear - minimumRegistrationAge - index),
+  value: currentYear - minimumRegistrationAge - index,
 }))
 
 // Backend trả field address dưới dạng object lồng nhau, ví dụ address.province.
@@ -77,8 +79,18 @@ const buildDateOfBirth = (year: number, month: number, day: number) => {
   return date.toISOString().slice(0, 10)
 }
 
+const isEligibleBirthDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+  const today = new Date()
+  let age = today.getFullYear() - year
+  const birthdayHasPassed = today.getMonth() + 1 > month || (today.getMonth() + 1 === month && today.getDate() >= day)
+  if (!birthdayHasPassed) age -= 1
+  return age >= minimumRegistrationAge && age <= maximumRegistrationAge
+}
+
 export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalProps) {
   const [form] = Form.useForm<RegisterFormValues>()
+  const watchedPhone = Form.useWatch('phone', form)
 
   // provinces được cache trong thời gian component còn tồn tại.
   // wards phụ thuộc tỉnh đang chọn nên phải xóa và tải lại mỗi khi đổi tỉnh.
@@ -95,6 +107,9 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
   const [isRegistering, setIsRegistering] = useState(false)
   const [isLoadingWards, setIsLoadingWards] = useState(false)
   const [registerError, setRegisterError] = useState('')
+  const isPhoneValid = typeof watchedPhone === 'string' && vietnamPhonePattern.test(watchedPhone.trim())
+  const isPhoneVerified = Boolean(otpToken)
+  const areRegistrationFieldsDisabled = !isPhoneVerified || isRegistering
 
   useEffect(() => {
     // Chỉ tải danh sách tỉnh khi modal mở lần đầu.
@@ -149,8 +164,8 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
       const delivery = await authService.sendOtp(phone.trim())
       message.success(
         delivery.mode === 'mock'
-          ? `Chế độ thử nghiệm — nếu số điện thoại có thể đăng ký, dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}.`
-          : 'Nếu số điện thoại có thể đăng ký, nhà cung cấp SMS đã tiếp nhận yêu cầu gửi OTP.',
+          ? `Chế độ thử nghiệm — dùng mã OTP: ${delivery.testOtp ?? 'xem mock outbox backend'}.`
+          : 'Nhà cung cấp SMS đã tiếp nhận yêu cầu gửi OTP.',
       )
     } catch (error) {
       if (error instanceof Error) setRegisterError(error.message)
@@ -218,6 +233,11 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
       return
     }
 
+    if (!isEligibleBirthDate(dateOfBirth)) {
+      form.setFields([{ name: 'birthDay', errors: [`Ngày sinh chỉ áp dụng cho người từ ${minimumRegistrationAge} tuổi trở lên.`] }])
+      return
+    }
+
     if (!otpToken) {
       form.setFields([{ name: 'otp', errors: ['Vui lòng xác thực OTP trước khi đăng ký.'] }])
       return
@@ -225,10 +245,12 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
 
     // Backend yêu cầu địa chỉ mặc định ngay khi tạo tài khoản.
     // Ở lần đăng ký đầu tiên, tên và số điện thoại người nhận dùng cùng thông tin chủ tài khoản.
+    const email = values.email?.trim()
+
     const payload: RegisterPayload = {
       name: values.name.trim(),
       phone: values.phone.trim(),
-      email: values.email.trim(),
+      ...(email ? { email } : {}),
       gender: values.gender,
       dateOfBirth,
       address: {
@@ -277,19 +299,13 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
 
       {registerError && <Alert className="auth-alert" type="error" message={registerError} showIcon />}
 
-      <Form form={form} layout="vertical" requiredMark={false} className="register-form" onFinish={handleRegister}>
-        <Form.Item
-          label="Họ và tên"
-          name="name"
-          rules={[
-            { required: true, message: 'Vui lòng nhập họ và tên.' },
-            { min: 2, max: 60, message: 'Họ và tên từ 2 đến 60 ký tự.' },
-          ]}
-        >
-          <Input placeholder="Nhập họ và tên" />
-        </Form.Item>
+      <Form form={form} layout="vertical" className="register-form" onFinish={handleRegister}>
+        <section className="register-section">
+          <div className="register-section-heading">
+            <h3>Xác thực số điện thoại</h3>
+            <span>Bắt buộc trước khi đăng ký</span>
+          </div>
 
-        <div className="register-inline-fields">
           <Form.Item
             label="Số điện thoại"
             name="phone"
@@ -301,34 +317,64 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
             <Input placeholder="Ví dụ: 0901234567" onChange={handlePhoneChange} />
           </Form.Item>
 
+          <div className="register-otp-row">
+            <Form.Item
+              label="Mã OTP"
+              name="otp"
+              rules={[
+                { required: true, message: 'Vui lòng nhập mã OTP.' },
+                { pattern: /^\d{6}$/, message: 'Mã OTP phải gồm 6 chữ số.' },
+              ]}
+            >
+              <Input placeholder="Nhập mã OTP" disabled={Boolean(otpToken)} />
+            </Form.Item>
+            <Button
+              className="register-otp-action register-otp-send"
+              onClick={() => void handleSendOtp()}
+              loading={isSendingOtp}
+              disabled={!isPhoneValid}
+            >
+              Gửi OTP
+            </Button>
+            <Button
+              className="register-otp-action register-otp-verify"
+              onClick={() => void handleVerifyOtp()}
+              loading={isVerifyingOtp}
+              disabled={!isPhoneValid || Boolean(otpToken)}
+            >
+              {otpToken ? 'Đã xác thực' : 'Xác thực'}
+            </Button>
+          </div>
+        </section>
+
+        <div className="register-inline-fields">
           <Form.Item
-            label="Email"
+            label="Họ và tên"
+            name="name"
+            rules={[
+              { required: true, message: 'Vui lòng nhập họ và tên.' },
+              { min: 2, max: 60, message: 'Họ và tên từ 2 đến 60 ký tự.' },
+            ]}
+          >
+            <Input placeholder="Nhập họ và tên" disabled={areRegistrationFieldsDisabled} />
+          </Form.Item>
+
+          <Form.Item
+            label="Email (không bắt buộc)"
             name="email"
             rules={[
-              { required: true, message: 'Vui lòng nhập email.' },
               { type: 'email', message: 'Email không hợp lệ.' },
             ]}
           >
-            <Input placeholder="Nhập email" />
+            <Input placeholder="Nhập email" disabled={areRegistrationFieldsDisabled} />
           </Form.Item>
-        </div>
-
-        <div className="register-otp-row">
-          <Form.Item label="Mã OTP" name="otp" rules={[{ required: true, message: 'Vui lòng nhập mã OTP.' }]}>
-            <Input placeholder="Nhập mã OTP" disabled={Boolean(otpToken)} />
-          </Form.Item>
-          <Button onClick={() => void handleSendOtp()} loading={isSendingOtp}>
-            Gửi OTP
-          </Button>
-          <Button onClick={() => void handleVerifyOtp()} loading={isVerifyingOtp} disabled={Boolean(otpToken)}>
-            {otpToken ? 'Đã xác thực' : 'Xác thực'}
-          </Button>
         </div>
 
         <div className="register-profile-row">
           <Form.Item label="Giới tính" name="gender" rules={[{ required: true, message: 'Vui lòng chọn giới tính.' }]}>
             <Select
               placeholder="Giới tính"
+              disabled={areRegistrationFieldsDisabled}
               options={[
                 { label: 'Nam', value: 'male' },
                 { label: 'Nữ', value: 'female' },
@@ -340,13 +386,13 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
             <span className="register-field-label">Ngày sinh</span>
             <div className="register-birthday-selects">
               <Form.Item name="birthDay" rules={[{ required: true, message: 'Chọn ngày.' }]}>
-                <Select placeholder="Ngày" options={dayOptions} />
+                <Select placeholder="Ngày" options={dayOptions} disabled={areRegistrationFieldsDisabled} />
               </Form.Item>
               <Form.Item name="birthMonth" rules={[{ required: true, message: 'Chọn tháng.' }]}>
-                <Select placeholder="Tháng" options={monthOptions} />
+                <Select placeholder="Tháng" options={monthOptions} disabled={areRegistrationFieldsDisabled} />
               </Form.Item>
               <Form.Item name="birthYear" rules={[{ required: true, message: 'Chọn năm.' }]}>
-                <Select placeholder="Năm" options={yearOptions} />
+                <Select placeholder="Năm" options={yearOptions} disabled={areRegistrationFieldsDisabled} />
               </Form.Item>
             </div>
           </div>
@@ -362,6 +408,7 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
               optionFilterProp="label"
               placeholder="Chọn tỉnh/thành phố"
               loading={provinces.length === 0 && !registerError}
+              disabled={areRegistrationFieldsDisabled}
               options={provinces.map((province) => ({ label: province.name, value: province.name, code: province.code }))}
               onChange={handleProvinceChange}
             />
@@ -373,7 +420,7 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
               optionFilterProp="label"
               placeholder="Chọn phường/xã"
               loading={isLoadingWards}
-              disabled={wards.length === 0}
+              disabled={areRegistrationFieldsDisabled || wards.length === 0}
               options={wards.map((ward) => ({ label: ward.name, value: ward.name }))}
             />
           </Form.Item>
@@ -389,7 +436,7 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
               { min: 5, max: 150, message: 'Địa chỉ chi tiết từ 5 đến 150 ký tự.' },
             ]}
           >
-            <Input placeholder="Số nhà, tên đường" />
+            <Input placeholder="Số nhà, tên đường" disabled={areRegistrationFieldsDisabled} />
           </Form.Item>
         </div>
 
@@ -402,7 +449,7 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
               { min: 8, message: 'Mật khẩu tối thiểu 8 ký tự.' },
             ]}
           >
-            <Input.Password placeholder="Nhập mật khẩu" />
+            <Input.Password placeholder="Nhập mật khẩu" disabled={areRegistrationFieldsDisabled} />
           </Form.Item>
 
           <Form.Item
@@ -424,7 +471,7 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
               }),
             ]}
           >
-            <Input.Password placeholder="Nhập lại mật khẩu" />
+            <Input.Password placeholder="Nhập lại mật khẩu" disabled={areRegistrationFieldsDisabled} />
           </Form.Item>
         </div>
 
@@ -437,13 +484,20 @@ export function RegisterModal({ open, onClose, onAuthenticated }: RegisterModalP
               : Promise.reject(new Error('Vui lòng đồng ý với điều khoản và chính sách bảo mật.')),
           }]}
         >
-          <Checkbox>
+          <Checkbox disabled={areRegistrationFieldsDisabled}>
             Tôi đồng ý với <a href="/policies/terms" target="_blank" rel="noreferrer">Điều khoản sử dụng</a>
             {' '}và <a href="/policies/privacy" target="_blank" rel="noreferrer">Chính sách bảo mật</a>.
           </Checkbox>
         </Form.Item>
 
-        <Button type="primary" htmlType="submit" block className="register-submit" loading={isRegistering}>
+        <Button
+          type="primary"
+          htmlType="submit"
+          block
+          className="register-submit"
+          loading={isRegistering}
+          disabled={!isPhoneVerified}
+        >
           Đăng ký
         </Button>
       </Form>

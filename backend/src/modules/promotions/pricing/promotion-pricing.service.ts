@@ -26,12 +26,21 @@ import type {
 import { promotionCampaignService } from '../campaigns/promotion-campaign.service';
 
 export class PromotionPricingError extends Error {
+  public readonly errorCode?: string;
+  public readonly data?: Record<string, unknown>;
+
   constructor(
     message: string,
     public readonly statusCode: number,
+    options?: {
+      errorCode?: string;
+      data?: Record<string, unknown>;
+    },
   ) {
     super(message);
     this.name = 'PromotionPricingError';
+    this.errorCode = options?.errorCode;
+    this.data = options?.data;
   }
 }
 
@@ -159,7 +168,10 @@ const assertCouponTimeWindow = (coupon: ICoupon, now: Date) => {
 
 const assertCouponUsageLimit = (coupon: ICoupon) => {
   if (coupon.usageLimit != null && coupon.usedCount >= coupon.usageLimit) {
-    throw new PromotionPricingError('Coupon usage limit reached', 409);
+    throw new PromotionPricingError('Coupon usage limit reached', 409, {
+      errorCode: 'COUPON_USAGE_LIMIT_REACHED',
+      data: { couponCode: coupon.code },
+    });
   }
 };
 
@@ -224,7 +236,10 @@ const assertCouponPerUserLimit = async (coupon: ICoupon, userId: string) => {
   const usedByUser = Math.max(completedUsageByUser, getReservedCouponUsageForUser(coupon, userId));
 
   if (usedByUser >= coupon.perUserLimit) {
-    throw new PromotionPricingError('Coupon per-user limit reached', 409);
+    throw new PromotionPricingError('Coupon per-user limit reached', 409, {
+      errorCode: 'COUPON_PER_USER_LIMIT_REACHED',
+      data: { couponCode: coupon.code },
+    });
   }
 };
 

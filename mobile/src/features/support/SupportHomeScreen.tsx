@@ -51,12 +51,26 @@ export default function SupportHomeScreen() {
         {error ? <Text style={s.error}>{error}</Text> : null}
         <Text style={s.sectionTitle}>Chủ đề phổ biến</Text>
         <View style={s.chips}>{topics.map(([category, label]) => <TouchableOpacity key={category} style={s.chip} onPress={() => navigation.navigate('FaqList', { category })}><Text style={s.chipText}>{label}</Text></TouchableOpacity>)}</View>
-        <View style={s.row}><Text style={s.sectionTitle}>Câu hỏi thường gặp</Text><TouchableOpacity onPress={() => navigation.navigate('FaqList')}><Text style={s.secondaryText}>Xem tất cả</Text></TouchableOpacity></View>
-        {faqs.map((faq) => <TouchableOpacity key={faq._id} style={s.card} onPress={() => setExpanded((old) => old === faq._id ? null : faq._id)}><View style={s.row}><Text style={[s.cardTitle, { flex: 1 }]}>{faq.question}</Text><MaterialCommunityIcons name={expanded === faq._id ? 'chevron-up' : 'chevron-down'} size={22} color={colors.brand} /></View>{expanded === faq._id ? <Text style={s.faqAnswer}>{faq.answer}</Text> : null}</TouchableOpacity>)}
-        <TouchableOpacity style={s.card} onPress={() => navigation.navigate('SupportTicketList')}>
-          <View style={s.row}><View><Text style={s.cardTitle}>Yêu cầu của tôi</Text><Text style={s.muted}>Theo dõi phản hồi từ shop</Text></View>{summary?.total ? <View style={s.badge}><Text style={s.badgeText}>{summary.total}</Text></View> : <MaterialCommunityIcons name="chevron-right" size={24} color={colors.brand} />}</View>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.button} onPress={() => navigation.navigate('SupportTicketCreate')}><Text style={s.buttonText}>Gửi yêu cầu hỗ trợ</Text></TouchableOpacity>
+        <View style={s.supportSection}>
+          <View style={s.supportSectionHeader}>
+            <View style={s.supportSectionIcon}><MaterialCommunityIcons name="help-circle-outline" size={24} color={colors.brand} /></View>
+            <View style={s.supportSectionCopy}><Text style={s.supportSectionTitle}>Câu hỏi thường gặp</Text><Text style={s.supportSectionDescription}>Xem hướng dẫn nhanh theo vấn đề của bạn</Text></View>
+            <TouchableOpacity onPress={() => navigation.navigate('FaqList')} accessibilityLabel="Xem tất cả câu hỏi thường gặp"><Text style={s.supportSectionAction}>Xem tất cả</Text></TouchableOpacity>
+          </View>
+          {faqs.map((faq) => <TouchableOpacity key={faq._id} style={s.card} onPress={() => setExpanded((old) => old === faq._id ? null : faq._id)}><View style={s.row}><Text style={[s.cardTitle, { flex: 1 }]}>{faq.question}</Text><MaterialCommunityIcons name={expanded === faq._id ? 'chevron-up' : 'chevron-down'} size={22} color={colors.brand} /></View>{expanded === faq._id ? <Text style={s.faqAnswer}>{faq.answer}</Text> : null}</TouchableOpacity>)}
+        </View>
+        <View style={s.supportSection}>
+          <View style={[s.supportSectionHeader, s.supportRequestSectionHeader]}>
+            <View style={[s.supportSectionIcon, s.supportRequestSectionIcon]}><MaterialCommunityIcons name="message-reply-text-outline" size={23} color={colors.success} /></View>
+            <View style={s.supportSectionCopy}><Text style={s.supportSectionTitle}>Yêu cầu hỗ trợ &amp; phản hồi</Text><Text style={s.supportSectionDescription}>Gửi vấn đề và theo dõi trả lời từ shop</Text></View>
+          </View>
+          <TouchableOpacity style={s.supportRequestCard} onPress={() => navigation.navigate('SupportTicketList')} accessibilityLabel={summary?.total ? `Yêu cầu và phản hồi của tôi, ${summary.total} yêu cầu` : 'Yêu cầu và phản hồi của tôi'}>
+            <View style={s.supportRequestCardIcon}><MaterialCommunityIcons name="forum-outline" size={23} color={colors.brand} /></View>
+            <View style={s.supportRequestCardCopy}><Text style={s.cardTitle}>Yêu cầu và phản hồi của tôi</Text><Text style={s.muted}>Xem trạng thái và nội dung shop đã trả lời</Text></View>
+            {summary?.total ? <View style={s.badge}><Text style={s.badgeText}>{summary.total}</Text></View> : <MaterialCommunityIcons name="chevron-right" size={24} color={colors.brand} />}
+          </TouchableOpacity>
+          <TouchableOpacity style={s.button} onPress={() => navigation.navigate('SupportTicketCreate')}><Text style={s.buttonText}>Tạo yêu cầu hỗ trợ mới</Text></TouchableOpacity>
+        </View>
         <TouchableOpacity
           style={[s.button, s.secondaryButton]}
           onPress={() => navigation.navigate('NotificationSettings')}

@@ -54,6 +54,12 @@ export interface InventoryListQueryInput {
   limit?: number;
 }
 
+export interface InventoryMovementListQueryInput extends InventoryListQueryInput {
+  type?: string;
+  from?: Date;
+  to?: Date;
+}
+
 export interface InventoryImportListQueryInput {
   productId?: string;
   variantId?: string;
@@ -75,6 +81,33 @@ export interface InventoryReceiptListQueryInput {
 export interface AdjustInventoryInput {
   quantity?: number;
   deltaQuantity?: number;
+  reason?: string;
+  note?: string;
+}
+
+export interface UpdateInventoryThresholdInput {
+  lowStockThreshold: number;
+}
+
+export interface UpsertInventorySupplierInput {
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  note?: string;
+  isActive?: boolean;
+}
+
+export interface CreateStocktakeLineInput {
+  inventoryId: string;
+  countedQuantity: number;
+  reason?: string;
+}
+
+export interface CreateStocktakeInput {
+  stocktakeCode?: string;
+  note?: string;
+  lines: CreateStocktakeLineInput[];
 }
 
 export interface InventoryReservationItemInput {

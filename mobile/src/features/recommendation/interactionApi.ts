@@ -80,7 +80,7 @@ export const interactionApi = {
     if (!response.ok || body.data === undefined) {
       const validationMessage = body.errors?.map((error) => error.message).join('\n');
       throw new InteractionApiError(
-        validationMessage || body.message || 'Khong ghi nhan duoc tuong tac',
+        validationMessage || body.message || 'Không ghi nhận được tương tác',
         body.errors,
         response.status,
       );

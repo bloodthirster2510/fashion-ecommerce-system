@@ -2,6 +2,10 @@ import { Schema, model, models, type Document, type Types } from 'mongoose';
 
 export interface IVirtualTryOnRuntimeConfiguration {
   enabled: boolean;
+  imageProvider: 'mock' | 'comfy' | 'disabled';
+  imageModel: string;
+  videoProvider: 'mock' | 'comfy_kling' | 'disabled';
+  videoModel: string;
   maxConcurrentJobsPerUser: number;
   maxVideoJobsPerUserPerDay: number;
   maxConcurrentVideoJobsPerUser: number;
@@ -27,6 +31,26 @@ export interface IVirtualTryOnSettings extends Document, IVirtualTryOnRuntimeCon
 
 const runtimeConfigurationFields = {
   enabled: { type: Boolean, required: true, default: true },
+  imageProvider: {
+    type: String,
+    enum: ['mock', 'comfy', 'disabled'],
+    required: true,
+    default: 'mock',
+  },
+  imageModel: { type: String, required: true, trim: true, maxlength: 120, default: 'mock' },
+  videoProvider: {
+    type: String,
+    enum: ['mock', 'comfy_kling', 'disabled'],
+    required: true,
+    default: 'comfy_kling',
+  },
+  videoModel: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 120,
+    default: 'kling-v3-omni',
+  },
   maxConcurrentJobsPerUser: { type: Number, required: true, min: 1, max: 10 },
   maxVideoJobsPerUserPerDay: { type: Number, required: true, min: 1, max: 50 },
   maxConcurrentVideoJobsPerUser: { type: Number, required: true, min: 1, max: 5 },

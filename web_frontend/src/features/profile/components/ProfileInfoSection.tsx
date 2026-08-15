@@ -6,13 +6,19 @@ import { setCurrentUser } from '../../auth/auth.slice'
 import type { AuthUser } from '../../auth/auth.types'
 import {
   profileService,
-  type GhnDistrict,
-  type GhnProvince,
-  type GhnWard,
+  type LocationProvince,
+  type LocationWard,
   type UserAddress,
 } from '../profile.service'
 import type { PasswordFormValues, ProfileFormValues } from '../profile.types'
-import { formatDateForInput, getAddressFormValues, passwordPattern } from '../profile.utils'
+import {
+  formatDateForInput,
+  getAddressFormValues,
+  getMaxCustomerBirthDate,
+  isEligibleCustomerBirthDate,
+  minimumCustomerAge,
+  passwordPattern,
+} from '../profile.utils'
 import { AddressManagerModal } from './AddressManagerModal'
 
 const isFormValidationError = (value: unknown) => Boolean(value && typeof value === 'object' && 'errorFields' in value)
@@ -25,15 +31,11 @@ export function ProfileInfoSection() {
   const [passwordForm] = Form.useForm<PasswordFormValues>()
   const [defaultAddress, setDefaultAddress] = useState<UserAddress | null>(null)
   const [addresses, setAddresses] = useState<UserAddress[]>([])
-  const [provinces, setProvinces] = useState<GhnProvince[]>([])
-  const [districts, setDistricts] = useState<GhnDistrict[]>([])
-  const [wards, setWards] = useState<GhnWard[]>([])
-  const [newAddressDistricts, setNewAddressDistricts] = useState<GhnDistrict[]>([])
-  const [newAddressWards, setNewAddressWards] = useState<GhnWard[]>([])
+  const [provinces, setProvinces] = useState<LocationProvince[]>([])
+  const [wards, setWards] = useState<LocationWard[]>([])
+  const [newAddressWards, setNewAddressWards] = useState<LocationWard[]>([])
   const [isLoadingProvinces, setIsLoadingProvinces] = useState(false)
-  const [isLoadingDistricts, setIsLoadingDistricts] = useState(false)
   const [isLoadingWards, setIsLoadingWards] = useState(false)
-  const [isLoadingNewAddressDistricts, setIsLoadingNewAddressDistricts] = useState(false)
   const [isLoadingNewAddressWards, setIsLoadingNewAddressWards] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
@@ -69,16 +71,10 @@ export function ProfileInfoSection() {
     const addressFormValues = getAddressFormValues(address)
     profileForm.setFieldsValue(addressFormValues)
 
-    setDistricts([])
     setWards([])
 
-    if (addressFormValues.provinceId) {
-      const districtItems = await profileService.getGhnDistricts(addressFormValues.provinceId).catch(() => [])
-      setDistricts(districtItems)
-    }
-
-    if (addressFormValues.districtId) {
-      const wardItems = await profileService.getGhnWards(addressFormValues.districtId).catch(() => [])
+    if (addressFormValues.provinceCode) {
+      const wardItems = await profileService.getLocationWards(addressFormValues.provinceCode).catch(() => [])
       setWards(wardItems)
     }
   }, [profileForm])
@@ -88,7 +84,7 @@ export function ProfileInfoSection() {
     setIsLoadingProvinces(true)
 
     profileService
-      .getGhnProvinces()
+      .getLocationProvinces()
       .then((items) => {
         if (isMounted) setProvinces(items)
       })
@@ -126,59 +122,29 @@ export function ProfileInfoSection() {
     void loadAccount()
   }, [applyDefaultAddress, applyProfileFormValues, dispatch])
 
-  const handleProvinceChange = async (provinceId: number) => {
-    profileForm.setFieldsValue({ districtId: undefined, wardCode: undefined })
-    setDistricts([])
-    setWards([])
-    setIsLoadingDistricts(true)
-
-    try {
-      setDistricts(await profileService.getGhnDistricts(provinceId))
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách quận/huyện GHN.')
-    } finally {
-      setIsLoadingDistricts(false)
-    }
-  }
-
-  const handleDistrictChange = async (districtId: number) => {
-    profileForm.setFieldValue('wardCode', undefined)
+  const handleProvinceChange = async (provinceCode: string) => {
+    profileForm.setFieldsValue({ wardCode: undefined })
     setWards([])
     setIsLoadingWards(true)
 
     try {
-      setWards(await profileService.getGhnWards(districtId))
+      setWards(await profileService.getLocationWards(provinceCode))
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách phường/xã GHN.')
+      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách phường/xã.')
     } finally {
       setIsLoadingWards(false)
     }
   }
 
-  const handleNewAddressProvinceChange = async (provinceId: number) => {
-    addAddressForm.setFieldsValue({ districtId: undefined, wardCode: undefined })
-    setNewAddressDistricts([])
-    setNewAddressWards([])
-    setIsLoadingNewAddressDistricts(true)
-
-    try {
-      setNewAddressDistricts(await profileService.getGhnDistricts(provinceId))
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách quận/huyện GHN.')
-    } finally {
-      setIsLoadingNewAddressDistricts(false)
-    }
-  }
-
-  const handleNewAddressDistrictChange = async (districtId: number) => {
-    addAddressForm.setFieldValue('wardCode', undefined)
+  const handleNewAddressProvinceChange = async (provinceCode: string) => {
+    addAddressForm.setFieldsValue({ wardCode: undefined })
     setNewAddressWards([])
     setIsLoadingNewAddressWards(true)
 
     try {
-      setNewAddressWards(await profileService.getGhnWards(districtId))
+      setNewAddressWards(await profileService.getLocationWards(provinceCode))
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách phường/xã GHN.')
+      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách phường/xã.')
     } finally {
       setIsLoadingNewAddressWards(false)
     }
@@ -196,7 +162,6 @@ export function ProfileInfoSection() {
   const closeAddAddressModal = () => {
     setIsAddAddressModalOpen(false)
     addAddressForm.resetFields()
-    setNewAddressDistricts([])
     setNewAddressWards([])
   }
 
@@ -232,27 +197,26 @@ export function ProfileInfoSection() {
     setError('')
 
     try {
-      const values = await profileForm.validateFields(['streetName', 'provinceId', 'districtId', 'wardCode'])
+      const values = await profileForm.validateFields(['streetName', 'provinceCode', 'wardCode'])
 
-      if (defaultAddress?._id && values.streetName && values.provinceId && values.districtId && values.wardCode) {
-        const selectedProvince = provinces.find((item) => item.ProvinceID === values.provinceId)
-        const selectedDistrict = districts.find((item) => item.DistrictID === values.districtId)
-        const selectedWard = wards.find((item) => item.WardCode === values.wardCode)
+      if (defaultAddress?._id && values.streetName && values.provinceCode && values.wardCode) {
+        const selectedProvince = provinces.find((item) => item.code === values.provinceCode)
+        const selectedWard = wards.find((item) => item.code === values.wardCode)
 
         const updatedAddresses = await profileService.updateAddress(defaultAddress._id, {
           ...defaultAddress,
           streetName: values.streetName.trim(),
-          province: selectedProvince?.ProvinceName ?? defaultAddress.province,
-          provinceId: values.provinceId,
-          provinceCode: String(values.provinceId),
-          district: selectedDistrict?.DistrictName ?? defaultAddress.district,
-          districtId: values.districtId,
-          ward: selectedWard?.WardName ?? defaultAddress.ward,
+          province: selectedProvince?.name ?? defaultAddress.province,
+          provinceCode: values.provinceCode,
+          provinceId: null,
+          district: null,
+          districtId: null,
+          ward: selectedWard?.name ?? defaultAddress.ward,
           wardCode: values.wardCode,
-          ghnProvinceId: values.provinceId,
-          ghnDistrictId: values.districtId,
-          ghnWardCode: values.wardCode,
-          ghnMappingStatus: 'manual',
+          ghnProvinceId: null,
+          ghnDistrictId: null,
+          ghnWardCode: null,
+          ghnMappingStatus: 'missing',
           isDefault: defaultAddress.isDefault,
         })
         const nextDefaultAddress = updatedAddresses.find((item) => item.isDefault) || updatedAddresses[0] || null
@@ -284,8 +248,7 @@ export function ProfileInfoSection() {
     void applyDefaultAddress(defaultAddress)
     profileForm.setFields([
       { name: 'streetName', errors: [] },
-      { name: 'provinceId', errors: [] },
-      { name: 'districtId', errors: [] },
+      { name: 'provinceCode', errors: [] },
       { name: 'wardCode', errors: [] },
     ])
     setError('')
@@ -299,30 +262,29 @@ export function ProfileInfoSection() {
   }
 
   const handleAddAddressSubmit = async (values: ProfileFormValues & { customerName: string; phoneNumber: string; isDefault?: boolean }) => {
-    if (!values.streetName || !values.provinceId || !values.districtId || !values.wardCode) return
+    if (!values.streetName || !values.provinceCode || !values.wardCode) return
 
     setIsSavingNewAddress(true)
     setError('')
 
     try {
-      const selectedProvince = provinces.find((item) => item.ProvinceID === values.provinceId)
-      const selectedDistrict = newAddressDistricts.find((item) => item.DistrictID === values.districtId)
-      const selectedWard = newAddressWards.find((item) => item.WardCode === values.wardCode)
+      const selectedProvince = provinces.find((item) => item.code === values.provinceCode)
+      const selectedWard = newAddressWards.find((item) => item.code === values.wardCode)
       const updatedAddresses = await profileService.addAddress({
         customerName: values.customerName.trim(),
         phoneNumber: values.phoneNumber.trim(),
         streetName: values.streetName.trim(),
-        province: selectedProvince?.ProvinceName || '',
-        provinceId: values.provinceId,
-        provinceCode: String(values.provinceId),
-        district: selectedDistrict?.DistrictName || '',
-        districtId: values.districtId,
-        ward: selectedWard?.WardName || '',
+        province: selectedProvince?.name || '',
+        provinceCode: values.provinceCode,
+        provinceId: null,
+        district: null,
+        districtId: null,
+        ward: selectedWard?.name || '',
         wardCode: values.wardCode,
-        ghnProvinceId: values.provinceId,
-        ghnDistrictId: values.districtId,
-        ghnWardCode: values.wardCode,
-        ghnMappingStatus: 'manual',
+        ghnProvinceId: null,
+        ghnDistrictId: null,
+        ghnWardCode: null,
+        ghnMappingStatus: 'missing',
         isDefault: Boolean(values.isDefault) || addresses.length === 0,
       })
       const nextDefaultAddress = updatedAddresses.find((item) => item.isDefault) || updatedAddresses[0] || null
@@ -428,8 +390,20 @@ export function ProfileInfoSection() {
                 />
               </Form.Item>
 
-              <Form.Item label="Năm sinh" name="dateOfBirth" rules={[{ required: true, message: 'Vui lòng nhập ngày sinh.' }]}>
-                <Input disabled={!isEditingProfile} type="date" />
+              <Form.Item
+                label="Ngày sinh"
+                name="dateOfBirth"
+                rules={[
+                  { required: true, message: 'Vui lòng nhập ngày sinh.' },
+                  {
+                    validator(_, value?: string) {
+                      if (!value || isEligibleCustomerBirthDate(value)) return Promise.resolve()
+                      return Promise.reject(new Error(`Ngày sinh chỉ áp dụng cho người từ ${minimumCustomerAge} tuổi trở lên.`))
+                    },
+                  },
+                ]}
+              >
+                <Input disabled={!isEditingProfile} type="date" max={getMaxCustomerBirthDate()} />
               </Form.Item>
             </div>
 
@@ -478,7 +452,7 @@ export function ProfileInfoSection() {
               </Form.Item>
 
               <div className="account-form-grid">
-                <Form.Item label="Tỉnh/thành phố" name="provinceId" rules={[{ required: true, message: 'Vui lòng chọn tỉnh/thành phố.' }]}>
+                <Form.Item label="Tỉnh/thành phố" name="provinceCode" rules={[{ required: true, message: 'Vui lòng chọn tỉnh/thành phố.' }]}>
                   <Select
                     showSearch
                     optionFilterProp="label"
@@ -486,25 +460,10 @@ export function ProfileInfoSection() {
                     loading={isLoadingProvinces}
                     disabled={!isEditingAddress}
                     options={provinces.map((province) => ({
-                      label: province.ProvinceName,
-                      value: province.ProvinceID,
+                      label: province.name,
+                      value: province.code,
                     }))}
                     onChange={(value) => void handleProvinceChange(value)}
-                  />
-                </Form.Item>
-
-                <Form.Item label="Quận/huyện" name="districtId" rules={[{ required: true, message: 'Vui lòng chọn quận/huyện.' }]}>
-                  <Select
-                    showSearch
-                    optionFilterProp="label"
-                    placeholder="Chọn quận/huyện"
-                    loading={isLoadingDistricts}
-                    disabled={!isEditingAddress || !districts.length}
-                    options={districts.map((district) => ({
-                      label: district.DistrictName,
-                      value: district.DistrictID,
-                    }))}
-                    onChange={(value) => void handleDistrictChange(value)}
                   />
                 </Form.Item>
 
@@ -516,8 +475,8 @@ export function ProfileInfoSection() {
                     loading={isLoadingWards}
                     disabled={!isEditingAddress || !wards.length}
                     options={wards.map((ward) => ({
-                      label: ward.WardName,
-                      value: ward.WardCode,
+                      label: ward.name,
+                      value: ward.code,
                     }))}
                   />
                 </Form.Item>
@@ -672,32 +631,17 @@ export function ProfileInfoSection() {
           </Form.Item>
 
           <div className="account-form-grid">
-            <Form.Item label="Tỉnh/thành phố" name="provinceId" rules={[{ required: true, message: 'Vui lòng chọn tỉnh/thành phố.' }]}>
+            <Form.Item label="Tỉnh/thành phố" name="provinceCode" rules={[{ required: true, message: 'Vui lòng chọn tỉnh/thành phố.' }]}>
               <Select
                 showSearch
                 optionFilterProp="label"
                 placeholder="Chọn tỉnh/thành phố"
                 loading={isLoadingProvinces}
                 options={provinces.map((province) => ({
-                  label: province.ProvinceName,
-                  value: province.ProvinceID,
+                  label: province.name,
+                  value: province.code,
                 }))}
                 onChange={(value) => void handleNewAddressProvinceChange(value)}
-              />
-            </Form.Item>
-
-            <Form.Item label="Quận/huyện" name="districtId" rules={[{ required: true, message: 'Vui lòng chọn quận/huyện.' }]}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                placeholder="Chọn quận/huyện"
-                loading={isLoadingNewAddressDistricts}
-                disabled={!newAddressDistricts.length}
-                options={newAddressDistricts.map((district) => ({
-                  label: district.DistrictName,
-                  value: district.DistrictID,
-                }))}
-                onChange={(value) => void handleNewAddressDistrictChange(value)}
               />
             </Form.Item>
 
@@ -709,8 +653,8 @@ export function ProfileInfoSection() {
                 loading={isLoadingNewAddressWards}
                 disabled={!newAddressWards.length}
                 options={newAddressWards.map((ward) => ({
-                  label: ward.WardName,
-                  value: ward.WardCode,
+                  label: ward.name,
+                  value: ward.code,
                 }))}
               />
             </Form.Item>

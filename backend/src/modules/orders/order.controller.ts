@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import ExcelJS from 'exceljs';
 import type { Request, Response } from 'express';
 import { created, error as errorResponse, ok } from '../../utils/response';
 import type { OrderPaymentMethod, OrderPaymentStatus, OrderStatus } from '../../database/models';
@@ -560,6 +561,87 @@ const buildOrdersCsv = (
   return `\uFEFF${[headers.map(toCsvCell).join(','), ...rows].join('\r\n')}`;
 };
 
+const buildOrdersExcel = async (
+  orders: Awaited<ReturnType<typeof orderService.getOrdersForExport>>['items'],
+) => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Fashion Shop';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Đơn hàng', {
+    views: [{ state: 'frozen', ySplit: 1 }],
+  });
+  worksheet.columns = [
+    { header: 'Mã đơn', key: 'orderCode', width: 20 },
+    { header: 'Mã hóa đơn', key: 'invoiceCode', width: 20 },
+    { header: 'Khách hàng', key: 'customerName', width: 24 },
+    { header: 'Số điện thoại', key: 'phoneNumber', width: 16 },
+    { header: 'Sản phẩm', key: 'products', width: 42 },
+    { header: 'Ngày tạo', key: 'createdAt', width: 20 },
+    { header: 'Trạng thái đơn', key: 'status', width: 18 },
+    { header: 'Kênh thanh toán', key: 'paymentMethod', width: 18 },
+    { header: 'Trạng thái thanh toán', key: 'paymentStatus', width: 22 },
+    { header: 'Tạm tính', key: 'subTotal', width: 16 },
+    { header: 'Phí vận chuyển', key: 'shippingFee', width: 16 },
+    { header: 'Giảm giá', key: 'discount', width: 16 },
+    { header: 'Tổng thanh toán', key: 'totalAmount', width: 18 },
+    { header: 'Đơn vị vận chuyển', key: 'shippingProvider', width: 20 },
+    { header: 'Mã vận đơn', key: 'trackingCode', width: 20 },
+    { header: 'URL nhãn vận chuyển', key: 'labelUrl', width: 36 },
+  ];
+
+  orders.forEach((order) => {
+    const productSummary = order.order_list
+      .map((item: { quantity: number; name: string }) => `${item.quantity}x ${item.name}`)
+      .join(' | ');
+    const totalDiscount = (order.couponDiscountAmount ?? 0)
+      + (order.shippingDiscountAmount ?? 0)
+      + (order.membershipDiscountAmount ?? 0);
+
+    worksheet.addRow({
+      orderCode: order.orderCode,
+      invoiceCode: order.invoiceCode ?? '',
+      customerName: order.shippingAddress?.customerName ?? '',
+      phoneNumber: order.shippingAddress?.phoneNumber ?? '',
+      products: productSummary,
+      createdAt: order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt),
+      status: order.status,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      subTotal: order.subTotal,
+      shippingFee: order.shippingFee,
+      discount: totalDiscount,
+      totalAmount: order.totalAmount,
+      shippingProvider: order.shipping?.provider ?? '',
+      trackingCode: order.shipping?.trackingCode ?? '',
+      labelUrl: order.shipping?.labelUrl ?? '',
+    });
+  });
+
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 28;
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF1F4E78' },
+  };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+  worksheet.autoFilter = { from: 'A1', to: 'P1' };
+  worksheet.getColumn('createdAt').numFmt = 'dd/mm/yyyy hh:mm';
+  for (const key of ['subTotal', 'shippingFee', 'discount', 'totalAmount']) {
+    worksheet.getColumn(key).numFmt = '#,##0';
+  }
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) {
+      row.alignment = { vertical: 'top', wrapText: true };
+    }
+  });
+
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+};
+
 const createOrder = async (req: Request, res: Response) => {
   try {
     const idempotencyKey = req.get('Idempotency-Key')?.trim();
@@ -626,6 +708,22 @@ const exportOrdersCsv = async (req: Request, res: Response) => {
     res.setHeader('X-Export-Total', String(result.totalItems));
     res.setHeader('X-Export-Truncated', String(result.truncated));
     return res.status(200).send(buildOrdersCsv(result.items));
+  } catch (e: unknown) {
+    const { statusCode, message, errorCode, data } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode, { errorCode, data });
+  }
+};
+
+const exportOrdersExcel = async (req: Request, res: Response) => {
+  try {
+    const result = await orderService.getOrdersForExport(parseOrderListQuery(req));
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="orders-${timestamp}.xlsx"`);
+    res.setHeader('X-Export-Total', String(result.totalItems));
+    res.setHeader('X-Export-Truncated', String(result.truncated));
+    return res.status(200).send(await buildOrdersExcel(result.items));
   } catch (e: unknown) {
     const { statusCode, message, errorCode, data } = getErrorResponse(e);
     return errorResponse(res, message, statusCode, { errorCode, data });
@@ -1181,6 +1279,7 @@ export {
   getOrderTransactions,
   getOrders,
   exportOrdersCsv,
+  exportOrdersExcel,
   handleGhnShippingWebhook,
   handleSimulatedShippingWebhook,
   previewCheckout,

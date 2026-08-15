@@ -1,4 +1,4 @@
-export type AccountSection = 'profile' | 'orders' | 'favorites' | 'ranking' | 'coupons'
+export type AccountSection = 'profile' | 'orders' | 'favorites' | 'ranking' | 'coupons' | 'payment'
 
 export type ProfileFormValues = {
   name: string
@@ -7,8 +7,7 @@ export type ProfileFormValues = {
   dateOfBirth: string
   email: string
   streetName?: string
-  provinceId?: number
-  districtId?: number
+  provinceCode?: string
   wardCode?: string
 }
 

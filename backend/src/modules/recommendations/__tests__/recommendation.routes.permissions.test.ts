@@ -15,8 +15,10 @@ jest.mock('../recommendation.controller', () => {
     getCartRecommendations: noContent,
     getMyRecommendations: noContent,
     getRecommendationAnalytics: noContent,
+    listRecommendationMerchandisingRules: noContent,
     getSimilarProducts: noContent,
     previewRecommendations: noContent,
+    updateRecommendationMerchandisingRule: noContent,
   };
 });
 
@@ -65,12 +67,12 @@ describe('recommendation route account state', () => {
     role,
   });
 
-  const request = (path: string, accessToken?: string, method: 'GET' | 'POST' = 'GET') => fetch(
+  const request = (path: string, accessToken?: string, method: 'GET' | 'POST' | 'PUT' = 'GET') => fetch(
     `${baseUrl}${path}`,
     {
       method,
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      ...(method === 'POST' ? { body: '{}' } : {}),
+      ...(method !== 'GET' ? { body: '{}' } : {}),
     },
   );
 
@@ -111,5 +113,17 @@ describe('recommendation route account state', () => {
 
     await expect(request('/admin/recommendations/analytics', token('admin')))
       .resolves.toMatchObject({ status: 403 });
+    await expect(request('/admin/recommendations/merchandising', token('admin')))
+      .resolves.toMatchObject({ status: 403 });
+  });
+
+  it('allows an active admin to read and update merchandising rules', async () => {
+    mockAccount('admin');
+    const accessToken = token('admin');
+
+    await expect(request('/admin/recommendations/merchandising', accessToken))
+      .resolves.toMatchObject({ status: 204 });
+    await expect(request('/admin/recommendations/merchandising/home', accessToken, 'PUT'))
+      .resolves.toMatchObject({ status: 204 });
   });
 });

@@ -1,4 +1,3 @@
-import hashlib
 import io
 import os
 import threading
@@ -15,19 +14,21 @@ app = FastAPI(title="Fashion Visual Search Embedding Service")
 
 MODEL_NAME = os.getenv("VISUAL_EMBEDDING_MODEL", "openfashionclip")
 MODEL_VERSION = os.getenv("VISUAL_EMBEDDING_VERSION", "v2")
-BACKEND = os.getenv("VISUAL_EMBEDDING_BACKEND", "mock").lower()
-MOCK_DIMENSION = int(os.getenv("VISUAL_EMBEDDING_MOCK_DIMENSION", "64"))
+BACKEND = os.getenv("VISUAL_EMBEDDING_BACKEND", "open_clip").lower()
 DOWNLOAD_TIMEOUT_SECONDS = float(os.getenv("VISUAL_IMAGE_DOWNLOAD_TIMEOUT_SECONDS", "15"))
 OPEN_CLIP_MODEL = os.getenv("VISUAL_OPEN_CLIP_MODEL", "ViT-B-32")
 OPEN_CLIP_PRETRAINED = os.getenv(
     "VISUAL_OPEN_CLIP_PRETRAINED",
     "hf-hub:Marqo/marqo-fashionCLIP",
 )
+TRANSFORMERS_MODEL = os.getenv("VISUAL_TRANSFORMERS_MODEL", "patrickjohncyh/fashion-clip")
 EMBEDDING_DEVICE = os.getenv("VISUAL_EMBEDDING_DEVICE", "auto").lower()
-REAL_MODEL_BACKENDS = {"open_clip", "openfashionclip", "fashionclip"}
-
+OPEN_CLIP_BACKENDS = {"open_clip", "openfashionclip", "fashionclip"}
+TRANSFORMERS_BACKENDS = {"transformers", "hf_transformers", "fashionclip2"}
 _open_clip_lock = threading.Lock()
 _open_clip_runtime = None
+_transformers_lock = threading.Lock()
+_transformers_runtime = None
 
 
 class ImageUrlRequest(BaseModel):
@@ -51,34 +52,12 @@ def normalize(vector: np.ndarray) -> list[float]:
     return (vector / norm).round(8).astype(float).tolist()
 
 
-# Đọc bytes ảnh thành ảnh RGB, giúp mock model và model thật nhận cùng định dạng.
+# Đọc bytes ảnh thành ảnh RGB, giúp các model thật nhận cùng định dạng.
 def read_image(image_bytes: bytes) -> Image.Image:
     try:
         return Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Không thể đọc ảnh đầu vào.") from exc
-
-
-def create_mock_embedding(image_bytes: bytes, seed_hint: str = "") -> list[float]:
-    """Tạo embedding ổn định để kiểm tra pipeline khi chưa bật model thật."""
-    image = read_image(image_bytes).resize((32, 32))
-    pixels = np.asarray(image).astype(np.float32) / 255.0
-    channel_means = pixels.mean(axis=(0, 1))
-    channel_stds = pixels.std(axis=(0, 1))
-    digest = hashlib.sha512(image_bytes + seed_hint.encode("utf-8")).digest()
-    hashed_values = np.frombuffer(digest, dtype=np.uint8).astype(np.float32)
-    repeated_hash = np.resize(hashed_values / 127.5 - 1.0, MOCK_DIMENSION)
-    color_features = np.resize(np.concatenate([channel_means, channel_stds]), MOCK_DIMENSION)
-    vector = repeated_hash * 0.7 + color_features * 0.3
-    return normalize(vector)
-
-
-def create_mock_text_embedding(text: str) -> list[float]:
-    """Tạo text embedding giả lập để kiểm thử luồng text-to-image."""
-    digest = hashlib.sha512(text.strip().lower().encode("utf-8")).digest()
-    hashed_values = np.frombuffer(digest, dtype=np.uint8).astype(np.float32)
-    vector = np.resize(hashed_values / 127.5 - 1.0, MOCK_DIMENSION)
-    return normalize(vector)
 
 
 # Chọn CPU hoặc GPU cho model thật, tùy cấu hình máy chạy service.
@@ -201,31 +180,118 @@ def create_open_clip_text_embedding(text: str) -> list[float]:
     return normalize(vector)
 
 
-# Chọn backend tạo embedding: mock để kiểm thử nhanh, hoặc model thật khi triển khai.
+def load_transformers_runtime():
+    global _transformers_runtime
+
+    if _transformers_runtime is not None:
+        return _transformers_runtime
+
+    with _transformers_lock:
+        if _transformers_runtime is not None:
+            return _transformers_runtime
+
+        try:
+            import torch
+            from transformers import AutoModel, AutoProcessor
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Thiếu dependency transformers/torch. "
+                    "Hãy cài requirements-model.txt để chạy FashionCLIP 2.0."
+                ),
+            ) from exc
+
+        device = get_torch_device()
+
+        try:
+            processor = AutoProcessor.from_pretrained(TRANSFORMERS_MODEL)
+            model = AutoModel.from_pretrained(TRANSFORMERS_MODEL).to(device)
+        except Exception as exc:
+            print(
+                "Transformers load failed:",
+                {
+                    "transformersModel": TRANSFORMERS_MODEL,
+                    "error": repr(exc),
+                },
+                flush=True,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Không thể load Transformers/FashionCLIP 2.0. Lỗi gốc: {exc}",
+            ) from exc
+
+        if not hasattr(model, "get_image_features") or not hasattr(model, "get_text_features"):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Model Transformers phải hỗ trợ get_image_features/get_text_features "
+                    "để dùng cho visual search."
+                ),
+            )
+
+        model.eval()
+        _transformers_runtime = {
+            "model": model,
+            "processor": processor,
+            "torch": torch,
+            "device": device,
+        }
+        return _transformers_runtime
+
+
+def create_transformers_embedding(image_bytes: bytes) -> list[float]:
+    runtime = load_transformers_runtime()
+    image = read_image(image_bytes)
+    inputs = runtime["processor"](images=image, return_tensors="pt")
+    inputs = {key: value.to(runtime["device"]) for key, value in inputs.items()}
+
+    with runtime["torch"].no_grad():
+        features = runtime["model"].get_image_features(**inputs)
+        features = features / features.norm(dim=-1, keepdim=True)
+
+    vector = features.squeeze(0).detach().cpu().numpy().astype(np.float32)
+    return normalize(vector)
+
+
+def create_transformers_text_embedding(text: str) -> list[float]:
+    runtime = load_transformers_runtime()
+    inputs = runtime["processor"](text=[text], padding=True, return_tensors="pt")
+    inputs = {key: value.to(runtime["device"]) for key, value in inputs.items()}
+
+    with runtime["torch"].no_grad():
+        features = runtime["model"].get_text_features(**inputs)
+        features = features / features.norm(dim=-1, keepdim=True)
+
+    vector = features.squeeze(0).detach().cpu().numpy().astype(np.float32)
+    return normalize(vector)
+
+
+# Chọn backend tạo embedding thật.
 def create_embedding(image_bytes: bytes, seed_hint: str = "") -> list[float]:
-    if BACKEND in REAL_MODEL_BACKENDS:
+    if BACKEND in OPEN_CLIP_BACKENDS:
         return create_open_clip_embedding(image_bytes)
 
-    if BACKEND != "mock":
-        raise HTTPException(
-            status_code=400,
-            detail="VISUAL_EMBEDDING_BACKEND chỉ hỗ trợ mock hoặc open_clip.",
-        )
+    if BACKEND in TRANSFORMERS_BACKENDS:
+        return create_transformers_embedding(image_bytes)
 
-    return create_mock_embedding(image_bytes, seed_hint)
+    raise HTTPException(
+        status_code=400,
+        detail="VISUAL_EMBEDDING_BACKEND chỉ hỗ trợ open_clip hoặc transformers.",
+    )
 
 
 def create_text_embedding(text: str) -> list[float]:
-    if BACKEND in REAL_MODEL_BACKENDS:
+    if BACKEND in OPEN_CLIP_BACKENDS:
         return create_open_clip_text_embedding(text)
 
-    if BACKEND != "mock":
-        raise HTTPException(
-            status_code=400,
-            detail="VISUAL_EMBEDDING_BACKEND chỉ hỗ trợ mock hoặc open_clip.",
-        )
+    if BACKEND in TRANSFORMERS_BACKENDS:
+        return create_transformers_text_embedding(text)
 
-    return create_mock_text_embedding(text)
+    raise HTTPException(
+        status_code=400,
+        detail="VISUAL_EMBEDDING_BACKEND chỉ hỗ trợ open_clip hoặc transformers.",
+    )
 
 
 # Chuẩn hóa response trả về cho backend Node.js lưu vào index.
@@ -254,18 +320,28 @@ def handle_embedding_runtime_error(exc: Exception):
 # Kiểm tra service còn sống và model thật đã được load hay chưa.
 @app.get("/health")
 def health() -> dict:
-    model_loaded = _open_clip_runtime is not None
+    open_clip_loaded = _open_clip_runtime is not None
+    transformers_loaded = _transformers_runtime is not None
 
     return {
         "status": "ok",
         "model": MODEL_NAME,
         "modelVersion": MODEL_VERSION,
         "backend": BACKEND,
-        "modelLoaded": model_loaded,
-        "openClipModel": OPEN_CLIP_MODEL if BACKEND in REAL_MODEL_BACKENDS else None,
-        "openClipPretrained": OPEN_CLIP_PRETRAINED if BACKEND in REAL_MODEL_BACKENDS else None,
-        "openClipLoadArgs": _open_clip_runtime["loadArgs"] if model_loaded else get_open_clip_load_args(),
-        "device": _open_clip_runtime["device"] if model_loaded else EMBEDDING_DEVICE,
+        "modelLoaded": open_clip_loaded or transformers_loaded,
+        "openClipModel": OPEN_CLIP_MODEL if BACKEND in OPEN_CLIP_BACKENDS else None,
+        "openClipPretrained": OPEN_CLIP_PRETRAINED if BACKEND in OPEN_CLIP_BACKENDS else None,
+        "openClipLoadArgs": (
+            _open_clip_runtime["loadArgs"] if open_clip_loaded else (
+                get_open_clip_load_args() if BACKEND in OPEN_CLIP_BACKENDS else None
+            )
+        ),
+        "transformersModel": TRANSFORMERS_MODEL if BACKEND in TRANSFORMERS_BACKENDS else None,
+        "device": (
+            _open_clip_runtime["device"] if open_clip_loaded else (
+                _transformers_runtime["device"] if transformers_loaded else EMBEDDING_DEVICE
+            )
+        ),
     }
 
 

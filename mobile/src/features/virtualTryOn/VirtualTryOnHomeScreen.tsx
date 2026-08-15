@@ -516,7 +516,11 @@ const VirtualTryOnHomeScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => navigation.navigate('Home', undefined, { pop: true })}
+          activeOpacity={0.8}
+        >
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>

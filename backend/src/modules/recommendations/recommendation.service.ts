@@ -6,6 +6,7 @@ import {
   Order,
   Product,
   RecommendationEvent,
+  RecommendationMerchandisingRule,
   RecommendationRequest,
   RECOMMENDATION_CONTEXTS,
   RECOMMENDATION_EVENT_TYPES,
@@ -37,6 +38,21 @@ import {
   type RegisterRecommendationRequestInput,
   type SimilarRecommendationInput,
 } from './recommendation.types';
+import {
+  applyRecommendationDiversity,
+  CART_RULE_ONLY_FALLBACK_WEIGHTS,
+  calculateCartRecommendationScore,
+  calculatePersonalRecommendationScore,
+  calculateSimilarRecommendationScore,
+} from './recommendation-scoring';
+import { getCategoryAssociationModel } from './recommendation-association.service';
+
+export {
+  applyRecommendationDiversity,
+  calculateCartRecommendationScore,
+  calculatePersonalRecommendationScore,
+  calculateSimilarRecommendationScore,
+} from './recommendation-scoring';
 
 export class RecommendationServiceError extends Error {
   constructor(
@@ -132,25 +148,6 @@ const RECENT_PURCHASE_EXCLUSION_DAYS = 30;
 const INTERACTION_LOOKBACK_DAYS = 180;
 const NEW_PRODUCT_DAYS = 30;
 
-const PERSONAL_SCORE_WEIGHTS = {
-  preferenceMatch: 0.70,
-  popularity: 0.20,
-  business: 0.10,
-};
-
-const SIMILAR_SCORE_WEIGHTS = {
-  contentSimilarity: 0.65,
-  popularity: 0.25,
-  business: 0.10,
-};
-
-const CART_SCORE_WEIGHTS = {
-  complementaryRole: 0.75,
-  styleCompatibility: 0.10,
-  popularity: 0.10,
-  business: 0.05,
-};
-
 const CART_ROLE_COMPATIBILITY: Record<OutfitRole, Record<OutfitRole, number>> = {
   top: { top: 0.1, bottom: 1, dress: 0.15, set: 0.2, shoes: 0.55, accessory: 0.55, outerwear: 0.7 },
   bottom: { top: 1, bottom: 0.1, dress: 0.15, set: 0.2, shoes: 0.75, accessory: 0.5, outerwear: 0.65 },
@@ -161,25 +158,22 @@ const CART_ROLE_COMPATIBILITY: Record<OutfitRole, Record<OutfitRole, number>> = 
   outerwear: { top: 1, bottom: 0.9, dress: 0.8, set: 0.8, shoes: 0.65, accessory: 0.5, outerwear: 0.1 },
 };
 
-const DIVERSITY_PENALTIES = {
-  repeatedCategory: 0.08,
-  repeatedBrand: 0.04,
-};
-
 const REASON_TEXT: Record<RecommendationReasonCode, string> = {
-  same_category: 'Cung danh muc',
-  same_brand: 'Cung thuong hieu',
-  same_gender: 'Cung nhom thoi trang',
-  same_color: 'Mau sac tuong tu',
-  similar_price: 'Khoang gia tuong tu',
-  preferred_category: 'Hop danh muc ban quan tam',
-  preferred_brand: 'Hop thuong hieu ban quan tam',
-  preferred_color: 'Hop mau ban hay xem',
-  completes_outfit: 'Hoan thien set do',
-  matches_cart_style: 'Hop phong cach gio hang',
-  popular: 'Dang ban chay',
-  on_sale: 'Dang giam gia',
-  new_arrival: 'Hang moi',
+  same_category: 'Cùng danh mục',
+  same_brand: 'Cùng thương hiệu',
+  same_gender: 'Cùng nhóm thời trang',
+  same_color: 'Màu sắc tương tự',
+  similar_price: 'Khoảng giá tương tự',
+  preferred_category: 'Hợp danh mục bạn quan tâm',
+  preferred_brand: 'Hợp thương hiệu bạn quan tâm',
+  preferred_color: 'Hợp màu bạn hay xem',
+  completes_outfit: 'Hoàn thiện set đồ',
+  matches_cart_style: 'Hợp phong cách giỏ hàng',
+  frequently_bought_together: 'Thường được mua cùng nhau',
+  admin_pinned: 'Nổi bật',
+  popular: 'Đang bán chạy',
+  on_sale: 'Đang giảm giá',
+  new_arrival: 'Hàng mới',
 };
 
 const isRecommendationContext = (value: string): value is RecommendationContext =>
@@ -462,6 +456,26 @@ const getContentSimilarityScore = (source: ProductFeature, candidate: ProductFea
   );
 };
 
+const getBinaryContentVector = (feature: ProductFeature) => new Set([
+  ...(feature.categoryId ? [`category:${feature.categoryId}`] : []),
+  `role:${feature.role}`,
+  ...(feature.gender ? [`gender:${feature.gender}`] : []),
+  ...(feature.brandId ? [`brand:${feature.brandId}`] : []),
+  ...[...feature.colors].map((color) => `color:${color}`),
+  ...[...feature.fitTypes].map((fitType) => `fit:${fitType}`),
+  `price:${feature.priceBucket}`,
+]);
+
+export const getBinaryCosineSimilarityScore = (
+  source: ProductFeature,
+  candidate: ProductFeature,
+) => {
+  const sourceVector = getBinaryContentVector(source);
+  const candidateVector = getBinaryContentVector(candidate);
+  const dotProduct = [...sourceVector].filter((value) => candidateVector.has(value)).length;
+  return dotProduct / Math.sqrt(sourceVector.size * candidateVector.size);
+};
+
 export const getCartComplementaryRoleScore = (
   sourceRoles: OutfitRole[],
   candidateRole: OutfitRole,
@@ -474,23 +488,6 @@ export const getCartComplementaryRoleScore = (
 
   return sourceRoles.includes(candidateRole) ? Math.min(bestScore, 0.2) : bestScore;
 };
-
-export const calculateCartRecommendationScore = ({
-  complementaryRole,
-  styleCompatibility,
-  popularity,
-  business,
-}: {
-  complementaryRole: number;
-  styleCompatibility: number;
-  popularity: number;
-  business: number;
-}) => (
-  CART_SCORE_WEIGHTS.complementaryRole * complementaryRole +
-  CART_SCORE_WEIGHTS.styleCompatibility * styleCompatibility +
-  CART_SCORE_WEIGHTS.popularity * popularity +
-  CART_SCORE_WEIGHTS.business * business
-);
 
 const getGenderCompatibilityScore = (source: ProductFeature, candidate: ProductFeature) => {
   if (!source.gender || !candidate.gender) return 0.7;
@@ -637,51 +634,6 @@ const mergeProducts = (
   return [...productById.values()];
 };
 
-type DiversityCandidate = {
-  score: number;
-  productItem: {
-    _id: string;
-    category?: { _id: string } | null;
-    brand?: { _id: string } | null;
-  };
-};
-
-export const applyRecommendationDiversity = <T extends DiversityCandidate>(items: T[], limit: number) => {
-  const remaining = [...items];
-  const categoryCounts = new Map<string, number>();
-  const brandCounts = new Map<string, number>();
-  const selected: T[] = [];
-
-  while (remaining.length && selected.length < limit) {
-    let bestIndex = 0;
-    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
-
-    remaining.forEach((item, index) => {
-      const categoryId = item.productItem.category?._id ?? `unknown:${item.productItem._id}`;
-      const brandId = item.productItem.brand?._id ?? `unknown:${item.productItem._id}`;
-      const adjustedScore =
-        item.score -
-        DIVERSITY_PENALTIES.repeatedCategory * (categoryCounts.get(categoryId) ?? 0) -
-        DIVERSITY_PENALTIES.repeatedBrand * (brandCounts.get(brandId) ?? 0);
-
-      if (adjustedScore > bestAdjustedScore) {
-        bestAdjustedScore = adjustedScore;
-        bestIndex = index;
-      }
-    });
-
-    const [nextItem] = remaining.splice(bestIndex, 1);
-    const categoryId = nextItem.productItem.category?._id ?? `unknown:${nextItem.productItem._id}`;
-    const brandId = nextItem.productItem.brand?._id ?? `unknown:${nextItem.productItem._id}`;
-
-    selected.push(nextItem);
-    categoryCounts.set(categoryId, (categoryCounts.get(categoryId) ?? 0) + 1);
-    brandCounts.set(brandId, (brandCounts.get(brandId) ?? 0) + 1);
-  }
-
-  return selected;
-};
-
 const toRecommendationResponse = (
   scoredProducts: ScoredProduct[],
   limit: number,
@@ -707,6 +659,65 @@ const toRecommendationResponse = (
       reasonCodes: item.reasonCodes,
     })),
   };
+};
+
+export const mergeMerchandisedItems = (
+  response: RecommendationResponse,
+  pinnedItems: RecommendationItem[],
+  limit: number,
+): RecommendationResponse => {
+  const pinnedIdSet = new Set(pinnedItems.map((item) => item.product._id));
+  const items = [
+    ...pinnedItems,
+    ...response.items.filter((item) => !pinnedIdSet.has(item.product._id)),
+  ].slice(0, limit).map((item, index) => ({ ...item, rank: index + 1 }));
+
+  return { ...response, items };
+};
+
+const applyMerchandising = async (
+  response: RecommendationResponse,
+  context: RecommendationContext,
+  limit: number,
+  excludedProductIds = new Set<string>(),
+): Promise<RecommendationResponse> => {
+  const now = new Date();
+  const rule = await RecommendationMerchandisingRule.findOne({
+    context,
+    enabled: true,
+    $and: [
+      { $or: [{ startsAt: null }, { startsAt: { $exists: false } }, { startsAt: { $lte: now } }] },
+      { $or: [{ endsAt: null }, { endsAt: { $exists: false } }, { endsAt: { $gt: now } }] },
+    ],
+  }).select('pinnedProductIds').lean<{ pinnedProductIds?: Types.ObjectId[] } | null>();
+
+  const pinnedIds = (rule?.pinnedProductIds ?? [])
+    .map(String)
+    .filter((id) => !excludedProductIds.has(id));
+  if (!pinnedIds.length) return response;
+
+  const products = await fetchProducts({
+    _id: { $in: pinnedIds.map((id) => new Types.ObjectId(id)) },
+  }, pinnedIds.length);
+  const inventoryByProductId = await getInventoryByProductId(products);
+  const productById = new Map(products.map((product) => [String(product._id), product]));
+  const pinnedItems = pinnedIds.flatMap<RecommendationItem>((productId) => {
+    const product = productById.get(productId);
+    if (!product) return [];
+    const productItem = mapProductListItem(product, inventoryByProductId);
+    if (!productItem.isAvailable || productItem.finalPrice <= 0) return [];
+    return [{
+      product: productItem,
+      score: 1,
+      rank: 0,
+      reason: REASON_TEXT.admin_pinned,
+      reasonCodes: ['admin_pinned'],
+      merchandisingSource: 'admin_pinned',
+    }];
+  });
+  if (!pinnedItems.length) return response;
+
+  return mergeMerchandisedItems(response, pinnedItems, limit);
 };
 
 const getFallbackRecommendations = async ({
@@ -754,7 +765,7 @@ const getSimilarCandidateFilter = (sourceFeature: ProductFeature) => {
   return conditions.length ? { $or: conditions } : {};
 };
 
-const getSimilarRecommendations = async (
+const getSimilarRecommendationsCore = async (
   input: SimilarRecommendationInput,
 ): Promise<RecommendationResponse> => {
   const limit = clampLimit(input.limit);
@@ -781,12 +792,15 @@ const getSimilarRecommendations = async (
   const scoredProducts = candidates.map<ScoredProduct>((candidate) => {
     const candidateFeature = getProductFeature(candidate, inventoryByProductId);
     const contentSimilarity = getContentSimilarityScore(sourceFeature, candidateFeature);
+    const cosineSimilarity = getBinaryCosineSimilarityScore(sourceFeature, candidateFeature);
     const popularity = getPopularityScore(candidateFeature);
     const business = getBusinessScore(candidateFeature);
-    const score =
-      SIMILAR_SCORE_WEIGHTS.contentSimilarity * contentSimilarity +
-      SIMILAR_SCORE_WEIGHTS.popularity * popularity +
-      SIMILAR_SCORE_WEIGHTS.business * business;
+    const score = calculateSimilarRecommendationScore({
+      contentSimilarity,
+      cosineSimilarity,
+      popularity,
+      business,
+    });
 
     return {
       product: candidate,
@@ -808,7 +822,7 @@ const getSimilarRecommendations = async (
   );
 };
 
-const getCartRecommendations = async (
+const getCartRecommendationsCore = async (
   input: CartRecommendationInput,
 ): Promise<RecommendationResponse> => {
   const limit = clampLimit(input.limit);
@@ -855,6 +869,8 @@ const getCartRecommendations = async (
   });
   const inventoryByProductId = await getInventoryByProductId(candidates);
   const sourceRoles = sourceFeatures.map((feature) => feature.role);
+  const sourceCategoryIds = sourceFeatures.map((feature) => feature.categoryId).filter(Boolean);
+  const associationModel = await getCategoryAssociationModel();
   const scoredProducts = candidates.map<ScoredProduct>((candidate) => {
     const candidateFeature = getProductFeature(candidate, inventoryByProductId);
     const roleScore = getCartComplementaryRoleScore(sourceRoles, candidateFeature.role);
@@ -867,23 +883,31 @@ const getCartRecommendations = async (
     const bestSource = getBestCartSourceFeature(sourceFeatures, candidateFeature);
     const popularity = getPopularityScore(candidateFeature);
     const business = getBusinessScore(candidateFeature);
+    const associationLift = associationModel.score(
+      sourceCategoryIds,
+      candidateFeature.categoryId,
+    );
     const score = calculateCartRecommendationScore({
       complementaryRole,
       styleCompatibility: bestSource.styleScore,
       popularity,
       business,
-    });
+      associationLift,
+    }, associationModel.hasEvidence ? undefined : CART_RULE_ONLY_FALLBACK_WEIGHTS);
 
     return {
       product: candidate,
       productItem: mapProductListItem(candidate, inventoryByProductId),
       score,
-      reasonCodes: getCartReasonCodes({
-        source: bestSource.sourceFeature,
-        candidate: candidateFeature,
-        complementaryRole,
-        styleCompatibility: bestSource.styleScore,
-      }),
+      reasonCodes: [
+        ...getCartReasonCodes({
+          source: bestSource.sourceFeature,
+          candidate: candidateFeature,
+          complementaryRole,
+          styleCompatibility: bestSource.styleScore,
+        }),
+        ...(associationLift > 0 ? ['frequently_bought_together' as const] : []),
+      ],
     };
   });
 
@@ -984,20 +1008,6 @@ const getProfileMatchScore = (profile: PreferenceProfile, feature: ProductFeatur
   );
 };
 
-export const calculatePersonalRecommendationScore = ({
-  preferenceMatch,
-  popularity,
-  business,
-}: {
-  preferenceMatch: number;
-  popularity: number;
-  business: number;
-}) => (
-  PERSONAL_SCORE_WEIGHTS.preferenceMatch * preferenceMatch +
-  PERSONAL_SCORE_WEIGHTS.popularity * popularity +
-  PERSONAL_SCORE_WEIGHTS.business * business
-);
-
 const getPreferenceReasonCodes = (
   profile: PreferenceProfile,
   feature: ProductFeature,
@@ -1085,7 +1095,7 @@ const getPersonalCandidateFilter = (
   };
 };
 
-const getPersonalRecommendations = async (
+const getPersonalRecommendationsCore = async (
   input: PersonalRecommendationInput,
 ): Promise<RecommendationResponse> => {
   const limit = clampLimit(input.limit);
@@ -1172,6 +1182,38 @@ const getPersonalRecommendations = async (
     true,
   );
 };
+
+const getSimilarRecommendations = async (input: SimilarRecommendationInput) => {
+  const limit = clampLimit(input.limit);
+  return applyMerchandising(
+    await getSimilarRecommendationsCore(input),
+    'product_detail_similar',
+    limit,
+    new Set([input.productId]),
+  );
+};
+
+const getCartRecommendations = async (input: CartRecommendationInput) => {
+  const limit = clampLimit(input.limit);
+  const userId = assertObjectId(input.userId, 'userId');
+  const cart = await Cart.findOne({ user_id: userId })
+    .select('product_list.productId')
+    .lean<{ product_list?: Array<{ productId: Types.ObjectId }> } | null>();
+  const excludedIds = new Set((cart?.product_list ?? []).map((item) => String(item.productId)));
+  return applyMerchandising(
+    await getCartRecommendationsCore(input),
+    'cart',
+    limit,
+    excludedIds,
+  );
+};
+
+const getPersonalRecommendations = async (input: PersonalRecommendationInput) =>
+  applyMerchandising(
+    await getPersonalRecommendationsCore(input),
+    'home',
+    clampLimit(input.limit),
+  );
 
 const registerRecommendationRequest = async (input: RegisterRecommendationRequestInput) => {
   if (!isRecommendationContext(input.context)) {

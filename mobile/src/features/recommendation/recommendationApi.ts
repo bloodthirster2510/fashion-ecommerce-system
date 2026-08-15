@@ -8,7 +8,9 @@ export type RecommendationContext =
   | 'product_detail_similar'
   | 'cart';
 
-export type RecommendationEventType = 'impression' | 'click' | 'add_to_cart' | 'purchase';
+// Public mobile tracking only accepts visibility and click events. Cart/order
+// conversions are attributed server-side from the persisted request id.
+export type RecommendationEventType = 'impression' | 'click';
 
 export type RecommendationReasonCode =
   | 'same_category'
@@ -21,6 +23,8 @@ export type RecommendationReasonCode =
   | 'preferred_color'
   | 'completes_outfit'
   | 'matches_cart_style'
+  | 'frequently_bought_together'
+  | 'admin_pinned'
   | 'popular'
   | 'on_sale'
   | 'new_arrival';
@@ -31,6 +35,7 @@ export type RecommendationItem = {
   rank: number;
   reason: string;
   reasonCodes: RecommendationReasonCode[];
+  merchandisingSource?: 'admin_pinned' | 'algorithm';
 };
 
 export type RecommendationResponse = {
@@ -107,7 +112,7 @@ const request = async <T>(path: string, options: RequestOptions = {}) => {
   if (!response.ok || payload.data === undefined) {
     const validationMessage = payload.errors?.map((error) => error.message).join('\n');
     throw new RecommendationApiError(
-      validationMessage || payload.message || 'Khong tai duoc goi y san pham',
+      validationMessage || payload.message || 'Không tải được gợi ý sản phẩm',
       payload.errors,
       response.status,
     );

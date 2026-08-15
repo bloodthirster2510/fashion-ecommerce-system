@@ -5,6 +5,7 @@ import { CouponsSection } from '../components/CouponsSection'
 import { FavoritesSection } from '../components/FavoritesSection'
 import { MembershipSection } from '../components/MembershipSection'
 import { OrdersSection } from '../components/OrdersSection'
+import { PaymentMethodsSection } from '../components/PaymentMethodsSection'
 import { ProfileInfoSection } from '../components/ProfileInfoSection'
 import { ProfileSidebar } from '../components/ProfileSidebar'
 import type { AccountSection } from '../profile.types'
@@ -16,6 +17,7 @@ const getAccountSection = (): AccountSection => {
   if (section === 'favorites') return 'favorites'
   if (section === 'ranking') return 'ranking'
   if (section === 'coupons') return 'coupons'
+  if (section === 'payment') return 'payment'
   return 'profile'
 }
 
@@ -24,6 +26,7 @@ const renderAccountSection = (section: AccountSection) => {
   if (section === 'favorites') return <FavoritesSection />
   if (section === 'ranking') return <MembershipSection />
   if (section === 'coupons') return <CouponsSection />
+  if (section === 'payment') return <PaymentMethodsSection />
   return <ProfileInfoSection />
 }
 

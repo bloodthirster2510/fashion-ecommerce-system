@@ -4,6 +4,10 @@ import { VirtualTryOnSettings } from '../../../database/models/virtual-try-on-se
 const validSettings = () => ({
   key: 'virtual_try_on',
   enabled: true,
+  imageProvider: 'comfy',
+  imageModel: 'flux-fill-dev.safetensors',
+  videoProvider: 'comfy_kling',
+  videoModel: 'kling-v3-omni',
   maxConcurrentJobsPerUser: 2,
   maxVideoJobsPerUserPerDay: 5,
   maxConcurrentVideoJobsPerUser: 1,
@@ -36,6 +40,10 @@ describe('VirtualTryOnSettings model', () => {
   it('retains at most twenty rollback snapshots', async () => {
     const configuration = {
       enabled: true,
+      imageProvider: 'comfy',
+      imageModel: 'flux-fill-dev.safetensors',
+      videoProvider: 'comfy_kling',
+      videoModel: 'kling-v3-omni',
       maxConcurrentJobsPerUser: 1,
       maxVideoJobsPerUserPerDay: 3,
       maxConcurrentVideoJobsPerUser: 1,

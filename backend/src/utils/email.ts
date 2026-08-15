@@ -160,3 +160,84 @@ export const sendGuestFeedbackVerificationEmail = async (input: {
     html: `<p>Xin chào ${escapeHtml(input.name)},</p><p>Vui lòng <a href="${verificationUrl}">xác minh góp ý</a> trong vòng 30 phút. Nếu bạn không gửi yêu cầu này, hãy bỏ qua email.</p>`,
   });
 };
+
+export type OrderInvoiceEmailInput = {
+  to: string;
+  orderId: string;
+  orderCode: string;
+  invoiceCode: string;
+  invoiceIssuedAt: Date;
+  customerName: string;
+  paymentMethod: string;
+  items: Array<{
+    name: string;
+    sku: string;
+    color: string;
+    size: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+  subTotal: number;
+  discountAmount: number;
+  shippingFee: number;
+  taxAmount: number;
+  totalAmount: number;
+  pdf: Buffer;
+};
+
+const formatInvoiceCurrency = (value: number) => new Intl.NumberFormat('vi-VN', {
+  style: 'currency',
+  currency: 'VND',
+  maximumFractionDigits: 0,
+}).format(value);
+
+export const sendOrderInvoiceEmail = async (input: OrderInvoiceEmailInput) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const orderUrl = `${frontendUrl}/account/orders`;
+  const itemRows = input.items.map((item) => [
+    '<tr>',
+    `<td style="padding:8px;border-bottom:1px solid #ddd"><strong>${escapeHtml(item.name)}</strong><br><small>${escapeHtml(`${item.color} / ${item.size} · SKU ${item.sku}`)}</small></td>`,
+    `<td style="padding:8px;border-bottom:1px solid #ddd;text-align:right">${item.quantity}</td>`,
+    `<td style="padding:8px;border-bottom:1px solid #ddd;text-align:right">${escapeHtml(formatInvoiceCurrency(item.unitPrice))}</td>`,
+    `<td style="padding:8px;border-bottom:1px solid #ddd;text-align:right"><strong>${escapeHtml(formatInvoiceCurrency(item.unitPrice * item.quantity))}</strong></td>`,
+    '</tr>',
+  ].join('')).join('');
+  const totalRowEntries: Array<[string, number]> = [
+    ['Tiền hàng', input.subTotal],
+    ...(input.discountAmount > 0 ? [['Giảm giá', -input.discountAmount] as [string, number]] : []),
+    ['Phí vận chuyển', input.shippingFee],
+    ...(input.taxAmount > 0 ? [['Thuế', input.taxAmount] as [string, number]] : []),
+  ];
+  const totalRows = totalRowEntries.map(([label, value]) => (
+    `<tr><td style="padding:4px 8px">${escapeHtml(label)}</td><td style="padding:4px 8px;text-align:right">${escapeHtml(formatInvoiceCurrency(value))}</td></tr>`
+  )).join('');
+
+  return deliverEmail({
+    to: input.to,
+    subject: `Hóa đơn ${input.invoiceCode} - Fashion Shop`,
+    logLabel: 'order invoice',
+    attachments: [{
+      filename: `${input.invoiceCode.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`,
+      content: input.pdf,
+      contentType: 'application/pdf',
+    }],
+    html: [
+      `<p>Xin chào ${escapeHtml(input.customerName)},</p>`,
+      `<p>Thanh toán cho đơn hàng <strong>${escapeHtml(input.orderCode)}</strong> đã thành công. Hóa đơn PDF được đính kèm trong email này.</p>`,
+      '<div style="margin:20px 0;padding:16px;border:1px solid #ccc;border-radius:8px">',
+      '<div style="display:flex;justify-content:space-between;gap:16px">',
+      '<div><strong>FASHION SHOP</strong><br><small>Hóa đơn bán hàng</small></div>',
+      `<div style="text-align:right"><strong>${escapeHtml(input.invoiceCode)}</strong><br><small>${escapeHtml(input.invoiceIssuedAt.toLocaleString('vi-VN'))}</small></div>`,
+      '</div>',
+      `<p><strong>Phương thức thanh toán:</strong> ${escapeHtml(input.paymentMethod)}</p>`,
+      '<table style="width:100%;border-collapse:collapse">',
+      '<thead><tr><th style="padding:8px;text-align:left;border-bottom:2px solid #999">Sản phẩm</th><th style="padding:8px;text-align:right;border-bottom:2px solid #999">SL</th><th style="padding:8px;text-align:right;border-bottom:2px solid #999">Đơn giá</th><th style="padding:8px;text-align:right;border-bottom:2px solid #999">Thành tiền</th></tr></thead>',
+      `<tbody>${itemRows}</tbody>`,
+      '</table>',
+      `<table style="width:100%;max-width:360px;margin:16px 0 0 auto">${totalRows}<tr><td style="padding:8px;border-top:2px solid #999"><strong>Tổng thanh toán</strong></td><td style="padding:8px;border-top:2px solid #999;text-align:right"><strong>${escapeHtml(formatInvoiceCurrency(input.totalAmount))}</strong></td></tr></table>`,
+      '</div>',
+      `<p><a href="${escapeHtml(orderUrl)}">Xem đơn hàng của bạn</a></p>`,
+      '<p><small>Đây là chứng từ bán hàng từ hệ thống, không thay thế hóa đơn điện tử hoặc hóa đơn VAT theo quy định pháp luật.</small></p>',
+    ].join(''),
+  });
+};

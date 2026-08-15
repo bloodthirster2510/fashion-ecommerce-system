@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "description": "Original production weights before chronological validation tuning",
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.7,
+      "popularity": 0.2,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.65,
+      "popularity": 0.25,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.75,
+      "styleCompatibility": 0.1,
+      "popularity": 0.1,
+      "business": 0.05
+    }
+  }
+}

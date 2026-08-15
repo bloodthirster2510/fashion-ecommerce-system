@@ -23,6 +23,7 @@ jest.mock('../../../database/models', () => ({
     aggregate: jest.fn(),
     countDocuments: jest.fn(),
     create: jest.fn(),
+    deleteOne: jest.fn(),
     find: jest.fn(),
     findById: jest.fn(),
     findByIdAndUpdate: jest.fn(),
@@ -48,6 +49,7 @@ const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedReview = Review as jest.Mocked<typeof Review>;
 const mockedHelpfulVote = ReviewHelpfulVote as jest.Mocked<typeof ReviewHelpfulVote>;
 const mockedUser = User as jest.Mocked<typeof User>;
+const originalReviewMutationWindowDays = process.env.REVIEW_MUTATION_WINDOW_DAYS;
 
 const userId = new Types.ObjectId('665000000000000000000001');
 const productId = new Types.ObjectId('665000000000000000000002');
@@ -144,16 +146,26 @@ const populatedReview = (overrides: Record<string, unknown> = {}) => ({
 describe('reviewService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.REVIEW_MUTATION_WINDOW_DAYS = '3650';
     startSessionSpy.mockResolvedValue(mockSession as never);
     mockedProduct.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 } as never);
     mockedReview.aggregate.mockReturnValue(aggregateQuery([]) as never);
     mockedReview.countDocuments.mockResolvedValue(0);
+    mockedReview.deleteOne.mockResolvedValue({ acknowledged: true, deletedCount: 1 } as never);
     mockedReview.updateMany.mockResolvedValue({ acknowledged: true, matchedCount: 0, modifiedCount: 0 } as never);
     mockedReview.updateOne.mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1 } as never);
     mockedHelpfulVote.deleteMany.mockResolvedValue({ acknowledged: true, deletedCount: 0 } as never);
     mockedHelpfulVote.find.mockReturnValue(query([]) as never);
     mockedUser.find.mockReturnValue(query([]) as never);
     mockedProduct.find.mockReturnValue(query([]) as never);
+  });
+
+  afterAll(() => {
+    if (originalReviewMutationWindowDays === undefined) {
+      delete process.env.REVIEW_MUTATION_WINDOW_DAYS;
+    } else {
+      process.env.REVIEW_MUTATION_WINDOW_DAYS = originalReviewMutationWindowDays;
+    }
   });
 
   it('reports eligibility only when a completed, paid order exists and no review exists', async () => {
@@ -275,6 +287,27 @@ describe('reviewService', () => {
     expect(mockedReview.create).not.toHaveBeenCalled();
   });
 
+  it('checks duplicate reviews by order item so repeat purchases can create new reviews', async () => {
+    mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
+    mockedReview.findOne.mockReturnValue(query(null) as never);
+    mockedOrder.findOne.mockReturnValue(query(eligibleOrder) as never);
+    mockedReview.create.mockResolvedValue([{ _id: reviewId }] as never);
+    mockedReview.findById.mockReturnValue(query(populatedReview()) as never);
+
+    await reviewService.createReview(userId.toString(), {
+      orderId: orderId.toString(),
+      orderItemId: orderItemId.toString(),
+      rating: 5,
+      comment: 'Lần mua này sản phẩm vẫn rất tốt',
+    });
+
+    expect(mockedReview.findOne).toHaveBeenCalledWith({
+      order_id: orderId,
+      order_item_id: orderItemId,
+    });
+    expect(mockedReview.create).toHaveBeenCalled();
+  });
+
   it('creates a verified review from the matching purchased order item', async () => {
     mockedProduct.findOne.mockReturnValue(query({ _id: productId }) as never);
     mockedReview.findOne.mockReturnValue(query(null) as never);
@@ -357,6 +390,23 @@ describe('reviewService', () => {
     expect(mockedReview.findOne).toHaveBeenCalledWith({ _id: reviewId, user_id: userId });
   });
 
+  it('rejects editing a review after the configured mutation window', async () => {
+    process.env.REVIEW_MUTATION_WINDOW_DAYS = '1';
+    mockedReview.findOne.mockReturnValue(query(populatedReview({
+      user_id: userId,
+      createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    })) as never);
+
+    await expect(reviewService.updateReview(userId.toString(), reviewId.toString(), {
+      rating: 4,
+    })).rejects.toMatchObject({
+      message: 'Reviews can only be edited within 1 days after submission',
+      statusCode: 403,
+    });
+
+    expect(mockedReview.create).not.toHaveBeenCalled();
+  });
+
   it('sends an edited hidden review back to pending instead of making it public', async () => {
     // Review đã bị admin ẩn không được tự public lại chỉ nhờ user sửa nội dung sạch hơn.
     const reviewDocument = {
@@ -409,15 +459,29 @@ describe('reviewService', () => {
   });
 
   it('does not let a customer delete another customer review', async () => {
-    mockedReview.findOneAndDelete.mockResolvedValue(null);
+    mockedReview.findOne.mockReturnValue(query(null) as never);
 
     await expect(reviewService.deleteReview(userId.toString(), reviewId.toString()))
       .rejects.toMatchObject({ statusCode: 404 });
 
-    expect(mockedReview.findOneAndDelete).toHaveBeenCalledWith(
-      { _id: reviewId, user_id: userId },
-      { session: mockSession },
-    );
+    expect(mockedReview.findOne).toHaveBeenCalledWith({ _id: reviewId, user_id: userId });
+    expect(mockedProduct.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleting a review after the configured mutation window', async () => {
+    process.env.REVIEW_MUTATION_WINDOW_DAYS = '1';
+    mockedReview.findOne.mockReturnValue(query(populatedReview({
+      user_id: userId,
+      createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    })) as never);
+
+    await expect(reviewService.deleteReview(userId.toString(), reviewId.toString()))
+      .rejects.toMatchObject({
+        message: 'Reviews can only be deleted within 1 days after submission',
+        statusCode: 403,
+      });
+
+    expect(mockedReview.deleteOne).not.toHaveBeenCalled();
     expect(mockedProduct.updateOne).not.toHaveBeenCalled();
   });
 
@@ -496,6 +560,8 @@ describe('reviewService', () => {
   it('applies rating and sort filters when listing the current customer reviews', async () => {
     const myReview = populatedReview({
       product_id: { _id: productId, name: 'Basic Tee', product_image: 'tee.png' },
+      adminReply: 'Cảm ơn bạn đã chia sẻ trải nghiệm.',
+      repliedAt: new Date('2026-06-02T00:00:00.000Z'),
     });
     const findQuery = query([myReview]);
     mockedReview.find.mockReturnValue(findQuery as never);
@@ -514,6 +580,10 @@ describe('reviewService', () => {
     expect(result.items[0]).toMatchObject({
       orderId: orderId.toString(),
       orderItemId: orderItemId.toString(),
+      adminReply: {
+        content: 'Cảm ơn bạn đã chia sẻ trải nghiệm.',
+        repliedAt: new Date('2026-06-02T00:00:00.000Z'),
+      },
     });
   });
 

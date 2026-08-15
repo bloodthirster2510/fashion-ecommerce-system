@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LockOutlined, MailOutlined, UserOutlined } from '@ant-design/icons'
 import { Alert, Avatar, Button, Checkbox, Form, Input, Popover, message } from 'antd'
 import { useAppDispatch, useAppSelector } from '../../../app/hooks'
@@ -6,12 +6,14 @@ import { clearCurrentUser, setCurrentUser } from '../auth.slice'
 import { clearCart } from '../../cart/cart.slice'
 import { authService } from '../auth.service'
 import { AuthApiError, type AuthUser } from '../auth.types'
+import { ForgotPasswordModal } from './ForgotPasswordModal'
 import { RegisterModal } from './RegisterModal'
 import { tokenService } from '../../../services/tokenService'
 import '../auth.css'
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const vietnamPhonePattern = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/
+const CUSTOMER_LOGIN_REQUESTED_EVENT = 'customer-login-requested'
 
 type LoginFormValues = {
   identifier: string
@@ -26,6 +28,8 @@ export function LoginButton() {
   // Chúng không được mở đồng thời để tránh hai lớp nền mờ chồng lên nhau.
   const [isLoginOpen, setIsLoginOpen] = useState(false)
   const [isRegisterOpen, setIsRegisterOpen] = useState(false)
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false)
+  const [forgotPasswordIdentifier, setForgotPasswordIdentifier] = useState('')
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [isLoginLocked, setIsLoginLocked] = useState(false)
@@ -35,6 +39,20 @@ export function LoginButton() {
   const [unlockMessage, setUnlockMessage] = useState('')
   const [isUnlocking, setIsUnlocking] = useState(false)
   const [form] = Form.useForm()
+
+  useEffect(() => {
+    const handleLoginRequested = () => {
+      if (currentUser) return
+
+      setIsRegisterOpen(false)
+      setIsForgotPasswordOpen(false)
+      setIsLoginOpen(true)
+    }
+
+    window.addEventListener(CUSTOMER_LOGIN_REQUESTED_EVENT, handleLoginRequested)
+
+    return () => window.removeEventListener(CUSTOMER_LOGIN_REQUESTED_EVENT, handleLoginRequested)
+  }, [currentUser])
 
   const handleLoginOpenChange = (open: boolean) => {
     // Khi popover đóng, xóa cả dữ liệu đã nhập và trạng thái lỗi.
@@ -60,6 +78,18 @@ export function LoginButton() {
     setIsRegisterOpen(true)
   }
 
+  const handleForgotPasswordOpen = () => {
+    setForgotPasswordIdentifier(getLoginIdentifier())
+    setLoginError('')
+    setIsLoginOpen(false)
+    setIsForgotPasswordOpen(true)
+  }
+
+  const handleBackToLogin = () => {
+    setIsForgotPasswordOpen(false)
+    setIsLoginOpen(true)
+  }
+
   const handleAuthenticated = (user: AuthUser) => {
     // Khi login hoặc register thành công, cập nhật state ngay để header đổi UI tức thì.
     // User được lưu lại để header vẫn hiển thị sau refresh; token không lưu localStorage.
@@ -68,9 +98,7 @@ export function LoginButton() {
 
   const handleLogout = async () => {
     const accessToken = tokenService.getAccessToken()
-    if (accessToken) {
-      await authService.logout(accessToken)
-    }
+    await authService.logout(accessToken)
 
     tokenService.clearSession()
     dispatch(clearCurrentUser())
@@ -172,7 +200,7 @@ export function LoginButton() {
     <div className="login-popover-content">
       <div className="login-modal-heading">
         <h2>Đăng nhập</h2>
-        <p>Đăng nhập để tiếp tục mua sắm cùng Fashionista.</p>
+        <p>Đăng nhập để tiếp tục mua sắm cùng CD Shop</p>
       </div>
 
       {loginError && <Alert className="auth-alert" type="error" message={loginError} showIcon />}
@@ -252,7 +280,9 @@ export function LoginButton() {
           <Form.Item name="remember" valuePropName="checked" noStyle>
             <Checkbox>Ghi nhớ đăng nhập</Checkbox>
           </Form.Item>
-          <a href="/">Quên mật khẩu?</a>
+          <button type="button" className="login-text-button" onClick={handleForgotPasswordOpen}>
+            Quên mật khẩu?
+          </button>
         </div>
 
         <Button
@@ -286,7 +316,7 @@ export function LoginButton() {
         content={
           <div className="account-popover-content">
             <strong>{currentUser.name}</strong>
-            <span>{currentUser.email}</span>
+            <span>{currentUser.email || currentUser.phone}</span>
             <Button type="text" icon={<UserOutlined />} onClick={handleAccountNavigate}>
               Quản lý tài khoản
             </Button>
@@ -325,6 +355,12 @@ export function LoginButton() {
       </Popover>
 
       <RegisterModal open={isRegisterOpen} onClose={() => setIsRegisterOpen(false)} onAuthenticated={handleAuthenticated} />
+      <ForgotPasswordModal
+        open={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        initialIdentifier={forgotPasswordIdentifier}
+        onLoginClick={handleBackToLogin}
+      />
     </>
   )
 }

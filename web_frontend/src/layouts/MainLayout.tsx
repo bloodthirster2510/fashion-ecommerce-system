@@ -25,7 +25,6 @@ import { fetchCart } from '../features/cart/cart.slice'
 import { catalogService } from '../features/catalog/catalog.service'
 import type {
   CatalogCategory,
-  CategoryGender,
   SearchSuggestCategory,
   SearchSuggestProduct,
   SearchSuggestResponse,
@@ -40,8 +39,6 @@ import { formatPrice } from '../utils/formatPrice'
 type MainLayoutProps = {
   children: ReactNode
 }
-
-type ApparelGender = Exclude<CategoryGender, 'unisex'>
 
 const DressIcon = () => (
   <svg
@@ -61,30 +58,15 @@ const DressIcon = () => (
   </svg>
 )
 
-type NavLink =
-  | {
-      label: string
-      href: string
-      icon: ReactNode
-      gender?: undefined
-    }
-  | {
-      label: string
-      href: string
-      icon: ReactNode
-      gender: ApparelGender
-    }
+type StaticNavLink = {
+  label: string
+  href: string
+  icon: ReactNode
+}
 
-const navLinks = [
+const staticNavLinks = [
   { label: 'Giới thiệu', href: '/', icon: <InfoCircleOutlined /> },
-  {
-    label: 'Thời trang nam',
-    href: '/products?gender=male',
-    gender: 'male',
-    icon: <Shirt className="category-nav-avatar-icon" strokeWidth={1.8} />,
-  },
-  { label: 'Thời trang nữ', href: '/products?gender=female', gender: 'female', icon: <DressIcon /> },
-] satisfies NavLink[]
+] satisfies StaticNavLink[]
 const supportLinks = [
   { label: 'Hướng dẫn đặt hàng', href: '/support?topic=orders' },
   { label: 'Chính sách giao hàng', href: '/policies/shipping' },
@@ -107,6 +89,11 @@ type CategoryMenuGroup = {
   children: CatalogCategory[]
 }
 
+type HeaderCategoryMenu = {
+  root: CatalogCategory
+  groups: CategoryMenuGroup[]
+}
+
 // Mongoose có thể trả ObjectId đã populate thành object hoặc chỉ là string.
 // Chuẩn hóa về string giúp logic nhóm cha/con không phụ thuộc shape response.
 const getCategoryId = (category?: Pick<CatalogCategory, '_id'> | string | null) => {
@@ -115,6 +102,18 @@ const getCategoryId = (category?: Pick<CatalogCategory, '_id'> | string | null) 
 }
 
 const getCategoryHref = (category: CatalogCategory) => `/products?categoryId=${category._id}`
+
+const getCategoryIcon = (category: CatalogCategory) => {
+  if (category.gender === 'male') {
+    return <Shirt className="category-nav-avatar-icon" strokeWidth={1.8} />
+  }
+
+  if (category.gender === 'female') {
+    return <DressIcon />
+  }
+
+  return <ShopOutlined />
+}
 
 const normalizeSearchText = (value: string) =>
   value
@@ -144,19 +143,14 @@ const mergeSuggestions = (primary: string[], secondary: string[], limit = 10) =>
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()))
 
-const buildCategoryMenu = (categories: CatalogCategory[], gender: ApparelGender) => {
-  //Lọc theo giới tính, unisex dùng chung cho cả menu nam và nữ.
-  const scopedCategories = categories.filter((category) => category.gender === gender || category.gender === 'unisex')
+const sortCategories = (categories: CatalogCategory[]) =>
+  [...categories].sort((a, b) => a.level - b.level || a.name.localeCompare(b.name, 'vi'))
+
+const buildHeaderCategoryMenus = (categories: CatalogCategory[]) => {
+  const activeCategories = categories.filter((category) => category.isActive)
   const childrenByParentId = new Map<string, CatalogCategory[]>()
 
-
-  const rootIds = new Set(
-    scopedCategories
-      .filter((category) => !getCategoryId(category.parent_id))
-      .map((category) => category._id),
-  )
-
-  scopedCategories.forEach((category) => {
+  activeCategories.forEach((category) => {
     const parentId = getCategoryId(category.parent_id)
 
     if (!parentId) return
@@ -166,25 +160,15 @@ const buildCategoryMenu = (categories: CatalogCategory[], gender: ApparelGender)
     childrenByParentId.set(parentId, children)
   })
 
-  // Ưu tiên dùng con trực tiếp của root làm cột. Nếu database chưa có root,
-  // fallback về các danh mục không có parent để menu vẫn hiển thị được.
-  const directRootChildren = scopedCategories.filter((category) => {
-    const parentId = getCategoryId(category.parent_id)
-    return parentId ? rootIds.has(parentId) : false
-  })
-  const groupParents = directRootChildren.length > 0
-    ? directRootChildren
-    : scopedCategories.filter((category) => !getCategoryId(category.parent_id))
-
-  return groupParents
-    .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name, 'vi'))
-    .map((parent): CategoryMenuGroup => {
-      const children = childrenByParentId.get(parent._id) ?? []
-
-      return {
+  return sortCategories(activeCategories.filter((category) => !getCategoryId(category.parent_id)))
+    .map((root): HeaderCategoryMenu => {
+      const directChildren = sortCategories(childrenByParentId.get(root._id) ?? [])
+      const groups = directChildren.map((parent): CategoryMenuGroup => ({
         parent,
-        children: children.sort((a, b) => a.level - b.level || a.name.localeCompare(b.name, 'vi')),
-      }
+        children: sortCategories(childrenByParentId.get(parent._id) ?? []),
+      }))
+
+      return { root, groups }
     })
 }
 
@@ -283,11 +267,8 @@ function Header() {
 
   // Dữ liệu API giữ dạng flat list; memo hóa việc dựng menu để không tính lại
   // mỗi lần Header render vì login/search/action thay đổi.
-  const menusByGender = useMemo(
-    () => ({
-      male: buildCategoryMenu(categories, 'male'),
-      female: buildCategoryMenu(categories, 'female'),
-    }),
+  const headerCategoryMenus = useMemo(
+    () => buildHeaderCategoryMenus(categories),
     [categories],
   )
 
@@ -609,39 +590,53 @@ function Header() {
       </div>
 
       <nav className="category-nav" aria-label="Danh mục">
-        {navLinks.map((link) => (
+        {staticNavLinks.map((link) => (
           <div className="category-nav-item" key={link.label}>
             <a className="category-nav-link" href={link.href}>
               <span className="category-nav-symbol" aria-hidden="true">{link.icon}</span>
               <span className="category-nav-text">{link.label}</span>
-              {link.gender && <DownOutlined className="category-nav-icon" aria-hidden="true" />}
+            </a>
+          </div>
+        ))}
+
+        {isLoadingCategories && (
+          <div className="category-nav-item">
+            <span className="category-nav-link">Đang tải danh mục...</span>
+          </div>
+        )}
+
+        {!isLoadingCategories && categoryError && (
+          <div className="category-nav-item">
+            <span className="category-nav-link" title={categoryError}>Không thể tải danh mục</span>
+          </div>
+        )}
+
+        {!isLoadingCategories && !categoryError && headerCategoryMenus.map((menu) => (
+          <div className="category-nav-item" key={menu.root._id}>
+            <a className="category-nav-link" href={getCategoryHref(menu.root)}>
+              <span className="category-nav-symbol" aria-hidden="true">{getCategoryIcon(menu.root)}</span>
+              <span className="category-nav-text">{menu.root.name}</span>
+              {menu.groups.length > 0 && <DownOutlined className="category-nav-icon" aria-hidden="true" />}
             </a>
 
-            {link.gender && (
-              <div className="category-popout" aria-label={`Danh mục ${link.label}`}>
-                {isLoadingCategories && <p className="category-popout-status">Đang tải danh mục...</p>}
-                {!isLoadingCategories && categoryError && <p className="category-popout-status">{categoryError}</p>}
-                {!isLoadingCategories && !categoryError && menusByGender[link.gender].length === 0 && (
-                  <p className="category-popout-status">Chưa có danh mục phù hợp.</p>
-                )}
-                {!isLoadingCategories && !categoryError && menusByGender[link.gender].length > 0 && (
-                  <div className="category-popout-grid">
-                    {menusByGender[link.gender].map((group) => (
-                      <section className="category-popout-group" key={group.parent._id}>
-                        <h2>
-                          <a href={getCategoryHref(group.parent)}>{group.parent.name}</a>
-                        </h2>
-                        <ul>
-                          {group.children.map((item) => (
-                            <li key={item._id}>
-                              <a href={getCategoryHref(item)}>{item.name}</a>
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    ))}
-                  </div>
-                )}
+            {menu.groups.length > 0 && (
+              <div className="category-popout" aria-label={`Danh mục ${menu.root.name}`}>
+                <div className="category-popout-grid">
+                  {menu.groups.map((group) => (
+                    <section className="category-popout-group" key={group.parent._id}>
+                      <h2>
+                        <a href={getCategoryHref(group.parent)}>{group.parent.name}</a>
+                      </h2>
+                      <ul>
+                        {group.children.map((item) => (
+                          <li key={item._id}>
+                            <a href={getCategoryHref(item)}>{item.name}</a>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
               </div>
             )}
           </div>

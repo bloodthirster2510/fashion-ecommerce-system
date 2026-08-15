@@ -107,7 +107,66 @@ const assertCategoryExists = async (categoryId: string) => {
   }
 };
 
-const normalizeVariants = (variants?: ProductVariantInput[]) => {
+const normalizeStoredUrl = (value?: string | null) => String(value ?? '').trim();
+
+const getUnchangedColorImage = (
+  existingVariants: IProductVariant[] | undefined,
+  variant: ProductVariantInput,
+  color: ProductVariantInput['colors'][number],
+) => {
+  const nextImage = normalizeStoredUrl(color.image);
+  if (!nextImage || !existingVariants?.length) {
+    return null;
+  }
+
+  const matchingVariants = variant._id?.trim()
+    ? existingVariants.filter((item) => item._id.toString() === variant._id?.trim())
+    : existingVariants;
+  const existingColor = matchingVariants
+    .flatMap((item) => item.colors)
+    .find((item) => color._id?.trim() && item._id.toString() === color._id.trim());
+
+  if (existingColor && normalizeStoredUrl(existingColor.image) === nextImage) {
+    return existingColor.image;
+  }
+
+  return null;
+};
+
+const getExistingColor = (
+  existingVariants: IProductVariant[] | undefined,
+  variant: ProductVariantInput,
+  color: ProductVariantInput['colors'][number],
+) => {
+  if (!existingVariants?.length) {
+    return null;
+  }
+
+  const matchingVariants = variant._id?.trim()
+    ? existingVariants.filter((item) => item._id.toString() === variant._id?.trim())
+    : existingVariants;
+
+  return matchingVariants
+    .flatMap((item) => item.colors)
+    .find((item) => color._id?.trim() && item._id.toString() === color._id.trim()) ?? null;
+};
+
+const normalizeVariantColorImage = (
+  image: string,
+  existingImage?: string | null,
+) => {
+  const trimmedImage = normalizeStoredUrl(image);
+  if (existingImage && normalizeStoredUrl(existingImage) === trimmedImage) {
+    return existingImage;
+  }
+
+  return normalizeProductImageUrl(image);
+};
+
+const normalizeVariants = (
+  variants?: ProductVariantInput[],
+  existingVariants?: IProductVariant[],
+) => {
   if (!variants) {
     return [];
   }
@@ -130,19 +189,24 @@ const normalizeVariants = (variants?: ProductVariantInput[]) => {
       discount: variant.discount,
       sizeMeasurements: variant.sizeMeasurements.map((sizeMeasurement) => ({
         size: sizeMeasurement.size.trim(),
-        measurements: sizeMeasurement.measurements.map((measurement) => ({
-          key: measurement.key.trim(),
-          value: measurement.value,
-        })),
+        measurements: [],
       })),
-      colors: variant.colors.map((color) => ({
-        ...(color._id?.trim()
-          ? { _id: new Types.ObjectId(color._id.trim()) }
-          : {}),
-        color: color.color.trim(),
-        colorCode: color.colorCode?.trim(),
-        image: normalizeProductImageUrl(color.image),
-      })),
+      colors: variant.colors.map((color) => {
+        const existingColor = getExistingColor(existingVariants, variant, color);
+
+        return {
+          ...(color._id?.trim()
+            ? { _id: new Types.ObjectId(color._id.trim()) }
+            : {}),
+          color: color.color.trim(),
+          colorCode: color.colorCode?.trim(),
+          image: normalizeVariantColorImage(
+            color.image,
+            existingColor?.image ?? getUnchangedColorImage(existingVariants, variant, color),
+          ),
+          isActive: color.isActive ?? existingColor?.isActive ?? true,
+        };
+      }),
       isActive: variant.isActive ?? true,
     };
   });
@@ -167,6 +231,10 @@ const assertVariantSizesAndColors = (variants?: ProductVariantInput[]) => {
   }
 
   for (const variant of variants) {
+    if (!variant.sizeMeasurements?.length || !variant.colors?.length) {
+      continue;
+    }
+
     const normalizedSizes = variant.sizeMeasurements.map((sizeMeasurement) => sizeMeasurement.size.trim().toLowerCase());
     if (new Set(normalizedSizes).size !== normalizedSizes.length) {
       throw new ProductServiceError('Duplicate size in product variant', 400);
@@ -202,7 +270,13 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
     }
 
     if (!variant.sizeMeasurements?.length) {
-      throw new ProductServiceError('Variant must include at least one size measurement', 400);
+      throw new ProductServiceError('Variant must include at least one size', 400);
+    }
+
+    for (const sizeMeasurement of variant.sizeMeasurements) {
+      if (!sizeMeasurement.size?.trim()) {
+        throw new ProductServiceError('Variant size is required', 400);
+      }
     }
 
     if (!variant.colors?.length) {
@@ -213,8 +287,99 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
       if (color._id?.trim() && !Types.ObjectId.isValid(color._id.trim())) {
         throw new ProductServiceError('Invalid color variant id', 400);
       }
+
+      if (!color.color?.trim()) {
+        throw new ProductServiceError('Variant color is required', 400);
+      }
+
+      if (!color.image?.trim()) {
+        throw new ProductServiceError('Variant color image is required', 400);
+      }
     }
   }
+};
+
+const toVariantReferenceId = (value: unknown) => String(value ?? '');
+
+const assertVariantInventoryReferencesPreserved = async (
+  product: { _id: Types.ObjectId; variant?: IProductVariant[] },
+  variants?: ProductVariantInput[],
+) => {
+  if (!variants) {
+    return;
+  }
+
+  const removedVariantIds: Types.ObjectId[] = [];
+  const removedColorIds: Types.ObjectId[] = [];
+  const removedSizeFilters: Array<{ variantId: Types.ObjectId; size: { $in: string[] } }> = [];
+
+  for (const existingVariant of product.variant ?? []) {
+    const existingVariantId = toVariantReferenceId(existingVariant._id);
+    const nextVariant = variants.find((variant) => variant._id?.trim() === existingVariantId);
+
+    if (!nextVariant) {
+      removedVariantIds.push(new Types.ObjectId(existingVariantId));
+      continue;
+    }
+
+    const nextColorIds = new Set(
+      nextVariant.colors
+        .map((color) => color._id?.trim())
+        .filter((colorId): colorId is string => Boolean(colorId)),
+    );
+    for (const existingColor of existingVariant.colors) {
+      const existingColorId = toVariantReferenceId(existingColor._id);
+      if (!nextColorIds.has(existingColorId)) {
+        removedColorIds.push(new Types.ObjectId(existingColorId));
+      }
+    }
+
+    const nextSizes = new Set(nextVariant.sizeMeasurements.map((sizeMeasurement) => sizeMeasurement.size.trim()));
+    const removedSizes = existingVariant.sizeMeasurements
+      .map((sizeMeasurement) => sizeMeasurement.size.trim())
+      .filter((size) => size && !nextSizes.has(size));
+
+    if (removedSizes.length) {
+      removedSizeFilters.push({
+        variantId: new Types.ObjectId(existingVariantId),
+        size: { $in: removedSizes },
+      });
+    }
+  }
+
+  if (removedVariantIds.length) {
+    const inventoryCount = await Inventory.countDocuments({
+      productId: product._id,
+      variantId: { $in: removedVariantIds },
+    });
+
+    if (inventoryCount > 0) {
+      throw new ProductServiceError('Không thể xóa phom dáng đang có tồn kho.', 400);
+    }
+  }
+
+  if (removedColorIds.length) {
+    const inventoryCount = await Inventory.countDocuments({
+      productId: product._id,
+      colorVariantId: { $in: removedColorIds },
+    });
+
+    if (inventoryCount > 0) {
+      throw new ProductServiceError('Không thể xóa màu đang có tồn kho.', 400);
+    }
+  }
+
+  if (removedSizeFilters.length) {
+    const inventoryCount = await Inventory.countDocuments({
+      productId: product._id,
+      $or: removedSizeFilters,
+    });
+
+    if (inventoryCount > 0) {
+      throw new ProductServiceError('Không thể xóa size đang có tồn kho.', 400);
+    }
+  }
+
 };
 
 const assertVariantPayload = (variants?: ProductVariantInput[]) => {
@@ -223,7 +388,7 @@ const assertVariantPayload = (variants?: ProductVariantInput[]) => {
   assertVariantValuesValid(variants);
 };
 
-const resolveCategoryTemplateSource = async (categoryId: string): Promise<ICategory> => {
+const resolveCategoryFitTypeTemplateSource = async (categoryId: string): Promise<ICategory> => {
   assertValidObjectId(categoryId, 'category id');
 
   const category = await Category.findById(categoryId);
@@ -232,8 +397,15 @@ const resolveCategoryTemplateSource = async (categoryId: string): Promise<ICateg
     throw new ProductServiceError('Category not found', 404);
   }
 
-  if (category.isSizeTemplateSource) {
+  if (category.isFitTypeTemplateSource) {
     return category;
+  }
+
+  if (category.fitTypeTemplateSourceId) {
+    const sourceCategory = await Category.findById(category.fitTypeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
   }
 
   if (category.sizeTemplateSourceId) {
@@ -243,7 +415,7 @@ const resolveCategoryTemplateSource = async (categoryId: string): Promise<ICateg
     }
   }
 
-  if (category.fitTypes?.length || category.measurementFields?.length || category.sizes?.length) {
+  if (category.fitTypes?.length) {
     return category;
   }
 
@@ -265,40 +437,14 @@ const assertVariantTemplateMatchesCategory = async (
     return;
   }
 
-  const templateCategory = await resolveCategoryTemplateSource(categoryId);
-  const measurementKeys = templateCategory.measurementFields.map((field) => field.key.trim().toLowerCase());
-  const requiredMeasurements = templateCategory.measurementFields
-    .filter((field) => field.required)
-    .map((field) => field.key.trim().toLowerCase());
+  const templateCategory = await resolveCategoryFitTypeTemplateSource(categoryId);
   const allowedFitTypeIds = new Set(
-    templateCategory.fitTypes.map((fitType) => fitType._id.toString()),
+    (templateCategory.fitTypes ?? []).map((fitType) => fitType._id.toString()),
   );
 
   for (const variant of variants) {
     if (!allowedFitTypeIds.has(variant.fitTypeId.trim())) {
       throw new ProductServiceError('Variant fitTypeId is not valid for this category', 400);
-    }
-
-    for (const sizeMeasurement of variant.sizeMeasurements) {
-      const measurementKeysForSize = sizeMeasurement.measurements.map((measurement) => measurement.key.trim().toLowerCase());
-      for (const requiredKey of requiredMeasurements) {
-        if (!measurementKeysForSize.includes(requiredKey)) {
-          throw new ProductServiceError(
-            `Measurement ${requiredKey} is required for size ${sizeMeasurement.size}`,
-            400,
-          );
-        }
-      }
-
-      for (const measurement of sizeMeasurement.measurements) {
-        const key = measurement.key.trim().toLowerCase();
-        if (!measurementKeys.includes(key)) {
-          throw new ProductServiceError(
-            `Measurement key ${measurement.key} is not valid for this category`,
-            400,
-          );
-        }
-      }
     }
   }
 };
@@ -318,6 +464,9 @@ type PopulatedCategory = {
   image?: string;
   isSizeTemplateSource?: boolean;
   sizeTemplateSourceId?: Types.ObjectId | null;
+  sizeGuideImage?: string;
+  isFitTypeTemplateSource?: boolean;
+  fitTypeTemplateSourceId?: Types.ObjectId | null;
   sizes?: string[];
   measurementFields?: IMeasurementField[];
   fitTypes?: ICategoryFitType[];
@@ -444,11 +593,17 @@ const getAvailableQuantityForVariant = (
   selectedSizes?: string[],
 ) => {
   const variantId = toIdString(variant._id);
+  const activeColorIds = new Set(
+    variant.colors
+      .filter((color) => color.isActive ?? true)
+      .map((color) => toIdString(color._id)),
+  );
 
   return inventoryItems
     .filter((inventory) => {
       return (
         toIdString(inventory.variantId) === variantId &&
+        activeColorIds.has(toIdString(inventory.colorVariantId)) &&
         inventory.availableQuantity > 0 &&
         matchesInventorySize(inventory, selectedSizes)
       );
@@ -490,12 +645,14 @@ const matchesVariantQuery = (
   variant: IProductVariant,
   query: ProductListQueryInput,
 ) => {
-  if (!variant.isActive || !hasVariantSize(variant, query.size)) {
+  const activeColors = variant.colors.filter((color) => color.isActive ?? true);
+
+  if (!variant.isActive || !activeColors.length || !hasVariantSize(variant, query.size)) {
     return false;
   }
 
-  if (!matchesTextList(variant.colors?.[0]?.color ?? '', query.color) && query.color?.length) {
-    return variant.colors.some((color) => matchesTextList(color.color, query.color));
+  if (query.color?.length && !activeColors.some((color) => matchesTextList(color.color, query.color))) {
+    return false;
   }
 
   if (!matchesObjectIdList(variant.fitTypeId, query.fitType)) {
@@ -578,6 +735,20 @@ const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_des
 const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
   const conditions: Record<string, unknown>[] = [
     { $eq: ['$$variant.isActive', true] },
+    {
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$$variant.colors', []] },
+              as: 'color',
+              cond: { $ne: ['$$color.isActive', false] },
+            },
+          },
+        },
+        0,
+      ],
+    },
   ];
   const selectedSizes = query.size
     ?.map((size) => size.trim().toLowerCase())
@@ -614,7 +785,10 @@ const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
               input: { $ifNull: ['$$variant.colors', []] },
               as: 'color',
               cond: {
-                $in: [{ $toLower: '$$color.color' }, selectedColors],
+                $and: [
+                  { $ne: ['$$color.isActive', false] },
+                  { $in: [{ $toLower: '$$color.color' }, selectedColors] },
+                ],
               },
             },
           },
@@ -788,6 +962,21 @@ const resolveCategoryFilter = async (query: ProductListQueryInput) => {
   return undefined;
 };
 
+const resolveActiveBrandFilter = async (brandIds?: string[]) => {
+  const filter: Record<string, unknown> = { isActive: true };
+
+  if (brandIds?.length) {
+    brandIds.forEach((brandId) => assertValidObjectId(brandId, 'brand id'));
+    filter._id = { $in: brandIds.map((brandId) => new Types.ObjectId(brandId)) };
+  }
+
+  const brands = await Brand.find(filter)
+    .select('_id')
+    .lean<Array<{ _id: Types.ObjectId }>>();
+
+  return brands.map((brand) => brand._id);
+};
+
 const toMaterialDescriptionRegex = (material: string) => {
   if (material.toLowerCase() !== 'da') {
     return toExactPhraseRegex(material);
@@ -881,10 +1070,7 @@ const buildProductListFilter = async (query: ProductListQueryInput): Promise<Pro
     filter.category_id = { $in: categoryIds };
   }
 
-  if (query.brandId?.length) {
-    query.brandId.forEach((brandId) => assertValidObjectId(brandId, 'brand id'));
-    filter.brand_id = { $in: query.brandId.map((brandId) => new Types.ObjectId(brandId)) };
-  }
+  filter.brand_id = { $in: await resolveActiveBrandFilter(query.brandId) };
 
   if (query.isNew) {
     filter.createdAt = { $gte: getNewProductCutoff() };
@@ -1088,6 +1274,7 @@ const mapProductListItem = (
 ) => {
   const productInventory = inventoryByProductId.get(product._id.toString()) ?? [];
   const displayVariant = selectDisplayVariant(product.variant, query, productInventory);
+  const displayColor = displayVariant?.colors.find((color) => color.isActive ?? true);
   const originalPrice = displayVariant?.price ?? 0;
   const discount = displayVariant?.discount ?? 0;
   const brand = isPopulatedBrand(product.brand_id)
@@ -1109,7 +1296,7 @@ const mapProductListItem = (
   return {
     _id: product._id.toString(),
     name: product.name,
-    image: displayVariant?.colors?.[0]?.image || product.product_image,
+    image: displayColor?.image || product.product_image,
     price: originalPrice,
     originalPrice,
     discount,
@@ -1175,7 +1362,7 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
 };
 
 const PRODUCT_DETAIL_CATEGORY_PROJECTION =
-  '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizes measurementFields fitTypes';
+  '_id name gender parent_id level image isSizeTemplateSource sizeTemplateSourceId sizeGuideImage isFitTypeTemplateSource fitTypeTemplateSourceId sizes measurementFields fitTypes';
 
 const DEFAULT_PRODUCT_POLICIES = [
   {
@@ -1351,6 +1538,43 @@ const resolveDetailCategoryTemplate = async (category: PopulatedCategory | null)
   return category;
 };
 
+const resolveDetailCategoryFitTypeTemplate = async (category: PopulatedCategory | null) => {
+  if (!category) {
+    return null;
+  }
+
+  if (category.isFitTypeTemplateSource) {
+    return category;
+  }
+
+  if (category.fitTypeTemplateSourceId) {
+    const sourceCategory = await getDetailCategoryById(category.fitTypeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.sizeTemplateSourceId) {
+    const sourceCategory = await getDetailCategoryById(category.sizeTemplateSourceId);
+    if (sourceCategory) {
+      return sourceCategory;
+    }
+  }
+
+  if (category.fitTypes?.length) {
+    return category;
+  }
+
+  if (category.parent_id) {
+    const parentCategory = await getDetailCategoryById(category.parent_id);
+    if (parentCategory) {
+      return parentCategory;
+    }
+  }
+
+  return category;
+};
+
 const mapDetailBrand = (relation: ProductListDocument['brand_id']) => {
   if (!isPopulatedBrand(relation)) {
     return null;
@@ -1440,6 +1664,7 @@ const mapDetailColor = (color: IProductVariant['colors'][number]): ProductDetail
   color: color.color,
   colorCode: resolveDisplayColorCode(color.colorCode, color.color),
   image: color.image,
+  isActive: color.isActive ?? true,
 });
 
 const getVariantInventoryItems = (
@@ -1483,10 +1708,20 @@ const mapDetailVariant = (
   fitTypeMap: ReturnType<typeof getFitTypeMap>,
   measurementFieldMap: ReturnType<typeof getMeasurementFieldMap>,
   inventoryItems: InventoryStockDocument[],
+  options: { includeInactiveColors?: boolean; includeInactiveInventory?: boolean } = {},
 ): ProductDetailVariant => {
   const originalPrice = variant.price;
   const discount = variant.discount;
-  const variantInventory = getVariantInventoryItems(variant, inventoryItems);
+  const displayColors = options.includeInactiveColors
+    ? variant.colors
+    : variant.colors.filter((color) => color.isActive ?? true);
+  const sellableColors = options.includeInactiveInventory
+    ? displayColors
+    : displayColors.filter((color) => color.isActive ?? true);
+  const sellableColorIds = new Set(sellableColors.map((color) => toIdString(color._id)));
+  const variantInventory = getVariantInventoryItems(variant, inventoryItems).filter((inventory) =>
+    sellableColorIds.has(toIdString(inventory.colorVariantId)),
+  );
 
   return {
     _id: toIdString(variant._id),
@@ -1498,7 +1733,7 @@ const mapDetailVariant = (
     finalPrice: getFinalPrice(originalPrice, discount),
     isSale: discount > 0,
     isActive: variant.isActive,
-    colors: variant.colors.map(mapDetailColor),
+    colors: displayColors.map(mapDetailColor),
     sizes: variant.sizeMeasurements.map((sizeMeasurement) => ({
       size: sizeMeasurement.size,
       availableQuantity: getAvailableQuantityForSize(sizeMeasurement.size, variantInventory),
@@ -1544,19 +1779,23 @@ const mapProductDetail = async (
   options: { includeInactiveVariants?: boolean } = {},
 ): Promise<ProductDetailResponse> => {
   const category = isPopulatedCategory(product.category_id) ? product.category_id : null;
-  const [templateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
+  const [templateCategory, fitTypeTemplateCategory, categoryBreadcrumb, inventoryItems] = await Promise.all([
     resolveDetailCategoryTemplate(category),
+    resolveDetailCategoryFitTypeTemplate(category),
     getCategoryBreadcrumb(category),
     Inventory.find({ productId: product._id }).lean<InventoryStockDocument[]>(),
   ]);
   await repairInventoryReferencesForProduct(product._id, product.variant, inventoryItems);
-  const fitTypeMap = getFitTypeMap(templateCategory);
+  const fitTypeMap = getFitTypeMap(fitTypeTemplateCategory);
   const measurementFieldMap = getMeasurementFieldMap(templateCategory);
   const detailVariants = options.includeInactiveVariants
     ? product.variant
     : product.variant.filter((variant) => variant.isActive);
   const variants = detailVariants.map((variant) =>
-    mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems),
+    mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems, {
+      includeInactiveColors: true,
+      includeInactiveInventory: options.includeInactiveVariants,
+    }),
   );
   const displayVariant =
     variants.find((variant) => variant.isActive && variant.inventory.some((inventory) => inventory.isAvailable)) ??
@@ -1591,6 +1830,7 @@ const mapProductDetail = async (
     brand: mapDetailBrand(product.brand_id),
     category: mapDetailCategory(product.category_id),
     categoryBreadcrumb,
+    sizeGuideImage: templateCategory?.sizeGuideImage?.trim() || undefined,
     variants,
     selectedVariantId: displayVariant?._id,
     colors: getDetailColors(selectableVariants),
@@ -1644,6 +1884,7 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   const categoryIdToValidate = input.category_id ?? (product.category_id instanceof Types.ObjectId ? product.category_id.toString() : String(product.category_id));
   if (input.variant !== undefined) {
     await assertVariantTemplateMatchesCategory(categoryIdToValidate, input.variant);
+    await assertVariantInventoryReferencesPreserved(product, input.variant);
   }
 
   const updateData: Record<string, unknown> = {};
@@ -1651,9 +1892,14 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   if (input.category_id !== undefined) updateData.category_id = new Types.ObjectId(input.category_id);
   if (input.name !== undefined) updateData.name = input.name.trim();
   if (input.brand_id !== undefined) updateData.brand_id = new Types.ObjectId(input.brand_id);
-  if (input.variant !== undefined) updateData.variant = normalizeVariants(input.variant);
+  if (input.variant !== undefined) updateData.variant = normalizeVariants(input.variant, product.variant);
   if (input.description !== undefined) updateData.description = input.description.trim();
-  if (input.product_image !== undefined) updateData.product_image = normalizeProductImageUrl(input.product_image);
+  if (
+    input.product_image !== undefined &&
+    normalizeStoredUrl(input.product_image) !== normalizeStoredUrl(product.product_image)
+  ) {
+    updateData.product_image = normalizeProductImageUrl(input.product_image);
+  }
   if (input.isActive !== undefined) {
     if (typeof input.isActive === 'boolean') {
       updateData.isActive = input.isActive;
@@ -1856,22 +2102,23 @@ const getManagementProducts = async (): Promise<ProductManagementItem[]> => {
       $set: {
         templateCategoryId: {
           $cond: [
-            { $eq: ['$category.isSizeTemplateSource', true] },
+            { $eq: ['$category.isFitTypeTemplateSource', true] },
             '$category._id',
             {
               $ifNull: [
-                '$category.sizeTemplateSourceId',
+                '$category.fitTypeTemplateSourceId',
                 {
-                  $cond: [
+                  $ifNull: [
+                    '$category.sizeTemplateSourceId',
                     {
-                      $or: [
-                        { $gt: [{ $size: { $ifNull: ['$category.fitTypes', []] } }, 0] },
-                        { $gt: [{ $size: { $ifNull: ['$category.measurementFields', []] } }, 0] },
-                        { $gt: [{ $size: { $ifNull: ['$category.sizes', []] } }, 0] },
+                      $cond: [
+                        {
+                          $gt: [{ $size: { $ifNull: ['$category.fitTypes', []] } }, 0],
+                        },
+                        '$category._id',
+                        '$category.parent_id',
                       ],
                     },
-                    '$category._id',
-                    '$category.parent_id',
                   ],
                 },
               ],
@@ -1956,6 +2203,7 @@ const getManagementProducts = async (): Promise<ProductManagementItem[]> => {
                 ? { colorCode: resolveDisplayColorCode(color.colorCode, color.color) }
                 : {}),
               image: color.image,
+              isActive: color.isActive ?? true,
               inventory: variant.sizeMeasurements.map((sizeMeasurement) => {
                 const inventory = inventoryByOption.get(
                   getInventoryLookupKey(variantId, colorId, sizeMeasurement.size),

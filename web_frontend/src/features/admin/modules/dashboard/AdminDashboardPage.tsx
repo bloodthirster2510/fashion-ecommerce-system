@@ -270,7 +270,7 @@ function TopProducts({ overview }: { overview: AdminDashboardOverview }) {
             {product.image ? <img src={product.image} alt="" /> : <span className="admin-dash-product-image" />}
             <div>
               <strong>{product.name}</strong>
-              <small>{product.sku} · {formatNumber(product.units)} sản phẩm</small>
+              <small>{formatNumber(product.units)} sản phẩm</small>
               <i aria-hidden="true"><em style={{ width: `${Math.max(4, (product.grossSales / maximum) * 100)}%` }} /></i>
             </div>
             <b>{formatCompactCurrency(product.grossSales)}</b>
@@ -314,12 +314,12 @@ function InventoryRisk({ overview }: { overview: AdminDashboardOverview }) {
               {item.image ? <img src={item.image} alt="" /> : <span />}
               <div>
                 <strong>{item.name}</strong>
-                <small>{item.sku} · Size {item.size} · còn {formatNumber(item.availableQuantity)}</small>
+                <small>Size {item.size} · còn {formatNumber(item.availableQuantity)}</small>
               </div>
               <em className={`is-${risk.tone}`}>{risk.label}</em>
             </article>
           )
-        }) : <div className="admin-dash-compact-empty">Không có SKU tồn kho thấp.</div>}
+        }) : <div className="admin-dash-compact-empty">Không có mặt hàng tồn kho thấp.</div>}
       </div>
     </section>
   )
@@ -442,9 +442,8 @@ export function AdminDashboardPage({ currentUser }: { currentUser: AdminUser }) 
     <section className="admin-ui-page admin-dash-page" aria-busy={loading}>
       <header className="admin-dash-hero">
         <div className="admin-dash-hero-copy">
-          <span className="admin-dash-eyebrow">{currentUser.role === 'admin' ? 'Góc nhìn chủ cửa hàng' : 'Không gian làm việc của bạn'}</span>
           <h1>{getGreeting()}, {firstName}</h1>
-          <p>Theo dõi nhịp bán hàng, nhận diện rủi ro và đi thẳng tới việc cần xử lý.</p>
+          <p>Nắm nhanh doanh thu, đơn hàng và việc cần xử lý hôm nay.</p>
           <small>Cập nhật lúc {formatUpdatedAt(overview?.generatedAt ?? notificationSummary?.generatedAt)}</small>
         </div>
         <div className="admin-dash-hero-controls">

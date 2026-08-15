@@ -3,9 +3,9 @@ export function StockWarning({ low, out }: { low: number; out: number }) {
 
   return (
     <span className="admin-product-warning">
-      {low ? <strong>{low} sắp hết</strong> : null}
+      {low ? <strong>{low} size sắp hết</strong> : null}
       {low && out ? <i aria-hidden="true">·</i> : null}
-      {out ? <strong className="is-out">{out} hết hàng</strong> : null}
+      {out ? <strong className="is-out">{out} size hết hàng</strong> : null}
     </span>
   )
 }

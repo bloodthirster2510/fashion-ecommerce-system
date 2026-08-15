@@ -18,6 +18,23 @@ const hasStatusCode = (value: unknown): value is { statusCode: number } => {
   );
 };
 
+const mapCartErrorMessage = (message: string) => {
+  if (message === 'Insufficient available inventory') {
+    return 'Không đủ hàng.';
+  }
+
+  if ([
+    'Product is not available',
+    'Variant is not available',
+    'Color variant not found',
+    'Size not found in product variant',
+  ].includes(message)) {
+    return 'Sản phẩm không tồn tại hoặc đã bị xóa.';
+  }
+
+  return message;
+};
+
 const getErrorResponse = (e: unknown) => {
   if (e instanceof SalesServiceError || hasStatusCode(e)) {
     if (e.statusCode >= 500) {
@@ -30,7 +47,7 @@ const getErrorResponse = (e: unknown) => {
 
     return {
       statusCode: e.statusCode,
-      message: e instanceof Error ? e.message : 'An error occurred',
+      message: e instanceof Error ? mapCartErrorMessage(e.message) : 'An error occurred',
     };
   }
 

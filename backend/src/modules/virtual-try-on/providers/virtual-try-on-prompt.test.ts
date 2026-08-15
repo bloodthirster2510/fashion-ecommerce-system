@@ -31,7 +31,7 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('faithfully transfer garment type, color, fabric texture');
     expect(result.prompt).toContain('source person image is the only reference for face, identity');
     expect(result.prompt).toContain('do not copy or infer any face, body shape, pose');
-    expect(result.prompt).toContain('clean professional styling');
+    expect(result.prompt).toContain('a contemporary professional office with glass partitions');
     expect(result.prompt).toContain('complete outfit try-on');
     expect(result.prompt).toContain('show the pair on the feet with correct scale');
     expect(result.negativePrompt).toContain('missing selected garment');
@@ -52,6 +52,10 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('scene requested by user: warm coffee shop with window light');
     expect(result.prompt).toContain('two-piece outfit try-on');
     expect(result.prompt).toContain('resolve the waist overlap naturally');
+    expect(result.prompt).toContain('GARMENT SOURCE OF TRUTH');
+    expect(result.prompt).toContain('mandatory and exclusive source for every wardrobe item');
+    expect(result.prompt).toContain('never use preset, scene, or custom prompt text');
+    expect(result.prompt).toContain('ignore the clothing instruction and follow the selected garment image');
   });
 
   it('keeps unrelated garments unchanged for a single top try-on', () => {
@@ -66,6 +70,31 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('single top try-on');
     expect(result.prompt).toContain('preserve the original pants or skirt, shoes, accessories');
     expect(result.negativePrompt).toContain('changed pants or shoes when only top is selected');
+  });
+
+  it('replaces the background for a scene preset without conflicting single-item instructions', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'work',
+      outfitMode: 'single',
+      garments: [garment({ role: 'top', name: 'Oxford shirt', color: 'white' })],
+    });
+
+    expect(result.prompt).toContain('background edit is required: replace the entire original background');
+    expect(result.prompt).toContain('a contemporary professional office with glass partitions');
+    expect(result.prompt).toContain('do not retain recognizable parts of the old background');
+    expect(result.prompt).not.toContain('background unless');
+    expect(result.prompt).not.toContain('background unchanged');
+  });
+
+  it('preserves the background when no new scene is requested', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'none',
+      outfitMode: 'single',
+      garments: [garment({ role: 'top', name: 'Oxford shirt', color: 'white' })],
+    });
+
+    expect(result.prompt).toContain('preserve the original background, lighting, camera angle, and room details');
+    expect(result.prompt).not.toContain('background edit is required');
   });
 
   it('adapts prompt framing for an upper-body source crop', () => {
@@ -152,13 +181,56 @@ describe('buildVirtualTryOnVideoPrompt', () => {
     });
 
     expect(result.prompt).toContain('exact first frame');
-    expect(result.prompt).toContain('continuous 8-second fashion showcase');
+    expect(result.prompt).toContain('continuous 8-second photorealistic fashion shot');
     expect(result.prompt).not.toContain('five-second');
-    expect(result.prompt).toContain('small elegant pose change');
-    expect(result.prompt).toContain('outfit design, garment color, pattern, print, logo');
+    expect(result.prompt).toContain('small coordinated hip and shoulder turn');
+    expect(result.prompt).toContain('ease smoothly into one simple movement');
+    expect(result.prompt).toContain('natural acceleration and deceleration');
+    expect(result.prompt).toContain('planted feet and hips initiate the weight transfer');
+    expect(result.prompt).toContain('eyes stay naturally open with a calm steady gaze and stable eyelids');
+    expect(result.prompt).toContain('do not animate blinking');
+    expect(result.prompt).not.toContain('one relaxed blink');
+    expect(result.prompt).toContain('fabric reacts a moment after the body');
+    expect(result.prompt).toContain('locked-off camera, stable perspective');
+    expect(result.prompt).toContain('complete outfit, garment details, accessories, shoes');
     expect(result.prompt).toContain('keep the existing user scene context: evening event with warm lights');
-    expect(result.prompt).toContain('no scene cut and no wardrobe change');
-    expect(result.negativePrompt).toContain('identity change');
+    expect(result.negativePrompt).toContain('identity, face, body shape, or skin tone change');
     expect(result.negativePrompt).toContain('fabric melting');
+    expect(result.negativePrompt).toContain('robotic motion');
+    expect(result.negativePrompt).toContain('foot sliding');
+    expect(result.negativePrompt).toContain('frequent or repeated blinking');
+    expect(result.negativePrompt).toContain('eyelid flutter');
+    expect(result.negativePrompt).toContain('camera shake or drift');
+  });
+
+  it('stays within the Kling single-prompt limit when the avoid list is appended', () => {
+    const result = buildVirtualTryOnVideoPrompt({
+      preset: 'none',
+      durationSeconds: 12,
+      customPrompt: 'x'.repeat(200),
+    });
+    const effectivePrompt = [
+      result.prompt,
+      'STRICT AVOID LIST — none of the following outcomes may appear in the result:',
+      result.negativePrompt,
+    ].join('\n\n');
+
+    expect(effectivePrompt.length).toBeLessThanOrEqual(2500);
+  });
+
+  it.each([
+    ['work', 'gently straightens their posture'],
+    ['casual', 'showing the outfit to a friend'],
+    ['travel', 'faint steady breeze'],
+    ['sport', 'softly flexing knees'],
+    ['date', 'slight head tilt'],
+  ] as const)('uses coordinated, restrained motion for the %s preset', (preset, expectedMotion) => {
+    const result = buildVirtualTryOnVideoPrompt({
+      preset,
+      durationSeconds: 5,
+    });
+
+    expect(result.prompt).toContain(expectedMotion);
+    expect(result.prompt).toContain('gently settle into a balanced final pose');
   });
 });

@@ -175,7 +175,7 @@ export const getSmsDeliveryCapability = (): SmsDeliveryInfo => {
 
 const getOtpMessage = (otp: string) => {
   const template = readEnv('SMS_OTP_TEMPLATE')
-    || 'Ma OTP cua ban la {OTP}. Ma co hieu luc trong 5 phut.';
+    || 'Mã OTP của bạn là {OTP}. Mã có hiệu lực trong 5 phút.';
   return template.includes('{OTP}')
     ? template.split('{OTP}').join(otp)
     : `${template} ${otp}`;
@@ -214,9 +214,19 @@ const requestJson = async (
     }
 
     if (!response.ok) {
-      throw new SmsDeliveryError(`Nhà cung cấp ${provider} từ chối yêu cầu gửi SMS`, {
+      const providerMessage = typeof payload.message === 'string'
+        ? payload.message
+        : typeof payload.error_message === 'string'
+          ? payload.error_message
+          : '';
+      const providerCode = payload.code !== undefined ? String(payload.code) : '';
+      throw new SmsDeliveryError(
+        providerMessage
+          ? `Nhà cung cấp ${provider} từ chối yêu cầu gửi SMS: ${providerMessage}`
+          : `Nhà cung cấp ${provider} từ chối yêu cầu gửi SMS`,
+        {
         status: 502,
-        code: 'SMS_PROVIDER_REJECTED',
+        code: providerCode ? `${provider.toUpperCase()}_${providerCode}` : 'SMS_PROVIDER_REJECTED',
         retryable: response.status === 429 || response.status >= 500,
       });
     }
@@ -309,7 +319,7 @@ const deliverWithEsms = async (phone: string, otp: string): Promise<SmsDeliveryR
         Phone: phone,
         Content: getOtpMessage(otp),
         SmsType: config.smsType,
-        IsUnicode: '0',
+        IsUnicode: '1',
         Sandbox: config.sandbox,
         RequestId: requestId,
         ...(config.brandName ? { Brandname: config.brandName } : {}),
@@ -317,14 +327,19 @@ const deliverWithEsms = async (phone: string, otp: string): Promise<SmsDeliveryR
     }));
   const resultCode = String(payload.CodeResult ?? '');
   const messageId = typeof payload.SMSID === 'string' ? payload.SMSID : '';
+  const errorMessage = typeof payload.ErrorMessage === 'string' ? payload.ErrorMessage : '';
 
-  if (resultCode !== '100' || !messageId) {
-    throw new SmsDeliveryError('eSMS chưa tiếp nhận yêu cầu gửi SMS', {
-      code: 'SMS_PROVIDER_NOT_ACCEPTED',
+  if (resultCode !== '100') {
+    throw new SmsDeliveryError(
+      errorMessage
+        ? `eSMS từ chối yêu cầu gửi SMS: ${errorMessage}`
+        : `eSMS từ chối yêu cầu gửi SMS với mã ${resultCode || 'không xác định'}`,
+      {
+      code: resultCode ? `ESMS_${resultCode}` : 'SMS_PROVIDER_NOT_ACCEPTED',
     });
   }
 
-  return { mode: 'real', provider: 'esms', messageId };
+  return { mode: 'real', provider: 'esms', ...(messageId ? { messageId } : {}) };
 };
 
 const deliverWithMock = (

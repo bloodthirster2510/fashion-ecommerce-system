@@ -8,7 +8,7 @@ import type {
   InventoryItem,
 } from './inventory.types'
 
-export type StockStatus = 'all' | 'available' | 'low' | 'out'
+export type StockStatus = 'all' | 'available' | 'warning'
 
 export type InventoryRow = InventoryItem & {
   product?: ManagedProduct

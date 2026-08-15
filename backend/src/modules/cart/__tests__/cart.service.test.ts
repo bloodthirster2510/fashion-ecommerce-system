@@ -48,6 +48,40 @@ const userId = '665000000000000000000020';
 const productId = new Types.ObjectId('665000000000000000000003');
 const variantId = new Types.ObjectId('665000000000000000000011');
 const colorVariantId = new Types.ObjectId('665000000000000000000012');
+const colorImage = 'https://example.com/black.png';
+
+const mockAvailableCartLookups = (availableQuantity = 10) => {
+  mockedProduct.find.mockReturnValue({
+    populate: jest.fn().mockResolvedValue([
+      {
+        _id: productId,
+        name: 'Basic Tee',
+        isActive: true,
+        product_image: colorImage,
+        brand_id: { _id: new Types.ObjectId(), name: 'Fashionista' },
+        variant: [
+          {
+            _id: variantId,
+            isActive: true,
+            price: 200000,
+            discount: 10,
+            colors: [{ _id: colorVariantId, color: 'Black', colorCode: '#000000', image: colorImage }],
+          },
+        ],
+      },
+    ]),
+  });
+  mockedInventory.find.mockResolvedValue([
+    {
+      productId,
+      variantId,
+      colorVariantId,
+      size: 'M',
+      sku: 'INV-TEE-BLK-M',
+      availableQuantity,
+    },
+  ]);
+};
 
 describe('cartService', () => {
   beforeEach(() => {
@@ -67,6 +101,7 @@ describe('cartService', () => {
     };
     mockedCart.findOne.mockResolvedValue(null);
     mockedCart.create.mockResolvedValue(cart as never);
+    mockAvailableCartLookups();
     mockedResolveSaleItem.mockResolvedValue({
       product: { name: 'Basic Tee' },
       variant: {},
@@ -79,7 +114,7 @@ describe('cartService', () => {
       sku: 'INV-TEE-BLK-M',
       finalPrice: 180000,
       fitType: 'Regular',
-      image: 'https://example.com/black.png',
+      image: colorImage,
     } as never);
 
     const result = await cartService.addCartItem(userId, {
@@ -117,6 +152,7 @@ describe('cartService', () => {
     };
     mockedCart.findOne.mockResolvedValue(null);
     mockedCart.create.mockResolvedValue(cart as never);
+    mockAvailableCartLookups();
     mockedResolveSaleItem.mockResolvedValue({
       product: { name: 'Basic Tee' },
       variant: {},
@@ -129,7 +165,7 @@ describe('cartService', () => {
       sku: 'INV-TEE-BLK-M',
       finalPrice: 180000,
       fitType: 'Regular',
-      image: 'https://example.com/black.png',
+      image: colorImage,
     } as never);
 
     const result = await cartService.addCartItem(userId, {
@@ -233,7 +269,7 @@ describe('cartService', () => {
         quantity: 2,
       }),
     ).rejects.toMatchObject({
-      message: 'Insufficient available inventory',
+      message: 'Không đủ hàng.',
       statusCode: 409,
     });
 
@@ -261,6 +297,7 @@ describe('cartService', () => {
       save: jest.fn().mockResolvedValue(undefined),
     };
     mockedCart.findOne.mockResolvedValue(cart as never);
+    mockAvailableCartLookups();
     mockedResolveSaleItem.mockResolvedValue({
       product: { name: 'Basic Tee' },
       variant: {},
@@ -273,7 +310,7 @@ describe('cartService', () => {
       sku: 'INV-TEE-BLK-M',
       finalPrice: 180000,
       fitType: 'Regular',
-      image: 'https://example.com/black.png',
+      image: colorImage,
     } as never);
 
     const result = await cartService.addCartItem(userId, {
@@ -293,5 +330,69 @@ describe('cartService', () => {
     expect(cart.save).toHaveBeenCalled();
     expect(result.summary.selectedItemCount).toBe(1);
     expect(result.summary.subTotal).toBe(180000);
+  });
+
+  it('selects an available cart item', async () => {
+    const itemId = new Types.ObjectId();
+    const cart = {
+      _id: new Types.ObjectId(),
+      user_id: new Types.ObjectId(userId),
+      product_list: [
+        {
+          _id: itemId,
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          sku: 'INV-TEE-BLK-M',
+          quantity: 2,
+          priceAtAddedTime: 180000,
+          isSelected: false,
+        },
+      ],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedCart.findOne.mockResolvedValue(cart as never);
+    mockAvailableCartLookups();
+
+    const result = await cartService.selectCartItem(userId, itemId.toString(), { isSelected: true });
+
+    expect(cart.product_list[0].isSelected).toBe(true);
+    expect(cart.save).toHaveBeenCalled();
+    expect(result.summary.selectedItemCount).toBe(2);
+    expect(result.summary.subTotal).toBe(360000);
+  });
+
+  it('does not select a cart item when inventory is insufficient', async () => {
+    const itemId = new Types.ObjectId();
+    const cart = {
+      _id: new Types.ObjectId(),
+      user_id: new Types.ObjectId(userId),
+      product_list: [
+        {
+          _id: itemId,
+          productId,
+          variantId,
+          colorVariantId,
+          size: 'M',
+          sku: 'INV-TEE-BLK-M',
+          quantity: 2,
+          priceAtAddedTime: 180000,
+          isSelected: false,
+        },
+      ],
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    mockedCart.findOne.mockResolvedValue(cart as never);
+    mockAvailableCartLookups(1);
+
+    const result = await cartService.selectCartItem(userId, itemId.toString(), { isSelected: true });
+
+    expect(cart.product_list[0].isSelected).toBe(false);
+    expect(cart.save).toHaveBeenCalled();
+    expect(result.product_list[0].isSelected).toBe(false);
+    expect(result.product_list[0].isAvailable).toBe(false);
+    expect(result.summary.selectedItemCount).toBe(0);
+    expect(result.summary.subTotal).toBe(0);
   });
 });

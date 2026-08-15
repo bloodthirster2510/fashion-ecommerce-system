@@ -3,6 +3,29 @@ import type { OrderItem } from '../orders/order.types'
 import type { AvailableCouponItem, MembershipTier, UserAddress } from './profile.service'
 
 export const passwordPattern = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/
+export const minimumCustomerAge = 16
+
+export const getMaxCustomerBirthDate = (today = new Date()) => {
+  const maxDate = new Date(Date.UTC(today.getFullYear() - minimumCustomerAge, today.getMonth(), today.getDate()))
+  return maxDate.toISOString().slice(0, 10)
+}
+
+export const isEligibleCustomerBirthDate = (value?: string) => {
+  if (!value) return false
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return false
+  }
+
+  return value <= getMaxCustomerBirthDate()
+}
 
 export const formatDateForInput = (value?: string) => {
   if (!value) return ''
@@ -24,6 +47,12 @@ export const formatDisplayDate = (value?: string) => {
 
 const normalizeAddressText = (value?: string | null) => value?.trim().replace(/\s+/g, ' ').toLocaleLowerCase('vi') ?? ''
 
+const getAdministrativeProvinceCode = (address?: UserAddress | null) => {
+  const code = address?.provinceCode?.trim()
+  if (!code || !/^\d{1,2}$/.test(code)) return undefined
+  return code.padStart(2, '0')
+}
+
 export const getCleanStreetName = (address?: UserAddress | null) => {
   if (!address?.streetName) return ''
 
@@ -44,12 +73,15 @@ export const getCleanStreetName = (address?: UserAddress | null) => {
   return streetParts.join(', ')
 }
 
-export const getAddressFormValues = (address?: UserAddress | null) => ({
-  streetName: getCleanStreetName(address),
-  provinceId: address?.ghnProvinceId ?? address?.provinceId ?? undefined,
-  districtId: address?.ghnDistrictId ?? address?.districtId ?? undefined,
-  wardCode: address?.ghnWardCode ?? address?.wardCode ?? undefined,
-})
+export const getAddressFormValues = (address?: UserAddress | null) => {
+  const provinceCode = getAdministrativeProvinceCode(address)
+
+  return {
+    streetName: getCleanStreetName(address),
+    provinceCode,
+    wardCode: provinceCode ? address?.wardCode ?? undefined : undefined,
+  }
+}
 
 export const formatAddressLine = (address: UserAddress) => (
   [getCleanStreetName(address), address.ward, address.district, address.province].filter(Boolean).join(', ')

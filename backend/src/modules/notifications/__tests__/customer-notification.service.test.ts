@@ -120,7 +120,7 @@ describe('customer notification service', () => {
           },
         },
       }],
-      { returnDocument: 'after', runValidators: true },
+      { returnDocument: 'after', runValidators: true, updatePipeline: true },
     );
   });
 

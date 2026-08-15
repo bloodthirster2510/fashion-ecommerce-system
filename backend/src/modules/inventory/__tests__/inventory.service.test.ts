@@ -1,5 +1,14 @@
 import mongoose, { Types } from 'mongoose';
-import { Inventory, InventoryImport, InventoryReceipt, InventoryReservation, Product } from '../../../database/models';
+import {
+  Inventory,
+  InventoryImport,
+  InventoryMovement,
+  InventoryReceipt,
+  InventoryReservation,
+  InventoryStocktake,
+  InventorySupplier,
+  Product,
+} from '../../../database/models';
 import { InventoryServiceError, inventoryService } from '../inventory.service';
 
 jest.mock('../../../database/models', () => ({
@@ -21,6 +30,11 @@ jest.mock('../../../database/models', () => ({
     countDocuments: jest.fn(),
     distinct: jest.fn(),
   },
+  InventoryMovement: {
+    create: jest.fn(),
+    find: jest.fn(),
+    countDocuments: jest.fn(),
+  },
   InventoryReceipt: {
     create: jest.fn(),
     find: jest.fn(),
@@ -32,13 +46,25 @@ jest.mock('../../../database/models', () => ({
     create: jest.fn(),
     find: jest.fn(),
   },
+  InventorySupplier: {
+    create: jest.fn(),
+    updateOne: jest.fn(),
+    find: jest.fn(),
+    findById: jest.fn(),
+  },
+  InventoryStocktake: {
+    create: jest.fn(),
+  },
 }));
 
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
 const mockedInventoryImport = InventoryImport as jest.Mocked<typeof InventoryImport>;
+const mockedInventoryMovement = InventoryMovement as jest.Mocked<typeof InventoryMovement>;
 const mockedInventoryReceipt = InventoryReceipt as jest.Mocked<typeof InventoryReceipt>;
 const mockedInventoryReservation = InventoryReservation as jest.Mocked<typeof InventoryReservation>;
+const mockedInventorySupplier = InventorySupplier as jest.Mocked<typeof InventorySupplier>;
+const mockedInventoryStocktake = InventoryStocktake as jest.Mocked<typeof InventoryStocktake>;
 const startSessionSpy = jest.spyOn(mongoose, 'startSession');
 
 type MockSession = {
@@ -107,6 +133,9 @@ describe('inventoryService', () => {
     mockSession = createMockSession();
     startSessionSpy.mockResolvedValue(mockSession as never);
     mockedProduct.findById.mockReturnValue(createQueryLikePromise(productDocument) as never);
+    mockedInventoryMovement.create.mockResolvedValue({} as never);
+    mockedInventorySupplier.updateOne.mockResolvedValue({} as never);
+    mockedInventoryStocktake.create.mockResolvedValue([{ _id: new Types.ObjectId() }] as never);
     mockReceiptCodeLookup();
   });
 
@@ -600,13 +629,23 @@ describe('inventoryService', () => {
       deleteOne: jest.fn().mockResolvedValue(undefined),
     };
     mockedInventoryImport.findById.mockResolvedValue(importRecord as never);
-    mockedInventory.updateOne.mockResolvedValue({ matchedCount: 1 } as never);
+    mockedInventory.findOneAndUpdate.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      productId: importRecord.productId,
+      variantId: importRecord.variantId,
+      colorVariantId: importRecord.colorVariantId,
+      size: 'M',
+      sku: 'INV-M',
+      quantity: 0,
+      reservedQuantity: 0,
+      availableQuantity: 0,
+    } as never);
 
     const result = await inventoryService.deleteImport(importRecord._id.toString());
 
     expect(result).toBe(importRecord);
     expect(mockedInventory.countDocuments).not.toHaveBeenCalled();
-    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
+    expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledWith(
       {
         productId: importRecord.productId,
         variantId: importRecord.variantId,
@@ -621,8 +660,13 @@ describe('inventoryService', () => {
           availableQuantity: -10,
         },
       },
-      { session: mockSession },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+        session: mockSession,
+      },
     );
+    expect(mockedInventoryMovement.create).toHaveBeenCalled();
     expect(importRecord.deleteOne).toHaveBeenCalledWith({ session: mockSession });
     expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
     expect(mockSession.endSession).toHaveBeenCalledTimes(1);
@@ -666,9 +710,19 @@ describe('inventoryService', () => {
       deleteOne: jest.fn().mockResolvedValue(undefined),
     };
     mockedInventoryImport.findById.mockResolvedValue(importRecord as never);
-    mockedInventory.updateOne
-      .mockResolvedValueOnce({ matchedCount: 1 } as never)
-      .mockResolvedValueOnce({ matchedCount: 0 } as never);
+    mockedInventory.findOneAndUpdate
+      .mockResolvedValueOnce({
+        _id: new Types.ObjectId(),
+        productId: importRecord.productId,
+        variantId: importRecord.variantId,
+        colorVariantId: importRecord.colorVariantId,
+        size: 'M',
+        sku: 'INV-M',
+        quantity: 5,
+        reservedQuantity: 0,
+        availableQuantity: 5,
+      } as never)
+      .mockResolvedValueOnce(null);
 
     await expect(
       inventoryService.deleteImport(importRecord._id.toString()),
@@ -677,7 +731,7 @@ describe('inventoryService', () => {
       statusCode: 409,
     });
 
-    expect(mockedInventory.updateOne).toHaveBeenCalledTimes(2);
+    expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledTimes(2);
     expect(importRecord.deleteOne).not.toHaveBeenCalled();
     expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
     expect(mockSession.endSession).toHaveBeenCalledTimes(1);
@@ -779,7 +833,17 @@ describe('inventoryService', () => {
     const sort = jest.fn().mockResolvedValue([firstImport, secondImport]);
 
     mockedInventoryReservation.find.mockResolvedValue([reservation] as never);
-    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedInventory.findOneAndUpdate.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      productId: reservation.productId,
+      variantId: reservation.variantId,
+      colorVariantId: reservation.colorVariantId,
+      size: 'M',
+      sku: 'INV-M',
+      quantity: 8,
+      reservedQuantity: 0,
+      availableQuantity: 8,
+    } as never);
     mockedInventoryImport.find.mockReturnValue({ sort } as never);
 
     await inventoryService.commitReservations({
@@ -807,14 +871,24 @@ describe('inventoryService', () => {
     const sort = jest.fn().mockResolvedValue([]);
 
     mockedInventoryReservation.find.mockResolvedValue([reservation] as never);
-    mockedInventory.updateOne.mockResolvedValue({} as never);
+    mockedInventory.findOneAndUpdate.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      productId: reservation.productId,
+      variantId: reservation.variantId,
+      colorVariantId: reservation.colorVariantId,
+      size: 'M',
+      sku: 'INV-M',
+      quantity: 8,
+      reservedQuantity: 0,
+      availableQuantity: 8,
+    } as never);
     mockedInventoryImport.find.mockReturnValue({ sort } as never);
 
     await inventoryService.commitReservations({
       reservationIds: [reservation._id.toString()],
     });
 
-    expect(mockedInventory.updateOne).toHaveBeenCalledWith(
+    expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         productId: reservation.productId,
         variantId: reservation.variantId,
@@ -827,6 +901,10 @@ describe('inventoryService', () => {
           quantity: -2,
           reservedQuantity: -2,
         },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
       },
     );
     expect(sort).toHaveBeenCalledWith({ createdAt: 1 });
@@ -889,6 +967,7 @@ describe('inventoryService', () => {
 
     const result = await inventoryService.adjustInventory(inventoryId.toString(), {
       quantity: 15,
+      reason: 'Kiểm kê lệch',
     });
 
     expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledWith(
@@ -907,6 +986,7 @@ describe('inventoryService', () => {
       {
         returnDocument: 'before',
         runValidators: true,
+        updatePipeline: true,
         session: mockSession,
       },
     );
@@ -962,6 +1042,7 @@ describe('inventoryService', () => {
 
     const result = await inventoryService.adjustInventory(inventoryId.toString(), {
       deltaQuantity: -3,
+      reason: 'Hàng lỗi',
     });
 
     expect(mockedInventory.findOneAndUpdate).toHaveBeenCalledWith(
@@ -982,6 +1063,7 @@ describe('inventoryService', () => {
       {
         returnDocument: 'before',
         runValidators: true,
+        updatePipeline: true,
         session: mockSession,
       },
     );
@@ -1002,6 +1084,7 @@ describe('inventoryService', () => {
     await expect(
       inventoryService.adjustInventory(inventoryId.toString(), {
         quantity: 2,
+        reason: 'Kiểm kê lệch',
       }),
     ).rejects.toMatchObject({
       message: 'quantity cannot be lower than reservedQuantity',

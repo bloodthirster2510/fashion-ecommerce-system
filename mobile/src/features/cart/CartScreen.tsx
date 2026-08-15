@@ -322,6 +322,11 @@ const CartScreen = () => {
   );
 
   const handleStartVirtualTryOn = () => {
+    if (!isAuthenticated || !session?.accessToken) {
+      navigation.navigate('Login');
+      return;
+    }
+
     if (!selectedCheckoutItems.length) {
       showNotice({
         tone: 'info',

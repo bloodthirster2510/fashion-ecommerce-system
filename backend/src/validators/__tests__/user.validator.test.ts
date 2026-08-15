@@ -13,11 +13,11 @@ describe('user validators', () => {
   it('rejects impossible and out-of-range birth dates', () => {
     expect(validateUpdateProfile({ dateOfBirth: '2010-02-31' })).toContainEqual({
       field: 'dateOfBirth',
-      message: 'Ngày sinh không hợp lệ hoặc độ tuổi phải từ 13 đến 100',
+      message: 'Ngày sinh không hợp lệ hoặc độ tuổi phải từ 16 đến 100',
     });
     expect(validateUpdateProfile({ dateOfBirth: '2999-01-01' })).toContainEqual({
       field: 'dateOfBirth',
-      message: 'Ngày sinh không hợp lệ hoặc độ tuổi phải từ 13 đến 100',
+      message: 'Ngày sinh không hợp lệ hoặc độ tuổi phải từ 16 đến 100',
     });
     expect(validateUpdateProfile({ dateOfBirth: '1990-01-01' })).toEqual([]);
   });

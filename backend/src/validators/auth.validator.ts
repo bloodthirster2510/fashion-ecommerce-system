@@ -1,4 +1,5 @@
 import { LEGAL_POLICY_VERSION } from '../modules/auth/legal-policy';
+import { customerBirthDateMessage, isValidCustomerBirthDate } from './birth-date.validator';
 
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -8,70 +9,81 @@ export interface ValidationError {
   message: string;
 }
 
-export const validateSendOtp = (body: Record<string, unknown>): ValidationError[] => {
+const getRequestBody = (body: Record<string, unknown> | null | undefined): Record<string, unknown> =>
+  body ?? {};
+
+export const validateSendOtp = (body: Record<string, unknown> | null | undefined): ValidationError[] => {
+  const requestBody = getRequestBody(body);
   const errors: ValidationError[] = [];
 
-  if (!body.phone || typeof body.phone !== 'string' || !vietnamPhoneRegex.test(body.phone.trim())) {
+  if (!requestBody.phone || typeof requestBody.phone !== 'string' || !vietnamPhoneRegex.test(requestBody.phone.trim())) {
     errors.push({ field: 'phone', message: 'Số điện thoại không đúng định dạng' });
   }
 
   return errors;
 };
 
-export const validateVerifyOtp = (body: Record<string, unknown>): ValidationError[] => {
+export const validateVerifyOtp = (body: Record<string, unknown> | null | undefined): ValidationError[] => {
+  const requestBody = getRequestBody(body);
   const errors: ValidationError[] = [];
 
-  if (!body.phone || typeof body.phone !== 'string' || !vietnamPhoneRegex.test(body.phone.trim())) {
+  if (!requestBody.phone || typeof requestBody.phone !== 'string' || !vietnamPhoneRegex.test(requestBody.phone.trim())) {
     errors.push({ field: 'phone', message: 'Số điện thoại không đúng định dạng' });
   }
 
-  if (!body.otp || typeof body.otp !== 'string' || body.otp.trim().length === 0) {
-    errors.push({ field: 'otp', message: 'Vui lòng nhập mã OTP' });
+  if (!requestBody.otp || typeof requestBody.otp !== 'string' || !/^\d{6}$/.test(requestBody.otp.trim())) {
+    errors.push({ field: 'otp', message: 'Mã OTP phải gồm 6 chữ số' });
   }
 
   return errors;
 };
 
-export const validateRegister = (body: Record<string, unknown>): ValidationError[] => {
+export const validateRegister = (body: Record<string, unknown> | null | undefined): ValidationError[] => {
+  const requestBody = getRequestBody(body);
   const errors: ValidationError[] = [];
 
-  if (!body.name || typeof body.name !== 'string' || body.name.trim().length < 2 || body.name.trim().length > 60) {
+  if (!requestBody.name || typeof requestBody.name !== 'string' || requestBody.name.trim().length < 2 || requestBody.name.trim().length > 60) {
     errors.push({ field: 'name', message: 'Họ tên từ 2 đến 60 ký tự' });
   }
 
-  if (!body.phone || typeof body.phone !== 'string' || !vietnamPhoneRegex.test(body.phone.trim())) {
+  if (!requestBody.phone || typeof requestBody.phone !== 'string' || !vietnamPhoneRegex.test(requestBody.phone.trim())) {
     errors.push({ field: 'phone', message: 'Số điện thoại không đúng định dạng' });
   }
 
-  if (!body.email || typeof body.email !== 'string' || !emailRegex.test(body.email.trim())) {
+  if (
+    requestBody.email !== undefined
+    && requestBody.email !== null
+    && String(requestBody.email).trim().length > 0
+    && (typeof requestBody.email !== 'string' || !emailRegex.test(requestBody.email.trim()))
+  ) {
     errors.push({ field: 'email', message: 'Email không đúng định dạng' });
   }
 
-  if (!body.gender || !['male', 'female'].includes(body.gender as string)) {
+  if (!requestBody.gender || !['male', 'female'].includes(requestBody.gender as string)) {
     errors.push({ field: 'gender', message: 'Giới tính phải là male hoặc female' });
   }
 
-  if (!body.dateOfBirth || typeof body.dateOfBirth !== 'string' || isNaN(Date.parse(body.dateOfBirth as string))) {
-    errors.push({ field: 'dateOfBirth', message: 'Ngày sinh không hợp lệ' });
+  if (!isValidCustomerBirthDate(requestBody.dateOfBirth)) {
+    errors.push({ field: 'dateOfBirth', message: customerBirthDateMessage });
   }
 
-  if (!body.password || typeof body.password !== 'string' || body.password.length < 8) {
+  if (!requestBody.password || typeof requestBody.password !== 'string' || requestBody.password.length < 8) {
     errors.push({ field: 'password', message: 'Mật khẩu tối thiểu 8 ký tự' });
   }
 
-  if (body.password !== body.confirmPassword) {
+  if (requestBody.password !== requestBody.confirmPassword) {
     errors.push({ field: 'confirmPassword', message: 'Xác nhận mật khẩu không trùng khớp' });
   }
 
-  if (!body.otpToken || typeof body.otpToken !== 'string' || body.otpToken.trim().length === 0) {
+  if (!requestBody.otpToken || typeof requestBody.otpToken !== 'string' || requestBody.otpToken.trim().length === 0) {
     errors.push({ field: 'otpToken', message: 'OTP chưa được xác thực' });
   }
 
-  if (body.acceptedTerms !== true) {
+  if (requestBody.acceptedTerms !== true) {
     errors.push({ field: 'acceptedTerms', message: 'Bạn cần đồng ý với điều khoản và chính sách bảo mật' });
   }
 
-  if (body.policyVersion !== LEGAL_POLICY_VERSION) {
+  if (requestBody.policyVersion !== LEGAL_POLICY_VERSION) {
     errors.push({ field: 'policyVersion', message: 'Phiên bản chính sách không hợp lệ, vui lòng tải lại trang' });
   }
 
@@ -80,13 +92,16 @@ export const validateRegister = (body: Record<string, unknown>): ValidationError
 
 export const validateLogin = (body: Record<string, unknown>): ValidationError[] => {
   const errors: ValidationError[] = [];
+  const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
 
-  if (!body.identifier || typeof body.identifier !== 'string' || body.identifier.trim().length === 0) {
-    errors.push({ field: 'identifier', message: 'Vui lòng nhập email hoặc số điện thoại' });
+  if (!identifier) {
+    errors.push({ field: 'identifier', message: 'Vui lòng nhập email hoặc số điện thoại.' });
+  } else if (!emailRegex.test(identifier) && !vietnamPhoneRegex.test(identifier)) {
+    errors.push({ field: 'identifier', message: 'Email hoặc số điện thoại không hợp lệ.' });
   }
 
   if (!body.password || typeof body.password !== 'string' || body.password.length === 0) {
-    errors.push({ field: 'password', message: 'Vui lòng nhập mật khẩu' });
+    errors.push({ field: 'password', message: 'Vui lòng nhập mật khẩu.' });
   }
 
   return errors;

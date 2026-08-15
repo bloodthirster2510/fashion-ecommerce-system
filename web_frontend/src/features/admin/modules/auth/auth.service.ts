@@ -1,6 +1,7 @@
 import type {
   AdminLoginCredentials,
   AdminSession,
+  AdminUser,
   ChangePasswordPayload,
 } from './auth.types'
 import { API_BASE_URL } from '../../../../config/api'
@@ -19,6 +20,17 @@ type ApiResponse<T> = {
 type RefreshTokenResponse = {
   accessToken: string
   refreshToken?: string
+  user?: AdminUser
+}
+
+export class AdminAuthError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'AdminAuthError'
+    this.status = status
+  }
 }
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
@@ -29,10 +41,25 @@ const parseResponse = async <T>(response: Response, fallbackMessage: string) => 
   const result = (await response.json().catch(() => ({}))) as ApiResponse<T>
 
   if (!response.ok || result.data === undefined) {
-    throw new Error(result.message || fallbackMessage)
+    throw new AdminAuthError(result.message || fallbackMessage, response.status)
   }
 
   return result.data
+}
+
+const assertAdminRefreshUser = (storedUser: AdminSession['user'], refreshedUser?: AdminSession['user']) => {
+  if (!refreshedUser) {
+    throw new Error('Phiên đăng nhập quản trị không hợp lệ')
+  }
+
+  if (
+    refreshedUser._id !== storedUser._id ||
+    (refreshedUser.role !== 'admin' && refreshedUser.role !== 'staff')
+  ) {
+    throw new Error('Phiên đăng nhập quản trị đã thay đổi, vui lòng đăng nhập lại')
+  }
+
+  return refreshedUser
 }
 
 export const loginAdmin = async (
@@ -73,9 +100,10 @@ const performAdminSessionRefresh = async () => {
     response,
     'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại',
   )
+  const refreshedUser = assertAdminRefreshUser(storedUser, result.user)
   const nextSession: AdminSession = {
     accessToken: result.accessToken,
-    user: storedUser,
+    user: refreshedUser,
   }
 
   if (getAdminSessionRevision() !== sessionRevision) {
@@ -101,6 +129,17 @@ export const refreshAdminSession = () => {
   adminRefreshRequest = request
   adminRefreshRequestRevision = currentRevision
   return request
+}
+
+export const getCurrentAdminUser = async (accessToken: string): Promise<AdminUser> => {
+  const response = await fetch(`${API_BASE_URL}/auth/admin/session`, {
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  return parseResponse<AdminUser>(response, 'Không thể cập nhật quyền tài khoản')
 }
 
 export const changeAdminPassword = async (

@@ -72,5 +72,4 @@ export const authApi = {
     post<null>('/auth/reset-password', { identifier, token, newPassword, confirmPassword }),
   changePassword: (accessToken: string, currentPassword: string, newPassword: string, confirmPassword: string) =>
     post<null>('/auth/change-password', { currentPassword, newPassword, confirmPassword }, accessToken),
-  socialLogin: (provider: string, idToken: string) => post<AuthSession>('/auth/social-login', { provider, idToken }),
 };

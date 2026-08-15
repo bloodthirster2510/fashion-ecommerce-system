@@ -17,6 +17,7 @@ import { tokenService } from '../../../services/tokenService'
 import { setCurrentUser } from '../../auth/auth.slice'
 import { profileService } from '../profile.service'
 import { readFileAsDataUrl } from '../profile.utils'
+import '../profile.css'
 
 const menuItems = [
   { key: 'profile', icon: <UserOutlined />, label: 'Thông tin cá nhân' },
@@ -39,6 +40,7 @@ const menuPaths: Record<string, string> = {
   favorites: '/account?section=favorites',
   ranking: '/account?section=ranking',
   coupons: '/account?section=coupons',
+  payment: '/account?section=payment',
   support: '/account/support',
 }
 

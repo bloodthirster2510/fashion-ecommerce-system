@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T08:26:48.107Z",
+  "algorithmVersion": "v7_similar_cosine_cart_association",
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.25,
+      "cosineSimilarity": 0.65,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.2,
+      "styleCompatibility": 0.25,
+      "popularity": 0,
+      "business": 0.05,
+      "associationLift": 0.5
+    }
+  },
+  "k": 5,
+  "dataset": {
+    "name": "Amazon Reviews 2023 - Amazon Fashion controlled subset",
+    "source": "McAuley-Lab/Amazon-Reviews-2023; Kaggle mirror pandeymritunjay/amazon-reco-ds v8",
+    "split": "train before 2021-09-11T03:24:38.515Z; test from that timestamp to 2022-09-11T03:24:38.515Z (exclusive)",
+    "notes": "Verified purchases with rating >= 4. Product-detail relevance uses next-positive-item proxy; cart relevance uses held-out same-day co-review basket proxy. Business signal is fixed at zero because equivalent sale/new-arrival fields are unavailable."
+  },
+  "contexts": [
+    {
+      "context": "product_detail_similar",
+      "baselineMethod": "cosine_similarity",
+      "proposed": {
+        "cases": 646,
+        "hitRateAtK": 0.088235,
+        "precisionAtK": 0.017647,
+        "recallAtK": 0.088235,
+        "mapAtK": 0.047601,
+        "mrrAtK": 0.047601,
+        "ndcgAtK": 0.057513,
+        "catalogCoverageAtK": 0.286403,
+        "categoryDiversityAtK": 0.475851,
+        "brandDiversityAtK": 0.881734
+      },
+      "baseline": {
+        "cases": 646,
+        "hitRateAtK": 0.092879,
+        "precisionAtK": 0.018576,
+        "recallAtK": 0.092879,
+        "mapAtK": 0.047162,
+        "mrrAtK": 0.047162,
+        "ndcgAtK": 0.058253,
+        "catalogCoverageAtK": 0.286403,
+        "categoryDiversityAtK": 0.457276,
+        "brandDiversityAtK": 0.873994
+      },
+      "delta": {
+        "hitRateAtK": -0.004644,
+        "precisionAtK": -0.000929,
+        "recallAtK": -0.004644,
+        "mapAtK": 0.000439,
+        "mrrAtK": 0.000439,
+        "ndcgAtK": -0.00074,
+        "catalogCoverageAtK": 0,
+        "categoryDiversityAtK": 0.018575,
+        "brandDiversityAtK": 0.00774
+      }
+    }
+  ]
+}

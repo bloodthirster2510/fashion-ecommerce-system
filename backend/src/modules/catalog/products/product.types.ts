@@ -5,7 +5,7 @@ export interface ProductMeasurementValueInput {
 
 export interface ProductSizeMeasurementInput {
   size: string;
-  measurements: ProductMeasurementValueInput[];
+  measurements?: ProductMeasurementValueInput[];
 }
 
 export interface ProductColorVariantInput {
@@ -13,6 +13,7 @@ export interface ProductColorVariantInput {
   color: string;
   colorCode?: string;
   image: string;
+  isActive?: boolean;
 }
 
 export interface ProductVariantInput {
@@ -139,6 +140,7 @@ export interface ProductManagementColor {
   color: string;
   colorCode?: string;
   image: string;
+  isActive: boolean;
   inventory: ProductManagementInventoryItem[];
 }
 
@@ -170,6 +172,7 @@ export interface ProductDetailColor {
   color: string;
   colorCode?: string;
   image: string;
+  isActive: boolean;
 }
 
 export interface ProductCategoryBreadcrumbItem {
@@ -252,6 +255,7 @@ export interface ProductDetailResponse {
     image?: string;
   } | null;
   categoryBreadcrumb: ProductCategoryBreadcrumbItem[];
+  sizeGuideImage?: string;
   variants: ProductDetailVariant[];
   selectedVariantId?: string;
   colors: ProductDetailColor[];

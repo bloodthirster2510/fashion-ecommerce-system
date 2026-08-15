@@ -20,6 +20,7 @@ export type UserAddressInput = {
   ghnMappingStatus?: GhnMappingStatus;
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | string | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
 };
 
 const trimRequired = (value: string | number) => String(value).trim();
@@ -32,10 +33,23 @@ const toPositiveIntegerOrNull = (value: unknown) => {
   return Number.isInteger(numericValue) && numericValue > 0 ? numericValue : null;
 };
 
-export const normalizeUserAddressInput = (address: UserAddressInput) => {
+export const normalizeUserAddressInput = (
+  address: UserAddressInput,
+  options: { trustStoredGhnVerification?: boolean } = {},
+) => {
   const provinceId = toPositiveIntegerOrNull(address.provinceId);
   const districtId = toPositiveIntegerOrNull(address.districtId);
-  const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields(address);
+  const resolvedGhnFields = shippingAreaMappingService.resolveStoredGhnFields({
+    ...address,
+    ...(!options.trustStoredGhnVerification
+      ? {
+          ghnMappingStatus: address.ghnMappingStatus === 'missing' ? 'missing' as const : 'manual' as const,
+          ghnMappingConfidence: null,
+          ghnMappingVerifiedAt: null,
+          ghnMappingVerificationSource: null,
+        }
+      : {}),
+  });
 
   return {
     customerName: trimRequired(address.customerName),
@@ -54,6 +68,7 @@ export const normalizeUserAddressInput = (address: UserAddressInput) => {
     ghnMappingStatus: resolvedGhnFields.ghnMappingStatus,
     ghnMappingConfidence: resolvedGhnFields.ghnMappingConfidence,
     ghnMappingVerifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    ghnMappingVerificationSource: resolvedGhnFields.ghnMappingVerificationSource,
     isDefault: Boolean(address.isDefault),
   };
 };

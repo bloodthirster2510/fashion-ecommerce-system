@@ -49,6 +49,15 @@ describe('paginated mobile APIs', () => {
     );
   });
 
+  it('loads products that are eligible for a mobile review', async () => {
+    await reviewApi.listEligible('access-token', { page: 2, limit: 20 });
+
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/reviews/eligible-items?page=2&limit=20&status=eligible',
+      expect.objectContaining({ timeoutMs: 30000 }),
+    );
+  });
+
   it('sends the customer token when restoring helpful votes on product reviews', async () => {
     await reviewApi.listProductReviews('product-1', { page: 1, limit: 5 }, 'access-token');
 

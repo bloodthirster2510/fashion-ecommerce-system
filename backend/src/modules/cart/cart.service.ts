@@ -141,56 +141,83 @@ const buildCartItemLookups = async (items: ICartItem[]) => {
   };
 };
 
+const isCartItemAvailable = (
+  item: ICartItem,
+  productById: Map<string, CartProductDocument>,
+  inventoryByKey: Map<string, IInventory>,
+) => {
+  const product = productById.get(toIdString(item.productId));
+  const variant = product?.variant.find(
+    (entry: IProductVariant) => toIdString(entry._id) === toIdString(item.variantId),
+  );
+  const color = variant?.colors.find(
+    (entry: IColorVariant) => toIdString(entry._id) === toIdString(item.colorVariantId),
+  );
+  const inventory = inventoryByKey.get(
+    getInventoryKey(item.productId, item.variantId, item.colorVariantId, item.size),
+  );
+
+  return Boolean(
+    product?.isActive &&
+    variant?.isActive &&
+    color?.isActive !== false &&
+    inventory &&
+    inventory.availableQuantity >= item.quantity,
+  );
+};
+
 const summarizeCart = async (cart: ICart | null) => {
   const items = (cart?.product_list ?? []).slice().sort((a, b) => {
     const aTime = a.addedAt ? a.addedAt.getTime() : 0;
     const bTime = b.addedAt ? b.addedAt.getTime() : 0;
     return bTime - aTime;
   });
-  const selectedItems = items.filter((item) => item.isSelected);
   const { productById, inventoryByKey } = await buildCartItemLookups(items);
+  const productList = items.map((item) => {
+    const product = productById.get(toIdString(item.productId));
+    const variant = product?.variant.find(
+      (entry: IProductVariant) => toIdString(entry._id) === toIdString(item.variantId),
+    );
+    const color = variant?.colors.find(
+      (entry: IColorVariant) => toIdString(entry._id) === toIdString(item.colorVariantId),
+    );
+    const inventory = inventoryByKey.get(
+      getInventoryKey(item.productId, item.variantId, item.colorVariantId, item.size),
+    );
+    const availableQuantity = inventory?.availableQuantity ?? 0;
+    const isAvailable = isCartItemAvailable(item, productById, inventoryByKey);
+
+    return {
+      _id: toIdString(item._id),
+      productId: toIdString(item.productId),
+      variantId: toIdString(item.variantId),
+      colorVariantId: toIdString(item.colorVariantId),
+      size: item.size,
+      sku: item.sku,
+      quantity: item.quantity,
+      priceAtAddedTime: item.priceAtAddedTime,
+      isSelected: item.isSelected,
+      recommendationRequestId: item.recommendationRequestId ?? undefined,
+      lineTotal: item.quantity * item.priceAtAddedTime,
+      name: product?.name,
+      brand: getBrandSnapshot(product?.brand_id),
+      color: color?.color,
+      colorCode: color?.colorCode,
+      image: color?.image || product?.product_image,
+      originalPrice: variant?.price ?? item.priceAtAddedTime,
+      discount: variant?.discount ?? 0,
+      availableQuantity,
+      isAvailable,
+    };
+  });
+  const selectedItems = productList.filter((item) => item.isSelected && item.isAvailable);
 
   return {
     _id: cart?._id?.toString(),
     user_id: cart?.user_id?.toString(),
-    product_list: items.map((item) => {
-      const product = productById.get(toIdString(item.productId));
-      const variant = product?.variant.find(
-        (entry: IProductVariant) => toIdString(entry._id) === toIdString(item.variantId),
-      );
-      const color = variant?.colors.find(
-        (entry: IColorVariant) => toIdString(entry._id) === toIdString(item.colorVariantId),
-      );
-      const inventory = inventoryByKey.get(
-        getInventoryKey(item.productId, item.variantId, item.colorVariantId, item.size),
-      );
-      const availableQuantity = inventory?.availableQuantity ?? 0;
-
-      return {
-        _id: toIdString(item._id),
-        productId: toIdString(item.productId),
-        variantId: toIdString(item.variantId),
-        colorVariantId: toIdString(item.colorVariantId),
-        size: item.size,
-        sku: item.sku,
-        quantity: item.quantity,
-        priceAtAddedTime: item.priceAtAddedTime,
-        isSelected: item.isSelected,
-        recommendationRequestId: item.recommendationRequestId ?? undefined,
-        lineTotal: item.quantity * item.priceAtAddedTime,
-        name: product?.name,
-        brand: getBrandSnapshot(product?.brand_id),
-        color: color?.color,
-        colorCode: color?.colorCode,
-        image: color?.image || product?.product_image,
-        originalPrice: variant?.price ?? item.priceAtAddedTime,
-        discount: variant?.discount ?? 0,
-        availableQuantity,
-        isAvailable: Boolean(product?.isActive && variant?.isActive && availableQuantity >= item.quantity),
-      };
-    }),
+    product_list: productList,
     summary: {
-      itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+      itemCount: productList.reduce((sum, item) => sum + item.quantity, 0),
       selectedItemCount: selectedItems.reduce((sum, item) => sum + item.quantity, 0),
       subTotal: selectedItems.reduce((sum, item) => sum + item.quantity * item.priceAtAddedTime, 0),
     },
@@ -230,7 +257,7 @@ const addCartItem = async (userId: string, input: AddCartItemInput) => {
     assertPositiveQuantity(nextQuantity);
 
     if (resolved.inventory.availableQuantity < nextQuantity) {
-      throw new SalesServiceError('Insufficient available inventory', 409);
+      throw new SalesServiceError('Không đủ hàng.', 409);
     }
 
     existingItem.quantity = nextQuantity;
@@ -305,7 +332,7 @@ const updateCartItem = async (userId: string, itemId: string, input: UpdateCartI
     assertPositiveQuantity(mergedQuantity);
 
     if (resolved.inventory.availableQuantity < mergedQuantity) {
-      throw new SalesServiceError('Insufficient available inventory', 409);
+      throw new SalesServiceError('Không đủ hàng.', 409);
     }
 
     duplicateItem.quantity = mergedQuantity;
@@ -328,7 +355,12 @@ const selectCartItem = async (userId: string, itemId: string, input: SelectCartI
   const cart = await getOrCreateCart(userId);
   const item = findCartItem(cart, itemId);
 
-  item.isSelected = Boolean(input.isSelected);
+  if (input.isSelected) {
+    const { productById, inventoryByKey } = await buildCartItemLookups([item]);
+    item.isSelected = isCartItemAvailable(item, productById, inventoryByKey);
+  } else {
+    item.isSelected = false;
+  }
 
   await cart.save();
   return summarizeCart(cart);
@@ -336,8 +368,10 @@ const selectCartItem = async (userId: string, itemId: string, input: SelectCartI
 
 const selectAllCartItems = async (userId: string, input: SelectAllCartItemsInput) => {
   const cart = await getOrCreateCart(userId);
+  const { productById, inventoryByKey } = await buildCartItemLookups(cart.product_list);
+
   cart.product_list.forEach((item: ICartItem) => {
-    item.isSelected = Boolean(input.isSelected);
+    item.isSelected = Boolean(input.isSelected) && isCartItemAvailable(item, productById, inventoryByKey);
   });
 
   await cart.save();

@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1050" viewBox="0 0 1500 1050" role="img" aria-labelledby="title desc">
+  <title id="title">Experimental process for model evaluation</title>
+  <desc id="desc">A theoretical experimental workflow for comparing CLIP ViT-B/32, Marqo FashionCLIP, and FashionCLIP 2.0 on DeepFashion In-shop image retrieval.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#222"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Times New Roman", serif; fill: #111; }
+      .subtitle { font: 400 16px Arial, sans-serif; fill: #444; }
+      .box-title { font: 700 17px "Times New Roman", serif; fill: #111; }
+      .box-text { font: 400 15px "Times New Roman", serif; fill: #111; }
+      .small { font: 400 13px Arial, sans-serif; fill: #333; }
+      .tiny { font: 400 12px Arial, sans-serif; fill: #444; }
+      .box { fill: #fff; stroke: #222; stroke-width: 2; }
+      .soft { fill: #f8f8f8; stroke: #222; stroke-width: 2; }
+      .dash { fill: #fff; stroke: #555; stroke-width: 1.5; stroke-dasharray: 7 5; }
+      .arrow { stroke: #222; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .thin { stroke: #222; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1500" height="1050" fill="#ffffff"/>
+
+  <text x="750" y="50" text-anchor="middle" class="title">EXPERIMENTAL PROCESS FOR MODEL EVALUATION</text>
+  <text x="750" y="78" text-anchor="middle" class="subtitle">Comparative image retrieval evaluation on the DeepFashion In-shop dataset</text>
+
+  <g>
+    <rect x="430" y="110" width="640" height="46" rx="8" class="box"/>
+    <text x="750" y="139" text-anchor="middle" class="box-title">1. DeepFashion In-shop Clothes Retrieval Dataset</text>
+
+    <line x1="750" y1="156" x2="750" y2="184" class="arrow"/>
+
+    <rect x="430" y="184" width="640" height="64" rx="8" class="box"/>
+    <text x="750" y="210" text-anchor="middle" class="box-title">2. Select Evaluation Subset</text>
+    <text x="750" y="232" text-anchor="middle" class="box-text">70 query images + 1,000 gallery images</text>
+
+    <rect x="1100" y="174" width="280" height="84" rx="8" class="dash"/>
+    <text x="1240" y="198" text-anchor="middle" class="tiny">A smaller subset reduces</text>
+    <text x="1240" y="216" text-anchor="middle" class="tiny">computational cost while keeping</text>
+    <text x="1240" y="234" text-anchor="middle" class="tiny">the retrieval relationship.</text>
+    <line x1="1070" y1="216" x2="1100" y2="216" stroke="#555" stroke-width="1.5" stroke-dasharray="7 5"/>
+
+    <line x1="750" y1="248" x2="750" y2="276" class="arrow"/>
+
+    <rect x="365" y="276" width="770" height="62" rx="8" class="box"/>
+    <text x="750" y="302" text-anchor="middle" class="box-title">3. Keep the Same Query Set, Gallery Set, and Evaluation Criteria</text>
+    <text x="750" y="324" text-anchor="middle" class="box-text">This ensures that differences in results come mainly from the evaluated model.</text>
+  </g>
+
+  <line x1="750" y1="338" x2="750" y2="368" class="arrow"/>
+
+  <g>
+    <rect x="105" y="368" width="1290" height="250" rx="10" class="soft"/>
+    <text x="750" y="397" text-anchor="middle" class="box-title">4. Candidate Models</text>
+
+    <g>
+      <rect x="150" y="430" width="340" height="142" rx="8" class="box"/>
+      <text x="320" y="459" text-anchor="middle" class="box-title">CLIP ViT-B/32</text>
+      <line x1="320" y1="474" x2="320" y2="496" class="thin"/>
+      <rect x="185" y="496" width="270" height="34" rx="7" class="soft"/>
+      <text x="320" y="518" text-anchor="middle" class="box-text">Encode Gallery Images</text>
+      <line x1="320" y1="530" x2="320" y2="548" class="thin"/>
+      <text x="320" y="563" text-anchor="middle" class="small">Encode Query Images</text>
+    </g>
+
+    <g>
+      <rect x="580" y="430" width="340" height="142" rx="8" class="box"/>
+      <text x="750" y="459" text-anchor="middle" class="box-title">Marqo FashionCLIP</text>
+      <line x1="750" y1="474" x2="750" y2="496" class="thin"/>
+      <rect x="615" y="496" width="270" height="34" rx="7" class="soft"/>
+      <text x="750" y="518" text-anchor="middle" class="box-text">Encode Gallery Images</text>
+      <line x1="750" y1="530" x2="750" y2="548" class="thin"/>
+      <text x="750" y="563" text-anchor="middle" class="small">Encode Query Images</text>
+    </g>
+
+    <g>
+      <rect x="1010" y="430" width="340" height="142" rx="8" class="box"/>
+      <text x="1180" y="459" text-anchor="middle" class="box-title">FashionCLIP 2.0</text>
+      <line x1="1180" y1="474" x2="1180" y2="496" class="thin"/>
+      <rect x="1045" y="496" width="270" height="34" rx="7" class="soft"/>
+      <text x="1180" y="518" text-anchor="middle" class="box-text">Encode Gallery Images</text>
+      <line x1="1180" y1="530" x2="1180" y2="548" class="thin"/>
+      <text x="1180" y="563" text-anchor="middle" class="small">Encode Query Images</text>
+    </g>
+  </g>
+
+  <line x1="320" y1="618" x2="320" y2="648" class="thin"/>
+  <line x1="750" y1="618" x2="750" y2="648" class="thin"/>
+  <line x1="1180" y1="618" x2="1180" y2="648" class="thin"/>
+  <path d="M320 648 H1180" stroke="#222" stroke-width="2" fill="none"/>
+  <line x1="750" y1="648" x2="750" y2="676" class="arrow"/>
+
+  <g>
+    <rect x="410" y="676" width="680" height="48" rx="8" class="box"/>
+    <text x="750" y="706" text-anchor="middle" class="box-title">5. Represent Images in a Shared Embedding Space</text>
+
+    <line x1="750" y1="724" x2="750" y2="752" class="arrow"/>
+
+    <rect x="410" y="752" width="680" height="48" rx="8" class="box"/>
+    <text x="750" y="782" text-anchor="middle" class="box-title">6. Calculate Cosine Similarity Between Query and Gallery Embeddings</text>
+
+    <line x1="750" y1="800" x2="750" y2="828" class="arrow"/>
+
+    <rect x="410" y="828" width="680" height="62" rx="8" class="box"/>
+    <text x="750" y="854" text-anchor="middle" class="box-title">7. Rank Gallery Images by Similarity</text>
+    <text x="750" y="876" text-anchor="middle" class="box-text">Images with higher similarity scores are placed closer to the top of the ranked list.</text>
+
+    <line x1="750" y1="890" x2="750" y2="918" class="arrow"/>
+
+    <rect x="410" y="918" width="680" height="64" rx="8" class="box"/>
+    <text x="750" y="944" text-anchor="middle" class="box-title">8. Evaluate Retrieval Performance</text>
+    <text x="750" y="966" text-anchor="middle" class="box-text">Recall@K, Precision@K, MRR, NDCG@K, and latency are computed for each model.</text>
+  </g>
+
+  <g>
+    <rect x="1130" y="780" width="290" height="120" rx="8" class="dash"/>
+    <text x="1275" y="807" text-anchor="middle" class="small">Relevance criterion</text>
+    <text x="1275" y="833" text-anchor="middle" class="tiny">A retrieved image is considered</text>
+    <text x="1275" y="851" text-anchor="middle" class="tiny">relevant when it belongs to the</text>
+    <text x="1275" y="869" text-anchor="middle" class="tiny">same clothing identity as the query.</text>
+    <line x1="1090" y1="858" x2="1130" y2="840" stroke="#555" stroke-width="1.5" stroke-dasharray="7 5"/>
+  </g>
+
+  <line x1="750" y1="982" x2="750" y2="1008" class="arrow"/>
+
+  <rect x="410" y="1008" width="680" height="42" rx="8" class="soft"/>
+  <text x="750" y="1035" text-anchor="middle" class="box-title">9. Compare Results and Select the Main Model for the System</text>
+</svg>

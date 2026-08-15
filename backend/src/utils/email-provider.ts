@@ -15,6 +15,11 @@ export type EmailMessageInput = {
   subject: string;
   html: string;
   logLabel: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType: string;
+  }>;
 };
 
 export type MockEmailOutboxEntry = EmailMessageInput & {
@@ -154,12 +159,14 @@ const sendWithSmtp = async (input: EmailMessageInput): Promise<EmailDeliveryResu
       greetingTimeout: config.timeoutMs,
       socketTimeout: config.timeoutMs,
     });
-    const result = await transporter.sendMail({
+    const mailOptions = {
       from: config.from,
       to: input.to,
       subject: input.subject,
       html: input.html,
-    }) as { messageId?: string; accepted?: unknown[] };
+      attachments: input.attachments,
+    };
+    const result = await transporter.sendMail(mailOptions) as { messageId?: string; accepted?: unknown[] };
     const accepted = Array.isArray(result.accepted) ? result.accepted : [];
 
     if (!result.messageId || accepted.length === 0) {

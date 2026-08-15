@@ -117,8 +117,21 @@ const applyVideoWorkflowInputs = async (
   );
   setComfyMappedInput(workflow, workflowMap, 'generateAudio', input.generateAudio);
 
+  const configuredModel = input.model?.trim()
+    || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODEL');
+  if (
+    configuredModel
+    && !setComfyMappedInput(workflow, workflowMap, 'model', configuredModel)
+    && input.model?.trim()
+  ) {
+    throw new VirtualTryOnVideoProviderError(
+      'Workflow map video phải khai báo model để cho phép đổi model khi đang chạy',
+      500,
+      'VIDEO_PROVIDER_CONFIG_INVALID',
+    );
+  }
+
   const optionalInputs: Array<[string, string]> = [
-    ['model', 'VIRTUAL_TRY_ON_VIDEO_MODEL'],
     ['aspectRatio', 'VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO'],
     ['mode', 'VIRTUAL_TRY_ON_VIDEO_MODE'],
   ];
@@ -155,7 +168,7 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
         metadata: {
           provider: 'comfy_kling',
           sourceFileName,
-          model: getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODEL'),
+          model: input.model?.trim() || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODEL'),
           durationSeconds: input.durationSeconds,
           resolution: input.resolution,
           generateAudio: input.generateAudio,

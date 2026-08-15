@@ -98,6 +98,7 @@ describe('push navigation', () => {
       getLastNotificationResponseAsync: jest.fn().mockResolvedValue(response('cold-1', {
         type: 'payment_deadline',
         orderId: 'order-cold',
+        notificationId: 'notification-cold',
       })),
       clearLastNotificationResponseAsync,
     };
@@ -110,7 +111,7 @@ describe('push navigation', () => {
     expect(onOpen).toHaveBeenCalledWith({
       screen: 'OrderDetail',
       params: { orderId: 'order-cold' },
-    });
+    }, 'notification-cold');
     expect(clearLastNotificationResponseAsync).toHaveBeenCalled();
 
     const liveResponse = response('live-1', {

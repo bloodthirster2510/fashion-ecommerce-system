@@ -1,5 +1,3 @@
-import { AlertTriangle, CheckCircle, Clock, Headphones, MessageCircle } from 'lucide-react'
-import { KpiCard, KpiGrid } from '../../../components/ui'
 import type { SupportSummary } from '../support.types'
 
 type SupportKpiSummaryProps = {
@@ -8,12 +6,31 @@ type SupportKpiSummaryProps = {
 
 export function SupportKpiSummary({ summary }: SupportKpiSummaryProps) {
   return (
-    <KpiGrid>
-      <KpiCard label="Đang mở" value={summary?.totalOpen ?? 0} meta="Ticket chưa hoàn tất" tone="info" icon={<Headphones />} />
-      <KpiCard label="Chờ phản hồi" value={summary?.waitingAdmin ?? 0} meta="Cần CSKH xử lý" tone="warning" icon={<MessageCircle />} />
-      <KpiCard label="Chờ khách" value={summary?.waitingCustomer ?? 0} meta="Đang đợi khách bổ sung" tone="accent" icon={<Clock />} />
-      <KpiCard label="Đã giải quyết" value={summary?.resolved ?? 0} meta="Còn trong thời hạn mở lại" tone="success" icon={<CheckCircle />} />
-      <KpiCard label="Quá 24 giờ" value={summary?.overdue ?? 0} meta="Cần ưu tiên kiểm tra" tone="warning" icon={<AlertTriangle />} />
-    </KpiGrid>
+    <section className="admin-support-overview" aria-labelledby="support-queue-overview">
+      <div className="admin-support-overview-heading">
+        <div>
+          <span>Tổng quan hàng đợi</span>
+          <h2 id="support-queue-overview">{summary?.totalOpen ?? 0} ticket đang mở</h2>
+        </div>
+        <p>Cập nhật theo thời gian thực</p>
+      </div>
+      <div className="admin-support-overview-focus">
+        <article className="is-primary">
+          <span>Cần phản hồi</span>
+          <strong>{summary?.waitingAdmin ?? 0}</strong>
+          <small>Ưu tiên của staff</small>
+        </article>
+        <article className="is-unassigned">
+          <span>Chưa phân công</span>
+          <strong>{summary?.unassigned ?? 0}</strong>
+          <small>Cần người nhận</small>
+        </article>
+        <article className={`is-overdue${(summary?.overdue ?? 0) > 0 ? ' has-alert' : ''}`}>
+          <span>Quá 24 giờ</span>
+          <strong>{summary?.overdue ?? 0}</strong>
+          <small>Cần kiểm tra SLA</small>
+        </article>
+      </div>
+    </section>
   )
 }

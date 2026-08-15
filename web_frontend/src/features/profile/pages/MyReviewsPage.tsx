@@ -3,6 +3,7 @@ import { DeleteOutlined, EditOutlined, FormOutlined, StarOutlined } from '@ant-d
 import { Button, Empty, Image, Input, Modal, Rate, Select, Spin, message } from 'antd'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { useAppSelector } from '../../../app/hooks'
+import { formatDate } from '../../../utils/formatDate'
 import { ProfileSidebar } from '../components/ProfileSidebar'
 import { reviewService } from '../../catalog/reviews/review.service'
 import type { EligibleReviewItem, MyReview } from '../../catalog/reviews/review.types'
@@ -50,7 +51,13 @@ export function MyReviewsPage() {
     }
   }
 
-  const openEdit = (review: MyReview) => setEditingReview(review)
+  const openEdit = (review: MyReview) => {
+    if (review.canEdit === false) {
+      message.warning('Đánh giá đã hết thời hạn chỉnh sửa.')
+      return
+    }
+    setEditingReview(review)
+  }
 
   const saveEdit = async (input: EditFormState) => {
     if (!editingReview) return
@@ -87,7 +94,7 @@ export function MyReviewsPage() {
     <MainLayout>
       <main className="account-page">
         <div className="account-shell">
-          <ProfileSidebar name={user?.name} avatarImage={user?.avatarImage} selectedKey="reviews" />
+          <ProfileSidebar name={user?.name} avatarImage={user?.avatarImage} role={user?.role} selectedKey="reviews" />
           <section className="account-content account-reviews-content">
             <h1>Đánh giá của tôi</h1>
             <Spin spinning={loading}>
@@ -120,13 +127,31 @@ export function MyReviewsPage() {
                       <Rate disabled value={review.rating} />
                       <p>{review.comment}</p>
                       <span>Trạng thái: {reviewStatusLabel[review.moderationStatus ?? 'visible'] ?? review.moderationStatus}</span>
+                      {review.mutationDeadline ? (
+                        <span>
+                          {review.canEdit === false && review.canDelete === false
+                            ? `Đã hết hạn sửa/xóa từ ${formatDate(review.mutationDeadline)}`
+                            : `Có thể sửa/xóa đến ${formatDate(review.mutationDeadline)}`}
+                        </span>
+                      ) : null}
                       {review.adminReply ? <small>Fashionista: {review.adminReply.content}</small> : null}
                     </div>
                     <div className="my-review-actions">
-                      <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(review)}>
+                      <Button
+                        size="small"
+                        icon={<EditOutlined />}
+                        disabled={review.canEdit === false}
+                        onClick={() => openEdit(review)}
+                      >
                         Sửa
                       </Button>
-                      <Button size="small" danger icon={<DeleteOutlined />} onClick={() => void remove(review._id)}>
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        disabled={review.canDelete === false}
+                        onClick={() => void remove(review._id)}
+                      >
                         Xóa
                       </Button>
                     </div>

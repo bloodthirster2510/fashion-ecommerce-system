@@ -13,9 +13,10 @@ const getErrorResponse = (e: unknown) => {
     };
   }
 
+  console.error('Category controller error:', e);
   return {
     statusCode: 500,
-    message: e instanceof Error ? e.message : 'An error occurred',
+    message: 'Internal Server Error',
   };
 };
 
@@ -49,6 +50,56 @@ const parseBoolean = (value: unknown, fieldName: string) => {
   }
 
   throw new CategoryServiceError(`Invalid ${fieldName}`, 400);
+};
+
+const parseStringArrayField = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return [];
+
+    try {
+      const parsedValue = JSON.parse(trimmedValue) as unknown;
+      if (Array.isArray(parsedValue)) {
+        return parsedValue.map((item) => String(item)).filter(Boolean);
+      }
+    } catch {
+      // Fall back to treating this as a single repeated form field value.
+    }
+
+    return [trimmedValue];
+  }
+
+  return undefined;
+};
+
+const parseJsonArrayField = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return [];
+
+    const parsedValue = JSON.parse(trimmedValue) as unknown;
+    if (Array.isArray(parsedValue)) {
+      return parsedValue;
+    }
+  }
+
+  throw new CategoryServiceError('Invalid array field', 400);
 };
 
 //Tổng hợp bộ loc danh mục
@@ -125,6 +176,10 @@ const updateCategory = async (req: Request, res: Response) => {
     if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
     if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;
     if (input.sizeTemplateSourceId !== undefined) updateData.sizeTemplateSourceId = input.sizeTemplateSourceId;
+    if (input.sizeGuideImage !== undefined) updateData.sizeGuideImage = input.sizeGuideImage;
+    if (input.isFitTypeTemplateSource !== undefined) updateData.isFitTypeTemplateSource = input.isFitTypeTemplateSource;
+    if (input.fitTypeTemplateName !== undefined) updateData.fitTypeTemplateName = input.fitTypeTemplateName;
+    if (input.fitTypeTemplateSourceId !== undefined) updateData.fitTypeTemplateSourceId = input.fitTypeTemplateSourceId;
     if (input.sizes !== undefined) updateData.sizes = input.sizes;
     if (input.measurementFields !== undefined) updateData.measurementFields = input.measurementFields;
     if (input.fitTypes !== undefined) updateData.fitTypes = input.fitTypes;
@@ -156,19 +211,65 @@ const updateCategory = async (req: Request, res: Response) => {
   }
 };
 
-const upsertCategorySizeTemplate = async (req: Request, res: Response) => {
+const upsertCategoryFitTypeTemplate = async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
-    const category = await categoryService.upsertCategorySizeTemplate(id, {
+    const category = await categoryService.upsertCategoryFitTypeTemplate(id, {
       name: req.body?.name,
-      sizes: req.body?.sizes,
-      measurementFields: req.body?.measurementFields,
-      categoryIds: req.body?.categoryIds,
-      excludedCategoryIds: req.body?.excludedCategoryIds,
+      fitTypes: parseJsonArrayField(req.body?.fitTypes) ?? [],
+      categoryIds: parseStringArrayField(req.body?.categoryIds),
+      excludedCategoryIds: parseStringArrayField(req.body?.excludedCategoryIds),
     });
 
     return ok(res, category);
   } catch (e: unknown) {
+    const { statusCode, message } = getErrorResponse(e);
+    return errorResponse(res, message, statusCode);
+  }
+};
+
+const upsertCategorySizeTemplate = async (req: Request, res: Response) => {
+  const uploadedUrls: string[] = [];
+
+  try {
+    const uploadReq = req as MulterRequest;
+    const multerErrorResponse = handleMulterError(uploadReq.fileValidationError, res);
+    if (multerErrorResponse) return;
+
+    const id = req.params.id as string;
+    const files = !req.files || Array.isArray(req.files) ? {} : req.files;
+    const sizeGuideImageFile = files.sizeGuideImage?.[0];
+    const shouldClearSizeGuideImage = String(req.body?.clearSizeGuideImage ?? '') === 'true';
+    const currentCategory =
+      sizeGuideImageFile || shouldClearSizeGuideImage
+        ? await categoryService.getCategoryById(id)
+        : null;
+    const sizeGuideImage = sizeGuideImageFile
+      ? await uploadCatalogImage(sizeGuideImageFile, 'categories')
+      : shouldClearSizeGuideImage
+        ? ''
+        : undefined;
+
+    if (sizeGuideImageFile && sizeGuideImage) {
+      uploadedUrls.push(sizeGuideImage);
+    }
+
+    const category = await categoryService.upsertCategorySizeTemplate(id, {
+      name: req.body?.name,
+      sizes: parseStringArrayField(req.body?.sizes) ?? [],
+      ...(sizeGuideImage !== undefined ? { sizeGuideImage } : {}),
+      measurementFields: parseJsonArrayField(req.body?.measurementFields) ?? [],
+      categoryIds: parseStringArrayField(req.body?.categoryIds),
+      excludedCategoryIds: parseStringArrayField(req.body?.excludedCategoryIds),
+    });
+
+    if ((sizeGuideImageFile || shouldClearSizeGuideImage) && currentCategory?.sizeGuideImage !== category.sizeGuideImage) {
+      await deleteCatalogImage(currentCategory?.sizeGuideImage);
+    }
+
+    return ok(res, category);
+  } catch (e: unknown) {
+    await Promise.all(uploadedUrls.map((url) => deleteCatalogImage(url)));
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
   }
@@ -261,6 +362,7 @@ export {
   createCategory,
   updateCategory,
   upsertCategorySizeTemplate,
+  upsertCategoryFitTypeTemplate,
   deleteCategory,
   deleteCategoryPermanently,
   getCategories,

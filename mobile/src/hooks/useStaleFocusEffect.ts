@@ -5,6 +5,7 @@ import { getScreenDataInvalidationRevision } from '../config/screenDataCache';
 type Options = {
   enabled?: boolean;
   cacheScope?: string;
+  forceRunWhen?: () => boolean;
   runOnDepsChange?: boolean;
   staleMs: number;
 };
@@ -20,7 +21,7 @@ export const resolveFocusRefreshMode = <TMode extends Exclude<FocusRefreshMode, 
 export const useStaleFocusEffect = (
   callback: () => void | (() => void),
   deps: React.DependencyList,
-  { cacheScope, enabled = true, runOnDepsChange = false, staleMs }: Options,
+  { cacheScope, enabled = true, forceRunWhen, runOnDepsChange = false, staleMs }: Options,
 ) => {
   const lastRunRef = React.useRef(0);
   const lastDepsRef = React.useRef<React.DependencyList | null>(null);
@@ -38,14 +39,15 @@ export const useStaleFocusEffect = (
       const hasCacheInvalidation = lastCacheRevisionRef.current !== null
         && lastCacheRevisionRef.current !== cacheRevision;
       const hasNeverRun = lastRunRef.current === 0;
+      const isForcedRun = forceRunWhen?.() === true;
 
-      if (!hasNeverRun && !hasDepsChanged && !hasCacheInvalidation && Date.now() - lastRunRef.current < staleMs) return;
+      if (!isForcedRun && !hasNeverRun && !hasDepsChanged && !hasCacheInvalidation && Date.now() - lastRunRef.current < staleMs) return;
       lastDepsRef.current = deps;
       lastCacheRevisionRef.current = cacheRevision;
       lastRunRef.current = Date.now();
       return callback();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cacheScope, enabled, runOnDepsChange, staleMs, ...deps]),
+    }, [cacheScope, enabled, forceRunWhen, runOnDepsChange, staleMs, ...deps]),
   );
 };
 

@@ -16,6 +16,7 @@ export interface IColorVariant {
   color: string;
   colorCode?: string;
   image: string;
+  isActive: boolean;
 }
 
 export interface IProductVariant {
@@ -58,11 +59,7 @@ const sizeMeasurementSchema = new Schema<IProductSizeMeasurement>(
     size: { type: String, required: true, trim: true, minlength: 1, maxlength: 10 },
     measurements: {
       type: [measurementValueSchema],
-      required: true,
-      validate: {
-        validator: (value: IMeasurementValue[]) => value.length > 0,
-        message: 'Size measurement must have at least one measurement value',
-      },
+      default: [],
     },
   },
   { _id: false },
@@ -73,6 +70,7 @@ const colorVariantSchema = new Schema<IColorVariant>(
     color: { type: String, required: true, trim: true, minlength: 2, maxlength: 40 },
     colorCode: { type: String, trim: true, maxlength: 30 },
     image: { type: String, required: true, trim: true, maxlength: 500 },
+    isActive: { type: Boolean, default: true },
   },
   { _id: true },
 );
@@ -87,7 +85,7 @@ const productVariantSchema = new Schema<IProductVariant>(
       required: true,
       validate: {
         validator: (value: IProductSizeMeasurement[]) => value.length > 0,
-        message: 'Product variant must have at least one size measurement',
+        message: 'Product variant must have at least one size',
       },
     },
     colors: {

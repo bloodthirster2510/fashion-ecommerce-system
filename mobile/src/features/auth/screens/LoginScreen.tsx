@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Image,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -19,9 +18,6 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../../navigation/AppNavigator';
 import { useAuth } from '../AuthContext';
 import { authApi, AuthApiError, type AuthSession } from '../authApi';
-import { useGoogleAuth } from '../useGoogleAuth';
-import { useFacebookAuth } from '../useFacebookAuth';
-import { socialAuthConfig } from '../socialAuthConfig';
 import { colors, sharedStyles } from '../../../theme';
 import ShopNameLogo from '../../../components/branding/ShopNameLogo';
 
@@ -29,81 +25,6 @@ type AuthNavigationProp = StackNavigationProp<RootStackParamList>;
 
 const vietnamPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const socialIcons = {
-  facebook: require('../../../../assets/social/facebook.png'),
-  google: require('../../../../assets/social/google.png'),
-};
-
-type SocialLoginButtonProps = {
-  onSuccess: (session: AuthSession) => void;
-  onError: (message: string) => void;
-};
-
-const FacebookLoginButton = ({ onSuccess, onError }: SocialLoginButtonProps) => {
-  const facebookAuth = useFacebookAuth({
-    clientId: socialAuthConfig.facebook.clientId,
-    redirectUri: socialAuthConfig.facebook.redirectUri,
-    onSuccess,
-    onError,
-  });
-
-  return (
-    <TouchableOpacity
-      style={styles.facebookButton}
-      onPress={() => {
-        onError('');
-        void facebookAuth.signInWithFacebook();
-      }}
-      disabled={!facebookAuth.ready || facebookAuth.loading}
-    >
-      {facebookAuth.loading || !facebookAuth.ready ? (
-        <ActivityIndicator size="small" color="#FFFFFF" style={styles.facebookIcon} />
-      ) : (
-        <Image source={socialIcons.facebook} style={styles.facebookIcon} />
-      )}
-      <Text style={styles.facebookButtonText}>
-        {facebookAuth.loading
-          ? 'Đang đăng nhập...'
-          : facebookAuth.ready
-            ? 'Tiếp tục đăng nhập với Facebook'
-            : 'Đang chuẩn bị Facebook...'}
-      </Text>
-    </TouchableOpacity>
-  );
-};
-
-const GoogleLoginButton = ({ onSuccess, onError }: SocialLoginButtonProps) => {
-  const googleAuth = useGoogleAuth({
-    clientId: socialAuthConfig.google.clientId,
-    redirectUri: socialAuthConfig.google.redirectUri,
-    onSuccess,
-    onError,
-  });
-
-  return (
-    <TouchableOpacity
-      style={styles.googleButton}
-      onPress={() => {
-        onError('');
-        void googleAuth.signInWithGoogle();
-      }}
-      disabled={!googleAuth.ready || googleAuth.loading}
-    >
-      {googleAuth.loading || !googleAuth.ready ? (
-        <ActivityIndicator size="small" color="#0A0A0A" style={styles.googleIcon} />
-      ) : (
-        <Image source={socialIcons.google} style={styles.googleIcon} />
-      )}
-      <Text style={styles.googleButtonText}>
-        {googleAuth.loading
-          ? 'Đang đăng nhập...'
-          : googleAuth.ready
-            ? 'Tiếp tục đăng nhập với Google'
-            : 'Đang chuẩn bị Google...'}
-      </Text>
-    </TouchableOpacity>
-  );
-};
 
 const LoginScreen = () => {
   const [identifier, setIdentifier] = useState('');
@@ -146,13 +67,6 @@ const LoginScreen = () => {
       return () => subscription.remove();
     }, [resetToHome])
   );
-  const completeSocialLogin = useCallback((session: AuthSession) => {
-    void completeLogin(session).catch((error) => {
-      setErrorMessage(error instanceof Error ? error.message : 'Đăng nhập thất bại');
-    });
-  }, [completeLogin]);
-
-
   const handleLogin = async () => {
     const trimmedIdentifier = identifier.trim();
     if (!trimmedIdentifier || !password) {
@@ -390,21 +304,6 @@ const LoginScreen = () => {
               </Text>
             </TouchableOpacity>
 
-            {socialAuthConfig.enabled ? (
-              <>
-                <Text style={styles.socialLabel}>Hoặc đăng nhập bằng</Text>
-
-                <View style={styles.socialLoginContainer}>
-                  {socialAuthConfig.facebook.enabled ? (
-                    <FacebookLoginButton onSuccess={completeSocialLogin} onError={setErrorMessage} />
-                  ) : null}
-                  {socialAuthConfig.google.enabled ? (
-                    <GoogleLoginButton onSuccess={completeSocialLogin} onError={setErrorMessage} />
-                  ) : null}
-                </View>
-              </>
-            ) : null}
-
             <View style={styles.registerContainer}>
               <Text style={styles.registerText}>Chưa có tài khoản?</Text>
               <TouchableOpacity onPress={() => navigation.navigate('Register')}>
@@ -577,63 +476,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '700',
     textAlign: 'center',
-  },
-  socialLabel: {
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    color: colors.textMuted,
-    marginBottom: 16,
-  },
-  socialLoginContainer: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  facebookButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    height: 44,
-    borderRadius: 4,
-    backgroundColor: colors.facebook,
-  },
-  facebookIcon: {
-    width: 22,
-    height: 22,
-    marginRight: 10,
-  },
-  facebookButtonText: {
-    flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 20,
-    textAlign: 'center',
-    color: colors.white,
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    height: 46,
-    borderRadius: 4,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-  },
-  googleIcon: {
-    width: 22,
-    height: 22,
-    marginRight: 10,
-  },
-  googleButtonText: {
-    flexShrink: 1,
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 20,
-    textAlign: 'center',
-    color: colors.black,
   },
   registerContainer: {
     flexDirection: 'row',

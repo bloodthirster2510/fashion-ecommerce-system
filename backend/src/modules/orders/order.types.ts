@@ -18,6 +18,7 @@ export interface ShippingAddressInput {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | string | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
 }
 
 export interface CreateOrderInput {

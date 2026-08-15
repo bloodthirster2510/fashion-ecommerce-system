@@ -22,6 +22,15 @@ import {
 import { getVNPayRefundDisplayStatus } from '../utils/vnpayReconcile'
 
 const isVNPaySandbox = String(import.meta.env.VITE_VNPAY_ENV ?? 'sandbox').toLowerCase() !== 'production'
+const formatRefundUpdatedAt = (value?: string | null) => value
+  ? new Intl.DateTimeFormat('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value))
+  : 'Chưa có'
 
 type OrderRefundMethodsPanelProps = {
   canAdjustPayments: boolean
@@ -115,7 +124,7 @@ export function OrderRefundMethodsPanel({
         </div>
         <div className="admin-refund-panel">
           <div className="admin-refund-panel-header">
-            <span>Số tiền hoàn toàn phần</span>
+            <span>Số tiền hoàn</span>
             <strong>{formatCurrency(order.totalAmount)}</strong>
           </div>
           <div className={`admin-vnpay-refund-state ${refundState.className}`} role="status">
@@ -126,8 +135,20 @@ export function OrderRefundMethodsPanel({
             </div>
           </div>
           <p className="admin-refund-bank-note is-caution">
-            VNPay hoàn về nguồn thanh toán ban đầu. Không sử dụng tài khoản ngân hàng nhận hoàn mà khách đã khai báo.
+            Tiền được trả về nguồn VNPay ban đầu, không chuyển vào tài khoản ngân hàng khách đã lưu.
           </p>
+          {refundTransaction ? (
+            <dl className="admin-refund-meta">
+              <div><dt>Mã tham chiếu</dt><dd>{refundTransaction.txnRef || refundTransaction.gatewayTransactionId || 'Chưa có'}</dd></div>
+              <div><dt>Cập nhật gần nhất</dt><dd>{formatRefundUpdatedAt(refundTransaction.updatedAt)}</dd></div>
+              {vnpayRefundStatus === 'failed' && refundTransaction.failureReason ? (
+                <div className="is-wide">
+                  <dt>Lý do thất bại</dt>
+                  <dd>{refundTransaction.failureReason}</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
           {isTransactionLoading ? (
             <button className="admin-secondary-button" type="button" disabled>
               <Clock3 size={16} aria-hidden="true" />
@@ -145,13 +166,14 @@ export function OrderRefundMethodsPanel({
             </button>
           ) : vnpayRefundStatus !== 'completed' ? (
             <button
-              className="admin-primary-button"
+              className="admin-primary-button admin-refund-primary-action"
               type="button"
               disabled={!canAdjustPayments || isActionLoading}
               onClick={onRefundVNPay}
             >
-              <RotateCcw size={16} aria-hidden="true" />
-              {vnpayRefundStatus === 'failed' ? 'Gửi lại lệnh hoàn tiền' : 'Gửi lệnh hoàn tiền đến VNPay'}
+              {vnpayRefundStatus === 'failed'
+                ? `Gửi lại lệnh hoàn ${formatCurrency(order.totalAmount)}`
+                : `Hoàn ${formatCurrency(order.totalAmount)} qua VNPay`}
             </button>
           ) : null}
           {!canAdjustPayments ? (

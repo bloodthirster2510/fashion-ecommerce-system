@@ -5,18 +5,26 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev:try-on-worker": "ts-node-dev --respawn --transpile-only src/workers/virtual-try-on.worker.ts",
     "seed": "ts-node-dev --transpile-only src/database/seed.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
+    "start:try-on-worker": "node dist/workers/virtual-try-on.worker.js",
     "lint": "eslint . --ext .ts",
     "dev:try-on": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-try-on.ps1",
     "dev:vnpay": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev-vnpay-tunnel.ps1",
     "vnpay:public-url": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-vnpay-public-url.ps1",
     "migrate:coupon-index": "node scripts/migrate-coupon-code-index.js",
+    "migrate:user-phone-index": "node scripts/migrate-user-phone-index.js",
     "migrate:reviews": "node scripts/migrate-review-schema.js",
     "migrate:payment-deadlines": "node scripts/migrate-order-payment-deadlines.js",
     "recommendations:backfill": "npm run build && node dist/scripts/recommendation-backfill.js",
     "recommendations:evaluate": "npm run build && node dist/scripts/recommendation-evaluate.js",
+    "recommendations:benchmark": "npm run build && node dist/scripts/recommendation-benchmark.js",
+    "recommendations:tune": "npm run build && node dist/scripts/recommendation-tune.js",
+    "recommendations:user-study:analyze": "npm run build && node dist/scripts/recommendation-user-study-analyze.js",
+    "recommendations:amazon:prepare": "npm run build && node --max-old-space-size=4096 dist/scripts/recommendation-amazon-prepare.js",
+    "recommendations:polyvore:prepare": "npm run build && node dist/scripts/recommendation-polyvore-prepare.js",
     "virtual-try-on:backfill-assets": "npm run build && node dist/scripts/virtual-try-on-backfill-assets.js",
     "visual-search:export-gallery": "npm run build && node dist/scripts/visual-search-export-gallery.js",
     "visual-search:backfill-index": "npm run build && node dist/scripts/visual-search-backfill-index.js",
@@ -35,17 +43,21 @@
   "dependencies": {
     "axios": "^1.17.0",
     "bcryptjs": "3.0.3",
+    "bullmq": "^6.1.0",
     "cloudinary": "^2.10.0",
     "cors": "2.8.6",
     "dotenv": "17.4.2",
+    "exceljs": "^4.4.0",
     "express": "5.2.1",
-    "file-type": "^16.5.4",
-    "google-auth-library": "^10.6.2",
+    "google-auth-library": "^11.0.2",
     "helmet": "^8.2.0",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "9.0.3",
-    "mongoose": "9.6.2",
+    "mongoose": "^9.9.2",
     "multer": "^2.1.1",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^9.0.5",
+    "pdfmake": "^0.2.23",
+    "redis": "^6.2.1",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
@@ -58,8 +70,10 @@
     "@types/multer": "^2.1.0",
     "@types/node": "25.9.1",
     "@types/nodemailer": "^8.0.0",
+    "@types/pdfmake": "^0.2.13",
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
+    "brace-expansion": "^5.0.9",
     "eslint": "^10.4.0",
     "jest": "^30.4.2",
     "mongodb-memory-server": "^11.2.0",
@@ -68,5 +82,10 @@
     "ts-jest": "^29.4.11",
     "ts-node-dev": "2.0.0",
     "typescript": "5.5.4"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

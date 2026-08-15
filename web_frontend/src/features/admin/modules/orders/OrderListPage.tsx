@@ -1,5 +1,7 @@
 ﻿import { useCallback, useState } from 'react'
+import { useEffect } from 'react'
 import './order.css'
+import { useToast } from '../../notifications/notification-context'
 import { OrderActionDialog } from './OrderActionDialog'
 import { OrderDetailDrawer } from './OrderDetailDrawer'
 import { OrderWorkspacePanel } from './components/OrderWorkspacePanel'
@@ -40,6 +42,7 @@ export function OrderListPage({
   lockPaymentSection = false,
   initialTabKey,
 }: OrdersPageProps) {
+  const { showBottomToast } = useToast()
   const {
     activePaymentSectionKey,
     activeFilters,
@@ -75,8 +78,7 @@ export function OrderListPage({
     toggleVisibleColumn,
     totalItems,
     totalPages,
-    resetLookupView,
-    saveLookupView,
+    resetLookupFilters,
     visibleColumns,
   } = useOrderListData({
     initialTabKey,
@@ -84,6 +86,12 @@ export function OrderListPage({
     paymentSection,
   })
   const [notice, setNotice] = useState<Notice | null>(null)
+
+  useEffect(() => {
+    if (!notice) return
+    showBottomToast(notice.message, notice.type, notice.action)
+    setNotice(null)
+  }, [notice, showBottomToast])
 
   const canUpdateOrders =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('orders.update'))
@@ -95,6 +103,8 @@ export function OrderListPage({
       currentUser.permissions?.includes('customers.read') ||
       currentUser.permissions?.includes('customers.manage'),
     )
+  const canReadAuditLogs =
+    currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('audit.read'))
   const canManageCustomerPaymentMethods =
     currentUser.role === 'admin' || Boolean(currentUser.permissions?.includes('customers.manage'))
   const {
@@ -106,7 +116,7 @@ export function OrderListPage({
     clearSelection,
     handleBulkGhn,
     handleBulkStatusUpdate,
-    handleExportCsv,
+    handleExportExcel,
     handleOpenLabels,
     isBulkLoading,
     isExporting,
@@ -137,6 +147,7 @@ export function OrderListPage({
     setSelectedOrder,
     transactions,
   } = useOrderDetailData({
+    canReadAuditLogs,
     canReadCustomerPaymentMethods,
     setNotice,
   })
@@ -182,10 +193,11 @@ export function OrderListPage({
 
     try {
       await writeClipboardText(value)
+      showBottomToast(`Đã sao chép ${label}.`, 'success')
     } catch {
-      setNotice({ type: 'error', message: `Không thể sao chép ${label}.` })
+      showBottomToast(`Không thể sao chép ${label}.`, 'error')
     }
-  }, [])
+  }, [showBottomToast])
 
   const closeDrawer = () => {
     if (!actionLoading) {
@@ -218,7 +230,6 @@ export function OrderListPage({
         isLookupMode={isLookupMode}
         keywordInput={keywordInput}
         labelCount={labelCount}
-        notice={notice}
         operationalSummary={operationalSummary}
         orders={orders}
         page={page}
@@ -245,7 +256,7 @@ export function OrderListPage({
         onDateFromChange={setDateFrom}
         onDateToChange={setDateTo}
         onExpireStalePayments={handleExpireStalePayments}
-        onExportCsv={handleExportCsv}
+        onExportExcel={handleExportExcel}
         onKeywordInputChange={setKeywordInput}
         onOpenOrder={openOrder}
         onOpenLabels={handleOpenLabels}
@@ -253,8 +264,7 @@ export function OrderListPage({
         onPaymentMethodChange={setPaymentMethod}
         onPaymentStatusChange={setPaymentStatus}
         onRefresh={loadOrders}
-        onResetLookupView={resetLookupView}
-        onSaveLookupView={saveLookupView}
+        onResetLookupFilters={resetLookupFilters}
         onPageSelectionChange={togglePage}
         onSelectionChange={toggleOrder}
         onSelectTab={setActiveTabKey}
@@ -265,6 +275,7 @@ export function OrderListPage({
         <OrderDetailDrawer
           canAdjustPayments={canAdjustPayments}
           canManageCustomerPaymentMethods={canManageCustomerPaymentMethods}
+          canReadAuditLogs={canReadAuditLogs}
           canReadCustomerPaymentMethods={canReadCustomerPaymentMethods}
           canUpdateOrders={canUpdateOrders}
           revealedRefundAccounts={revealedRefundAccounts}

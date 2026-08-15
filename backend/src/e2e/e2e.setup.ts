@@ -2,6 +2,8 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_ACCESS_SECRET = 'e2e-access-secret-at-least-thirty-two-characters';
 process.env.JWT_REFRESH_SECRET = 'e2e-refresh-secret-at-least-thirty-two-characters';
 process.env.RATE_LIMIT_STORE = 'memory';
+process.env.REDIS_ENABLED = 'false';
+process.env.VIRTUAL_TRY_ON_QUEUE_ENABLED = 'false';
 process.env.API_RATE_LIMIT_MAX = '5000';
 process.env.AUTH_RATE_LIMIT_MAX = '5000';
 

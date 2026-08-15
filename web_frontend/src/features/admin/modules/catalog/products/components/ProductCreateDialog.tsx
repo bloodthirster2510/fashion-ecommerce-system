@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   getProductCategoryTemplate,
   listProductBrands,
@@ -27,6 +27,7 @@ type Props = {
 }
 
 type ProductForm = Omit<CreateProductInput, 'variant'>
+type ProductFormErrors = Record<string, string>
 
 const emptyForm: ProductForm = {
   category_id: '',
@@ -37,20 +38,13 @@ const emptyForm: ProductForm = {
   isActive: true,
 }
 
-const emptyColor = () => ({ color: '', colorCode: '#111111', image: '' })
+const emptyColor = () => ({ color: '', colorCode: '#111111', image: '', isActive: true })
 const createColorImageKey = (variantIndex: number, colorIndex: number) =>
   `${variantIndex}:${colorIndex}`
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể tải dữ liệu tạo sản phẩm'
 const maxImageFileSizeBytes = 5 * 1024 * 1024
 const acceptedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
-const commonAlphaSizes = ['S', 'M', 'L', 'XL']
-const commonNumericSizesByGender: Record<ProductCategoryOption['gender'], string[]> = {
-  female: ['35', '36', '37', '38', '39'],
-  male: ['39', '40', '41', '42', '43'],
-  unisex: ['36', '37', '38', '39', '40', '41', '42'],
-}
-
 const getImageFileValidationError = (file: File | null) => {
   if (!file) return ''
   if (!acceptedImageMimeTypes.has(file.type)) {
@@ -64,28 +58,23 @@ const getImageFileValidationError = (file: File | null) => {
 
 const normalizeSize = (size: string) => size.trim().toLowerCase()
 
-const createSizeMeasurement = (
-  template: ProductCategoryTemplate,
-  size: string,
-): ProductVariantInput['sizeMeasurements'][number] => ({
+const createSizeOption = (size: string): ProductVariantInput['sizeMeasurements'][number] => ({
   size: size.trim(),
-  measurements: template.templateSource.measurementFields.map((field) => ({
-    key: field.key,
-    value: 0,
-  })),
 })
 
-const getDefaultSizes = (template: ProductCategoryTemplate) => {
-  const templateSizes = template.templateSource.sizes.map((size) => size.trim()).filter(Boolean)
-  const templateSizeSet = new Set(templateSizes.map(normalizeSize))
-  const hasNumericSizes = templateSizes.some((size) => /^\d+(\.\d+)?$/.test(size))
-  const preferredSizes = hasNumericSizes
-    ? commonNumericSizesByGender[template.category.gender]
-    : commonAlphaSizes
-  const commonSizes = preferredSizes.filter((size) => templateSizeSet.has(normalizeSize(size)))
+const getSizeTemplateSource = (template: ProductCategoryTemplate) =>
+  template.sizeTemplateSource ?? template.templateSource
 
-  return commonSizes.length ? commonSizes : templateSizes.slice(0, Math.min(7, templateSizes.length))
+const getFitTypeTemplateSource = (template: ProductCategoryTemplate) =>
+  template.fitTypeTemplateSource ?? template.templateSource
+
+const getDefaultSizes = (template: ProductCategoryTemplate) => {
+  const templateSizes = getSizeTemplateSource(template).sizes.map((size) => size.trim()).filter(Boolean)
+
+  return templateSizes
 }
+
+const colorInventoryMessage = 'Màu đang có tồn kho nên đã được chuyển sang ngừng kinh doanh thay vì xóa.'
 
 const createVariant = (
   template: ProductCategoryTemplate,
@@ -94,7 +83,7 @@ const createVariant = (
   fitTypeId,
   price: 1000,
   discount: 0,
-  sizeMeasurements: getDefaultSizes(template).map((size) => createSizeMeasurement(template, size)),
+  sizeMeasurements: getDefaultSizes(template).map(createSizeOption),
   colors: [emptyColor()],
   isActive: true,
 })
@@ -116,6 +105,7 @@ export function ProductCreateDialog({
   const [isLoadingOptions, setIsLoadingOptions] = useState(true)
   const [isLoadingTemplate, setIsLoadingTemplate] = useState(false)
   const [localError, setLocalError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<ProductFormErrors>({})
 
   useEffect(() => {
     let active = true
@@ -137,9 +127,18 @@ export function ProductCreateDialog({
   }, [])
 
   const fitTypes = useMemo(
-    () => template?.templateSource.fitTypes.filter((item) => item.isActive) ?? [],
+    () => template ? getFitTypeTemplateSource(template).fitTypes.filter((item) => item.isActive) : [],
     [template],
   )
+  const colorIdsWithInventoryRecords = useMemo(() => {
+    const ids = new Set<string>()
+    product?.variants.forEach((variant) => {
+      variant.inventory.forEach((inventory) => {
+        if (inventory.colorVariantId) ids.add(inventory.colorVariantId)
+      })
+    })
+    return ids
+  }, [product])
 
   const loadCategoryTemplate = async (
     categoryId: string,
@@ -156,13 +155,12 @@ export function ProductCreateDialog({
     setIsLoadingTemplate(true)
     try {
       const result = await getProductCategoryTemplate(categoryId)
-      const activeFitTypes = result.templateSource.fitTypes.filter((item) => item.isActive)
+      const activeFitTypes = getFitTypeTemplateSource(result).fitTypes.filter((item) => item.isActive)
       if (
-        !result.templateSource.sizes.length ||
-        !result.templateSource.measurementFields.length ||
+        !getSizeTemplateSource(result).sizes.length ||
         !activeFitTypes.length
       ) {
-        throw new Error('Danh mục chưa có đủ cấu hình form dáng, size và số đo.')
+        throw new Error('Danh mục chưa có đủ cấu hình phom dáng và size.')
       }
       setTemplate(result)
       if (options.resetVariants ?? true) {
@@ -179,6 +177,12 @@ export function ProductCreateDialog({
 
   const handleCategoryChange = async (categoryId: string) => {
     setForm((current) => ({ ...current, category_id: categoryId }))
+    setFieldErrors((current) => {
+      if (!current.category_id) return current
+      const next = { ...current }
+      delete next.category_id
+      return next
+    })
     await loadCategoryTemplate(categoryId)
   }
 
@@ -200,21 +204,19 @@ export function ProductCreateDialog({
       discount: variant.discount,
       sizeMeasurements: variant.sizes.map((size) => ({
         size: size.size,
-        measurements: size.measurements.map((measurement) => ({
-          key: measurement.key,
-          value: measurement.value,
-        })),
       })),
       colors: variant.colors.map((color) => ({
         _id: color._id,
         color: color.color,
         colorCode: color.colorCode,
         image: color.image,
+        isActive: color.isActive,
       })),
       isActive: variant.isActive,
     })))
     setProductImageFile(null)
     setColorImageFiles({})
+    setFieldErrors({})
     void loadCategoryTemplate(categoryId, { resetVariants: false })
   }, [product])
 
@@ -222,6 +224,27 @@ export function ProductCreateDialog({
     setVariants((current) =>
       current.map((item, itemIndex) => itemIndex === index ? next : item),
     )
+    setFieldErrors((current) => {
+      const nextErrors = { ...current }
+      Object.keys(nextErrors).forEach((key) => {
+        if (key.startsWith(`variant.${index}.`)) delete nextErrors[key]
+      })
+      return nextErrors
+    })
+  }
+
+  const clearFieldError = (field: string) => {
+    setFieldErrors((current) => {
+      if (!current[field]) return current
+      const next = { ...current }
+      delete next[field]
+      return next
+    })
+  }
+
+  const updateFormField = <Key extends keyof ProductForm>(field: Key, value: ProductForm[Key]) => {
+    setForm((current) => ({ ...current, [field]: value }))
+    clearFieldError(String(field))
   }
 
   const handleProductImageFileChange = (file: File | null, input: HTMLInputElement) => {
@@ -235,6 +258,7 @@ export function ProductCreateDialog({
 
     setLocalError('')
     setProductImageFile(file)
+    clearFieldError('product_image')
   }
 
   const addVariant = () => {
@@ -242,7 +266,7 @@ export function ProductCreateDialog({
     const usedIds = new Set(variants.map((item) => item.fitTypeId))
     const nextFitType = fitTypes.find((item) => !usedIds.has(item._id))
     if (!nextFitType) {
-      setLocalError('Đã thêm tất cả form dáng có sẵn của danh mục.')
+      setLocalError('Đã thêm tất cả phom dáng có sẵn của danh mục.')
       return
     }
     setLocalError('')
@@ -251,28 +275,60 @@ export function ProductCreateDialog({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
+    const nextErrors: ProductFormErrors = {}
+
+    if (form.name.trim().length < 3) {
+      nextErrors.name = 'Tên sản phẩm cần ít nhất 3 ký tự.'
+    }
+    if (!form.category_id) {
+      nextErrors.category_id = 'Vui lòng chọn danh mục.'
+    }
+    if (!form.brand_id) {
+      nextErrors.brand_id = 'Vui lòng chọn thương hiệu.'
+    }
+    if (form.description.trim().length < 10) {
+      nextErrors.description = 'Mô tả cần ít nhất 10 ký tự.'
+    }
     if (!productImageFile && !form.product_image.trim()) {
-      setLocalError('Vui lòng chọn ảnh đại diện hoặc nhập URL ảnh sản phẩm.')
-      return
+      nextErrors.product_image = 'Vui lòng chọn ảnh đại diện sản phẩm.'
     }
     if (!variants.length) {
-      setLocalError('Sản phẩm cần ít nhất một biến thể.')
-      return
+      nextErrors.variants = 'Sản phẩm cần ít nhất một biến thể.'
     }
-    if (
-      variants.some((variant) =>
-        !variant.colors.length ||
-        variant.colors.some((color, colorIndex) => {
-          const variantIndex = variants.indexOf(variant)
-          return (
-            (!color.color.trim() ||
-              (!color.image.trim() &&
-                !colorImageFiles[createColorImageKey(variantIndex, colorIndex)]))
-          )
-        }),
-      )
-    ) {
-      setLocalError('Mỗi biến thể cần ít nhất một màu với tên và ảnh đầy đủ.')
+
+    variants.forEach((variant, variantIndex) => {
+      if (!variant.fitTypeId) {
+        nextErrors[`variant.${variantIndex}.fitTypeId`] = 'Vui lòng chọn phom dáng.'
+      }
+      if (variant.price < 1000 || variant.price > 100000000) {
+        nextErrors[`variant.${variantIndex}.price`] = 'Giá niêm yết phải từ 1.000 đến 100.000.000 VND.'
+      }
+      if (variant.discount < 0 || variant.discount > 100) {
+        nextErrors[`variant.${variantIndex}.discount`] = 'Giảm giá phải từ 0 đến 100%.'
+      }
+      if (!variant.sizeMeasurements.length) {
+        nextErrors[`variant.${variantIndex}.sizes`] = 'Biến thể cần ít nhất một size.'
+      }
+      if (!variant.colors.length) {
+        nextErrors[`variant.${variantIndex}.colors`] = 'Biến thể cần ít nhất một màu.'
+      }
+
+      variant.colors.forEach((color, colorIndex) => {
+        if (color.color.trim().length < 2) {
+          nextErrors[`variant.${variantIndex}.color.${colorIndex}.name`] = 'Tên màu cần ít nhất 2 ký tự.'
+        }
+        if (
+          !color.image.trim() &&
+          !colorImageFiles[createColorImageKey(variantIndex, colorIndex)]
+        ) {
+          nextErrors[`variant.${variantIndex}.color.${colorIndex}.image`] = 'Vui lòng chọn ảnh cho màu này.'
+        }
+      })
+    })
+
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors)
+      setLocalError('')
       return
     }
 
@@ -288,6 +344,7 @@ export function ProductCreateDialog({
     )
 
     setLocalError('')
+    setFieldErrors({})
     void onSave({
       ...form,
       name: form.name.trim(),
@@ -299,6 +356,7 @@ export function ProductCreateDialog({
           ...color,
           color: color.color.trim(),
           image: color.image.trim(),
+          isActive: color.isActive ?? true,
         })),
       })),
     }, productImageFile, selectedColorImageFiles)
@@ -316,7 +374,7 @@ export function ProductCreateDialog({
           <button className="admin-icon-button" type="button" disabled={isSaving} onClick={onClose} aria-label="Đóng">×</button>
         </header>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           {errorMessage || localError ? (
             <p className="admin-notice is-error" role="alert">{errorMessage || localError}</p>
           ) : null}
@@ -326,11 +384,12 @@ export function ProductCreateDialog({
             <div className="admin-product-create-grid">
               <label className="is-wide">
                 <span>Tên sản phẩm</span>
-                <input required minLength={3} maxLength={150} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+                <input className={fieldErrors.name ? 'is-invalid' : ''} minLength={3} maxLength={150} value={form.name} onChange={(event) => updateFormField('name', event.target.value)} />
+                {fieldErrors.name ? <small className="admin-field-error">{fieldErrors.name}</small> : null}
               </label>
               <label>
                 <span>Danh mục</span>
-                <select required value={form.category_id} onChange={(event) => void handleCategoryChange(event.target.value)}>
+                <select className={fieldErrors.category_id ? 'is-invalid' : ''} value={form.category_id} onChange={(event) => void handleCategoryChange(event.target.value)}>
                   <option value="">{isLoadingOptions ? 'Đang tải...' : 'Chọn danh mục'}</option>
                   {categories.map((category) => (
                     <option key={category._id} value={category._id}>
@@ -338,32 +397,36 @@ export function ProductCreateDialog({
                     </option>
                   ))}
                 </select>
+                {fieldErrors.category_id ? <small className="admin-field-error">{fieldErrors.category_id}</small> : null}
               </label>
               <label>
                 <span>Thương hiệu</span>
-                <select required value={form.brand_id} onChange={(event) => setForm({ ...form, brand_id: event.target.value })}>
+                <select className={fieldErrors.brand_id ? 'is-invalid' : ''} value={form.brand_id} onChange={(event) => updateFormField('brand_id', event.target.value)}>
                   <option value="">Chọn thương hiệu</option>
                   {brands.map((brand) => <option key={brand._id} value={brand._id}>{brand.name}</option>)}
                 </select>
+                {fieldErrors.brand_id ? <small className="admin-field-error">{fieldErrors.brand_id}</small> : null}
               </label>
               <label className="is-wide">
                 <span>Mô tả</span>
-                <textarea required minLength={10} maxLength={3000} rows={5} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+                <textarea className={fieldErrors.description ? 'is-invalid' : ''} minLength={10} maxLength={3000} rows={3} value={form.description} onChange={(event) => updateFormField('description', event.target.value)} />
+                {fieldErrors.description ? <small className="admin-field-error">{fieldErrors.description}</small> : null}
               </label>
               <label className="is-wide">
                 <span>Ảnh đại diện</span>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => handleProductImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+                <ProductImageFilePicker
+                  className={fieldErrors.product_image ? 'is-invalid' : ''}
+                  buttonLabel={product ? 'Chọn ảnh mới' : 'Chọn ảnh'}
+                  currentUrl={form.product_image}
+                  file={productImageFile}
+                  onChange={handleProductImageFileChange}
                 />
-                <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
-                <input type="url" placeholder="Hoặc nhập URL ảnh" value={form.product_image} onChange={(event) => setForm({ ...form, product_image: event.target.value })} />
+                {fieldErrors.product_image ? <small className="admin-field-error">{fieldErrors.product_image}</small> : null}
                 <ProductImagePreview file={productImageFile} url={form.product_image} />
               </label>
               <label className="admin-product-create-checkbox is-wide">
                 <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-                <span>{product ? 'Đang bán' : 'Đăng bán ngay sau khi tạo'}</span>
+                <span>{product ? 'Sản phẩm đang bán trên cửa hàng' : 'Đăng bán sản phẩm sau khi tạo'}</span>
               </label>
             </div>
           </fieldset>
@@ -372,11 +435,11 @@ export function ProductCreateDialog({
             <div className="admin-product-create-fieldset-heading">
               <h3 className="admin-product-create-fieldset-title">Biến thể sản phẩm</h3>
               <button className="admin-secondary-button" type="button" onClick={addVariant} disabled={!template || variants.length >= fitTypes.length}>
-                + Thêm form dáng
+                + Thêm phom dáng
               </button>
             </div>
             {isLoadingTemplate ? <p className="admin-product-create-hint">Đang tải cấu hình danh mục...</p> : null}
-            {!form.category_id ? <p className="admin-product-create-hint">Chọn danh mục để cấu hình form dáng, size và số đo.</p> : null}
+            {!form.category_id ? <p className="admin-product-create-hint">Chọn danh mục để cấu hình phom dáng và size.</p> : null}
             {template
               ? variants.map((variant, variantIndex) => (
                   <VariantEditor
@@ -384,17 +447,29 @@ export function ProductCreateDialog({
                     index={variantIndex}
                     variant={variant}
                     template={template}
+                    errors={fieldErrors}
                     selectedFitTypeIds={variants.map((item) => item.fitTypeId)}
                     onChange={(next) => updateVariant(variantIndex, next)}
+                    isEditingProduct={Boolean(product)}
                     colorImageFiles={colorImageFiles}
                     onColorImageChange={(colorIndex, file) => {
                       setColorImageFiles((current) => ({
                         ...current,
                         [createColorImageKey(variantIndex, colorIndex)]: file,
                       }))
+                      setFieldErrors((current) => {
+                        const errorKey = `variant.${variantIndex}.color.${colorIndex}.image`
+                        if (!current[errorKey]) return current
+                        const next = { ...current }
+                        delete next[errorKey]
+                        return next
+                      })
                     }}
                     onImageValidationError={setLocalError}
+                    colorIdsWithInventoryRecords={colorIdsWithInventoryRecords}
+                    onColorStatusChange={setLocalError}
                     onColorRemove={(colorIndex) => {
+                      setLocalError('')
                       setColorImageFiles((current) => {
                         const next = { ...current }
                         Object.keys(next).forEach((key) => {
@@ -451,27 +526,39 @@ function VariantEditor({
   index,
   variant,
   template,
+  errors,
   selectedFitTypeIds,
   onChange,
+  isEditingProduct,
   colorImageFiles,
   onColorImageChange,
   onImageValidationError,
+  colorIdsWithInventoryRecords,
+  onColorStatusChange,
   onColorRemove,
   onRemove,
 }: {
   index: number
   variant: ProductVariantInput
   template: ProductCategoryTemplate
+  errors: ProductFormErrors
   selectedFitTypeIds: string[]
   onChange: (variant: ProductVariantInput) => void
+  isEditingProduct: boolean
   colorImageFiles: Record<string, File | null>
   onColorImageChange: (colorIndex: number, file: File | null) => void
   onImageValidationError: (message: string) => void
+  colorIdsWithInventoryRecords: Set<string>
+  onColorStatusChange: (message: string) => void
   onColorRemove: (colorIndex: number) => void
   onRemove: () => void
 }) {
-  const fitTypes = template.templateSource.fitTypes.filter((item) => item.isActive)
+  const fitTypes = getFitTypeTemplateSource(template).fitTypes.filter((item) => item.isActive)
   const [newSize, setNewSize] = useState('')
+  const isPersistedVariant = isEditingProduct && Boolean(variant._id)
+  const fieldError = (field: string) => errors[`variant.${index}.${field}`]
+  const colorFieldError = (colorIndex: number, field: string) =>
+    errors[`variant.${index}.color.${colorIndex}.${field}`]
 
   const handleColorImageFileChange = (
     colorIndex: number,
@@ -502,7 +589,7 @@ function VariantEditor({
     }
     onChange({
       ...variant,
-      sizeMeasurements: [...variant.sizeMeasurements, createSizeMeasurement(template, size)],
+      sizeMeasurements: [...variant.sizeMeasurements, createSizeOption(size)],
     })
     setNewSize('')
   }
@@ -511,36 +598,49 @@ function VariantEditor({
     <article className="admin-product-variant-editor">
       <header>
         <strong>Biến thể {index + 1}</strong>
-        <button className="admin-danger-link" type="button" onClick={onRemove}>Xóa biến thể</button>
+        <button
+          className="admin-danger-link"
+          type="button"
+          onClick={() => {
+            if (isPersistedVariant) {
+              onChange({ ...variant, isActive: !variant.isActive })
+              return
+            }
+            onRemove()
+          }}
+        >
+          {isPersistedVariant
+            ? variant.isActive ? 'Ngừng kinh doanh' : 'Kinh doanh lại'
+            : 'Xóa biến thể'}
+        </button>
       </header>
       <div className="admin-product-create-grid">
         <label>
-          <span>Form dáng</span>
-          <select required value={variant.fitTypeId} onChange={(event) => onChange({ ...variant, fitTypeId: event.target.value })}>
+          <span>Phom dáng</span>
+          <select className={fieldError('fitTypeId') ? 'is-invalid' : ''} value={variant.fitTypeId} onChange={(event) => onChange({ ...variant, fitTypeId: event.target.value })}>
             {fitTypes.map((fitType) => (
               <option key={fitType._id} value={fitType._id} disabled={fitType._id !== variant.fitTypeId && selectedFitTypeIds.includes(fitType._id)}>
                 {fitType.label}
               </option>
             ))}
           </select>
+          {fieldError('fitTypeId') ? <small className="admin-field-error">{fieldError('fitTypeId')}</small> : null}
         </label>
         <label>
           <span>Giá niêm yết (VND)</span>
-          <input type="number" required min={1000} max={100000000} step={1000} value={variant.price} onChange={(event) => onChange({ ...variant, price: Number(event.target.value) })} />
+          <input className={fieldError('price') ? 'is-invalid' : ''} type="number" min={1000} max={100000000} step={1000} value={variant.price} onChange={(event) => onChange({ ...variant, price: Number(event.target.value) })} />
+          {fieldError('price') ? <small className="admin-field-error">{fieldError('price')}</small> : null}
         </label>
         <label>
           <span>Giảm giá (%)</span>
-          <input type="number" required min={0} max={100} value={variant.discount} onChange={(event) => onChange({ ...variant, discount: Number(event.target.value) })} />
-        </label>
-        <label className="admin-product-create-checkbox">
-          <input type="checkbox" checked={variant.isActive} onChange={(event) => onChange({ ...variant, isActive: event.target.checked })} />
-          <span>Biến thể đang bán</span>
+          <input className={fieldError('discount') ? 'is-invalid' : ''} type="number" min={0} max={100} value={variant.discount} onChange={(event) => onChange({ ...variant, discount: Number(event.target.value) })} />
+          {fieldError('discount') ? <small className="admin-field-error">{fieldError('discount')}</small> : null}
         </label>
       </div>
 
       <section className="admin-product-size-section">
         <div className="admin-product-size-heading">
-          <h4>Số đo theo size</h4>
+          <h4>Size sản phẩm</h4>
           <div className="admin-product-size-add">
             <input
               list={`product-extra-sizes-${index}`}
@@ -555,7 +655,7 @@ function VariantEditor({
               }}
             />
             <datalist id={`product-extra-sizes-${index}`}>
-              {template.templateSource.sizes
+              {getSizeTemplateSource(template).sizes
                 .filter((size) => !variant.sizeMeasurements.some(
                   (item) => normalizeSize(item.size) === normalizeSize(size),
                 ))
@@ -566,67 +666,29 @@ function VariantEditor({
             </button>
           </div>
         </div>
-        <div className="admin-product-size-table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Size</th>
-                {template.templateSource.measurementFields.map((field) => (
-                  <th key={field.key}>{field.label} ({field.unit})</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {variant.sizeMeasurements.map((sizeMeasurement, sizeIndex) => (
-                <tr key={sizeMeasurement.size}>
-                  <td>
-                    <div className="admin-product-size-name">
-                      <strong>{sizeMeasurement.size}</strong>
-                      <button
-                        type="button"
-                        aria-label={`Xóa size ${sizeMeasurement.size}`}
-                        disabled={variant.sizeMeasurements.length === 1}
-                        onClick={() => {
-                          onChange({
-                            ...variant,
-                            sizeMeasurements: variant.sizeMeasurements.filter(
-                              (_, itemIndex) => itemIndex !== sizeIndex,
-                            ),
-                          })
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </td>
-                  {sizeMeasurement.measurements.map((measurement, measurementIndex) => (
-                    <td key={measurement.key}>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.1"
-                        required={template.templateSource.measurementFields[measurementIndex]?.required}
-                        aria-label={`${template.templateSource.measurementFields[measurementIndex]?.label ?? measurement.key} size ${sizeMeasurement.size}`}
-                        value={measurement.value}
-                        onChange={(event) => {
-                          const nextSizes = variant.sizeMeasurements.map((item, itemIndex) => itemIndex !== sizeIndex ? item : {
-                            ...item,
-                            measurements: item.measurements.map((value, valueIndex) =>
-                              valueIndex === measurementIndex
-                                ? { ...value, value: Number(event.target.value) }
-                                : value,
-                            ),
-                          })
-                          onChange({ ...variant, sizeMeasurements: nextSizes })
-                        }}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="admin-product-size-list">
+          {variant.sizeMeasurements.map((sizeMeasurement, sizeIndex) => (
+            <div className="admin-product-size-chip" key={sizeMeasurement.size}>
+              <strong>{sizeMeasurement.size}</strong>
+              <button
+                type="button"
+                aria-label={`Xóa size ${sizeMeasurement.size}`}
+                disabled={variant.sizeMeasurements.length === 1}
+                onClick={() => {
+                  onChange({
+                    ...variant,
+                    sizeMeasurements: variant.sizeMeasurements.filter(
+                      (_, itemIndex) => itemIndex !== sizeIndex,
+                    ),
+                  })
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
         </div>
+        {fieldError('sizes') ? <small className="admin-field-error">{fieldError('sizes')}</small> : null}
       </section>
 
       <section className="admin-product-color-section">
@@ -642,10 +704,12 @@ function VariantEditor({
               <div className="admin-product-color-fields">
                 <label>
                   <span>Tên màu</span>
-                  <input required minLength={2} maxLength={40} value={color.color} onChange={(event) => {
+                  <input className={colorFieldError(colorIndex, 'name') ? 'is-invalid' : ''} minLength={2} maxLength={40} value={color.color} onChange={(event) => {
                     const colors = variant.colors.map((item, itemIndex) => itemIndex === colorIndex ? { ...item, color: event.target.value } : item)
                     onChange({ ...variant, colors })
                   }} />
+                  {colorFieldError(colorIndex, 'name') ? <small className="admin-field-error">{colorFieldError(colorIndex, 'name')}</small> : null}
+                  {color.isActive === false ? <small className="admin-field-error">Màu này đang ngừng kinh doanh.</small> : null}
                 </label>
                 <label className="admin-product-color-code-field">
                   <span>Mã màu</span>
@@ -657,19 +721,20 @@ function VariantEditor({
               </div>
               <label className="is-image-url">
                 <span>Ảnh màu</span>
-                <input
-                  type="file"
-                  required={!color.image}
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) =>
+                <ProductImageFilePicker
+                  className={colorFieldError(colorIndex, 'image') ? 'is-invalid' : ''}
+                  buttonLabel={color._id ? 'Chọn ảnh mới' : 'Chọn ảnh'}
+                  currentUrl={color.image}
+                  file={colorImageFiles[createColorImageKey(index, colorIndex)] ?? null}
+                  onChange={(file, input) =>
                     handleColorImageFileChange(
                       colorIndex,
-                      event.target.files?.[0] ?? null,
-                      event.currentTarget,
+                      file,
+                      input,
                     )
                   }
                 />
-                <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
+                {colorFieldError(colorIndex, 'image') ? <small className="admin-field-error">{colorFieldError(colorIndex, 'image')}</small> : null}
                 <ProductImagePreview
                   file={colorImageFiles[createColorImageKey(index, colorIndex)]}
                   url={color.image}
@@ -679,19 +744,81 @@ function VariantEditor({
               <button
                 className="admin-danger-link"
                 type="button"
-                disabled={variant.colors.length === 1}
+                disabled={variant.colors.length === 1 && !(color._id && colorIdsWithInventoryRecords.has(color._id))}
                 onClick={() => {
+                  if (color._id && colorIdsWithInventoryRecords.has(color._id)) {
+                    const colors = variant.colors.map((item, itemIndex) =>
+                      itemIndex === colorIndex
+                        ? { ...item, isActive: !(item.isActive ?? true) }
+                        : item,
+                    )
+                    onChange({ ...variant, colors })
+                    onColorStatusChange((color.isActive ?? true) ? colorInventoryMessage : '')
+                    return
+                  }
                   onChange({ ...variant, colors: variant.colors.filter((_, itemIndex) => itemIndex !== colorIndex) })
                   onColorRemove(colorIndex)
                 }}
               >
-                Xóa màu
+                {color._id && colorIdsWithInventoryRecords.has(color._id)
+                  ? (color.isActive ?? true) ? 'Ngừng kinh doanh' : 'Kinh doanh lại'
+                  : 'Xóa màu'}
               </button>
             </div>
           ))}
         </div>
       </section>
     </article>
+  )
+}
+
+function ProductImageFilePicker({
+  buttonLabel,
+  currentUrl,
+  file,
+  className = '',
+  onChange,
+}: {
+  buttonLabel: string
+  currentUrl: string
+  file: File | null
+  className?: string
+  onChange: (file: File | null, input: HTMLInputElement) => void
+}) {
+  const inputId = useId()
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const normalizedUrl = currentUrl.trim()
+
+  return (
+    <div className={`admin-product-image-file-picker${className ? ` ${className}` : ''}`}>
+      <input
+        id={inputId}
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={(event) => onChange(event.target.files?.[0] ?? null, event.currentTarget)}
+      />
+      <label htmlFor={inputId}>{buttonLabel}</label>
+      {file || normalizedUrl ? (
+        <div>
+          <span>{file ? `Đã chọn ảnh mới: ${file.name}` : 'Đang dùng ảnh hiện tại'}</span>
+        </div>
+      ) : null}
+      {file ? (
+        <button
+          className="admin-product-image-file-remove"
+          type="button"
+          aria-label="Bỏ ảnh đã chọn"
+          onClick={() => {
+            if (!inputRef.current) return
+            inputRef.current.value = ''
+            onChange(null, inputRef.current)
+          }}
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -716,7 +843,9 @@ function ProductImagePreview({
     return () => URL.revokeObjectURL(objectUrl)
   }, [file, url])
 
-  return previewUrl
-    ? <img className={className} src={previewUrl} alt="Xem trước ảnh sản phẩm" />
-    : null
+  return (
+    <span className={className}>
+      {previewUrl ? <img src={previewUrl} alt="Xem trước ảnh sản phẩm" /> : <span className="admin-product-image-placeholder">Chưa có ảnh</span>}
+    </span>
+  )
 }

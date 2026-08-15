@@ -12,6 +12,7 @@ import {
   getCategoryTemplate,
   listCategories,
   updateCategory,
+  upsertCategoryFitTypeTemplate,
   upsertCategorySizeTemplate,
 } from './categories.controller';
 
@@ -21,6 +22,9 @@ const catalogReaders = [authenticate, authorize('admin', 'staff'), requirePermis
 const catalogWriters = [authenticate, authorize('admin', 'staff'), requirePermission('catalog.write')];
 const categoryImageUpload = withMulterErrorHandling(
   upload.fields([{ name: 'image', maxCount: 1 }]),
+);
+const sizeTemplateImageUpload = withMulterErrorHandling(
+  upload.fields([{ name: 'sizeGuideImage', maxCount: 1 }]),
 );
 
 customerCategoryRouter.get('/', listCategories);
@@ -37,7 +41,8 @@ adminCategoryRouter.get('/template/:id', catalogReaders, getCategoryTemplate);
 adminCategoryRouter.get('/:id', catalogReaders, getCategoryById);
 adminCategoryRouter.post('/', catalogWriters, categoryImageUpload, createCategory);
 adminCategoryRouter.post('/create', catalogWriters, categoryImageUpload, createCategory);
-adminCategoryRouter.patch('/:id/size-template', catalogWriters, upsertCategorySizeTemplate);
+adminCategoryRouter.patch('/:id/size-template', catalogWriters, sizeTemplateImageUpload, upsertCategorySizeTemplate);
+adminCategoryRouter.patch('/:id/fit-type-template', catalogWriters, upsertCategoryFitTypeTemplate);
 adminCategoryRouter.put('/:id', catalogWriters, categoryImageUpload, updateCategory);
 adminCategoryRouter.put('/update/:id', catalogWriters, categoryImageUpload, updateCategory);
 adminCategoryRouter.delete('/:id/permanent', catalogWriters, deleteCategoryPermanently);

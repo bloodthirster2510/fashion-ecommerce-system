@@ -9,6 +9,7 @@ export interface MeasurementFieldInput {
 }
 
 export interface CategoryFitTypeInput {
+  _id?: string;
   key: string;
   label: string;
   sortOrder: number;
@@ -25,6 +26,10 @@ export interface CreateCategoryInput {
   isLeaf?: boolean;
   isSizeTemplateSource?: boolean;
   sizeTemplateSourceId?: string | null;
+  sizeGuideImage?: string;
+  isFitTypeTemplateSource?: boolean;
+  fitTypeTemplateName?: string;
+  fitTypeTemplateSourceId?: string | null;
   sizes?: string[];
   measurementFields?: MeasurementFieldInput[];
   fitTypes?: CategoryFitTypeInput[];
@@ -41,6 +46,10 @@ export interface UpdateCategoryInput {
   isLeaf?: boolean;
   isSizeTemplateSource?: boolean;
   sizeTemplateSourceId?: string | null;
+  sizeGuideImage?: string;
+  isFitTypeTemplateSource?: boolean;
+  fitTypeTemplateName?: string;
+  fitTypeTemplateSourceId?: string | null;
   sizes?: string[];
   measurementFields?: MeasurementFieldInput[];
   fitTypes?: CategoryFitTypeInput[];
@@ -50,7 +59,15 @@ export interface UpdateCategoryInput {
 export interface UpsertCategorySizeTemplateInput {
   name?: string;
   sizes: string[];
+  sizeGuideImage?: string;
   measurementFields?: MeasurementFieldInput[];
+  categoryIds?: string[];
+  excludedCategoryIds?: string[];
+}
+
+export interface UpsertCategoryFitTypeTemplateInput {
+  name?: string;
+  fitTypes: CategoryFitTypeInput[];
   categoryIds?: string[];
   excludedCategoryIds?: string[];
 }

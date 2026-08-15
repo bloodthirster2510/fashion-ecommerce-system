@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T06:42:07.655Z",
+  "algorithmVersion": "v4_cart_outfit_sequence",
+  "k": 5,
+  "dataset": {
+    "name": "Amazon Reviews 2023 - Amazon Fashion controlled subset",
+    "source": "McAuley-Lab/Amazon-Reviews-2023; Kaggle mirror pandeymritunjay/amazon-reco-ds v8",
+    "split": "global chronological cutoff 2021-09-11T03:24:38.515Z, 730-day test window",
+    "notes": "Verified purchases with rating >= 4. Product-detail relevance uses next-positive-item proxy; cart relevance uses held-out same-day co-review basket proxy. Business signal is fixed at zero because equivalent sale/new-arrival fields are unavailable."
+  },
+  "contexts": [
+    {
+      "context": "home",
+      "baselineMethod": "most_popular",
+      "proposed": {
+        "cases": 100,
+        "hitRateAtK": 0,
+        "precisionAtK": 0,
+        "recallAtK": 0,
+        "mapAtK": 0,
+        "mrrAtK": 0,
+        "ndcgAtK": 0,
+        "catalogCoverageAtK": 0.03569,
+        "categoryDiversityAtK": 0.534,
+        "brandDiversityAtK": 0.984
+      },
+      "baseline": {
+        "cases": 100,
+        "hitRateAtK": 0,
+        "precisionAtK": 0,
+        "recallAtK": 0,
+        "mapAtK": 0,
+        "mrrAtK": 0,
+        "ndcgAtK": 0,
+        "catalogCoverageAtK": 0.001355,
+        "categoryDiversityAtK": 0.8,
+        "brandDiversityAtK": 1
+      },
+      "delta": {
+        "hitRateAtK": 0,
+        "precisionAtK": 0,
+        "recallAtK": 0,
+        "mapAtK": 0,
+        "mrrAtK": 0,
+        "ndcgAtK": 0,
+        "catalogCoverageAtK": 0.034335,
+        "categoryDiversityAtK": -0.266,
+        "brandDiversityAtK": -0.016
+      }
+    },
+    {
+      "context": "product_detail_similar",
+      "baselineMethod": "content_only",
+      "proposed": {
+        "cases": 100,
+        "hitRateAtK": 0,
+        "precisionAtK": 0,
+        "recallAtK": 0,
+        "mapAtK": 0,
+        "mrrAtK": 0,
+        "ndcgAtK": 0,
+        "catalogCoverageAtK": 0.013229,
+        "categoryDiversityAtK": 0.582,
+        "brandDiversityAtK": 0.994
+      },
+      "baseline": {
+        "cases": 100,
+        "hitRateAtK": 0.04,
+        "precisionAtK": 0.008,
+        "recallAtK": 0.04,
+        "mapAtK": 0.015833,
+        "mrrAtK": 0.015833,
+        "ndcgAtK": 0.021925,
+        "catalogCoverageAtK": 0.078924,
+        "categoryDiversityAtK": 0.366,
+        "brandDiversityAtK": 0.98
+      },
+      "delta": {
+        "hitRateAtK": -0.04,
+        "precisionAtK": -0.008,
+        "recallAtK": -0.04,
+        "mapAtK": -0.015833,
+        "mrrAtK": -0.015833,
+        "ndcgAtK": -0.021925,
+        "catalogCoverageAtK": -0.065695,
+        "categoryDiversityAtK": 0.216,
+        "brandDiversityAtK": 0.014
+      }
+    },
+    {
+      "context": "cart",
+      "baselineMethod": "association_lift",
+      "proposed": {
+        "cases": 100,
+        "hitRateAtK": 0.01,
+        "precisionAtK": 0.002,
+        "recallAtK": 0.01,
+        "mapAtK": 0.0025,
+        "mrrAtK": 0.0025,
+        "ndcgAtK": 0.004307,
+        "catalogCoverageAtK": 0.022118,
+        "categoryDiversityAtK": 0.674,
+        "brandDiversityAtK": 0.994
+      },
+      "baseline": {
+        "cases": 100,
+        "hitRateAtK": 0,
+        "precisionAtK": 0,
+        "recallAtK": 0,
+        "mapAtK": 0,
+        "mrrAtK": 0,
+        "ndcgAtK": 0,
+        "catalogCoverageAtK": 0.065684,
+        "categoryDiversityAtK": 1,
+        "brandDiversityAtK": 0.948
+      },
+      "delta": {
+        "hitRateAtK": 0.01,
+        "precisionAtK": 0.002,
+        "recallAtK": 0.01,
+        "mapAtK": 0.0025,
+        "mrrAtK": 0.0025,
+        "ndcgAtK": 0.004307,
+        "catalogCoverageAtK": -0.043566,
+        "categoryDiversityAtK": -0.326,
+        "brandDiversityAtK": 0.046
+      }
+    }
+  ]
+}

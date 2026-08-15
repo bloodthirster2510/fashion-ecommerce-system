@@ -17,10 +17,12 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/config ./config
+COPY --chown=node:node --from=build /app/dist ./dist
+COPY --chown=node:node --from=build /app/config ./config
 
-RUN mkdir -p uploads
+RUN mkdir -p uploads && chown node:node uploads
+
+USER node
 
 EXPOSE 5000
 

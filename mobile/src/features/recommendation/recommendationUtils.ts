@@ -11,6 +11,8 @@ const reasonLabels: Record<RecommendationReasonCode, string> = {
   preferred_color: 'Màu bạn hay xem',
   completes_outfit: 'Hoàn thiện set đồ',
   matches_cart_style: 'Hợp với giỏ hàng',
+  frequently_bought_together: 'Thường được mua cùng',
+  admin_pinned: 'Nổi bật',
   popular: 'Đang được yêu thích',
   on_sale: 'Đang có ưu đãi',
   new_arrival: 'Hàng mới',

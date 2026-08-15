@@ -44,6 +44,7 @@ const input = {
     ghnMappingStatus: 'mapped' as const,
     ghnMappingConfidence: 'exact' as const,
     ghnMappingVerifiedAt: '2026-07-29T00:00:00.000Z',
+    ghnMappingVerificationSource: 'admin' as const,
   },
   items: [{ name: 'Sandbox item', quantity: 1, price: 220_000 }],
 };
@@ -122,6 +123,22 @@ describe('shippingQuoteService GHN candidate validation', () => {
       },
     });
     expect(mockedGetAvailableServices).not.toHaveBeenCalled();
+    expect(mockedCalculateShippingFee).not.toHaveBeenCalled();
+  });
+
+  it('uses fixed fallback when GHN reports no available service for the district', async () => {
+    mockedGetAvailableServices.mockResolvedValue({ data: [] });
+
+    const result = await shippingQuoteService.compareCheckout(input);
+
+    expect(result).toMatchObject({
+      comparisonStatus: 'fallback',
+      pricingMode: 'FIXED_FALLBACK',
+      customerFee: 25_000,
+      resolvedArea: {
+        status: 'mapped',
+      },
+    });
     expect(mockedCalculateShippingFee).not.toHaveBeenCalled();
   });
 });

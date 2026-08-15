@@ -1,5 +1,6 @@
 import {
   canSubmitCheckout,
+  getCheckoutErrorPresentation,
   getCheckoutValidationIssue,
   getShippingStatusText,
 } from '../checkoutPresentation';
@@ -64,18 +65,37 @@ describe('checkout presentation helpers', () => {
       isPreviewLoading: false,
       selectedItemCount: 1,
       hasSelectedAddress: true,
-      needsAddressMapping: false,
     };
 
     expect(getShippingStatusText({ ...base, isPreviewLoading: true })).toContain('Đang tính');
     expect(getShippingStatusText({ ...base, selectedItemCount: 0 })).toContain('Chọn sản phẩm');
     expect(getShippingStatusText({ ...base, hasSelectedAddress: false })).toContain('Chọn địa chỉ');
-    expect(getShippingStatusText({ ...base, comparisonNote: 'Phí riêng từ đối tác' })).toBe(
-      'Phí riêng từ đối tác',
-    );
-    expect(getShippingStatusText({ ...base, needsAddressMapping: true })).toContain('phí tạm tính');
-    expect(getShippingStatusText({ ...base, comparisonStatus: 'partial' })).toContain('tối ưu');
     expect(getShippingStatusText({ ...base, quoteStatus: 'quoted' })).toContain('Đã tính phí');
-    expect(getShippingStatusText(base)).toContain('đối soát lại');
+    expect(getShippingStatusText({ ...base, quoteStatus: 'fallback' })).toContain('Đã tính phí');
+    expect(getShippingStatusText(base)).toContain('cập nhật tự động');
+  });
+
+  it('presents and identifies a voucher exhausted by a concurrent checkout', () => {
+    expect(getCheckoutErrorPresentation({
+      status: 409,
+      errorCode: 'COUPON_USAGE_LIMIT_REACHED',
+      data: { couponCode: 'save10' },
+      message: 'Coupon usage limit reached',
+    })).toEqual({
+      kind: 'coupon_exhausted',
+      title: 'Voucher đã hết lượt',
+      message: 'Voucher SAVE10 vừa được khách hàng khác sử dụng hết. Mình đã gỡ voucher và cập nhật lại đơn hàng.',
+      couponCode: 'SAVE10',
+    });
+  });
+
+  it('keeps quote conflicts separate from voucher conflicts', () => {
+    expect(getCheckoutErrorPresentation({
+      status: 409,
+      errorCode: 'QUOTE_CHANGED',
+    })).toMatchObject({
+      kind: 'quote_changed',
+      title: 'Phí giao hàng đã thay đổi',
+    });
   });
 });

@@ -14,6 +14,7 @@ import {
   getOrderTransactions,
   getOrders,
   exportOrdersCsv,
+  exportOrdersExcel,
   previewCheckout,
   requestReturn,
   reviewReturnRequest,
@@ -41,6 +42,7 @@ adminOrderRouter.use(authenticate);
 adminOrderRouter.use(authorize('admin', 'staff'));
 adminOrderRouter.get('/', requirePermission('orders.read'), getOrders);
 adminOrderRouter.get('/export.csv', requirePermission('orders.read'), exportOrdersCsv);
+adminOrderRouter.get('/export.xlsx', requirePermission('orders.read'), exportOrdersExcel);
 adminOrderRouter.patch('/bulk-status', requirePermission('orders.update'), bulkUpdateOrderStatus);
 adminOrderRouter.post('/bulk-ghn', requirePermission('orders.update'), bulkProcessGhnShipments);
 adminOrderRouter.get('/:id/transactions', requirePermission('orders.read'), getOrderTransactions);

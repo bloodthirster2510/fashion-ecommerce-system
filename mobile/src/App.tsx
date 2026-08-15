@@ -4,13 +4,16 @@ import {
   createNavigationContainerRef,
   type NavigationAction,
 } from '@react-navigation/native';
-import * as WebBrowser from 'expo-web-browser';
-import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator, { type RootStackParamList } from './navigation/AppNavigator';
 import { AuthProvider, useAuth } from './features/auth/AuthContext';
-import { CustomerNotificationProvider } from './features/notifications/CustomerNotificationProvider';
+import {
+  CustomerNotificationProvider,
+  useCustomerNotifications,
+} from './features/notifications/CustomerNotificationProvider';
 import { PushNotificationProvider } from './features/notifications/PushNotificationProvider';
+import { notificationApi } from './features/notifications/notificationApi';
 import {
   pushNotificationCapability,
   subscribeToPushNotifications,
@@ -21,7 +24,7 @@ import { getUrlParam, parsePasswordResetLink } from './features/auth/passwordRes
 import { hydrateScreenDataCache } from './config/screenDataCache';
 import { colors } from './theme';
 
-WebBrowser.maybeCompleteAuthSession();
+const shopNameImage = require('../assets/ShopName.png');
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
@@ -46,7 +49,14 @@ const CacheBootstrap = ({ children }: { children: React.ReactNode }) => {
   if (!ready) {
     return (
       <View style={styles.cacheBootstrap}>
+        <Image
+          accessibilityLabel="CDSHOP"
+          resizeMode="contain"
+          source={shopNameImage}
+          style={styles.loadingLogo}
+        />
         <ActivityIndicator color={colors.brand} />
+        <Text style={styles.loadingText}>Đang chuẩn bị cửa hàng...</Text>
       </View>
     );
   }
@@ -74,10 +84,16 @@ const handleUnhandledNavigationAction = (action: NavigationAction) => {
   console.warn('Unhandled navigation action', action);
 };
 
-const NavigationRoot = () => {
-  const { isRestoringSession } = useAuth();
+type PendingPushOpen = {
+  target: PushNavigationTarget;
+  notificationId?: string;
+};
+
+const NavigationContent = () => {
+  const { isRestoringSession, runWithAuth } = useAuth();
+  const { refresh: refreshNotificationSummary } = useCustomerNotifications();
   const pendingUrlRef = React.useRef<string | null>(null);
-  const pendingPushTargetRef = React.useRef<PushNavigationTarget | null>(null);
+  const pendingPushOpenRef = React.useRef<PendingPushOpen | null>(null);
 
   const handleDeepLink = React.useCallback((url: string | null) => {
     if (!url) return;
@@ -101,10 +117,16 @@ const NavigationRoot = () => {
     }
   }, [isRestoringSession]);
 
-  const openPushTarget = React.useCallback((target: PushNavigationTarget) => {
+  const openPushTarget = React.useCallback((target: PushNavigationTarget, notificationId?: string) => {
     if (isRestoringSession || !navigationRef.isReady()) {
-      pendingPushTargetRef.current = target;
+      pendingPushOpenRef.current = { target, notificationId };
       return;
+    }
+
+    if (notificationId) {
+      void runWithAuth((token) => notificationApi.markRead(token, notificationId))
+        .then(() => refreshNotificationSummary())
+        .catch(() => undefined);
     }
 
     if (target.screen === 'SupportTicketDetail') {
@@ -118,7 +140,7 @@ const NavigationRoot = () => {
     } else {
       navigationRef.navigate('VirtualTryOnHome');
     }
-  }, [isRestoringSession]);
+  }, [isRestoringSession, refreshNotificationSummary, runWithAuth]);
 
   const flushPendingNavigation = React.useCallback(() => {
     if (isRestoringSession || !navigationRef.isReady()) return;
@@ -127,9 +149,11 @@ const NavigationRoot = () => {
     pendingUrlRef.current = null;
     if (pendingUrl) handleDeepLink(pendingUrl);
 
-    const pendingPushTarget = pendingPushTargetRef.current;
-    pendingPushTargetRef.current = null;
-    if (pendingPushTarget) openPushTarget(pendingPushTarget);
+    const pendingPushOpen = pendingPushOpenRef.current;
+    pendingPushOpenRef.current = null;
+    if (pendingPushOpen) {
+      openPushTarget(pendingPushOpen.target, pendingPushOpen.notificationId);
+    }
   }, [handleDeepLink, isRestoringSession, openPushTarget]);
 
   const handleNavigationReady = React.useCallback(() => {
@@ -176,14 +200,18 @@ const NavigationRoot = () => {
       onReady={handleNavigationReady}
       onUnhandledAction={handleUnhandledNavigationAction}
     >
-      <PushNotificationProvider>
-        <CustomerNotificationProvider>
-          <AppNavigator />
-        </CustomerNotificationProvider>
-      </PushNotificationProvider>
+      <AppNavigator />
     </NavigationContainer>
   );
 };
+
+const NavigationRoot = () => (
+  <PushNotificationProvider>
+    <CustomerNotificationProvider>
+      <NavigationContent />
+    </CustomerNotificationProvider>
+  </PushNotificationProvider>
+);
 
 const App = () => (
   <SafeAreaProvider>
@@ -203,6 +231,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     flex: 1,
     justifyContent: 'center',
+  },
+  loadingLogo: {
+    height: 210,
+    marginBottom: 8,
+    width: '88%',
+  },
+  loadingText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    marginTop: 10,
   },
 });
 

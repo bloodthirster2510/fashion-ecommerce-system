@@ -2,6 +2,7 @@ export type ProductReview = {
   _id: string
   productId: string
   orderId: string
+  orderItemId: string
   rating: number
   comment: string
   moderationStatus?: 'pending' | 'visible' | 'hidden'
@@ -30,6 +31,9 @@ export type ProductReview = {
     name: string | null
     avatarImage: string | null
   }
+  canEdit?: boolean
+  canDelete?: boolean
+  mutationDeadline?: string
   createdAt: string
   updatedAt: string
 }

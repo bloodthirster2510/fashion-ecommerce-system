@@ -215,7 +215,7 @@ const parseProductListQuery = (req: Request): ProductListQueryInput => {
   const includeFilters = parseBoolean(req.query.includeFilters, 'includeFilters');
 
   if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
-    throw new ProductServiceError('minPrice cannot be greater than maxPrice', 400);
+    throw new ProductServiceError('Giá thấp nhất không được cao hơn giá cao nhất.', 400);
   }
 
   return {
@@ -287,7 +287,10 @@ const uploadVariantImages = async (
   variantImageIndexes: number[] = [],
 ) => {
   if (!variantImageFiles.length) {
-    return variants;
+    return {
+      variants,
+      uploadedImageUrls: [] as string[],
+    };
   }
 
   if (!variants?.length) {
@@ -321,7 +324,8 @@ const uploadVariantImages = async (
     });
   }
 
-  return variants.map((variant) => ({
+  return {
+    variants: variants.map((variant) => ({
       ...variant,
       colors: variant.colors.map((color) => {
         const currentImageIndex = imageIndex++;
@@ -332,7 +336,9 @@ const uploadVariantImages = async (
             (variantImageIndexes.length ? color.image : uploadedImageUrls[currentImageIndex]),
         };
       }),
-    }));
+    })),
+    uploadedImageUrls,
+  };
 };
 
 const deleteCloudinaryImage = async (imageUrl?: string | null) => {
@@ -359,6 +365,8 @@ const deleteProductImages = async (product: Awaited<ReturnType<typeof productSer
 };
 
 const createProduct = async (req: Request, res: Response) => {
+  const uploadedImageUrls: string[] = [];
+
   try {
     const uploadReq = req as MulterRequest;
     const multerErrorResponse = handleMulterError(uploadReq.fileValidationError, res);
@@ -380,13 +388,16 @@ const createProduct = async (req: Request, res: Response) => {
     let productImageUrl: string;
     if (productImageFile) {
       productImageUrl = await uploadProductImage(productImageFile);
+      uploadedImageUrls.push(productImageUrl);
     } else if (input.product_image) {
       productImageUrl = input.product_image;
     } else {
       return errorResponse(res, 'Product image is required (upload file or provide image URL)', 400);
     }
 
-    const variant = await uploadVariantImages(input.variant, variantImageFiles, variantImageIndexes);
+    const { variants: variant, uploadedImageUrls: uploadedVariantImageUrls } =
+      await uploadVariantImages(input.variant, variantImageFiles, variantImageIndexes);
+    uploadedImageUrls.push(...uploadedVariantImageUrls);
 
     const productInput: CreateProductInput = {
       ...input,
@@ -398,12 +409,16 @@ const createProduct = async (req: Request, res: Response) => {
 
     return created(res, product);
   } catch (e: unknown) {
+    await Promise.all(uploadedImageUrls.map((url) => deleteCloudinaryImage(url)));
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
   }
 };
 
 const updateProduct = async (req: Request, res: Response) => {
+  const uploadedImageUrls: string[] = [];
+  let replacedProductImageUrl: string | undefined;
+
   try {
     const uploadReq = req as MulterRequest;
     const multerErrorResponse = handleMulterError(uploadReq.fileValidationError, res);
@@ -434,13 +449,16 @@ const updateProduct = async (req: Request, res: Response) => {
         : null;
 
     if (productImageFile) {
-      await deleteCloudinaryImage(currentProduct?.product_image);
       updateData.product_image = await uploadProductImage(productImageFile);
+      uploadedImageUrls.push(updateData.product_image);
+      replacedProductImageUrl = currentProduct?.product_image;
     } else if (input.product_image !== undefined) {
       updateData.product_image = input.product_image;
     }
 
-    const variant = await uploadVariantImages(input.variant, variantImageFiles, variantImageIndexes);
+    const { variants: variant, uploadedImageUrls: uploadedVariantImageUrls } =
+      await uploadVariantImages(input.variant, variantImageFiles, variantImageIndexes);
+    uploadedImageUrls.push(...uploadedVariantImageUrls);
 
     if (input.variant !== undefined) {
       updateData.variant = variant;
@@ -451,9 +469,13 @@ const updateProduct = async (req: Request, res: Response) => {
     }
 
     const product = await productService.updateProduct(productId, updateData);
+    if (replacedProductImageUrl && replacedProductImageUrl !== updateData.product_image) {
+      await deleteCloudinaryImage(replacedProductImageUrl);
+    }
 
     return ok(res, product);
   } catch (e: unknown) {
+    await Promise.all(uploadedImageUrls.map((url) => deleteCloudinaryImage(url)));
     const { statusCode, message } = getErrorResponse(e);
     return errorResponse(res, message, statusCode);
   }

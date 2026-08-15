@@ -67,7 +67,7 @@ export const buildDashboardAttentionItems = (
     } : null,
     summary.capabilities.inventory && summary.lowStockVariants > 0 ? {
       key: 'inventory',
-      title: 'SKU tồn kho thấp',
+      title: 'Mặt hàng tồn kho thấp',
       detail: 'Biến thể còn từ 1 đến 5 sản phẩm khả dụng.',
       count: summary.lowStockVariants,
       href: '/admin/inventory',

@@ -55,6 +55,7 @@ export type AdminOrderShippingAddress = {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual'
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null
   ghnMappingVerifiedAt?: string | null
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null
 }
 
 export type AdminOrderShipping = {
@@ -320,8 +321,8 @@ export type SimulateShippingWebhookPayload = {
 export const listOrders = (filters: OrderListFilters) =>
   requestAdmin<OrderListResponse>(`/admin/orders?${buildOrderListQuery(filters)}`)
 
-export const exportOrdersCsv = (filters: OrderListFilters) =>
-  requestAdminFile(`/admin/orders/export.csv?${buildOrderListQuery(filters)}`)
+export const exportOrdersExcel = (filters: OrderListFilters) =>
+  requestAdminFile(`/admin/orders/export.xlsx?${buildOrderListQuery(filters)}`)
 
 export const getOrder = (id: string) =>
   requestAdmin<AdminOrder>(`/admin/orders/${id}`)

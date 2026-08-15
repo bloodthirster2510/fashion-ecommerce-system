@@ -1,8 +1,13 @@
 import { createContext, useContext } from 'react'
 
-export type ToastType = 'success' | 'error'
+export type ToastType = 'success' | 'info' | 'warning' | 'error'
+export type ToastAction = {
+  label: string
+  onClick: () => void
+}
 export type NotificationContextValue = {
-  showToast: (message: string, type?: ToastType) => void
+  showToast: (message: string, type?: ToastType, action?: ToastAction) => void
+  showBottomToast: (message: string, type?: ToastType, action?: ToastAction) => void
   dismissToast: (id: number) => void
 }
 

@@ -61,7 +61,7 @@ export const sendOtp = async (req: Request, res: Response) => {
 
   try {
     const delivery = await authService.sendOtp(req.body.phone);
-    return ok(res, delivery, 'Nếu số điện thoại có thể đăng ký, mã OTP đã được gửi');
+    return ok(res, delivery, 'Mã OTP đã được gửi');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
@@ -119,7 +119,7 @@ export const login = async (req: Request, res: Response) => {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
     }
-    return res.status(500).json({ message: 'Lỗi server' });
+    return res.status(500).json({ message: 'Lỗi server.' });
   }
 };
 
@@ -185,6 +185,18 @@ export const adminLogin = async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const securityResponse = sendLoginSecurityError(res, err);
     if (securityResponse) return securityResponse;
+    if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
+      return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
+    }
+    return res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+export const getAdminSession = async (req: Request, res: Response) => {
+  try {
+    const user = await authService.getAdminSessionUser(req.user!.userId);
+    return ok(res, user);
+  } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
     }
@@ -301,28 +313,6 @@ export const changePassword = async (req: Request, res: Response) => {
   try {
     await authService.changePassword(req.user!.userId, req.body.currentPassword, req.body.newPassword);
     return ok(res, null, 'Đổi mật khẩu thành công');
-  } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
-      return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });
-    }
-    return res.status(500).json({ message: 'Lỗi server' });
-  }
-};
-
-export const socialLogin = async (req: Request, res: Response) => {
-  const { provider, idToken } = req.body;
-
-  if (!provider || !idToken) {
-    return res.status(400).json({ message: 'provider và idToken là bắt buộc' });
-  }
-
-  if (!['google', 'facebook'].includes(provider)) {
-    return res.status(400).json({ message: 'Provider không hợp lệ' });
-  }
-
-  try {
-    const result = await authService.socialLogin(provider, idToken);
-    return ok(res, applyRefreshTokenCookieMode(req, res, result), 'Đăng nhập thành công');
   } catch (err: unknown) {
     if (err && typeof err === 'object' && 'status' in err && 'message' in err) {
       return res.status((err as { status: number }).status).json({ message: (err as { message: string }).message });

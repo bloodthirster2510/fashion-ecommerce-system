@@ -1,0 +1,38 @@
+{
+  "dataset": "McAuley-Lab/Amazon-Reviews-2023 Amazon_Fashion",
+  "kaggleMirror": "pandeymritunjay/amazon-reco-ds",
+  "kaggleMirrorVersion": 8,
+  "retrievedAt": "2026-08-13",
+  "files": [
+    {
+      "name": "Amazon_Fashion.jsonl",
+      "bytes": 1051324731,
+      "sha256": "e597b3ce6cbb2f9994a32e0eee6bb04fdae50725f2d49c89f6baef1a7b986c57",
+      "source": "https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023/resolve/main/raw/review_categories/Amazon_Fashion.jsonl"
+    },
+    {
+      "name": "meta_Amazon_Fashion.jsonl",
+      "bytes": 1422365805,
+      "sha256": "629dde620a4001934a8af705f6e5514a1b2d349720c26876ee803b90051a62df",
+      "source": "https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023/resolve/main/raw/meta_categories/meta_Amazon_Fashion.jsonl"
+    }
+  ],
+  "additionalDatasets": [
+    {
+      "dataset": "Polyvore Dataset for Learning Fashion Compatibility with Bidirectional LSTMs",
+      "repository": "https://github.com/xthan/polyvore-dataset",
+      "retrievedAt": "2026-08-13",
+      "files": [
+        {
+          "name": "polyvore.tar.gz",
+          "bytes": 8412072,
+          "sha256": "37c36efc67cabdaa58f2d73cbc1c5143d87f9918ff3d4da20e271e40c89e902b"
+        },
+        {
+          "name": "category_id.txt",
+          "sha256": "0fa149516d9003d8829ba6cac2abf833ce3584aa75769709476746a80fc99979"
+        }
+      ]
+    }
+  ]
+}

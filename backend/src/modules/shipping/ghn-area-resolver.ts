@@ -9,6 +9,7 @@ export type ResolvedGhnArea = {
   status: 'mapped' | 'missing' | 'manual';
   confidence: 'exact' | 'manual' | 'legacy' | null;
   verifiedAt: Date | null;
+  verificationSource: 'admin' | 'managed' | 'seed' | null;
   source: 'explicit' | 'legacy' | 'mapping' | 'managed' | 'missing';
 };
 
@@ -22,6 +23,7 @@ export const resolveGhnArea = (address?: ShippingAddressForQuote | null): Resolv
       status: 'missing',
       confidence: null,
       verifiedAt: null,
+      verificationSource: null,
       source: 'missing',
     };
   }
@@ -36,6 +38,7 @@ export const resolveGhnArea = (address?: ShippingAddressForQuote | null): Resolv
     status: resolvedGhnFields.ghnMappingStatus,
     confidence: resolvedGhnFields.ghnMappingConfidence,
     verifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    verificationSource: resolvedGhnFields.ghnMappingVerificationSource,
     source: resolvedGhnFields.source,
   };
 };
@@ -56,6 +59,7 @@ export const resolveManagedGhnArea = async (
     status: resolvedGhnFields.ghnMappingStatus,
     confidence: resolvedGhnFields.ghnMappingConfidence,
     verifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    verificationSource: resolvedGhnFields.ghnMappingVerificationSource,
     source: resolvedGhnFields.source,
   };
 };

@@ -17,6 +17,7 @@ import {
   mergeVirtualTryOnRealtimeEvent,
   preferFreshVirtualTryOnJob,
 } from './virtualTryOnJobState';
+import { getTryOnJobErrorMessage } from './virtualTryOnErrorMessages';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnProcessing'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnProcessing'>;
@@ -75,6 +76,11 @@ const VirtualTryOnProcessingScreen = () => {
       alternativeSeedItems: retainedAlternativeSeedItems,
     } : undefined);
   }, [navigation, retainedSeedItems, retainedAlternativeSeedItems]);
+
+  const returnToHome = React.useCallback(() => {
+    isFocusedRef.current = false;
+    navigation.navigate('Home', undefined, { pop: true });
+  }, [navigation]);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -318,7 +324,7 @@ const VirtualTryOnProcessingScreen = () => {
                   <View style={styles.backgroundProcessingActions}>
                     <TouchableOpacity
                       style={styles.backgroundHomeButton}
-                      onPress={returnToBuilder}
+                      onPress={returnToHome}
                       activeOpacity={0.86}
                     >
                       <MaterialCommunityIcons name="home-outline" size={20} color={studioPalette.ink} />
@@ -346,9 +352,7 @@ const VirtualTryOnProcessingScreen = () => {
                 <Text style={styles.errorText}>
                   {isResultMissing
                     ? 'Hệ thống báo hoàn tất nhưng không trả ảnh phối đồ hợp lệ.'
-                    : job.errorMessage || (isProviderSafetyBlocked
-                      ? 'Bạn đổi ảnh người hoặc ảnh sản phẩm phù hợp hơn rồi tạo lại nhé.'
-                      : 'Bạn thử lại sau ít phút nhé.')}
+                    : getTryOnJobErrorMessage(job.errorCode)}
                 </Text>
                 <TouchableOpacity
                   style={styles.retryButton}
@@ -374,11 +378,7 @@ const VirtualTryOnProcessingScreen = () => {
                 <View style={styles.canceledActions}>
                   <TouchableOpacity
                     style={styles.canceledSecondaryButton}
-                    onPress={() => navigation.navigate('VirtualTryOnHome', retainedSeedItems?.length ? {
-                      entryPoint: 'builder',
-                      seedItems: retainedSeedItems,
-                      alternativeSeedItems: retainedAlternativeSeedItems,
-                    } : undefined)}
+                    onPress={returnToHome}
                     activeOpacity={0.86}
                   >
                     <MaterialCommunityIcons name="home-outline" size={20} color={studioPalette.ink} />

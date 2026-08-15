@@ -4,6 +4,11 @@ declare module 'nodemailer' {
     to?: string;
     subject?: string;
     html?: string;
+    attachments?: Array<{
+      filename: string;
+      content: Buffer;
+      contentType: string;
+    }>;
   };
 
   type Transporter = {

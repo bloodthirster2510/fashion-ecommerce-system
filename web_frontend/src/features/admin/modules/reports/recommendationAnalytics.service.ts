@@ -185,6 +185,8 @@ export const parseRecommendationAnalytics = (value: unknown): RecommendationAnal
   const { range, filters, summary, comparison, coverage, diversity, search } = value
   const valid = (
     isDateString(value.generatedAt) &&
+    typeof value.currentAlgorithmVersion === 'string' &&
+    value.currentAlgorithmVersion.trim() !== '' &&
     isRecord(range) &&
     ['from', 'to', 'previousFrom', 'previousTo'].every((field) => isDateString(range[field])) &&
     isRecord(filters) &&
@@ -225,6 +227,13 @@ export const parseRecommendationAnalytics = (value: unknown): RecommendationAnal
     ]) &&
     Array.isArray(search.topKeywords) &&
     search.topKeywords.every((keyword) => (
+      isRecord(keyword) &&
+      typeof keyword.keyword === 'string' &&
+      hasNumberFields(keyword, ['count', 'averageResultCount']) &&
+      isDateString(keyword.lastSearchedAt)
+    )) &&
+    Array.isArray(search.zeroResultKeywords) &&
+    search.zeroResultKeywords.every((keyword) => (
       isRecord(keyword) &&
       typeof keyword.keyword === 'string' &&
       hasNumberFields(keyword, ['count', 'averageResultCount']) &&

@@ -9,7 +9,11 @@ import {
   VirtualTryOnPromptViolation,
 } from '../../../database/models';
 import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
-import { virtualTryOnService } from '../virtual-try-on.service';
+import {
+  cleanupGeneratedAssetsBestEffort,
+  persistGeneratedOutput,
+  virtualTryOnService,
+} from '../virtual-try-on.service';
 import { virtualTryOnSettingsService } from '../virtual-try-on-settings.service';
 
 jest.mock('axios', () => ({
@@ -30,6 +34,7 @@ jest.mock('../../../database/models', () => ({
   VirtualTryOnAsset: {
     create: jest.fn(),
     findOne: jest.fn(),
+    findOneAndUpdate: jest.fn(),
   },
   VirtualTryOnJob: {
     countDocuments: jest.fn(),
@@ -90,6 +95,7 @@ const mockedUploadToCloudinary = uploadToCloudinary as jest.Mock;
 const mockedVirtualTryOnAsset = VirtualTryOnAsset as unknown as {
   create: jest.Mock;
   findOne: jest.Mock;
+  findOneAndUpdate: jest.Mock;
 };
 const mockedVirtualTryOnJob = VirtualTryOnJob as unknown as {
   countDocuments: jest.Mock;
@@ -235,6 +241,10 @@ describe('virtualTryOnService image validation', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockedSettingsService.getRuntimeSettings.mockResolvedValue({
       enabled: true,
+      imageProvider: 'mock',
+      imageModel: 'mock',
+      videoProvider: 'mock',
+      videoModel: 'mock',
       maxConcurrentJobsPerUser: 1,
       maxVideoJobsPerUserPerDay: 3,
       maxConcurrentVideoJobsPerUser: 1,
@@ -270,6 +280,10 @@ describe('virtualTryOnService image validation', () => {
   it('blocks new source uploads when the runtime feature switch is off', async () => {
     mockedSettingsService.getRuntimeSettings.mockResolvedValueOnce({
       enabled: false,
+      imageProvider: 'mock',
+      imageModel: 'mock',
+      videoProvider: 'mock',
+      videoModel: 'mock',
       maxConcurrentJobsPerUser: 1,
       maxVideoJobsPerUserPerDay: 3,
       maxConcurrentVideoJobsPerUser: 1,
@@ -304,6 +318,39 @@ describe('virtualTryOnService image validation', () => {
       failOpen: false,
       reasonCode: 'IMAGE_VALIDATION_UNREACHABLE',
     });
+  });
+
+  it('does not advertise image generation when the ComfyUI workflow is incomplete', async () => {
+    mockedSettingsService.getRuntimeSettings.mockResolvedValueOnce({
+      enabled: true,
+      imageProvider: 'comfy',
+      imageModel: 'gemini-test',
+      videoProvider: 'disabled',
+      videoModel: 'disabled',
+      maxConcurrentJobsPerUser: 1,
+      maxVideoJobsPerUserPerDay: 3,
+      maxConcurrentVideoJobsPerUser: 1,
+      promptMaxLength: 200,
+      promptViolationLimitPerDay: 5,
+      version: 1,
+      persisted: true,
+      updatedAt: now,
+      historyVersions: [],
+    });
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_PATH = '';
+    process.env.VIRTUAL_TRY_ON_COMFY_WORKFLOW_MAP_PATH = '';
+    delete process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL;
+    delete process.env.VIRTUAL_TRY_ON_SERVICE_URL;
+
+    const result = await virtualTryOnService.getCapabilities();
+
+    expect(result.imageGeneration).toEqual({
+      available: false,
+      provider: 'comfy',
+      reasonCode: 'COMFY_WORKFLOW_MISSING',
+    });
+    expect(result.videoGeneration.available).toBe(false);
+    expect(result.videoGeneration.reasonCode).toBe('COMFY_WORKFLOW_MISSING');
   });
 
   it('validates source image during upload before saving it to the asset library', async () => {
@@ -527,13 +574,16 @@ describe('virtualTryOnService image validation', () => {
     );
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledWith(expect.objectContaining({
-      providerMetadata: {
+      provider: 'mock',
+      providerMetadata: expect.objectContaining({
+        model: 'mock',
+        settingsVersion: 0,
         sourceImageProfile: expect.objectContaining({
           visibleRegions: ['upper', 'hips', 'legs'],
           supportedModes: expect.arrayContaining(['top', 'bottom']),
           recommendedMode: 'full_set',
         }),
-      },
+      }),
     }));
   });
 
@@ -824,5 +874,56 @@ describe('virtualTryOnService image validation', () => {
 
     expect(mockedVirtualTryOnPromptViolation.create).not.toHaveBeenCalled();
     expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+  });
+
+  it('removes a Cloudinary upload when creating its asset record fails', async () => {
+    mockedUploadToCloudinary.mockResolvedValue({
+      ...uploadedSource,
+      public_id: 'generated-orphan',
+      secure_url: 'https://example.com/generated.png',
+    });
+    mockedVirtualTryOnAsset.create.mockRejectedValue(new Error('database unavailable'));
+    mockedDeleteFromCloudinary.mockResolvedValue(undefined);
+
+    await expect(persistGeneratedOutput(
+      { _id: jobId, userId: new Types.ObjectId(userId) } as never,
+      'generated_image',
+      { buffer: Buffer.from('generated'), mimeType: 'image/png', fileName: 'result.png' },
+    )).rejects.toThrow('database unavailable');
+
+    expect(mockedDeleteFromCloudinary).toHaveBeenCalledWith('generated-orphan', 'image');
+  });
+
+  it('marks an unattached generated asset deleted before removing its remote file', async () => {
+    mockedVirtualTryOnAsset.findOneAndUpdate.mockResolvedValue({ _id: jobId });
+    mockedDeleteFromCloudinary.mockResolvedValue(undefined);
+
+    await cleanupGeneratedAssetsBestEffort([{
+      assetId: jobId,
+      publicId: 'generated-canceled-job',
+      resourceType: 'image',
+    }]);
+
+    expect(mockedVirtualTryOnAsset.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: jobId, status: 'active' },
+      { status: 'deleted', deletedAt: expect.any(Date) },
+      { returnDocument: 'after' },
+    );
+    expect(mockedDeleteFromCloudinary).toHaveBeenCalledWith(
+      'generated-canceled-job',
+      'image',
+    );
+  });
+
+  it('does not delete a remote file when another cleanup already claimed the asset', async () => {
+    mockedVirtualTryOnAsset.findOneAndUpdate.mockResolvedValue(null);
+
+    await cleanupGeneratedAssetsBestEffort([{
+      assetId: jobId,
+      publicId: 'already-cleaned',
+      resourceType: 'image',
+    }]);
+
+    expect(mockedDeleteFromCloudinary).not.toHaveBeenCalled();
   });
 });

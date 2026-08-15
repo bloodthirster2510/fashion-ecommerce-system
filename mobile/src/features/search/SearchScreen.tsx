@@ -97,7 +97,7 @@ const SearchScreen = () => {
     };
   }, [isAuthenticated, runWithAuth]);
 
-  const { result, isLoading } = useSuggest(query);
+  const { result, isLoading, error: suggestError } = useSuggest(query);
 
   const recordInteraction = React.useCallback((payload: InteractionPayload) => {
     if (isAuthenticated) {
@@ -113,13 +113,20 @@ const SearchScreen = () => {
     keyword: string,
     source: MobileSearchSource = 'mobile_manual',
   ) => {
-    const trimmed = keyword.trim();
-    if (!trimmed) return;
-    setHistory((current) => mergeSearchHistory([trimmed], current));
-    void addSearchHistory(trimmed);
+    const normalizedKeyword = keyword.trim().replace(/\s+/g, ' ');
+    if (!normalizedKeyword) {
+      navigation.replace('ProductList', {
+        title: 'Tất cả sản phẩm',
+        sort: 'newest',
+      });
+      return;
+    }
+
+    setHistory((current) => mergeSearchHistory([normalizedKeyword], current));
+    void addSearchHistory(normalizedKeyword);
     navigation.replace('ProductList', {
-      title: `Tìm kiếm: ${trimmed}`,
-      keyword: trimmed,
+      title: `Tìm kiếm: ${normalizedKeyword}`,
+      keyword: normalizedKeyword,
       searchEventId: createSearchEventId(),
       searchSource: source,
     });
@@ -144,7 +151,7 @@ const SearchScreen = () => {
   };
 
   const hasQuery = query.trim().length >= 2;
-  const showSuggestions = hasQuery && (result || isLoading);
+  const showSuggestions = hasQuery && Boolean(result || isLoading);
   const showHistory = !hasQuery && history.length > 0;
   const historySuggestions = React.useMemo(() => {
     const normalizedQuery = normalizeSearchText(query);
@@ -247,7 +254,14 @@ const SearchScreen = () => {
           <MaterialCommunityIcons name="arrow-left" size={24} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.searchBar}>
-          <MaterialCommunityIcons name="magnify" size={20} color={colors.textMuted} />
+          <TouchableOpacity
+            onPress={() => handleSearch(query, 'mobile_manual')}
+            activeOpacity={0.72}
+            accessibilityRole="button"
+            accessibilityLabel={query.trim() ? 'Tìm sản phẩm' : 'Xem tất cả sản phẩm'}
+          >
+            <MaterialCommunityIcons name="magnify" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
           <TextInput
             ref={inputRef}
             style={styles.searchInput}
@@ -261,7 +275,12 @@ const SearchScreen = () => {
             autoCapitalize="none"
           />
           {query ? (
-            <TouchableOpacity onPress={() => setQuery('')} activeOpacity={0.82}>
+            <TouchableOpacity
+              onPress={() => setQuery('')}
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel="Xóa từ khóa tìm kiếm"
+            >
               <MaterialCommunityIcons name="close-circle" size={20} color={colors.textMuted} />
             </TouchableOpacity>
           ) : null}
@@ -346,7 +365,14 @@ const SearchScreen = () => {
               <View style={styles.emptyState}>
                 <MaterialCommunityIcons name="magnify-close" size={32} color={colors.brand} />
                 <Text style={styles.emptyTitle}>Chưa có gợi ý phù hợp</Text>
-                <Text style={styles.emptyText}>Bạn thử từ khóa khác hoặc ngắn hơn nhé.</Text>
+                <Text style={styles.emptyText}>Bạn vẫn có thể tìm kiếm chính xác từ khóa này.</Text>
+                <TouchableOpacity
+                  style={styles.searchButton}
+                  onPress={() => handleSearch(query, 'mobile_manual')}
+                  activeOpacity={0.82}
+                >
+                  <Text style={styles.searchButtonText}>Tìm "{query.trim()}"</Text>
+                </TouchableOpacity>
               </View>
             ) : null}
           </>
@@ -356,15 +382,17 @@ const SearchScreen = () => {
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="magnify" size={32} color={colors.brand} />
             <Text style={styles.emptyTitle}>Tìm sản phẩm bạn thích</Text>
-            <Text style={styles.emptyText}>Gõ tên sản phẩm, danh mục hoặc chất liệu vải để xem gợi ý.</Text>
+            <Text style={styles.emptyText}>
+              Gõ tên sản phẩm, danh mục hoặc chất liệu vải để xem gợi ý. Nhấn tìm kiếm khi để trống để xem tất cả sản phẩm.
+            </Text>
           </View>
         ) : null}
 
-        {hasQuery && !isLoading && !result ? (
+        {hasQuery && !isLoading && suggestError ? (
           <View style={styles.emptyState}>
-            <MaterialCommunityIcons name="magnify" size={32} color={colors.brand} />
-            <Text style={styles.emptyTitle}>Nhấn tìm kiếm</Text>
-            <Text style={styles.emptyText}>Gõ thêm ký tự hoặc nhấn Enter để tìm "{query.trim()}".</Text>
+            <MaterialCommunityIcons name="cloud-alert-outline" size={32} color={colors.brand} />
+            <Text style={styles.emptyTitle}>Chưa tải được gợi ý</Text>
+            <Text style={styles.emptyText}>Bạn vẫn có thể tìm kiếm chính xác từ khóa này.</Text>
             <TouchableOpacity
               style={styles.searchButton}
               onPress={() => handleSearch(query, 'mobile_manual')}

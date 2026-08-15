@@ -58,3 +58,26 @@ export type MyReviewList = {
   items: MyReview[];
   pagination: { page: number; limit: number; totalItems: number; totalPages: number };
 };
+
+export type EligibleReviewItem = {
+  orderId: string;
+  orderCode: string;
+  deliveredAt: string | null;
+  orderItemId: string;
+  product: { _id: string; name: string; image: string };
+  variant: {
+    variantId: string;
+    colorVariantId: string;
+    fitType: string;
+    color: string;
+    size: string;
+    sku: string;
+  };
+  canReview: boolean;
+  reason: 'PRODUCT_UNAVAILABLE' | 'ALREADY_REVIEWED' | null;
+};
+
+export type EligibleReviewItemList = {
+  items: EligibleReviewItem[];
+  pagination: { page: number; limit: number; totalItems: number; totalPages: number };
+};

@@ -147,6 +147,17 @@ vite.config.ts.timestamp-*
 .codegraph/
 .tmp/
 backend/tmp/
+/image/
+
+# Recommendation benchmark datasets (scripts, configs, and small results stay tracked)
+/evaluation/recommendation/data/raw/*
+!/evaluation/recommendation/data/raw/.gitkeep
+/evaluation/recommendation/data/processed/*
+!/evaluation/recommendation/data/processed/.gitkeep
+/evaluation/recommendation/.env
+/evaluation/recommendation/.venv/
+/evaluation/recommendation/user-study/cart-ratings.csv
+/evaluation/recommendation/user-study/method-code-map.csv
 
 # Expo mobile generated native/build directories
 /mobile/android/
@@ -181,6 +192,7 @@ docs/
 .kilo/
 local-scraped-catalog/
 tools/
+.codex_tmp/
 RUN_COMMANDS
 RUN_COMMANDS.txt
 review-flow-implementation-plan.md

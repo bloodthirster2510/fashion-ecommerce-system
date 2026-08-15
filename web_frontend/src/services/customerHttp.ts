@@ -10,27 +10,25 @@ type RefreshTokenResponse = {
 }
 
 const REFRESH_TOKEN_COOKIE_MODE_HEADER = 'X-Refresh-Token-Mode'
-const DEFAULT_AUTH_REQUIRED_MESSAGE = 'Đăng nhập để tiếp tục thực hiện thao tác này.'
+const DEFAULT_AUTH_REQUIRED_MESSAGE = 'Vui lòng đăng nhập để quản lý tài khoản.'
 const CUSTOMER_SESSION_EXPIRED_EVENT = 'customer-session-expired'
 
-let refreshPromise: Promise<RefreshTokenResponse> | null = null
+let refreshPromise: Promise<string> | null = null
 
 type CustomerRequestOptions = {
   authRequiredMessage?: string
 }
 
-const normalizeRequestOptions = (options?: CustomerRequestOptions | string): CustomerRequestOptions => (
+const normalizeRequestOptions = (options?: string | CustomerRequestOptions): CustomerRequestOptions => (
   typeof options === 'string' ? { authRequiredMessage: options } : options ?? {}
 )
 
-const isRefreshTokenRequiredMessage = (message?: string) => {
-  const normalizedMessage = message?.toLocaleLowerCase('vi-VN') ?? ''
-  return normalizedMessage.includes('refresh token') && normalizedMessage.includes('bắt buộc')
-}
-
-const createAuthRequiredError = (message: string) => (
-  new AuthApiError(message, undefined, 401, 'AUTH_REQUIRED')
+const isRefreshTokenRequiredMessage = (message?: string) => (
+  Boolean(message && /refresh token/i.test(message) && /bắt buộc/i.test(message))
 )
+
+const createAuthRequiredError = (message = DEFAULT_AUTH_REQUIRED_MESSAGE) =>
+  new AuthApiError(message, undefined, undefined, 'CUSTOMER_AUTH_REQUIRED')
 
 const notifyCustomerSessionExpired = () => {
   window.dispatchEvent(new Event(CUSTOMER_SESSION_EXPIRED_EVENT))
@@ -54,7 +52,7 @@ const getAccessToken = () => {
   const accessToken = tokenService.getAccessToken()
 
   if (!accessToken) {
-    throw new AuthApiError('Vui lòng đăng nhập để quản lý tài khoản.')
+    throw createAuthRequiredError()
   }
 
   return accessToken
@@ -76,26 +74,23 @@ const refreshCustomerSession = async () => {
   }
   const result = (await response.json().catch(() => ({}))) as ApiResponse<RefreshTokenResponse>
 
-  if (!response.ok || !result.data) {
+  if (!response.ok || !result.data || isRefreshTokenRequiredMessage(result.message)) {
     tokenService.clearSession()
     notifyCustomerSessionExpired()
-    throw new AuthApiError(
-      result.message || 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.',
-      undefined,
-      response.status,
-    )
+    throw new AuthApiError(result.message || 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.', undefined, response.status)
   }
 
   try {
     const user = assertRefreshSessionUser(result.data)
     tokenService.setAccessToken(result.data.accessToken)
     tokenService.setCurrentUser(user)
-    return result.data
   } catch (error) {
     tokenService.clearSession()
     notifyCustomerSessionExpired()
     throw error
   }
+
+  return result.data.accessToken
 }
 
 const getRefreshedAccessToken = async () => {
@@ -105,8 +100,7 @@ const getRefreshedAccessToken = async () => {
     })
   }
 
-  const session = await refreshPromise
-  return session.accessToken
+  return refreshPromise
 }
 
 export const getOptionalCustomerAccessToken = async (): Promise<string | null> => {
@@ -128,15 +122,6 @@ export const getOptionalCustomerAccessToken = async (): Promise<string | null> =
 
 export const getRefreshedCustomerAccessToken = getRefreshedAccessToken
 
-export const restoreCustomerSession = async () => {
-  if (!tokenService.getCurrentUser()) {
-    return null
-  }
-
-  await getRefreshedAccessToken()
-  return tokenService.getCurrentUser()
-}
-
 const fetchWithToken = async (path: string, init?: RequestInit, accessToken = getAccessToken()) => {
   const headers = withRecommendationSessionHeader(init?.headers)
   headers.set('Authorization', `Bearer ${accessToken}`)
@@ -151,28 +136,35 @@ const fetchWithToken = async (path: string, init?: RequestInit, accessToken = ge
   })
 }
 
+export const restoreCustomerSession = async (): Promise<AuthUser | null> => {
+  const storedUser = tokenService.getCurrentUser()
+  if (!storedUser) return null
+
+  await getRefreshedAccessToken()
+  return tokenService.getCurrentUser()
+}
+
 export const requestCustomer = async <T>(
   path: string,
   init?: RequestInit,
-  options?: CustomerRequestOptions | string,
+  options?: string | CustomerRequestOptions,
 ): Promise<T> => {
+  const requestOptions = normalizeRequestOptions(options)
   let response: Response
-  const { authRequiredMessage = DEFAULT_AUTH_REQUIRED_MESSAGE } = normalizeRequestOptions(options)
 
   try {
     const accessToken = tokenService.getAccessToken()
     if (!accessToken && !tokenService.getCurrentUser()) {
-      throw createAuthRequiredError(authRequiredMessage)
+      throw createAuthRequiredError(requestOptions.authRequiredMessage)
     }
 
     const activeAccessToken = accessToken ?? await getRefreshedAccessToken()
     response = await fetchWithToken(path, init, activeAccessToken)
   } catch (error) {
     if (error instanceof AuthApiError) {
-      if (isRefreshTokenRequiredMessage(error.message)) {
-        throw createAuthRequiredError(authRequiredMessage)
+      if (error.errorCode === 'CUSTOMER_AUTH_REQUIRED') {
+        throw createAuthRequiredError(requestOptions.authRequiredMessage)
       }
-
       throw error
     }
 
@@ -180,25 +172,18 @@ export const requestCustomer = async <T>(
   }
 
   if (response.status === 401) {
-    let nextAccessToken: string
-
-    try {
-      nextAccessToken = await getRefreshedAccessToken()
-    } catch (error) {
-      if (error instanceof AuthApiError && isRefreshTokenRequiredMessage(error.message)) {
-        throw createAuthRequiredError(authRequiredMessage)
-      }
-
-      throw error
-    }
-
+    const nextAccessToken = await getRefreshedAccessToken()
     response = await fetchWithToken(path, init, nextAccessToken)
   }
 
   const body = (await response.json().catch(() => ({}))) as ApiResponse<T>
 
   if (!response.ok) {
-    throw new AuthApiError(body.message || 'Không thể xử lý yêu cầu.', body.errors)
+    if (response.status === 401) {
+      tokenService.clearSession()
+      notifyCustomerSessionExpired()
+    }
+    throw new AuthApiError(body.message || 'Không thể xử lý yêu cầu.', body.errors, response.status, body.errorCode)
   }
 
   if (body.data === undefined) {

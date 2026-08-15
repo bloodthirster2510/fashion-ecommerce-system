@@ -29,12 +29,9 @@ import type {
   ProductOption,
 } from './promotion.types'
 import type { PickerOption } from './components/OptionPicker'
-import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { useToast } from '../../notifications/notification-context'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import {
-  Button,
-  PageHeader,
   Pagination,
 } from '../../components/ui'
 import './promotion.css'
@@ -42,6 +39,7 @@ import { CouponBulkDeleteDialog, CouponDeleteDialog } from './components/CouponD
 import { CouponDetailDialog } from './components/CouponDetailDialog'
 import { CouponFormDialog } from './components/CouponFormDialog'
 import { CouponTablePanel } from './components/CouponTablePanel'
+import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { PromotionBulkToolbar } from './components/PromotionBulkToolbar'
 import { PromotionFilterBar } from './components/PromotionFilterBar'
 import { PromotionKpiSummary } from './components/PromotionKpiSummary'
@@ -144,12 +142,6 @@ const durationPresets = [
   { label: '14 ngày', days: 14 },
   { label: '30 ngày', days: 30 },
   { label: '60 ngày', days: 60 },
-]
-
-const couponTemplates: Array<{ label: string; description: string; values: Partial<CouponFormState>; durationDays: number }> = [
-  { label: 'Chào mừng khách mới', description: 'Giảm 10% · mỗi khách 1 lần', values: { name: 'Chào mừng khách mới', discountType: 'percent', discountValue: '10', maxDiscountAmount: '100000', minOrderAmount: '200000', perUserLimit: '1', eligibleUserTypes: ['new_user'], isPublic: true }, durationDays: 30 },
-  { label: 'Miễn phí vận chuyển', description: 'Cho đơn từ 300K · toàn shop', values: { name: 'Miễn phí vận chuyển đơn từ 300K', discountType: 'free_shipping', discountValue: '0', maxDiscountAmount: '', minOrderAmount: '300000', perUserLimit: '1', eligibleUserTypes: ['all'], isPublic: true }, durationDays: 30 },
-  { label: 'Tri ân thành viên', description: 'Giảm 15% · dành cho thành viên', values: { name: 'Tri ân thành viên', discountType: 'percent', discountValue: '15', maxDiscountAmount: '200000', minOrderAmount: '500000', perUserLimit: '1', eligibleUserTypes: ['member'], isPublic: false }, durationDays: 14 },
 ]
 
 const formatCurrency = (value: number) =>
@@ -1041,8 +1033,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
     setShowCouponErrors(true)
     const stepFields: Record<number, Array<keyof CouponFormState>> = {
-      1: ['code', 'name', 'discountValue', 'maxDiscountAmount', 'minOrderAmount'],
-      2: ['startAt', 'endAt', 'usageLimit', 'perUserLimit'],
+      1: ['code', 'name', 'discountValue', 'maxDiscountAmount', 'minOrderAmount', 'usageLimit', 'perUserLimit'],
+      2: ['startAt', 'endAt'],
       3: [],
     }
     const currentStepHasErrors = stepFields[couponStep].some((field) => Boolean(couponErrors[field]))
@@ -1313,24 +1305,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     }
   }
 
-  const applyCouponTemplate = (template: typeof couponTemplates[number]) => {
-    const startAt = new Date()
-    const endAt = new Date(startAt)
-    endAt.setDate(endAt.getDate() + template.durationDays)
-    setCouponForm({
-      ...createEmptyCouponForm(),
-      ...template.values,
-      code: buildCouponCode(template.values.name ?? ''),
-      startAt: toDateTimeInputValue(startAt),
-      endAt: toDateTimeInputValue(endAt),
-    })
-    setCouponStep(1)
-    setShowAdvancedCouponOptions(true)
-    setShowCouponErrors(false)
-    setDraftRestored(false)
-    setNotice(null)
-  }
-
   const setStartNow = () => setCouponForm((form) => ({ ...form, startAt: toDateTimeInputValue(new Date()) }))
 
   const setFullDay = () => setCouponForm((form) => {
@@ -1344,20 +1318,36 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
   return (
     <section className="admin-ui-page admin-promotions-page" aria-busy={isLoading}>
-      <PageHeader
-        title="Khuyến mãi"
-        description="Quản lý voucher, đối tượng áp dụng, thời hạn hiệu lực và lượt sử dụng trong các chiến dịch bán hàng."
-        breadcrumbs={['Marketing', 'Voucher']}
-        actions={(
-          <Button
-            variant="primary"
+      <header className="admin-page-heading admin-promotion-heading">
+        <div>
+          <p>Marketing / Voucher</p>
+          <h1>Khuyến mãi</h1>
+          <span className="admin-promotion-heading-copy">
+            Quản lý mã giảm giá, thời hạn áp dụng và lượt sử dụng của khách hàng.
+          </span>
+        </div>
+        <div className="admin-promotion-heading-actions">
+          <button className="admin-secondary-button" type="button" onClick={() => void loadCoupons()}>
+            Làm mới
+          </button>
+          <button
+            className="admin-secondary-button"
+            type="button"
+            disabled={actionLoading}
+            onClick={() => void exportCouponsCsv()}
+          >
+            Xuất CSV
+          </button>
+          <button
+            className="admin-primary-button"
+            type="button"
             disabled={!canManagePromotions}
             onClick={openCreateDialog}
           >
-            Tạo voucher
-          </Button>
-        )}
-      />
+            + Tạo voucher
+          </button>
+        </div>
+      </header>
 
       <PromotionKpiSummary
         summary={couponSummary}
@@ -1374,22 +1364,11 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         onClear={() => setSelectedCouponIds([])}
       />
 
-      <CampaignAnalyticsPanel currentUser={currentUser} />
-
       <PromotionFilterBar
         keywordInput={keywordInput}
         statusFilter={statusFilter}
         discountFilter={discountFilter}
-        visibilityFilter={visibilityFilter}
-        audienceFilter={audienceFilter}
-        rankFilter={rankFilter}
-        dateFromFilter={dateFromFilter}
-        dateToFilter={dateToFilter}
         sort={sort}
-        tiers={tiers}
-        isLoading={actionLoading}
-        onRefresh={() => void loadCoupons()}
-        onExport={() => void exportCouponsCsv()}
         onReset={() => {
           setKeywordInput('')
           setStatusFilter('all')
@@ -1405,34 +1384,29 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         onKeywordChange={setKeywordInput}
         onStatusChange={(value) => {
           setStatusFilter(value as CouponStatusFilter)
+          setVisibilityFilter('all')
+          setAudienceFilter('all_filter')
+          setRankFilter('')
+          setDateFromFilter('')
+          setDateToFilter('')
           setPage(1)
         }}
         onDiscountChange={(value) => {
           setDiscountFilter(value as CouponDiscountFilter)
-          setPage(1)
-        }}
-        onVisibilityChange={(value) => {
-          setVisibilityFilter(value as CouponVisibilityFilter)
-          setPage(1)
-        }}
-        onAudienceChange={(value) => {
-          setAudienceFilter(value as CouponAudienceFilter)
-          setPage(1)
-        }}
-        onRankChange={(value) => {
-          setRankFilter(value)
-          setPage(1)
-        }}
-        onDateFromChange={(value) => {
-          setDateFromFilter(value)
-          setPage(1)
-        }}
-        onDateToChange={(value) => {
-          setDateToFilter(value)
+          setVisibilityFilter('all')
+          setAudienceFilter('all_filter')
+          setRankFilter('')
+          setDateFromFilter('')
+          setDateToFilter('')
           setPage(1)
         }}
         onSortChange={(value) => {
           setSort(value as CouponSort)
+          setVisibilityFilter('all')
+          setAudienceFilter('all_filter')
+          setRankFilter('')
+          setDateFromFilter('')
+          setDateToFilter('')
           setPage(1)
         }}
       />
@@ -1475,6 +1449,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         isDisabled={isLoading}
         onPageChange={setPage}
       />
+
+      <CampaignAnalyticsPanel currentUser={currentUser} />
 
       {dialog?.type === 'detail' ? (
         <CouponDetailDialog
@@ -1519,7 +1495,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           actionLoading={actionLoading}
           codeAvailability={codeAvailability}
           draftRestored={draftRestored}
-          couponTemplates={couponTemplates}
           discountTypeLabels={discountTypeLabels}
           discountTypeDescriptions={discountTypeDescriptions}
           discountTypeSymbols={discountTypeSymbols}
@@ -1569,7 +1544,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
             setNotice(null)
           }}
           onToggleAdvancedOptions={() => setShowAdvancedCouponOptions((visible) => !visible)}
-          onApplyCouponTemplate={applyCouponTemplate}
           onGenerateCode={handleGenerateCode}
           onDiscountTypeChange={handleDiscountTypeChange}
           onSetStartNow={setStartNow}

@@ -7,8 +7,10 @@ import {
   applyRecommendationDiversity,
   calculateCartRecommendationScore,
   calculatePersonalRecommendationScore,
+  calculateSimilarRecommendationScore,
   getCartComplementaryRoleScore,
   inferOutfitRole,
+  mergeMerchandisedItems,
   recommendationService,
 } from '../recommendation.service';
 import {
@@ -16,6 +18,36 @@ import {
   type RecommendationResponse,
 } from '../recommendation.types';
 import { interactionService } from '../../interactions/interaction.service';
+import { CART_RULE_ONLY_FALLBACK_WEIGHTS } from '../recommendation-scoring';
+
+describe('recommendation merchandising', () => {
+  it('keeps pinned items first, removes duplicates, and recalculates ranks', () => {
+    const product = (id: string) => ({ _id: id }) as never;
+    const response = {
+      requestId: 'rec_request',
+      algorithmVersion: RECOMMENDATION_ALGORITHM_VERSION,
+      fallbackUsed: false,
+      items: [
+        { product: product('pinned'), score: 0.8, rank: 1, reason: 'Popular', reasonCodes: ['popular'] },
+        { product: product('organic'), score: 0.7, rank: 2, reason: 'Popular', reasonCodes: ['popular'] },
+      ],
+    } as RecommendationResponse;
+    const pinned = [{
+      product: product('pinned'),
+      score: 1,
+      rank: 0,
+      reason: 'Nổi bật',
+      reasonCodes: ['admin_pinned' as const],
+      merchandisingSource: 'admin_pinned' as const,
+    }];
+
+    const result = mergeMerchandisedItems(response, pinned, 2);
+
+    expect(result.items.map((item) => item.product._id)).toEqual(['pinned', 'organic']);
+    expect(result.items.map((item) => item.rank)).toEqual([1, 2]);
+    expect(result.items[0].merchandisingSource).toBe('admin_pinned');
+  });
+});
 
 jest.mock('../../../database/models', () => ({
   Cart: {},
@@ -89,7 +121,7 @@ const response: RecommendationResponse = {
       product: { _id: productId.toString() } as never,
       score: 0.42,
       rank: 1,
-      reason: 'Cung danh muc',
+      reason: 'Cùng danh mục',
       reasonCodes: ['same_category'],
     },
   ],
@@ -126,6 +158,21 @@ const mockExistingEvent = (value: unknown) => {
 };
 
 describe('recommendation ranking', () => {
+  it('uses the validation-selected Product Detail content/cosine hybrid', () => {
+    expect(calculateSimilarRecommendationScore({
+      contentSimilarity: 1,
+      cosineSimilarity: 0,
+      popularity: 1,
+      business: 1,
+    })).toBeCloseTo(0.125);
+    expect(calculateSimilarRecommendationScore({
+      contentSimilarity: 0,
+      cosineSimilarity: 1,
+      popularity: 0,
+      business: 0,
+    })).toBeCloseTo(0.875);
+  });
+
   it('infers outfit roles from Vietnamese product and category names', () => {
     expect(inferOutfitRole({
       name: 'Bộ Quần Áo Thể Thao Nữ Thấm Hút Tốt',
@@ -152,49 +199,68 @@ describe('recommendation ranking', () => {
     expect(getCartComplementaryRoleScore(['top', 'bottom'], 'top')).toBe(0.2);
   });
 
-  it('uses role complementarity as the main cart ranking signal', () => {
+  it('uses the validation-tuned association hybrid cart score', () => {
     expect(calculateCartRecommendationScore({
       complementaryRole: 1,
       styleCompatibility: 0,
       popularity: 0,
       business: 0,
-    })).toBeCloseTo(0.75);
+    })).toBeCloseTo(0.2);
     expect(calculateCartRecommendationScore({
       complementaryRole: 0,
       styleCompatibility: 1,
       popularity: 1,
       business: 1,
-    })).toBeCloseTo(0.25);
+    })).toBeCloseTo(0.3);
+    expect(calculateCartRecommendationScore({
+      complementaryRole: 0,
+      styleCompatibility: 0,
+      popularity: 0,
+      business: 0,
+      associationLift: 1,
+    })).toBeCloseTo(0.5);
   });
 
-  it('keeps trousers ahead of shoes for a top-only cart', () => {
+  it('uses purchase association to distinguish plausible cart complements', () => {
     const trousersScore = calculateCartRecommendationScore({
       complementaryRole: getCartComplementaryRoleScore(['top'], 'bottom'),
       styleCompatibility: 0.4,
       popularity: 0,
       business: 0,
+      associationLift: 0.8,
     });
     const shoesScore = calculateCartRecommendationScore({
       complementaryRole: getCartComplementaryRoleScore(['top'], 'shoes'),
       styleCompatibility: 1,
       popularity: 1,
       business: 1,
+      associationLift: 0.1,
     });
 
     expect(trousersScore).toBeGreaterThan(shoesScore);
   });
 
-  it('uses preference once in the balanced personal score', () => {
+  it('falls back to the rule-only cart formula when association evidence is unavailable', () => {
+    expect(calculateCartRecommendationScore({
+      complementaryRole: 1,
+      styleCompatibility: 0,
+      popularity: 0,
+      business: 0,
+      associationLift: 0,
+    }, CART_RULE_ONLY_FALLBACK_WEIGHTS)).toBeCloseTo(0.65);
+  });
+
+  it('uses the validation-tuned personal score', () => {
     expect(calculatePersonalRecommendationScore({
       preferenceMatch: 1,
       popularity: 0,
       business: 0,
-    })).toBeCloseTo(0.7);
+    })).toBeCloseTo(0.9);
     expect(calculatePersonalRecommendationScore({
       preferenceMatch: 0,
       popularity: 1,
       business: 1,
-    })).toBeCloseTo(0.3);
+    })).toBeCloseTo(0.1);
   });
 
   it('limits repeated categories and brands when alternatives exist', () => {

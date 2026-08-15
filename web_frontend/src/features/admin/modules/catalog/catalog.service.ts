@@ -2,6 +2,7 @@ import { requestAdmin } from '../../services/adminHttp'
 import type {
   BrandInput,
   CategoryInput,
+  FitTypeTemplateInput,
   ManagedBrand,
   ManagedCategory,
   SizeTemplateInput,
@@ -39,6 +40,28 @@ const toBrandFormData = (
   return formData
 }
 
+const toSizeTemplateFormData = (
+  input: SizeTemplateInput,
+  sizeGuideImageFile?: File | null,
+) => {
+  const formData = new FormData()
+  formData.set('name', input.name)
+  input.sizes.forEach((size) => formData.append('sizes', size))
+  formData.set('measurementFields', JSON.stringify(input.measurementFields))
+  input.categoryIds.forEach((categoryId) => formData.append('categoryIds', categoryId))
+  input.excludedCategoryIds?.forEach((categoryId) => formData.append('excludedCategoryIds', categoryId))
+  if (input.clearSizeGuideImage) formData.set('clearSizeGuideImage', 'true')
+  if (sizeGuideImageFile) formData.set('sizeGuideImage', sizeGuideImageFile)
+  return formData
+}
+
+const toFitTypeTemplatePayload = (input: FitTypeTemplateInput) => ({
+  name: input.name,
+  fitTypes: input.fitTypes,
+  categoryIds: input.categoryIds,
+  excludedCategoryIds: input.excludedCategoryIds ?? [],
+})
+
 export const listManagedCategories = () =>
   requestAdmin<ManagedCategory[]>('/admin/categories/management')
 
@@ -66,10 +89,20 @@ export const updateManagedCategory = (
 export const upsertManagedCategorySizeTemplate = (
   categoryId: string,
   input: SizeTemplateInput,
+  sizeGuideImageFile?: File | null,
 ) =>
   requestAdmin<ManagedCategory>(`/admin/categories/${categoryId}/size-template`, {
     method: 'PATCH',
-    body: JSON.stringify(input),
+    body: toSizeTemplateFormData(input, sizeGuideImageFile),
+  })
+
+export const upsertManagedCategoryFitTypeTemplate = (
+  categoryId: string,
+  input: FitTypeTemplateInput,
+) =>
+  requestAdmin<ManagedCategory>(`/admin/categories/${categoryId}/fit-type-template`, {
+    method: 'PATCH',
+    body: JSON.stringify(toFitTypeTemplatePayload(input)),
   })
 
 export const deleteManagedCategory = (
@@ -102,8 +135,11 @@ export const updateManagedBrand = (brandId: string, input: BrandInput, imageFile
     }),
   })
 
-export const deleteManagedBrand = (brandId: string) =>
-  requestAdmin<ManagedBrand>(`/admin/brands/${brandId}`, {
+export const deleteManagedBrand = (
+  brandId: string,
+  options: { cascadeProducts?: boolean } = {},
+) =>
+  requestAdmin<ManagedBrand>(`/admin/brands/${brandId}${options.cascadeProducts ? '?cascadeProducts=true' : ''}`, {
     method: 'DELETE',
   })
 

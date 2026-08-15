@@ -113,26 +113,26 @@ export const membershipIconSymbols: Record<string, string> = {
 
 export const policyCards = [
   {
-    title: 'Cộng điểm',
-    value: '1 điểm / 1.000đ',
-    note: 'Chỉ cộng khi đơn hàng đã giao thành công.',
+    title: 'Cách xét hạng',
+    value: 'Theo điểm tích lũy hiện tại',
+    note: 'Khách được đưa vào hạng cao nhất mà số điểm đang có đạt đủ mốc tối thiểu.',
   },
   {
-    title: 'Trừ điểm',
-    value: 'Điều chỉnh giảm',
-    note: 'Áp dụng khi hoàn trả hoặc cần thu hồi điểm đã cộng.',
+    title: 'Mốc điểm',
+    value: 'Hạng sau phải cao hơn hạng trước',
+    note: 'Mốc điểm không được trùng hoặc thấp hơn hạng liền trước để tránh xếp sai hạng.',
   },
   {
-    title: 'Giảm theo hạng',
-    value: 'Sau coupon sản phẩm',
-    note: 'Tính vào phần giảm giá thành viên của đơn hàng.',
+    title: 'Trạng thái hạng',
+    value: 'Chỉ hạng đang áp dụng mới có hiệu lực',
+    note: 'Hạng tạm tắt không còn dùng để xếp hạng mới hoặc tính quyền lợi cho khách.',
   },
 ]
 
 export const integrationChecks = [
-  'Voucher có thể áp dụng riêng cho từng hạng thành viên.',
-  'Trang thanh toán tự xác định hạng từ điểm tích lũy hiện tại.',
-  'Khách hàng xem hạng, điểm và tiến trình nâng hạng trong hồ sơ.',
-  'CSKH có nhóm vấn đề thành viên để xử lý khiếu nại điểm hoặc hạng.',
-  'Mọi thay đổi hạng và quy tắc điểm cần được ghi lịch sử quản trị.',
+  'Voucher có thể giới hạn cho một hoặc nhiều hạng thành viên.',
+  'Trang thanh toán tự lấy hạng hiện tại để tính ưu đãi cho đơn hàng.',
+  'Hồ sơ khách hàng hiển thị hạng, điểm và tiến độ lên hạng tiếp theo.',
+  'Nhân viên CSKH dùng thông tin điểm và hạng để xử lý khiếu nại.',
+  'Các thay đổi điểm, hạng và quy tắc tích điểm nên được ghi lại để đối soát.',
 ]

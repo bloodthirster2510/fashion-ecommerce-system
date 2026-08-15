@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { cacheGetJson, cacheSetJson, clearMemoryCache } from '../../utils/cache';
 import {
   sanitizeGhnDistrictsResponse,
   sanitizeGhnProvincesResponse,
@@ -58,7 +59,7 @@ const getRequiredNumberEnv = (name: string) => {
 };
 
 const DEFAULT_AVAILABLE_SERVICES_CACHE_TTL_MS = 10 * 60 * 1000;
-const availableServicesCache = new Map<string, { expiresAt: number; data: unknown }>();
+const AVAILABLE_SERVICES_CACHE_NAMESPACE = 'ghn-available-services';
 
 const getAvailableServicesCacheTtlMs = () => {
   const configuredTtlMs = Number(process.env.GHN_AVAILABLE_SERVICES_CACHE_TTL_MS);
@@ -68,7 +69,7 @@ const getAvailableServicesCacheTtlMs = () => {
 };
 
 export const clearGhnServiceCache = () => {
-  availableServicesCache.clear();
+  clearMemoryCache(AVAILABLE_SERVICES_CACHE_NAMESPACE);
 };
 
 const getGhnClient = (options: { includeShopId?: boolean } = {}) => {
@@ -140,10 +141,10 @@ export const GHNService = {
   }) {
     const cacheKey = `${data.fromDistrictId}:${data.toDistrictId}`;
     const cacheTtlMs = getAvailableServicesCacheTtlMs();
-    const cached = availableServicesCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
+    const cached = cacheTtlMs > 0
+      ? await cacheGetJson<unknown>(AVAILABLE_SERVICES_CACHE_NAMESPACE, cacheKey)
+      : null;
+    if (cached !== null) return cached;
 
     try {
       const response = await getGhnClient({ includeShopId: true }).post('/v2/shipping-order/available-services', {
@@ -153,10 +154,12 @@ export const GHNService = {
       });
 
       if (cacheTtlMs > 0) {
-        availableServicesCache.set(cacheKey, {
-          expiresAt: Date.now() + cacheTtlMs,
-          data: response.data,
-        });
+        await cacheSetJson(
+          AVAILABLE_SERVICES_CACHE_NAMESPACE,
+          cacheKey,
+          response.data,
+          cacheTtlMs,
+        );
       }
 
       return response.data;

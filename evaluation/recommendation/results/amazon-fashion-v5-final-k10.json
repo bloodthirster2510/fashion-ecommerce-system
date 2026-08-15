@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T07:19:34.430Z",
+  "algorithmVersion": "v5_validation_tuned",
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.65,
+      "styleCompatibility": 0.3,
+      "popularity": 0,
+      "business": 0.05
+    }
+  },
+  "k": 10,
+  "dataset": {
+    "name": "Amazon Reviews 2023 - Amazon Fashion controlled subset",
+    "source": "McAuley-Lab/Amazon-Reviews-2023; Kaggle mirror pandeymritunjay/amazon-reco-ds v8",
+    "split": "train before 2022-09-11T03:24:38.515Z; test from that timestamp to 2023-09-11T03:24:38.516Z (exclusive)",
+    "notes": "Verified purchases with rating >= 4. Product-detail relevance uses next-positive-item proxy; cart relevance uses held-out same-day co-review basket proxy. Business signal is fixed at zero because equivalent sale/new-arrival fields are unavailable."
+  },
+  "contexts": [
+    {
+      "context": "home",
+      "baselineMethod": "most_popular",
+      "proposed": {
+        "cases": 100,
+        "hitRateAtK": 0.12,
+        "precisionAtK": 0.012,
+        "recallAtK": 0.12,
+        "mapAtK": 0.060218,
+        "mrrAtK": 0.060218,
+        "ndcgAtK": 0.074012,
+        "catalogCoverageAtK": 0.131084,
+        "categoryDiversityAtK": 0.501,
+        "brandDiversityAtK": 0.975
+      },
+      "baseline": {
+        "cases": 100,
+        "hitRateAtK": 0.01,
+        "precisionAtK": 0.001,
+        "recallAtK": 0.01,
+        "mapAtK": 0.005,
+        "mrrAtK": 0.005,
+        "ndcgAtK": 0.006309,
+        "catalogCoverageAtK": 0.00249,
+        "categoryDiversityAtK": 0.7,
+        "brandDiversityAtK": 0.9
+      },
+      "delta": {
+        "hitRateAtK": 0.11,
+        "precisionAtK": 0.011,
+        "recallAtK": 0.11,
+        "mapAtK": 0.055218,
+        "mrrAtK": 0.055218,
+        "ndcgAtK": 0.067703,
+        "catalogCoverageAtK": 0.128594,
+        "categoryDiversityAtK": -0.199,
+        "brandDiversityAtK": 0.075
+      }
+    },
+    {
+      "context": "product_detail_similar",
+      "baselineMethod": "cosine_similarity",
+      "proposed": {
+        "cases": 100,
+        "hitRateAtK": 0.05,
+        "precisionAtK": 0.005,
+        "recallAtK": 0.05,
+        "mapAtK": 0.01125,
+        "mrrAtK": 0.01125,
+        "ndcgAtK": 0.020279,
+        "catalogCoverageAtK": 0.135578,
+        "categoryDiversityAtK": 0.617,
+        "brandDiversityAtK": 0.982
+      },
+      "baseline": {
+        "cases": 100,
+        "hitRateAtK": 0.09,
+        "precisionAtK": 0.009,
+        "recallAtK": 0.09,
+        "mapAtK": 0.02694,
+        "mrrAtK": 0.02694,
+        "ndcgAtK": 0.041559,
+        "catalogCoverageAtK": 0.144781,
+        "categoryDiversityAtK": 0.515,
+        "brandDiversityAtK": 0.92
+      },
+      "delta": {
+        "hitRateAtK": -0.04,
+        "precisionAtK": -0.004,
+        "recallAtK": -0.04,
+        "mapAtK": -0.01569,
+        "mrrAtK": -0.01569,
+        "ndcgAtK": -0.02128,
+        "catalogCoverageAtK": -0.009203,
+        "categoryDiversityAtK": 0.102,
+        "brandDiversityAtK": 0.062
+      }
+    },
+    {
+      "context": "cart",
+      "baselineMethod": "association_lift",
+      "proposed": {
+        "cases": 28,
+        "hitRateAtK": 0.107143,
+        "precisionAtK": 0.010714,
+        "recallAtK": 0.107143,
+        "mapAtK": 0.033333,
+        "mrrAtK": 0.033333,
+        "ndcgAtK": 0.050714,
+        "catalogCoverageAtK": 0.077957,
+        "categoryDiversityAtK": 0.475,
+        "brandDiversityAtK": 0.982143
+      },
+      "baseline": {
+        "cases": 28,
+        "hitRateAtK": 0,
+        "precisionAtK": 0,
+        "recallAtK": 0,
+        "mapAtK": 0,
+        "mrrAtK": 0,
+        "ndcgAtK": 0,
+        "catalogCoverageAtK": 0.086918,
+        "categoryDiversityAtK": 0.7,
+        "brandDiversityAtK": 0.960714
+      },
+      "delta": {
+        "hitRateAtK": 0.107143,
+        "precisionAtK": 0.010714,
+        "recallAtK": 0.107143,
+        "mapAtK": 0.033333,
+        "mrrAtK": 0.033333,
+        "ndcgAtK": 0.050714,
+        "catalogCoverageAtK": -0.008961,
+        "categoryDiversityAtK": -0.225,
+        "brandDiversityAtK": 0.021429
+      }
+    }
+  ]
+}

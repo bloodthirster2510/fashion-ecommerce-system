@@ -144,7 +144,7 @@ export function CatalogToolbar({
           </label>
 
           <label>
-            <span>Form dáng</span>
+            <span>Phom dáng</span>
             <Select
               value={getSelectedFitTypeValue(query.fitType, fitTypeOptions)}
               placeholder="Tất cả"

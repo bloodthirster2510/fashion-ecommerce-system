@@ -7,11 +7,13 @@ import { couponService } from '../../promotions/coupons/coupon.service';
 import { transactionService } from '../../payments/transaction.service';
 import type { CheckoutPricingResult } from '../../promotions/pricing/promotion-pricing.types';
 import { GHNService } from '../../shipping/ghn.service';
+import { shippingAreaMappingService } from '../../shipping/shipping-area-mapping.service';
 import { loyaltyRuleService } from '../../admin/loyalty/loyalty-rule.service';
 import { interactionService } from '../../interactions/interaction.service';
 import { recommendationService } from '../../recommendations/recommendation.service';
 import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
 import { emitOrderUpdate } from '../../realtime/order.gateway';
+import { sendPaidOrderInvoiceEmailBestEffort } from '../invoice-email.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -117,6 +119,11 @@ jest.mock('../../notifications/customer-notification.service', () => ({
   recordOrderStatusNotification: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('../invoice-email.service', () => ({
+  generateInvoiceCode: jest.fn((order: { orderCode: string }) => `INV-${order.orderCode}`),
+  sendPaidOrderInvoiceEmailBestEffort: jest.fn().mockResolvedValue(true),
+}));
+
 const mockedOrder = Order as jest.Mocked<typeof Order>;
 const mockedProduct = Product as jest.Mocked<typeof Product>;
 const mockedInventory = Inventory as jest.Mocked<typeof Inventory>;
@@ -127,6 +134,9 @@ const mockedCartService = cartService as jest.Mocked<typeof cartService>;
 const mockedPromotionPricingService = promotionPricingService as jest.Mocked<typeof promotionPricingService>;
 const mockedCouponService = couponService as jest.Mocked<typeof couponService>;
 const mockedTransactionService = transactionService as jest.Mocked<typeof transactionService>;
+const mockedSendPaidOrderInvoiceEmail = sendPaidOrderInvoiceEmailBestEffort as jest.MockedFunction<
+  typeof sendPaidOrderInvoiceEmailBestEffort
+>;
 const mockedGHNService = GHNService as jest.Mocked<typeof GHNService>;
 const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyaltyRuleService>;
 const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
@@ -184,6 +194,7 @@ const normalizedShippingAddress = {
   ghnMappingStatus: 'manual' as const,
   ghnMappingConfidence: null,
   ghnMappingVerifiedAt: null,
+  ghnMappingVerificationSource: null,
 };
 
 const mockUserAddressLookup = (addresses: Array<typeof shippingAddress & { _id: Types.ObjectId; isDefault: boolean }>) => {
@@ -1056,6 +1067,7 @@ describe('orderService', () => {
     expect(order.receivedAt).toEqual(expect.any(Date));
     expect(order.shipping.status).toBe('delivered');
     expect(order.save).toHaveBeenCalled();
+    expect(mockedSendPaidOrderInvoiceEmail).toHaveBeenCalledWith(orderId.toString());
     expect(result).toBe(order);
   });
 
@@ -2285,6 +2297,7 @@ describe('orderService', () => {
         ghnMappingStatus: 'mapped',
         ghnMappingConfidence: 'exact',
         ghnMappingVerifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+        ghnMappingVerificationSource: 'admin',
       },
       order_list: [
         {
@@ -2359,6 +2372,62 @@ describe('orderService', () => {
     });
     expect(mockedGHNService.createShippingOrder).not.toHaveBeenCalled();
     expect(order.save).not.toHaveBeenCalled();
+  });
+
+  it('rechecks managed mapping state before shipment creation', async () => {
+    const orderId = new Types.ObjectId('665000000000000000000078');
+    const order = {
+      _id: orderId,
+      user_id: new Types.ObjectId(userId),
+      orderCode: 'FS-GHN-DISABLED',
+      status: 'packed',
+      paymentMethod: 'COD',
+      paymentStatus: 'pending',
+      totalAmount: 125000,
+      shipping: { provider: 'GHN', status: 'mapping_resolved', trackingCode: null },
+      shippingAddress: {
+        customerName: 'Granji',
+        phoneNumber: '0343149695',
+        streetName: '12 Nguyen Ai Quoc',
+        province: 'Ha Noi',
+        provinceCode: '01',
+        ward: 'Ba Dinh',
+        wardCode: '00004',
+        ghnDistrictId: 1484,
+        ghnWardCode: '1A0107',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: new Date('2026-07-29T00:00:00.000Z'),
+        ghnMappingVerificationSource: 'admin',
+      },
+      order_list: [{ name: 'Basic Tee', quantity: 1, priceAtPurchased: 100000 }],
+      save: jest.fn(),
+    };
+    mockedOrder.findById.mockResolvedValue(order as never);
+    const resolverSpy = jest.spyOn(
+      shippingAreaMappingService,
+      'resolveStoredGhnFieldsWithManagedMapping',
+    ).mockResolvedValue({
+      ghnProvinceId: null,
+      ghnDistrictId: null,
+      ghnWardCode: null,
+      ghnMappingStatus: 'missing',
+      ghnMappingConfidence: null,
+      ghnMappingVerifiedAt: null,
+      ghnMappingVerificationSource: null,
+      source: 'managed',
+      mapping: null,
+    });
+
+    try {
+      await expect(orderService.createGhnShipment(orderId.toString())).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: 'GHN_MAPPING_REQUIRED',
+      });
+      expect(mockedGHNService.createShippingOrder).not.toHaveBeenCalled();
+    } finally {
+      resolverSpy.mockRestore();
+    }
   });
 
   it('applies a GHN webhook using the client order code relationship', async () => {

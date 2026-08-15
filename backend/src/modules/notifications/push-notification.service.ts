@@ -85,12 +85,15 @@ export const sendCustomerPush = (input: {
   title: string;
   body: string;
   data: Record<string, unknown>;
+  notificationId?: string | null;
   category?: CustomerNotificationCategory;
   disabled?: boolean;
 }) => deliverExpoPush(input.userId, {
   title: input.title,
   body: input.body,
-  data: input.data,
+  data: input.notificationId?.trim()
+    ? { ...input.data, notificationId: input.notificationId.trim() }
+    : input.data,
 }, input.disabled, input.category);
 
 export const registerPushToken = async (
@@ -149,7 +152,7 @@ export const sendSupportReplyPush = async (input: {
   const body = input.subject;
   const data = { type: 'support_reply', ticketId: input.ticketId };
 
-  await createCustomerNotificationBestEffort({
+  const notification = await createCustomerNotificationBestEffort({
     userId: input.userId,
     category: 'support',
     type: 'support_reply',
@@ -164,12 +167,15 @@ export const sendSupportReplyPush = async (input: {
     dedupeKey: input.messageId ? `support:${input.messageId}` : null,
   });
 
-  return deliverExpoPush(
-    input.userId,
-    { title, body, data },
-    process.env.SUPPORT_PUSH_NOTIFICATIONS === 'false',
-    'support',
-  );
+  return sendCustomerPush({
+    userId: input.userId,
+    title,
+    body,
+    data,
+    notificationId: notification ? String(notification._id) : undefined,
+    disabled: process.env.SUPPORT_PUSH_NOTIFICATIONS === 'false',
+    category: 'support',
+  });
 };
 
 export const sendPaymentDeadlineWarningPush = async (input: {
@@ -187,7 +193,7 @@ export const sendPaymentDeadlineWarningPush = async (input: {
     paymentDeadlineAt: input.paymentDeadlineAt.toISOString(),
   };
 
-  await createCustomerNotificationBestEffort({
+  const notification = await createCustomerNotificationBestEffort({
     userId: input.userId,
     category: 'order',
     type: 'payment_deadline',
@@ -198,7 +204,14 @@ export const sendPaymentDeadlineWarningPush = async (input: {
     dedupeKey: `order:${input.orderId}:payment-deadline`,
   });
 
-  return deliverExpoPush(input.userId, { title, body, data }, false, 'order');
+  return sendCustomerPush({
+    userId: input.userId,
+    title,
+    body,
+    data,
+    notificationId: notification ? String(notification._id) : undefined,
+    category: 'order',
+  });
 };
 
 export type ShippingPushMilestone = 'picked' | 'shipping' | 'delivered' | 'failed';
@@ -237,7 +250,7 @@ export const sendShippingUpdatePush = async (input: {
     milestone: input.milestone,
   };
 
-  await createCustomerNotificationBestEffort({
+  const notification = await createCustomerNotificationBestEffort({
     userId: input.userId,
     category: 'order',
     type: 'shipping_update',
@@ -248,12 +261,15 @@ export const sendShippingUpdatePush = async (input: {
     dedupeKey: `order:${input.orderId}:shipping:${input.milestone}`,
   });
 
-  return deliverExpoPush(
-    input.userId,
-    { title, body: copy.body, data },
-    process.env.SHIPPING_PUSH_NOTIFICATIONS === 'false',
-    'order',
-  );
+  return sendCustomerPush({
+    userId: input.userId,
+    title,
+    body: copy.body,
+    data,
+    notificationId: notification ? String(notification._id) : undefined,
+    disabled: process.env.SHIPPING_PUSH_NOTIFICATIONS === 'false',
+    category: 'order',
+  });
 };
 
 export const pushNotificationService = {

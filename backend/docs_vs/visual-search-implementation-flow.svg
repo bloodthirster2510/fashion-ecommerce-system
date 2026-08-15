@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Image-Based Product Search Implementation Flow</title>
+  <desc id="desc">Illustrated workflow showing product image preparation, Marqo-FashionCLIP embedding generation, visual index storage, query image processing, similarity matching, and ranked search result display.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 700 38px Arial, sans-serif; fill: #172033; }
+      .subtitle { font: 400 18px Arial, sans-serif; fill: #566579; }
+      .step-card { fill: #ffffff; stroke: #d7dee9; stroke-width: 2; rx: 20; }
+      .step-number { font: 700 20px Arial, sans-serif; fill: #ffffff; }
+      .step-title { font: 700 21px Arial, sans-serif; fill: #172033; }
+      .body { font: 400 15px Arial, sans-serif; fill: #4d5d70; }
+      .micro { font: 600 13px Arial, sans-serif; fill: #607086; }
+      .pill { fill: #e8f3ee; stroke: #b9dbc9; stroke-width: 1.4; rx: 16; }
+      .pill-text { font: 700 14px Arial, sans-serif; fill: #23714b; }
+      .green { fill: #2f855a; }
+      .blue { fill: #2b6cb0; }
+      .teal { fill: #0f766e; }
+      .orange { fill: #c05621; }
+      .purple { fill: #6b46c1; }
+      .red { fill: #c53030; }
+      .soft-green { fill: #e8f3ee; }
+      .soft-blue { fill: #e8f0fb; }
+      .soft-teal { fill: #e7f6f4; }
+      .soft-orange { fill: #fff0e6; }
+      .soft-purple { fill: #f0ebff; }
+      .soft-red { fill: #fff0f0; }
+      .icon-line { fill: none; stroke: #263244; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .icon-light { fill: none; stroke: #607086; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .arrow { fill: none; stroke: #8795a8; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrowhead); }
+      .flow-line { fill: none; stroke: #b4bfcd; stroke-width: 3; stroke-dasharray: 8 10; }
+      .database-line { fill: none; stroke: #263244; stroke-width: 3.5; }
+      .score { font: 700 14px Arial, sans-serif; fill: #172033; }
+      .result-name { font: 700 14px Arial, sans-serif; fill: #263244; }
+    </style>
+    <marker id="arrowhead" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8795a8"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#172033" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1000" class="bg"/>
+  <circle cx="1280" cy="140" r="180" fill="#e8f0fb"/>
+  <circle cx="275" cy="850" r="210" fill="#e7f6f4"/>
+  <circle cx="1460" cy="880" r="140" fill="#fff0e6"/>
+
+  <text x="80" y="70" class="title">Image-Based Product Search Implementation Flow</text>
+  <text x="80" y="104" class="subtitle">From fashion catalogue images to Marqo-FashionCLIP embeddings, cosine similarity matching, and ranked product results.</text>
+  <rect x="80" y="126" width="252" height="34" class="pill"/>
+  <text x="102" y="149" class="pill-text">Same model, same feature space</text>
+
+  <line x1="420" y1="273" x2="470" y2="273" class="arrow"/>
+  <line x1="736" y1="273" x2="786" y2="273" class="arrow"/>
+  <line x1="1052" y1="273" x2="1102" y2="273" class="arrow"/>
+  <path d="M1260 420 C1260 485 340 485 340 550" class="flow-line"/>
+  <path d="M340 520 L340 550" class="arrow"/>
+  <line x1="420" y1="697" x2="470" y2="697" class="arrow"/>
+  <line x1="736" y1="697" x2="786" y2="697" class="arrow"/>
+
+  <g filter="url(#shadow)">
+    <rect x="80" y="190" width="340" height="230" class="step-card"/>
+    <circle cx="116" cy="226" r="22" class="green"/>
+    <text x="110" y="233" class="step-number">1</text>
+    <text x="152" y="226" class="step-title">Product Image Preparation</text>
+    <rect x="112" y="264" width="84" height="104" rx="12" class="soft-green"/>
+    <path d="M132 348 L150 323 L166 339 L178 315" class="icon-line"/>
+    <circle cx="148" cy="296" r="12" class="green"/>
+    <rect x="220" y="266" width="138" height="24" rx="12" fill="#eef2f7"/>
+    <rect x="220" y="306" width="108" height="16" rx="8" fill="#dbe4ef"/>
+    <rect x="220" y="336" width="118" height="16" rx="8" fill="#dbe4ef"/>
+    <text x="112" y="390" class="body">Collect main and variant images</text>
+    <text x="112" y="412" class="body">Attach product ID, category, brand, color</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="470" y="190" width="266" height="230" class="step-card"/>
+    <circle cx="506" cy="226" r="22" class="blue"/>
+    <text x="500" y="233" class="step-number">2</text>
+    <text x="542" y="226" class="step-title">Embedding Generation</text>
+    <rect x="544" y="264" width="118" height="82" rx="18" class="soft-blue"/>
+    <rect x="572" y="284" width="62" height="42" rx="8" fill="#ffffff" stroke="#2b6cb0" stroke-width="4"/>
+    <line x1="584" y1="252" x2="584" y2="274" class="icon-light"/>
+    <line x1="622" y1="252" x2="622" y2="274" class="icon-light"/>
+    <line x1="584" y1="336" x2="584" y2="358" class="icon-light"/>
+    <line x1="622" y1="336" x2="622" y2="358" class="icon-light"/>
+    <text x="506" y="376" class="body">Marqo-FashionCLIP image encoder</text>
+    <text x="506" y="398" class="body">creates visual embedding vectors</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="786" y="190" width="266" height="230" class="step-card"/>
+    <circle cx="822" cy="226" r="22" class="teal"/>
+    <text x="816" y="233" class="step-number">3</text>
+    <text x="858" y="226" class="step-title">Visual Index Storage</text>
+    <ellipse cx="919" cy="280" rx="72" ry="24" class="soft-teal" stroke="#0f766e" stroke-width="4"/>
+    <path d="M847 280 V348 C847 361 879 372 919 372 C959 372 991 361 991 348 V280" class="database-line"/>
+    <ellipse cx="919" cy="348" rx="72" ry="24" fill="none" stroke="#0f766e" stroke-width="4"/>
+    <text x="822" y="394" class="body">Store embeddings with metadata</text>
+    <text x="822" y="416" class="body">for fast future comparison</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1102" y="190" width="340" height="230" class="step-card"/>
+    <circle cx="1138" cy="226" r="22" class="orange"/>
+    <text x="1132" y="233" class="step-number">4</text>
+    <text x="1174" y="226" class="step-title">Query Image Processing</text>
+    <rect x="1140" y="268" width="94" height="100" rx="14" class="soft-orange"/>
+    <path d="M1162 346 L1180 323 L1196 337 L1212 309" class="icon-line"/>
+    <path d="M1260 314 H1344" class="icon-light"/>
+    <path d="M1316 286 L1344 314 L1316 342" class="icon-line"/>
+    <rect x="1364" y="280" width="40" height="68" rx="8" fill="#ffffff" stroke="#c05621" stroke-width="4"/>
+    <text x="1140" y="392" class="body">Uploaded image is encoded using</text>
+    <text x="1140" y="414" class="body">the same Marqo-FashionCLIP service</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="80" y="590" width="340" height="230" class="step-card"/>
+    <circle cx="116" cy="626" r="22" class="purple"/>
+    <text x="110" y="633" class="step-number">5</text>
+    <text x="152" y="626" class="step-title">Similarity Matching</text>
+    <circle cx="172" cy="710" r="38" class="soft-purple" stroke="#6b46c1" stroke-width="4"/>
+    <circle cx="282" cy="710" r="38" class="soft-purple" stroke="#6b46c1" stroke-width="4"/>
+    <line x1="210" y1="710" x2="244" y2="710" class="icon-line"/>
+    <text x="165" y="716" class="score">q</text>
+    <text x="274" y="716" class="score">p</text>
+    <text x="220" y="694" class="micro">cosine</text>
+    <text x="116" y="778" class="body">Compare query vector against visual index</text>
+    <text x="116" y="800" class="body">then apply category, color, price filters</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="470" y="590" width="266" height="230" class="step-card"/>
+    <circle cx="506" cy="626" r="22" class="red"/>
+    <text x="500" y="633" class="step-number">6</text>
+    <text x="542" y="626" class="step-title">Result Ranking</text>
+    <rect x="510" y="670" width="186" height="38" rx="10" fill="#fff0f0" stroke="#f0b5b5"/>
+    <rect x="510" y="724" width="160" height="38" rx="10" fill="#ffffff" stroke="#d7dee9"/>
+    <rect x="510" y="778" width="134" height="38" rx="10" fill="#ffffff" stroke="#d7dee9"/>
+    <text x="530" y="694" class="result-name">Product A</text>
+    <text x="630" y="694" class="score">0.93</text>
+    <text x="530" y="748" class="result-name">Product B</text>
+    <text x="630" y="748" class="score">0.87</text>
+    <text x="530" y="802" class="result-name">Product C</text>
+    <text x="630" y="802" class="score">0.82</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="786" y="590" width="656" height="230" class="step-card"/>
+    <text x="826" y="626" class="step-title">Customer Product Search Interface</text>
+    <text x="826" y="654" class="body">The highest-scoring products are returned with original product details.</text>
+    <g>
+      <rect x="826" y="686" width="170" height="96" rx="16" fill="#ffffff" stroke="#d7dee9" stroke-width="2"/>
+      <rect x="844" y="704" width="48" height="60" rx="10" fill="#e8f3ee"/>
+      <path d="M852 752 L864 735 L874 746 L884 724" class="icon-light"/>
+      <text x="912" y="724" class="result-name">View details</text>
+      <text x="912" y="748" class="micro">size, color, stock</text>
+    </g>
+    <g>
+      <rect x="1030" y="686" width="170" height="96" rx="16" fill="#ffffff" stroke="#d7dee9" stroke-width="2"/>
+      <circle cx="1076" cy="734" r="28" class="soft-blue"/>
+      <path d="M1062 734 H1090 M1076 720 V748" class="icon-line"/>
+      <text x="1122" y="724" class="result-name">Add to cart</text>
+      <text x="1122" y="748" class="micro">continue shopping</text>
+    </g>
+    <g>
+      <rect x="1234" y="686" width="170" height="96" rx="16" fill="#ffffff" stroke="#d7dee9" stroke-width="2"/>
+      <circle cx="1280" cy="734" r="28" class="soft-teal"/>
+      <path d="M1264 735 C1272 724 1288 724 1296 735 C1288 746 1272 746 1264 735 Z" class="icon-line"/>
+      <circle cx="1280" cy="735" r="6" fill="#263244"/>
+      <text x="1324" y="724" class="result-name">Browse similar</text>
+      <text x="1324" y="748" class="micro">visual discovery</text>
+    </g>
+  </g>
+
+  <g>
+    <rect x="80" y="872" width="1362" height="62" rx="20" fill="#172033"/>
+    <text x="116" y="910" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Core idea:</text>
+    <text x="218" y="910" font-family="Arial, sans-serif" font-size="18" fill="#dbe4ef">Product images and uploaded query images are encoded by the same Marqo-FashionCLIP model, so cosine similarity can rank visually similar products in one shared embedding space.</text>
+  </g>
+</svg>

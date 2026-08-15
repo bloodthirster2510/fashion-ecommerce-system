@@ -215,15 +215,17 @@ const CouponsScreen = () => {
     const isApplying = applyingCouponCode === item.coupon.code;
     const isSelected = route.params?.selectedCouponCode === item.coupon.code;
     const couponCategory = getCouponCategory(item);
-    const typeColor = couponCategory === 'freeship' ? colors.success : colors.brand;
-    const typeBackground = couponCategory === 'freeship' ? colors.successSoft : colors.brandSoft;
+    const isDiscountCoupon = couponCategory === 'discount';
+    const typeColor = couponCategory === 'freeship' ? colors.success : colors.danger;
+    const typeBackground = couponCategory === 'freeship' ? colors.successSoft : colors.dangerSoft;
 
     return (
       <View
         key={item.coupon._id}
         style={[
           styles.couponCard,
-          isSelected && styles.couponCardSelected,
+          isDiscountCoupon && styles.discountCouponCard,
+          isSelected && (isDiscountCoupon ? styles.discountCouponCardSelected : styles.couponCardSelected),
           isDisabled && styles.couponCardDisabled,
         ]}
       >
@@ -235,7 +237,11 @@ const CouponsScreen = () => {
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.useButton, (isDisabled || isApplying) && styles.useButtonDisabled]}
+            style={[
+              styles.useButton,
+              isDiscountCoupon && styles.discountUseButton,
+              (isDisabled || isApplying) && styles.useButtonDisabled,
+            ]}
             onPress={() => void handleUseCoupon(item)}
             disabled={isDisabled || isApplying}
             activeOpacity={0.82}
@@ -253,7 +259,9 @@ const CouponsScreen = () => {
           <Text style={[styles.typePillText, { color: typeColor }]}>{getCouponTypeLabel(item)}</Text>
         </View>
 
-        <Text style={styles.valueText}>{getCouponValueText(item)}</Text>
+        <Text style={[styles.valueText, isDiscountCoupon && styles.discountValueText]}>
+          {getCouponValueText(item)}
+        </Text>
         <Text style={styles.metaText}>Đơn tối thiểu: {formatCurrency(item.coupon.minOrderAmount)}</Text>
         <Text style={styles.metaText}>HSD: {formatDate(item.coupon.endAt)}</Text>
 
@@ -454,6 +462,12 @@ const styles = StyleSheet.create({
   couponCardSelected: {
     backgroundColor: colors.brandSoft,
   },
+  discountCouponCard: {
+    borderColor: colors.danger,
+  },
+  discountCouponCardSelected: {
+    backgroundColor: colors.dangerSoft,
+  },
   couponCardDisabled: {
     opacity: 0.58,
   },
@@ -487,6 +501,9 @@ const styles = StyleSheet.create({
   useButtonDisabled: {
     backgroundColor: colors.textSubtle,
   },
+  discountUseButton: {
+    backgroundColor: colors.danger,
+  },
   useButtonText: {
     color: colors.white,
     fontSize: 15,
@@ -512,6 +529,9 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     fontWeight: '900',
     marginTop: spacing.sm,
+  },
+  discountValueText: {
+    color: colors.danger,
   },
   metaText: {
     color: colors.textMuted,

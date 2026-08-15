@@ -18,29 +18,6 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const isSubmittingRef = useRef(false)
-  const canUseDemoAccess = import.meta.env.DEV
-
-  const handleDemoAccess = () => {
-    if (!canUseDemoAccess || isSubmittingRef.current) {
-      return
-    }
-
-    isSubmittingRef.current = true
-    setIsSubmitting(true)
-
-    const session: AdminSession = {
-      accessToken: 'demo-admin-access-token',
-      user: {
-        _id: 'demo-admin',
-        name: 'Quản trị viên',
-        email: 'admin@fashion.com',
-        role: 'admin',
-      },
-    }
-
-    saveAdminSession(session)
-    onLoginSuccess(session)
-  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -67,7 +44,7 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
     } catch (error) {
       const message =
         error instanceof TypeError
-          ? 'Không kết nối được backend. Hãy chạy backend ở port 5000 hoặc xem bố cục demo.'
+          ? 'Không kết nối được backend. Hãy chạy backend ở port 5000.'
           : error instanceof Error
             ? error.message
             : 'Không thể đăng nhập'
@@ -131,15 +108,9 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
           <button className="admin-login-submit" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
           </button>
-          {canUseDemoAccess ? (
-            <button className="admin-login-secondary" type="button" onClick={handleDemoAccess} disabled={isSubmitting}>
-              Xem bố cục demo
-            </button>
-          ) : null}
         </form>
 
         <div className="admin-login-footnote">
-          <span>Chỉ tài khoản admin hoặc staff được truy cập.</span>
           <a href="/admin/forgot-password">Quên mật khẩu?</a>
         </div>
       </section>

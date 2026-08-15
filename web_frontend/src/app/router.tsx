@@ -1,21 +1,48 @@
-import { lazy, useCallback, useEffect, useState } from 'react'
+import { lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { Alert, Button, message } from 'antd'
 import { AdminLogin } from '../features/admin/modules/auth/AdminLogin'
 import { ForcePasswordChange } from '../features/admin/modules/auth/ForcePasswordChange'
 import '../features/admin/styles/admin.css'
 import '../features/admin/layouts/admin-layout.css'
+import { useAppDispatch, useAppSelector } from './hooks'
+import { MainLayout } from '../layouts/MainLayout'
+import { clearCurrentUser, setCurrentUser } from '../features/auth/auth.slice'
+import { AuthApiError } from '../features/auth/auth.types'
+import { restoreCustomerSession } from '../services/customerHttp'
+import { tokenService } from '../services/tokenService'
 import {
   clearAdminSession,
   getAdminSession,
   hasStoredAdminUser,
+  saveAdminSession,
   type AdminSession,
 } from '../features/admin/modules/auth/adminSession'
 import {
   ADMIN_DEFAULT_PATH,
   ADMIN_LOGIN_PATH,
 } from '../features/admin/config/adminRoutes'
-import { logoutAdmin, refreshAdminSession } from '../features/admin/modules/auth/auth.service'
+import {
+  AdminAuthError,
+  getCurrentAdminUser,
+  logoutAdmin,
+  refreshAdminSession,
+} from '../features/admin/modules/auth/auth.service'
 
 const ADMIN_NAVIGATION_EVENT = 'admin:navigation'
+const ADMIN_SESSION_SYNC_INTERVAL_MS = 15_000
+
+const haveSameAdminUser = (left: AdminSession['user'], right: AdminSession['user']) =>
+  JSON.stringify(left) === JSON.stringify(right)
+const CUSTOMER_SESSION_EXPIRED_EVENT = 'customer-session-expired'
+const CUSTOMER_LOGIN_REQUESTED_EVENT = 'customer-login-requested'
+const CUSTOMER_AUTH_REQUIRED_MESSAGE = 'Đăng nhập để tiếp tục truy cập mục quản lý tài khoản.'
+
+const isCustomerProtectedPath = (pathname: string) => (
+  pathname.startsWith('/account') ||
+  pathname === '/cart' ||
+  pathname === '/cart/' ||
+  /^\/orders\/[^/]+\/?$/.test(pathname)
+)
 
 const AdminLayout = lazy(() =>
   import('../features/admin/layouts/AdminLayout').then((module) => ({ default: module.AdminLayout })),
@@ -50,12 +77,18 @@ const OrderDetailPage = lazy(() =>
 const PolicyPage = lazy(() =>
   import('../features/policies/PolicyPage').then((module) => ({ default: module.PolicyPage })),
 )
+const ResetPasswordPage = lazy(() =>
+  import('../features/auth/pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })),
+)
 
 export function Router() {
+  const dispatch = useAppDispatch()
+  const currentUser = useAppSelector((state) => state.auth.currentUser)
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() =>
     getAdminSession(),
   )
   const [path, setPath] = useState(() => window.location.pathname)
+  const restoredCustomerUserIdRef = useRef<string | null>(null)
   const [isRestoringAdminSession, setIsRestoringAdminSession] = useState(
     () => window.location.pathname.startsWith('/admin') && !getAdminSession() && hasStoredAdminUser(),
   )
@@ -90,6 +123,51 @@ export function Router() {
 
     return () => window.removeEventListener('admin-session-expired', handleSessionExpired)
   }, [replacePath])
+
+  useEffect(() => {
+    const handleCustomerSessionExpired = () => {
+      restoredCustomerUserIdRef.current = null
+      dispatch(clearCurrentUser())
+    }
+
+    window.addEventListener(CUSTOMER_SESSION_EXPIRED_EVENT, handleCustomerSessionExpired)
+
+    return () => window.removeEventListener(CUSTOMER_SESSION_EXPIRED_EVENT, handleCustomerSessionExpired)
+  }, [dispatch])
+
+  useEffect(() => {
+    if (path.startsWith('/admin')) {
+      return
+    }
+
+    if (!currentUser) {
+      restoredCustomerUserIdRef.current = null
+      return
+    }
+
+    if (tokenService.getAccessToken() || restoredCustomerUserIdRef.current === currentUser._id) {
+      return
+    }
+
+    let isCancelled = false
+    restoredCustomerUserIdRef.current = currentUser._id
+
+    void restoreCustomerSession()
+      .then((user) => {
+        if (isCancelled || !user) return
+        dispatch(setCurrentUser(user))
+      })
+      .catch((error) => {
+        if (isCancelled) return
+        if (error instanceof AuthApiError && error.status === undefined) return
+        restoredCustomerUserIdRef.current = null
+        dispatch(clearCurrentUser())
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [currentUser, dispatch, path])
 
   useEffect(() => {
     const handleLocationChange = () => {
@@ -142,6 +220,66 @@ export function Router() {
     }
   }, [adminSession, path, replacePath])
 
+  const adminAccessToken = adminSession?.accessToken
+  const adminMustChangePassword = adminSession?.user.mustChangePassword
+
+  useEffect(() => {
+    if (!path.startsWith('/admin') || !adminAccessToken || adminMustChangePassword) {
+      return
+    }
+
+    let isCancelled = false
+    let isSyncing = false
+    const accessToken = adminAccessToken
+
+    const expireSession = () => {
+      window.dispatchEvent(new Event('admin-session-expired'))
+    }
+
+    const syncAdminUser = async () => {
+      if (isSyncing) return
+      isSyncing = true
+
+      try {
+        const user = await getCurrentAdminUser(accessToken)
+        if (isCancelled) return
+
+        const currentSession = getAdminSession()
+        if (!currentSession || currentSession.accessToken !== accessToken) return
+        if (haveSameAdminUser(currentSession.user, user)) return
+
+        const nextSession = { ...currentSession, user }
+        saveAdminSession(nextSession)
+        setAdminSession(nextSession)
+      } catch (error) {
+        if (isCancelled) return
+
+        if (error instanceof AdminAuthError && error.status === 401) {
+          try {
+            const refreshedSession = await refreshAdminSession()
+            if (!isCancelled) setAdminSession(refreshedSession)
+          } catch {
+            if (!isCancelled) expireSession()
+          }
+        } else if (error instanceof AdminAuthError && error.status === 403) {
+          expireSession()
+        }
+      } finally {
+        isSyncing = false
+      }
+    }
+
+    void syncAdminUser()
+    const intervalId = window.setInterval(() => void syncAdminUser(), ADMIN_SESSION_SYNC_INTERVAL_MS)
+    window.addEventListener('focus', syncAdminUser)
+
+    return () => {
+      isCancelled = true
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', syncAdminUser)
+    }
+  }, [adminAccessToken, adminMustChangePassword, path])
+
   useEffect(() => {
     if (!path.startsWith('/admin')) {
       return
@@ -171,6 +309,10 @@ export function Router() {
   }, [adminSession, isRestoringAdminSession, path, replacePath])
 
   if (!path.startsWith('/admin')) {
+    if (isCustomerProtectedPath(path) && !currentUser) {
+      return <CustomerLoginRequiredPage />
+    }
+
     const policyMatch = path.match(/^\/policies\/(terms|privacy|shipping|returns|complaints)\/?$/)
     if (policyMatch) {
       return <PolicyPage policyKey={policyMatch[1] as 'terms' | 'privacy' | 'shipping' | 'returns' | 'complaints'} />
@@ -182,6 +324,10 @@ export function Router() {
 
     if (path === '/' || path === '') {
       return <HomePage />
+    }
+
+    if (path === '/reset-password' || path === '/reset-password/') {
+      return <ResetPasswordPage />
     }
 
     if (path === '/account') {
@@ -244,4 +390,36 @@ export function Router() {
   }
 
   return <AdminLayout currentUser={adminSession.user} onLogout={handleLogout} />
+}
+
+function CustomerLoginRequiredPage() {
+  useEffect(() => {
+    message.open({
+      key: 'customer-auth-required',
+      type: 'warning',
+      content: CUSTOMER_AUTH_REQUIRED_MESSAGE,
+    })
+  }, [])
+
+  const openLogin = () => {
+    window.dispatchEvent(new Event(CUSTOMER_LOGIN_REQUESTED_EVENT))
+  }
+
+  return (
+    <MainLayout>
+      <main className="account-page">
+        <div className="account-shell">
+          <section className="account-content account-login-required" aria-label="Yêu cầu đăng nhập">
+            <Alert
+              type="warning"
+              showIcon
+              message={CUSTOMER_AUTH_REQUIRED_MESSAGE}
+              description="Các mục đơn hàng, đánh giá, yêu thích, voucher, phương thức thanh toán và hỗ trợ tài khoản chỉ hiển thị cho chủ tài khoản."
+              action={<Button type="primary" onClick={openLogin}>Đăng nhập</Button>}
+            />
+          </section>
+        </div>
+      </main>
+    </MainLayout>
+  )
 }

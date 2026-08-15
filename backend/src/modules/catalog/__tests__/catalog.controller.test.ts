@@ -4,8 +4,8 @@ import { BrandServiceError, brandService } from '../brands/brand.service';
 import { createCategory, getCategoryById } from '../categories/categories.controller';
 import { categoryService } from '../categories/categories.service';
 import { createProduct, getProductList, permanentlyDeleteProduct, updateProduct } from '../products/product.controller';
-import { productService } from '../products/product.service';
-import { uploadToCloudinary } from '../../../utils/cloudinary.util';
+import { ProductServiceError, productService } from '../products/product.service';
+import { deleteFromCloudinary, uploadToCloudinary } from '../../../utils/cloudinary.util';
 
 jest.mock('../brands/brand.service', () => {
   class BrandServiceError extends Error {
@@ -79,6 +79,7 @@ const mockedBrandService = brandService as jest.Mocked<typeof brandService>;
 const mockedCategoryService = categoryService as jest.Mocked<typeof categoryService>;
 const mockedProductService = productService as jest.Mocked<typeof productService>;
 const mockedUploadToCloudinary = uploadToCloudinary as jest.MockedFunction<typeof uploadToCloudinary>;
+const mockedDeleteFromCloudinary = deleteFromCloudinary as jest.MockedFunction<typeof deleteFromCloudinary>;
 
 const createRequest = (
   body: unknown = {},
@@ -427,6 +428,56 @@ describe('catalog controllers', () => {
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({ message: 'Created', data: product });
+    });
+
+    it('cleans up uploaded product images when product creation fails validation', async () => {
+      mockedUploadToCloudinary.mockResolvedValueOnce({
+        secure_url: 'https://res.cloudinary.com/demo/products/product.png',
+      } as never);
+      mockedProductService.createProduct.mockRejectedValue(
+        new ProductServiceError('Brand is inactive', 400),
+      );
+
+      const req = createRequest(
+        {
+          category_id: '665000000000000000000001',
+          name: 'T-shirt',
+          brand_id: '665000000000000000000002',
+          description: 'Basic product',
+          variant: JSON.stringify([
+            {
+              fitTypeId: '665000000000000000000010',
+              price: 199000,
+              discount: 0,
+              sizeMeasurements: [{ size: 'M', measurements: [] }],
+              colors: [
+                {
+                  color: 'Black',
+                  image: 'https://res.cloudinary.com/demo/products/black.png',
+                },
+              ],
+            },
+          ]),
+        },
+        {},
+        {
+          product_image: [
+            {
+              buffer: Buffer.from('product-image'),
+              originalname: 'product.png',
+            } as Express.Multer.File,
+          ],
+        },
+      );
+      const res = createResponse();
+
+      await createProduct(req, res);
+
+      expect(mockedDeleteFromCloudinary).toHaveBeenCalledWith(
+        'https://res.cloudinary.com/demo/products/product.png',
+      );
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ message: 'Brand is inactive' });
     });
 
     it('uploads variant color images before creating a product', async () => {

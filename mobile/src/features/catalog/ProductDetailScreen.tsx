@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   Modal,
   Pressable,
@@ -10,12 +11,21 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import { resolveColorSwatch } from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
@@ -59,6 +69,178 @@ type AddCartFeedback = {
   productName: string;
   variantText: string;
   imageUri?: string;
+};
+
+type ZoomableProductImageProps = {
+  uri: string;
+  previousUri?: string;
+  nextUri?: string;
+  onSwipe: (direction: -1 | 1) => void;
+};
+
+const MIN_IMAGE_SCALE = 1;
+const MAX_IMAGE_SCALE = 4;
+
+const ZoomableProductImage = ({ uri, previousUri, nextUri, onSwipe }: ZoomableProductImageProps) => {
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const scale = useSharedValue(MIN_IMAGE_SCALE);
+  const savedScale = useSharedValue(MIN_IMAGE_SCALE);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+  const carouselTranslateX = useSharedValue(0);
+  const isChangingImage = useSharedValue(false);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      if (isChangingImage.value) return;
+      scale.value = Math.min(MAX_IMAGE_SCALE, Math.max(MIN_IMAGE_SCALE, savedScale.value * event.scale));
+    })
+    .onEnd(() => {
+      if (isChangingImage.value) return;
+      savedScale.value = scale.value;
+
+      if (scale.value <= MIN_IMAGE_SCALE) {
+        scale.value = withSpring(MIN_IMAGE_SCALE);
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+        return;
+      }
+
+      const maxTranslateX = (viewportWidth * (scale.value - MIN_IMAGE_SCALE)) / 2;
+      const maxTranslateY = (viewportHeight * (scale.value - MIN_IMAGE_SCALE)) / 2;
+      const nextTranslateX = Math.min(maxTranslateX, Math.max(-maxTranslateX, translateX.value));
+      const nextTranslateY = Math.min(maxTranslateY, Math.max(-maxTranslateY, translateY.value));
+
+      translateX.value = withSpring(nextTranslateX);
+      translateY.value = withSpring(nextTranslateY);
+      savedTranslateX.value = nextTranslateX;
+      savedTranslateY.value = nextTranslateY;
+    });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      if (isChangingImage.value) return;
+
+      if (scale.value > MIN_IMAGE_SCALE) {
+        translateX.value = savedTranslateX.value + event.translationX;
+        translateY.value = savedTranslateY.value + event.translationY;
+        return;
+      }
+
+      const canSwipe = event.translationX < 0 ? Boolean(nextUri) : Boolean(previousUri);
+      carouselTranslateX.value = canSwipe ? event.translationX : event.translationX * 0.18;
+    })
+    .onEnd((event) => {
+      if (isChangingImage.value) return;
+
+      if (scale.value <= MIN_IMAGE_SCALE) {
+        const direction: -1 | 1 = event.translationX < 0 ? 1 : -1;
+        const canSwipe = direction === 1 ? Boolean(nextUri) : Boolean(previousUri);
+        const isHorizontalSwipe = Math.abs(event.translationX) > Math.abs(event.translationY);
+        const shouldChangeImage = canSwipe && isHorizontalSwipe && (
+          Math.abs(event.translationX) >= viewportWidth * 0.18 || Math.abs(event.velocityX) >= 650
+        );
+
+        if (shouldChangeImage) {
+          isChangingImage.value = true;
+          carouselTranslateX.value = withTiming(
+            direction === 1 ? -viewportWidth : viewportWidth,
+            { duration: 140 },
+            (finished) => {
+              if (finished) {
+                runOnJS(onSwipe)(direction);
+                return;
+              }
+
+              carouselTranslateX.value = 0;
+              isChangingImage.value = false;
+            },
+          );
+        } else {
+          carouselTranslateX.value = withSpring(0, { damping: 18, stiffness: 220 });
+        }
+        return;
+      }
+
+      const maxTranslateX = (viewportWidth * (scale.value - MIN_IMAGE_SCALE)) / 2;
+      const maxTranslateY = (viewportHeight * (scale.value - MIN_IMAGE_SCALE)) / 2;
+      const nextTranslateX = Math.min(maxTranslateX, Math.max(-maxTranslateX, translateX.value));
+      const nextTranslateY = Math.min(maxTranslateY, Math.max(-maxTranslateY, translateY.value));
+
+      translateX.value = withSpring(nextTranslateX);
+      translateY.value = withSpring(nextTranslateY);
+      savedTranslateX.value = nextTranslateX;
+      savedTranslateY.value = nextTranslateY;
+    });
+
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd((_event, success) => {
+      if (!success || isChangingImage.value) return;
+
+      if (scale.value > MIN_IMAGE_SCALE) {
+        scale.value = withSpring(MIN_IMAGE_SCALE);
+        savedScale.value = MIN_IMAGE_SCALE;
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+      } else {
+        scale.value = withSpring(2.5);
+        savedScale.value = 2.5;
+      }
+    });
+
+  const imageGesture = Gesture.Race(
+    doubleTapGesture,
+    Gesture.Simultaneous(pinchGesture, panGesture),
+  );
+  const animatedImageStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+  const animatedCarouselStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: carouselTranslateX.value }],
+  }));
+
+  return (
+    <View style={styles.imagePreviewCanvas}>
+      <GestureDetector gesture={imageGesture}>
+        <Animated.View
+          style={[
+            styles.imagePreviewTrack,
+            { left: -viewportWidth, width: viewportWidth * 3 },
+            animatedCarouselStyle,
+          ]}
+        >
+          <View style={[styles.imagePreviewSlide, { width: viewportWidth }]}>
+            {previousUri ? (
+              <Image source={{ uri: previousUri }} style={styles.imagePreviewImage} resizeMode="contain" />
+            ) : null}
+          </View>
+          <View style={[styles.imagePreviewSlide, { width: viewportWidth }]}>
+            <Animated.Image
+              source={{ uri }}
+              style={[styles.imagePreviewImage, animatedImageStyle]}
+              resizeMode="contain"
+            />
+          </View>
+          <View style={[styles.imagePreviewSlide, { width: viewportWidth }]}>
+            {nextUri ? (
+              <Image source={{ uri: nextUri }} style={styles.imagePreviewImage} resizeMode="contain" />
+            ) : null}
+          </View>
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
 };
 
 const formatCurrency = (value: number) => {
@@ -180,11 +362,13 @@ const ProductDetailScreen = () => {
   );
   const [quantity, setQuantity] = React.useState(1);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
+  const [isImagePreviewVisible, setIsImagePreviewVisible] = React.useState(false);
   const [isSelectionSheetVisible, setIsSelectionSheetVisible] = React.useState(false);
   const [selectionSheetAction, setSelectionSheetAction] = React.useState<'cart' | 'buy'>('cart');
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
   const addCartFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewThumbnailListRef = React.useRef<FlatList<string>>(null);
   const loadedProductIdRef = React.useRef<string | undefined>(initialProductRef.current?._id);
   const productRequestIdRef = React.useRef(0);
 
@@ -423,6 +607,7 @@ const ProductDetailScreen = () => {
   );
   const isQuantityAtLimit = !canCheckout || quantity >= maxPurchasableQuantity;
   const imageOptions = product ? getImageOptions(product) : [];
+  const selectedImageIndex = Math.max(imageOptions.indexOf(selectedImage ?? ''), 0);
   const ratingDistribution = product ? getRatingDistribution(product) : [];
   const productDescription = React.useMemo(
     () => stripDescription(product?.description),
@@ -431,6 +616,20 @@ const ProductDetailScreen = () => {
   const handleReviewSummaryChange = React.useCallback((summary: ReviewSummary) => {
     setPublicReviewSummary(summary);
   }, []);
+
+  React.useEffect(() => {
+    if (!isImagePreviewVisible || imageOptions.length <= 1) return;
+
+    const frame = requestAnimationFrame(() => {
+      previewThumbnailListRef.current?.scrollToIndex({
+        index: selectedImageIndex,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [imageOptions.length, isImagePreviewVisible, selectedImageIndex]);
 
   React.useEffect(() => {
     setQuantity((current) => {
@@ -483,6 +682,14 @@ const ProductDetailScreen = () => {
 
       return Math.max(1, Math.min(maxPurchasableQuantity, current + delta));
     });
+  };
+
+  const handlePreviewImageChange = (direction: -1 | 1) => {
+    const nextIndex = selectedImageIndex + direction;
+
+    if (nextIndex >= 0 && nextIndex < imageOptions.length) {
+      setSelectedImage(imageOptions[nextIndex]);
+    }
   };
 
   const handleOpenSelectionSheet = (action: 'cart' | 'buy') => {
@@ -1053,13 +1260,23 @@ const ProductDetailScreen = () => {
 
         <View style={styles.mediaSection}>
           <View style={styles.heroImageWrap}>
-            {isRemoteImage(selectedImage) ? (
-              <Image source={{ uri: selectedImage!.trim() }} style={styles.heroImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <MaterialCommunityIcons name="tshirt-crew-outline" size={54} color={colors.brand} />
-              </View>
-            )}
+            <TouchableOpacity
+              style={styles.heroImagePress}
+              onPress={() => setIsImagePreviewVisible(true)}
+              disabled={!isRemoteImage(selectedImage)}
+              activeOpacity={0.92}
+              accessibilityRole="button"
+              accessibilityLabel="Xem ảnh sản phẩm toàn màn hình"
+            >
+              {isRemoteImage(selectedImage) ? (
+                <Image source={{ uri: selectedImage!.trim() }} style={styles.heroImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <MaterialCommunityIcons name="tshirt-crew-outline" size={54} color={colors.brand} />
+                </View>
+              )}
+
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.favoriteButton}
@@ -1175,7 +1392,7 @@ const ProductDetailScreen = () => {
         </View>
 
         <RecommendationRail
-          title="Phối tiếp gu này"
+          title="Sản phẩm tương tự"
           subtitle="Những lựa chọn cùng tinh thần với món bạn đang xem"
           items={recommendationItems}
           isLoading={isRecommendationLoading}
@@ -1186,6 +1403,82 @@ const ProductDetailScreen = () => {
 
         <StorefrontFooter />
       </ScrollView>
+
+      <Modal
+        visible={isImagePreviewVisible}
+        animationType="fade"
+        hardwareAccelerated
+        statusBarTranslucent
+        presentationStyle="fullScreen"
+        onRequestClose={() => setIsImagePreviewVisible(false)}
+      >
+        <GestureHandlerRootView style={styles.imagePreviewModal}>
+          {isImagePreviewVisible && isRemoteImage(selectedImage) ? (
+            <ZoomableProductImage
+              key={selectedImage}
+              uri={selectedImage!.trim()}
+              previousUri={imageOptions[selectedImageIndex - 1]}
+              nextUri={imageOptions[selectedImageIndex + 1]}
+              onSwipe={handlePreviewImageChange}
+            />
+          ) : null}
+
+          <View style={[styles.imagePreviewHeader, { paddingTop: Math.max(insets.top, spacing.md) }]}>
+            <TouchableOpacity
+              style={styles.imagePreviewHeaderButton}
+              onPress={() => setIsImagePreviewVisible(false)}
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel="Đóng ảnh phóng to"
+            >
+              <MaterialCommunityIcons name="close" size={26} color={colors.white} />
+            </TouchableOpacity>
+          </View>
+
+          {imageOptions.length > 1 ? (
+            <View
+              style={[
+                styles.imagePreviewThumbnails,
+                { paddingBottom: Math.max(insets.bottom, spacing.sm) },
+              ]}
+            >
+              <FlatList
+                ref={previewThumbnailListRef}
+                data={imageOptions}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={(image) => image}
+                contentContainerStyle={styles.imagePreviewThumbnailContent}
+                getItemLayout={(_data, index) => ({
+                  length: 54 + spacing.sm,
+                  offset: (54 + spacing.sm) * index,
+                  index,
+                })}
+                renderItem={({ item: image, index }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.imagePreviewThumbnail,
+                      index === selectedImageIndex && styles.imagePreviewThumbnailActive,
+                    ]}
+                    onPress={() => setSelectedImage(image)}
+                    activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Xem ảnh sản phẩm ${index + 1}`}
+                  >
+                    {isRemoteImage(image) ? (
+                      <Image
+                        source={{ uri: image }}
+                        style={styles.imagePreviewThumbnailImage}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          ) : null}
+        </GestureHandlerRootView>
+      </Modal>
 
       <Modal
         visible={isSelectionSheetVisible}
@@ -1443,6 +1736,9 @@ const styles = StyleSheet.create({
     aspectRatio: 0.82,
     backgroundColor: colors.brandSoft,
   },
+  heroImagePress: {
+    flex: 1,
+  },
   heroImage: {
     width: '100%',
     height: '100%',
@@ -1462,6 +1758,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
     ...shadows.card,
   },
   thumbnailRow: {
@@ -2001,6 +2298,85 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     marginTop: spacing.xs,
+  },
+  imagePreviewModal: {
+    flex: 1,
+    backgroundColor: '#050505',
+  },
+  imagePreviewCanvas: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  imagePreviewTrack: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+  },
+  imagePreviewSlide: {
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  imagePreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePreviewHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 4,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  imagePreviewHeaderButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  imagePreviewThumbnails: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 4,
+    paddingTop: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  imagePreviewThumbnailContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  imagePreviewThumbnail: {
+    width: 54,
+    height: 54,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  imagePreviewThumbnailActive: {
+    borderWidth: 2,
+    borderColor: colors.white,
+  },
+  imagePreviewThumbnailImage: {
+    width: '100%',
+    height: '100%',
   },
   selectionModalRoot: {
     flex: 1,

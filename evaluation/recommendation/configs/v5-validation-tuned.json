@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-13T06:59:38.083Z",
+  "selectionDataset": {
+    "name": "Amazon Reviews 2023 - Amazon Fashion controlled subset",
+    "source": "McAuley-Lab/Amazon-Reviews-2023; Kaggle mirror pandeymritunjay/amazon-reco-ds v8",
+    "split": "train before 2021-09-11T03:24:38.515Z; test from that timestamp to 2022-09-11T03:24:38.515Z (exclusive)",
+    "notes": "Verified purchases with rating >= 4. Product-detail relevance uses next-positive-item proxy; cart relevance uses held-out same-day co-review basket proxy. Business signal is fixed at zero because equivalent sale/new-arrival fields are unavailable."
+  },
+  "objective": "Maximize NDCG@5; deterministic tie-breaks: HR, MAP, MRR, Recall, Precision, Coverage",
+  "constraints": {
+    "step": 0.05,
+    "businessWeightsFixed": {
+      "home": 0.1,
+      "productDetailSimilar": 0.1,
+      "cart": 0.05
+    },
+    "note": "Amazon Fashion lacks equivalent business signals, so their weights were not tuned."
+  },
+  "k": 5,
+  "weights": {
+    "home": {
+      "preferenceMatch": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "productDetailSimilar": {
+      "contentSimilarity": 0.9,
+      "popularity": 0,
+      "business": 0.1
+    },
+    "cart": {
+      "complementaryRole": 0.65,
+      "styleCompatibility": 0.3,
+      "popularity": 0,
+      "business": 0.05
+    }
+  },
+  "validation": {
+    "home": {
+      "searchedConfigurations": 11,
+      "metrics": {
+        "cases": 100,
+        "hitRateAtK": 0.04,
+        "precisionAtK": 0.008,
+        "recallAtK": 0.04,
+        "mapAtK": 0.020833,
+        "mrrAtK": 0.020833,
+        "ndcgAtK": 0.025616,
+        "catalogCoverageAtK": 0.070703,
+        "categoryDiversityAtK": 0.5,
+        "brandDiversityAtK": 0.968
+      },
+      "weights": {
+        "home": {
+          "preferenceMatch": 0.9,
+          "popularity": 0,
+          "business": 0.1
+        },
+        "productDetailSimilar": {
+          "contentSimilarity": 0.65,
+          "popularity": 0.25,
+          "business": 0.1
+        },
+        "cart": {
+          "complementaryRole": 0.75,
+          "styleCompatibility": 0.1,
+          "popularity": 0.1,
+          "business": 0.05
+        }
+      }
+    },
+    "productDetailSimilar": {
+      "searchedConfigurations": 11,
+      "metrics": {
+        "cases": 100,
+        "hitRateAtK": 0.06,
+        "precisionAtK": 0.012,
+        "recallAtK": 0.06,
+        "mapAtK": 0.0165,
+        "mrrAtK": 0.0165,
+        "ndcgAtK": 0.027044,
+        "catalogCoverageAtK": 0.082941,
+        "categoryDiversityAtK": 0.46,
+        "brandDiversityAtK": 0.972
+      },
+      "weights": {
+        "home": {
+          "preferenceMatch": 0.7,
+          "popularity": 0.2,
+          "business": 0.1
+        },
+        "productDetailSimilar": {
+          "contentSimilarity": 0.9,
+          "popularity": 0,
+          "business": 0.1
+        },
+        "cart": {
+          "complementaryRole": 0.75,
+          "styleCompatibility": 0.1,
+          "popularity": 0.1,
+          "business": 0.05
+        }
+      }
+    },
+    "cart": {
+      "searchedConfigurations": 50,
+      "metrics": {
+        "cases": 100,
+        "hitRateAtK": 0.03,
+        "precisionAtK": 0.006,
+        "recallAtK": 0.03,
+        "mapAtK": 0.014,
+        "mrrAtK": 0.014,
+        "ndcgAtK": 0.017737,
+        "catalogCoverageAtK": 0.067501,
+        "categoryDiversityAtK": 0.69,
+        "brandDiversityAtK": 0.98
+      },
+      "weights": {
+        "home": {
+          "preferenceMatch": 0.7,
+          "popularity": 0.2,
+          "business": 0.1
+        },
+        "productDetailSimilar": {
+          "contentSimilarity": 0.65,
+          "popularity": 0.25,
+          "business": 0.1
+        },
+        "cart": {
+          "complementaryRole": 0.65,
+          "styleCompatibility": 0.3,
+          "popularity": 0,
+          "business": 0.05
+        }
+      },
+      "warning": "Cart relevance is a same-day co-review proxy and must be confirmed by a controlled user study."
+    }
+  }
+}

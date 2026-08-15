@@ -26,6 +26,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import {
   canSubmitCheckout,
+  getCheckoutErrorPresentation,
   getCheckoutItemTitle,
   getCheckoutValidationIssue,
   getShippingStatusText,
@@ -50,17 +51,7 @@ const formatCurrency = (value: number) =>
 
 const CHECKOUT_PREVIEW_DEBOUNCE_MS = 450;
 
-const getErrorMessage = (error: unknown) => {
-  if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
-    return 'Phí giao hàng vừa thay đổi. Mình cần cập nhật lại tổng tiền trước khi đặt hàng.';
-  }
-
-  if (error instanceof CartApiError && error.status === 409) {
-    return error.message || 'Dữ liệu đơn hàng vừa thay đổi. Bạn kiểm tra lại trước khi tiếp tục.';
-  }
-
-  return error instanceof Error ? error.message : 'Bạn thử lại sau nha.';
-};
+const getErrorMessage = (error: unknown) => getCheckoutErrorPresentation(error).message;
 
 const compactAddressParts = (address: UserAddress) =>
   [address.streetName, address.ward, address.province].map((item) => item?.trim()).filter(Boolean);
@@ -88,9 +79,6 @@ const toShippingAddress = (address: UserAddress) => ({
   ghnMappingConfidence: address.ghnMappingConfidence ?? null,
   ghnMappingVerifiedAt: address.ghnMappingVerifiedAt ?? null,
 });
-
-const hasShippingAreaCode = (address: UserAddress | null) =>
-  Boolean((address?.ghnDistrictId && address?.ghnWardCode) || (address?.districtId && address?.wardCode));
 
 const CheckoutScreen = () => {
   const navigation = useNavigation<CheckoutNavigationProp>();
@@ -322,25 +310,12 @@ const CheckoutScreen = () => {
   const appliedCoupons = checkoutPreview?.coupons?.length ? checkoutPreview.coupons : appliedCoupon ? [appliedCoupon] : [];
   const appliedCouponCode = appliedCouponCodes[0] ?? null;
   const shippingQuote = checkoutPreview?.shippingQuote ?? null;
-  const shippingComparison = checkoutPreview?.shippingComparison ?? null;
   const shippingPayable = selectedCheckoutItems.length ? Math.max(0, shippingFee - shippingDiscountAmount) : 0;
   const isShippingFreeForUser = selectedCheckoutItems.length > 0 && shippingPayable === 0;
-  const addressHasShippingCodes = hasShippingAreaCode(selectedAddress);
-  const shippingQuoteIsLive =
-    shippingQuote?.provider === 'GHN' && shippingQuote.status === 'quoted' && shippingComparison?.comparisonStatus !== 'fallback';
-  const shippingNeedsAddressMapping = Boolean(selectedAddress && !shippingQuoteIsLive && !addressHasShippingCodes);
-  const shippingProviderLabel = shippingQuote?.provider === 'GHN'
-    ? 'GHN tối ưu'
-    : shippingComparison?.comparisonStatus === 'fallback'
-      ? 'Phí tạm tính'
-      : 'Giá tối ưu';
   const shippingStatusText = getShippingStatusText({
     isPreviewLoading,
     selectedItemCount: selectedCheckoutItems.length,
     hasSelectedAddress: Boolean(selectedAddress),
-    comparisonNote: shippingComparison?.note,
-    needsAddressMapping: shippingNeedsAddressMapping,
-    comparisonStatus: shippingComparison?.comparisonStatus,
     quoteStatus: shippingQuote?.status,
   });
   const savingsAmount = couponDiscountAmount + shippingDiscountAmount + membershipDiscountAmount;
@@ -412,8 +387,16 @@ const CheckoutScreen = () => {
           setCheckoutPreview(null);
           setCheckoutPreviewKey('');
           if (appliedCouponCodes.length) {
+            const errorPresentation = getCheckoutErrorPresentation(error);
             setAppliedCouponCodes([]);
-            showNotice({ tone: 'warning', title: 'Voucher không còn phù hợp', message: getErrorMessage(error) });
+            setCouponCode('');
+            showNotice({
+              tone: 'warning',
+              title: errorPresentation.kind === 'coupon_exhausted' || errorPresentation.kind === 'coupon_user_limit'
+                ? errorPresentation.title
+                : 'Voucher không còn phù hợp',
+              message: errorPresentation.message,
+            });
           }
         })
         .finally(() => {
@@ -560,19 +543,42 @@ const CheckoutScreen = () => {
 
       await loadCart(true);
     } catch (error) {
-      if (error instanceof CartApiError && error.status === 409 && error.errorCode === 'QUOTE_CHANGED') {
+      const errorPresentation = getCheckoutErrorPresentation(error);
+
+      if (errorPresentation.kind === 'quote_changed') {
         showNotice({
           tone: 'warning',
-          title: 'Phí giao hàng đã thay đổi',
-          message: getErrorMessage(error),
+          title: errorPresentation.title,
+          message: errorPresentation.message,
         });
+        setCheckoutPreview(null);
+        setCheckoutPreviewKey('');
+      } else if (
+        errorPresentation.kind === 'coupon_exhausted' ||
+        errorPresentation.kind === 'coupon_user_limit'
+      ) {
+        showNotice({
+          tone: 'warning',
+          title: errorPresentation.title,
+          message: errorPresentation.message,
+        });
+        setAppliedCouponCodes((currentCodes) =>
+          errorPresentation.couponCode
+            ? currentCodes.filter((code) => code !== errorPresentation.couponCode)
+            : [],
+        );
+        setCouponCode((currentCode) =>
+          !errorPresentation.couponCode || currentCode.trim().toUpperCase() === errorPresentation.couponCode
+            ? ''
+            : currentCode,
+        );
         setCheckoutPreview(null);
         setCheckoutPreviewKey('');
       } else {
         showNotice({
           tone: 'error',
-          title: 'Không đặt được hàng',
-          message: getErrorMessage(error),
+          title: errorPresentation.title,
+          message: errorPresentation.message,
         });
       }
     } finally {
@@ -625,7 +631,14 @@ const CheckoutScreen = () => {
       setCouponCode('');
       showNotice({ tone: 'success', title: 'Đã áp dụng voucher', message: `${preview.coupon.code} đã được tính vào đơn hàng.` }, 3200);
     } catch (error) {
-      showNotice({ tone: 'error', title: 'Chưa áp dụng được voucher', message: getErrorMessage(error) });
+      const errorPresentation = getCheckoutErrorPresentation(error);
+      const isCouponLimitError =
+        errorPresentation.kind === 'coupon_exhausted' || errorPresentation.kind === 'coupon_user_limit';
+      showNotice({
+        tone: isCouponLimitError ? 'warning' : 'error',
+        title: isCouponLimitError ? errorPresentation.title : 'Chưa áp dụng được voucher',
+        message: errorPresentation.message,
+      });
     } finally {
       setIsApplyingCoupon(false);
     }
@@ -808,17 +821,13 @@ const CheckoutScreen = () => {
                 <MaterialCommunityIcons name="pencil-outline" size={17} color={colors.brand} />
               </TouchableOpacity>
             </View>
-            <View style={[styles.addressQuoteRow, shippingNeedsAddressMapping && styles.addressQuoteRowWarning]}>
+            <View style={styles.addressQuoteRow}>
               <MaterialCommunityIcons
-                name={shippingNeedsAddressMapping ? 'alert-circle-outline' : 'check-circle-outline'}
+                name="check-circle-outline"
                 size={15}
-                color={shippingNeedsAddressMapping ? colors.goldText : colors.success}
+                color={colors.success}
               />
-              <Text style={[styles.addressQuoteText, shippingNeedsAddressMapping && styles.addressQuoteTextWarning]}>
-                {!shippingNeedsAddressMapping
-                  ? 'Địa chỉ đã sẵn sàng để tính phí giao hàng.'
-                  : 'Đang dùng địa chỉ đã chọn; phí giao hàng tạm tính vì chưa có dữ liệu tính phí tự động.'}
-              </Text>
+              <Text style={styles.addressQuoteText}>Địa chỉ đã được chọn để giao hàng.</Text>
             </View>
           </View>
         ) : null}
@@ -838,13 +847,7 @@ const CheckoutScreen = () => {
             {selectedCheckoutItems.length && checkoutPreview ? formatCurrency(shippingFee) : '--'}
           </Text>
         </View>
-        <Text style={styles.shippingQuoteMeta}>{shippingProviderLabel} · {shippingStatusText}</Text>
-        {shippingNeedsAddressMapping ? (
-          <TouchableOpacity style={styles.shippingQuoteAction} onPress={() => navigation.navigate('EditProfile')} activeOpacity={0.82}>
-            <Text style={styles.shippingQuoteActionText}>Quản lý địa chỉ</Text>
-            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.brand} />
-          </TouchableOpacity>
-        ) : null}
+        <Text style={styles.shippingQuoteMeta}>{shippingStatusText}</Text>
       </View>
     </View>
   );

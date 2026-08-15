@@ -7,7 +7,7 @@ import type {
   AdminOrderPaymentStatus,
   AdminOrderStatus,
 } from '../orderAdminApi'
-import type { Notice, OrderTab, PaymentSectionKey } from '../orderTypes'
+import type { OrderTab, PaymentSectionKey } from '../orderTypes'
 import type { OrderTableColumnKey } from '../orderTypes'
 import { emptyOperationalSummary } from '../orderPresentation'
 import { OrderFilterBar } from './OrderFilterBar'
@@ -39,7 +39,6 @@ type OrderWorkspacePanelProps = {
   isLookupMode: boolean
   keywordInput: string
   labelCount: number
-  notice: Notice | null
   operationalSummary: typeof emptyOperationalSummary
   orders: AdminOrder[]
   page: number
@@ -66,7 +65,7 @@ type OrderWorkspacePanelProps = {
   onDateFromChange: Dispatch<SetStateAction<string>>
   onDateToChange: Dispatch<SetStateAction<string>>
   onExpireStalePayments: () => void | Promise<void>
-  onExportCsv: () => void | Promise<void>
+  onExportExcel: () => void | Promise<void>
   onKeywordInputChange: Dispatch<SetStateAction<string>>
   onOpenOrder: (order: AdminOrder) => void
   onOpenLabels: () => void
@@ -74,8 +73,7 @@ type OrderWorkspacePanelProps = {
   onPaymentMethodChange: Dispatch<SetStateAction<AdminOrderPaymentMethod | 'all'>>
   onPaymentStatusChange: Dispatch<SetStateAction<AdminOrderPaymentStatus | 'all'>>
   onRefresh: (options?: { quiet?: boolean }) => void | Promise<void>
-  onResetLookupView: () => void
-  onSaveLookupView: () => void
+  onResetLookupFilters: () => void
   onPageSelectionChange: (selected: boolean) => void
   onSelectionChange: (orderId: string, selected: boolean) => void
   onSelectTab: Dispatch<SetStateAction<string>>
@@ -104,7 +102,6 @@ export function OrderWorkspacePanel({
   isLookupMode,
   keywordInput,
   labelCount,
-  notice,
   operationalSummary,
   orders,
   page,
@@ -131,7 +128,7 @@ export function OrderWorkspacePanel({
   onDateFromChange,
   onDateToChange,
   onExpireStalePayments,
-  onExportCsv,
+  onExportExcel,
   onKeywordInputChange,
   onOpenOrder,
   onOpenLabels,
@@ -139,8 +136,7 @@ export function OrderWorkspacePanel({
   onPaymentMethodChange,
   onPaymentStatusChange,
   onRefresh,
-  onResetLookupView,
-  onSaveLookupView,
+  onResetLookupFilters,
   onPageSelectionChange,
   onSelectionChange,
   onSelectTab,
@@ -214,9 +210,8 @@ export function OrderWorkspacePanel({
         onColumnToggle={onColumnToggle}
         onApplyDateRange={onApplyDateRange}
         onClearDateRange={onClearDateRange}
-        onExportCsv={onExportCsv}
-        onResetLookupView={onResetLookupView}
-        onSaveLookupView={onSaveLookupView}
+        onExportExcel={onExportExcel}
+        onResetLookupFilters={onResetLookupFilters}
       />
 
       <OrderBulkToolbar
@@ -236,17 +231,6 @@ export function OrderWorkspacePanel({
         onClearSelection={onClearSelection}
         onOpenLabels={onOpenLabels}
       />
-
-      {notice ? (
-        <div className={`admin-notice admin-order-notice is-${notice.type}`} role="status">
-          <span>{notice.message}</span>
-          {notice.action ? (
-            <button className="admin-link-button" type="button" onClick={notice.action.onClick}>
-              {notice.action.label}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
 
       {errorMessage ? (
         <div className="admin-empty-state" role="alert">

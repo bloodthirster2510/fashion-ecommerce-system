@@ -9,6 +9,7 @@ import {
   isCorsOriginAllowed,
 } from '../security.middleware';
 import { RateLimitBucket } from '../../database/models/rate-limit-bucket.model';
+import * as redisConfig from '../../config/redis';
 
 type MockResponse = Response & {
   setHeader: jest.Mock;
@@ -231,5 +232,43 @@ describe('security middleware', () => {
 
     expect(findOneAndUpdate).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses an atomic Redis counter when the Redis rate-limit store is configured', async () => {
+    const evalCommand = jest.fn().mockResolvedValue([1, 1_000]);
+    jest.spyOn(redisConfig, 'getRedisClient').mockReturnValue({ eval: evalCommand } as never);
+    const limiter = createApiRateLimitMiddleware({
+      RATE_LIMIT_STORE: 'redis',
+      REDIS_ENABLED: 'true',
+      API_RATE_LIMIT_WINDOW_MS: '1000',
+      API_RATE_LIMIT_MAX: '2',
+    });
+    const next: NextFunction = jest.fn();
+
+    await limiter(createMockRequest(), createMockResponse(), next);
+
+    expect(evalCommand).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('INCR'"),
+      expect.objectContaining({ arguments: ['1000'] }),
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 503 when the configured Redis rate-limit store is unavailable', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    jest.spyOn(redisConfig, 'getRedisClient').mockReturnValue(null);
+    const limiter = createApiRateLimitMiddleware({
+      RATE_LIMIT_STORE: 'redis',
+      REDIS_ENABLED: 'true',
+      API_RATE_LIMIT_WINDOW_MS: '1000',
+      API_RATE_LIMIT_MAX: '2',
+    });
+    const response = createMockResponse();
+
+    await limiter(createMockRequest(), response, jest.fn());
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    expect(response.json).toHaveBeenCalledWith({ message: 'Service temporarily unavailable' });
+    expect(consoleError).toHaveBeenCalledWith('Redis rate limiter failed:', 'Redis is unavailable');
   });
 });

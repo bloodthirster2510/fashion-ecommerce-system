@@ -38,6 +38,7 @@ const emptyMetrics = (): RecommendationMetricSnapshot => ({
 
 const emptyAnalytics = (): RecommendationAnalytics => ({
   generatedAt: '2026-08-02T05:00:00.000Z',
+  currentAlgorithmVersion: 'v7_similar_hybrid_cart_association',
   range: {
     from: '2026-07-03T17:00:00.000Z',
     to: '2026-08-02T16:59:59.999Z',
@@ -77,6 +78,7 @@ const emptyAnalytics = (): RecommendationAnalytics => ({
     zeroResultRate: 0,
     averageResultCount: 0,
     topKeywords: [],
+    zeroResultKeywords: [],
     trend: [],
   },
   topProducts: [],

@@ -44,6 +44,7 @@ export interface IOrderShippingAddress {
   ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
   ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
   ghnMappingVerifiedAt?: Date | null;
+  ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
 }
 
 export interface IOrderShipping {
@@ -102,6 +103,8 @@ export interface IOrder extends Document {
   orderCode: string;
   invoiceCode?: string | null;
   invoiceIssuedAt?: Date | null;
+  invoiceEmailSentAt?: Date | null;
+  invoiceEmailSendingAt?: Date | null;
   user_id: Types.ObjectId;
   order_list: IOrderItem[];
   subTotal: number;
@@ -188,6 +191,11 @@ const shippingAddressSchema = new Schema<IOrderShippingAddress>(
       default: null,
     },
     ghnMappingVerifiedAt: { type: Date, default: null },
+    ghnMappingVerificationSource: {
+      type: String,
+      enum: ['admin', 'managed', 'seed'],
+      default: null,
+    },
   },
   { _id: false },
 );
@@ -272,6 +280,8 @@ const orderSchema = new Schema<IOrder>(
     orderCode: { type: String, required: true, trim: true, uppercase: true, maxlength: 40 },
     invoiceCode: { type: String, trim: true, default: null, maxlength: 40 },
     invoiceIssuedAt: { type: Date, default: null },
+    invoiceEmailSentAt: { type: Date, default: null, select: false },
+    invoiceEmailSendingAt: { type: Date, default: null, select: false },
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     order_list: {
       type: [orderItemSchema],

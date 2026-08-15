@@ -12,12 +12,14 @@ import {
   listManagedCategories,
   updateManagedBrand,
   updateManagedCategory,
+  upsertManagedCategoryFitTypeTemplate,
   upsertManagedCategorySizeTemplate,
 } from './catalog.service'
 import type {
   BrandInput,
   CatalogGender,
   CategoryInput,
+  FitTypeTemplateInput,
   ManagedBrand,
   ManagedCategory,
   SizeTemplateInput,
@@ -27,6 +29,7 @@ import {
   BrandStatIcon,
   CategoryEditor,
   CategoryStatIcon,
+  FitTypeTemplateManager,
   SizeTemplateManager,
 } from './components/CatalogEditors'
 import { BrandManagementSection } from './components/BrandManagementSection'
@@ -34,6 +37,7 @@ import { CatalogDeleteConfirmDialog } from './components/CatalogDeleteConfirmDia
 import { CategoryManagementSection } from './components/CategoryManagementSection'
 import { BrandDetailDialog, CategoryDetailDialog } from './components/CatalogDetailDialogs'
 import type { CatalogDeleteMode, CatalogStatusFilter } from './catalogDisplay.helpers'
+import { useToast } from '../../notifications/notification-context'
 import './catalog.css'
 
 type CatalogManagementPageProps = {
@@ -75,6 +79,7 @@ export function CatalogManagementPage({ currentUser }: CatalogManagementPageProp
 }
 
 function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
+  const { showToast } = useToast()
   const [categories, setCategories] = useState<ManagedCategory[]>([])
   const [brands, setBrands] = useState<ManagedBrand[]>([])
   const [categoryKeyword, setCategoryKeyword] = useState('')
@@ -86,6 +91,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   const [categoryPage, setCategoryPage] = useState(1)
   const [editor, setEditor] = useState<EditorState>(null)
   const [isManagingSizes, setIsManagingSizes] = useState(false)
+  const [isManagingFitTypes, setIsManagingFitTypes] = useState(false)
   const [viewingCategory, setViewingCategory] = useState<ManagedCategory | null>(null)
   const [viewingBrand, setViewingBrand] = useState<ManagedBrand | null>(null)
   const [pendingDelete, setPendingDelete] = useState<DeleteState>(null)
@@ -120,21 +126,13 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   }, [loadCatalog])
 
   useEffect(() => {
-    if (notice?.type !== 'success') return
-
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null)
-    }, 4500)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [notice])
+    if (!notice) return
+    showToast(notice.message, notice.type)
+    if (notice.type === 'success') setNotice(null)
+  }, [notice, showToast])
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category._id, category.name])),
-    [categories],
-  )
-  const categoryById = useMemo(
-    () => new Map(categories.map((category) => [category._id, category])),
     [categories],
   )
 
@@ -296,16 +294,37 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
     mutationFn: ({
       categoryId,
       input,
+      sizeGuideImageFile,
     }: {
       categoryId: string
       input: SizeTemplateInput
-    }) => upsertManagedCategorySizeTemplate(categoryId, input),
+      sizeGuideImageFile?: File | null
+    }) => upsertManagedCategorySizeTemplate(categoryId, input, sizeGuideImageFile),
     onMutate: () => {
       setNotice(null)
     },
     onSuccess: async () => {
-      setNotice({ type: 'success', message: 'Bộ size đã được áp dụng cho danh mục và danh mục con.' })
-      setIsManagingSizes(false)
+      setNotice({ type: 'success', message: 'Bộ size đã được lưu. Bạn có thể tiếp tục chỉnh các bộ size khác.' })
+      await loadCatalog()
+    },
+    onError: (error) => {
+      setNotice({ type: 'error', message: getErrorMessage(error) })
+    },
+  })
+
+  const saveFitTypeTemplateMutation = useMutation({
+    mutationFn: ({
+      categoryId,
+      input,
+    }: {
+      categoryId: string
+      input: FitTypeTemplateInput
+    }) => upsertManagedCategoryFitTypeTemplate(categoryId, input),
+    onMutate: () => {
+      setNotice(null)
+    },
+    onSuccess: async () => {
+      setNotice({ type: 'success', message: 'Bộ phom dáng đã được lưu. Bạn có thể tiếp tục chỉnh các bộ khác.' })
       await loadCatalog()
     },
     onError: (error) => {
@@ -336,7 +355,9 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
       } else if (mode === 'permanent') {
         await deleteManagedBrandPermanently(target.item._id)
       } else {
-        await deleteManagedBrand(target.item._id)
+        await deleteManagedBrand(target.item._id, {
+          cascadeProducts: target.item.activeProductCount > 0,
+        })
       }
 
       return { target, mode }
@@ -373,6 +394,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
     saveCategoryMutation.isPending ||
     saveBrandMutation.isPending ||
     saveSizeTemplateMutation.isPending ||
+    saveFitTypeTemplateMutation.isPending ||
     deleteCatalogMutation.isPending
 
   const handleSaveCategory = async (
@@ -394,8 +416,16 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
   const handleSaveSizeTemplate = async (
     categoryId: string,
     input: SizeTemplateInput,
+    sizeGuideImageFile?: File | null,
   ) => {
-    await saveSizeTemplateMutation.mutateAsync({ categoryId, input }).catch(() => undefined)
+    await saveSizeTemplateMutation.mutateAsync({ categoryId, input, sizeGuideImageFile })
+  }
+
+  const handleSaveFitTypeTemplate = async (
+    categoryId: string,
+    input: FitTypeTemplateInput,
+  ) => {
+    await saveFitTypeTemplateMutation.mutateAsync({ categoryId, input })
   }
 
   const handleDelete = async (mode: CatalogDeleteMode = 'soft') => {
@@ -437,22 +467,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
         </div>
       </div>
 
-      {notice ? (
-        <div className="admin-toast-container" aria-live="polite" aria-atomic="true">
-          <div className={`admin-toast is-${notice.type}`}>
-            <span>{notice.message}</span>
-            <button
-              type="button"
-              className="admin-toast-close"
-              onClick={() => setNotice(null)}
-              aria-label="Đóng thông báo"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {loadError ? (
         <div className="admin-empty-state" role="alert">
           <strong>Không tải được catalog</strong>
@@ -465,7 +479,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
         <>
           <CategoryManagementSection
             categories={categories}
-            categoryById={categoryById}
             categoryNameById={categoryNameById}
             pagination={categoryPagination}
             keyword={categoryKeyword}
@@ -481,6 +494,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
             onPageChange={setCategoryPage}
             onAdd={() => setEditor({ type: 'category' })}
             onManageSizes={() => setIsManagingSizes(true)}
+            onManageFitTypes={() => setIsManagingFitTypes(true)}
             onView={setViewingCategory}
             onEdit={(category) => setEditor({ type: 'category', item: category })}
             onDelete={(category) => {
@@ -529,10 +543,19 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
         />
       ) : null}
 
+      {isManagingFitTypes ? (
+        <FitTypeTemplateManager
+          categories={categories}
+          isSaving={isSaving}
+          errorMessage={notice?.type === 'error' ? notice.message : ''}
+          onClose={() => setIsManagingFitTypes(false)}
+          onSave={handleSaveFitTypeTemplate}
+        />
+      ) : null}
+
       {viewingCategory ? (
         <CategoryDetailDialog
           category={viewingCategory}
-          categoryById={categoryById}
           categoryNameById={categoryNameById}
           onClose={() => setViewingCategory(null)}
         />
