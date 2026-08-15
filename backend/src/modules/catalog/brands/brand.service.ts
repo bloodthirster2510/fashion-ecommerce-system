@@ -42,6 +42,8 @@ const normalizeBrandImageUrl = (imageUrl: string) => {
   }
 };
 
+const normalizeStoredImageUrl = (imageUrl?: string | null) => String(imageUrl ?? '').trim();
+
 const createBrand = async (input: CreateBrandInput) => {
   const existingBrand = await findBrandByName(input.name);
 
@@ -75,7 +77,12 @@ const updateBrand = async (id: string, input: UpdateBrandInput) => {
   const updateData: UpdateBrandInput = {};
 
   if (input.name !== undefined) updateData.name = input.name.trim();
-  if (input.image !== undefined) updateData.image = normalizeBrandImageUrl(input.image);
+  if (
+    input.image !== undefined &&
+    normalizeStoredImageUrl(input.image) !== normalizeStoredImageUrl(brand.image)
+  ) {
+    updateData.image = normalizeBrandImageUrl(input.image);
+  }
   if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
   return Brand.findByIdAndUpdate(id, updateData, {
