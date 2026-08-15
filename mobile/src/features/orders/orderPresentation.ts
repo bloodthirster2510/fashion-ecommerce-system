@@ -225,7 +225,7 @@ export const getOrderDisplayState = (order: CustomerOrder): OrderDisplayState =>
   if (order.status === 'delivered') {
     return {
       label: 'Đã giao tới bạn',
-      description: 'Đơn vị vận chuyển đã báo giao thành công. Hãy xác nhận khi bạn đã nhận được hàng; sau 7 ngày hệ thống sẽ tự hoàn tất đơn.',
+      description: 'Đã giao hàng. Hãy xác nhận khi nhận được hàng; đơn sẽ tự hoàn tất sau 7 ngày.',
       deliveryLine: `Đã giao: ${formatDate(order.deliveredAt ?? order.updatedAt)}`,
       icon: 'package-check',
       tone: 'success',
@@ -332,7 +332,7 @@ export const statusMeta: Record<OrderStatus, {
   },
   delivered: {
     label: 'Đã giao tới bạn',
-    description: 'Đơn vị vận chuyển đã báo giao thành công, chờ bạn xác nhận nhận hàng.',
+    description: 'Đã giao hàng, chờ bạn xác nhận.',
     color: colors.success,
     backgroundColor: colors.successSoft,
   },
