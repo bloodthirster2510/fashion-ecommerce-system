@@ -26,42 +26,35 @@ import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/paginati
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHistory'>;
 type LoadMode = 'initial' | 'refresh' | 'more';
 type HistoryFilter = 'all' | VirtualTryOnJob['status'];
-type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 const PAGE_SIZE = 20;
 
 const statusPresentation: Record<VirtualTryOnJob['status'], {
   label: string;
-  icon: IconName;
   color: string;
   backgroundColor: string;
 }> = {
   queued: {
     label: 'Đang chờ',
-    icon: 'clock-outline',
     color: colors.goldText,
     backgroundColor: colors.goldSoft,
   },
   processing: {
     label: 'Đang xử lý',
-    icon: 'creation',
     color: '#6D4DC3',
     backgroundColor: '#F2ECFF',
   },
   succeeded: {
     label: 'Hoàn thành',
-    icon: 'check-circle-outline',
     color: colors.success,
     backgroundColor: colors.successSoft,
   },
   failed: {
     label: 'Bị lỗi',
-    icon: 'alert-circle-outline',
     color: colors.danger,
     backgroundColor: colors.dangerSoft,
   },
   canceled: {
     label: 'Đã hủy',
-    icon: 'close-circle-outline',
     color: colors.textMuted,
     backgroundColor: '#EEF1F4',
   },
@@ -70,16 +63,14 @@ const statusPresentation: Record<VirtualTryOnJob['status'], {
 const historyFilters: Array<{
   key: HistoryFilter;
   label: string;
-  icon: IconName;
   color: string;
 }> = [
-  { key: 'all', label: 'Tất cả', icon: 'view-grid-outline', color: colors.brand },
-  ...Object.entries(statusPresentation).map(([key, presentation]) => ({
-    key: key as VirtualTryOnJob['status'],
-    label: presentation.label,
-    icon: presentation.icon,
-    color: presentation.color,
-  })),
+  { key: 'all', label: 'Tất cả', color: colors.brand },
+  { key: 'succeeded', label: statusPresentation.succeeded.label, color: statusPresentation.succeeded.color },
+  { key: 'processing', label: statusPresentation.processing.label, color: statusPresentation.processing.color },
+  { key: 'queued', label: statusPresentation.queued.label, color: statusPresentation.queued.color },
+  { key: 'failed', label: statusPresentation.failed.label, color: statusPresentation.failed.color },
+  { key: 'canceled', label: statusPresentation.canceled.label, color: statusPresentation.canceled.color },
 ];
 
 const formatDate = (value: string) => {
@@ -210,16 +201,9 @@ const VirtualTryOnHistoryScreen = () => {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isActive }}
               >
-                <View style={styles.tabLabelRow}>
-                  <MaterialCommunityIcons
-                    name={option.icon}
-                    size={17}
-                    color={isActive ? option.color : colors.textMuted}
-                  />
-                  <Text style={[styles.tabLabel, isActive && { color: option.color, fontWeight: '900' }]}>
-                    {option.label}
-                  </Text>
-                </View>
+                <Text style={[styles.tabLabel, isActive && { color: option.color, fontWeight: '900' }]}>
+                  {option.label}
+                </Text>
                 {isActive ? <View style={[styles.tabIndicator, { backgroundColor: option.color }]} /> : null}
               </TouchableOpacity>
             );
@@ -281,7 +265,6 @@ const VirtualTryOnHistoryScreen = () => {
                     </View>
                     <View style={styles.metaRow}>
                       <View style={[styles.badge, { backgroundColor: presentation.backgroundColor }]}>
-                        <MaterialCommunityIcons name={presentation.icon} size={13} color={presentation.color} />
                         <Text style={[styles.badgeText, { color: presentation.color }]}>{presentation.label}</Text>
                       </View>
                       <Text style={styles.date}>{formatDate(job.createdAt)}</Text>
@@ -304,7 +287,7 @@ const VirtualTryOnHistoryScreen = () => {
         ) : (
           <View style={styles.emptyState}>
             <MaterialCommunityIcons
-              name={filter === 'all' ? 'hanger' : statusPresentation[filter].icon}
+              name="hanger"
               size={36}
               color={filter === 'all' ? colors.brand : statusPresentation[filter].color}
             />
@@ -370,11 +353,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tabLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
   },
   tabLabel: {
     color: colors.textBody,
@@ -467,7 +445,6 @@ const styles = StyleSheet.create({
     minHeight: 23,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
