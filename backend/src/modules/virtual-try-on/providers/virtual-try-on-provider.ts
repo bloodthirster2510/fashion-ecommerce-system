@@ -40,6 +40,8 @@ export type VirtualTryOnProviderInput = {
   prompt: string;
   negativePrompt: string;
   model?: string;
+  aspectRatio?: string;
+  resolution?: string;
   seed?: number;
   providerJobId?: string | null;
   onProviderJobSubmitted?: (

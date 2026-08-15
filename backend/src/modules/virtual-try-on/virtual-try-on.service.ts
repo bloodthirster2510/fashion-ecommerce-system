@@ -485,7 +485,14 @@ const notifyVirtualTryOnAccessBestEffort = async (input: {
 const getVideoCapabilities = (settings?: VirtualTryOnRuntimeSettings) => {
   const provider = settings?.videoProvider || DEFAULT_VIDEO_PROVIDER;
   const model = settings?.videoModel || process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
-  const configuration = getVirtualTryOnVideoConfiguration({ provider, model });
+  const configuration = getVirtualTryOnVideoConfiguration({
+    provider,
+    model,
+    durationSeconds: settings?.videoDurationSeconds,
+    resolution: settings?.videoResolution,
+    aspectRatio: settings?.videoAspectRatio,
+    generateAudio: settings?.videoGenerateAudio,
+  });
   const available = ENABLE_VIDEO && provider !== 'disabled' && configuration.ready;
   return {
     enabled: ENABLE_VIDEO,
@@ -501,8 +508,33 @@ const getVideoCapabilities = (settings?: VirtualTryOnRuntimeSettings) => {
     minDurationSeconds: configuration.minDurationSeconds,
     maxDurationSeconds: configuration.maxDurationSeconds,
     resolution: configuration.resolution,
+    aspectRatio: configuration.aspectRatio,
     generateAudio: configuration.generateAudio,
   };
+};
+
+const getStringMetadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : undefined;
+};
+
+const getNumberMetadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = metadata?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};
+
+const getBooleanMetadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = metadata?.[key];
+  return typeof value === 'boolean' ? value : undefined;
 };
 
 const getEffectiveVideoResult = (job: IVirtualTryOnJob) => {
@@ -785,6 +817,10 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
       && job.providerMetadata.model !== 'workflow_default'
       ? job.providerMetadata.model
       : undefined,
+    aspectRatio: getStringMetadataValue(job.providerMetadata, 'imageAspectRatio')
+      || getStringMetadataValue(job.providerMetadata, 'aspectRatio'),
+    resolution: getStringMetadataValue(job.providerMetadata, 'imageResolution')
+      || getStringMetadataValue(job.providerMetadata, 'resolution'),
   };
 };
 
@@ -915,13 +951,19 @@ const runVideoStage = async (
     });
     if (!job) return;
 
+    const videoProviderMetadata = job.videoProviderMetadata || {};
     const videoProvider = job.videoProvider?.trim() || DEFAULT_VIDEO_PROVIDER;
-    const videoModel = typeof job.videoProviderMetadata?.model === 'string'
-      ? job.videoProviderMetadata.model
-      : process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
+    const videoModel = getStringMetadataValue(videoProviderMetadata, 'model')
+      || process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
+    const videoDurationSeconds = job.videoDurationSeconds
+      ?? getNumberMetadataValue(videoProviderMetadata, 'durationSeconds');
     const videoConfiguration = getVirtualTryOnVideoConfiguration({
       provider: videoProvider,
       model: videoModel,
+      durationSeconds: videoDurationSeconds ?? undefined,
+      resolution: getStringMetadataValue(videoProviderMetadata, 'resolution'),
+      aspectRatio: getStringMetadataValue(videoProviderMetadata, 'aspectRatio'),
+      generateAudio: getBooleanMetadataValue(videoProviderMetadata, 'generateAudio'),
     });
     if (!ENABLE_VIDEO) {
       throw new VirtualTryOnVideoProviderError(
@@ -949,10 +991,10 @@ const runVideoStage = async (
 
     const provider = createVirtualTryOnVideoProvider(videoProvider);
     let providerJobId = job.videoProviderJobId || null;
-    let providerMetadata = { ...(job.videoProviderMetadata || {}) };
+    let providerMetadata = { ...videoProviderMetadata };
 
     if (!providerJobId) {
-      const durationSeconds = job.videoDurationSeconds ?? videoConfiguration.durationSeconds;
+      const durationSeconds = videoDurationSeconds ?? videoConfiguration.durationSeconds;
       const videoPrompt = buildVirtualTryOnVideoPrompt({
         preset: job.contextPreset,
         durationSeconds,
@@ -983,6 +1025,7 @@ const runVideoStage = async (
         model: videoConfiguration.model,
         durationSeconds,
         resolution: videoConfiguration.resolution,
+        aspectRatio: videoConfiguration.aspectRatio,
         generateAudio: videoConfiguration.generateAudio,
       });
       providerJobId = submission.providerJobId;
@@ -2074,6 +2117,10 @@ const validateCreateJobInput = (
   const videoConfiguration = getVirtualTryOnVideoConfiguration({
     provider: settings.videoProvider,
     model: settings.videoModel,
+    durationSeconds: settings.videoDurationSeconds,
+    resolution: settings.videoResolution,
+    aspectRatio: settings.videoAspectRatio,
+    generateAudio: settings.videoGenerateAudio,
   });
   const videoDurationSeconds = input.videoDurationSeconds ?? videoConfiguration.durationSeconds;
   if (
@@ -2341,6 +2388,10 @@ const createJob = async (
     videoProviderMetadata: normalized.outputMode === 'image_and_video'
       ? {
         model: runtimeSettings.videoModel,
+        durationSeconds: normalized.videoDurationSeconds,
+        resolution: runtimeSettings.videoResolution,
+        aspectRatio: runtimeSettings.videoAspectRatio,
+        generateAudio: runtimeSettings.videoGenerateAudio,
         settingsVersion: runtimeSettings.version,
       }
       : {},
@@ -2349,6 +2400,8 @@ const createJob = async (
     providerMetadata: {
       sourceImageProfile: buildSourceImageProfile(sourceImageValidationResult),
       model: runtimeSettings.imageModel,
+      imageAspectRatio: runtimeSettings.imageAspectRatio,
+      imageResolution: runtimeSettings.imageResolution,
       settingsVersion: runtimeSettings.version,
     },
   });
@@ -2483,6 +2536,8 @@ const retryJob = async (userId: string, jobId: string) => {
   job.providerMetadata = {
     sourceImageProfile: job.providerMetadata?.sourceImageProfile,
     model: runtimeSettings.imageModel,
+    imageAspectRatio: runtimeSettings.imageAspectRatio,
+    imageResolution: runtimeSettings.imageResolution,
     settingsVersion: runtimeSettings.version,
   };
   job.videoProvider = job.outputMode === 'image_and_video'
@@ -2490,7 +2545,14 @@ const retryJob = async (userId: string, jobId: string) => {
     : null;
   job.videoProviderJobId = null;
   job.videoProviderMetadata = job.outputMode === 'image_and_video'
-    ? { model: runtimeSettings.videoModel, settingsVersion: runtimeSettings.version }
+    ? {
+      model: runtimeSettings.videoModel,
+      durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
+      resolution: runtimeSettings.videoResolution,
+      aspectRatio: runtimeSettings.videoAspectRatio,
+      generateAudio: runtimeSettings.videoGenerateAudio,
+      settingsVersion: runtimeSettings.version,
+    }
     : {};
   job.videoErrorCode = null;
   job.videoErrorMessage = null;
@@ -2569,6 +2631,10 @@ const retryVideoJobForFilter = async (
   job.videoProviderJobId = null;
   job.videoProviderMetadata = {
     model: runtimeSettings.videoModel,
+    durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
+    resolution: runtimeSettings.videoResolution,
+    aspectRatio: runtimeSettings.videoAspectRatio,
+    generateAudio: runtimeSettings.videoGenerateAudio,
     settingsVersion: runtimeSettings.version,
   };
   job.videoErrorCode = null;
@@ -2955,10 +3021,8 @@ const getAdminSettings = async () => {
       enabled: imageEnabled,
       provider: runtimeSettings.imageProvider,
       model: runtimeSettings.imageModel,
-      aspectRatio: process.env.VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO?.trim() || '3:4',
-      resolution: runtimeSettings.imageProvider === 'mock'
-        ? '1440×1920'
-        : process.env.VIRTUAL_TRY_ON_COMFY_RESOLUTION?.trim() || '2K',
+      aspectRatio: runtimeSettings.imageAspectRatio,
+      resolution: runtimeSettings.imageResolution,
       outputCount: 4,
     },
     videoEnabled: video.available,
@@ -3028,6 +3092,8 @@ const retryAdminJob = async (jobId: string) => {
   job.providerMetadata = {
     sourceImageProfile: job.providerMetadata?.sourceImageProfile,
     model: runtimeSettings.imageModel,
+    imageAspectRatio: runtimeSettings.imageAspectRatio,
+    imageResolution: runtimeSettings.imageResolution,
     settingsVersion: runtimeSettings.version,
   };
   job.videoProvider = job.outputMode === 'image_and_video'
@@ -3035,7 +3101,14 @@ const retryAdminJob = async (jobId: string) => {
     : null;
   job.videoProviderJobId = null;
   job.videoProviderMetadata = job.outputMode === 'image_and_video'
-    ? { model: runtimeSettings.videoModel, settingsVersion: runtimeSettings.version }
+    ? {
+      model: runtimeSettings.videoModel,
+      durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
+      resolution: runtimeSettings.videoResolution,
+      aspectRatio: runtimeSettings.videoAspectRatio,
+      generateAudio: runtimeSettings.videoGenerateAudio,
+      settingsVersion: runtimeSettings.version,
+    }
     : {};
   job.videoErrorCode = null;
   job.videoErrorMessage = null;

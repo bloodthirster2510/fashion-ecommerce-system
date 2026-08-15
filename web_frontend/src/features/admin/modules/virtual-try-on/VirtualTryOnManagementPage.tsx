@@ -328,8 +328,14 @@ const toSettingsConfiguration = (
   runtimeEnabled: settings.runtimeEnabled,
   imageProvider: settings.image.provider as AdminVirtualTryOnSettingsConfiguration['imageProvider'],
   imageModel: settings.image.model,
+  imageAspectRatio: settings.image.aspectRatio,
+  imageResolution: settings.image.resolution,
   videoProvider: settings.video.provider as AdminVirtualTryOnSettingsConfiguration['videoProvider'],
   videoModel: settings.video.model,
+  videoDurationSeconds: settings.video.durationSeconds,
+  videoResolution: settings.video.resolution,
+  videoAspectRatio: settings.video.aspectRatio,
+  videoGenerateAudio: settings.video.generateAudio,
   maxConcurrentJobsPerUser: settings.maxConcurrentJobsPerUser,
   maxVideoJobsPerUserPerDay: settings.maxVideoJobsPerUserPerDay,
   maxConcurrentVideoJobsPerUser: settings.maxConcurrentVideoJobsPerUser,
@@ -1104,7 +1110,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                     <dt>Đầu ra video</dt>
                     <dd>
                       {settings
-                        ? `Mặc định ${settings.video.durationSeconds} giây · ${settings.video.minDurationSeconds}–${settings.video.maxDurationSeconds} giây · ${settings.video.resolution}`
+                        ? `Mặc định ${settings.video.durationSeconds} giây · ${settings.video.minDurationSeconds}–${settings.video.maxDurationSeconds} giây · ${settings.video.resolution} · ${settings.video.aspectRatio} · ${settings.video.generateAudio ? 'có âm thanh' : 'không âm thanh'}`
                         : '-'}
                     </dd>
                   </div>
@@ -1231,6 +1237,34 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           ? { ...current, imageModel }
                           : current)}
                       />
+                      <label>
+                        <span>Tỷ lệ ảnh</span>
+                        <select
+                          value={settingsDraft.imageAspectRatio}
+                          disabled={settingsDraft.imageProvider !== 'comfy'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, imageAspectRatio: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.imageAspectRatios.map((aspectRatio) => (
+                            <option key={aspectRatio} value={aspectRatio}>{aspectRatio}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Độ phân giải ảnh</span>
+                        <select
+                          value={settingsDraft.imageResolution}
+                          disabled={settingsDraft.imageProvider !== 'comfy'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, imageResolution: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.imageResolutions.map((resolution) => (
+                            <option key={resolution} value={resolution}>{resolution}</option>
+                          ))}
+                        </select>
+                      </label>
                     </fieldset>
 
                     <fieldset>
@@ -1267,6 +1301,59 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           ? { ...current, videoModel }
                           : current)}
                       />
+                      <label>
+                        <span>Thời lượng mặc định</span>
+                        <input
+                          type="number"
+                          min={settings.video.minDurationSeconds}
+                          max={settings.video.maxDurationSeconds}
+                          required
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          value={settingsDraft.videoDurationSeconds}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoDurationSeconds: Number(event.target.value) }
+                            : current)}
+                        />
+                      </label>
+                      <label>
+                        <span>Độ phân giải video</span>
+                        <select
+                          value={settingsDraft.videoResolution}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoResolution: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.videoResolutions.map((resolution) => (
+                            <option key={resolution} value={resolution}>{resolution}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Tỷ lệ video</span>
+                        <select
+                          value={settingsDraft.videoAspectRatio}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoAspectRatio: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.videoAspectRatios.map((aspectRatio) => (
+                            <option key={aspectRatio} value={aspectRatio}>{aspectRatio}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="admin-vto-inline-check">
+                        <input
+                          type="checkbox"
+                          checked={settingsDraft.videoGenerateAudio}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoGenerateAudio: event.target.checked }
+                            : current)}
+                        />
+                        <span>Tạo âm thanh</span>
+                      </label>
                     </fieldset>
                   </div>
                   <p>Dịch vụ AI được giới hạn theo các tích hợp hiện có. Tên mô hình phải tồn tại trong quy trình ComfyUI tương ứng.</p>

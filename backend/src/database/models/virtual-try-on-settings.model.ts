@@ -4,8 +4,14 @@ export interface IVirtualTryOnRuntimeConfiguration {
   enabled: boolean;
   imageProvider: 'mock' | 'comfy' | 'disabled';
   imageModel: string;
+  imageAspectRatio: string;
+  imageResolution: string;
   videoProvider: 'mock' | 'comfy_kling' | 'disabled';
   videoModel: string;
+  videoDurationSeconds: number;
+  videoResolution: string;
+  videoAspectRatio: string;
+  videoGenerateAudio: boolean;
   maxConcurrentJobsPerUser: number;
   maxVideoJobsPerUserPerDay: number;
   maxConcurrentVideoJobsPerUser: number;
@@ -38,6 +44,18 @@ const runtimeConfigurationFields = {
     default: 'mock',
   },
   imageModel: { type: String, required: true, trim: true, maxlength: 120, default: 'mock' },
+  imageAspectRatio: {
+    type: String,
+    enum: ['1:1', '3:4', '4:3', '9:16', '16:9'],
+    required: true,
+    default: '3:4',
+  },
+  imageResolution: {
+    type: String,
+    enum: ['1K', '2K'],
+    required: true,
+    default: '2K',
+  },
   videoProvider: {
     type: String,
     enum: ['mock', 'comfy_kling', 'disabled'],
@@ -51,6 +69,20 @@ const runtimeConfigurationFields = {
     maxlength: 120,
     default: 'kling-v3-omni',
   },
+  videoDurationSeconds: { type: Number, required: true, min: 5, max: 12, default: 5 },
+  videoResolution: {
+    type: String,
+    enum: ['720p', '1080p'],
+    required: true,
+    default: '720p',
+  },
+  videoAspectRatio: {
+    type: String,
+    enum: ['1:1', '9:16', '16:9'],
+    required: true,
+    default: '9:16',
+  },
+  videoGenerateAudio: { type: Boolean, required: true, default: false },
   maxConcurrentJobsPerUser: { type: Number, required: true, min: 1, max: 10 },
   maxVideoJobsPerUserPerDay: { type: Number, required: true, min: 1, max: 50 },
   maxConcurrentVideoJobsPerUser: { type: Number, required: true, min: 1, max: 5 },

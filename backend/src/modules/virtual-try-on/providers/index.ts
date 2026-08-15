@@ -124,6 +124,10 @@ const VIDEO_DURATION_DEFAULT_SECONDS = 5;
 export const getVirtualTryOnVideoConfiguration = (override?: {
   provider?: string;
   model?: string;
+  durationSeconds?: number;
+  resolution?: string;
+  aspectRatio?: string;
+  generateAudio?: boolean;
 }) => {
   const provider = override?.provider?.trim()
     || process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim()
@@ -151,10 +155,8 @@ export const getVirtualTryOnVideoConfiguration = (override?: {
     issues.push('VIDEO_PROVIDER_NOT_CONFIGURED');
   }
 
-  const configuredDurationValue = process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS?.trim();
-  const configuredDurationSeconds = configuredDurationValue
-    ? Number(configuredDurationValue)
-    : Number.NaN;
+  const configuredDurationSeconds = override?.durationSeconds
+    ?? Number(process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS);
   const durationSeconds = Number.isFinite(configuredDurationSeconds)
     ? Math.min(
         VIDEO_DURATION_MAX_SECONDS,
@@ -171,7 +173,13 @@ export const getVirtualTryOnVideoConfiguration = (override?: {
     durationSeconds,
     minDurationSeconds: VIDEO_DURATION_MIN_SECONDS,
     maxDurationSeconds: VIDEO_DURATION_MAX_SECONDS,
-    resolution: process.env.VIRTUAL_TRY_ON_VIDEO_RESOLUTION?.trim() || '720p',
-    generateAudio: process.env.VIRTUAL_TRY_ON_VIDEO_GENERATE_AUDIO === 'true',
+    resolution: override?.resolution?.trim()
+      || process.env.VIRTUAL_TRY_ON_VIDEO_RESOLUTION?.trim()
+      || '720p',
+    aspectRatio: override?.aspectRatio?.trim()
+      || process.env.VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO?.trim()
+      || '9:16',
+    generateAudio: override?.generateAudio
+      ?? process.env.VIRTUAL_TRY_ON_VIDEO_GENERATE_AUDIO === 'true',
   };
 };

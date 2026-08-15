@@ -113,7 +113,7 @@ const applyVideoWorkflowInputs = async (
     workflow,
     workflowMap,
     'resolution',
-    getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_RESOLUTION') || input.resolution,
+    input.resolution,
   );
   setComfyMappedInput(workflow, workflowMap, 'generateAudio', input.generateAudio);
 
@@ -131,16 +131,13 @@ const applyVideoWorkflowInputs = async (
     );
   }
 
-  const optionalInputs: Array<[string, string]> = [
-    ['aspectRatio', 'VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO'],
-    ['mode', 'VIRTUAL_TRY_ON_VIDEO_MODE'],
-  ];
-  optionalInputs.forEach(([mapKey, envKey]) => {
-    const value = getOptionalComfyEnvValue(envKey);
-    if (value) setComfyMappedInput(workflow, workflowMap, mapKey, value);
-  });
+  const configuredAspectRatio = input.aspectRatio?.trim()
+    || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO');
+  if (configuredAspectRatio) setComfyMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
+  const configuredMode = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODE');
+  if (configuredMode) setComfyMappedInput(workflow, workflowMap, 'mode', configuredMode);
 
-  return { client, sourceFileName, promptMapping };
+  return { client, sourceFileName, promptMapping, aspectRatio: configuredAspectRatio };
 };
 
 export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvider => ({
@@ -160,7 +157,8 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
       }
 
       const workflow = cloneComfyJson(workflowTemplate);
-      const { client, sourceFileName, promptMapping } = await applyVideoWorkflowInputs(workflow, workflowMap, input);
+      const { client, sourceFileName, promptMapping, aspectRatio } =
+        await applyVideoWorkflowInputs(workflow, workflowMap, input);
       const providerJobId = await submitComfyPrompt(client, workflow);
 
       return {
@@ -171,6 +169,7 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
           model: input.model?.trim() || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODEL'),
           durationSeconds: input.durationSeconds,
           resolution: input.resolution,
+          aspectRatio,
           generateAudio: input.generateAudio,
           promptInputKey: promptMapping.positivePromptKey,
           negativePromptMapped: promptMapping.negativePromptMapped,

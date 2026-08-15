@@ -112,6 +112,10 @@ export type AdminVirtualTryOnSettings = {
     videoProviders: Array<'comfy_kling' | 'mock' | 'disabled'>
     imageModels: string[]
     videoModels: string[]
+    imageAspectRatios: string[]
+    imageResolutions: string[]
+    videoAspectRatios: string[]
+    videoResolutions: string[]
   }
   secretStatus: {
     providerApiKeyConfigured: boolean
@@ -148,6 +152,7 @@ export type AdminVirtualTryOnSettings = {
     minDurationSeconds: number
     maxDurationSeconds: number
     resolution: string
+    aspectRatio: string
     generateAudio: boolean
   }
   maxSelectedItems: number
@@ -170,8 +175,14 @@ export type AdminVirtualTryOnSettingsConfiguration = Pick<
 > & {
   imageProvider: 'comfy' | 'mock' | 'disabled'
   imageModel: string
+  imageAspectRatio: string
+  imageResolution: string
   videoProvider: 'comfy_kling' | 'mock' | 'disabled'
   videoModel: string
+  videoDurationSeconds: number
+  videoResolution: string
+  videoAspectRatio: string
+  videoGenerateAudio: boolean
 }
 
 export type AdminVirtualTryOnPromptTestResult = {

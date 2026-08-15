@@ -287,6 +287,9 @@
 .admin-vto-model-grid select:focus { border-color: var(--admin-accent); box-shadow: 0 0 0 3px rgba(95,134,162,.12); }
 .admin-vto-model-grid input:disabled,
 .admin-vto-model-grid select:disabled { color: #81909d; background: #f1f4f6; cursor: not-allowed; }
+.admin-vto-model-grid .admin-vto-inline-check { display: flex; align-items: center; align-self: end; gap: 8px; min-height: 36px; }
+.admin-vto-model-grid .admin-vto-inline-check input { width: 16px; height: 16px; padding: 0; accent-color: var(--admin-accent); }
+.admin-vto-model-grid .admin-vto-inline-check span { color: #5f6f80; font-size: 10px; font-weight: 850; }
 .admin-vto-model-settings > p { margin: 0; }
 .admin-vto-settings-fields { display: grid; grid-template-columns: repeat(5,minmax(120px,1fr)); gap: 8px; }
 .admin-vto-settings-fields label { display: grid; gap: 5px; }
