@@ -1,8 +1,36 @@
 import { requestCustomer } from '../../services/customerHttp'
-import type { CustomerOrder, CustomerOrderListResponse, PaymentStatusResult } from './order.types'
+import type {
+  CustomerOrder,
+  CustomerOrderListResponse,
+  OrderPaymentMethod,
+  OrderPaymentStatus,
+  OrderStatus,
+  PaymentStatusResult,
+} from './order.types'
+
+export type CustomerOrderListQuery = {
+  page?: number
+  limit?: number
+  statuses?: OrderStatus[]
+  paymentMethod?: OrderPaymentMethod
+  paymentStatuses?: OrderPaymentStatus[]
+}
+
+const buildOrderListQuery = (query: CustomerOrderListQuery = {}) => {
+  const params = new URLSearchParams()
+  if (query.page) params.set('page', String(query.page))
+  if (query.limit) params.set('limit', String(query.limit))
+  if (query.statuses?.length) params.set('statuses', query.statuses.join(','))
+  if (query.paymentMethod) params.set('paymentMethod', query.paymentMethod)
+  if (query.paymentStatuses?.length) params.set('paymentStatuses', query.paymentStatuses.join(','))
+  return params.toString()
+}
 
 export const orderService = {
-  getMine: () => requestCustomer<CustomerOrderListResponse>('/orders/me?limit=20'),
+  getMine: (query: CustomerOrderListQuery = {}) => {
+    const queryString = buildOrderListQuery(query)
+    return requestCustomer<CustomerOrderListResponse>(`/orders/me${queryString ? `?${queryString}` : ''}`)
+  },
   getById: (orderId: string) => requestCustomer<CustomerOrder>(`/orders/${orderId}`),
   getPaymentStatus: (orderId: string) =>
     requestCustomer<PaymentStatusResult>(`/payments/orders/${orderId}/status`),

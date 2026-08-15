@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Avatar, Button, Empty, Image, Input, Pagination, Rate, Select, Spin, message } from 'antd'
 import { CheckCircleFilled, ExclamationCircleFilled, SendOutlined, UserOutlined } from '@ant-design/icons'
 import { useAppSelector } from '../../../app/hooks'
@@ -18,6 +18,9 @@ type ProductReviewsProps = {
 }
 
 const PAGE_SIZE = 5
+const MAX_REVIEW_IMAGES = 5
+const MAX_REVIEW_IMAGE_SIZE = 5 * 1024 * 1024
+const MAX_REVIEW_IMAGE_TOTAL_SIZE = 20 * 1024 * 1024
 
 const emptyReviewData: ProductReviewResponse = {
   items: [],
@@ -77,6 +80,17 @@ const formatPurchasedVariant = (
   ].filter(Boolean).join(' / ')
 }
 
+const getEligibilityFromItem = (item: EligibleReviewItem): ReviewEligibility => ({
+  orderId: item.orderId,
+  orderItemId: item.orderItemId,
+  canReview: item.canReview,
+  hasPurchased: true,
+  hasReviewed: Boolean(item.review),
+  reviewId: item.review?._id ?? null,
+  reviewStatus: item.review?.status ?? null,
+  moderationReasons: item.review?.moderationReasons ?? [],
+})
+
 export function ProductReviews({ productId, variants }: ProductReviewsProps) {
   const currentUser = useAppSelector((state) => state.auth.currentUser)
   const [reviewData, setReviewData] = useState<ProductReviewResponse>(emptyReviewData)
@@ -113,7 +127,16 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
     void loadReviews()
   }, [loadReviews])
 
-  useEffect(() => {
+  const resetReviewForm = useCallback(() => {
+    setComment('')
+    setFormRating(5)
+    setProductQuality(5)
+    setDescriptionMatch(5)
+    setSizeFit('true_to_size')
+    setImageFiles([])
+  }, [])
+
+  const loadEligibleItems = useCallback(async (preferredOrderItemId?: string | null) => {
     if (!currentUser || currentUser.role !== 'user') {
       setEligibility(null)
       setEligibleItems([])
@@ -121,38 +144,44 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
     }
 
     // Eligibility là dữ liệu riêng của user hiện tại nên gọi bằng requestCustomer có token.
-    reviewService
-      .listEligibleItems(productId)
-      .then((result) => {
-        setEligibleItems(result.items)
-        const eligibleItem = result.items.find((item) => item.canReview)
-        const reviewedItem = result.items.find((item) => item.review)
-        // Ưu tiên item được chỉ định qua query (?compose=1&orderItemId=...) khi đến từ trang đơn hàng.
-        const composeRequested = new URLSearchParams(window.location.search).get('compose') === '1'
-        const requestedOrderItemId = new URLSearchParams(window.location.search).get('orderItemId')
-        const matchedItem = composeRequested && requestedOrderItemId
-          ? result.items.find((item) => item.orderItemId === requestedOrderItemId) ?? null
-          : null
-        const selectedItem = matchedItem ?? eligibleItem ?? reviewedItem ?? result.items[0]
-        if (!selectedItem) {
-          setEligibility(null)
-          setSelectedOrderItemId('')
-          return
-        }
-        setSelectedOrderItemId(selectedItem.orderItemId)
-        setEligibility({
-          orderId: selectedItem.orderId,
-          orderItemId: selectedItem.orderItemId,
-          canReview: Boolean(matchedItem ?? eligibleItem),
-          hasPurchased: true,
-          hasReviewed: Boolean(reviewedItem),
-          reviewId: reviewedItem?.review?._id ?? null,
-          reviewStatus: reviewedItem?.review?.status ?? null,
-          moderationReasons: reviewedItem?.review?.moderationReasons ?? [],
-        })
-      })
-      .catch(() => setEligibility(null))
+    try {
+      const result = await reviewService.listEligibleItems(productId)
+      setEligibleItems(result.items)
+
+      // Ưu tiên item được chỉ định qua query (?compose=1&orderItemId=...) khi đến từ trang đơn hàng.
+      const composeRequested = new URLSearchParams(window.location.search).get('compose') === '1'
+      const requestedOrderItemId = new URLSearchParams(window.location.search).get('orderItemId')
+      const queryMatchedItem = composeRequested && requestedOrderItemId
+        ? result.items.find((item) => item.orderItemId === requestedOrderItemId) ?? null
+        : null
+      const preferredItem = preferredOrderItemId
+        ? result.items.find((item) => item.orderItemId === preferredOrderItemId) ?? null
+        : null
+      const nextReviewableItem = result.items.find((item) => item.canReview) ?? null
+      const selectedItem =
+        (preferredItem?.canReview ? preferredItem : null) ??
+        (queryMatchedItem?.canReview ? queryMatchedItem : null) ??
+        nextReviewableItem ??
+        preferredItem ??
+        queryMatchedItem ??
+        result.items[0]
+
+      if (!selectedItem) {
+        setEligibility(null)
+        setSelectedOrderItemId('')
+        return
+      }
+
+      setSelectedOrderItemId(selectedItem.orderItemId)
+      setEligibility(getEligibilityFromItem(selectedItem))
+    } catch {
+      setEligibility(null)
+    }
   }, [currentUser, productId])
+
+  useEffect(() => {
+    void loadEligibleItems()
+  }, [loadEligibleItems])
 
   const reviewableItems = eligibleItems.filter((item) => item.canReview)
   const imagePreviews = useMemo(
@@ -169,22 +198,8 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
     if (!item) return
     setSelectedOrderItemId(orderItemId)
     // Đổi lần mua sẽ reset nội dung đang viết dở để tránh gửi nhầm cho dòng hàng khác.
-    setComment('')
-    setFormRating(5)
-    setProductQuality(5)
-    setDescriptionMatch(5)
-    setSizeFit('true_to_size')
-    setImageFiles([])
-    setEligibility({
-      orderId: item.orderId,
-      orderItemId: item.orderItemId,
-      canReview: item.canReview,
-      hasPurchased: true,
-      hasReviewed: Boolean(item.review),
-      reviewId: item.review?._id ?? null,
-      reviewStatus: item.review?.status ?? null,
-      moderationReasons: item.review?.moderationReasons ?? [],
-    })
+    resetReviewForm()
+    setEligibility(getEligibilityFromItem(item))
   }
 
   const distribution = useMemo(() => {
@@ -220,6 +235,38 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
     setPage(1)
   }
 
+  const handleImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files ?? [])
+    event.target.value = ''
+
+    if (!selectedFiles.length) return
+
+    const remainingSlots = MAX_REVIEW_IMAGES - imageFiles.length
+    if (remainingSlots <= 0) {
+      message.warning(`Bạn chỉ có thể tải tối đa ${MAX_REVIEW_IMAGES} ảnh.`)
+      return
+    }
+
+    const acceptedFiles = selectedFiles.slice(0, remainingSlots)
+    if (selectedFiles.length > remainingSlots) {
+      message.warning(`Chỉ thêm được ${remainingSlots} ảnh nữa cho đánh giá này.`)
+    }
+
+    const oversizedFile = acceptedFiles.find((file) => file.size > MAX_REVIEW_IMAGE_SIZE)
+    if (oversizedFile) {
+      message.warning(`${oversizedFile.name} vượt quá 5MB.`)
+      return
+    }
+
+    const nextTotalSize = [...imageFiles, ...acceptedFiles].reduce((total, file) => total + file.size, 0)
+    if (nextTotalSize > MAX_REVIEW_IMAGE_TOTAL_SIZE) {
+      message.warning('Tổng dung lượng ảnh không được vượt quá 20MB.')
+      return
+    }
+
+    setImageFiles((current) => [...current, ...acceptedFiles])
+  }
+
   const handleSubmit = async () => {
     if (comment.trim().length < 10) {
       message.warning('Nội dung đánh giá cần có ít nhất 10 ký tự.')
@@ -242,26 +289,13 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
       message.success(createdReview.moderationStatus === 'pending'
         ? 'Đánh giá đã được gửi và đang chờ kiểm duyệt.'
         : 'Cảm ơn bạn đã đánh giá sản phẩm!')
-      setComment('')
-      setFormRating(5)
-      setProductQuality(5)
-      setDescriptionMatch(5)
-      setSizeFit('true_to_size')
-      setImageFiles([])
+      resetReviewForm()
       setPage(1)
       setSelectedRating(undefined)
-      // Cập nhật eligibility cục bộ ngay để form biến mất, rồi load lại danh sách review.
-      setEligibility((current) =>
-        current ? {
-          ...current,
-          canReview: false,
-          hasReviewed: true,
-          reviewId: createdReview._id,
-          reviewStatus: createdReview.moderationStatus ?? 'visible',
-          moderationReasons: createdReview.moderationReasons ?? [],
-        } : current,
-      )
-      await loadReviews()
+      await Promise.all([
+        loadReviews(),
+        loadEligibleItems(),
+      ])
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'Không thể gửi đánh giá.')
     } finally {
@@ -314,9 +348,11 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
         </div>
 
         <div className="review-promise">
-          <strong>Đánh giá sản phẩm từ người mua</strong>
+          <strong>Quy tắc đánh giá</strong>
           <p><CheckCircleFilled /> Chỉ khách đã nhận và thanh toán đơn hàng mới có thể đánh giá.</p>
-          <p><CheckCircleFilled /> Mỗi đánh giá đều được xác minh từ đơn mua thực tế.</p>
+          <p><CheckCircleFilled /> Nội dung nên nói về chất lượng, kích thước và trải nghiệm thực tế.</p>
+          <p><CheckCircleFilled /> Có thể tải tối đa 5 ảnh, mỗi ảnh không quá 5MB.</p>
+          <p><CheckCircleFilled /> Đánh giá vi phạm hoặc sai sản phẩm có thể bị ẩn sau kiểm duyệt.</p>
         </div>
       </div>
 
@@ -339,9 +375,12 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
 
       {eligibility?.canReview && (
         <div className="review-compose">
-          <div>
-            <strong>Chia sẻ trải nghiệm của bạn</strong>
-            <span>Sản phẩm này đã được giao đến bạn.</span>
+          <div className="review-compose-header">
+            <div className="review-compose-title">
+              <strong>Chia sẻ trải nghiệm của bạn</strong>
+              <span>Sản phẩm này đã được giao đến bạn.</span>
+            </div>
+            <Rate value={formRating} onChange={setFormRating} />
           </div>
           {reviewableItems.length > 1 && (
             <label className="review-compose-field">
@@ -356,7 +395,6 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
               />
             </label>
           )}
-          <Rate value={formRating} onChange={setFormRating} />
           <div className="review-criteria-grid">
             <label><span>Chất lượng sản phẩm</span><Rate value={productQuality} onChange={setProductQuality} /></label>
             <label><span>Đúng với mô tả</span><Rate value={descriptionMatch} onChange={setDescriptionMatch} /></label>
@@ -366,53 +404,82 @@ export function ProductReviews({ productId, variants }: ProductReviewsProps) {
               { value: 'large', label: 'Lớn hơn dự kiến' },
             ]} /></label>
           </div>
-          <Input.TextArea
-            value={comment}
-            maxLength={2000}
-            showCount
-            autoSize={{ minRows: 3, maxRows: 6 }}
-            placeholder="Sản phẩm có đúng mô tả không? Chất liệu, kiểu dáng và trải nghiệm sử dụng thế nào?"
-            onChange={(event) => setComment(event.target.value)}
-          />
-          <label className="review-image-picker">
-            <span>Ảnh thực tế (tối đa 5 ảnh, 5MB/ảnh)</span>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []).slice(0, 5)
-                const invalid = files.find((file) => file.size > 5 * 1024 * 1024)
-                if (invalid) {
-                  message.warning(`${invalid.name} vượt quá 5MB.`)
-                  event.target.value = ''
-                  return
-                }
-                if (files.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) {
-                  message.warning('Tổng dung lượng ảnh không được vượt quá 20MB.')
-                  event.target.value = ''
-                  return
-                }
-                setImageFiles(files)
-              }}
-            />
-          </label>
-          {imagePreviews.length > 0 && <div className="review-image-previews">{imagePreviews.map(({ file, url }) => (
-            <span key={`${file.name}-${file.lastModified}`}><img src={url} alt={file.name} /><button type="button" onClick={() => setImageFiles((files) => files.filter((item) => item !== file))}>×</button></span>
-          ))}</div>}
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            loading={isSubmitting}
-            onClick={() => void handleSubmit()}
-          >
-            Gửi đánh giá
-          </Button>
+          <div className="review-compose-body">
+            <label className="review-comment-field">
+              <span>Nội dung đánh giá</span>
+              <Input.TextArea
+                value={comment}
+                maxLength={2000}
+                showCount
+                autoSize={false}
+                placeholder="Sản phẩm có đúng mô tả không? Chất liệu, kiểu dáng và trải nghiệm sử dụng thế nào?"
+                onChange={(event) => setComment(event.target.value)}
+              />
+            </label>
+            <div className="review-image-picker">
+              <span>Ảnh thực tế ({imageFiles.length}/{MAX_REVIEW_IMAGES})</span>
+              <small>Chọn một hoặc nhiều ảnh, có thể thêm nhiều lần cho đủ 5 ảnh.</small>
+              <div className="review-image-content">
+                <div className="review-image-slots" aria-label="Ảnh đánh giá">
+                  {Array.from({ length: MAX_REVIEW_IMAGES }, (_, index) => {
+                    const preview = imagePreviews[index]
+
+                    return (
+                      <label
+                        className={preview ? 'review-image-slot is-filled' : 'review-image-slot'}
+                        key={preview ? `${preview.file.name}-${preview.file.lastModified}-${index}` : `empty-${index}`}
+                        aria-label={preview ? `Ảnh ${index + 1}: ${preview.file.name}` : `Thêm ảnh ${index + 1}`}
+                      >
+                        {preview ? (
+                          <>
+                            <img src={preview.url} alt={preview.file.name} />
+                            <button
+                              type="button"
+                              aria-label={`Xóa ảnh ${preview.file.name}`}
+                              onClick={(event) => {
+                                event.preventDefault()
+                                setImageFiles((files) => files.filter((_, fileIndex) => fileIndex !== index))
+                              }}
+                            >
+                              ×
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span aria-hidden="true">+</span>
+                            <small>Thêm ảnh</small>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              multiple
+                              onChange={handleImageInputChange}
+                            />
+                          </>
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+                <div className="review-image-picker-footer">
+                  <div className="review-compose-actions">
+                    <Button
+                      type="primary"
+                      icon={<SendOutlined />}
+                      loading={isSubmitting}
+                      onClick={() => void handleSubmit()}
+                    >
+                      Gửi đánh giá
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {currentUser && eligibility?.hasReviewed && (
-        <p className="review-status-note"><CheckCircleFilled /> Bạn đã đánh giá sản phẩm này.</p>
+      {currentUser && eligibility?.hasReviewed && !eligibility.canReview && (
+        <p className="review-status-note"><CheckCircleFilled /> Bạn đã đánh giá lần mua này.</p>
       )}
 
       <div className="review-filters" aria-label="Lọc đánh giá">

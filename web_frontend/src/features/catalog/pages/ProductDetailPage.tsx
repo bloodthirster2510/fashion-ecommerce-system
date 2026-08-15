@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Empty, Spin, message } from 'antd'
+import { Alert, Button, Empty, Modal, Spin, message } from 'antd'
 import {
   CarOutlined,
+  HeartFilled,
   HeartOutlined,
   LeftOutlined,
   MinusOutlined,
@@ -14,6 +15,7 @@ import { useAppDispatch, useAppSelector } from '../../../app/hooks'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { formatPrice } from '../../../utils/formatPrice'
 import { setCart } from '../../cart/cart.slice'
+import { recordInteractionBestEffort } from '../../recommendation/interaction.service'
 import { catalogService } from '../catalog.service'
 import { customerProductActionsService } from '../customerProductActions.service'
 import { ProductReviews } from '../reviews/ProductReviews'
@@ -21,14 +23,24 @@ import type { ProductColorVariant, ProductDetail, ProductVariant } from '../cata
 import '../catalog.css'
 
 const getProductIdFromPath = () => window.location.pathname.split('/').filter(Boolean)[1] || ''
+const getRecommendationRequestIdFromSearch = () => {
+  const requestId = new URLSearchParams(window.location.search).get('recommendationRequestId')?.trim()
+  return requestId && requestId.length <= 120 ? requestId : undefined
+}
 
 const getFinalPrice = (variant?: ProductVariant) => {
   return variant?.finalPrice ?? 0
 }
 
 const getUniqueImages = (product: ProductDetail) => {
-  const images = [product.productImage, ...product.gallery]
+  const colorImages = product.variants.flatMap((variant) => variant.colors.map((color) => color.image))
+  const images = [product.productImage, ...product.gallery, ...colorImages]
   return images.filter((image, index) => Boolean(image) && images.indexOf(image) === index)
+}
+
+const getThumbnailStartForImage = (imageIndex: number, maxThumbnailStart: number) => {
+  if (imageIndex < 0) return 0
+  return Math.min(Math.max(imageIndex - 2, 0), maxThumbnailStart)
 }
 
 const stripDescription = (value: string) => {
@@ -41,12 +53,63 @@ const stripDescription = (value: string) => {
 
 const isCssColor = (value?: string) => Boolean(value && (value.startsWith('#') || value.startsWith('rgb') || value.startsWith('hsl')))
 
+const isInventoryAvailable = (item?: ProductVariant['inventory'][number]) =>
+  Boolean(item?.isAvailable && item.availableQuantity > 0)
+
+const getAvailableInventoryItem = (variant?: ProductVariant, colorId?: string) =>
+  variant?.inventory.find((item) =>
+    isInventoryAvailable(item) && (!colorId || item.colorVariantId === colorId),
+  )
+
+const isColorPurchasable = (variant?: ProductVariant, color?: ProductColorVariant) =>
+  Boolean(
+    variant?.isActive &&
+    color &&
+    color.isActive !== false &&
+    getAvailableInventoryItem(variant, color._id),
+  )
+
+const isSizeAvailableForColor = (variant?: ProductVariant, colorId?: string, size?: string) =>
+  Boolean(
+    colorId &&
+    size &&
+    variant?.isActive &&
+    isInventoryAvailable(
+      variant.inventory.find((item) => item.colorVariantId === colorId && item.size === size),
+    ),
+  )
+
+const getDefaultColor = (variant?: ProductVariant) => {
+  const availableInventory = getAvailableInventoryItem(variant)
+  const activeColors = variant?.colors.filter((color) => color.isActive !== false) ?? []
+
+  return (
+    activeColors.find((color) => color._id === availableInventory?.colorVariantId) ??
+    activeColors[0] ??
+    variant?.colors[0]
+  )
+}
+
+const getDefaultSize = (variant?: ProductVariant, colorId?: string) => {
+  const availableInventory = getAvailableInventoryItem(variant, colorId)
+  return availableInventory?.size ?? variant?.sizes[0]?.size ?? ''
+}
+
+const getVariantFitLabel = (variant: ProductVariant, index: number) =>
+  variant.fitType?.label?.trim() || `Phom ${index + 1}`
+
+const isProductNotFoundError = (error: unknown) => {
+  if (!(error instanceof Error)) return false
+  return ['Product not found', 'Invalid product id'].includes(error.message)
+}
+
 export function ProductDetailPage() {
   const dispatch = useAppDispatch()
   const currentUser = useAppSelector((state) => state.auth.currentUser)
   const isCustomer = currentUser?.role === 'user'
   const showFavoriteAction = !currentUser || isCustomer
   const productId = getProductIdFromPath()
+  const recommendationRequestId = getRecommendationRequestIdFromSearch()
   const [product, setProduct] = useState<ProductDetail | null>(null)
   const [selectedVariantId, setSelectedVariantId] = useState('')
   const [selectedColorId, setSelectedColorId] = useState('')
@@ -59,7 +122,9 @@ export function ProductDetailPage() {
   const [isBuyingNow, setIsBuyingNow] = useState(false)
   const [isUpdatingFavorite, setIsUpdatingFavorite] = useState(false)
   const [isFavorited, setIsFavorited] = useState(false)
+  const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false)
   const [error, setError] = useState('')
+  const [isNotFound, setIsNotFound] = useState(false)
 
  useEffect(() => {
   let isMounted = true
@@ -68,6 +133,7 @@ export function ProductDetailPage() {
     try {
       setIsLoading(true)
       setError('')
+      setIsNotFound(false)
 
       const productData = await catalogService.getProductById(productId)
 
@@ -75,15 +141,12 @@ export function ProductDetailPage() {
 
       const firstVariant =
         productData.variants.find((variant) => variant._id === productData.selectedVariantId) ??
+        productData.variants.find((variant) => variant.isActive && getAvailableInventoryItem(variant)) ??
         productData.variants.find((variant) => variant.isActive) ??
         productData.variants[0]
 
-      const firstColor = firstVariant?.colors[0]
-
-      const firstSize =
-        firstVariant?.sizes.find((size) => size.isAvailable)?.size ??
-        firstVariant?.sizes[0]?.size ??
-        ''
+      const firstColor = getDefaultColor(firstVariant)
+      const firstSize = getDefaultSize(firstVariant, firstColor?._id)
 
       setProduct(productData)
       setSelectedVariantId(firstVariant?._id ?? '')
@@ -93,6 +156,12 @@ export function ProductDetailPage() {
       setThumbnailStart(0)
     } catch (loadError: unknown) {
       if (!isMounted) return
+
+      if (isProductNotFoundError(loadError)) {
+        setProduct(null)
+        setIsNotFound(true)
+        return
+      }
 
       setError(
         loadError instanceof Error
@@ -112,6 +181,21 @@ export function ProductDetailPage() {
     isMounted = false
   }
 }, [productId])
+
+  useEffect(() => {
+    if (!product?._id) {
+      return
+    }
+
+    void recordInteractionBestEffort({
+      productId: product._id,
+      actionType: 'view',
+      source: 'product_detail',
+      metadata: {
+        ...(recommendationRequestId ? { recommendationRequestId } : {}),
+      },
+    })
+  }, [product?._id, recommendationRequestId])
 
   useEffect(() => {
     if (!isCustomer) {
@@ -148,11 +232,11 @@ export function ProductDetailPage() {
   const stockItem = selectedVariant?.inventory.find(
     (item) => item.colorVariantId === selectedColor?._id && item.size === selectedSize,
   )
-  const sku = stockItem?.sku ?? product?._id.slice(-8).toUpperCase()
   const availableQuantity = stockItem?.availableQuantity ?? 0
   const isAvailable = Boolean(
     product?.isAvailable &&
     selectedVariant?.isActive &&
+    selectedColor?.isActive !== false &&
     stockItem?.isAvailable &&
     availableQuantity > 0,
   )
@@ -161,8 +245,41 @@ export function ProductDetailPage() {
   const images = product ? getUniqueImages(product) : []
   const maxThumbnailStart = Math.max(images.length - 5, 0)
   const visibleImages = images.slice(thumbnailStart, thumbnailStart + 5)
+  const activeImageIndex = images.findIndex((image) => image === selectedImage)
+  const currentImageIndex = activeImageIndex >= 0 ? activeImageIndex : 0
+  const displayedImage = images[currentImageIndex] || product?.productImage || ''
+  const canSlideImages = images.length > 1
   const categoryTrail = product?.categoryBreadcrumb ?? []
   const description = product ? stripDescription(product.description) : ''
+
+  const handleImageChange = (image: string) => {
+    const imageIndex = images.indexOf(image)
+
+    setSelectedImage(image)
+    setThumbnailStart(getThumbnailStartForImage(imageIndex, maxThumbnailStart))
+  }
+
+  const handleSlideImage = (direction: -1 | 1) => {
+    if (!images.length) return
+
+    const nextImageIndex = (currentImageIndex + direction + images.length) % images.length
+
+    setSelectedImage(images[nextImageIndex])
+    setThumbnailStart(getThumbnailStartForImage(nextImageIndex, maxThumbnailStart))
+  }
+
+  const handleVariantChange = (variant: ProductVariant) => {
+    const firstColor = getDefaultColor(variant)
+    const firstSize = getDefaultSize(variant, firstColor?._id)
+    const colorImageIndex = product ? getUniqueImages(product).indexOf(firstColor?.image ?? '') : -1
+
+    setSelectedVariantId(variant._id)
+    setSelectedColorId(firstColor?._id ?? '')
+    setSelectedImage(firstColor?.image || product?.productImage || '')
+    setSelectedSize(firstSize)
+    setThumbnailStart(getThumbnailStartForImage(colorImageIndex, maxThumbnailStart))
+    setQuantity(1)
+  }
 
   const handleVariantColorChange = (variant: ProductVariant, color: ProductColorVariant) => {
     const colorImageIndex = product ? getUniqueImages(product).indexOf(color.image) : -1
@@ -170,8 +287,8 @@ export function ProductDetailPage() {
     setSelectedVariantId(variant._id)
     setSelectedColorId(color._id)
     setSelectedImage(color.image)
-    setSelectedSize(variant.sizes.find((size) => size.isAvailable)?.size ?? variant.sizes[0]?.size ?? '')
-    setThumbnailStart(colorImageIndex >= 0 ? Math.min(colorImageIndex, maxThumbnailStart) : 0)
+    setSelectedSize(getDefaultSize(variant, color._id))
+    setThumbnailStart(getThumbnailStartForImage(colorImageIndex, maxThumbnailStart))
     setQuantity(1)
   }
 
@@ -194,6 +311,12 @@ export function ProductDetailPage() {
         colorVariantId: selectedColor._id,
         size: selectedSize,
         quantity,
+        isSelected: true,
+        ...(recommendationRequestId ? { recommendationRequestId } : {}),
+      }, {
+        authRequiredMessage: redirectToCart
+          ? customerProductActionsService.authMessages.buyNow
+          : customerProductActionsService.authMessages.addToCart,
       })
       message.success(redirectToCart ? 'Đã thêm vào giỏ hàng.' : 'Đã thêm sản phẩm vào giỏ hàng.')
       dispatch(setCart(updatedCart))
@@ -234,7 +357,7 @@ export function ProductDetailPage() {
         {error && <Alert className="catalog-alert" type="error" message={error} showIcon />}
 
         <Spin spinning={isLoading}>
-          {!isLoading && !product ? (
+          {!isLoading && (isNotFound || !product) ? (
             <Empty description="Không tìm thấy sản phẩm." />
           ) : (
             product && (
@@ -250,7 +373,35 @@ export function ProductDetailPage() {
                 <section className="product-detail-shell">
                   <section className="product-gallery" aria-label="Ảnh sản phẩm">
                     <div className="product-gallery-main">
-                      <img src={selectedImage || product.productImage} alt={product.name} />
+                      <div
+                        className="product-gallery-slider"
+                        style={{ transform: `translateX(-${currentImageIndex * 100}%)` }}
+                      >
+                        {images.map((image) => (
+                          <div className="product-gallery-slide" key={image}>
+                            <img src={image} alt={product.name} />
+                          </div>
+                        ))}
+                      </div>
+
+                      {canSlideImages && (
+                        <>
+                          <Button
+                            className="product-gallery-chevron product-gallery-chevron-prev"
+                            type="text"
+                            icon={<LeftOutlined />}
+                            aria-label="Xem ảnh trước"
+                            onClick={() => handleSlideImage(-1)}
+                          />
+                          <Button
+                            className="product-gallery-chevron product-gallery-chevron-next"
+                            type="text"
+                            icon={<LeftOutlined rotate={180} />}
+                            aria-label="Xem ảnh sau"
+                            onClick={() => handleSlideImage(1)}
+                          />
+                        </>
+                      )}
                     </div>
 
                     <div className="product-thumbnails">
@@ -266,9 +417,9 @@ export function ProductDetailPage() {
                         {visibleImages.map((image) => (
                           <button
                             type="button"
-                            className={image === selectedImage ? 'active' : ''}
+                            className={image === displayedImage ? 'active' : ''}
                             key={image}
-                            onClick={() => setSelectedImage(image)}
+                            onClick={() => handleImageChange(image)}
                           >
                             <img src={image} alt="" />
                           </button>
@@ -293,7 +444,6 @@ export function ProductDetailPage() {
 
                     <p className="product-meta">
                       Loại: <strong>{product.category?.name ?? 'Chưa phân loại'}</strong>
-                      <span>Mã: {sku}</span>
                     </p>
 
                     <div className="detail-price">
@@ -301,18 +451,41 @@ export function ProductDetailPage() {
                       {selectedVariant && selectedVariant.discount > 0 && <span>{formatPrice(selectedVariant.price)}</span>}
                     </div>
 
+                    <section className="detail-option-group" aria-label="Phom dáng">
+                      <span className="detail-option-label">Phom dáng</span>
+                      <div className="fit-options">
+                        {product.variants.map((variant, index) => (
+                          <button
+                            type="button"
+                            className={variant._id === selectedVariant?._id ? 'active' : ''}
+                            key={variant._id}
+                            disabled={!variant.isActive}
+                            onClick={() => handleVariantChange(variant)}
+                          >
+                            {getVariantFitLabel(variant, index)}
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+
                     <section className="detail-option-group" aria-label="Màu sắc">
                       <span className="detail-option-label">Màu sắc</span>
                       <div className="color-options">
-                        {product.variants.flatMap((variant) =>
-                          variant.colors.map((color) => (
+                        {selectedVariant?.colors.map((color) => {
+                          const isDisabled = !isColorPurchasable(selectedVariant, color)
+
+                          return (
                             <button
                               type="button"
-                              className={color._id === selectedColor?._id ? 'active' : ''}
+                              className={[
+                                color._id === selectedColor?._id ? 'active' : '',
+                                isDisabled ? 'is-disabled' : '',
+                              ].filter(Boolean).join(' ')}
                               key={color._id}
-                              title={color.color}
+                              title={color.isActive === false ? `${color.color} - ngừng kinh doanh` : color.color}
                               aria-label={color.color}
-                              onClick={() => handleVariantColorChange(variant, color)}
+                              disabled={isDisabled}
+                              onClick={() => handleVariantColorChange(selectedVariant, color)}
                             >
                               <span
                                 style={{
@@ -321,25 +494,30 @@ export function ProductDetailPage() {
                                 }}
                               />
                             </button>
-                          )),
-                        )}
+                          )
+                        })}
                       </div>
                     </section>
 
                     <section className="detail-option-group" aria-label="Kích thước">
                       <div className="size-title-line">
                         <span className="detail-option-label">Kích thước</span>
-                        <label>
-                          <input type="checkbox" /> Hướng dẫn chọn size
-                        </label>
+                        {product.sizeGuideImage && (
+                          <button className="size-guide-trigger" type="button" onClick={() => setIsSizeGuideOpen(true)}>
+                            Hướng dẫn chọn size
+                          </button>
+                        )}
                       </div>
                       <div className="size-options">
                         {selectedVariant?.sizes.map((sizeMeasurement) => (
                           <button
                             type="button"
-                            className={sizeMeasurement.size === selectedSize ? 'active' : ''}
+                            className={[
+                              sizeMeasurement.size === selectedSize ? 'active' : '',
+                              !isSizeAvailableForColor(selectedVariant, selectedColor?._id, sizeMeasurement.size) ? 'is-disabled' : '',
+                            ].filter(Boolean).join(' ')}
                             key={sizeMeasurement.size}
-                            disabled={!sizeMeasurement.isAvailable}
+                            disabled={!isSizeAvailableForColor(selectedVariant, selectedColor?._id, sizeMeasurement.size)}
                             onClick={() => {
                               setSelectedSize(sizeMeasurement.size)
                               setQuantity(1)
@@ -369,8 +547,9 @@ export function ProductDetailPage() {
                         </div>
                         {showFavoriteAction && (
                           <Button
+                            className={isFavorited ? 'favorite-toggle is-favorited' : 'favorite-toggle'}
                             type="text"
-                            icon={<HeartOutlined />}
+                            icon={isFavorited ? <HeartFilled /> : <HeartOutlined />}
                             loading={isUpdatingFavorite}
                             onClick={() => void handleToggleFavorite()}
                           >
@@ -416,6 +595,15 @@ export function ProductDetailPage() {
                 )}
 
                 <ProductReviews productId={product._id} variants={product.variants} />
+                <Modal
+                  className="size-guide-modal"
+                  title="Hướng dẫn chọn size"
+                  open={isSizeGuideOpen}
+                  footer={null}
+                  onCancel={() => setIsSizeGuideOpen(false)}
+                >
+                  <img src={product.sizeGuideImage} alt="Hướng dẫn chọn size" />
+                </Modal>
               </>
             )
           )}

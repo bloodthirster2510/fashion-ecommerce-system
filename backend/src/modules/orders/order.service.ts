@@ -541,7 +541,17 @@ const triggerOrderStatusChange = async (
 ) => {
   const shippingStatusBefore = before.shipping?.status ?? null;
   const shippingStatusAfter = order.shipping?.status ?? null;
-  if (before.status === order.status && shippingStatusBefore === shippingStatusAfter) return;
+  const trackingCodeBefore = before.shipping?.trackingCode ?? null;
+  const trackingCodeAfter = order.shipping?.trackingCode ?? null;
+  const shippingProviderBefore = before.shipping?.provider ?? null;
+  const shippingProviderAfter = order.shipping?.provider ?? null;
+  if (
+    before.status === order.status &&
+    before.paymentStatus === order.paymentStatus &&
+    shippingStatusBefore === shippingStatusAfter &&
+    trackingCodeBefore === trackingCodeAfter &&
+    shippingProviderBefore === shippingProviderAfter
+  ) return;
 
   await runBestEffort(
     'Failed to emit order realtime event',
@@ -2275,6 +2285,7 @@ const cancelLinkedGhnShipmentBestEffort = async (order: IOrder) => {
 
 const createGhnShipment = async (id: string) => {
   const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
 
   if (order.status !== 'packed') {
     throw new SalesServiceError('Order must be packed before creating a GHN shipment', 400);
@@ -2359,11 +2370,14 @@ const createGhnShipment = async (id: string) => {
     rawShipment,
   };
 
-  return order.save();
+  const savedOrder = await order.save();
+  await triggerOrderStatusChange(savedOrder, before, 'shipping_update', 'ready');
+  return savedOrder;
 };
 
 const cancelGhnShipment = async (id: string) => {
   const order = await getOrderByIdOrThrow(id);
+  const before = createOrderChangeSnapshot(order);
   if (!order.shipping?.trackingCode || order.shipping.provider !== 'GHN') {
     throw new SalesServiceError('Order does not have a GHN shipment', 400);
   }
@@ -2373,7 +2387,9 @@ const cancelGhnShipment = async (id: string) => {
   }
 
   await cancelLinkedGhnShipmentBestEffort(order);
-  return order.save();
+  const savedOrder = await order.save();
+  await triggerOrderStatusChange(savedOrder, before, 'shipping_update', 'cancelled');
+  return savedOrder;
 };
 
 const syncGhnShipment = async (id: string) => {

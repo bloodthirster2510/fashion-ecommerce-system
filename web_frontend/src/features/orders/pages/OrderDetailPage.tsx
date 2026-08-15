@@ -6,8 +6,6 @@ import {
   ClockCircleOutlined,
   CreditCardOutlined,
   EnvironmentOutlined,
-  FileTextOutlined,
-  ReloadOutlined,
   ShoppingOutlined,
   StopOutlined,
   UndoOutlined,
@@ -51,7 +49,7 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
 const customerOrderDetailMutationClient = new QueryClient()
 type CustomerOrderLoadMode = 'loading' | 'refresh' | 'silent'
 
-// Lấy câu báo lỗi dễ hiểu để hiển thị trên trang chi tiết đơn.
+
 const getErrorMessage = (error: unknown, fallback: string) => (
   error instanceof Error ? error.message : fallback
 )
@@ -272,7 +270,6 @@ function OrderDetailContent({ orderId }: { orderId: string }) {
                   {['delivered', 'completed'].includes(order.status) ? (
                     <Button icon={<UndoOutlined />} onClick={() => setOrderAction('return')}>Yêu cầu trả hàng</Button>
                   ) : null}
-                  {order.invoiceCode && <Button icon={<FileTextOutlined />}>Hóa đơn</Button>}
                 </div>
               </header>
 
@@ -333,7 +330,10 @@ function OrderDetailContent({ orderId }: { orderId: string }) {
                   <p><span>Phí giao hàng</span><b>{netShipping === 0 ? 'Miễn phí' : formatPrice(netShipping)}</b></p>
                   {order.taxAmount > 0 && <p><span>Thuế</span><b>+{formatPrice(order.taxAmount)}</b></p>}
                   <div className="order-summary-total"><span>Tổng cộng</span><strong>{formatPrice(order.totalAmount)}</strong></div>
-                  <Button block icon={<ReloadOutlined />} onClick={() => void loadOrder()}>Cập nhật trạng thái</Button>
+                  <div className="order-summary-actions">
+                    <Button block href="/" icon={<ShoppingOutlined />}>Tiếp tục mua sắm</Button>
+                    <Button block type="primary" href="/account/orders" icon={<ClockCircleOutlined />}>Theo dõi đơn hàng</Button>
+                  </div>
                 </aside>
               </div>
 
@@ -358,6 +358,7 @@ function OrderDetailContent({ orderId }: { orderId: string }) {
                   onChange={(event) => setActionReason(event.target.value)}
                 />
               </Modal>
+
             </>
           )}
         </Skeleton>

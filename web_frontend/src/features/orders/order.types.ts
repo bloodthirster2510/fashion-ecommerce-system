@@ -39,6 +39,7 @@ export type CustomerOrder = {
   _id: string
   orderCode: string
   invoiceCode?: string | null
+  invoiceIssuedAt?: string | null
   order_list: OrderItem[]
   subTotal: number
   shippingFee: number
@@ -82,6 +83,10 @@ export type CustomerOrder = {
 
 export type CustomerOrderListResponse = {
   items: CustomerOrder[]
+  statusSummary?: Record<OrderStatus | 'all', number>
+  operationalSummary?: {
+    paymentRisk?: number
+  }
   pagination: {
     page: number
     limit: number

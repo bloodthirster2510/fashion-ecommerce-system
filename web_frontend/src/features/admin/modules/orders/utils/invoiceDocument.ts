@@ -1,7 +1,46 @@
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces'
 import type { StorefrontSettings } from '../../../../storefront-settings/storefrontSettings.types'
-import type { AdminOrder } from '../orderAdminApi'
 import { formatCurrency, paymentMethodLabels, paymentStatusLabels } from '../orderPresentation'
+
+export type InvoiceOrder = {
+  _id: string
+  orderCode: string
+  invoiceCode?: string | null
+  invoiceIssuedAt?: string | null
+  order_list: Array<{
+    _id?: string
+    sku: string
+    name: string
+    fitType: string
+    color: string
+    size: string
+    quantity: number
+    priceAtPurchased: number
+  }>
+  subTotal: number
+  shippingFee: number
+  couponCode?: string | null
+  couponDiscountAmount: number
+  shippingDiscountAmount: number
+  membershipDiscountAmount: number
+  taxAmount: number
+  totalAmount: number
+  status: 'confirmed' | 'packed' | 'shipping' | 'delivered' | 'completed' | 'cancelled' | 'return_requested' | 'return_approved' | 'returned'
+  paymentMethod: 'COD' | 'VNPAY' | 'MOMO' | 'CARD' | 'BANK'
+  paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded'
+  deliveredAt?: string | null
+  receivedAt?: string | null
+  shippingAddress: {
+    customerName: string
+    district?: string | null
+    province: string
+    streetName: string
+    phoneNumber: string
+    ward: string
+  }
+  orderNote?: string | null
+  updatedAt: string
+}
 
 const invoiceDateFormatter = new Intl.DateTimeFormat('vi-VN', {
   dateStyle: 'medium',
@@ -14,7 +53,7 @@ const safeDate = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-export const getInvoiceIssuedAt = (order: AdminOrder) =>
+export const getInvoiceIssuedAt = (order: InvoiceOrder) =>
   order.invoiceIssuedAt
   ?? order.deliveredAt
   ?? order.receivedAt
@@ -25,19 +64,19 @@ export const formatInvoiceDate = (value?: string | null) => {
   return date ? invoiceDateFormatter.format(date) : 'Chưa có'
 }
 
-export const getInvoiceDiscountTotal = (order: AdminOrder) =>
+export const getInvoiceDiscountTotal = (order: InvoiceOrder) =>
   order.couponDiscountAmount
   + order.shippingDiscountAmount
   + order.membershipDiscountAmount
 
-export const getInvoiceDeliveryAddress = (order: AdminOrder) => [
+export const getInvoiceDeliveryAddress = (order: InvoiceOrder) => [
   order.shippingAddress.streetName,
   order.shippingAddress.ward,
   order.shippingAddress.district,
   order.shippingAddress.province,
 ].filter(Boolean).join(', ')
 
-export const getInvoiceFileName = (order: AdminOrder) => {
+export const getInvoiceFileName = (order: InvoiceOrder) => {
   const reference = order.invoiceCode || order.orderCode || 'invoice'
   return `${reference.replace(/[^A-Za-z0-9_-]+/g, '-')}.pdf`
 }
@@ -49,7 +88,7 @@ const buildSellerLines = (settings: StorefrontSettings) => [
   [settings.contact.phone, settings.contact.email].filter(Boolean).join(' · ') || null,
 ].filter((value): value is string => Boolean(value))
 
-const buildInvoiceTotals = (order: AdminOrder): Array<{ label: string; value: number; tone?: 'discount' | 'total' }> => [
+const buildInvoiceTotals = (order: InvoiceOrder): Array<{ label: string; value: number; tone?: 'discount' | 'total' }> => [
   { label: 'Tiền hàng', value: order.subTotal },
   ...(order.couponDiscountAmount > 0
     ? [{ label: `Voucher giảm giá${order.couponCode ? ` (${order.couponCode})` : ''}`, value: -order.couponDiscountAmount, tone: 'discount' as const }]
@@ -71,7 +110,7 @@ const toPdfText = (value: string, options: Partial<TableCell> = {}): TableCell =
 }) as TableCell
 
 export const buildInvoicePdfDefinition = (
-  order: AdminOrder,
+  order: InvoiceOrder,
   settings: StorefrontSettings,
   avatarDataUrl?: string | null,
 ): TDocumentDefinitions => {
@@ -94,7 +133,7 @@ export const buildInvoicePdfDefinition = (
     {
       stack: [
         { text: item.name, bold: true },
-        { text: `${item.color} / ${item.size} / ${item.fitType} · SKU ${item.sku}`, color: '#5f5f5f', fontSize: 8 },
+        { text: `${item.color} / ${item.size} / ${item.fitType}`, color: '#5f5f5f', fontSize: 8 },
       ],
     },
     toPdfText(String(item.quantity), { alignment: 'right' }),
@@ -256,11 +295,11 @@ const escapeHtml = (value: unknown) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#039;')
 
-export const buildInvoicePrintHtml = (order: AdminOrder, settings: StorefrontSettings) => {
+export const buildInvoicePrintHtml = (order: InvoiceOrder, settings: StorefrontSettings) => {
   const rows = order.order_list.map((item, index) => `
     <tr>
       <td class="center">${index + 1}</td>
-      <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(`${item.color} / ${item.size} / ${item.fitType} · SKU ${item.sku}`)}</small></td>
+      <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(`${item.color} / ${item.size} / ${item.fitType}`)}</small></td>
       <td class="number">${item.quantity}</td>
       <td class="number">${escapeHtml(formatCurrency(item.priceAtPurchased))}</td>
       <td class="number"><strong>${escapeHtml(formatCurrency(item.quantity * item.priceAtPurchased))}</strong></td>
@@ -340,7 +379,7 @@ export const buildInvoicePrintHtml = (order: AdminOrder, settings: StorefrontSet
 </html>`
 }
 
-export const printInvoice = (order: AdminOrder, settings: StorefrontSettings) => {
+export const printInvoice = (order: InvoiceOrder, settings: StorefrontSettings) => {
   const printWindow = window.open('', '_blank', 'width=960,height=800')
   if (!printWindow) throw new Error('Trình duyệt đang chặn cửa sổ in hóa đơn.')
 
@@ -410,7 +449,7 @@ const loadAvatarDataUrl = (avatarUrl: string) => new Promise<string | null>((res
   image.src = avatarUrl
 })
 
-export const downloadInvoicePdf = async (order: AdminOrder, settings: StorefrontSettings) => {
+export const downloadInvoicePdf = async (order: InvoiceOrder, settings: StorefrontSettings) => {
   const [{ default: pdfMake }, { default: pdfFonts }, avatarDataUrl] = await Promise.all([
     import('pdfmake/build/pdfmake'),
     import('pdfmake/build/vfs_fonts'),

@@ -8,6 +8,8 @@ export type AddCartItemPayload = {
   colorVariantId: string
   size: string
   quantity: number
+  isSelected?: boolean
+  recommendationRequestId?: string
 }
 
 export type FavoriteStatusResponse = {
@@ -40,6 +42,19 @@ export type FavoriteListQuery = {
   limit?: number
 }
 
+type CustomerProductActionOptions = {
+  authRequiredMessage?: string
+}
+
+const productAuthMessages = {
+  addToCart: 'Đăng nhập để tiếp tục thêm sản phẩm vào giỏ hàng.',
+  buyNow: 'Đăng nhập để tiếp tục mua sản phẩm.',
+  checkFavorite: 'Đăng nhập để tiếp tục kiểm tra sản phẩm yêu thích.',
+  listFavorites: 'Đăng nhập để tiếp tục xem sản phẩm yêu thích.',
+  addFavorite: 'Đăng nhập để tiếp tục lưu sản phẩm yêu thích.',
+  removeFavorite: 'Đăng nhập để tiếp tục bỏ sản phẩm khỏi danh sách yêu thích.',
+}
+
 const buildFavoriteQuery = (query: FavoriteListQuery) => {
   const params = new URLSearchParams()
 
@@ -53,32 +68,42 @@ const buildFavoriteQuery = (query: FavoriteListQuery) => {
 }
 
 export const customerProductActionsService = {
-  addCartItem(input: AddCartItemPayload) {
+  addCartItem(input: AddCartItemPayload, options: CustomerProductActionOptions = {}) {
     return requestCustomer<Cart>('/cart/items', {
       method: 'POST',
       body: JSON.stringify(input),
-    })
+    }, options.authRequiredMessage ?? productAuthMessages.addToCart)
   },
 
   getFavoriteStatus(productId: string) {
-    return requestCustomer<FavoriteStatusResponse>(`/favorites/status?productId=${encodeURIComponent(productId)}`)
+    return requestCustomer<FavoriteStatusResponse>(
+      `/favorites/status?productId=${encodeURIComponent(productId)}`,
+      undefined,
+      productAuthMessages.checkFavorite,
+    )
   },
 
   listFavorites(query: FavoriteListQuery = {}) {
     const queryString = buildFavoriteQuery(query)
-    return requestCustomer<FavoriteListResponse>(`/favorites${queryString ? `?${queryString}` : ''}`)
+    return requestCustomer<FavoriteListResponse>(
+      `/favorites${queryString ? `?${queryString}` : ''}`,
+      undefined,
+      productAuthMessages.listFavorites,
+    )
   },
 
   addFavorite(productId: string) {
     return requestCustomer<FavoriteStatusResponse>('/favorites', {
       method: 'POST',
       body: JSON.stringify({ productId }),
-    })
+    }, productAuthMessages.addFavorite)
   },
 
   removeFavorite(productId: string) {
     return requestCustomer<FavoriteStatusResponse>(`/favorites/${encodeURIComponent(productId)}`, {
       method: 'DELETE',
-    })
+    }, productAuthMessages.removeFavorite)
   },
+
+  authMessages: productAuthMessages,
 }

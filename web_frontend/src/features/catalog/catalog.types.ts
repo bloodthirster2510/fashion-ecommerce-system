@@ -62,6 +62,7 @@ export type ProductListItem = {
   soldQuantity: number
   averageRating: number
   reviewCount: number
+  isFavorited?: boolean
   brand: {
     _id: string
     name: string
@@ -173,6 +174,7 @@ export type ProductColorVariant = {
   color: string
   colorCode?: string
   image: string
+  isActive: boolean
 }
 
 export type ProductVariant = {
@@ -236,6 +238,7 @@ export type ProductDetail = {
     parent_id?: string | null
     level?: number
   }>
+  sizeGuideImage?: string
   variants: ProductVariant[]
   selectedVariantId?: string
   colors: ProductColorVariant[]
