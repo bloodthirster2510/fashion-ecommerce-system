@@ -1,5 +1,4 @@
 import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react'
-import type { MembershipRanking } from '../loyalty.types'
 
 export type TierFormState = {
   name: string
@@ -34,11 +33,6 @@ type TierIconOption = {
   label: string
 }
 
-type TierFormNeighbors = {
-  previous: MembershipRanking | null
-  next: MembershipRanking | null
-}
-
 type TierDialogProps = {
   mode: 'create' | 'edit'
   dialogRef: RefObject<HTMLDivElement | null>
@@ -50,8 +44,6 @@ type TierDialogProps = {
   draftRestored: boolean
   showAdvancedOptions: boolean
   suggestedMaxPoint: number | null
-  contrastRatio: number
-  neighbors: TierFormNeighbors
   templates: TierTemplate[]
   palettePresets: TierPalettePreset[]
   iconOptions: TierIconOption[]
@@ -76,8 +68,6 @@ export function TierDialog({
   draftRestored,
   showAdvancedOptions,
   suggestedMaxPoint,
-  contrastRatio,
-  neighbors,
   templates,
   palettePresets,
   iconOptions,
@@ -248,156 +238,131 @@ export function TierDialog({
           aria-expanded={showAdvancedOptions}
           onClick={onToggleAdvancedOptions}
         >
-          {showAdvancedOptions ? 'Ẩn tùy chỉnh nâng cao' : 'Tùy chỉnh cấp, trạng thái và giao diện thẻ'}
+          {showAdvancedOptions ? 'Ẩn tùy chỉnh nâng cao' : 'Tùy chỉnh trạng thái và giao diện thẻ'}
         </button>
 
         <div className="admin-tier-advanced-panel" hidden={!showAdvancedOptions}>
-          <div className="admin-tier-context-row">
-            <div>
-              <span>Đứng sau</span>
-              <strong>{neighbors.previous?.name ?? 'Đầu chương trình'}</strong>
-              <small>
-                {neighbors.previous
-                  ? `Từ ${formatNumber(neighbors.previous.minPoint)} điểm`
-                  : 'Hạng đầu nên bắt đầu từ 0 điểm'}
-              </small>
-            </div>
-            <div>
-              <span>Hạng đang chỉnh</span>
-              <strong>{form.name || 'Hạng mới'}</strong>
-              <small>Cấp {form.level || '-'} · từ {form.minPoint ? formatNumber(Number(form.minPoint)) : '-'} điểm</small>
-            </div>
-            <div>
-              <span>Đứng trước</span>
-              <strong>{neighbors.next?.name ?? 'Hạng cao nhất'}</strong>
-              <small>
-                {neighbors.next
-                  ? `Từ ${formatNumber(neighbors.next.minPoint)} điểm`
-                  : 'Không giới hạn điểm tối đa'}
-              </small>
-            </div>
-          </div>
-
           <h3 className="admin-tier-form-section-title">Cấu hình chi tiết</h3>
-          <div className="admin-account-form-grid">
-            <label>
-              <span>Cấp hạng</span>
-              <input
-                className={shouldShowError('level') && errors.level ? 'is-invalid' : ''}
-                type="number"
-                value={form.level}
-                onChange={(event) => setForm((currentForm) => ({ ...currentForm, level: event.target.value }))}
-                required
-                min={1}
-                max={20}
-              />
-              {shouldShowError('level') && errors.level ? <small className="admin-field-error">{errors.level}</small> : null}
-              <small className="admin-field-hint">Cấp càng cao tương ứng hạng càng cao.</small>
-            </label>
-            <label>
-              <span>Điểm tối đa (tự tính)</span>
-              <input
-                type="text"
-                value={suggestedMaxPoint === null ? 'Không giới hạn (hạng cao nhất)' : formatNumber(suggestedMaxPoint)}
-                disabled
-              />
-              <small className="admin-field-hint">Tự động theo hạng kế tiếp, không cần nhập tay.</small>
-            </label>
-            <label>
-              <span>Trạng thái</span>
-              <select
-                value={form.isActive ? 'active' : 'inactive'}
-                onChange={(event) =>
-                  setForm((currentForm) => ({ ...currentForm, isActive: event.target.value === 'active' }))
-                }
-              >
-                <option value="active">Hoạt động</option>
-                <option value="inactive">Tạm tắt</option>
-              </select>
-            </label>
-          </div>
-
-          <h3 className="admin-tier-form-section-title">Giao diện thẻ</h3>
-          <div className="admin-tier-palette-row" aria-label="Bảng màu gợi ý">
-            {palettePresets.map((palette) => (
-              <button
-                key={palette.name}
-                type="button"
-                style={{ backgroundColor: palette.card, color: palette.text }}
-                onClick={() =>
-                  setForm((currentForm) => ({
-                    ...currentForm,
-                    cardColor: palette.card,
-                    textColor: palette.text,
-                    badgeColor: palette.badge,
-                  }))
-                }
-              >
-                {palette.name}
-              </button>
-            ))}
-          </div>
-
-          <div className="admin-account-form-grid">
-            <label>
-              <span>Màu thẻ</span>
-              <input
-                className={errors.cardColor ? 'is-invalid' : ''}
-                type="color"
-                value={form.cardColor}
-                onChange={(event) => {
-                  const cardColor = event.target.value
-                  const textColor = getContrastRatio(cardColor, '#ffffff') >= getContrastRatio(cardColor, '#111827')
-                    ? '#ffffff'
-                    : '#111827'
-                  setForm((currentForm) => ({ ...currentForm, cardColor, textColor }))
-                }}
-              />
-              {errors.cardColor ? <small className="admin-field-error">{errors.cardColor}</small> : null}
-            </label>
-
-            <label>
-              <span>Màu chữ</span>
-              <input
-                className={errors.textColor ? 'is-invalid' : ''}
-                type="color"
-                value={form.textColor}
-                onChange={(event) => setForm((currentForm) => ({ ...currentForm, textColor: event.target.value }))}
-              />
-              {errors.textColor ? <small className="admin-field-error">{errors.textColor}</small> : null}
-            </label>
-
-            <label>
-              <span>Màu badge</span>
-              <input
-                type="color"
-                value={form.badgeColor}
-                onChange={(event) => setForm((currentForm) => ({ ...currentForm, badgeColor: event.target.value }))}
-              />
-            </label>
-
-            <div className="admin-tier-icon-field">
-              <span>Icon</span>
-              <div className="admin-tier-icon-grid">
-                {iconOptions.map((icon) => (
-                  <button
-                    key={icon.value}
-                    type="button"
-                    className={form.iconName === icon.value ? 'is-selected' : ''}
-                    aria-label={icon.label}
-                    title={icon.label}
-                    onClick={() => setForm((currentForm) => ({ ...currentForm, iconName: icon.value }))}
+          <div className="admin-tier-advanced-layout">
+            <div className="admin-tier-advanced-main">
+              <label>
+                <span>Cấp hạng</span>
+                <input
+                  type="text"
+                  value={`Cấp ${form.level || '-'}`}
+                  disabled
+                />
+                <small className="admin-field-hint">Tự động theo thứ tự hạng; đổi vị trí ở danh sách hạng.</small>
+              </label>
+              <div className="admin-tier-status-icon-row">
+                <label>
+                  <span>Trạng thái</span>
+                  <select
+                    value={form.isActive ? 'active' : 'inactive'}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, isActive: event.target.value === 'active' }))
+                    }
                   >
-                    {iconSymbols[icon.value] ?? '●'}
-                  </button>
-                ))}
+                    <option value="active">Hoạt động</option>
+                    <option value="inactive">Tạm tắt</option>
+                  </select>
+                </label>
+
+                <div className="admin-tier-icon-field">
+                  <span>Icon</span>
+                  <div className="admin-tier-icon-grid">
+                    {iconOptions.map((icon) => (
+                      <button
+                        key={icon.value}
+                        type="button"
+                        className={form.iconName === icon.value ? 'is-selected' : ''}
+                        aria-label={icon.label}
+                        title={icon.label}
+                        onClick={() => setForm((currentForm) => ({ ...currentForm, iconName: icon.value }))}
+                      >
+                        {iconSymbols[icon.value] ?? '●'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
-          <p className={`admin-tier-contrast ${contrastRatio >= 4.5 ? 'is-valid' : 'is-invalid'}`}>
-            Độ tương phản {contrastRatio.toFixed(2)}:1 · {contrastRatio >= 4.5 ? 'Đạt chuẩn dễ đọc' : 'Cần tối thiểu 4.5:1'}
-          </p>
+            <div className="admin-tier-advanced-side">
+              <label>
+                <span>Điểm tối đa (tự tính)</span>
+                <input
+                  type="text"
+                  value={suggestedMaxPoint === null ? 'Không giới hạn (hạng cao nhất)' : formatNumber(suggestedMaxPoint)}
+                  disabled
+                />
+                <small className="admin-field-hint">Tự động theo hạng kế tiếp, không cần nhập tay.</small>
+              </label>
+
+              <section className="admin-tier-appearance-panel" aria-label="Giao diện thẻ">
+                <strong>Giao diện thẻ</strong>
+                <div className="admin-tier-palette-row" aria-label="Bảng màu gợi ý">
+                  {palettePresets.map((palette) => (
+                    <button
+                      key={palette.name}
+                      type="button"
+                      style={{ backgroundColor: palette.card, color: palette.text }}
+                      onClick={() =>
+                        setForm((currentForm) => ({
+                          ...currentForm,
+                          cardColor: palette.card,
+                          textColor: palette.text,
+                          badgeColor: palette.badge,
+                        }))
+                      }
+                    >
+                      {palette.name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="admin-tier-color-grid">
+                  <label>
+                    <span>Màu thẻ</span>
+                    <input
+                      className={errors.cardColor ? 'is-invalid' : ''}
+                      type="color"
+                      value={form.cardColor}
+                      onChange={(event) => {
+                        const cardColor = event.target.value
+                        const textColor = getContrastRatio(cardColor, '#ffffff') >= getContrastRatio(cardColor, '#111827')
+                          ? '#ffffff'
+                          : '#111827'
+                        setForm((currentForm) => ({ ...currentForm, cardColor, textColor }))
+                      }}
+                    />
+                    {errors.cardColor ? <small className="admin-field-error">{errors.cardColor}</small> : null}
+                  </label>
+
+                  <label>
+                    <span>Màu chữ</span>
+                    <input
+                      className={errors.textColor ? 'is-invalid' : ''}
+                      type="color"
+                      value={form.textColor}
+                      onChange={(event) => setForm((currentForm) => ({ ...currentForm, textColor: event.target.value }))}
+                    />
+                    {errors.textColor ? <small className="admin-field-error">{errors.textColor}</small> : null}
+                  </label>
+
+                  <label>
+                    <span>Màu badge</span>
+                    <input
+                      type="color"
+                      value={form.badgeColor}
+                      onChange={(event) => setForm((currentForm) => ({ ...currentForm, badgeColor: event.target.value }))}
+                    />
+                  </label>
+                </div>
+              </section>
+            </div>
+
+          </div>
         </div>
 
         <div className="admin-dialog-actions">

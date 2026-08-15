@@ -32,13 +32,6 @@ type CodeAvailabilityState = 'idle' | 'checking' | 'available' | 'taken'
 type CouponScopeMode = 'all' | 'category' | 'product'
 type CouponSelectionField = 'eligibleMembershipRanks' | 'applicableProducts' | 'applicableCategories'
 
-type CouponTemplate = {
-  label: string
-  description: string
-  values: Partial<CouponFormState>
-  durationDays: number
-}
-
 type CouponFormDialogProps = {
   dialogRef: RefObject<HTMLDivElement | null>
   mode: 'create' | 'duplicate' | 'edit'
@@ -52,7 +45,6 @@ type CouponFormDialogProps = {
   actionLoading: boolean
   codeAvailability: CodeAvailabilityState
   draftRestored: boolean
-  couponTemplates: CouponTemplate[]
   discountTypeLabels: Record<CouponDiscountType, string>
   discountTypeDescriptions: Record<CouponDiscountType, string>
   discountTypeSymbols: Record<CouponDiscountType, string>
@@ -91,7 +83,6 @@ type CouponFormDialogProps = {
   onStepChange: (step: number) => void
   onPreviousStep: () => void
   onToggleAdvancedOptions: () => void
-  onApplyCouponTemplate: (template: CouponTemplate) => void
   onGenerateCode: () => void
   onDiscountTypeChange: (discountType: CouponDiscountType) => void
   onSetStartNow: () => void
@@ -123,7 +114,6 @@ export function CouponFormDialog({
   actionLoading,
   codeAvailability,
   draftRestored,
-  couponTemplates,
   discountTypeLabels,
   discountTypeDescriptions,
   discountTypeSymbols,
@@ -162,7 +152,6 @@ export function CouponFormDialog({
   onStepChange,
   onPreviousStep,
   onToggleAdvancedOptions,
-  onApplyCouponTemplate,
   onGenerateCode,
   onDiscountTypeChange,
   onSetStartNow,
@@ -198,13 +187,6 @@ export function CouponFormDialog({
           </div>
         </header>
 
-        {mode === 'create' || mode === 'duplicate' ? (
-          <div className="admin-coupon-template-bar">
-            <span>Mẫu nhanh</span>
-            {couponTemplates.map((template) => <button key={template.label} type="button" title={template.description} onClick={() => onApplyCouponTemplate(template)}><strong>{template.label}</strong><small>{template.description}</small></button>)}
-          </div>
-        ) : null}
-
         {draftRestored ? (
           <div className="admin-coupon-draft-notice"><span>Đã khôi phục bản nháp gần nhất.</span><button type="button" onClick={onDiscardDraft}>Bỏ bản nháp</button></div>
         ) : null}
@@ -215,7 +197,7 @@ export function CouponFormDialog({
             return <button key={label} type="button" className={couponStep === step ? 'is-active' : couponStep > step ? 'is-complete' : ''} onClick={() => step < couponStep && onStepChange(step)}><span>{step}</span>{label}</button>
           })}
         </nav>
-        <div className="admin-coupon-advanced-toggle"><button className="admin-link-button" type="button" aria-expanded={showAdvancedCouponOptions} onClick={onToggleAdvancedOptions}>{showAdvancedCouponOptions ? 'Ẩn tùy chọn nâng cao' : 'Hiện tùy chọn nâng cao'}</button><span>{showAdvancedCouponOptions ? 'Giới hạn lượt, đối tượng và phạm vi đang hiển thị.' : 'Thiết lập nhanh dùng mặc định: mọi khách, toàn bộ đơn, mỗi khách 1 lượt.'}</span></div>
+        <div className="admin-coupon-advanced-toggle"><button className="admin-link-button" type="button" aria-expanded={showAdvancedCouponOptions} onClick={onToggleAdvancedOptions}>{showAdvancedCouponOptions ? 'Ẩn tùy chọn nâng cao' : 'Hiện tùy chọn nâng cao'}</button><span>{showAdvancedCouponOptions ? 'Đối tượng và phạm vi áp dụng đang hiển thị.' : 'Thiết lập nhanh dùng mặc định: mọi khách, toàn bộ đơn.'}</span></div>
 
         {notice ? <p className={`admin-notice is-${notice.type} admin-coupon-dialog-notice`} role="status">{notice.message}</p> : null}
 
@@ -284,8 +266,8 @@ export function CouponFormDialog({
               <header className="admin-coupon-section-header">
                 <span>02</span>
                 <div>
-                  <strong>Giá trị ưu đãi</strong>
-                  <p>Chọn kiểu giảm trước, các ô tiền sẽ tự đổi theo ngữ cảnh.</p>
+                  <strong>Giá trị ưu đãi và lượt dùng</strong>
+                  <p>Chọn kiểu giảm, ngân sách lượt dùng và điều kiện đơn hàng.</p>
                 </div>
               </header>
 
@@ -357,6 +339,28 @@ export function CouponFormDialog({
                   </div>
                   {showCouponErrors && couponErrors.minOrderAmount ? <small className="admin-field-error">{couponErrors.minOrderAmount}</small> : null}
                 </label>
+                <label>
+                  <span>Giới hạn lượt dùng</span>
+                  <input
+                    type="number"
+                    value={couponForm.usageLimit}
+                    onChange={(event) => setCouponForm((form) => ({ ...form, usageLimit: event.target.value }))}
+                    min={1}
+                    placeholder="Không giới hạn"
+                  />
+                  {showCouponErrors && couponErrors.usageLimit ? <small className="admin-field-error">{couponErrors.usageLimit}</small> : null}
+                </label>
+                <label>
+                  <span>Mỗi khách được dùng</span>
+                  <input
+                    type="number"
+                    value={couponForm.perUserLimit}
+                    onChange={(event) => setCouponForm((form) => ({ ...form, perUserLimit: event.target.value }))}
+                    required
+                    min={1}
+                  />
+                  {showCouponErrors && couponErrors.perUserLimit ? <small className="admin-field-error">{couponErrors.perUserLimit}</small> : null}
+                </label>
               </div>
 
               <div className="admin-preset-row" aria-label="Đơn tối thiểu gợi ý">
@@ -378,14 +382,15 @@ export function CouponFormDialog({
                   ))}
                 </div>
               ) : null}
+              {!couponForm.usageLimit.trim() && Number(couponForm.perUserLimit || 0) > 1 ? <p className="admin-smart-warning">Không giới hạn tổng lượt và cho mỗi khách dùng nhiều lần có thể làm chi phí vượt dự kiến.</p> : null}
             </section>
 
             <section className="admin-coupon-form-section" hidden={couponStep !== 2}>
               <header className="admin-coupon-section-header">
                 <span>03</span>
                 <div>
-                  <strong>Thời gian và lượt dùng</strong>
-                  <p>Kiểm soát thời hạn, tổng lượt và số lần mỗi khách được dùng.</p>
+                  <strong>Thời gian hiển thị</strong>
+                  <p>Kiểm soát thời điểm voucher bắt đầu, kết thúc và trạng thái hiển thị.</p>
                 </div>
               </header>
 
@@ -420,31 +425,6 @@ export function CouponFormDialog({
                   </button>
                 ))}
               </div>
-              <div className="admin-account-form-grid" hidden={!showAdvancedCouponOptions}>
-                <label>
-                  <span>Giới hạn lượt dùng</span>
-                  <input
-                    type="number"
-                    value={couponForm.usageLimit}
-                    onChange={(event) => setCouponForm((form) => ({ ...form, usageLimit: event.target.value }))}
-                    min={1}
-                    placeholder="Không giới hạn"
-                  />
-                  {showCouponErrors && couponErrors.usageLimit ? <small className="admin-field-error">{couponErrors.usageLimit}</small> : null}
-                </label>
-                <label>
-                  <span>Mỗi khách được dùng</span>
-                  <input
-                    type="number"
-                    value={couponForm.perUserLimit}
-                    onChange={(event) => setCouponForm((form) => ({ ...form, perUserLimit: event.target.value }))}
-                    required
-                    min={1}
-                  />
-                  {showCouponErrors && couponErrors.perUserLimit ? <small className="admin-field-error">{couponErrors.perUserLimit}</small> : null}
-                </label>
-              </div>
-              {showAdvancedCouponOptions && !couponForm.usageLimit.trim() && Number(couponForm.perUserLimit || 0) > 1 ? <p className="admin-smart-warning">Không giới hạn tổng lượt và cho mỗi khách dùng nhiều lần có thể làm chi phí vượt dự kiến.</p> : null}
               {couponDurationDays > 90 ? <p className="admin-smart-warning">Voucher kéo dài hơn 90 ngày; nên chia thành nhiều đợt để dễ đo hiệu quả và kiểm soát ngân sách.</p> : null}
               <div className="admin-toggle-grid">
                 <label>
@@ -610,6 +590,7 @@ export function CouponFormDialog({
           <aside className="admin-coupon-side-panel" aria-label="Tóm tắt voucher">
             <div className="admin-coupon-preview">
               <span>{couponForm.code || 'VOUCHER'}</span>
+              <b>{couponForm.name || 'Tên voucher'}</b>
               <strong>{formDiscountPreview}</strong>
               <small>Đơn từ {formatCurrency(Number(couponForm.minOrderAmount || 0))}</small>
             </div>

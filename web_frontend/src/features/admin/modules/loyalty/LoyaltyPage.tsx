@@ -148,10 +148,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
     () => [...tiers].sort((a, b) => a.level - b.level),
     [tiers],
   )
-  const tierContrastRatio = useMemo(
-    () => getContrastRatio(tierForm.cardColor, tierForm.textColor),
-    [tierForm.cardColor, tierForm.textColor],
-  )
   const tierErrors = useMemo(() => validateTierForm(tierForm), [tierForm])
   const visibleTiers = useMemo(() => {
     const keyword = tierKeyword.trim().toLocaleLowerCase('vi')
@@ -185,20 +181,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
       .find((tier) => tier.minPoint > minPoint)
     return nextTier ? Math.max(minPoint, nextTier.minPoint - 1) : null
   }, [editingTierId, sortedTiers, tierForm.minPoint])
-  const tierFormNeighbors = useMemo(() => {
-    const minPoint = Number(tierForm.minPoint)
-    const comparableTiers = sortedTiers.filter((tier) => tier._id !== editingTierId)
-    if (!Number.isFinite(minPoint)) return { previous: null as MembershipRanking | null, next: null as MembershipRanking | null }
-
-    let previous: MembershipRanking | null = null
-    let next: MembershipRanking | null = null
-    comparableTiers.forEach((tier) => {
-      if (tier.minPoint < minPoint) previous = tier
-      if (!next && tier.minPoint > minPoint) next = tier
-    })
-    return { previous, next }
-  }, [editingTierId, sortedTiers, tierForm.minPoint])
-
   const replaceTier = (updatedTier: MembershipRanking) => {
     setTiers((currentTiers) =>
       currentTiers.map((tier) => (tier._id === updatedTier._id ? updatedTier : tier)),
@@ -732,8 +714,6 @@ export function LoyaltyPage({ currentUser }: LoyaltyPageProps) {
           draftRestored={tierDraftRestored}
           showAdvancedOptions={showTierAdvancedOptions}
           suggestedMaxPoint={suggestedMaxPoint}
-          contrastRatio={tierContrastRatio}
-          neighbors={tierFormNeighbors}
           templates={tierTemplates}
           palettePresets={tierPalettePresets}
           iconOptions={iconOptions}

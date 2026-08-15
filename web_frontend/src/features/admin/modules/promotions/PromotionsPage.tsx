@@ -144,12 +144,6 @@ const durationPresets = [
   { label: '60 ngày', days: 60 },
 ]
 
-const couponTemplates: Array<{ label: string; description: string; values: Partial<CouponFormState>; durationDays: number }> = [
-  { label: 'Chào mừng khách mới', description: 'Giảm 10% · mỗi khách 1 lần', values: { name: 'Chào mừng khách mới', discountType: 'percent', discountValue: '10', maxDiscountAmount: '100000', minOrderAmount: '200000', perUserLimit: '1', eligibleUserTypes: ['new_user'], isPublic: true }, durationDays: 30 },
-  { label: 'Miễn phí vận chuyển', description: 'Cho đơn từ 300K · toàn shop', values: { name: 'Miễn phí vận chuyển đơn từ 300K', discountType: 'free_shipping', discountValue: '0', maxDiscountAmount: '', minOrderAmount: '300000', perUserLimit: '1', eligibleUserTypes: ['all'], isPublic: true }, durationDays: 30 },
-  { label: 'Tri ân thành viên', description: 'Giảm 15% · dành cho thành viên', values: { name: 'Tri ân thành viên', discountType: 'percent', discountValue: '15', maxDiscountAmount: '200000', minOrderAmount: '500000', perUserLimit: '1', eligibleUserTypes: ['member'], isPublic: false }, durationDays: 14 },
-]
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('vi-VN', {
     style: 'currency',
@@ -1039,8 +1033,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
     setShowCouponErrors(true)
     const stepFields: Record<number, Array<keyof CouponFormState>> = {
-      1: ['code', 'name', 'discountValue', 'maxDiscountAmount', 'minOrderAmount'],
-      2: ['startAt', 'endAt', 'usageLimit', 'perUserLimit'],
+      1: ['code', 'name', 'discountValue', 'maxDiscountAmount', 'minOrderAmount', 'usageLimit', 'perUserLimit'],
+      2: ['startAt', 'endAt'],
       3: [],
     }
     const currentStepHasErrors = stepFields[couponStep].some((field) => Boolean(couponErrors[field]))
@@ -1311,24 +1305,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
     }
   }
 
-  const applyCouponTemplate = (template: typeof couponTemplates[number]) => {
-    const startAt = new Date()
-    const endAt = new Date(startAt)
-    endAt.setDate(endAt.getDate() + template.durationDays)
-    setCouponForm({
-      ...createEmptyCouponForm(),
-      ...template.values,
-      code: buildCouponCode(template.values.name ?? ''),
-      startAt: toDateTimeInputValue(startAt),
-      endAt: toDateTimeInputValue(endAt),
-    })
-    setCouponStep(1)
-    setShowAdvancedCouponOptions(true)
-    setShowCouponErrors(false)
-    setDraftRestored(false)
-    setNotice(null)
-  }
-
   const setStartNow = () => setCouponForm((form) => ({ ...form, startAt: toDateTimeInputValue(new Date()) }))
 
   const setFullDay = () => setCouponForm((form) => {
@@ -1519,7 +1495,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           actionLoading={actionLoading}
           codeAvailability={codeAvailability}
           draftRestored={draftRestored}
-          couponTemplates={couponTemplates}
           discountTypeLabels={discountTypeLabels}
           discountTypeDescriptions={discountTypeDescriptions}
           discountTypeSymbols={discountTypeSymbols}
@@ -1569,7 +1544,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
             setNotice(null)
           }}
           onToggleAdvancedOptions={() => setShowAdvancedCouponOptions((visible) => !visible)}
-          onApplyCouponTemplate={applyCouponTemplate}
           onGenerateCode={handleGenerateCode}
           onDiscountTypeChange={handleDiscountTypeChange}
           onSetStartNow={setStartNow}

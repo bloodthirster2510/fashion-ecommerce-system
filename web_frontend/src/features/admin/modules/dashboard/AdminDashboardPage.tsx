@@ -270,7 +270,7 @@ function TopProducts({ overview }: { overview: AdminDashboardOverview }) {
             {product.image ? <img src={product.image} alt="" /> : <span className="admin-dash-product-image" />}
             <div>
               <strong>{product.name}</strong>
-              <small>{product.sku} · {formatNumber(product.units)} sản phẩm</small>
+              <small>{formatNumber(product.units)} sản phẩm</small>
               <i aria-hidden="true"><em style={{ width: `${Math.max(4, (product.grossSales / maximum) * 100)}%` }} /></i>
             </div>
             <b>{formatCompactCurrency(product.grossSales)}</b>
@@ -314,12 +314,12 @@ function InventoryRisk({ overview }: { overview: AdminDashboardOverview }) {
               {item.image ? <img src={item.image} alt="" /> : <span />}
               <div>
                 <strong>{item.name}</strong>
-                <small>{item.sku} · Size {item.size} · còn {formatNumber(item.availableQuantity)}</small>
+                <small>Size {item.size} · còn {formatNumber(item.availableQuantity)}</small>
               </div>
               <em className={`is-${risk.tone}`}>{risk.label}</em>
             </article>
           )
-        }) : <div className="admin-dash-compact-empty">Không có SKU tồn kho thấp.</div>}
+        }) : <div className="admin-dash-compact-empty">Không có mặt hàng tồn kho thấp.</div>}
       </div>
     </section>
   )

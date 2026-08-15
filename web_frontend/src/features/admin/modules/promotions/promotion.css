@@ -320,7 +320,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 306px;
+  grid-template-columns: minmax(0, 1fr) 328px;
   background: #eef2f6;
   overflow: hidden;
 }
@@ -337,10 +337,15 @@
 }
 
 .admin-account-dialog.admin-coupon-dialog label {
+  align-content: start;
   gap: 7px;
   color: var(--admin-text);
   font-size: 13px;
   font-weight: 700;
+}
+
+.admin-account-dialog.admin-coupon-dialog .admin-account-form-grid {
+  align-items: start;
 }
 
 .admin-account-dialog.admin-coupon-dialog label > span {
@@ -946,10 +951,10 @@
 }
 
 .admin-coupon-preview {
-  min-height: 104px;
+  min-height: 128px;
   display: grid;
   align-content: center;
-  gap: 8px;
+  gap: 7px;
   padding: 14px;
   border: 1px solid #bed3e1;
   border-radius: 8px;
@@ -972,9 +977,18 @@
   white-space: nowrap;
 }
 
+.admin-coupon-preview b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #24313f;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.28;
+}
+
 .admin-coupon-preview strong {
   color: #24313f;
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 850;
   line-height: 1.12;
 }
@@ -1227,11 +1241,6 @@
 .admin-coupon-stepper button span { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 11px; }
 .admin-coupon-form-section[hidden] { display: none; }
 
-.admin-coupon-template-bar { display: flex; align-items: center; gap: 8px; padding: 8px 20px; overflow-x: auto; border-bottom: 1px solid var(--admin-line); background: #fbfcfd; }
-.admin-coupon-template-bar > span { flex: 0 0 auto; align-self: center; color: var(--admin-muted); font-size: 11px; font-weight: 850; text-transform: uppercase; }
-.admin-coupon-template-bar button { min-width: 0; display: grid; gap: 2px; padding: 7px 11px; border: 1px solid #dce4ea; border-radius: 999px; color: var(--admin-text); background: #fff; cursor: pointer; text-align: left; }
-.admin-coupon-template-bar button:hover { border-color: #76a999; background: #eef8f3; }
-.admin-coupon-template-bar small { display: none; }
 .admin-coupon-draft-notice { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 20px; color: #315f83; background: #f5fbff; border-bottom: 1px solid #dcebf4; font-size: 12px; font-weight: 750; }
 .admin-coupon-draft-notice button { border: 0; color: #315f83; background: transparent; cursor: pointer; font-weight: 850; }
 

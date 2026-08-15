@@ -169,7 +169,7 @@ export function OrderInvoicePanel({
                   <td>{index + 1}</td>
                   <td>
                     <strong>{item.name}</strong>
-                    <span>{item.color} / {item.size} / {item.fitType} · SKU {item.sku}</span>
+                    <span>{item.color} / {item.size} / {item.fitType}</span>
                   </td>
                   <td>{item.quantity}</td>
                   <td>{formatCurrency(item.priceAtPurchased)}</td>
