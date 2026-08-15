@@ -62,7 +62,8 @@ const CategoryDrawer = ({
   onSelectGender,
   onSelectCategory,
 }: CategoryDrawerProps) => {
-  const [expandedGender, setExpandedGender] = React.useState<CatalogGender | null>(null);
+  const [selectedGender, setSelectedGender] = React.useState<CatalogGender | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = React.useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const visibleGenders = React.useMemo<CatalogGender[]>(() => {
     const availableGenders = new Set(categories.map((category) => category.gender));
@@ -78,18 +79,19 @@ const CategoryDrawer = ({
 
   React.useEffect(() => {
     if (!visible) {
-      setExpandedGender(null);
+      setSelectedGender(null);
+      setSelectedGroupId(null);
     }
   }, [visible]);
 
-  const renderGenderRow = (gender: CatalogGender) => {
-    const isExpanded = expandedGender === gender;
+  const getGroupCategories = React.useCallback((gender: CatalogGender) => {
     const rootCategoryIds = new Set(
       categories
         .filter((category) => category.gender === gender && category.level === 1)
         .map((category) => category._id),
     );
-    const groupCategories = sortCategories(
+
+    return sortCategories(
       categories.filter(
         (category) =>
           category.gender === gender &&
@@ -97,82 +99,172 @@ const CategoryDrawer = ({
           (!rootCategoryIds.size || (category.parent_id ? rootCategoryIds.has(category.parent_id) : false)),
       ),
     );
-    const getChildCategories = (parentId: string) =>
+  }, [categories]);
+
+  const getChildCategories = React.useCallback(
+    (gender: CatalogGender, parentId: string) =>
       sortCategories(
         categories.filter(
           (category) => category.gender === gender && category.level === 3 && category.parent_id === parentId,
         ),
-      );
+      ),
+    [categories],
+  );
+
+  const renderBackRow = (label: string, onPress: () => void, accessibilityLabel: string) => (
+    <TouchableOpacity
+      style={[styles.parentRow, styles.parentRowActive]}
+      onPress={onPress}
+      activeOpacity={0.82}
+      accessibilityLabel={accessibilityLabel}
+    >
+      <View style={styles.backLabel}>
+        <MaterialCommunityIcons name="chevron-left" size={22} color={colors.brand} />
+        <Text style={[styles.parentText, styles.parentTextActive]} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  const renderGenderRow = (gender: CatalogGender) => (
+    <TouchableOpacity
+      key={gender}
+      style={styles.parentRow}
+      onPress={() => {
+        setSelectedGender(gender);
+        setSelectedGroupId(null);
+      }}
+      activeOpacity={0.82}
+      accessibilityLabel={`Mở danh mục ${genderLabels[gender]}`}
+    >
+      <Text style={styles.parentText}>{genderLabels[gender]}</Text>
+      <MaterialCommunityIcons name="chevron-right" size={22} color={colors.text} />
+    </TouchableOpacity>
+  );
+
+  const renderGenderLevel = (gender: CatalogGender) => {
+    const groupCategories = getGroupCategories(gender);
 
     return (
-      <View key={gender}>
-        <TouchableOpacity
-          style={[styles.parentRow, isExpanded && styles.parentRowActive]}
-          onPress={() => setExpandedGender((current) => (current === gender ? null : gender))}
-          activeOpacity={0.82}
-        >
-          <Text style={[styles.parentText, isExpanded && styles.parentTextActive]}>{genderLabels[gender]}</Text>
-          <MaterialCommunityIcons
-            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-            size={22}
-            color={isExpanded ? colors.brand : colors.text}
-          />
-        </TouchableOpacity>
+      <>
+        {renderBackRow(genderLabels[gender], () => {
+          setSelectedGender(null);
+          setSelectedGroupId(null);
+        }, 'Quay lại chọn đối tượng')}
 
-        {isExpanded ? (
-          <View style={styles.children}>
-            <TouchableOpacity
-              style={styles.childRow}
-              onPress={() => onSelectGender(gender)}
-              activeOpacity={0.82}
-            >
-              <Text style={styles.childText}>Tất cả {genderLabels[gender].toLowerCase()}</Text>
-              <MaterialCommunityIcons name="chevron-right" size={19} color={colors.textMuted} />
-            </TouchableOpacity>
+        <View style={styles.children}>
+          <TouchableOpacity
+            style={styles.childRow}
+            onPress={() => onSelectGender(gender)}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.childText}>Tất cả {genderLabels[gender].toLowerCase()}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={19} color={colors.textMuted} />
+          </TouchableOpacity>
 
-            {isLoading ? (
-              <Text style={styles.loadingText}>Đang tải danh mục...</Text>
-            ) : groupCategories.length ? (
-              groupCategories.map((group) => {
-                const childCategories = getChildCategories(group._id);
+          {isLoading ? (
+            <Text style={styles.loadingText}>Đang tải danh mục...</Text>
+          ) : groupCategories.length ? (
+            groupCategories.map((group) => {
+              const childCategories = getChildCategories(gender, group._id);
 
-                return (
-                  <View key={group._id}>
-                    <TouchableOpacity
-                      style={styles.groupRow}
-                      onPress={() => onSelectCategory(group)}
-                      activeOpacity={0.82}
-                    >
-                      <Text style={styles.groupText} numberOfLines={1}>
-                        {group.name}
-                      </Text>
-                      <MaterialCommunityIcons name="chevron-right" size={19} color={colors.textMuted} />
-                    </TouchableOpacity>
+              return (
+                <TouchableOpacity
+                  key={group._id}
+                  style={styles.groupRow}
+                  onPress={() => {
+                    if (childCategories.length) {
+                      setSelectedGroupId(group._id);
+                      return;
+                    }
 
-                    {childCategories.map((category) => (
-                      <TouchableOpacity
-                        key={category._id}
-                        style={[styles.childRow, styles.grandChildRow]}
-                        onPress={() => onSelectCategory(category)}
-                        activeOpacity={0.82}
-                      >
-                        <Text style={styles.childText} numberOfLines={1}>
-                          {category.name}
-                        </Text>
-                        <MaterialCommunityIcons name="chevron-right" size={18} color={colors.textMuted} />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                );
-              })
-            ) : (
-              <Text style={styles.loadingText}>Chưa có danh mục con</Text>
-            )}
-          </View>
-        ) : null}
-      </View>
+                    onSelectCategory(group);
+                  }}
+                  activeOpacity={0.82}
+                  accessibilityLabel={`Mở danh mục ${group.name}`}
+                >
+                  <Text style={styles.groupText} numberOfLines={1}>
+                    {group.name}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={19} color={colors.textMuted} />
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <Text style={styles.loadingText}>Chưa có danh mục con</Text>
+          )}
+        </View>
+      </>
     );
   };
+
+  const renderGroupLevel = (gender: CatalogGender, groupId: string) => {
+    const group = categories.find((category) => category._id === groupId && category.gender === gender);
+
+    if (!group) {
+      return renderGenderLevel(gender);
+    }
+
+    const childCategories = getChildCategories(gender, group._id);
+
+    return (
+      <>
+        {renderBackRow(group.name, () => setSelectedGroupId(null), `Quay lại danh mục ${genderLabels[gender]}`)}
+
+        <View style={styles.children}>
+          <TouchableOpacity
+            style={styles.childRow}
+            onPress={() => onSelectCategory(group)}
+            activeOpacity={0.82}
+          >
+            <Text style={styles.childText} numberOfLines={1}>
+              Tất cả {group.name}
+            </Text>
+            <MaterialCommunityIcons name="chevron-right" size={19} color={colors.textMuted} />
+          </TouchableOpacity>
+
+          {isLoading ? (
+            <Text style={styles.loadingText}>Đang tải danh mục...</Text>
+          ) : childCategories.length ? (
+            childCategories.map((category) => (
+              <TouchableOpacity
+                key={category._id}
+                style={styles.childRow}
+                onPress={() => onSelectCategory(category)}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.childText} numberOfLines={1}>
+                  {category.name}
+                </Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))
+          ) : (
+            <Text style={styles.loadingText}>Chưa có danh mục con</Text>
+          )}
+        </View>
+      </>
+    );
+  };
+
+  const renderSelectedLevel = () => {
+    if (!selectedGender) {
+      return visibleGenders.map(renderGenderRow);
+    }
+
+    if (selectedGroupId) {
+      return renderGroupLevel(selectedGender, selectedGroupId);
+    }
+
+    return renderGenderLevel(selectedGender);
+  };
+
+  const sectionLabel = selectedGroupId
+    ? 'Chọn loại sản phẩm'
+    : selectedGender
+      ? `Danh mục ${genderLabels[selectedGender].toLowerCase()}`
+      : 'Danh mục theo đối tượng';
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -197,8 +289,8 @@ const CategoryDrawer = ({
               <MaterialCommunityIcons name="chevron-right" size={20} color={colors.white} />
             </TouchableOpacity>
 
-            <Text style={styles.sectionLabel}>Danh mục theo đối tượng</Text>
-            {visibleGenders.map(renderGenderRow)}
+            <Text style={styles.sectionLabel}>{sectionLabel}</Text>
+            {renderSelectedLevel()}
           </ScrollView>
         </View>
       </View>
@@ -295,6 +387,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandSoft,
     borderBottomColor: colors.brandPale,
   },
+  backLabel: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   parentText: {
     flex: 1,
     color: colors.text,
@@ -324,9 +422,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingLeft: spacing.sm,
     paddingRight: 2,
-  },
-  grandChildRow: {
-    paddingLeft: spacing.xl,
   },
   groupText: {
     flex: 1,
