@@ -107,7 +107,66 @@ const assertCategoryExists = async (categoryId: string) => {
   }
 };
 
-const normalizeVariants = (variants?: ProductVariantInput[]) => {
+const normalizeStoredUrl = (value?: string | null) => String(value ?? '').trim();
+
+const getUnchangedColorImage = (
+  existingVariants: IProductVariant[] | undefined,
+  variant: ProductVariantInput,
+  color: ProductVariantInput['colors'][number],
+) => {
+  const nextImage = normalizeStoredUrl(color.image);
+  if (!nextImage || !existingVariants?.length) {
+    return null;
+  }
+
+  const matchingVariants = variant._id?.trim()
+    ? existingVariants.filter((item) => item._id.toString() === variant._id?.trim())
+    : existingVariants;
+  const existingColor = matchingVariants
+    .flatMap((item) => item.colors)
+    .find((item) => color._id?.trim() && item._id.toString() === color._id.trim());
+
+  if (existingColor && normalizeStoredUrl(existingColor.image) === nextImage) {
+    return existingColor.image;
+  }
+
+  return null;
+};
+
+const getExistingColor = (
+  existingVariants: IProductVariant[] | undefined,
+  variant: ProductVariantInput,
+  color: ProductVariantInput['colors'][number],
+) => {
+  if (!existingVariants?.length) {
+    return null;
+  }
+
+  const matchingVariants = variant._id?.trim()
+    ? existingVariants.filter((item) => item._id.toString() === variant._id?.trim())
+    : existingVariants;
+
+  return matchingVariants
+    .flatMap((item) => item.colors)
+    .find((item) => color._id?.trim() && item._id.toString() === color._id.trim()) ?? null;
+};
+
+const normalizeVariantColorImage = (
+  image: string,
+  existingImage?: string | null,
+) => {
+  const trimmedImage = normalizeStoredUrl(image);
+  if (existingImage && normalizeStoredUrl(existingImage) === trimmedImage) {
+    return existingImage;
+  }
+
+  return normalizeProductImageUrl(image);
+};
+
+const normalizeVariants = (
+  variants?: ProductVariantInput[],
+  existingVariants?: IProductVariant[],
+) => {
   if (!variants) {
     return [];
   }
@@ -132,14 +191,22 @@ const normalizeVariants = (variants?: ProductVariantInput[]) => {
         size: sizeMeasurement.size.trim(),
         measurements: [],
       })),
-      colors: variant.colors.map((color) => ({
-        ...(color._id?.trim()
-          ? { _id: new Types.ObjectId(color._id.trim()) }
-          : {}),
-        color: color.color.trim(),
-        colorCode: color.colorCode?.trim(),
-        image: normalizeProductImageUrl(color.image),
-      })),
+      colors: variant.colors.map((color) => {
+        const existingColor = getExistingColor(existingVariants, variant, color);
+
+        return {
+          ...(color._id?.trim()
+            ? { _id: new Types.ObjectId(color._id.trim()) }
+            : {}),
+          color: color.color.trim(),
+          colorCode: color.colorCode?.trim(),
+          image: normalizeVariantColorImage(
+            color.image,
+            existingColor?.image ?? getUnchangedColorImage(existingVariants, variant, color),
+          ),
+          isActive: color.isActive ?? existingColor?.isActive ?? true,
+        };
+      }),
       isActive: variant.isActive ?? true,
     };
   });
@@ -425,11 +492,17 @@ const getAvailableQuantityForVariant = (
   selectedSizes?: string[],
 ) => {
   const variantId = toIdString(variant._id);
+  const activeColorIds = new Set(
+    variant.colors
+      .filter((color) => color.isActive ?? true)
+      .map((color) => toIdString(color._id)),
+  );
 
   return inventoryItems
     .filter((inventory) => {
       return (
         toIdString(inventory.variantId) === variantId &&
+        activeColorIds.has(toIdString(inventory.colorVariantId)) &&
         inventory.availableQuantity > 0 &&
         matchesInventorySize(inventory, selectedSizes)
       );
@@ -471,12 +544,14 @@ const matchesVariantQuery = (
   variant: IProductVariant,
   query: ProductListQueryInput,
 ) => {
-  if (!variant.isActive || !hasVariantSize(variant, query.size)) {
+  const activeColors = variant.colors.filter((color) => color.isActive ?? true);
+
+  if (!variant.isActive || !activeColors.length || !hasVariantSize(variant, query.size)) {
     return false;
   }
 
-  if (!matchesTextList(variant.colors?.[0]?.color ?? '', query.color) && query.color?.length) {
-    return variant.colors.some((color) => matchesTextList(color.color, query.color));
+  if (query.color?.length && !activeColors.some((color) => matchesTextList(color.color, query.color))) {
+    return false;
   }
 
   if (!matchesObjectIdList(variant.fitTypeId, query.fitType)) {
@@ -559,6 +634,20 @@ const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_des
 const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
   const conditions: Record<string, unknown>[] = [
     { $eq: ['$$variant.isActive', true] },
+    {
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$$variant.colors', []] },
+              as: 'color',
+              cond: { $ne: ['$$color.isActive', false] },
+            },
+          },
+        },
+        0,
+      ],
+    },
   ];
   const selectedSizes = query.size
     ?.map((size) => size.trim().toLowerCase())
@@ -595,7 +684,10 @@ const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
               input: { $ifNull: ['$$variant.colors', []] },
               as: 'color',
               cond: {
-                $in: [{ $toLower: '$$color.color' }, selectedColors],
+                $and: [
+                  { $ne: ['$$color.isActive', false] },
+                  { $in: [{ $toLower: '$$color.color' }, selectedColors] },
+                ],
               },
             },
           },
@@ -1081,6 +1173,7 @@ const mapProductListItem = (
 ) => {
   const productInventory = inventoryByProductId.get(product._id.toString()) ?? [];
   const displayVariant = selectDisplayVariant(product.variant, query, productInventory);
+  const displayColor = displayVariant?.colors.find((color) => color.isActive ?? true);
   const originalPrice = displayVariant?.price ?? 0;
   const discount = displayVariant?.discount ?? 0;
   const brand = isPopulatedBrand(product.brand_id)
@@ -1102,7 +1195,7 @@ const mapProductListItem = (
   return {
     _id: product._id.toString(),
     name: product.name,
-    image: displayVariant?.colors?.[0]?.image || product.product_image,
+    image: displayColor?.image || product.product_image,
     price: originalPrice,
     originalPrice,
     discount,
@@ -1470,6 +1563,7 @@ const mapDetailColor = (color: IProductVariant['colors'][number]): ProductDetail
   color: color.color,
   colorCode: resolveDisplayColorCode(color.colorCode, color.color),
   image: color.image,
+  isActive: color.isActive ?? true,
 });
 
 const getVariantInventoryItems = (
@@ -1513,10 +1607,20 @@ const mapDetailVariant = (
   fitTypeMap: ReturnType<typeof getFitTypeMap>,
   measurementFieldMap: ReturnType<typeof getMeasurementFieldMap>,
   inventoryItems: InventoryStockDocument[],
+  options: { includeInactiveColors?: boolean; includeInactiveInventory?: boolean } = {},
 ): ProductDetailVariant => {
   const originalPrice = variant.price;
   const discount = variant.discount;
-  const variantInventory = getVariantInventoryItems(variant, inventoryItems);
+  const displayColors = options.includeInactiveColors
+    ? variant.colors
+    : variant.colors.filter((color) => color.isActive ?? true);
+  const sellableColors = options.includeInactiveInventory
+    ? displayColors
+    : displayColors.filter((color) => color.isActive ?? true);
+  const sellableColorIds = new Set(sellableColors.map((color) => toIdString(color._id)));
+  const variantInventory = getVariantInventoryItems(variant, inventoryItems).filter((inventory) =>
+    sellableColorIds.has(toIdString(inventory.colorVariantId)),
+  );
 
   return {
     _id: toIdString(variant._id),
@@ -1989,6 +2093,7 @@ const getManagementProducts = async (): Promise<ProductManagementItem[]> => {
                 ? { colorCode: resolveDisplayColorCode(color.colorCode, color.color) }
                 : {}),
               image: color.image,
+              isActive: color.isActive ?? true,
               inventory: variant.sizeMeasurements.map((sizeMeasurement) => {
                 const inventory = inventoryByOption.get(
                   getInventoryLookupKey(variantId, colorId, sizeMeasurement.size),

@@ -13,6 +13,7 @@ export interface ProductColorVariantInput {
   color: string;
   colorCode?: string;
   image: string;
+  isActive?: boolean;
 }
 
 export interface ProductVariantInput {
@@ -139,6 +140,7 @@ export interface ProductManagementColor {
   color: string;
   colorCode?: string;
   image: string;
+  isActive: boolean;
   inventory: ProductManagementInventoryItem[];
 }
 
@@ -170,6 +172,7 @@ export interface ProductDetailColor {
   color: string;
   colorCode?: string;
   image: string;
+  isActive: boolean;
 }
 
 export interface ProductCategoryBreadcrumbItem {

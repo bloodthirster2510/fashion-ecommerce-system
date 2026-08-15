@@ -16,6 +16,7 @@ export interface IColorVariant {
   color: string;
   colorCode?: string;
   image: string;
+  isActive: boolean;
 }
 
 export interface IProductVariant {
@@ -69,6 +70,7 @@ const colorVariantSchema = new Schema<IColorVariant>(
     color: { type: String, required: true, trim: true, minlength: 2, maxlength: 40 },
     colorCode: { type: String, trim: true, maxlength: 30 },
     image: { type: String, required: true, trim: true, maxlength: 500 },
+    isActive: { type: Boolean, default: true },
   },
   { _id: true },
 );
