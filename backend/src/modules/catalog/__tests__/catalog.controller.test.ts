@@ -92,6 +92,7 @@ const createRequest = (
     params,
     files,
     query,
+    headers: {},
   } as Request;
 };
 
@@ -309,6 +310,33 @@ describe('catalog controllers', () => {
       });
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({ message: 'Success', data: response });
+    });
+
+    it('accepts relevance sort for keyword product searches', async () => {
+      const response = {
+        items: [],
+        pagination: { page: 1, limit: 10, totalItems: 0, totalPages: 0 },
+      };
+      mockedProductService.getProductList.mockResolvedValue(response as never);
+
+      const req = createRequest(
+        {},
+        {},
+        undefined,
+        {
+          keyword: 'quần kaki',
+          sort: 'relevance',
+        },
+      );
+      const res = createResponse();
+
+      await getProductList(req, res);
+
+      expect(mockedProductService.getProductList).toHaveBeenCalledWith({
+        keyword: 'quần kaki',
+        sort: 'relevance',
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
     });
 
     it('hides unexpected product list errors from API responses', async () => {

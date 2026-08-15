@@ -185,6 +185,7 @@ const parseSort = (value: unknown) => {
   }
 
   const allowedSorts: ProductSortOption[] = [
+    'relevance',
     'name_asc',
     'name_desc',
     'price_asc',

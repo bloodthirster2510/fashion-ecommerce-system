@@ -17,7 +17,7 @@ export type FavoriteStatusResponse = {
   isFavorited: boolean
 }
 
-export type FavoriteSortOption = ProductSortOption | 'favorited_desc' | 'favorited_asc'
+export type FavoriteSortOption = Exclude<ProductSortOption, 'relevance'> | 'favorited_desc' | 'favorited_asc'
 
 export type FavoriteProduct = ProductListItem & {
   favoritedAt: string

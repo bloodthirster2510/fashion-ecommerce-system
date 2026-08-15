@@ -6,6 +6,7 @@ import { getRecommendationSessionId } from '../recommendation/recommendationSess
 export type CatalogGender = 'male' | 'female' | 'unisex';
 
 export type ProductSortOption =
+  | 'relevance'
   | 'name_asc'
   | 'name_desc'
   | 'price_asc'

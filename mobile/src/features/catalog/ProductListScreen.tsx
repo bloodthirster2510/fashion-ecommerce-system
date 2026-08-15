@@ -102,6 +102,7 @@ const emptyAvailableFilters: ProductListResponse['filters'] = {
 };
 
 const sortOptions: Array<{ label: string; value: ProductSortOption }> = [
+  { label: 'Liên quan', value: 'relevance' },
   { label: 'Mới nhất', value: 'newest' },
   { label: 'Bán chạy', value: 'best_seller' },
   { label: 'Giá thấp', value: 'price_asc' },
@@ -126,6 +127,9 @@ const pricePresets = [
   { label: '200k - 500k', minPrice: 200000, maxPrice: 500000 },
   { label: 'Trên 500k', minPrice: 500000, maxPrice: undefined },
 ];
+
+const getDefaultSort = (params?: RootStackParamList['ProductList']): ProductSortOption =>
+  params?.keyword ? 'relevance' : 'newest';
 
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -155,7 +159,7 @@ const createFiltersFromParams = (params?: RootStackParamList['ProductList']): Pr
     maxPrice: params?.maxPrice,
     isSale: params?.isSale,
     isNew: params?.isNew,
-    sort: params?.sort ?? 'newest',
+    sort: params?.sort ?? getDefaultSort(params),
   });
 
 const getTitle = (params?: RootStackParamList['ProductList']) => {
@@ -384,6 +388,10 @@ const ProductListScreen = () => {
     initialFiltersRef.current,
   );
   const [draftFilters, setDraftFilters] = React.useState<ProductListFilters>(appliedFilters);
+  const [categoryBrowseGender, setCategoryBrowseGender] = React.useState<CatalogGender | undefined>(
+    initialFiltersRef.current.gender,
+  );
+  const [categoryBrowseGroupKey, setCategoryBrowseGroupKey] = React.useState<string | undefined>();
   const [availableFilters, setAvailableFilters] =
     React.useState<ProductListResponse['filters']>(
       initialProductListRef.current?.filters ?? emptyAvailableFilters,
@@ -440,6 +448,8 @@ const ProductListScreen = () => {
     setLoadMoreError(null);
     setAppliedFilters(nextFilters);
     setDraftFilters(nextFilters);
+    setCategoryBrowseGender(nextFilters.gender);
+    setCategoryBrowseGroupKey(undefined);
     scrollToTop(false);
     shouldScrollToCatalogRef.current = opensAtDiscoveryProducts;
   }, [opensAtDiscoveryProducts, params, routeFilterKey, scrollToTop]);
@@ -529,12 +539,23 @@ const ProductListScreen = () => {
   const categoryRailGroups = React.useMemo(
     () =>
       buildCategoryFilterGroups(
-        appliedFilters.gender
-          ? availableFilters.categories.filter((category) => category.gender === appliedFilters.gender)
+        (categoryBrowseGender ?? appliedFilters.gender)
+          ? availableFilters.categories.filter((category) =>
+            category.gender === (categoryBrowseGender ?? appliedFilters.gender))
           : availableFilters.categories,
       ),
-    [appliedFilters.gender, availableFilters.categories],
+    [appliedFilters.gender, availableFilters.categories, categoryBrowseGender],
   );
+  const browsedCategoryGroup = React.useMemo(
+    () => categoryRailGroups.find((group) => group.key === categoryBrowseGroupKey),
+    [categoryBrowseGroupKey, categoryRailGroups],
+  );
+
+  React.useEffect(() => {
+    if (categoryBrowseGroupKey && !browsedCategoryGroup) {
+      setCategoryBrowseGroupKey(undefined);
+    }
+  }, [browsedCategoryGroup, categoryBrowseGroupKey]);
 
   const visibleGenderOptions = React.useMemo(() => {
     const availableGenders = new Set(availableFilters.categories.map((category) => category.gender));
@@ -555,6 +576,15 @@ const ProductListScreen = () => {
       return availableGenders.has(option.value);
     });
   }, [appliedFilters.gender, availableFilters.categories, draftFilters.gender]);
+  const visibleSortOptions = React.useMemo(() => {
+    const shouldShowRelevance = Boolean(
+      params?.keyword || appliedFilters.sort === 'relevance' || draftFilters.sort === 'relevance',
+    );
+
+    return shouldShowRelevance
+      ? sortOptions
+      : sortOptions.filter((option) => option.value !== 'relevance');
+  }, [appliedFilters.sort, draftFilters.sort, params?.keyword]);
 
   const updateAppliedFilters = React.useCallback((updater: (current: ProductListFilters) => ProductListFilters) => {
     setLoadMoreError(null);
@@ -809,10 +839,29 @@ const ProductListScreen = () => {
   );
 
   const selectDiscoveryGender = React.useCallback((gender?: CatalogGender) => {
+    setCategoryBrowseGroupKey(undefined);
+
+    if (!gender) {
+      setCategoryBrowseGender(undefined);
+      updateAppliedFilters((current) => ({
+        ...current,
+        gender: undefined,
+        categoryId: [],
+      }));
+      return;
+    }
+
+    setCategoryBrowseGender((current) => (current === gender ? undefined : gender));
+    if (catalogHeadingOffsetRef.current !== null) {
+      scrollToCatalogHeading(catalogHeadingOffsetRef.current);
+    }
+  }, [scrollToCatalogHeading, updateAppliedFilters]);
+
+  const applyCategoryRailSelection = React.useCallback((categoryIds: string[], gender?: CatalogGender) => {
     updateAppliedFilters((current) => ({
       ...current,
-      gender: current.gender === gender ? undefined : gender,
-      categoryId: [],
+      gender: gender ?? current.gender,
+      categoryId: categoryIds,
     }));
   }, [updateAppliedFilters]);
 
@@ -936,18 +985,22 @@ const ProductListScreen = () => {
 
   const screenTitle = getTitle(params);
   const headerTitle = params?.keyword ? 'Tìm kiếm' : 'Sản phẩm';
-  const selectedGenderLabel = appliedFilters.gender
-    ? genderLabels[appliedFilters.gender].toLocaleUpperCase('vi-VN')
+  const visibleGender = categoryBrowseGender ?? appliedFilters.gender;
+  const selectedGenderLabel = visibleGender
+    ? genderLabels[visibleGender].toLocaleUpperCase('vi-VN')
     : 'MỌI PHONG CÁCH';
   const activeCategoryRailGroupKey = categoryRailGroups.find((group) =>
     getCategoryGroupSelectionIds(group).some((categoryId) => appliedFilters.categoryId.includes(categoryId)),
   )?.key;
-  const isAllCategoryRailActive = !activeCategoryRailGroupKey;
+  const isAllCategoryRailActive = !visibleGender && !activeCategoryRailGroupKey;
+  const isBrowsingUnappliedGender = Boolean(
+    categoryBrowseGender && categoryBrowseGender !== appliedFilters.gender && !appliedFilters.categoryId.length,
+  );
 
   const renderGenderSpotlight = (gender: 'male' | 'female') => {
     const isMale = gender === 'male';
-    const active = appliedFilters.gender === gender;
-    const muted = Boolean(appliedFilters.gender && !active);
+    const active = visibleGender === gender;
+    const muted = Boolean(visibleGender && !active);
     const label = isMale ? 'NAM' : 'NỮ';
 
     return (
@@ -996,6 +1049,187 @@ const ProductListScreen = () => {
           <Image source={discoveryImages[gender]} style={styles.genderImage} resizeMode="cover" />
         </View>
       </TouchableOpacity>
+    );
+  };
+
+  const renderCategoryRailTab = (
+    key: string,
+    label: string,
+    icon: MaterialIconName,
+    active: boolean,
+    onPress: () => void,
+    accessibilityLabel = `Danh mục: ${label}`,
+  ) => (
+    <TouchableOpacity
+      key={key}
+      style={styles.categoryTab}
+      onPress={onPress}
+      activeOpacity={0.82}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={accessibilityLabel}
+    >
+      <View style={[styles.categoryTabIcon, active && styles.categoryTabIconActive]}>
+        <MaterialCommunityIcons
+          name={icon}
+          size={23}
+          color={active ? colors.brandDark : colors.textMuted}
+        />
+      </View>
+      <Text
+        style={[styles.categoryTabLabel, active && styles.categoryTabLabelActive]}
+        numberOfLines={2}
+      >
+        {label}
+      </Text>
+      {active ? <View style={styles.categoryTabIndicator} /> : null}
+    </TouchableOpacity>
+  );
+
+  const renderCategoryRailTabs = () => {
+    const allTab = renderCategoryRailTab(
+      'all',
+      'Tất cả',
+      'view-grid-outline',
+      isAllCategoryRailActive,
+      () => {
+        setCategoryBrowseGender(undefined);
+        setCategoryBrowseGroupKey(undefined);
+        updateAppliedFilters((current) => ({ ...current, gender: undefined, categoryId: [] }));
+      },
+      'Danh mục: Tất cả',
+    );
+
+    if (!categoryBrowseGender && browsedCategoryGroup) {
+      const allGroupIds = getCategoryGroupSelectionIds(browsedCategoryGroup);
+      const allGroupActive = allGroupIds.some((categoryId) => appliedFilters.categoryId.includes(categoryId));
+
+      return (
+        <>
+          {renderCategoryRailTab(
+            'back-all',
+            'Tất cả',
+            'chevron-left',
+            false,
+            () => setCategoryBrowseGroupKey(undefined),
+            'Quay lại tất cả danh mục',
+          )}
+          {renderCategoryRailTab(
+            `group-all-${browsedCategoryGroup.key}`,
+            `Tất cả ${browsedCategoryGroup.label}`,
+            getCategoryRailIcon(browsedCategoryGroup.label),
+            allGroupActive,
+            () => applyCategoryRailSelection(allGroupIds),
+          )}
+          {browsedCategoryGroup.options.map((option) =>
+            renderCategoryRailTab(
+              `option-${browsedCategoryGroup.key}-${option.key}`,
+              option.label,
+              getCategoryRailIcon(option.label),
+              option.categoryIds.some((categoryId) => appliedFilters.categoryId.includes(categoryId)),
+              () => applyCategoryRailSelection(option.categoryIds),
+            ),
+          )}
+        </>
+      );
+    }
+
+    if (categoryBrowseGender) {
+      if (browsedCategoryGroup) {
+        const allGroupIds = getCategoryGroupSelectionIds(browsedCategoryGroup);
+        const allGroupActive = allGroupIds.some((categoryId) => appliedFilters.categoryId.includes(categoryId));
+
+        return (
+          <>
+            {renderCategoryRailTab(
+              `back-${categoryBrowseGender}`,
+              genderLabels[categoryBrowseGender],
+              'chevron-left',
+              false,
+              () => setCategoryBrowseGroupKey(undefined),
+              `Quay lại danh mục ${genderLabels[categoryBrowseGender]}`,
+            )}
+            {renderCategoryRailTab(
+              `group-all-${browsedCategoryGroup.key}`,
+              `Tất cả ${browsedCategoryGroup.label}`,
+              getCategoryRailIcon(browsedCategoryGroup.label),
+              allGroupActive,
+              () => applyCategoryRailSelection(allGroupIds, categoryBrowseGender),
+            )}
+            {browsedCategoryGroup.options.map((option) =>
+              renderCategoryRailTab(
+                `option-${browsedCategoryGroup.key}-${option.key}`,
+                option.label,
+                getCategoryRailIcon(option.label),
+                option.categoryIds.some((categoryId) => appliedFilters.categoryId.includes(categoryId)),
+                () => applyCategoryRailSelection(option.categoryIds, categoryBrowseGender),
+              ),
+            )}
+          </>
+        );
+      }
+
+      return (
+        <>
+          {renderCategoryRailTab(
+            `back-root-${categoryBrowseGender}`,
+            genderLabels[categoryBrowseGender],
+            'chevron-left',
+            false,
+            () => setCategoryBrowseGender(undefined),
+            'Quay lại chọn đối tượng',
+          )}
+          {renderCategoryRailTab(
+            `all-${categoryBrowseGender}`,
+            `Tất cả ${genderLabels[categoryBrowseGender]}`,
+            'view-grid-outline',
+            appliedFilters.gender === categoryBrowseGender && !appliedFilters.categoryId.length,
+            () => applyCategoryRailSelection([], categoryBrowseGender),
+          )}
+          {categoryRailGroups.map((group) => {
+            const active = activeCategoryRailGroupKey === group.key;
+
+            return renderCategoryRailTab(
+              group.key,
+              group.label,
+              getCategoryRailIcon(group.label),
+              active,
+              () => {
+                if (group.options.length) {
+                  setCategoryBrowseGroupKey(group.key);
+                  return;
+                }
+
+                applyCategoryRailSelection(group.categoryIds, categoryBrowseGender);
+              },
+            );
+          })}
+        </>
+      );
+    }
+
+    return (
+      <>
+        {allTab}
+        {categoryRailGroups.map((group) => {
+          const active = activeCategoryRailGroupKey === group.key;
+
+          return renderCategoryRailTab(
+            group.key,
+            group.label,
+            getCategoryRailIcon(group.label),
+            active,
+            () => {
+              if (group.options.length) {
+                setCategoryBrowseGroupKey(group.key);
+                return;
+              }
+
+              applyCategoryRailSelection(active ? [] : group.categoryIds);
+            },
+          );
+        })}
+      </>
     );
   };
 
@@ -1153,7 +1387,9 @@ const ProductListScreen = () => {
               </View>
               <View style={styles.audienceSelector} accessibilityRole="tablist">
                 {discoveryGenderOptions.map((option) => {
-                  const active = appliedFilters.gender === option.value;
+                  const active = option.value
+                    ? visibleGender === option.value
+                    : !visibleGender;
 
                   return (
                     <TouchableOpacity
@@ -1193,7 +1429,9 @@ const ProductListScreen = () => {
               {hasScopedCatalogRequest ? screenTitle : 'Những món đáng thử'}
             </Text>
             <Text style={styles.summaryText}>
-              {isLoading ? 'Đang chọn sản phẩm...' : `${totalItems} lựa chọn`}
+              {isBrowsingUnappliedGender
+                ? 'Chọn danh mục cấp tiếp theo'
+                : isLoading ? 'Đang chọn sản phẩm...' : `${totalItems} lựa chọn`}
             </Text>
           </View>
 
@@ -1214,67 +1452,7 @@ const ProductListScreen = () => {
           style={styles.categoryScroller}
           contentContainerStyle={styles.categoryRail}
         >
-          <TouchableOpacity
-            style={styles.categoryTab}
-            onPress={() => updateAppliedFilters((current) => ({ ...current, categoryId: [] }))}
-            activeOpacity={0.82}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isAllCategoryRailActive }}
-            accessibilityLabel="Danh mục: Tất cả"
-          >
-            <View style={[
-              styles.categoryTabIcon,
-              isAllCategoryRailActive && styles.categoryTabIconActive,
-            ]}>
-              <MaterialCommunityIcons
-                name="view-grid-outline"
-                size={23}
-                color={isAllCategoryRailActive ? colors.brandDark : colors.textMuted}
-              />
-            </View>
-            <Text style={[
-              styles.categoryTabLabel,
-              isAllCategoryRailActive && styles.categoryTabLabelActive,
-            ]}>
-              Tất cả
-            </Text>
-            {isAllCategoryRailActive ? <View style={styles.categoryTabIndicator} /> : null}
-          </TouchableOpacity>
-
-          {categoryRailGroups.map((group) => {
-            const active = activeCategoryRailGroupKey === group.key;
-            const categoryIcon = getCategoryRailIcon(group.label);
-
-            return (
-              <TouchableOpacity
-                key={group.key}
-                style={styles.categoryTab}
-                onPress={() => updateAppliedFilters((current) => ({
-                  ...current,
-                  categoryId: active ? [] : group.categoryIds,
-                }))}
-                activeOpacity={0.82}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={`Danh mục: ${group.label}`}
-              >
-                <View style={[styles.categoryTabIcon, active && styles.categoryTabIconActive]}>
-                  <MaterialCommunityIcons
-                    name={categoryIcon}
-                    size={23}
-                    color={active ? colors.brandDark : colors.textMuted}
-                  />
-                </View>
-                <Text
-                  style={[styles.categoryTabLabel, active && styles.categoryTabLabelActive]}
-                  numberOfLines={2}
-                >
-                  {group.label}
-                </Text>
-                {active ? <View style={styles.categoryTabIndicator} /> : null}
-              </TouchableOpacity>
-            );
-          })}
+          {renderCategoryRailTabs()}
 
           {isLoading && !categoryRailGroups.length ? (
             <View style={styles.categoryLoadingTab}>
@@ -1406,7 +1584,7 @@ const ProductListScreen = () => {
               {renderGroup(
                 'Sắp xếp',
                 <View style={styles.choiceWrap}>
-                  {sortOptions.map((option) =>
+                  {visibleSortOptions.map((option) =>
                     renderChoice(
                       option.label,
                       draftFilters.sort === option.value,

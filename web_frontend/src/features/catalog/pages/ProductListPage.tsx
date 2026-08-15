@@ -29,6 +29,7 @@ const CATALOG_VISUAL_SEARCH_FILE_EVENT = 'catalog:visual-search-file-selected'
 const PRICE_RANGE_ERROR = 'Giá thấp nhất không được cao hơn giá cao nhất.'
 
 const sortOptions: Array<{ value: ProductSortOption; label: string }> = [
+  { value: 'relevance', label: 'Liên quan' },
   { value: 'newest', label: 'Mới nhất' },
   { value: 'best_seller', label: 'Bán chạy' },
   { value: 'price_asc', label: 'Giá thấp đến cao' },
@@ -40,6 +41,7 @@ const sortOptions: Array<{ value: ProductSortOption; label: string }> = [
 
 const validSortOptions = new Set<ProductSortOption>(sortOptions.map((option) => option.value))
 const objectIdPattern = /^[a-f\d]{24}$/i
+const getDefaultSort = (keyword?: string): ProductSortOption => (keyword ? 'relevance' : 'newest')
 
 const getNonNegativeNumberParam = (params: URLSearchParams, key: string) => {
   const value = params.get(key)
@@ -92,6 +94,7 @@ const parseQuery = (search: string): ProductListQuery => {
   const color = getListParam(params, 'color')
   const fitType = getListParam(params, 'fitType').filter((value) => objectIdPattern.test(value))
   const size = getListParam(params, 'size')
+  const keyword = params.get('keyword')?.trim() || undefined
   const gender = params.get('gender')
   const categoryId = params.get('categoryId')
   const brandId = params.get('brandId')
@@ -100,7 +103,7 @@ const parseQuery = (search: string): ProductListQuery => {
   const requestedMaxPrice = getNonNegativeNumberParam(params, 'maxPrice')
 
   return {
-    keyword: params.get('keyword')?.trim() || undefined,
+    keyword,
     visualText: params.get('visualText')?.trim() || undefined,
     gender: gender === 'male' || gender === 'female' ? gender : undefined,
     categoryId: categoryId && objectIdPattern.test(categoryId) ? categoryId : undefined,
@@ -112,7 +115,7 @@ const parseQuery = (search: string): ProductListQuery => {
     maxPrice: requestedMaxPrice,
     isSale: getBooleanParam(params, 'isSale'),
     isNew: getBooleanParam(params, 'isNew'),
-    sort: requestedSort && validSortOptions.has(requestedSort) ? requestedSort : 'newest',
+    sort: requestedSort && validSortOptions.has(requestedSort) ? requestedSort : getDefaultSort(keyword),
     page: getPositiveIntegerParam(params, 'page') || 1,
     limit: LIMIT,
   }
@@ -153,7 +156,7 @@ const buildNormalizedSearch = (query: ProductListQuery) => {
   setOptionalParam(params, 'maxPrice', query.maxPrice)
   setOptionalParam(params, 'isSale', query.isSale)
   setOptionalParam(params, 'isNew', query.isNew)
-  if (query.sort && query.sort !== 'newest') params.set('sort', query.sort)
+  if (query.sort && query.sort !== getDefaultSort(query.keyword)) params.set('sort', query.sort)
   if (query.page && query.page > 1) params.set('page', String(query.page))
 
   const normalizedSearch = params.toString()
@@ -460,14 +463,21 @@ export function ProductListPage() {
     resetVisualSearchState()
     const params = new URLSearchParams()
     if (query.gender) params.set('gender', query.gender)
-    if (query.sort && query.sort !== 'newest') params.set('sort', query.sort)
+    if (query.sort && query.sort !== 'relevance' && query.sort !== 'newest') params.set('sort', query.sort)
 
     const nextSearch = params.toString()
     window.history.pushState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`)
     setSearch(window.location.search)
   }
 
-  const selectedSort = sortOptions.find((option) => option.value === query.sort) ?? sortOptions[0]
+  const visibleSortOptions = useMemo(() => {
+    const shouldShowRelevance = Boolean(query.keyword || query.sort === 'relevance')
+
+    return shouldShowRelevance
+      ? sortOptions
+      : sortOptions.filter((option) => option.value !== 'relevance')
+  }, [query.keyword, query.sort])
+  const selectedSort = visibleSortOptions.find((option) => option.value === query.sort) ?? visibleSortOptions[0]
   const displayedProductList = visualSearchResult ?? productList
   const searchKeyword = query.keyword?.trim()
   const getProductCardClickPayload = (product: ProductListResponse['items'][number]): InteractionPayload => {
@@ -565,7 +575,7 @@ export function ProductListPage() {
           query={query}
           filters={filters}
           fitTypeLabelById={fitTypeLabelById}
-          sortOptions={sortOptions}
+          sortOptions={visibleSortOptions}
           selectedSort={selectedSort}
           onQueryValueChange={applyQueryValue}
           onQueryChange={applyQueryValues}

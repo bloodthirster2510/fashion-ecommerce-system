@@ -22,6 +22,7 @@ export type CatalogFitType = {
 }
 
 export type ProductSortOption =
+  | 'relevance'
   | 'name_asc'
   | 'name_desc'
   | 'price_asc'

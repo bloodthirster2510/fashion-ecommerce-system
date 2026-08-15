@@ -1214,6 +1214,88 @@ describe('productService', () => {
     expect(result.items.map((item) => item.finalPrice)).toEqual([40000, 50000]);
   });
 
+  it('sorts keyword searches by relevance before freshness', async () => {
+    const preferredProductId = new Types.ObjectId('665000000000000000000032');
+    const genericProductId = new Types.ObjectId('665000000000000000000033');
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const createListProduct = (id: Types.ObjectId, name: string, createdAt: Date) => ({
+      _id: id,
+      category_id: { _id: new Types.ObjectId(categoryId), name: 'Quần', gender: 'male' },
+      name,
+      brand_id: { _id: new Types.ObjectId(brandId), name: 'YODY' },
+      variant: [{
+        _id: new Types.ObjectId(),
+        fitTypeId,
+        price: 250000,
+        discount: 0,
+        sizeMeasurements: [{ size: 'M', measurements: [] }],
+        colors: [{ _id: new Types.ObjectId(), color: 'Black', image: colorImageUrl }],
+        isActive: true,
+      }],
+      description: 'Chất liệu kaki đứng form',
+      material: 'Kaki',
+      materialNormalized: 'kaki',
+      product_image: productImageUrl,
+      isActive: true,
+      sold_quantity: 0,
+      averageRating: 0,
+      reviewCount: 0,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const preferredProduct = createListProduct(
+      preferredProductId,
+      'Quần kaki nam regular',
+      new Date('2026-04-01T00:00:00.000Z'),
+    );
+    const genericProduct = createListProduct(
+      genericProductId,
+      'Quần nam basic',
+      new Date('2026-05-01T00:00:00.000Z'),
+    );
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([genericProduct, preferredProduct]),
+    };
+
+    mockedProduct.aggregate.mockResolvedValue([
+      { _id: preferredProductId },
+      { _id: genericProductId },
+    ] as never);
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+    mockedProduct.countDocuments.mockResolvedValue(2);
+    mockedInventory.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) } as never);
+
+    const result = await productService.getProductList({
+      keyword: 'quần kaki',
+      sort: 'relevance',
+      page: 1,
+      limit: 10,
+      includeFilters: false,
+    });
+    const aggregatePipeline = mockedProduct.aggregate.mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+
+    expect(aggregatePipeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $addFields: expect.objectContaining({ __searchRelevanceScore: expect.anything() }) }),
+      {
+        $sort: {
+          __searchRelevanceScore: -1,
+          sold_quantity: -1,
+          averageRating: -1,
+          reviewCount: -1,
+          createdAt: -1,
+        },
+      },
+    ]));
+    expect(mockedProduct.find).toHaveBeenCalledWith({
+      _id: { $in: [preferredProductId, genericProductId] },
+    });
+    expect(result.items.map((item) => item.name)).toEqual([
+      'Quần kaki nam regular',
+      'Quần nam basic',
+    ]);
+  });
+
   it('only applies matched category ids to their corresponding keyword groups', async () => {
     const matchedCategoryId = new Types.ObjectId(categoryId);
     const productListQuery = {

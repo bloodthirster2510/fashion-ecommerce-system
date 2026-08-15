@@ -715,6 +715,8 @@ const isNewProduct = (createdAt: Date) => {
 
 const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
   switch (sort) {
+    case 'relevance':
+      return { createdAt: -1 };
     case 'name_asc':
       return { name: 1 };
     case 'name_desc':
@@ -731,6 +733,106 @@ const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
 
 const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_desc' =>
   sort === 'price_asc' || sort === 'price_desc';
+
+const isRelevanceSort = (query: ProductListQueryInput) =>
+  query.sort === 'relevance' && Boolean(query.keyword?.trim());
+
+const toFlexiblePhraseRegex = (tokens: string[]) =>
+  new RegExp(tokens.map((token) => toAccentInsensitiveRegex(token).source).join('\\s+'), 'i');
+
+const regexMatchExpression = (input: string | Record<string, unknown>, regex: RegExp) => ({
+  $regexMatch: {
+    input: { $ifNull: [input, ''] },
+    regex: regex.source,
+    options: 'i',
+  },
+});
+
+const orExpression = (conditions: Record<string, unknown>[]) =>
+  conditions.length === 1 ? conditions[0] : { $or: conditions };
+
+const andExpression = (conditions: Record<string, unknown>[]) =>
+  conditions.length === 1 ? conditions[0] : { $and: conditions };
+
+const scoreWhen = (condition: Record<string, unknown>, score: number) => ({
+  $cond: [condition, score, 0],
+});
+
+const buildFieldGroupMatchExpression = (fieldPath: string, group: string[]) =>
+  orExpression(group.map((token) => regexMatchExpression(fieldPath, toAccentInsensitiveRegex(token))));
+
+const buildAllGroupsFieldMatchExpression = (fieldPath: string, groups: string[][]) =>
+  andExpression(groups.map((group) => buildFieldGroupMatchExpression(fieldPath, group)));
+
+const buildVariantColorGroupMatchExpression = (group: string[]) => ({
+  $anyElementTrue: [{
+    $map: {
+      input: { $ifNull: ['$variant', []] },
+      as: 'variant',
+      in: {
+        $anyElementTrue: [{
+          $map: {
+            input: { $ifNull: ['$$variant.colors', []] },
+            as: 'color',
+            in: {
+              $and: [
+                { $ne: ['$$color.isActive', false] },
+                buildFieldGroupMatchExpression('$$color.color', group),
+              ],
+            },
+          },
+        }],
+      },
+    },
+  }],
+});
+
+const buildVariantSizeGroupMatchExpression = (group: string[]) => ({
+  $anyElementTrue: [{
+    $map: {
+      input: { $ifNull: ['$variant', []] },
+      as: 'variant',
+      in: {
+        $anyElementTrue: [{
+          $map: {
+            input: { $ifNull: ['$$variant.sizeMeasurements', []] },
+            as: 'sizeMeasurement',
+            in: buildFieldGroupMatchExpression('$$sizeMeasurement.size', group),
+          },
+        }],
+      },
+    },
+  }],
+});
+
+const buildSearchRelevanceScoreExpression = (keyword?: string) => {
+  const tokens = tokenize(keyword ?? '');
+  if (!tokens.length) {
+    return undefined;
+  }
+
+  const tokenGroups = expandMaterialTokenGroups(tokens);
+  const phraseRegex = toFlexiblePhraseRegex(tokens);
+  const scoreExpressions: Record<string, unknown>[] = [
+    scoreWhen(regexMatchExpression('$name', phraseRegex), 120),
+    scoreWhen(buildAllGroupsFieldMatchExpression('$name', tokenGroups), 60),
+    scoreWhen(regexMatchExpression('$description', phraseRegex), 15),
+  ];
+
+  tokenGroups.forEach((group) => {
+    const isMaterialGroup = group.some(isMaterialToken);
+
+    scoreExpressions.push(
+      scoreWhen(buildFieldGroupMatchExpression('$name', group), 18),
+      scoreWhen(buildFieldGroupMatchExpression('$materialNormalized', group), isMaterialGroup ? 32 : 8),
+      scoreWhen(buildVariantColorGroupMatchExpression(group), 16),
+      scoreWhen(buildVariantSizeGroupMatchExpression(group), 10),
+      scoreWhen(buildFieldGroupMatchExpression('$description', group), isMaterialGroup ? 8 : 3),
+    );
+  });
+
+  return scoreExpressions.length === 1 ? scoreExpressions[0] : { $add: scoreExpressions };
+};
 
 const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
   const conditions: Record<string, unknown>[] = [
@@ -866,6 +968,40 @@ const getPriceSortedProductIds = async (
       },
     },
     { $sort: { __catalogFinalPrice: direction, createdAt: -1 } },
+    { $skip: (page - 1) * limit },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
+};
+
+const getRelevanceSortedProductIds = async (
+  filter: ProductListFilter,
+  query: ProductListQueryInput,
+  page: number,
+  limit: number,
+) => {
+  const scoreExpression = buildSearchRelevanceScoreExpression(query.keyword);
+
+  if (!scoreExpression) {
+    return undefined;
+  }
+
+  return Product.aggregate<{ _id: Types.ObjectId }>([
+    { $match: filter },
+    {
+      $addFields: {
+        __searchRelevanceScore: scoreExpression,
+      },
+    },
+    {
+      $sort: {
+        __searchRelevanceScore: -1,
+        sold_quantity: -1,
+        averageRating: -1,
+        reviewCount: -1,
+        createdAt: -1,
+      },
+    },
     { $skip: (page - 1) * limit },
     { $limit: limit },
     { $project: { _id: 1 } },
@@ -2237,11 +2373,15 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
   const priceSortedProductIds = isPriceSort(query.sort)
     ? await getPriceSortedProductIds(filter, query, query.sort, page, limit)
     : undefined;
-  const priceSortOrder = new Map(
-    priceSortedProductIds?.map((item, index) => [item._id.toString(), index]),
-  );
-  const productQuery = priceSortedProductIds
-    ? Product.find({ _id: { $in: priceSortedProductIds.map((item) => item._id) } })
+  const relevanceSortedProductIds = !priceSortedProductIds && isRelevanceSort(query)
+    ? await getRelevanceSortedProductIds(filter, query, page, limit)
+    : undefined;
+  const sortedProductIds = priceSortedProductIds ?? relevanceSortedProductIds;
+  const sortedProductOrder = sortedProductIds
+    ? new Map(sortedProductIds.map((item, index) => [item._id.toString(), index]))
+    : undefined;
+  const productQuery = sortedProductIds
+    ? Product.find({ _id: { $in: sortedProductIds.map((item) => item._id) } })
     : Product.find(filter).sort(sort).skip((page - 1) * limit).limit(limit);
 
   const [products, totalItems, filters] = await Promise.all([
@@ -2254,9 +2394,9 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
       ? Promise.resolve(undefined)
       : getProductListFilters(filter, query),
   ]);
-  if (priceSortOrder) {
+  if (sortedProductOrder) {
     products.sort((left, right) => {
-      return (priceSortOrder.get(left._id.toString()) ?? 0) - (priceSortOrder.get(right._id.toString()) ?? 0);
+      return (sortedProductOrder.get(left._id.toString()) ?? 0) - (sortedProductOrder.get(right._id.toString()) ?? 0);
     });
   }
   const inventoryItems = products.length
