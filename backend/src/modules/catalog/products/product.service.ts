@@ -231,6 +231,10 @@ const assertVariantSizesAndColors = (variants?: ProductVariantInput[]) => {
   }
 
   for (const variant of variants) {
+    if (!variant.sizeMeasurements?.length || !variant.colors?.length) {
+      continue;
+    }
+
     const normalizedSizes = variant.sizeMeasurements.map((sizeMeasurement) => sizeMeasurement.size.trim().toLowerCase());
     if (new Set(normalizedSizes).size !== normalizedSizes.length) {
       throw new ProductServiceError('Duplicate size in product variant', 400);
@@ -269,6 +273,12 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
       throw new ProductServiceError('Variant must include at least one size', 400);
     }
 
+    for (const sizeMeasurement of variant.sizeMeasurements) {
+      if (!sizeMeasurement.size?.trim()) {
+        throw new ProductServiceError('Variant size is required', 400);
+      }
+    }
+
     if (!variant.colors?.length) {
       throw new ProductServiceError('Variant must include at least one color option', 400);
     }
@@ -277,8 +287,99 @@ const assertVariantValuesValid = (variants?: ProductVariantInput[]) => {
       if (color._id?.trim() && !Types.ObjectId.isValid(color._id.trim())) {
         throw new ProductServiceError('Invalid color variant id', 400);
       }
+
+      if (!color.color?.trim()) {
+        throw new ProductServiceError('Variant color is required', 400);
+      }
+
+      if (!color.image?.trim()) {
+        throw new ProductServiceError('Variant color image is required', 400);
+      }
     }
   }
+};
+
+const toVariantReferenceId = (value: unknown) => String(value ?? '');
+
+const assertVariantInventoryReferencesPreserved = async (
+  product: { _id: Types.ObjectId; variant?: IProductVariant[] },
+  variants?: ProductVariantInput[],
+) => {
+  if (!variants) {
+    return;
+  }
+
+  const removedVariantIds: Types.ObjectId[] = [];
+  const removedColorIds: Types.ObjectId[] = [];
+  const removedSizeFilters: Array<{ variantId: Types.ObjectId; size: { $in: string[] } }> = [];
+
+  for (const existingVariant of product.variant ?? []) {
+    const existingVariantId = toVariantReferenceId(existingVariant._id);
+    const nextVariant = variants.find((variant) => variant._id?.trim() === existingVariantId);
+
+    if (!nextVariant) {
+      removedVariantIds.push(new Types.ObjectId(existingVariantId));
+      continue;
+    }
+
+    const nextColorIds = new Set(
+      nextVariant.colors
+        .map((color) => color._id?.trim())
+        .filter((colorId): colorId is string => Boolean(colorId)),
+    );
+    for (const existingColor of existingVariant.colors) {
+      const existingColorId = toVariantReferenceId(existingColor._id);
+      if (!nextColorIds.has(existingColorId)) {
+        removedColorIds.push(new Types.ObjectId(existingColorId));
+      }
+    }
+
+    const nextSizes = new Set(nextVariant.sizeMeasurements.map((sizeMeasurement) => sizeMeasurement.size.trim()));
+    const removedSizes = existingVariant.sizeMeasurements
+      .map((sizeMeasurement) => sizeMeasurement.size.trim())
+      .filter((size) => size && !nextSizes.has(size));
+
+    if (removedSizes.length) {
+      removedSizeFilters.push({
+        variantId: new Types.ObjectId(existingVariantId),
+        size: { $in: removedSizes },
+      });
+    }
+  }
+
+  if (removedVariantIds.length) {
+    const inventoryCount = await Inventory.countDocuments({
+      productId: product._id,
+      variantId: { $in: removedVariantIds },
+    });
+
+    if (inventoryCount > 0) {
+      throw new ProductServiceError('Không thể xóa phom dáng đang có tồn kho.', 400);
+    }
+  }
+
+  if (removedColorIds.length) {
+    const inventoryCount = await Inventory.countDocuments({
+      productId: product._id,
+      colorVariantId: { $in: removedColorIds },
+    });
+
+    if (inventoryCount > 0) {
+      throw new ProductServiceError('Không thể xóa màu đang có tồn kho.', 400);
+    }
+  }
+
+  if (removedSizeFilters.length) {
+    const inventoryCount = await Inventory.countDocuments({
+      productId: product._id,
+      $or: removedSizeFilters,
+    });
+
+    if (inventoryCount > 0) {
+      throw new ProductServiceError('Không thể xóa size đang có tồn kho.', 400);
+    }
+  }
+
 };
 
 const assertVariantPayload = (variants?: ProductVariantInput[]) => {
@@ -1632,7 +1733,7 @@ const mapDetailVariant = (
     finalPrice: getFinalPrice(originalPrice, discount),
     isSale: discount > 0,
     isActive: variant.isActive,
-    colors: variant.colors.map(mapDetailColor),
+    colors: displayColors.map(mapDetailColor),
     sizes: variant.sizeMeasurements.map((sizeMeasurement) => ({
       size: sizeMeasurement.size,
       availableQuantity: getAvailableQuantityForSize(sizeMeasurement.size, variantInventory),
@@ -1691,7 +1792,10 @@ const mapProductDetail = async (
     ? product.variant
     : product.variant.filter((variant) => variant.isActive);
   const variants = detailVariants.map((variant) =>
-    mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems),
+    mapDetailVariant(variant, fitTypeMap, measurementFieldMap, inventoryItems, {
+      includeInactiveColors: true,
+      includeInactiveInventory: options.includeInactiveVariants,
+    }),
   );
   const displayVariant =
     variants.find((variant) => variant.isActive && variant.inventory.some((inventory) => inventory.isAvailable)) ??
@@ -1780,6 +1884,7 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   const categoryIdToValidate = input.category_id ?? (product.category_id instanceof Types.ObjectId ? product.category_id.toString() : String(product.category_id));
   if (input.variant !== undefined) {
     await assertVariantTemplateMatchesCategory(categoryIdToValidate, input.variant);
+    await assertVariantInventoryReferencesPreserved(product, input.variant);
   }
 
   const updateData: Record<string, unknown> = {};
@@ -1787,9 +1892,14 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
   if (input.category_id !== undefined) updateData.category_id = new Types.ObjectId(input.category_id);
   if (input.name !== undefined) updateData.name = input.name.trim();
   if (input.brand_id !== undefined) updateData.brand_id = new Types.ObjectId(input.brand_id);
-  if (input.variant !== undefined) updateData.variant = normalizeVariants(input.variant);
+  if (input.variant !== undefined) updateData.variant = normalizeVariants(input.variant, product.variant);
   if (input.description !== undefined) updateData.description = input.description.trim();
-  if (input.product_image !== undefined) updateData.product_image = normalizeProductImageUrl(input.product_image);
+  if (
+    input.product_image !== undefined &&
+    normalizeStoredUrl(input.product_image) !== normalizeStoredUrl(product.product_image)
+  ) {
+    updateData.product_image = normalizeProductImageUrl(input.product_image);
+  }
   if (input.isActive !== undefined) {
     if (typeof input.isActive === 'boolean') {
       updateData.isActive = input.isActive;
