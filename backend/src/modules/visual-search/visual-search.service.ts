@@ -16,6 +16,7 @@ import type {
   VisualEmbeddingResult,
   VisualGalleryItem,
   VisualIndexBackfillOptions,
+  VisualIndexStatus,
   VisualSearchImageInput,
   VisualSearchQueryOptions,
   VisualSearchResponse,
@@ -78,14 +79,33 @@ type VisualIndexDocument = {
   source: ProductVisualImageSource;
 };
 
+type VisualIndexStatusDocument = {
+  galleryImageId: string;
+  productId: Types.ObjectId;
+  imageUrl: string;
+  source: ProductVisualImageSource;
+  isActive: boolean;
+  indexedAt?: Date;
+  lastSyncedAt?: Date;
+};
+
+type VisualIndexModelBreakdownRow = {
+  _id: {
+    embeddingModel: string;
+    embeddingVersion: string;
+  };
+  activeCount: number;
+  inactiveCount: number;
+  lastSyncedAt?: Date;
+};
+
 type ScoredVisualIndexItem = {
   item: VisualIndexDocument;
   visualScore: number;
   finalVisualScore: number;
 };
 
-const DEFAULT_MOCK_DIMENSION = 64;
-const DEFAULT_MODEL = 'mock-fashionclip';
+const DEFAULT_MODEL = 'openfashionclip';
 const DEFAULT_MODEL_VERSION = 'v2';
 const DEFAULT_HTTP_TIMEOUT_MS = 30_000;
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -106,7 +126,15 @@ export class VisualSearchServiceError extends Error {
 
 const getProvider = (): VisualEmbeddingProvider => {
   const provider = process.env.VISUAL_EMBEDDING_PROVIDER?.trim().toLowerCase();
-  return provider === 'http' ? 'http' : 'mock';
+  if (!provider || provider === 'http') {
+    return 'http';
+  }
+
+  throw new VisualSearchServiceError(
+    'VISUAL_EMBEDDING_PROVIDER chỉ hỗ trợ http. Hãy chạy ai_services/visual_search để tạo embedding thật.',
+    500,
+    'VISUAL_EMBEDDING_PROVIDER_UNSUPPORTED',
+  );
 };
 
 const getModel = () => process.env.VISUAL_EMBEDDING_MODEL?.trim() || DEFAULT_MODEL;
@@ -136,34 +164,6 @@ const createImageHash = (imageUrl: string) =>
 // Tạo mã nhận diện cho ảnh người dùng upload dựa trên nội dung file.
 const createBufferHash = (buffer: Buffer) =>
   crypto.createHash('sha256').update(buffer).digest('hex');
-
-// Tạo embedding giả lập để kiểm chứng pipeline khi chưa bật FashionCLIP thật.
-const createMockEmbedding = (input: VisualEmbeddingInput): VisualEmbeddingResult => {
-  const seedHash = crypto.createHash('sha512');
-
-  if (input.text) {
-    seedHash.update(input.text.trim().toLowerCase());
-  }
-
-  if (input.imageBuffer) {
-    seedHash.update(input.imageBuffer);
-  }
-
-  seedHash.update(`${input.imageHash ?? ''}|${input.imageUrl ?? ''}|${input.fileName ?? ''}`);
-  const seed = seedHash.digest();
-  const embedding = Array.from({ length: DEFAULT_MOCK_DIMENSION }, (_, index) => {
-    const byte = seed[index % seed.length];
-    return byte / 127.5 - 1;
-  });
-
-  return {
-    embedding: normalizeVector(embedding),
-    embeddingDimension: DEFAULT_MOCK_DIMENSION,
-    embeddingModel: getModel(),
-    embeddingVersion: getModelVersion(),
-    provider: 'mock',
-  };
-};
 
 // Chuẩn hóa dữ liệu trả về từ service Python về đúng dạng backend cần dùng.
 const normalizeHttpEmbeddingResponse = (data: {
@@ -296,15 +296,10 @@ const callHttpEmbeddingService = async (input: VisualEmbeddingInput): Promise<Vi
   }
 };
 
-// Chọn cách tạo embedding: mock để kiểm thử pipeline hoặc HTTP để dùng model thật.
+// Tạo embedding qua service Python để dùng model thật.
 const createEmbedding = async (input: VisualEmbeddingInput) => {
-  const provider = getProvider();
-
-  if (provider === 'http') {
-    return callHttpEmbeddingService(input);
-  }
-
-  return createMockEmbedding(input);
+  getProvider();
+  return callHttpEmbeddingService(input);
 };
 
 // Tính giá sau giảm để kết quả visual search hiển thị giống catalog.
@@ -545,6 +540,163 @@ const buildInventoryMaps = (items: InventoryForVisualSearch[]) => {
 // Chọn một biến thể đại diện khi cần lấy giá hiển thị cho ảnh chính.
 const getDisplayVariant = (variants: IProductVariant[]) =>
   variants.find((variant) => variant.isActive) ?? variants[0];
+
+const toIsoString = (value?: Date | null) => value ? value.toISOString() : undefined;
+
+const getSourceBreakdown = (
+  activeGalleryItems: VisualGalleryItem[],
+  indexedItems: VisualIndexStatusDocument[],
+): VisualIndexStatus['sourceBreakdown'] => {
+  const sourceCounts = new Map<ProductVisualImageSource, {
+    currentImageCount: number;
+    indexedImageCount: number;
+  }>([
+    ['product_image', { currentImageCount: 0, indexedImageCount: 0 }],
+    ['color_variant_image', { currentImageCount: 0, indexedImageCount: 0 }],
+  ]);
+
+  activeGalleryItems.forEach((item) => {
+    const counts = sourceCounts.get(item.source);
+    if (counts) counts.currentImageCount += 1;
+  });
+
+  indexedItems.forEach((item) => {
+    const counts = sourceCounts.get(item.source);
+    if (counts) counts.indexedImageCount += 1;
+  });
+
+  return Array.from(sourceCounts.entries()).map(([source, counts]) => ({
+    source,
+    ...counts,
+  }));
+};
+
+const mapGalleryStatusItem = (item: VisualGalleryItem) => ({
+  galleryImageId: item.galleryImageId,
+  productId: item.productId.toString(),
+  imageUrl: item.imageUrl,
+  source: item.source,
+  isActive: item.isActive,
+});
+
+const mapIndexStatusItem = (item: VisualIndexStatusDocument) => ({
+  galleryImageId: item.galleryImageId,
+  productId: item.productId.toString(),
+  imageUrl: item.imageUrl,
+  source: item.source,
+  isActive: item.isActive,
+  lastSyncedAt: toIsoString(item.lastSyncedAt),
+});
+
+// Tổng hợp tình trạng index để admin biết visual search đã bắt kịp catalog chưa.
+const getVisualIndexStatus = async (): Promise<VisualIndexStatus> => {
+  const model = getModel();
+  const modelVersion = getModelVersion();
+  const { products, galleryItems } = await getGalleryItems();
+  const activeGalleryItems = galleryItems.filter((item) => item.isActive);
+  const activeGalleryImageIds = activeGalleryItems.map((item) => item.galleryImageId);
+  const activeGalleryImageIdSet = new Set(activeGalleryImageIds);
+
+  const modelFilter = {
+    embeddingModel: model,
+    embeddingVersion: modelVersion,
+  };
+  const activeCurrentFilter = {
+    ...modelFilter,
+    isActive: true,
+    ...(activeGalleryImageIds.length ? { galleryImageId: { $in: activeGalleryImageIds } } : {}),
+  };
+  const staleActiveFilter = {
+    ...modelFilter,
+    isActive: true,
+    ...(activeGalleryImageIds.length ? { galleryImageId: { $nin: activeGalleryImageIds } } : {}),
+  };
+
+  const [
+    indexedItems,
+    staleItems,
+    staleActiveIndexCount,
+    inactiveIndexCount,
+    latestIndexedItem,
+    latestSyncedItem,
+    modelBreakdownRows,
+  ] = await Promise.all([
+    activeGalleryImageIds.length
+      ? ProductVisualIndex.find(activeCurrentFilter)
+          .select('galleryImageId productId imageUrl source isActive indexedAt lastSyncedAt')
+          .lean<VisualIndexStatusDocument[]>()
+      : Promise.resolve([]),
+    ProductVisualIndex.find(staleActiveFilter)
+      .select('galleryImageId productId imageUrl source isActive indexedAt lastSyncedAt')
+      .sort({ lastSyncedAt: -1 })
+      .limit(20)
+      .lean<VisualIndexStatusDocument[]>(),
+    ProductVisualIndex.countDocuments(staleActiveFilter),
+    ProductVisualIndex.countDocuments({ ...modelFilter, isActive: false }),
+    ProductVisualIndex.findOne(modelFilter)
+      .select('indexedAt')
+      .sort({ indexedAt: -1 })
+      .lean<{ indexedAt?: Date } | null>(),
+    ProductVisualIndex.findOne(modelFilter)
+      .select('lastSyncedAt')
+      .sort({ lastSyncedAt: -1 })
+      .lean<{ lastSyncedAt?: Date } | null>(),
+    ProductVisualIndex.aggregate<VisualIndexModelBreakdownRow>([
+      {
+        $group: {
+          _id: {
+            embeddingModel: '$embeddingModel',
+            embeddingVersion: '$embeddingVersion',
+          },
+          activeCount: { $sum: { $cond: ['$isActive', 1, 0] } },
+          inactiveCount: { $sum: { $cond: ['$isActive', 0, 1] } },
+          lastSyncedAt: { $max: '$lastSyncedAt' },
+        },
+      },
+      { $sort: { lastSyncedAt: -1 } },
+    ]),
+  ]);
+
+  const indexedGalleryImageIds = new Set(indexedItems.map((item) => item.galleryImageId));
+  const missingItems = activeGalleryItems
+    .filter((item) => !indexedGalleryImageIds.has(item.galleryImageId))
+    .slice(0, 20);
+  const indexedImageCount = indexedItems
+    .filter((item) => activeGalleryImageIdSet.has(item.galleryImageId))
+    .length;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    provider: getProvider(),
+    model,
+    modelVersion,
+    productCount: products.length,
+    activeProductCount: products.filter((product) => product.isActive).length,
+    imageCount: galleryItems.length,
+    activeImageCount: activeGalleryItems.length,
+    indexedImageCount,
+    missingImageCount: Math.max(0, activeGalleryItems.length - indexedImageCount),
+    staleActiveIndexCount,
+    inactiveIndexCount,
+    coverageRate: activeGalleryItems.length
+      ? Number((indexedImageCount / activeGalleryItems.length).toFixed(4))
+      : 1,
+    lastIndexedAt: toIsoString(latestIndexedItem?.indexedAt),
+    lastSyncedAt: toIsoString(latestSyncedItem?.lastSyncedAt),
+    sourceBreakdown: getSourceBreakdown(activeGalleryItems, indexedItems),
+    modelBreakdown: modelBreakdownRows.map((row) => ({
+      model: row._id.embeddingModel,
+      modelVersion: row._id.embeddingVersion,
+      activeCount: row.activeCount,
+      inactiveCount: row.inactiveCount,
+      lastSyncedAt: toIsoString(row.lastSyncedAt),
+    })),
+    samples: {
+      missing: missingItems.map(mapGalleryStatusItem),
+      stale: staleItems.map(mapIndexStatusItem),
+    },
+  };
+};
 
 // Tạo danh sách ảnh cần index từ ảnh chính và ảnh theo màu của sản phẩm.
 const buildGalleryItems = (
@@ -1019,6 +1171,7 @@ export const visualSearchService = {
   backfillVisualIndex,
   createEmbedding,
   createImageHash,
+  getVisualIndexStatus,
   searchByImage,
   searchByText,
   normalizeVector,
