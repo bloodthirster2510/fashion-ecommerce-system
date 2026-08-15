@@ -108,7 +108,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 log "fetching origin/main"
-git fetch --prune origin main
+git fetch --prune origin main:refs/remotes/origin/main
 target_sha="$(git rev-parse origin/main)"
 current_sha="$(git rev-parse HEAD)"
 mkdir -p "$STATE_DIR"
