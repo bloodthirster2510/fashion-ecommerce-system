@@ -203,9 +203,23 @@ const isPricePresetActive = (
   preset: (typeof pricePresets)[number],
 ) => filters.minPrice === preset.minPrice && filters.maxPrice === preset.maxPrice;
 
+const normalizeCategoryLabel = (label: string) => label
+  .trim()
+  .toLocaleLowerCase('vi-VN')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd');
+
+const isFootwearCategoryLabel = (label: string) =>
+  /(^|[\s/.-])(giay|dep)([\s/.-]|$)/.test(normalizeCategoryLabel(label));
+
 const sortCategoriesByLevelAndName = (a: CatalogCategory, b: CatalogCategory) => {
   const levelDelta = a.level - b.level;
   if (levelDelta !== 0) return levelDelta;
+
+  const footwearDelta = Number(isFootwearCategoryLabel(a.name)) - Number(isFootwearCategoryLabel(b.name));
+  if (footwearDelta !== 0) return footwearDelta;
+
   return a.name.localeCompare(b.name);
 };
 
@@ -291,17 +305,10 @@ const getCategoryGroupSelectionIds = (group: CategoryFilterGroup) => uniqueStrin
   ...group.options.flatMap((option) => option.categoryIds),
 ]);
 
-const normalizeCategoryLabel = (label: string) => label
-  .trim()
-  .toLocaleLowerCase('vi-VN')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/đ/g, 'd');
-
 const getCategoryRailIcon = (label: string): MaterialIconName => {
   const normalizedLabel = normalizeCategoryLabel(label);
 
-  if (normalizedLabel.includes('giay') || normalizedLabel.includes('dep')) return 'shoe-sneaker';
+  if (isFootwearCategoryLabel(label)) return 'shoe-sneaker';
   if (normalizedLabel.includes('set') || normalizedLabel.includes('bo')) return 'layers-triple-outline';
   if (normalizedLabel.includes('ao')) return 'tshirt-crew-outline';
   if (normalizedLabel.includes('quan')) return 'hanger';

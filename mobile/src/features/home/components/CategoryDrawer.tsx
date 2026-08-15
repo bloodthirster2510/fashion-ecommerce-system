@@ -45,10 +45,24 @@ const categoryOrder: Record<string, number> = {
   'Set đồ': 52,
 };
 
+const normalizeCategoryLabel = (label: string) => label
+  .trim()
+  .toLocaleLowerCase('vi-VN')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd');
+
+const isFootwearCategoryLabel = (label: string) =>
+  /(^|[\s/.-])(giay|dep)([\s/.-]|$)/.test(normalizeCategoryLabel(label));
+
 const sortCategories = (categories: CatalogCategory[]) => {
   return [...categories].sort((a, b) => {
+    const footwearDelta = Number(isFootwearCategoryLabel(a.name)) - Number(isFootwearCategoryLabel(b.name));
+    if (footwearDelta !== 0) return footwearDelta;
+
     const orderDelta = (categoryOrder[a.name] ?? 999) - (categoryOrder[b.name] ?? 999);
     if (orderDelta !== 0) return orderDelta;
+
     return a.name.localeCompare(b.name);
   });
 };
