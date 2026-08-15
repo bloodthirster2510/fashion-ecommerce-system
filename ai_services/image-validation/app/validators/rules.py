@@ -84,8 +84,6 @@ def _base_pose_reason(
 
     if pose is None or pose.person_count < 1:
         return "NO_PERSON_DETECTED"
-    if pose.person_count > 1:
-        return "MULTIPLE_PEOPLE_DETECTED"
     if pose.main_person_score < settings.person_score_threshold:
         return "NO_PERSON_DETECTED"
     if pose.pose_confidence is not None and pose.pose_confidence < settings.pose_confidence_threshold:
@@ -201,8 +199,6 @@ def evaluate_validation_rules(
 
     if pose is None or pose.person_count < 1:
         return _response(False, "NO_PERSON_DETECTED", quality, settings, pose, flags)
-    if pose.person_count > 1:
-        return _response(False, "MULTIPLE_PEOPLE_DETECTED", quality, settings, pose, flags)
     if pose.main_person_score < settings.person_score_threshold:
         return _response(False, "NO_PERSON_DETECTED", quality, settings, pose, flags)
     if _too_small(pose, outfit_mode, settings):

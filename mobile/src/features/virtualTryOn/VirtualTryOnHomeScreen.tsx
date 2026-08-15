@@ -12,7 +12,10 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
-import { isImageValidationHardBlockReason } from './imageValidationPolicy';
+import {
+  isImageValidationSoftGuidanceReason,
+  isImageValidationSourceBlockReason,
+} from './imageValidationPolicy';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
@@ -48,7 +51,7 @@ const isSourceAsset = (asset: VirtualTryOnAsset) =>
   asset.type === 'source_upload' || asset.type === 'source_camera';
 
 const isBlockedSourceAsset = (asset: VirtualTryOnAsset | null) =>
-  isImageValidationHardBlockReason(asset?.validationWarning?.reasonCode);
+  isImageValidationSourceBlockReason(asset?.validationWarning?.reasonCode);
 
 const getUploadAssetErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError) {
@@ -56,13 +59,6 @@ const getUploadAssetErrorAlert = (error: unknown) => {
       return {
         title: 'Tài khoản bị khóa',
         message: error.message || 'Tính năng phối đồ đang bị khóa. Hãy liên hệ cửa hàng để được hỗ trợ.',
-      };
-    }
-
-    if (error.errorCode === 'IMAGE_POLICY_BLOCKED') {
-      return {
-        title: 'Ảnh chưa phù hợp',
-        message: 'Hãy chọn ảnh khác, rõ người hơn.',
       };
     }
 
@@ -92,7 +88,7 @@ const getUploadAssetErrorAlert = (error: unknown) => {
     if (error.errorCode === 'VALIDATION_PROVIDER_FAILED') {
       return {
         title: 'Chưa kiểm tra được ảnh',
-        message: 'Bạn thử lại sau nhé.',
+        message: 'Hãy thử tải lại ảnh sau ít phút.',
       };
     }
   }
@@ -120,16 +116,16 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (!warning && !asset.validationCheckedAt) {
     return {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Sẽ kiểm tra',
-      title: 'Ảnh đã chọn',
-      message: 'Ảnh sẽ được kiểm tra ở bước tiếp theo.',
+      label: 'Chưa có kết quả',
+      title: 'Ảnh chưa được kiểm tra',
+      message: 'Hệ thống sẽ kiểm tra lại ảnh này trước khi tạo phối đồ.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
     };
   }
 
-  if (!warning) {
+  if (!warning || warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
     return {
       icon: 'check' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Ảnh đã sẵn sàng',
@@ -141,60 +137,90 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     };
   }
 
-  if (warning.reasonCode === 'IMAGE_POLICY_BLOCKED') {
-    return {
-      icon: 'alert-octagon-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có cảnh báo',
-      title: 'Ảnh cần xem lại',
-      message: 'Bạn có thể tiếp tục hoặc chọn ảnh khác.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
-    };
-  }
-
-  if (warning.reasonCode === 'NO_PERSON_DETECTED') {
-    return {
-      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Cần đổi ảnh',
-      title: 'Không thấy người trong ảnh',
-      message: 'Chọn ảnh thấy rõ người hơn.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
-    };
-  }
-
-  if (warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
-    return {
-      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có cảnh báo',
-      title: 'Ảnh có nhiều người',
-      message: 'Nên dùng ảnh chỉ có một người.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
-    };
-  }
-
-  if (warning.reasonCode === 'VALIDATION_PROVIDER_FAILED') {
-    return {
+  if (isImageValidationSourceBlockReason(warning.reasonCode)) {
+    const block = {
+      NO_PERSON_DETECTED: {
+        icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Không thấy người trong ảnh',
+        message: 'Chọn ảnh thấy rõ người hoặc một phần cơ thể hơn.',
+      },
+      VALIDATION_PROVIDER_FAILED: {
+        icon: 'cloud-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Chưa kiểm tra được ảnh',
+        message: 'Hãy thử lại sau ít phút.',
+      },
+    }[warning.reasonCode] ?? {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có thể tiếp tục',
-      title: 'Chưa kiểm tra được ảnh',
-      message: 'Bạn vẫn có thể tiếp tục.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
+      title: 'Ảnh không thể dùng',
+      message: 'Hãy chọn ảnh khác để phối đồ.',
+    };
+
+    return {
+      icon: block.icon,
+      label: 'Cần đổi ảnh',
+      title: block.title,
+      message: block.message,
+      color: '#B42318',
+      softColor: '#FFF1F0',
+      borderColor: 'rgba(180,35,24,0.24)',
     };
   }
 
-  if (warning.reasonCode === 'PERSON_TOO_SMALL') {
+  if (isImageValidationSoftGuidanceReason(warning.reasonCode)) {
+    const guidance = {
+      MULTIPLE_PEOPLE_DETECTED: {
+        icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh có nhiều người',
+        message: 'Nên dùng ảnh chỉ có một người.',
+      },
+      PERSON_TOO_SMALL: {
+        icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Người trong ảnh quá nhỏ',
+        message: 'Nên chọn ảnh chụp gần hơn.',
+      },
+      IMAGE_TOO_BLURRY: {
+        icon: 'image-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh bị mờ',
+        message: 'Nên chọn ảnh rõ nét hơn.',
+      },
+      IMAGE_TOO_DARK: {
+        icon: 'weather-night' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh quá tối',
+        message: 'Nên chọn ảnh sáng hơn.',
+      },
+      IMAGE_TOO_SMALL: {
+        icon: 'image-size-select-small' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh có độ phân giải thấp',
+        message: 'Nên chọn ảnh chất lượng cao hơn.',
+      },
+      POSE_NOT_SUPPORTED: {
+        icon: 'human-handsup' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Tư thế khó xử lý',
+        message: 'Nên chọn ảnh đứng thẳng, ít bị che.',
+      },
+    }[warning.reasonCode] ?? {
+      icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+      title: 'Ảnh cần lưu ý',
+      message: 'Bạn vẫn có thể tiếp tục.',
+    };
+
     return {
-      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có cảnh báo',
-      title: 'Người trong ảnh quá nhỏ',
-      message: 'Nên chọn ảnh chụp gần hơn.',
+      icon: guidance.icon,
+      label: 'Có lưu ý',
+      title: guidance.title,
+      message: guidance.message,
+      color: studioPalette.success,
+      softColor: studioPalette.guidanceSoft,
+      borderColor: 'rgba(25,135,84,0.14)',
+    };
+  }
+
+  if (warning.reasonCode === 'BODY_NOT_VISIBLE') {
+    return {
+      icon: 'human-male-height-variant' as keyof typeof MaterialCommunityIcons.glyphMap,
+      label: 'Cần chọn đồ phù hợp',
+      title: 'Ảnh chưa đủ vùng cơ thể',
+      message: 'Chỉ các món dùng vùng cơ thể nhìn thấy rõ mới có thể tạo ảnh.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -204,7 +230,7 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   return {
     icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
     label: 'Nên kiểm tra',
-    title: 'Ảnh chưa thật rõ',
+    title: 'Ảnh chưa rõ',
     message: 'Bạn vẫn có thể tiếp tục.',
     color: colors.goldDark,
     softColor: colors.goldSoft,
@@ -225,6 +251,7 @@ const studioPalette = {
   line: '#DDE7EC',
   success: '#198754',
   successSoft: '#EAF7EF',
+  guidanceSoft: '#D7FAE4',
 } as const;
 
 const virtualTryOnHeroImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
@@ -632,18 +659,10 @@ const VirtualTryOnHomeScreen = () => {
                   >
                     <MaterialCommunityIcons name="close" size={18} color={colors.white} />
                   </TouchableOpacity>
-                  <View style={[styles.heroBadge, { backgroundColor: assetReadiness.color }]}>
-                    <MaterialCommunityIcons name={assetReadiness.icon} size={16} color={colors.white} />
-                    <Text style={styles.heroBadgeText}>{assetReadiness.label}</Text>
-                  </View>
                 </TouchableOpacity>
               ) : (
                 <View style={styles.heroImageWrap}>
                   <Image source={virtualTryOnHeroImage} style={styles.heroImage} resizeMode="cover" />
-                  <View style={[styles.heroBadge, { backgroundColor: assetReadiness.color }]}>
-                    <MaterialCommunityIcons name={assetReadiness.icon} size={16} color={colors.white} />
-                    <Text style={styles.heroBadgeText}>{assetReadiness.label}</Text>
-                  </View>
                 </View>
               )}
             </Animated.View>
@@ -1124,24 +1143,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.26)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  heroBadge: {
-    position: 'absolute',
-    left: spacing.md,
-    bottom: spacing.md,
-    minHeight: 32,
-    borderRadius: radii.pill,
-    backgroundColor: studioPalette.primary,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  heroBadgeText: {
-    color: colors.white,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
   },
   readinessCard: {
     marginTop: spacing.md,

@@ -15,7 +15,7 @@ export const tryOnRoleLabel: Record<TryOnItemRole, string> = {
   dress: 'Váy/đầm',
   shoes: 'Giày/dép',
   accessory: 'Món khác',
-  outerwear: 'Áo khoác',
+  outerwear: 'Áo',
 };
 
 export type OutfitSlot = {
@@ -52,6 +52,36 @@ export const normalizeRoleText = (value: string) =>
 const hasAnyKeyword = (value: string, keywords: string[]) =>
   keywords.some((keyword) => value.includes(keyword));
 
+const fullOutfitPattern =
+  /(^|[\s/.-])(full set|bo do|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
+const exactFullOutfitCategoryPattern = /^(bo|set|combo|outfit|full set)$/;
+
+export const isFullOutfitText = (value: string) => fullOutfitPattern.test(normalizeRoleText(value));
+
+const isFullOutfitCategoryText = (value?: string) => {
+  if (!value) return false;
+  const normalizedValue = normalizeRoleText(value).trim();
+  return fullOutfitPattern.test(normalizedValue) || exactFullOutfitCategoryPattern.test(normalizedValue);
+};
+
+export const isFullOutfitProduct = (product: {
+  name: string;
+  category?: { name?: string } | null;
+  categoryBreadcrumb?: Array<{ name?: string }>;
+}) => {
+  if (isFullOutfitText(product.name)) return true;
+
+  const categoryNames = [
+    product.category?.name,
+    ...(product.categoryBreadcrumb ?? []).map((category) => category.name),
+  ].filter(Boolean);
+
+  return categoryNames.some((categoryName) => isFullOutfitCategoryText(categoryName));
+};
+
+export const isFullOutfitSelectedItem = (item: Pick<TryOnSelectedItem, 'isFullOutfit' | 'nameSnapshot'>) =>
+  Boolean(item.isFullOutfit) || isFullOutfitText(item.nameSnapshot);
+
 export const getSeedItemKey = (item: TryOnSeedItem) =>
   item.cartItemId ?? `${item.productId}:${item.variantId}:${item.colorVariantId}:${item.size ?? ''}`;
 
@@ -68,6 +98,7 @@ export const selectedItemToSeed = (item: TryOnSelectedItem): TryOnSeedItem => ({
   colorVariantId: item.colorVariantId,
   size: item.size,
   role: item.role,
+  isFullOutfit: item.isFullOutfit,
   nameSnapshot: item.nameSnapshot,
   colorSnapshot: item.colorSnapshot,
   imageSnapshot: item.imageSnapshot,
@@ -95,15 +126,15 @@ export const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
   }
 
   return [
-    { key: 'top', label: 'Áo', helper: 'Áo thun, sơ mi', roles: ['top'], icon: 'tshirt-v' },
+    { key: 'top', label: 'Áo', helper: 'Áo thun, sơ mi, áo khoác', roles: ['top', 'outerwear'], icon: 'tshirt-v' },
     { key: 'outfit', label: 'Quần/Váy', helper: 'Quần, jean, váy, đầm', roles: ['bottom', 'dress'], icon: 'hanger' },
-    { key: 'layer', label: 'Áo khoác', helper: 'Tùy chọn: khoác ngoài', roles: ['outerwear'], icon: 'wardrobe-outline', optional: true },
     { key: 'shoes', label: 'Giày/dép', helper: 'Giày, dép, sandal', roles: ['shoes'], icon: 'shoe-formal' },
   ];
 };
 
 export const inferRole = (product: { name: string; category?: { name?: string } | null }): TryOnItemRole => {
   const haystack = normalizeRoleText(`${product.name} ${product.category?.name ?? ''}`);
+  if (isFullOutfitProduct(product)) return 'dress';
   if (hasAnyKeyword(haystack, ['giay', 'dep', 'sandal', 'sneaker', 'boot', 'loafer'])) return 'shoes';
   if (hasAnyKeyword(haystack, ['chan vay', 'quan', 'jean', 'short', 'pants', 'trouser'])) return 'bottom';
   if (hasAnyKeyword(haystack, ['vay', 'dam', 'dress'])) return 'dress';
@@ -112,6 +143,14 @@ export const inferRole = (product: { name: string; category?: { name?: string } 
 };
 
 export const normalizeSelectionForMode = (items: TryOnSelectedItem[], mode: TryOnOutfitMode): NormalizedSelection => {
+  const fullOutfitItem = items.find(isFullOutfitSelectedItem);
+  if (fullOutfitItem) {
+    return {
+      items: [{ ...fullOutfitItem, role: 'dress', isFullOutfit: true }],
+      skipped: items.filter((item) => !isSameTryOnItem(item, fullOutfitItem)),
+    };
+  }
+
   const slots = getOutfitSlots(mode);
   const usedProductIds = new Set<string>();
   const usedSlotKeys = new Set<string>();
@@ -142,16 +181,21 @@ export const selectItemForSlot = (
   slot: OutfitSlot,
   mode: TryOnOutfitMode,
 ) => {
-  const normalizedItem = slot.roles.includes(item.role) ? item : { ...item, role: slot.roles[0] };
+  const normalizedItem = isFullOutfitSelectedItem(item)
+    ? { ...item, role: 'dress' as const, isFullOutfit: true }
+    : slot.roles.includes(item.role) ? item : { ...item, role: slot.roles[0] };
 
   if (mode === 'single') return [normalizedItem];
+  if (normalizedItem.isFullOutfit) return [normalizedItem];
 
-  const withoutSameItem = currentItems.filter((entry) => !isSameTryOnItem(entry, normalizedItem));
+  const withoutFullOutfit = currentItems.filter((entry) => !isFullOutfitSelectedItem(entry));
+  const withoutSameItem = withoutFullOutfit.filter((entry) => !isSameTryOnItem(entry, normalizedItem));
   const withoutSameSlot = withoutSameItem.filter((entry) => !slot.roles.includes(entry.role));
   return normalizeItemsForMode([...withoutSameSlot, normalizedItem], mode);
 };
 
 export const getSuggestedOutfitMode = (items: TryOnSelectedItem[]): TryOnOutfitMode => {
+  if (items.some(isFullOutfitSelectedItem)) return 'single';
   if (items.length <= 1) return 'single';
   return 'full_set';
 };

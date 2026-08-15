@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -12,14 +12,20 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import {
   catalogApi,
+  type CatalogCategory,
   type CatalogProduct,
   type CatalogProductDetail,
   type ProductDetailColor,
+  type ProductListParams,
   type ProductDetailVariant,
+  type ProductListResponse,
 } from '../catalog/catalogApi';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
-import { isImageValidationHardBlockReason } from './imageValidationPolicy';
+import {
+  isImageValidationHardBlockReason,
+  isImageValidationSoftGuidanceReason,
+} from './imageValidationPolicy';
 import {
   TRY_ON_ACTIVE_ITEM_LIMIT,
   TRY_ON_QUEUE_LIMIT,
@@ -41,6 +47,8 @@ import {
   getSelectedItemKey,
   getSeedItemKey,
   inferRole,
+  isFullOutfitProduct,
+  isFullOutfitSelectedItem,
   isSameTryOnItem,
   normalizeItemsForMode,
   normalizeSelectionForMode,
@@ -55,8 +63,10 @@ import { contextPresets } from './contextPresets';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
+type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+type CategoryRailVisual = { icon: MaterialIconName } | { custom: 'pants' };
 type TryOnProductSort = 'recommended' | 'price_asc' | 'price_desc';
-type TryOnGenderFilter = 'all' | 'male' | 'female' | 'unisex';
+type TryOnGenderFilter = 'male' | 'female';
 type ImageValidationStatus = 'idle' | 'checking' | 'valid' | 'invalid' | 'error';
 
 type ImageValidationState = {
@@ -78,16 +88,49 @@ type TryOnProductFilters = {
   categoryIds: string[];
   brandIds: string[];
   gender: TryOnGenderFilter;
+  minPrice?: number;
+  maxPrice?: number;
   isNew?: boolean;
   isSale?: boolean;
   sort: TryOnProductSort;
 };
 
+type TryOnProductMultiFilterKey = 'categoryIds' | 'brandIds';
+
+type CategoryFilterOption = {
+  key: string;
+  label: string;
+  categoryIds: string[];
+  representative: CatalogCategory;
+};
+
+type CategoryFilterGroup = {
+  key: string;
+  label: string;
+  categoryIds: string[];
+  representative: CatalogCategory;
+  options: CategoryFilterOption[];
+};
+
+type CategorySelectionGroup = {
+  key: string;
+  label: string;
+  categoryIds: string[];
+};
+
 const defaultTryOnProductFilters: TryOnProductFilters = {
   categoryIds: [],
   brandIds: [],
-  gender: 'all',
+  gender: 'male',
   sort: 'recommended',
+};
+
+const emptyTryOnAvailableFilters: ProductListResponse['filters'] = {
+  brands: [],
+  colors: [],
+  fitTypes: [],
+  sizes: [],
+  categories: [],
 };
 
 const tryOnPalette = {
@@ -212,6 +255,18 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 const formatPrice = (value: number) =>
   `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.')}đ`;
 
+const pricePresets = [
+  { label: 'Tất cả', minPrice: undefined, maxPrice: undefined },
+  { label: 'Dưới 200k', minPrice: undefined, maxPrice: 200000 },
+  { label: '200k - 500k', minPrice: 200000, maxPrice: 500000 },
+  { label: 'Trên 500k', minPrice: 500000, maxPrice: undefined },
+];
+
+const isPricePresetActive = (
+  filters: TryOnProductFilters,
+  preset: (typeof pricePresets)[number],
+) => filters.minPrice === preset.minPrice && filters.maxPrice === preset.maxPrice;
+
 const fallbackQuantityLimit = 99;
 
 const outfitModes: Array<{
@@ -226,18 +281,389 @@ const outfitModes: Array<{
 
 const contextOptions = contextPresets;
 
-const tryOnSortOptions: Array<{ key: TryOnProductSort; label: string }> = [
-  { key: 'recommended', label: 'Gợi ý' },
-  { key: 'price_asc', label: 'Giá thấp' },
-  { key: 'price_desc', label: 'Giá cao' },
+const tryOnSortOptions: Array<{
+  key: TryOnProductSort;
+  label: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+}> = [
+  { key: 'recommended', label: 'Gợi ý', icon: 'star-outline' },
+  { key: 'price_asc', label: 'Giá thấp', icon: 'sort-ascending' },
+  { key: 'price_desc', label: 'Giá cao', icon: 'sort-descending' },
 ];
 
 const genderFilterOptions: Array<{ key: TryOnGenderFilter; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
-  { key: 'all', label: 'Tất cả', icon: 'apps' },
   { key: 'male', label: 'Nam', icon: 'gender-male' },
   { key: 'female', label: 'Nữ', icon: 'gender-female' },
-  { key: 'unisex', label: 'Unisex', icon: 'gender-male-female' },
 ];
+
+const uniqueStrings = (values: string[]) =>
+  Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+
+const normalizeCategoryLabel = (label: string) => label
+  .trim()
+  .toLocaleLowerCase('vi-VN')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd');
+
+const isFootwearCategoryLabel = (label: string) =>
+  /(^|[\s/.-])(giay|dep)([\s/.-]|$)/.test(normalizeCategoryLabel(label));
+
+const sortCategoriesByLevelAndName = (a: CatalogCategory, b: CatalogCategory) => {
+  const levelDelta = a.level - b.level;
+  if (levelDelta !== 0) return levelDelta;
+
+  const footwearDelta = Number(isFootwearCategoryLabel(a.name)) - Number(isFootwearCategoryLabel(b.name));
+  if (footwearDelta !== 0) return footwearDelta;
+
+  return a.name.localeCompare(b.name);
+};
+
+const normalizeCategoryKey = (name: string) => name.trim().toLocaleLowerCase('vi-VN');
+
+const getTopFilterCategory = (
+  category: CatalogCategory,
+  categoryById: Map<string, CatalogCategory>,
+) => {
+  let currentCategory = category;
+  let parentCategory = currentCategory.parent_id ? categoryById.get(currentCategory.parent_id) : undefined;
+
+  while (parentCategory && parentCategory.level > 1) {
+    currentCategory = parentCategory;
+    parentCategory = currentCategory.parent_id ? categoryById.get(currentCategory.parent_id) : undefined;
+  }
+
+  return currentCategory;
+};
+
+const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilterGroup[] => {
+  const displayCategories = categories.filter((category) => category.level > 1);
+  const categoryById = new Map(categories.map((category) => [category._id, category]));
+  const groups = new Map<string, CategoryFilterGroup>();
+
+  displayCategories.forEach((category) => {
+    const parent = getTopFilterCategory(category, categoryById);
+    const groupKey = normalizeCategoryKey(parent.name);
+    const group = groups.get(groupKey) ?? {
+      key: groupKey,
+      label: parent.name,
+      categoryIds: [],
+      representative: parent,
+      options: [],
+    };
+
+    if (!group.categoryIds.includes(parent._id)) {
+      group.categoryIds.push(parent._id);
+    }
+
+    if (sortCategoriesByLevelAndName(parent, group.representative) < 0) {
+      group.representative = parent;
+      group.label = parent.name;
+    }
+
+    if (category._id !== parent._id) {
+      const optionKey = normalizeCategoryKey(category.name);
+      let option = group.options.find((item) => item.key === optionKey);
+
+      if (!option) {
+        option = {
+          key: optionKey,
+          label: category.name,
+          categoryIds: [],
+          representative: category,
+        };
+        group.options.push(option);
+      }
+
+      if (!option.categoryIds.includes(category._id)) {
+        option.categoryIds.push(category._id);
+      }
+
+      if (sortCategoriesByLevelAndName(category, option.representative) < 0) {
+        option.representative = category;
+        option.label = category.name;
+      }
+    }
+
+    groups.set(groupKey, group);
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      options: group.options.sort((a, b) => sortCategoriesByLevelAndName(a.representative, b.representative)),
+    }))
+    .sort((a, b) => sortCategoriesByLevelAndName(a.representative, b.representative));
+};
+
+const getCategoryGroupSelectionIds = (group: CategoryFilterGroup) => uniqueStrings([
+  ...group.categoryIds,
+  ...group.options.flatMap((option) => option.categoryIds),
+]);
+
+const getCategoryRailVisual = (label: string): CategoryRailVisual => {
+  const normalizedLabel = normalizeCategoryLabel(label);
+
+  if (isFootwearCategoryLabel(label)) return { icon: 'shoe-sneaker' };
+  if (normalizedLabel.includes('set') || normalizedLabel.includes('bo')) return { icon: 'layers-triple-outline' };
+  if (normalizedLabel.includes('ao')) return { icon: 'tshirt-crew-outline' };
+  if (normalizedLabel.includes('quan')) return { custom: 'pants' };
+  if (normalizedLabel.includes('vay') || normalizedLabel.includes('dam')) return { icon: 'human-female-dance' };
+  return { icon: 'wardrobe-outline' };
+};
+
+const isTryOnGenderMatch = (
+  gender: CatalogCategory['gender'] | undefined,
+  filter: TryOnGenderFilter,
+) => gender === filter;
+
+const isTryOnCategorySlotMatch = (category: CatalogCategory, slot: OutfitSlot) => {
+  if (slot.roles.length === allTryOnRoles.length) return true;
+  if (isFullOutfitProduct({ name: category.name, category: { name: category.name } })) return false;
+
+  return slot.roles.includes(inferRole({ name: category.name, category: { name: category.name } }));
+};
+
+const getTryOnScopedCategories = (
+  categories: CatalogCategory[],
+  gender: TryOnGenderFilter,
+  slot: OutfitSlot,
+) => categories.filter((category) =>
+  isTryOnGenderMatch(category.gender, gender) &&
+  isTryOnCategorySlotMatch(category, slot),
+);
+
+const getTryOnProductApiSort = (sort: TryOnProductSort): ProductListParams['sort'] =>
+  sort === 'recommended' ? 'newest' : sort;
+
+const getTryOnCategoryQueryIds = (
+  filters: TryOnProductFilters,
+  scopedCategories: CatalogCategory[],
+  slot: OutfitSlot,
+) => {
+  if (filters.categoryIds.length) return filters.categoryIds;
+  if (slot.roles.length === allTryOnRoles.length) return [];
+  return scopedCategories.map((category) => category._id);
+};
+
+const buildTryOnProductQueryParams = ({
+  filters,
+  scopedCategories,
+  slot,
+  searchTerm,
+}: {
+  filters: TryOnProductFilters;
+  scopedCategories: CatalogCategory[];
+  slot: OutfitSlot;
+  searchTerm: string;
+}): ProductListParams => {
+  const categoryIds = getTryOnCategoryQueryIds(filters, scopedCategories, slot);
+  const keyword = searchTerm.trim();
+
+  return {
+    gender: filters.gender,
+    ...(keyword ? { keyword } : {}),
+    ...(categoryIds.length ? { categoryId: categoryIds } : {}),
+    ...(filters.brandIds.length ? { brandId: filters.brandIds } : {}),
+    ...(filters.minPrice !== undefined ? { minPrice: filters.minPrice } : {}),
+    ...(filters.maxPrice !== undefined ? { maxPrice: filters.maxPrice } : {}),
+    ...(filters.isNew !== undefined ? { isNew: filters.isNew } : {}),
+    ...(filters.isSale !== undefined ? { isSale: filters.isSale } : {}),
+    sort: getTryOnProductApiSort(filters.sort),
+    limit: PRODUCT_PAGE_SIZE,
+  };
+};
+
+const getTryOnProductQueryKey = (query: ProductListParams) => JSON.stringify({
+  ...query,
+  categoryId: Array.isArray(query.categoryId) ? [...query.categoryId].sort() : query.categoryId,
+  brandId: Array.isArray(query.brandId) ? [...query.brandId].sort() : query.brandId,
+});
+
+const mergeCatalogCategories = (
+  current: CatalogCategory[],
+  next: CatalogCategory[] = [],
+) => {
+  const categoryById = new Map(current.map((category) => [category._id, category]));
+  next.forEach((category) => categoryById.set(category._id, category));
+  return Array.from(categoryById.values());
+};
+
+const mergeAvailableProductFilters = (
+  current: ProductListResponse['filters'],
+  next?: ProductListResponse['filters'],
+): ProductListResponse['filters'] => next
+  ? {
+    ...emptyTryOnAvailableFilters,
+    ...next,
+    sizes: next.sizes ?? [],
+    categories: mergeCatalogCategories(current.categories, next.categories),
+  }
+  : current;
+
+const PantsGlyph = ({ color, size = 22 }: { color: string; size?: number }) => {
+  const stroke = Math.max(2, Math.round(size * 0.09));
+  const waistHeight = Math.round(size * 0.22);
+  const legTop = Math.round(size * 0.24);
+  const sideInset = Math.round(size * 0.17);
+  const legWidth = Math.round(size * 0.29);
+  const legHeight = Math.round(size * 0.68);
+  const pocketTop = Math.round(size * 0.29);
+
+  return (
+    <View style={[pantsGlyphStyles.root, { width: size, height: size }]}>
+      <View
+        style={[
+          pantsGlyphStyles.waist,
+          {
+            left: sideInset,
+            width: size - sideInset * 2,
+            height: waistHeight,
+            borderColor: color,
+            borderWidth: stroke,
+            borderRadius: Math.round(size * 0.12),
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.leg,
+          pantsGlyphStyles.leftLeg,
+          {
+            top: legTop,
+            left: sideInset + 1,
+            width: legWidth,
+            height: legHeight,
+            borderColor: color,
+            borderWidth: stroke,
+            borderTopWidth: 0,
+            borderRadius: Math.round(size * 0.1),
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.leg,
+          pantsGlyphStyles.rightLeg,
+          {
+            top: legTop,
+            right: sideInset + 1,
+            width: legWidth,
+            height: legHeight,
+            borderColor: color,
+            borderWidth: stroke,
+            borderTopWidth: 0,
+            borderRadius: Math.round(size * 0.1),
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.fly,
+          {
+            top: legTop,
+            left: Math.round(size / 2 - stroke / 2),
+            width: stroke,
+            height: Math.round(size * 0.36),
+            borderRadius: stroke,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.pocket,
+          pantsGlyphStyles.leftPocket,
+          {
+            top: pocketTop,
+            left: Math.round(size * 0.26),
+            width: Math.round(size * 0.17),
+            height: stroke,
+            borderRadius: stroke,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.pocket,
+          pantsGlyphStyles.rightPocket,
+          {
+            top: pocketTop,
+            right: Math.round(size * 0.26),
+            width: Math.round(size * 0.17),
+            height: stroke,
+            borderRadius: stroke,
+            backgroundColor: color,
+          },
+        ]}
+      />
+    </View>
+  );
+};
+
+const pantsGlyphStyles = StyleSheet.create({
+  root: {
+    alignItems: 'center',
+    position: 'relative',
+  },
+  waist: {
+    position: 'absolute',
+    top: 0,
+    backgroundColor: 'transparent',
+  },
+  leg: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+  },
+  leftLeg: {
+    transform: [{ rotate: '4deg' }],
+  },
+  rightLeg: {
+    transform: [{ rotate: '-4deg' }],
+  },
+  fly: {
+    position: 'absolute',
+  },
+  pocket: {
+    position: 'absolute',
+  },
+  leftPocket: {
+    transform: [{ rotate: '34deg' }],
+  },
+  rightPocket: {
+    transform: [{ rotate: '-34deg' }],
+  },
+});
+
+const CategoryRailIcon = ({ visual, color }: { visual: CategoryRailVisual; color: string }) => {
+  return 'icon' in visual
+    ? <MaterialCommunityIcons name={visual.icon} size={23} color={color} />
+    : <PantsGlyph color={color} />;
+};
+
+const getCategorySelectionGroups = (
+  categoryIds: string[],
+  categories: CatalogCategory[],
+): CategorySelectionGroup[] => {
+  const categoryById = new Map(categories.map((category) => [category._id, category]));
+  const groups = new Map<string, CategorySelectionGroup>();
+
+  categoryIds.forEach((categoryId) => {
+    const category = categoryById.get(categoryId);
+    const label = category?.name ?? 'Danh mục';
+    const key = category ? `${category.level}:${normalizeCategoryKey(category.name)}` : categoryId;
+    const group = groups.get(key) ?? { key, label, categoryIds: [] };
+
+    if (!group.categoryIds.includes(categoryId)) {
+      group.categoryIds.push(categoryId);
+    }
+
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values());
+};
 
 const getSelectionCapabilityModes = (
   _outfitMode: TryOnOutfitMode,
@@ -308,12 +734,12 @@ const imageValidationAlerts: Record<string, { title: string; message: string }> 
     message: 'Chọn ảnh lớn hơn.',
   },
   IMAGE_POLICY_BLOCKED: {
-    title: 'Ảnh cần xem lại',
-    message: 'Bạn có thể tiếp tục hoặc chọn ảnh khác.',
+    title: 'Ảnh cần lưu ý',
+    message: 'Bạn vẫn có thể tiếp tục phối đồ.',
   },
   VALIDATION_PROVIDER_FAILED: {
     title: 'Chưa kiểm tra được ảnh',
-    message: 'Bạn vẫn có thể tiếp tục.',
+    message: 'Hãy thử kiểm tra lại ảnh sau ít phút.',
   },
 };
 
@@ -450,12 +876,14 @@ const getImageValidationReasonTitle = (reasonCode?: string | null) => {
   if (reasonCode === 'NO_PERSON_DETECTED') return 'Cần ảnh người mặc';
   if (reasonCode === 'MULTIPLE_PEOPLE_DETECTED') return 'Ảnh có nhiều người';
   if (reasonCode === 'BODY_NOT_VISIBLE') return 'Chưa đủ vùng cho món này';
-  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh cần xem lại';
+  if (reasonCode === 'IMAGE_POLICY_BLOCKED') return 'Ảnh cần lưu ý';
   if (reasonCode === 'VALIDATION_PROVIDER_FAILED') return 'Chưa kiểm tra được ảnh';
   return reasonCode ? imageValidationAlerts[reasonCode]?.title ?? 'Ảnh cần kiểm tra' : 'Ảnh cần kiểm tra';
 };
 
-const getImageValidationReasonTone = (_reasonCode?: string | null) => 'warning' as const;
+const getImageValidationReasonTone = (reasonCode?: string | null) => (
+  isImageValidationSoftGuidanceReason(reasonCode) ? 'guidance' as const : 'warning' as const
+);
 
 const getInitialVariant = (detail: CatalogProductDetail) =>
   detail.variants.find((item) => item.isActive && item.colors.length && item.sizes.some((size) => size.isAvailable)) ??
@@ -504,19 +932,24 @@ const createSelectedItem = (
   variant: ProductDetailVariant,
   color: ProductDetailColor,
   size?: string,
-): TryOnSelectedItem => ({
-  queueKey: `${detail._id}:${variant._id}:${color._id}:${size ?? ''}`,
-  productId: detail._id,
-  variantId: variant._id,
-  colorVariantId: color._id,
-  size,
-  role: inferRole(detail),
-  nameSnapshot: detail.name,
-  colorSnapshot: color.color,
-  imageSnapshot: color.image || detail.productImage,
-  priceSnapshot: variant.originalPrice,
-  finalPriceSnapshot: variant.finalPrice,
-});
+): TryOnSelectedItem => {
+  const isFullOutfit = isFullOutfitProduct(detail);
+
+  return {
+    queueKey: `${detail._id}:${variant._id}:${color._id}:${size ?? ''}`,
+    productId: detail._id,
+    variantId: variant._id,
+    colorVariantId: color._id,
+    size,
+    role: isFullOutfit ? 'dress' : inferRole(detail),
+    isFullOutfit,
+    nameSnapshot: detail.name,
+    colorSnapshot: color.color,
+    imageSnapshot: color.image || detail.productImage,
+    priceSnapshot: variant.originalPrice,
+    finalPriceSnapshot: variant.finalPrice,
+  };
+};
 
 const createSelectedItemFromSeed = (
   detail: CatalogProductDetail,
@@ -543,6 +976,7 @@ const createSelectedItemFromSeed = (
     queueKey: getSeedItemKey(seed),
     cartItemId: seed.cartItemId,
     role: seed.role && allTryOnRoles.includes(seed.role) ? seed.role : selected.role,
+    isFullOutfit: seed.isFullOutfit ?? selected.isFullOutfit,
     nameSnapshot: seed.nameSnapshot || selected.nameSnapshot,
     colorSnapshot: seed.colorSnapshot || selected.colorSnapshot,
     imageSnapshot: seed.imageSnapshot || selected.imageSnapshot,
@@ -556,7 +990,7 @@ const VirtualTryOnBuilderScreen = () => {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
   const [selectedItems, setSelectedItems] = React.useState<TryOnSelectedItem[]>([]);
-  const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('full_set');
+  const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('single');
   const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
   const [contextPrompt, setContextPrompt] = React.useState('');
   const [includeVideo, setIncludeVideo] = React.useState(false);
@@ -564,6 +998,9 @@ const VirtualTryOnBuilderScreen = () => {
   const [capabilities, setCapabilities] = React.useState<VirtualTryOnCapabilities | null>(null);
   const [searchTerm, setSearchTerm] = React.useState('');
   const [productFilters, setProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
+  const [draftProductFilters, setDraftProductFilters] = React.useState<TryOnProductFilters>(defaultTryOnProductFilters);
+  const [availableFilters, setAvailableFilters] =
+    React.useState<ProductListResponse['filters']>(emptyTryOnAvailableFilters);
   const [isProductListVisible, setIsProductListVisible] = React.useState(false);
   const [isProductFilterVisible, setIsProductFilterVisible] = React.useState(false);
   const [isCreateConfirmVisible, setIsCreateConfirmVisible] = React.useState(false);
@@ -577,7 +1014,7 @@ const VirtualTryOnBuilderScreen = () => {
   const [imageValidation, setImageValidation] = React.useState<ImageValidationState>({ status: 'idle', key: '' });
   const [imageValidationRetryNonce, setImageValidationRetryNonce] = React.useState(0);
   const [selectingProductId, setSelectingProductId] = React.useState<string | null>(null);
-  const [activeSlotKey, setActiveSlotKey] = React.useState('top');
+  const [activeSlotKey, setActiveSlotKey] = React.useState('single');
   const [configuringProduct, setConfiguringProduct] = React.useState<CatalogProductDetail | null>(null);
   const [selectedVariantId, setSelectedVariantId] = React.useState<string>();
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
@@ -585,6 +1022,7 @@ const VirtualTryOnBuilderScreen = () => {
   const [previewImage, setPreviewImage] = React.useState<BuilderPreviewImage | null>(null);
   const iconPulse = React.useRef(new Animated.Value(0)).current;
   const lastPrefillKeyRef = React.useRef('');
+  const isLoadingMoreProductsRef = React.useRef(false);
 
   const sourceAssetId = route.params?.assetId;
   const sourceImageUrl = route.params?.imageUrl;
@@ -601,21 +1039,15 @@ const VirtualTryOnBuilderScreen = () => {
   );
   const outfitSlots = React.useMemo(() => getOutfitSlots(outfitMode), [outfitMode]);
   const activeSlot = outfitSlots.find((slot) => slot.key === activeSlotKey) ?? outfitSlots[0];
-  const optionalLayerSlot = outfitMode === 'full_set'
-    ? outfitSlots.find((slot) => slot.key === 'layer')
-    : undefined;
-  const hasOptionalLayerItem = selectedItems.some((item) => item.role === 'outerwear');
-  const visibleOutfitSlots = React.useMemo(() => {
-    if (outfitMode !== 'full_set') return outfitSlots;
-    return outfitSlots.filter((slot) =>
-      slot.key !== 'layer' ||
-      hasOptionalLayerItem ||
-      activeSlotKey === 'layer',
-    );
-  }, [activeSlotKey, hasOptionalLayerItem, outfitMode, outfitSlots]);
+  const hasSelectedFullOutfit = selectedItems.some(isFullOutfitSelectedItem);
+  const visibleOutfitSlots = outfitSlots;
+  const displayQueueItems = React.useMemo(
+    () => queueItems.filter((item) => !selectedItems.some((selected) => isSameTryOnItem(selected, item))),
+    [queueItems, selectedItems],
+  );
   const queueGroups = React.useMemo(
-    () => getQueueSlotGroups(queueItems, outfitMode),
-    [outfitMode, queueItems],
+    () => getQueueSlotGroups(displayQueueItems, outfitMode),
+    [displayQueueItems, outfitMode],
   );
   const queueActiveCount = React.useMemo(
     () => queueItems.filter((item) => selectedItems.some((selected) => isSameTryOnItem(selected, item))).length,
@@ -630,6 +1062,27 @@ const VirtualTryOnBuilderScreen = () => {
     selectedColor &&
     selectedSizeOption &&
     isSizeAvailableForColor(selectedVariant, selectedColorId, selectedSizeOption),
+  );
+  const productScopedCategories = React.useMemo(
+    () => getTryOnScopedCategories(availableFilters.categories, productFilters.gender, activeSlot),
+    [activeSlot, availableFilters.categories, productFilters.gender],
+  );
+  const draftScopedCategories = React.useMemo(
+    () => getTryOnScopedCategories(availableFilters.categories, draftProductFilters.gender, activeSlot),
+    [activeSlot, availableFilters.categories, draftProductFilters.gender],
+  );
+  const productQueryParams = React.useMemo(
+    () => buildTryOnProductQueryParams({
+      filters: productFilters,
+      scopedCategories: productScopedCategories,
+      slot: activeSlot,
+      searchTerm,
+    }),
+    [activeSlot, productFilters, productScopedCategories, searchTerm],
+  );
+  const productQueryKey = React.useMemo(
+    () => getTryOnProductQueryKey(productQueryParams),
+    [productQueryParams],
   );
 
   React.useEffect(() => {
@@ -706,44 +1159,53 @@ const VirtualTryOnBuilderScreen = () => {
 
   React.useEffect(() => {
     let isCurrent = true;
+    isLoadingMoreProductsRef.current = false;
     setIsLoading(true);
+    setIsLoadingMoreProducts(false);
     catalogApi
-      .getProducts({ page: 1, limit: PRODUCT_PAGE_SIZE, sort: 'newest' })
+      .getProducts({ ...productQueryParams, page: 1 })
       .then((response) => {
         if (!isCurrent) return;
         setProducts(response.items);
         setProductPagination(response.pagination);
+        setAvailableFilters((current) => mergeAvailableProductFilters(current, response.filters));
       })
       .catch(() => {
-        if (isCurrent) Alert.alert('Sản phẩm', 'Không tải được danh sách.');
+        if (isCurrent) {
+          setProducts([]);
+          setProductPagination(null);
+          Alert.alert('Sản phẩm', 'Không tải được danh sách.');
+        }
       })
       .finally(() => {
         if (isCurrent) setIsLoading(false);
       });
 
     return () => { isCurrent = false; };
-  }, []);
+  }, [productQueryKey]);
 
   const loadMoreProducts = React.useCallback(async () => {
-    if (isLoadingMoreProducts || !hasNextPage(productPagination)) return;
+    if (isLoadingMoreProductsRef.current || isLoadingMoreProducts || !hasNextPage(productPagination)) return;
+    isLoadingMoreProductsRef.current = true;
     setIsLoadingMoreProducts(true);
     try {
       const response = await catalogApi.getProducts({
+        ...productQueryParams,
         page: (productPagination?.page ?? 0) + 1,
-        limit: PRODUCT_PAGE_SIZE,
-        sort: 'newest',
       });
       setProducts((current) => mergePageItems(current, response.items));
       setProductPagination(response.pagination);
+      setAvailableFilters((current) => mergeAvailableProductFilters(current, response.filters));
     } catch (caught) {
       Alert.alert(
         'Không thể tải thêm sản phẩm',
         caught instanceof Error ? caught.message : 'Bạn thử lại sau nhé.',
       );
     } finally {
+      isLoadingMoreProductsRef.current = false;
       setIsLoadingMoreProducts(false);
     }
-  }, [isLoadingMoreProducts, productPagination]);
+  }, [isLoadingMoreProducts, productPagination, productQueryKey]);
 
   React.useEffect(() => {
     if (!incomingSeedKey || lastPrefillKeyRef.current === incomingSeedKey) return;
@@ -780,13 +1242,16 @@ const VirtualTryOnBuilderScreen = () => {
           seenKeys.add(key);
           return true;
         });
-        const uniqueAlternatives = alternativeResolved.filter((item) => {
-          const key = getSelectedItemKey(item);
-          if (seenKeys.has(key)) return false;
-          seenKeys.add(key);
-          return true;
-        });
-        const mergedQueue = [...normalized.items, ...remainingActive, ...uniqueAlternatives];
+	        const uniqueAlternatives = alternativeResolved.filter((item) => {
+	          const key = getSelectedItemKey(item);
+	          if (seenKeys.has(key)) return false;
+	          seenKeys.add(key);
+	          return true;
+	        });
+	        const normalizedHasFullOutfit = normalized.items.some(isFullOutfitSelectedItem);
+	        const mergedQueue = normalizedHasFullOutfit
+	          ? normalized.items
+	          : [...normalized.items, ...remainingActive, ...uniqueAlternatives];
 
         setOutfitMode(mode);
         setSelectedItems(normalized.items);
@@ -827,58 +1292,57 @@ const VirtualTryOnBuilderScreen = () => {
   }, [outfitMode]);
 
   const slotProducts = React.useMemo(
-    () => products.filter((product) => activeSlot.roles.includes(inferRole(product))),
-    [activeSlot, products],
+    () => products.filter((product) => {
+      const isFullOutfit = isFullOutfitProduct(product);
+      if (outfitMode === 'full_set' && isFullOutfit) {
+        return false;
+      }
+
+      return activeSlot.roles.includes(isFullOutfit ? 'dress' : inferRole(product));
+    }),
+    [activeSlot, outfitMode, products],
   );
 
   const genderSlotProducts = React.useMemo(
     () => slotProducts.filter((product) =>
-      productFilters.gender === 'all' ||
-      product.category?.gender === productFilters.gender,
+      isTryOnGenderMatch(product.category?.gender, productFilters.gender),
     ),
     [productFilters.gender, slotProducts],
   );
 
-  const categoryFilterOptions = React.useMemo(() => {
-    const options = new Map<string, string>();
+  const draftCategoryFilterGroups = React.useMemo(
+    () => buildCategoryFilterGroups(draftScopedCategories),
+    [draftScopedCategories],
+  );
 
-    genderSlotProducts.forEach((product) => {
-      if (product.category?._id && product.category.name) {
-        options.set(product.category._id, product.category.name);
-      }
-    });
+  const productCategorySelectionGroups = React.useMemo(
+    () => getCategorySelectionGroups(productFilters.categoryIds, availableFilters.categories),
+    [availableFilters.categories, productFilters.categoryIds],
+  );
+  const productCategoryFilterCount = React.useMemo(() => {
+    if (!productFilters.categoryIds.length) {
+      return 0;
+    }
 
-    return Array.from(options.entries())
-      .map(([id, label]) => ({ id, label }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi-VN'));
-  }, [genderSlotProducts]);
+    return productCategorySelectionGroups.length;
+  }, [productCategorySelectionGroups.length, productFilters.categoryIds.length]);
 
-  const brandFilterOptions = React.useMemo(() => {
-    const options = new Map<string, string>();
-
-    genderSlotProducts.forEach((product) => {
-      if (product.brand?._id && product.brand.name) {
-        options.set(product.brand._id, product.brand.name);
-      }
-    });
-
-    return Array.from(options.entries())
-      .map(([id, label]) => ({ id, label }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi-VN'));
-  }, [genderSlotProducts]);
+  const brandFilterOptions = React.useMemo(
+    () =>
+      availableFilters.brands
+        .map((brand) => ({ id: brand._id, label: brand.name }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'vi-VN')),
+    [availableFilters.brands],
+  );
 
   React.useEffect(() => {
-    const availableCategoryIds = new Set(categoryFilterOptions.map((option) => option.id));
+    const availableCategoryIds = new Set(availableFilters.categories.map((category) => category._id));
     const availableBrandIds = new Set(brandFilterOptions.map((option) => option.id));
-
-    setProductFilters((current) => {
+    const pruneFilters = (current: TryOnProductFilters): TryOnProductFilters => {
       const nextCategoryIds = current.categoryIds.filter((id) => availableCategoryIds.has(id));
       const nextBrandIds = current.brandIds.filter((id) => availableBrandIds.has(id));
 
-      if (
-        nextCategoryIds.length === current.categoryIds.length &&
-        nextBrandIds.length === current.brandIds.length
-      ) {
+      if (nextCategoryIds.length === current.categoryIds.length && nextBrandIds.length === current.brandIds.length) {
         return current;
       }
 
@@ -887,63 +1351,115 @@ const VirtualTryOnBuilderScreen = () => {
         categoryIds: nextCategoryIds,
         brandIds: nextBrandIds,
       };
-    });
-  }, [brandFilterOptions, categoryFilterOptions]);
+    };
 
-  const filteredProducts = React.useMemo(() => {
-    const keyword = searchTerm.trim().toLowerCase();
-    const nextProducts = genderSlotProducts.filter((product) => {
-      const matchesKeyword = !keyword ||
-        `${product.name} ${product.category?.name ?? ''} ${product.brand?.name ?? ''}`
-          .toLowerCase()
-          .includes(keyword);
-      const matchesCategory =
-        !productFilters.categoryIds.length ||
-        (product.category?._id ? productFilters.categoryIds.includes(product.category._id) : false);
-      const matchesBrand =
-        !productFilters.brandIds.length ||
-        (product.brand?._id ? productFilters.brandIds.includes(product.brand._id) : false);
-      const matchesNew = !productFilters.isNew || product.isNew;
-      const matchesSale = !productFilters.isSale || product.isSale;
+    setProductFilters(pruneFilters);
+    setDraftProductFilters(pruneFilters);
+  }, [availableFilters.categories, brandFilterOptions]);
 
-      return matchesKeyword && matchesCategory && matchesBrand && matchesNew && matchesSale;
-    });
+  const getScopedCategoryIdsForFilter = React.useCallback((gender: TryOnGenderFilter) => {
+    return new Set(
+      getTryOnScopedCategories(availableFilters.categories, gender, activeSlot)
+        .map((category) => category._id),
+    );
+  }, [activeSlot, availableFilters.categories]);
 
-    if (productFilters.sort === 'price_asc') {
-      return [...nextProducts].sort((a, b) => a.finalPrice - b.finalPrice);
+  React.useEffect(() => {
+    const pruneScopedCategories = (current: TryOnProductFilters): TryOnProductFilters => {
+      if (!current.categoryIds.length) return current;
+
+      const scopedCategoryIds = getScopedCategoryIdsForFilter(current.gender);
+      const nextCategoryIds = current.categoryIds.filter((categoryId) => scopedCategoryIds.has(categoryId));
+
+      if (nextCategoryIds.length === current.categoryIds.length) return current;
+
+      return {
+        ...current,
+        categoryIds: nextCategoryIds,
+      };
+    };
+
+    setProductFilters(pruneScopedCategories);
+    setDraftProductFilters(pruneScopedCategories);
+  }, [getScopedCategoryIdsForFilter]);
+
+  const getCategoryIdsForGender = React.useCallback((
+    categoryIds: string[],
+    gender: TryOnGenderFilter,
+  ) => {
+    const categoryById = new Map(availableFilters.categories.map((category) => [category._id, category]));
+    return categoryIds.filter((categoryId) => isTryOnGenderMatch(categoryById.get(categoryId)?.gender, gender));
+  }, [availableFilters.categories]);
+
+  const filteredProducts = genderSlotProducts;
+  const productTotalCount = productPagination?.totalItems ?? filteredProducts.length;
+
+  React.useEffect(() => {
+    if (
+      !isProductListVisible ||
+      isLoading ||
+      isLoadingMoreProducts ||
+      filteredProducts.length ||
+      !hasNextPage(productPagination)
+    ) {
+      return;
     }
 
-    if (productFilters.sort === 'price_desc') {
-      return [...nextProducts].sort((a, b) => b.finalPrice - a.finalPrice);
-    }
-
-    return nextProducts;
-  }, [genderSlotProducts, productFilters, searchTerm]);
+    void loadMoreProducts();
+  }, [
+    filteredProducts.length,
+    isLoading,
+    isLoadingMoreProducts,
+    isProductListVisible,
+    loadMoreProducts,
+    productPagination,
+  ]);
 
   const productFilterCount =
-    productFilters.categoryIds.length +
+    productCategoryFilterCount +
     productFilters.brandIds.length +
-    (productFilters.gender !== 'all' ? 1 : 0) +
+    (productFilters.gender !== defaultTryOnProductFilters.gender ? 1 : 0) +
+    (productFilters.minPrice !== undefined || productFilters.maxPrice !== undefined ? 1 : 0) +
     (productFilters.isNew ? 1 : 0) +
     (productFilters.isSale ? 1 : 0) +
     (productFilters.sort !== 'recommended' ? 1 : 0);
 
-  const resetProductFilters = () => {
-    setProductFilters(defaultTryOnProductFilters);
+  const openProductFilterSheet = () => {
+    setDraftProductFilters(productFilters);
+    setIsProductFilterVisible(true);
   };
 
-  const toggleProductFilterValue = (key: 'categoryIds' | 'brandIds', value: string) => {
-    setProductFilters((current) => {
-      const values = current[key];
-      const nextValues = values.includes(value)
-        ? values.filter((item) => item !== value)
-        : [...values, value];
+  const applyDraftProductFilters = () => {
+    setProductFilters(draftProductFilters);
+    setIsProductFilterVisible(false);
+  };
+
+  const resetDraftProductFilters = () => {
+    setDraftProductFilters(defaultTryOnProductFilters);
+  };
+
+  const toggleFilterValues = (
+    updateFilters: React.Dispatch<React.SetStateAction<TryOnProductFilters>>,
+    key: TryOnProductMultiFilterKey,
+    targetValues: string[],
+  ) => {
+    updateFilters((current) => {
+      const selectedValues = current[key];
+      const valueSet = new Set(targetValues);
+      const shouldRemove = targetValues.every((value) => selectedValues.includes(value));
+      const nextValues = shouldRemove
+        ? selectedValues.filter((item) => !valueSet.has(item))
+        : uniqueStrings([...selectedValues, ...targetValues]);
 
       return {
         ...current,
         [key]: nextValues,
       };
     });
+  };
+
+  const toggleDraftProductFilterValues = (key: TryOnProductMultiFilterKey, values: string[]) => {
+    toggleFilterValues(setDraftProductFilters, key, values);
   };
 
   const upsertQueueItem = (item: TryOnSelectedItem) => {
@@ -961,8 +1477,30 @@ const VirtualTryOnBuilderScreen = () => {
   };
 
   const addSelectedItem = (item: TryOnSelectedItem) => {
+    if (isFullOutfitSelectedItem(item)) {
+      const fullOutfitItem = { ...item, role: 'dress' as const, isFullOutfit: true };
+
+      animateSelectionLayout();
+      setOutfitMode('single');
+      setActiveSlotKey('single');
+      setQueueItems([fullOutfitItem]);
+      setSelectedItems([fullOutfitItem]);
+
+      if (selectedItems.length > 0 || queueItems.length > 0) {
+        Alert.alert('Bộ đồ dùng riêng', 'Bộ/set đã thay các món đang chọn vì đây là một phối hoàn chỉnh.');
+      }
+      return;
+    }
+
     const roleForSlot = activeSlot.roles.includes(item.role) ? item.role : activeSlot.roles[0];
     const normalizedItem = { ...item, role: roleForSlot };
+    if (hasSelectedFullOutfit) {
+      animateSelectionLayout();
+      setQueueItems([normalizedItem]);
+      setSelectedItems([normalizedItem]);
+      return;
+    }
+
     const replacedItem = outfitMode === 'single'
       ? selectedItems.find((entry) => entry.productId !== normalizedItem.productId)
       : selectedItems.find((entry) =>
@@ -1131,11 +1669,11 @@ const VirtualTryOnBuilderScreen = () => {
     }
     if (
       (imageValidation.status === 'invalid' || imageValidation.status === 'error') &&
-      imageValidation.key === imageValidationScanKey &&
-      imageValidation.errorCode &&
-      isImageValidationHardBlockReason(imageValidation.errorCode)
+      imageValidation.key === imageValidationScanKey
     ) {
-      return imageValidation.errorCode;
+      if (!imageValidation.errorCode || isImageValidationHardBlockReason(imageValidation.errorCode)) {
+        return imageValidation.errorCode ?? 'VALIDATION_PROVIDER_FAILED';
+      }
     }
     return null;
   })();
@@ -1291,7 +1829,9 @@ const VirtualTryOnBuilderScreen = () => {
     };
   })();
 
-  const submitWarningActive = imageValidationSoftWarnsSubmit && imageValidationDisplay.tone === 'warning';
+  const submitWarningActive = imageValidationSoftWarnsSubmit && (
+    imageValidationDisplay.tone === 'warning' || imageValidationDisplay.tone === 'guidance'
+  );
   const submitButtonLabel = sourceAssetId
     ? imageValidationBlocksSubmit
       ? 'Cần đổi ảnh'
@@ -1421,6 +1961,43 @@ const VirtualTryOnBuilderScreen = () => {
     if (!image.uri) return;
     setPreviewImage(image);
   };
+  const handleProductListScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+
+    if (distanceFromBottom <= 220 && hasNextPage(productPagination)) {
+      void loadMoreProducts();
+    }
+  }, [loadMoreProducts, productPagination]);
+
+  const renderFilterChoice = (
+    label: string,
+    isActive: boolean,
+    onPress: () => void,
+    choiceKey = label,
+  ) => (
+    <TouchableOpacity
+      key={choiceKey}
+      style={[styles.filterChoice, isActive && styles.filterChoiceActive]}
+      onPress={onPress}
+      activeOpacity={0.82}
+    >
+      <Text style={[styles.filterChoiceText, isActive && styles.filterChoiceTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const renderFilterGroup = (title: string, children: React.ReactNode | null) => {
+    if (!children) return null;
+
+    return (
+      <View style={styles.filterGroup}>
+        <Text style={styles.filterGroupTitle}>{title}</Text>
+        {children}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -1466,6 +2043,7 @@ const VirtualTryOnBuilderScreen = () => {
               style={({ pressed }) => [
                 styles.imageValidationPill,
                 imageValidationDisplay.tone === 'valid' && styles.imageValidationPillValid,
+                imageValidationDisplay.tone === 'guidance' && styles.imageValidationPillGuidance,
                 imageValidationDisplay.tone === 'warning' && styles.imageValidationPillWarning,
                 imageValidationDisplay.tone === 'checking' && styles.imageValidationPillChecking,
                 pressed && styles.imageValidationPillPressed,
@@ -1478,7 +2056,7 @@ const VirtualTryOnBuilderScreen = () => {
                   name={imageValidationDisplay.icon}
                   size={19}
                   color={
-                    imageValidationDisplay.tone === 'valid'
+                    imageValidationDisplay.tone === 'valid' || imageValidationDisplay.tone === 'guidance'
                       ? tryOnPalette.success
                       : imageValidationDisplay.tone === 'warning'
                         ? colors.goldDark
@@ -1519,7 +2097,14 @@ const VirtualTryOnBuilderScreen = () => {
               <TouchableOpacity
                 key={mode.key}
                 style={[styles.modeSegmentButton, active && styles.modeSegmentButtonActive]}
-                onPress={() => setOutfitMode(mode.key)}
+	                onPress={() => {
+	                  if (mode.key === 'full_set' && hasSelectedFullOutfit) {
+	                    Alert.alert('Bộ đồ dùng riêng', 'Bộ/set đã là một phối hoàn chỉnh nên không chọn thêm món khác trong cùng lượt.');
+	                    return;
+	                  }
+
+	                  setOutfitMode(mode.key);
+	                }}
                 activeOpacity={0.84}
               >
                 <MaterialCommunityIcons
@@ -1618,25 +2203,6 @@ const VirtualTryOnBuilderScreen = () => {
             );
           })}
         </View>
-
-        {optionalLayerSlot && !visibleOutfitSlots.some((slot) => slot.key === optionalLayerSlot.key) ? (
-          <TouchableOpacity
-            style={styles.optionalLayerButton}
-            onPress={() => {
-              setActiveSlotKey(optionalLayerSlot.key);
-              setIsProductListVisible(true);
-            }}
-            activeOpacity={0.84}
-          >
-            <View style={styles.optionalLayerIcon}>
-              <MaterialCommunityIcons name="wardrobe-outline" size={21} color={tryOnPalette.primary} />
-            </View>
-            <View style={styles.optionalLayerCopy}>
-              <Text style={styles.optionalLayerText}>Thêm áo khoác</Text>
-            </View>
-            <MaterialCommunityIcons name="plus-circle-outline" size={22} color={tryOnPalette.primary} />
-          </TouchableOpacity>
-        ) : null}
 
         {queueGroups.length ? (
           <View style={styles.alternativePanel}>
@@ -1938,6 +2504,8 @@ const VirtualTryOnBuilderScreen = () => {
             style={styles.content}
             contentContainerStyle={styles.productListContent}
             showsVerticalScrollIndicator={false}
+            onScroll={handleProductListScroll}
+            scrollEventThrottle={16}
           >
             <View style={styles.searchRow}>
               <MaterialCommunityIcons name="magnify" size={22} color={colors.textMuted} />
@@ -1948,17 +2516,6 @@ const VirtualTryOnBuilderScreen = () => {
                 placeholder="Tìm áo, quần, giày/dép..."
                 placeholderTextColor={colors.textMuted}
               />
-              <TouchableOpacity
-                style={[styles.searchFilterButton, productFilterCount > 0 && styles.searchFilterButtonActive]}
-                onPress={() => setIsProductFilterVisible(true)}
-                activeOpacity={0.82}
-              >
-                <MaterialCommunityIcons
-                  name="tune-variant"
-                  size={21}
-                  color={productFilterCount > 0 ? tryOnPalette.ink : tryOnPalette.primary}
-                />
-              </TouchableOpacity>
             </View>
 
             <View style={styles.genderSegment}>
@@ -1969,7 +2526,13 @@ const VirtualTryOnBuilderScreen = () => {
                   <TouchableOpacity
                     key={option.key}
                     style={[styles.genderChip, active && styles.genderChipActive]}
-                    onPress={() => setProductFilters((current) => ({ ...current, gender: option.key }))}
+                    onPress={() => setProductFilters((current) => {
+                      return {
+                        ...current,
+                        gender: option.key,
+                        categoryIds: getCategoryIdsForGender(current.categoryIds, option.key),
+                      };
+                    })}
                     activeOpacity={0.84}
                   >
                     <MaterialCommunityIcons
@@ -1986,17 +2549,36 @@ const VirtualTryOnBuilderScreen = () => {
             </View>
 
             <View style={styles.productHeaderRow}>
-              <Text style={styles.sectionTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
-              <Text style={styles.productCount}>{filteredProducts.length} món</Text>
+              <View style={styles.productHeaderCopy}>
+                <Text style={styles.sectionTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
+                <Text style={styles.productCount}>{productTotalCount} món phù hợp</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.catalogFilterButton}
+                onPress={openProductFilterSheet}
+                activeOpacity={0.82}
+                accessibilityRole="button"
+                accessibilityLabel="Lọc sản phẩm"
+              >
+                <MaterialCommunityIcons name="tune-variant" size={18} color={colors.brandDark} />
+                <Text style={styles.catalogFilterButtonText}>Lọc</Text>
+                {productFilterCount ? (
+                  <View style={styles.catalogFilterBadge}>
+                    <Text style={styles.catalogFilterBadgeText}>{productFilterCount}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
             </View>
+
             {isLoading ? (
               <ActivityIndicator color={colors.brand} style={styles.loading} />
             ) : filteredProducts.length ? (
               <View style={styles.productGrid}>
-                {filteredProducts.map((product) => {
-                  const selected = selectedItems.some((item) => item.productId === product._id);
-                  const isSelecting = selectingProductId === product._id;
-                  const productRole = inferRole(product);
+	                {filteredProducts.map((product) => {
+	                  const selected = selectedItems.some((item) => item.productId === product._id);
+	                  const isSelecting = selectingProductId === product._id;
+	                  const productIsFullOutfit = isFullOutfitProduct(product);
+	                  const productRole = productIsFullOutfit ? 'dress' : inferRole(product);
 
                   return (
                     <TouchableOpacity
@@ -2007,10 +2589,10 @@ const VirtualTryOnBuilderScreen = () => {
                       disabled={isSelecting}
                     >
                       <View style={styles.productImageWrap}>
-                        <RemoteImage uri={product.image} style={styles.productImage} recyclingKey={product._id} />
-                        <View style={styles.roleBadge}>
-                          <Text style={styles.roleBadgeText}>{roleLabel[productRole]}</Text>
-                        </View>
+	                        <RemoteImage uri={product.image} style={styles.productImage} recyclingKey={product._id} />
+	                        <View style={styles.roleBadge}>
+	                          <Text style={styles.roleBadgeText}>{productIsFullOutfit ? 'Bộ đồ' : roleLabel[productRole]}</Text>
+	                        </View>
                         {selected ? (
                           <View style={styles.selectedMark}>
                             <MaterialCommunityIcons name="check" size={18} color={colors.white} />
@@ -2036,22 +2618,19 @@ const VirtualTryOnBuilderScreen = () => {
                 <Text style={styles.emptySelectionText}>Chưa có sản phẩm phù hợp với phần này.</Text>
               </View>
             )}
-            {hasNextPage(productPagination) ? (
-              <TouchableOpacity
-                style={styles.productLoadMoreButton}
-                disabled={isLoadingMoreProducts}
-                onPress={() => void loadMoreProducts()}
-                activeOpacity={0.84}
-              >
+            {!isLoading && (filteredProducts.length || isLoadingMoreProducts || hasNextPage(productPagination)) ? (
+              <View style={styles.productLoadMoreArea}>
                 {isLoadingMoreProducts ? (
-                  <ActivityIndicator color={colors.white} />
-                ) : (
                   <>
-                    <MaterialCommunityIcons name="chevron-down" size={19} color={colors.white} />
-                    <Text style={styles.productLoadMoreText}>Tải thêm sản phẩm</Text>
+                    <ActivityIndicator color={colors.brand} />
+                    <Text style={styles.productLoadMoreText}>Đang tải thêm sản phẩm...</Text>
                   </>
+                ) : hasNextPage(productPagination) ? (
+                  <Text style={styles.productLoadMoreText}>Kéo xuống để xem thêm</Text>
+                ) : (
+                  <Text style={styles.productEndOfListText}>Bạn đã xem hết sản phẩm phù hợp</Text>
                 )}
-              </TouchableOpacity>
+              </View>
             ) : null}
           </ScrollView>
         </SafeAreaView>
@@ -2207,140 +2786,133 @@ const VirtualTryOnBuilderScreen = () => {
           <Pressable style={styles.filterBackdrop} onPress={() => setIsProductFilterVisible(false)} />
           <View style={styles.filterSheet}>
             <View style={styles.filterSheetHeader}>
-              <Text style={styles.filterSheetTitle}>Lọc sản phẩm</Text>
-              <TouchableOpacity
-                style={styles.filterSheetCloseButton}
-                onPress={() => setIsProductFilterVisible(false)}
-                activeOpacity={0.82}
-                accessibilityRole="button"
-                accessibilityLabel="Đóng bộ lọc"
-              >
-                <MaterialCommunityIcons name="close" size={22} color={colors.text} />
+              <TouchableOpacity onPress={() => setIsProductFilterVisible(false)} activeOpacity={0.82}>
+                <Text style={styles.filterSheetCancel}>Hủy</Text>
               </TouchableOpacity>
-            </View>
-            <View style={styles.filterSheetToolbar}>
-              <TouchableOpacity
-                style={styles.filterSheetResetButton}
-                onPress={resetProductFilters}
-                activeOpacity={0.82}
-                accessibilityRole="button"
-                accessibilityLabel="Đặt lại bộ lọc"
-              >
-                <MaterialCommunityIcons name="restore" size={17} color={colors.brand} />
-                <Text style={styles.filterSheetReset}>Đặt lại</Text>
+              <Text style={styles.filterSheetTitle}>Bộ lọc</Text>
+              <TouchableOpacity onPress={applyDraftProductFilters} activeOpacity={0.82}>
+                <Text style={styles.filterSheetApply}>Áp dụng</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.filterSheetContent}>
-              <Text style={styles.filterGroupTitle}>Dành cho</Text>
-              <View style={styles.filterChoiceWrap}>
-                {genderFilterOptions.map((option) => {
-                  const active = productFilters.gender === option.key;
+              {renderFilterGroup(
+                'Sắp xếp',
+                <View style={styles.filterChoiceWrap}>
+                  {tryOnSortOptions.map((option) =>
+                    renderFilterChoice(
+                      option.label,
+                      draftProductFilters.sort === option.key,
+                      () => setDraftProductFilters((current) => ({ ...current, sort: option.key })),
+                      option.key,
+                    ),
+                  )}
+                </View>,
+              )}
 
-                  return (
-                    <TouchableOpacity
-                      key={option.key}
-                      style={[styles.filterChoice, active && styles.filterChoiceActive]}
-                      onPress={() => setProductFilters((current) => ({ ...current, gender: option.key }))}
-                      activeOpacity={0.82}
-                    >
-                      <Text style={[styles.filterChoiceText, active && styles.filterChoiceTextActive]}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {renderFilterGroup(
+                'Đối tượng',
+                <View style={styles.filterChoiceWrap}>
+                  {genderFilterOptions.map((option) =>
+                    renderFilterChoice(
+                      option.label,
+                      draftProductFilters.gender === option.key,
+                      () => setDraftProductFilters((current) => {
+                        return {
+                          ...current,
+                          gender: option.key,
+                          categoryIds: getCategoryIdsForGender(current.categoryIds, option.key),
+                        };
+                      }),
+                      option.key,
+                    ),
+                  )}
+                </View>,
+              )}
 
-              {categoryFilterOptions.length ? (
-                <>
-                  <Text style={styles.filterGroupTitle}>Loại sản phẩm</Text>
-                  <View style={styles.filterChoiceWrap}>
-                    {categoryFilterOptions.map((option) => {
-                      const active = productFilters.categoryIds.includes(option.id);
+              {renderFilterGroup(
+                'Tình trạng',
+                <View style={styles.filterChoiceWrap}>
+                  {renderFilterChoice('Hàng mới', Boolean(draftProductFilters.isNew), () =>
+                    setDraftProductFilters((current) => ({ ...current, isNew: current.isNew ? undefined : true })),
+                  )}
+                  {renderFilterChoice('Đang sale', Boolean(draftProductFilters.isSale), () =>
+                    setDraftProductFilters((current) => ({ ...current, isSale: current.isSale ? undefined : true })),
+                  )}
+                </View>,
+              )}
+
+              {renderFilterGroup(
+                'Danh mục',
+                draftCategoryFilterGroups.length ? (
+                  <View style={styles.categoryGroups}>
+                    {draftCategoryFilterGroups.map((group) => {
+                      const groupSelectionIds = getCategoryGroupSelectionIds(group);
+                      const categoryChoices = group.options.length
+                        ? group.options
+                        : [{
+                          key: group.key,
+                          label: group.label,
+                          categoryIds: groupSelectionIds,
+                        }];
 
                       return (
-                        <TouchableOpacity
-                          key={option.id}
-                          style={[styles.filterChoice, active && styles.filterChoiceActive]}
-                          onPress={() => toggleProductFilterValue('categoryIds', option.id)}
-                          activeOpacity={0.82}
-                        >
-                          <Text style={[styles.filterChoiceText, active && styles.filterChoiceTextActive]} numberOfLines={1}>
-                            {option.label}
-                          </Text>
-                        </TouchableOpacity>
+                        <View key={group.key} style={styles.categoryGroup}>
+                          <Text style={styles.categoryGroupTitle}>{group.label}</Text>
+                          <View style={styles.filterChoiceWrap}>
+                            {categoryChoices.map((categoryOption) =>
+                              renderFilterChoice(
+                                categoryOption.label,
+                                categoryOption.categoryIds.every((categoryId) =>
+                                  draftProductFilters.categoryIds.includes(categoryId),
+                                ),
+                                () => toggleDraftProductFilterValues('categoryIds', categoryOption.categoryIds),
+                                `option-${group.key}-${categoryOption.key}`,
+                              ),
+                            )}
+                          </View>
+                        </View>
                       );
                     })}
                   </View>
-                </>
-              ) : null}
+                ) : null,
+              )}
 
-              {brandFilterOptions.length ? (
-                <>
-                  <Text style={styles.filterGroupTitle}>Thương hiệu</Text>
+              {renderFilterGroup(
+                'Thương hiệu',
+                brandFilterOptions.length > 1 ? (
                   <View style={styles.filterChoiceWrap}>
-                    {brandFilterOptions.map((option) => {
-                      const active = productFilters.brandIds.includes(option.id);
-
-                      return (
-                        <TouchableOpacity
-                          key={option.id}
-                          style={[styles.filterChoice, active && styles.filterChoiceActive]}
-                          onPress={() => toggleProductFilterValue('brandIds', option.id)}
-                          activeOpacity={0.82}
-                        >
-                          <Text style={[styles.filterChoiceText, active && styles.filterChoiceTextActive]} numberOfLines={1}>
-                            {option.label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+                    {brandFilterOptions.map((option) =>
+                      renderFilterChoice(
+                        option.label,
+                        draftProductFilters.brandIds.includes(option.id),
+                        () => toggleDraftProductFilterValues('brandIds', [option.id]),
+                        option.id,
+                      ),
+                    )}
                   </View>
-                </>
-              ) : null}
+                ) : null,
+              )}
 
-              <Text style={styles.filterGroupTitle}>Sắp xếp</Text>
-              <View style={styles.filterChoiceWrap}>
-                {tryOnSortOptions.map((option) => {
-                  const active = productFilters.sort === option.key;
+              {renderFilterGroup(
+                'Khoảng giá',
+                <View style={styles.filterChoiceWrap}>
+                  {pricePresets.map((preset) =>
+                    renderFilterChoice(preset.label, isPricePresetActive(draftProductFilters, preset), () =>
+                      setDraftProductFilters((current) => ({
+                        ...current,
+                        minPrice: preset.minPrice,
+                        maxPrice: preset.maxPrice,
+                      })),
+                    ),
+                  )}
+                </View>,
+              )}
 
-                  return (
-                    <TouchableOpacity
-                      key={option.key}
-                      style={[styles.filterChoice, active && styles.filterChoiceActive]}
-                      onPress={() => setProductFilters((current) => ({ ...current, sort: option.key }))}
-                      activeOpacity={0.82}
-                    >
-                      <Text style={[styles.filterChoiceText, active && styles.filterChoiceTextActive]}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <Text style={styles.filterGroupTitle}>Tình trạng</Text>
-              <View style={styles.filterChoiceWrap}>
-                <TouchableOpacity
-                  style={[styles.filterChoice, productFilters.isNew && styles.filterChoiceActive]}
-                  onPress={() => setProductFilters((current) => ({ ...current, isNew: current.isNew ? undefined : true }))}
-                  activeOpacity={0.82}
-                >
-                  <Text style={[styles.filterChoiceText, productFilters.isNew && styles.filterChoiceTextActive]}>
-                    Hàng mới
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.filterChoice, productFilters.isSale && styles.filterChoiceActive]}
-                  onPress={() => setProductFilters((current) => ({ ...current, isSale: current.isSale ? undefined : true }))}
-                  activeOpacity={0.82}
-                >
-                  <Text style={[styles.filterChoiceText, productFilters.isSale && styles.filterChoiceTextActive]}>
-                    Đang sale
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity style={styles.resetButton} onPress={resetDraftProductFilters} activeOpacity={0.82}>
+                <MaterialCommunityIcons name="refresh" size={18} color={colors.brand} />
+                <Text style={styles.resetText}>Đặt lại bộ lọc</Text>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
@@ -2504,6 +3076,10 @@ const styles = StyleSheet.create({
   imageValidationPillValid: {
     backgroundColor: tryOnPalette.successSoft,
     borderColor: tryOnPalette.success,
+  },
+  imageValidationPillGuidance: {
+    backgroundColor: '#D7FAE4',
+    borderColor: 'rgba(25,135,84,0.14)',
   },
   imageValidationPillWarning: {
     backgroundColor: colors.goldSoft,
@@ -3314,17 +3890,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
-  searchFilterButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: tryOnPalette.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchFilterButtonActive: {
-    backgroundColor: tryOnPalette.primaryPale,
-  },
   genderSegment: {
     minHeight: 54,
     borderRadius: radii.md,
@@ -3369,11 +3934,116 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  productHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   productCount: {
     color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800',
+    marginTop: 1,
+  },
+  catalogFilterButton: {
+    minHeight: 40,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  catalogFilterButtonText: {
+    color: colors.brandDark,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  catalogFilterBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  catalogFilterBadgeText: {
+    color: colors.white,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
+  productCategoryScroller: {
+    height: 88,
+    maxHeight: 88,
+    marginHorizontal: -spacing.md,
+    marginBottom: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  productCategoryRail: {
+    minHeight: 88,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'stretch',
+  },
+  productCategoryRailBalanced: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    justifyContent: 'space-between',
+  },
+  productCategoryTab: {
+    position: 'relative',
+    width: 82,
+    height: 88,
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    paddingBottom: 7,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  productCategoryTabBalanced: {
+    flexShrink: 0,
+  },
+  productCategoryTabIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  productCategoryTabIconActive: {
+    backgroundColor: colors.brandMist,
+  },
+  productCategoryTabLabel: {
+    marginTop: 4,
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  productCategoryTabLabelActive: {
+    color: colors.brandDark,
+    fontWeight: '900',
+  },
+  productCategoryTabIndicator: {
+    position: 'absolute',
+    left: 11,
+    right: 11,
+    bottom: 0,
+    height: 3,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    backgroundColor: colors.brandDark,
   },
   productGrid: {
     flexDirection: 'row',
@@ -3670,19 +4340,27 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '800',
   },
-  productLoadMoreButton: {
-    minHeight: 48,
-    borderRadius: radii.sm,
-    backgroundColor: tryOnPalette.primary,
-    flexDirection: 'row',
+  productLoadMoreArea: {
+    minHeight: 58,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
   },
   productLoadMoreText: {
-    color: colors.white,
-    fontWeight: '900',
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  productEndOfListText: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   videoDurationValueBadge: {
     minWidth: 62,
@@ -4127,72 +4805,54 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.34)',
   },
   filterSheet: {
-    maxHeight: '78%',
+    zIndex: 2,
+    elevation: 12,
+    width: '100%',
+    maxHeight: '82%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     backgroundColor: tryOnPalette.surface,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
-    gap: spacing.md,
   },
   filterSheetContent: {
-    gap: spacing.md,
-    paddingBottom: spacing.md,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
   },
   filterSheetHeader: {
-    minHeight: 40,
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 44,
-  },
-  filterSheetCloseButton: {
-    position: 'absolute',
-    right: 0,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
   },
   filterSheetTitle: {
     color: colors.text,
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '900',
-    textAlign: 'center',
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: '800',
   },
-  filterSheetToolbar: {
-    minHeight: 34,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    marginTop: 4,
+  filterSheetCancel: {
+    color: colors.text,
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '500',
   },
-  filterSheetResetButton: {
-    minHeight: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.field,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  filterSheetApply: {
+    color: colors.danger,
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '800',
   },
-  filterSheetReset: {
-    color: colors.brand,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '900',
+  filterGroup: {
+    marginBottom: spacing.xl,
   },
   filterGroupTitle: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '900',
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: '800',
+    marginBottom: spacing.md,
   },
   filterChoiceWrap: {
     flexDirection: 'row',
@@ -4200,27 +4860,60 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   filterChoice: {
-    minHeight: 40,
+    minHeight: 42,
+    maxWidth: '100%',
     borderRadius: radii.xs,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.field,
     backgroundColor: colors.field,
     paddingHorizontal: spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.sm,
   },
   filterChoiceActive: {
-    borderColor: tryOnPalette.primaryPale,
-    backgroundColor: tryOnPalette.primaryPale,
+    borderColor: colors.black,
+    backgroundColor: colors.surface,
   },
   filterChoiceText: {
+    flexShrink: 1,
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '800',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   filterChoiceTextActive: {
-    color: tryOnPalette.ink,
+    fontWeight: '800',
+  },
+  categoryGroups: {
+    gap: spacing.lg,
+  },
+  categoryGroup: {
+    gap: spacing.sm,
+  },
+  categoryGroupTitle: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  resetButton: {
+    minHeight: 42,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  resetText: {
+    color: colors.brand,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
   },
 });
 

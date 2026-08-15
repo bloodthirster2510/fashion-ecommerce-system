@@ -46,6 +46,7 @@ import {
   type VirtualTryOnSourceImageProfile,
 } from './providers';
 import {
+  applyImageValidationBasePolicy,
   checkImageValidationProviderHealth,
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
@@ -53,6 +54,7 @@ import {
   getImageValidationReasonStatus,
   isImageValidationFailOpen,
   isImageValidationReasonCode,
+  isImageValidationSourceBlockReason,
   type ImageValidationBodyRegion,
   type ImageValidationCapability,
   type ImageValidationCapabilityMode,
@@ -117,9 +119,6 @@ const DEFAULT_PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const DEFAULT_VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
-const hardBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
-  'NO_PERSON_DETECTED',
-]);
 const terminalPolicyJobErrorCodes = new Set([
   'PROVIDER_SAFETY_BLOCKED',
 ]);
@@ -182,6 +181,35 @@ const roleDisplayLabels: Record<VirtualTryOnItemRole, string> = {
   accessory: 'phụ kiện',
   outerwear: 'áo khoác',
 };
+const normalizeVirtualTryOnRuleText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase();
+const fullOutfitProductPattern =
+  /(^|[\s/.-])(full set|bo do|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
+const exactFullOutfitCategoryPattern = /^(bo|set|combo|outfit|full set)$/;
+const getProductCategoryNameForTryOn = (product: IProduct) => {
+  const category = product.category_id as unknown;
+
+  if (category && typeof category === 'object' && 'name' in category) {
+    const name = (category as { name?: unknown }).name;
+    return typeof name === 'string' ? name : '';
+  }
+
+  return '';
+};
+const isVirtualTryOnFullOutfitText = (value: string) =>
+  fullOutfitProductPattern.test(normalizeVirtualTryOnRuleText(value));
+const isVirtualTryOnFullOutfitCategoryText = (value: string) => {
+  const normalizedValue = normalizeVirtualTryOnRuleText(value).trim();
+  return fullOutfitProductPattern.test(normalizedValue) || exactFullOutfitCategoryPattern.test(normalizedValue);
+};
+const isVirtualTryOnFullOutfitProduct = (product: IProduct) =>
+  isVirtualTryOnFullOutfitText(product.name) ||
+  isVirtualTryOnFullOutfitCategoryText(getProductCategoryNameForTryOn(product));
 const allowedOutfitModes = new Set<VirtualTryOnOutfitMode>(['single', 'top_bottom', 'full_set']);
 const allowedContextPresets = new Set<VirtualTryOnContextPreset>([
   'none',
@@ -1509,7 +1537,6 @@ const getBaseBodySuitabilityReason = (result: ImageValidationResult): ImageValid
   if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
     return 'NO_PERSON_DETECTED';
   }
-  if (result.personCount > 1) return 'MULTIPLE_PEOPLE_DETECTED';
   return null;
 };
 
@@ -1633,21 +1660,6 @@ const rejectImageValidationResult = (
   message: getImageValidationReasonMessage(reasonCode),
 });
 
-const applyImageValidationPolicy = (result: ImageValidationResult): ImageValidationResult => {
-  if (!result.allowed) return result;
-  if (result.safetyFlags.length > 0) return rejectImageValidationResult(result, 'IMAGE_POLICY_BLOCKED');
-  if (result.quality.resolution === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_SMALL');
-  if (result.quality.blur === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_BLURRY');
-  if (result.quality.brightness === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_DARK');
-  if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
-    return rejectImageValidationResult(result, 'NO_PERSON_DETECTED');
-  }
-  if (result.personCount > 1) return rejectImageValidationResult(result, 'MULTIPLE_PEOPLE_DETECTED');
-  if (result.bodyVisibility === 'partial') return rejectImageValidationResult(result, 'BODY_NOT_VISIBLE');
-
-  return result;
-};
-
 const applySelectionCapabilityPolicy = (
   result: ImageValidationResult,
   outfitMode: VirtualTryOnOutfitMode,
@@ -1764,7 +1776,7 @@ const getImageValidationResultForInput = async (input: ImageValidationInput) => 
 
   try {
     const provider = createImageValidationProvider(providerName);
-    return applyImageValidationPolicy(await provider.validate(input));
+    return applyImageValidationBasePolicy(await provider.validate(input), getPersonScoreThreshold());
   } catch (error) {
     if (isImageValidationFailOpen()) {
       console.warn('Image validation failed open:', error);
@@ -1841,7 +1853,10 @@ const warnSourceImageForJob = async (
   const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
   const suitabilityResult = buildBodySuitabilityResult(result, outfitMode, itemRoles);
   const suitabilityWarning = getImageValidationWarning(suitabilityResult);
-  if (suitabilityWarning && hardBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
+  if (
+    suitabilityWarning &&
+    isImageValidationSourceBlockReason(suitabilityWarning.reasonCode)
+  ) {
     throw new VirtualTryOnServiceError(
       suitabilityWarning.message,
       getImageValidationReasonStatus(suitabilityWarning.reasonCode),
@@ -1926,12 +1941,14 @@ const resolveSelectedItem = (
     }
   }
 
+  const isFullOutfit = isVirtualTryOnFullOutfitProduct(product);
+
   return {
     productId: product._id,
     variantId: variant._id,
     colorVariantId: color._id,
     ...(normalizedSize ? { size: normalizedSize } : {}),
-    role: input.role,
+    role: isFullOutfit ? 'dress' : input.role,
     nameSnapshot: product.name,
     colorSnapshot: color.color,
     imageSnapshot: color.image || product.product_image,
@@ -1948,8 +1965,23 @@ const resolveSelectedItems = async (items: CreateVirtualTryOnItemInput[]) => {
   const productIds = Array.from(new Set(items.map((item) => item.productId)));
   productIds.forEach((id) => toObjectId(id, 'product id'));
 
-  const products = await Product.find({ _id: { $in: productIds }, isActive: true });
+  const productQuery = Product.find({ _id: { $in: productIds }, isActive: true });
+  const products = await (typeof productQuery.populate === 'function'
+    ? productQuery.populate('category_id', 'name')
+    : productQuery);
   const productById = new Map(products.map((product) => [product._id.toString(), product]));
+  const fullOutfitProducts = items.filter((item) => {
+    const product = productById.get(item.productId);
+    return product ? isVirtualTryOnFullOutfitProduct(product) : false;
+  });
+
+  if (fullOutfitProducts.length && items.length > 1) {
+    throw new VirtualTryOnServiceError(
+      'Bộ đồ full set đã là một phối hoàn chỉnh. Hãy chọn riêng bộ đó hoặc bỏ các món khác.',
+      400,
+      'FULL_OUTFIT_EXCLUSIVE',
+    );
+  }
 
   return items.map((item) => {
     const product = productById.get(item.productId);
@@ -2171,7 +2203,7 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
     const validationWarning = getImageValidationWarning(validationResult);
     if (
       validationWarning &&
-      hardBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
+      isImageValidationSourceBlockReason(validationWarning.reasonCode)
     ) {
       throw new VirtualTryOnServiceError(
         validationWarning.message,

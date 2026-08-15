@@ -39,6 +39,7 @@ export type TryOnSeedItem = {
   colorVariantId: string;
   size?: string;
   role?: TryOnItemRole;
+  isFullOutfit?: boolean;
   nameSnapshot?: string;
   colorSnapshot?: string;
   imageSnapshot?: string;
@@ -52,6 +53,7 @@ export type TryOnSelectedItem = {
   colorVariantId: string;
   size?: string;
   role: TryOnItemRole;
+  isFullOutfit?: boolean;
   nameSnapshot: string;
   colorSnapshot?: string;
   imageSnapshot: string;

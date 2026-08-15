@@ -43,6 +43,16 @@ describe('mock image validation provider', () => {
     expect(result.personCount).toBe(0);
   });
 
+  it('treats multiple people as a ready source image', async () => {
+    process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'MULTIPLE_PEOPLE_DETECTED';
+
+    const result = await createImageValidationProvider('mock').validate(input);
+
+    expect(result.allowed).toBe(true);
+    expect(result.reasonCode).toBeNull();
+    expect(result.personCount).toBe(2);
+  });
+
   it('rejects images below the configured minimum resolution', async () => {
     process.env.IMAGE_VALIDATION_MIN_WIDTH = '1200';
     process.env.IMAGE_VALIDATION_MIN_HEIGHT = '1600';

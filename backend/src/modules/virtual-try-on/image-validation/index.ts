@@ -32,6 +32,12 @@ export {
   isImageValidationReasonCode,
 } from './image-validation.types';
 
+export {
+  applyImageValidationBasePolicy,
+  isImageValidationSoftGuidanceReason,
+  isImageValidationSourceBlockReason,
+} from './image-validation-policy';
+
 const providerNames: readonly ImageValidationProviderName[] = [
   'disabled',
   'mock',
