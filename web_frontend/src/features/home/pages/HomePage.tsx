@@ -66,7 +66,15 @@ const styleStories = [
   },
 ]
 
-const getCategoryHref = (category: CatalogCategory) => `/products?categoryId=${encodeURIComponent(category._id)}`
+const getCategoryHref = (category: CatalogCategory) => {
+  const params = new URLSearchParams({ categoryId: category._id })
+
+  if (category.gender === 'male' || category.gender === 'female') {
+    params.set('gender', category.gender)
+  }
+
+  return `/products?${params.toString()}`
+}
 
 const loadAvailableCoupons = async () => {
   const cartItemIds = await cartService.getCart()
