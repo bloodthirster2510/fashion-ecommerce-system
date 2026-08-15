@@ -86,6 +86,17 @@ export function FavoritesSection() {
     }
   }
 
+  const handleCardFavoriteChange = (product: { _id: string }, isFavorited: boolean) => {
+    if (isFavorited) return
+
+    setFavorites((currentFavorites) => currentFavorites.filter((favorite) => favorite._id !== product._id))
+    setTotalItems((currentTotal) => Math.max(currentTotal - 1, 0))
+
+    if (favorites.length === 1 && page > 1) {
+      setPage((currentPage) => currentPage - 1)
+    }
+  }
+
   return (
     <section className="account-favorites" aria-labelledby="favorites-heading">
       <div className="account-section-heading account-favorites-heading">
@@ -152,7 +163,7 @@ export function FavoritesSection() {
             <div className="account-favorite-grid">
               {favorites.map((product) => (
                 <div className="account-favorite-card" key={product._id}>
-                  <ProductCard product={product} />
+                  <ProductCard product={product} onFavoriteChange={handleCardFavoriteChange} />
                   <Button
                     danger
                     block

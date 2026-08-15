@@ -4,6 +4,11 @@ import { TrophyOutlined } from '@ant-design/icons'
 import { profileService, type UserMembership } from '../profile.service'
 import { formatPoint, getTierBenefit, getTierCondition } from '../profile.utils'
 
+const openLoyaltySupport = () => {
+  window.history.pushState(null, '', '/account/support/new?category=loyalty&source=loyalty')
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
 export function MembershipSection() {
   const [membership, setMembership] = useState<UserMembership | null>(null)
   const [isLoadingMembership, setIsLoadingMembership] = useState(false)
@@ -95,7 +100,7 @@ export function MembershipSection() {
           </>
         )}
       </Skeleton>
-      <Button href="/account/support/new?category=loyalty&source=loyalty">Cần hỗ trợ về điểm hoặc hạng?</Button>
+      <Button onClick={openLoyaltySupport}>Cần hỗ trợ về điểm hoặc hạng?</Button>
     </section>
   )
 }

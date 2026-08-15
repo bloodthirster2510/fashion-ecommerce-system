@@ -105,6 +105,7 @@ export const createCorsOptions = (env: Env = process.env): CorsOptions => ({
     'Authorization',
     'Content-Type',
     'Idempotency-Key',
+    'X-Session-Id',
     'X-Refresh-Token-Mode',
     'X-GHN-Webhook-Secret',
     'X-Shipping-Webhook-Secret',
