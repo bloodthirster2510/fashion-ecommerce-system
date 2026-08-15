@@ -26,8 +26,8 @@ const user: AdminUser = {
   role: 'admin',
 }
 
-const refreshResponse = (accessToken: string) => new Response(JSON.stringify({
-  data: { accessToken },
+const refreshResponse = (accessToken: string, refreshedUser: AdminUser = user) => new Response(JSON.stringify({
+  data: { accessToken, user: refreshedUser },
 }), {
   status: 200,
   headers: { 'Content-Type': 'application/json' },
@@ -94,7 +94,7 @@ test.describe('admin refresh lifecycle', () => {
     await Promise.resolve()
 
     expect(fetchCalls).toBe(2)
-    pendingResponses[1](refreshResponse('next-refreshed-access'))
+    pendingResponses[1](refreshResponse('next-refreshed-access', nextUser))
     await expect(nextRefresh).resolves.toEqual({
       accessToken: 'next-refreshed-access',
       user: nextUser,

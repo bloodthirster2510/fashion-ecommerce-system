@@ -15,7 +15,7 @@ const getDefaultApiBaseUrl = () => {
     return `http://localhost:${DEFAULT_API_PORT}${DEFAULT_API_BASE_PATH}`
   }
 
-  const { hostname } = window.location
+  const hostname = window.location?.hostname || 'localhost'
   const apiHost = hostname === '0.0.0.0' ? 'localhost' : hostname
 
   if (runtimeEnv?.DEV && (LOCALHOST_ALIASES.has(hostname) || isPrivateLanHost(hostname))) {
