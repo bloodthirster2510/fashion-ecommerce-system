@@ -4,6 +4,7 @@ export type AdminRouteId =
   | 'customers'
   | 'loyalty'
   | 'products'
+  | 'visualSearch'
   | 'catalog'
   | 'orders'
   | 'ordersLookup'
@@ -50,6 +51,7 @@ export const IMPLEMENTED_ADMIN_ROUTE_IDS: AdminRouteId[] = [
   'customers',
   'loyalty',
   'products',
+  'visualSearch',
   'catalog',
   'orders',
   'ordersLookup',
@@ -109,6 +111,13 @@ const adminRouteRecords: AdminRoute[] = [
     path: '/admin/products',
     label: 'Sản phẩm',
     helper: 'Danh sách & biến thể',
+    group: 'catalog',
+  },
+  {
+    id: 'visualSearch',
+    path: '/admin/visual-search',
+    label: 'Tìm kiếm hình ảnh',
+    helper: 'Index ảnh & đồng bộ embedding',
     group: 'catalog',
   },
   {

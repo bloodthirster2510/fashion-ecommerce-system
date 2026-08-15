@@ -60,6 +60,9 @@ const OrderListPage = lazy(() =>
 const ProductManagementPage = lazy(() =>
   import('../modules/catalog/products/ProductManagementPage').then((module) => ({ default: module.ProductManagementPage })),
 )
+const VisualSearchIndexPage = lazy(() =>
+  import('../modules/visual-search/VisualSearchIndexPage').then((module) => ({ default: module.VisualSearchIndexPage })),
+)
 const InventoryManagementPage = lazy(() =>
   import('../modules/inventory/InventoryManagementPage').then((module) => ({ default: module.InventoryManagementPage })),
 )
@@ -106,6 +109,7 @@ const navIcons: Record<NavId, LucideIcon> = {
   customers: Users,
   loyalty: Crown,
   products: Shirt,
+  visualSearch: Search,
   catalog: Tags,
   orders: ShoppingCart,
   ordersLookup: Search,
@@ -135,6 +139,7 @@ const routePermissions: Partial<Record<NavId, string>> = {
   customers: 'customers.read',
   loyalty: 'loyalty.read',
   products: 'products.read',
+  visualSearch: 'products.read',
   catalog: 'catalog.read',
   orders: 'orders.read',
   ordersLookup: 'orders.read',
@@ -492,6 +497,10 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
 
     if (renderedSection === 'products') {
       return <ProductManagementPage currentUser={currentUser} />
+    }
+
+    if (renderedSection === 'visualSearch') {
+      return <VisualSearchIndexPage currentUser={currentUser} />
     }
 
     if (renderedSection === 'inventory') {
