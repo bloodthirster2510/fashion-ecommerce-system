@@ -1067,6 +1067,18 @@ const VirtualTryOnBuilderScreen = () => {
     () => getTryOnScopedCategories(availableFilters.categories, productFilters.gender, activeSlot),
     [activeSlot, availableFilters.categories, productFilters.gender],
   );
+  const singleItemCategoryRailGroups = React.useMemo(
+    () => outfitMode === 'single' ? buildCategoryFilterGroups(productScopedCategories) : [],
+    [outfitMode, productScopedCategories],
+  );
+  const activeSingleItemCategoryRailGroupKey = React.useMemo(
+    () => singleItemCategoryRailGroups.find((group) =>
+      getCategoryGroupSelectionIds(group).some((categoryId) => productFilters.categoryIds.includes(categoryId)),
+    )?.key,
+    [productFilters.categoryIds, singleItemCategoryRailGroups],
+  );
+  const shouldBalanceSingleItemCategoryRail =
+    singleItemCategoryRailGroups.length > 0 && singleItemCategoryRailGroups.length <= 4;
   const draftScopedCategories = React.useMemo(
     () => getTryOnScopedCategories(availableFilters.categories, draftProductFilters.gender, activeSlot),
     [activeSlot, availableFilters.categories, draftProductFilters.gender],
@@ -2548,6 +2560,69 @@ const VirtualTryOnBuilderScreen = () => {
               })}
             </View>
 
+            {outfitMode === 'single' ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.productCategoryScroller}
+                contentContainerStyle={[
+                  styles.productCategoryRail,
+                  shouldBalanceSingleItemCategoryRail && styles.productCategoryRailBalanced,
+                ]}
+              >
+                {singleItemCategoryRailGroups.map((group) => {
+                  const active = activeSingleItemCategoryRailGroupKey === group.key;
+                  const categoryVisual = getCategoryRailVisual(group.label);
+                  const categoryIds = getCategoryGroupSelectionIds(group);
+
+                  return (
+                    <TouchableOpacity
+                      key={group.key}
+                      style={[
+                        styles.productCategoryTab,
+                        shouldBalanceSingleItemCategoryRail && styles.productCategoryTabBalanced,
+                      ]}
+                      onPress={() => setProductFilters((current) => ({
+                        ...current,
+                        categoryIds: active ? [] : categoryIds,
+                      }))}
+                      activeOpacity={0.82}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`Danh mục: ${group.label}`}
+                    >
+                      <View style={[
+                        styles.productCategoryTabIcon,
+                        active && styles.productCategoryTabIconActive,
+                      ]}>
+                        <CategoryRailIcon
+                          visual={categoryVisual}
+                          color={active ? colors.brandDark : colors.textMuted}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.productCategoryTabLabel,
+                          active && styles.productCategoryTabLabelActive,
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {group.label}
+                      </Text>
+                      {active ? <View style={styles.productCategoryTabIndicator} /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {isLoading && !singleItemCategoryRailGroups.length ? (
+                  <View style={styles.productCategoryLoadingTab}>
+                    <ActivityIndicator size="small" color={colors.brand} />
+                    <Text style={styles.productCategoryTabLabel}>Đang tải</Text>
+                  </View>
+                ) : null}
+              </ScrollView>
+            ) : null}
+
             <View style={styles.productHeaderRow}>
               <View style={styles.productHeaderCopy}>
                 <Text style={styles.sectionTitle}>Chọn {activeSlot.label.toLowerCase()}</Text>
@@ -3982,7 +4057,7 @@ const styles = StyleSheet.create({
     height: 88,
     maxHeight: 88,
     marginHorizontal: -spacing.md,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -4044,6 +4119,12 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 3,
     borderTopRightRadius: 3,
     backgroundColor: colors.brandDark,
+  },
+  productCategoryLoadingTab: {
+    width: 82,
+    height: 88,
+    paddingTop: 14,
+    alignItems: 'center',
   },
   productGrid: {
     flexDirection: 'row',
