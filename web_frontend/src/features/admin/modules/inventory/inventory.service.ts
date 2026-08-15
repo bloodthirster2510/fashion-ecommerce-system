@@ -1,13 +1,19 @@
 import { requestAdmin } from '../../services/adminHttp'
 import type { ManagedProduct } from '../catalog/products/product.types'
 import type {
-  CreateInventoryImportInput,
+  AdjustInventoryInput,
+  CreateInventoryStocktakeInput,
   CreateInventoryReceiptInput,
   InventoryImport,
   InventoryItem,
+  InventoryMovement,
   InventoryPage,
   InventoryReceipt,
   InventoryReceiptStatus,
+  InventoryStocktake,
+  InventorySupplier,
+  UpsertInventorySupplierInput,
+  UpdateInventoryThresholdInput,
   UpdateInventoryReceiptInput,
 } from './inventory.types'
 import { listAllInventoryPages } from './inventory.utils'
@@ -36,6 +42,40 @@ export const listInventoryImportsByColor = (
 export const listInventoryImports = () =>
   requestAdmin<InventoryPage<InventoryImport>>('/admin/inventory/imports?page=1&limit=100')
 
+export const getInventoryThreshold = () =>
+  requestAdmin<UpdateInventoryThresholdInput>('/admin/inventory/threshold')
+
+export const listInventoryMovementsByColor = (
+  productId: string,
+  variantId: string,
+  colorVariantId: string,
+) =>
+  requestAdmin<InventoryPage<InventoryMovement>>(
+    `/admin/inventory/movements?productId=${productId}&variantId=${variantId}&colorVariantId=${colorVariantId}&limit=50`,
+  )
+
+export const listInventoryMovements = ({
+  page = 1,
+  limit = 12,
+  type,
+}: {
+  page?: number
+  limit?: number
+  type?: string
+} = {}) => {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  })
+  if (type && type !== 'all') {
+    params.set('type', type)
+  }
+
+  return requestAdmin<InventoryPage<InventoryMovement>>(
+    `/admin/inventory/movements?${params.toString()}`,
+  )
+}
+
 // Danh sách phiếu nhập cần đủ các trang để không ẩn phiếu cũ và sinh trùng mã gợi ý.
 export const listInventoryReceipts = (status?: InventoryReceiptStatus) =>
   listAllInventoryPages((page) => {
@@ -52,13 +92,27 @@ export const listInventoryReceipts = (status?: InventoryReceiptStatus) =>
 export const getInventoryReceipt = (receiptId: string) =>
   requestAdmin<InventoryReceipt>(`/admin/inventory/receipts/${receiptId}`)
 
-export const listInventorySuppliers = () =>
-  requestAdmin<string[]>('/admin/inventory/imports/suppliers')
+export const listManagedInventorySuppliers = () =>
+  requestAdmin<InventorySupplier[]>('/admin/inventory/suppliers')
 
-export const createInventoryImport = (input: CreateInventoryImportInput) =>
-  requestAdmin<InventoryImport>('/admin/inventory/imports', {
+export const createInventorySupplier = (input: UpsertInventorySupplierInput) =>
+  requestAdmin<InventorySupplier>('/admin/inventory/suppliers', {
     method: 'POST',
     body: JSON.stringify(input),
+  })
+
+export const updateInventorySupplier = (
+  supplierId: string,
+  input: Partial<UpsertInventorySupplierInput>,
+) =>
+  requestAdmin<InventorySupplier>(`/admin/inventory/suppliers/${supplierId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+
+export const deleteInventorySupplier = (supplierId: string) =>
+  requestAdmin<InventorySupplier>(`/admin/inventory/suppliers/${supplierId}`, {
+    method: 'DELETE',
   })
 
 export const createInventoryReceipt = (input: CreateInventoryReceiptInput) =>
@@ -86,7 +140,22 @@ export const cancelInventoryReceipt = (receiptId: string) =>
     method: 'POST',
   })
 
-export const deleteInventoryImport = (importId: string) =>
-  requestAdmin<InventoryImport>(`/admin/inventory/imports/${importId}`, {
-    method: 'DELETE',
+export const adjustInventory = (inventoryId: string, input: AdjustInventoryInput) =>
+  requestAdmin<InventoryItem>(`/admin/inventory/${inventoryId}/adjust`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+
+export const updateInventoryThreshold = (
+  input: UpdateInventoryThresholdInput,
+) =>
+  requestAdmin<UpdateInventoryThresholdInput>('/admin/inventory/threshold', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+
+export const createInventoryStocktake = (input: CreateInventoryStocktakeInput) =>
+  requestAdmin<InventoryStocktake>('/admin/inventory/stocktakes', {
+    method: 'POST',
+    body: JSON.stringify(input),
   })

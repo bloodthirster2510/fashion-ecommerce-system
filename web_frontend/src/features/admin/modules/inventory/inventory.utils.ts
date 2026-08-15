@@ -6,7 +6,7 @@ import type {
   ReceiptProductLine,
   ReceiptSummary,
 } from './inventory.view-types'
-import { getStockStatus, lowStockThreshold } from '../../utils/stock'
+import { lowStockThreshold } from '../../utils/stock'
 
 export { lowStockThreshold }
 export { loadAllPages as listAllInventoryPages } from '../../utils/pagination'
@@ -180,9 +180,19 @@ export const getReceiptListItem = (
 }
 
 // Tính trạng thái kho cho một dòng size hoặc cho cả nhóm sản phẩm.
-export const getStatus = (quantity: number | Array<{ availableQuantity: number }>) => {
-  const items = typeof quantity === 'number' ? [{ availableQuantity: quantity }] : quantity
-  return getStockStatus(items)
+export const getStatus = (
+  quantity: number | Array<{ availableQuantity: number; lowStockThreshold?: number }>,
+  threshold = lowStockThreshold,
+) => {
+  const items = typeof quantity === 'number'
+    ? [{ availableQuantity: quantity }]
+    : quantity
+  const hasStock = items.some((item) => item.availableQuantity > 0)
+  const hasLow = items.some((item) => item.availableQuantity > 0 && item.availableQuantity <= threshold)
+
+  if (!hasStock) return { id: 'out' as const, label: 'Hết hàng', className: 'is-out' }
+  if (hasLow) return { id: 'low' as const, label: 'Sắp hết', className: 'is-low' }
+  return { id: 'available' as const, label: 'Còn hàng', className: 'is-available' }
 }
 
 export const getImportRemainingClass = (remainingQuantity: number, quantity: number) => {
