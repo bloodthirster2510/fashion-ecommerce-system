@@ -116,6 +116,8 @@ const normalizeOptionalCategoryImageUrl = (imageUrl?: string) => {
   return trimmedUrl ? normalizeCategoryImageUrl(trimmedUrl) : '';
 };
 
+const normalizeStoredImageUrl = (imageUrl?: string | null) => String(imageUrl ?? '').trim();
+
 const normalizeMeasurementFields = (items?: MeasurementFieldInput[]) => {
   if (!items) {
     return [];
@@ -377,7 +379,12 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   if (input.parent_id !== undefined || input.gender !== undefined) {
     updateData.gender = nextGender;
   }
-  if (input.image !== undefined) updateData.image = normalizeCategoryImageUrl(input.image);
+  if (
+    input.image !== undefined &&
+    normalizeStoredImageUrl(input.image) !== normalizeStoredImageUrl(category.image)
+  ) {
+    updateData.image = normalizeCategoryImageUrl(input.image);
+  }
   if (input.description !== undefined) updateData.description = input.description.trim();
   if (input.isLeaf !== undefined) updateData.isLeaf = input.isLeaf;
   if (input.isSizeTemplateSource !== undefined) updateData.isSizeTemplateSource = input.isSizeTemplateSource;
@@ -459,6 +466,7 @@ const upsertCategorySizeTemplate = async (
       ),
     ),
   ].filter((categoryId) => !excludedCategoryIds.includes(categoryId));
+  const targetCategoryObjectIds = targetCategoryIds.map((categoryId) => new Types.ObjectId(categoryId));
   const descendantIds = targetCategoryIds
     .filter((categoryId) => categoryId !== id)
     .map((categoryId) => new Types.ObjectId(categoryId));
@@ -493,6 +501,18 @@ const upsertCategorySizeTemplate = async (
       { runValidators: true },
     );
   }
+
+  await Category.updateMany(
+    {
+      sizeTemplateSourceId: updatedCategory._id,
+      _id: { $nin: targetCategoryObjectIds },
+    },
+    {
+      isSizeTemplateSource: false,
+      sizeTemplateSourceId: null,
+    },
+    { runValidators: true },
+  );
 
   if (excludedCategoryIds.length > 0) {
     await Category.updateMany(
@@ -557,6 +577,7 @@ const upsertCategoryFitTypeTemplate = async (
       ),
     ),
   ].filter((categoryId) => !excludedCategoryIds.includes(categoryId));
+  const targetCategoryObjectIds = targetCategoryIds.map((categoryId) => new Types.ObjectId(categoryId));
   const descendantIds = targetCategoryIds
     .filter((categoryId) => categoryId !== id)
     .map((categoryId) => new Types.ObjectId(categoryId));
@@ -589,6 +610,18 @@ const upsertCategoryFitTypeTemplate = async (
       { runValidators: true },
     );
   }
+
+  await Category.updateMany(
+    {
+      fitTypeTemplateSourceId: updatedCategory._id,
+      _id: { $nin: targetCategoryObjectIds },
+    },
+    {
+      isFitTypeTemplateSource: false,
+      fitTypeTemplateSourceId: null,
+    },
+    { runValidators: true },
+  );
 
   if (excludedCategoryIds.length > 0) {
     await Category.updateMany(

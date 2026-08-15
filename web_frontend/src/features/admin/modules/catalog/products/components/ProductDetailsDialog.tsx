@@ -2,19 +2,23 @@ import type { ManagedProduct } from '../product.types'
 import {
   formatNumber,
   getInventory,
+  isProductSelling,
   getStockMeta,
 } from '../productDisplay.helpers'
 import { StockWarning } from './ProductStatusIndicators'
 
 export function ProductDetailsDialog({
   product,
+  lowStockThreshold,
   onClose,
 }: {
   product: ManagedProduct
+  lowStockThreshold: number
   onClose: () => void
 }) {
   const inventory = getInventory(product)
-  const stock = getStockMeta(inventory)
+  const stock = getStockMeta(inventory, lowStockThreshold)
+  const isSelling = isProductSelling(product)
   const colorCount = new Set(
     product.variants.flatMap((variant) =>
       variant.colors.map((color) => color.color.toLocaleLowerCase('vi')),
@@ -37,12 +41,12 @@ export function ProductDetailsDialog({
           <dl>
             <div><dt>Nhãn hiệu</dt><dd>{product.brandName || '-'}</dd></div>
             <div><dt>Loại trang phục</dt><dd>{product.categoryName || '-'}</dd></div>
-            <div><dt>Form dáng</dt><dd>{product.variants.map((variant) => variant.fitTypeLabel).join(', ') || '-'}</dd></div>
+            <div><dt>Phom dáng</dt><dd>{product.variants.map((variant) => variant.fitTypeLabel).join(', ') || '-'}</dd></div>
             <div><dt>Màu sắc</dt><dd>{colorCount}</dd></div>
             <div><dt>Đã bán</dt><dd>{formatNumber(product.soldQuantity)}</dd></div>
             <div><dt>Tồn kho</dt><dd>{formatNumber(stock.total)}</dd></div>
             <div><dt>Cảnh báo</dt><dd><StockWarning low={stock.low} out={stock.out} /></dd></div>
-            <div><dt>Trạng thái</dt><dd>{product.isActive ? 'Đang bán' : 'Ngừng bán'}</dd></div>
+            <div><dt>Trạng thái</dt><dd>{isSelling ? 'Đang bán' : 'Ngừng bán'}</dd></div>
           </dl>
         </div>
       </section>

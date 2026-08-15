@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { TagsOutlined } from '@ant-design/icons'
 import type {
   BrandInput,
@@ -69,20 +69,6 @@ const getCategoryDescendantIds = (
   return blockedIds
 }
 
-const getCategoryChildMap = (categories: ManagedCategory[]) => {
-  const childrenByParentId = new Map<string, ManagedCategory[]>()
-
-  categories.forEach((category) => {
-    if (!category.parent_id) return
-
-    const children = childrenByParentId.get(category.parent_id) ?? []
-    children.push(category)
-    childrenByParentId.set(category.parent_id, children)
-  })
-
-  return childrenByParentId
-}
-
 const getRootCategoryIds = (categories: ManagedCategory[], categoryIds: string[]) => {
   const selectedIds = new Set(categoryIds)
 
@@ -96,6 +82,22 @@ const getRootCategoryIds = (categories: ManagedCategory[], categoryIds: string[]
 
     return true
   })
+}
+
+const getPersistedExcludedCategoryIds = (
+  categories: ManagedCategory[],
+  rootCategoryIds: string[],
+  integratedCategoryIds: string[],
+) => {
+  const integratedIds = new Set(integratedCategoryIds)
+
+  return [
+    ...new Set(
+      rootCategoryIds.flatMap((categoryId) => [
+        ...getCategoryDescendantIds(categories, categoryId),
+      ]),
+    ),
+  ].filter((categoryId) => !integratedIds.has(categoryId))
 }
 
 const getSizeTemplateLabel = (category?: ManagedCategory | null) =>
@@ -112,9 +114,6 @@ const normalizeFitTypeKey = (value: string) =>
     .replace(/đ/g, 'd')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
-
-const confirmDiscardChanges = () =>
-  window.confirm('Bạn có chắc chắn không thực hiện các thay đổi không?')
 
 const getCategoryPathLabel = (
   category: ManagedCategory,
@@ -165,9 +164,9 @@ function CategoryApplySelect({
         onClick={() => setIsOpen((current) => !current)}
       >
         <span>
-          {selectedCategory ? `- ${getCategoryPathLabel(selectedCategory, categoryById)}` : 'Chọn danh mục'}
+          {selectedCategory ? getCategoryPathLabel(selectedCategory, categoryById) : 'Chọn danh mục'}
         </span>
-        <span aria-hidden="true">⌄</span>
+        <span className="admin-category-apply-chevron" aria-hidden="true" />
       </button>
       {isOpen ? (
         <div className="admin-category-apply-menu" role="listbox">
@@ -189,7 +188,7 @@ function CategoryApplySelect({
               key={category._id}
               onClick={() => handleSelect(category._id)}
             >
-              {'-'.repeat(Math.max(0, category.level - 1))} {category.name}
+              {getCategoryPathLabel(category, categoryById)}
             </button>
           ))}
         </div>
@@ -409,7 +408,7 @@ export function CategoryEditor({
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (!form.image.trim() && !imageFile) {
-      setLocalError('Vui lòng chọn ảnh danh mục hoặc nhập URL ảnh.')
+      setLocalError('Vui lòng chọn ảnh danh mục.')
       return
     }
     if (form.parent_id && blockedParentIds.has(form.parent_id)) {
@@ -466,13 +465,12 @@ export function CategoryEditor({
         </div>
         <label>
           <span>Ảnh danh mục</span>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(event) => handleImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+          <ImageFilePicker
+            buttonLabel="Chọn ảnh mới"
+            currentUrl={form.image}
+            file={imageFile}
+            onChange={handleImageFileChange}
           />
-          <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
-          <input type="url" placeholder="Hoặc nhập URL ảnh" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} />
           <ImagePreview file={imageFile} url={form.image} alt="Ảnh danh mục" />
         </label>
         <label>
@@ -486,12 +484,12 @@ export function CategoryEditor({
             disabled={Boolean(item?.isActive && item.activeProductCount > 0)}
             onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
           />
-          <span>Đang hoạt động</span>
+          <span>{item ? 'Hiển thị danh mục trên cửa hàng' : 'Hiển thị danh mục sau khi tạo'}</span>
         </label>
         {item?.isActive && item.activeProductCount > 0 ? (
           <p className="admin-form-note">
             Danh mục này còn {item.activeProductCount.toLocaleString('vi-VN')} sản phẩm đang bán.
-            Không thể tạm ngừng ngay qua form sửa; hãy dùng nút xóa trong quản lý danh mục để xác nhận.
+            Không thể tạm ngừng ngay qua form sửa; hãy dùng hành động tạm ngừng trong danh sách để xác nhận.
           </p>
         ) : null}
         <EditorActions isSaving={isSaving} onClose={onClose} />
@@ -535,17 +533,20 @@ export function SizeTemplateManager({
   const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>([])
   const [localError, setLocalError] = useState('')
   const [isDirty, setIsDirty] = useState(false)
-  const childrenByParentId = useMemo(() => getCategoryChildMap(categories), [categories])
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category._id, category])),
     [categories],
   )
-  const parentCategoryOptions = useMemo(
+  const applicationCategoryOptions = useMemo(
     () =>
       activeCategories.filter(
-        (category) => !category.parent_id || (childrenByParentId.get(category._id)?.length ?? 0) > 0,
+        (category) =>
+          !category.isSizeTemplateSource ||
+          category._id === selectedTemplateId ||
+          category.sizeTemplateSourceId === selectedTemplateId,
       ),
-    [activeCategories, childrenByParentId],
+    [activeCategories, selectedTemplateId],
   )
 
   useEffect(() => {
@@ -554,7 +555,7 @@ export function SizeTemplateManager({
       setSizeGuideImageUrl('')
       setSizeGuideImageFile(null)
       setShouldClearSizeGuideImage(false)
-      setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
+      setIntegrationCategoryIds([''])
       setExcludedCategoryIds([])
       return
     }
@@ -573,14 +574,14 @@ export function SizeTemplateManager({
     setSizeGuideImageFile(null)
     setShouldClearSizeGuideImage(false)
     setSizeFields((selectedTemplate?.sizes?.length ? selectedTemplate.sizes : ['']))
-    setIntegrationCategoryIds(
-      integratedIds.length
-        ? getRootCategoryIds(categories, integratedIds)
-        : [selectedTemplateId],
-    )
-    setExcludedCategoryIds([])
+    const rootCategoryIds = integratedIds.length
+      ? getRootCategoryIds(categories, integratedIds)
+      : [selectedTemplateId]
+
+    setIntegrationCategoryIds(rootCategoryIds)
+    setExcludedCategoryIds(getPersistedExcludedCategoryIds(categories, rootCategoryIds, integratedIds))
     setIsDirty(false)
-  }, [categories, parentCategoryOptions, selectedTemplateId])
+  }, [categories, selectedTemplateId])
 
   const appliedCategoryIds = useMemo(() => {
     const selectedIds = integrationCategoryIds.filter(Boolean)
@@ -645,28 +646,21 @@ export function SizeTemplateManager({
 
   const handlePickTemplate = (categoryId: string) => {
     setLocalError('')
+    setShowDiscardConfirm(false)
     setSelectedTemplateId(categoryId)
     setIsDirty(false)
   }
 
   const handleCreateTemplate = () => {
-    const name = window.prompt('Tên bộ size mới')
-    if (name === null) return
-
-    const normalizedName = name.trim()
-    if (!normalizedName) {
-      setLocalError('Vui lòng nhập tên bộ size.')
-      return
-    }
-
     setLocalError('')
+    setShowDiscardConfirm(false)
     setSelectedTemplateId('')
-    setTemplateName(normalizedName)
+    setTemplateName('')
     setSizeGuideImageUrl('')
     setSizeGuideImageFile(null)
     setShouldClearSizeGuideImage(false)
     setSizeFields([''])
-    setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
+    setIntegrationCategoryIds([''])
     setExcludedCategoryIds([])
     setIsDirty(true)
   }
@@ -688,17 +682,21 @@ export function SizeTemplateManager({
 
   const addIntegrationCategory = () => {
     const selectedIds = new Set(integrationCategoryIds)
-    const nextCategory = parentCategoryOptions.find((category) => !selectedIds.has(category._id))
+    const nextCategory = applicationCategoryOptions.find((category) => !selectedIds.has(category._id))
     setIsDirty(true)
     setIntegrationCategoryIds((current) => [...current, nextCategory?._id ?? ''])
   }
 
   const updateIntegrationCategory = (index: number, categoryId: string) => {
     setIsDirty(true)
+    const restoredCategoryIds = getCategoryDescendantIds(categories, categoryId)
     setIntegrationCategoryIds((current) =>
       current.map((currentCategoryId, currentIndex) =>
         currentIndex === index ? categoryId : currentCategoryId,
       ),
+    )
+    setExcludedCategoryIds((current) =>
+      current.filter((currentCategoryId) => !restoredCategoryIds.has(currentCategoryId)),
     )
   }
 
@@ -741,6 +739,7 @@ export function SizeTemplateManager({
     if (!isDirty) return
 
     try {
+      setShowDiscardConfirm(false)
       const name = parseTemplateName()
       const sizes = parseSizes()
       const categoryIds = parseCategoryIds()
@@ -767,9 +766,11 @@ export function SizeTemplateManager({
   }
 
   const handleClose = () => {
-    if (!isDirty || confirmDiscardChanges()) {
+    if (!isDirty) {
       onClose()
+      return
     }
+    setShowDiscardConfirm(true)
   }
 
   return (
@@ -833,7 +834,7 @@ export function SizeTemplateManager({
               <label className="admin-size-inline-field" key={`integrated-category-${index}`}>
                 <div>
                   <CategoryApplySelect
-                    categories={parentCategoryOptions}
+                    categories={applicationCategoryOptions}
                     categoryById={categoryById}
                     disabled={isSaving}
                     value={categoryId}
@@ -911,14 +912,12 @@ export function SizeTemplateManager({
           </div>
           <label className="admin-size-inline-field">
             <span>Ảnh hướng dẫn chọn size</span>
-            <div className="is-single">
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(event) => handleSizeGuideImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
-              />
-            </div>
-            <small>JPEG, PNG hoặc WEBP, tối đa 5MB. Không bắt buộc.</small>
+            <ImageFilePicker
+              buttonLabel="Chọn ảnh"
+              currentUrl={sizeGuideImageUrl}
+              file={sizeGuideImageFile}
+              onChange={handleSizeGuideImageFileChange}
+            />
           </label>
           <ImagePreview
             className="admin-size-guide-preview"
@@ -932,6 +931,13 @@ export function SizeTemplateManager({
             </button>
           ) : null}
         </section>
+        {showDiscardConfirm ? (
+          <DiscardChangesPrompt
+            isSaving={isSaving}
+            onCancel={() => setShowDiscardConfirm(false)}
+            onDiscard={onClose}
+          />
+        ) : null}
         <EditorActions isSaving={isSaving} onClose={handleClose} showSaveButton={isDirty} />
       </form>
     </EditorModal>
@@ -982,23 +988,26 @@ export function FitTypeTemplateManager({
   const [excludedCategoryIds, setExcludedCategoryIds] = useState<string[]>([])
   const [localError, setLocalError] = useState('')
   const [isDirty, setIsDirty] = useState(false)
-  const childrenByParentId = useMemo(() => getCategoryChildMap(categories), [categories])
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category._id, category])),
     [categories],
   )
-  const parentCategoryOptions = useMemo(
+  const applicationCategoryOptions = useMemo(
     () =>
       activeCategories.filter(
-        (category) => !category.parent_id || (childrenByParentId.get(category._id)?.length ?? 0) > 0,
+        (category) =>
+          category._id === selectedTemplateId ||
+          category.fitTypeTemplateSourceId === selectedTemplateId ||
+          (!category.isFitTypeTemplateSource && !category.fitTypes?.length),
       ),
-    [activeCategories, childrenByParentId],
+    [activeCategories, selectedTemplateId],
   )
 
   useEffect(() => {
     if (!selectedTemplateId) {
       setFitTypeFields([createFitTypeField()])
-      setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
+      setIntegrationCategoryIds([''])
       setExcludedCategoryIds([])
       return
     }
@@ -1020,14 +1029,14 @@ export function FitTypeTemplateManager({
             .map(createFitTypeField)
         : [createFitTypeField()],
     )
-    setIntegrationCategoryIds(
-      integratedIds.length
-        ? getRootCategoryIds(categories, integratedIds)
-        : [selectedTemplateId],
-    )
-    setExcludedCategoryIds([])
+    const rootCategoryIds = integratedIds.length
+      ? getRootCategoryIds(categories, integratedIds)
+      : [selectedTemplateId]
+
+    setIntegrationCategoryIds(rootCategoryIds)
+    setExcludedCategoryIds(getPersistedExcludedCategoryIds(categories, rootCategoryIds, integratedIds))
     setIsDirty(false)
-  }, [categories, parentCategoryOptions, selectedTemplateId])
+  }, [categories, selectedTemplateId])
 
   const appliedCategoryIds = useMemo(() => {
     const selectedIds = integrationCategoryIds.filter(Boolean)
@@ -1105,25 +1114,18 @@ export function FitTypeTemplateManager({
 
   const handlePickTemplate = (categoryId: string) => {
     setLocalError('')
+    setShowDiscardConfirm(false)
     setSelectedTemplateId(categoryId)
     setIsDirty(false)
   }
 
   const handleCreateTemplate = () => {
-    const name = window.prompt('Tên bộ phom dáng mới')
-    if (name === null) return
-
-    const normalizedName = name.trim()
-    if (!normalizedName) {
-      setLocalError('Vui lòng nhập tên bộ phom dáng.')
-      return
-    }
-
     setLocalError('')
+    setShowDiscardConfirm(false)
     setSelectedTemplateId('')
-    setTemplateName(normalizedName)
+    setTemplateName('')
     setFitTypeFields([createFitTypeField()])
-    setIntegrationCategoryIds([parentCategoryOptions[0]?._id ?? ''])
+    setIntegrationCategoryIds([''])
     setExcludedCategoryIds([])
     setIsDirty(true)
   }
@@ -1149,17 +1151,21 @@ export function FitTypeTemplateManager({
 
   const addIntegrationCategory = () => {
     const selectedIds = new Set(integrationCategoryIds)
-    const nextCategory = parentCategoryOptions.find((category) => !selectedIds.has(category._id))
+    const nextCategory = applicationCategoryOptions.find((category) => !selectedIds.has(category._id))
     setIsDirty(true)
     setIntegrationCategoryIds((current) => [...current, nextCategory?._id ?? ''])
   }
 
   const updateIntegrationCategory = (index: number, categoryId: string) => {
     setIsDirty(true)
+    const restoredCategoryIds = getCategoryDescendantIds(categories, categoryId)
     setIntegrationCategoryIds((current) =>
       current.map((currentCategoryId, currentIndex) =>
         currentIndex === index ? categoryId : currentCategoryId,
       ),
+    )
+    setExcludedCategoryIds((current) =>
+      current.filter((currentCategoryId) => !restoredCategoryIds.has(currentCategoryId)),
     )
   }
 
@@ -1178,6 +1184,7 @@ export function FitTypeTemplateManager({
     if (!isDirty) return
 
     try {
+      setShowDiscardConfirm(false)
       const name = parseTemplateName()
       const fitTypes = parseFitTypes()
       const categoryIds = parseCategoryIds()
@@ -1200,9 +1207,11 @@ export function FitTypeTemplateManager({
   }
 
   const handleClose = () => {
-    if (!isDirty || confirmDiscardChanges()) {
+    if (!isDirty) {
       onClose()
+      return
     }
+    setShowDiscardConfirm(true)
   }
 
   return (
@@ -1266,7 +1275,7 @@ export function FitTypeTemplateManager({
               <label className="admin-size-inline-field" key={`fit-category-${index}`}>
                 <div>
                   <CategoryApplySelect
-                    categories={parentCategoryOptions}
+                    categories={applicationCategoryOptions}
                     categoryById={categoryById}
                     disabled={isSaving}
                     value={categoryId}
@@ -1351,6 +1360,13 @@ export function FitTypeTemplateManager({
             </button>
           </div>
         </section>
+        {showDiscardConfirm ? (
+          <DiscardChangesPrompt
+            isSaving={isSaving}
+            onCancel={() => setShowDiscardConfirm(false)}
+            onDiscard={onClose}
+          />
+        ) : null}
         <EditorActions isSaving={isSaving} onClose={handleClose} showSaveButton={isDirty} />
       </form>
     </EditorModal>
@@ -1379,7 +1395,7 @@ export function BrandEditor({
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     if (!form.image.trim() && !imageFile) {
-      setLocalError('Vui lòng chọn logo hoặc nhập URL ảnh.')
+      setLocalError('Vui lòng chọn logo thương hiệu.')
       return
     }
     setLocalError('')
@@ -1417,18 +1433,17 @@ export function BrandEditor({
         </label>
         <label>
           <span>Logo thương hiệu</span>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(event) => handleImageFileChange(event.target.files?.[0] ?? null, event.currentTarget)}
+          <ImageFilePicker
+            buttonLabel="Chọn logo mới"
+            currentUrl={form.image}
+            file={imageFile}
+            onChange={handleImageFileChange}
           />
-          <small>JPEG, PNG hoặc WEBP, tối đa 5MB.</small>
-          <input type="url" placeholder="Hoặc nhập URL logo" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} />
           <ImagePreview file={imageFile} url={form.image} alt="Logo thương hiệu" />
         </label>
         <label className="admin-catalog-checkbox">
           <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-          <span>Đang hoạt động</span>
+          <span>{item ? 'Hiển thị thương hiệu trên cửa hàng' : 'Hiển thị thương hiệu sau khi tạo'}</span>
         </label>
         <EditorActions isSaving={isSaving} onClose={onClose} />
       </form>
@@ -1485,6 +1500,30 @@ function EditorActions({
   )
 }
 
+function DiscardChangesPrompt({
+  isSaving,
+  onCancel,
+  onDiscard,
+}: {
+  isSaving: boolean
+  onCancel: () => void
+  onDiscard: () => void
+}) {
+  return (
+    <div className="admin-discard-changes-prompt">
+      <span>Bạn có thay đổi chưa lưu.</span>
+      <div>
+        <button className="admin-secondary-button" type="button" disabled={isSaving} onClick={onCancel}>
+          Tiếp tục chỉnh
+        </button>
+        <button className="admin-danger-button" type="button" disabled={isSaving} onClick={onDiscard}>
+          Bỏ thay đổi
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ImagePreview({
   file,
   url,
@@ -1509,11 +1548,59 @@ function ImagePreview({
     return () => URL.revokeObjectURL(objectUrl)
   }, [file, url])
 
-  return previewUrl ? (
+  return (
     <span className={className}>
-      <img src={previewUrl} alt={alt} />
+      {previewUrl ? <img src={previewUrl} alt={alt} /> : <span className="admin-image-placeholder">Chưa có ảnh</span>}
     </span>
-  ) : null
+  )
+}
+
+function ImageFilePicker({
+  buttonLabel,
+  currentUrl,
+  file,
+  onChange,
+}: {
+  buttonLabel: string
+  currentUrl: string
+  file: File | null
+  onChange: (file: File | null, input: HTMLInputElement) => void
+}) {
+  const inputId = useId()
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const normalizedUrl = currentUrl.trim()
+
+  return (
+    <div className="admin-image-file-picker">
+      <input
+        id={inputId}
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={(event) => onChange(event.target.files?.[0] ?? null, event.currentTarget)}
+      />
+      <label className="admin-image-file-button" htmlFor={inputId}>{buttonLabel}</label>
+      {file || normalizedUrl ? (
+        <div className="admin-image-file-current">
+          <span>{file ? `Đã chọn ảnh mới: ${file.name}` : 'Đang dùng ảnh hiện tại'}</span>
+        </div>
+      ) : null}
+      {file ? (
+        <button
+          className="admin-image-file-remove"
+          type="button"
+          aria-label="Bỏ ảnh đã chọn"
+          onClick={() => {
+            if (!inputRef.current) return
+            inputRef.current.value = ''
+            onChange(null, inputRef.current)
+          }}
+        >
+          ×
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 export function CategoryStatIcon() {

@@ -25,7 +25,6 @@ type CategoryPagination = {
 
 type CategoryManagementSectionProps = {
   categories: ManagedCategory[]
-  categoryById: Map<string, ManagedCategory>
   categoryNameById: Map<string, string>
   pagination: CategoryPagination
   keyword: string
@@ -49,7 +48,6 @@ type CategoryManagementSectionProps = {
 
 export function CategoryManagementSection({
   categories,
-  categoryById,
   categoryNameById,
   pagination,
   keyword,
@@ -178,10 +176,6 @@ export function CategoryManagementSection({
                         <span className="admin-size-badge is-source">
                           {getSizeTemplateLabel(category)}
                         </span>
-                      ) : category.sizeTemplateSourceId ? (
-                        <span className="admin-size-badge">
-                          {getSizeTemplateLabel(categoryById.get(category.sizeTemplateSourceId)) || 'Đã tích hợp'}
-                        </span>
                       ) : (
                         <span className="admin-size-badge is-empty">-</span>
                       )}
@@ -190,10 +184,6 @@ export function CategoryManagementSection({
                       {category.isFitTypeTemplateSource ? (
                         <span className="admin-size-badge is-source">
                           {getFitTypeTemplateLabel(category)}
-                        </span>
-                      ) : category.fitTypeTemplateSourceId ? (
-                        <span className="admin-size-badge">
-                          {getFitTypeTemplateLabel(categoryById.get(category.fitTypeTemplateSourceId)) || 'Đã tích hợp'}
                         </span>
                       ) : category.fitTypes?.length ? (
                         <span className="admin-size-badge is-source">

@@ -9,6 +9,7 @@ export type ProductColor = {
   color: string
   colorCode?: string
   image: string
+  isActive: boolean
   inventory: ProductInventoryItem[]
 }
 
@@ -97,6 +98,7 @@ export type ProductVariantInput = {
     color: string
     colorCode?: string
     image: string
+    isActive?: boolean
   }>
   isActive: boolean
 }
@@ -139,6 +141,7 @@ export type ProductDetailResponse = {
       color: string
       colorCode?: string
       image: string
+      isActive: boolean
     }>
     sizes: Array<{
       size: string
@@ -146,6 +149,13 @@ export type ProductDetailResponse = {
         key: string
         value: number
       }>
+    }>
+    inventory: Array<{
+      colorVariantId: string
+      size: string
+      sku: string
+      availableQuantity: number
+      isAvailable: boolean
     }>
   }>
 }

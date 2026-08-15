@@ -6,9 +6,11 @@ import {
 
 export function ProductInventoryBySizeDialog({
   detail,
+  lowStockThreshold,
   onClose,
 }: {
   detail: Exclude<QuantityDetail, null>
+  lowStockThreshold: number
   onClose: () => void
 }) {
   const total = detail.color.inventory.reduce(
@@ -39,18 +41,16 @@ export function ProductInventoryBySizeDialog({
             <thead>
               <tr>
                 <th>Size</th>
-                <th>SKU</th>
                 <th>Số lượng</th>
                 <th>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
               {detail.color.inventory.map((item) => {
-                const status = getInventoryStatus([item], detail.isActive)
+                const status = getInventoryStatus([item], detail.isActive, lowStockThreshold)
                 return (
                   <tr key={`${detail.color._id}:${item.size}`}>
                     <td><strong>{item.size}</strong></td>
-                    <td>{item.sku || '-'}</td>
                     <td>{formatNumber(item.availableQuantity)}</td>
                     <td>
                       <span className={`admin-inventory-status ${status.className}`}>
@@ -65,7 +65,7 @@ export function ProductInventoryBySizeDialog({
         </div>
         <footer>
           <span className="admin-inventory-status is-available">Còn hàng</span>
-          <span className="admin-inventory-status is-low">Sắp hết</span>
+          <span className="admin-inventory-status is-low">Sắp hết ≤ {formatNumber(lowStockThreshold)}</span>
           <span className="admin-inventory-status is-out">Hết hàng</span>
           <span className="admin-inventory-status is-inactive">Tạm ẩn</span>
         </footer>

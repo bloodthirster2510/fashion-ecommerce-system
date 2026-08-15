@@ -4,14 +4,12 @@ import { StatusPill } from './CatalogEditors'
 
 type CategoryDetailDialogProps = {
   category: ManagedCategory
-  categoryById: Map<string, ManagedCategory>
   categoryNameById: Map<string, string>
   onClose: () => void
 }
 
 export function CategoryDetailDialog({
   category,
-  categoryById,
   categoryNameById,
   onClose,
 }: CategoryDetailDialogProps) {
@@ -41,9 +39,7 @@ export function CategoryDetailDialog({
               <dd>
                 {category.isSizeTemplateSource
                   ? `${getSizeTemplateLabel(category)}: ${(category.sizes ?? []).join(', ') || 'Chưa có size'}`
-                  : category.sizeTemplateSourceId
-                    ? `Kế thừa từ ${getSizeTemplateLabel(categoryById.get(category.sizeTemplateSourceId)) || 'bộ size khác'}`
-                    : '-'}
+                  : '-'}
               </dd>
             </div>
             <div><dt>Số sản phẩm</dt><dd>{category.productCount}</dd></div>

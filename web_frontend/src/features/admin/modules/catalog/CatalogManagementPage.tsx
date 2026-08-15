@@ -135,10 +135,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
     () => new Map(categories.map((category) => [category._id, category.name])),
     [categories],
   )
-  const categoryById = useMemo(
-    () => new Map(categories.map((category) => [category._id, category])),
-    [categories],
-  )
 
   const categoryPagination = useMemo(() => {
     const keyword = categoryKeyword.trim().toLocaleLowerCase('vi')
@@ -483,7 +479,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
         <>
           <CategoryManagementSection
             categories={categories}
-            categoryById={categoryById}
             categoryNameById={categoryNameById}
             pagination={categoryPagination}
             keyword={categoryKeyword}
@@ -561,7 +556,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
       {viewingCategory ? (
         <CategoryDetailDialog
           category={viewingCategory}
-          categoryById={categoryById}
           categoryNameById={categoryNameById}
           onClose={() => setViewingCategory(null)}
         />

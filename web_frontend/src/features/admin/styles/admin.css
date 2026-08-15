@@ -563,6 +563,7 @@ a {
   gap: 10px;
 }
 
+.admin-view-link,
 .admin-link-button,
 .admin-danger-link {
   display: flex;
@@ -576,6 +577,18 @@ a {
   font-weight: 900;
   border-radius: 6px;
   transition: all 0.2s ease;
+}
+
+.admin-view-link {
+  border-color: #b8ddc6;
+  color: #267047;
+  background: #e8f7ee;
+}
+
+.admin-view-link:hover:not(:disabled) {
+  border-color: #7fbd96;
+  background: #d7f0e1;
+  box-shadow: 0 2px 8px rgba(38, 112, 71, 0.12);
 }
 
 .admin-link-button {
@@ -607,6 +620,7 @@ a {
 }
 
 .admin-link-button:disabled,
+.admin-view-link:disabled,
 .admin-danger-link:disabled,
 .admin-primary-button:disabled,
 .admin-secondary-button:disabled,

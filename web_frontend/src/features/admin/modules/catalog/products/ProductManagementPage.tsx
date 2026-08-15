@@ -9,6 +9,7 @@ import {
   permanentlyDeleteManagedProduct,
   updateManagedProduct,
 } from './product.service'
+import { getInventoryThreshold } from '../../inventory/inventory.service'
 import type {
   CreateProductInput,
   ManagedProduct,
@@ -29,6 +30,7 @@ import {
   type QuantityDetail,
   getErrorMessage,
   getInventory,
+  isProductSelling,
   getStockMeta,
   lowStockThreshold,
   pageSize,
@@ -58,6 +60,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   const [fitTypeFilter, setFitTypeFilter] = useState('all')
   const [activeFilter, setActiveFilter] = useState<ProductActiveFilter>('all')
   const [stockFilter, setStockFilter] = useState<ProductStockFilter>('all')
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [page, setPage] = useState(1)
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set())
@@ -71,6 +74,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   const [notice, setNotice] = useState<Notice>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [globalLowStockThreshold, setGlobalLowStockThreshold] = useState(lowStockThreshold)
 
   useEffect(() => {
     if (!notice) return
@@ -96,11 +100,17 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
     void loadProducts()
   }, [loadProducts])
 
+  useEffect(() => {
+    void getInventoryThreshold()
+      .then((result) => setGlobalLowStockThreshold(result.lowStockThreshold))
+      .catch(() => setGlobalLowStockThreshold(lowStockThreshold))
+  }, [])
+
   const stats = useMemo(() => {
     const inventory = products.flatMap(getInventory)
     const warningProductCount = products.filter((product) => {
-      const meta = getStockMeta(getInventory(product))
-      return meta.low > 0
+      const meta = getStockMeta(getInventory(product), globalLowStockThreshold)
+      return meta.low > 0 || meta.out > 0
     }).length
 
     return {
@@ -108,9 +118,9 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
       sold: products.reduce((sum, product) => sum + product.soldQuantity, 0),
       stock: inventory.reduce((sum, item) => sum + item.availableQuantity, 0),
       warning: warningProductCount,
-      inactive: products.filter((product) => !product.isActive).length,
+      inactive: products.filter((product) => !isProductSelling(product)).length,
     }
-  }, [products])
+  }, [globalLowStockThreshold, products])
 
   const filterOptions = useMemo(
     () => ({
@@ -127,15 +137,26 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
     [products],
   )
 
+  const hasAdvancedFilters =
+    categoryFilter !== 'all' ||
+    brandFilter !== 'all' ||
+    fitTypeFilter !== 'all' ||
+    activeFilter !== 'all'
+
   const pagination = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLocaleLowerCase('vi')
     const filtered = products.filter((product) => {
       const inventory = getInventory(product)
-      const isOut = inventory.length > 0 && inventory.every((item) => item.availableQuantity === 0)
-      const isLowStatus = !isOut && inventory.some(
-        (item) => item.availableQuantity > 0 && item.availableQuantity <= lowStockThreshold,
+      const hasOut = inventory.length === 0 || inventory.some((item) => item.availableQuantity === 0)
+      const hasLow = inventory.some(
+        (item) =>
+          item.availableQuantity > 0 &&
+          item.availableQuantity <= globalLowStockThreshold,
       )
-      const stockStatus = isOut ? 'out' : isLowStatus ? 'low' : 'available'
+      const matchesStock =
+        stockFilter === 'all' ||
+        (stockFilter === 'warning' && (hasLow || hasOut)) ||
+        (stockFilter === 'available' && inventory.length > 0 && !hasLow && !hasOut)
       const matchesKeyword =
         !normalizedKeyword ||
         [product.name, product.brandName, product.categoryName].some((value) =>
@@ -149,8 +170,8 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
         (fitTypeFilter === 'all' ||
           product.variants.some((variant) => variant.fitTypeLabel === fitTypeFilter)) &&
         (activeFilter === 'all' ||
-          (activeFilter === 'active' ? product.isActive : !product.isActive)) &&
-        (stockFilter === 'all' || stockStatus === stockFilter)
+          (activeFilter === 'active' ? isProductSelling(product) : !isProductSelling(product))) &&
+        matchesStock
       )
     })
     const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -173,6 +194,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
     keyword,
     page,
     products,
+    globalLowStockThreshold,
     stockFilter,
   ])
 
@@ -376,6 +398,8 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
         fitTypeFilter={fitTypeFilter}
         activeFilter={activeFilter}
         stockFilter={stockFilter}
+        showAdvancedFilters={showAdvancedFilters}
+        hasAdvancedFilters={hasAdvancedFilters}
         filterOptions={filterOptions}
         onKeywordChange={setKeyword}
         onCategoryFilterChange={setCategoryFilter}
@@ -383,6 +407,8 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
         onFitTypeFilterChange={setFitTypeFilter}
         onActiveFilterChange={setActiveFilter}
         onStockFilterChange={setStockFilter}
+        onAdvancedFiltersToggle={() => setShowAdvancedFilters((current) => !current)}
+        onAdvancedFiltersClose={() => setShowAdvancedFilters(false)}
       />
 
       {loadError ? (
@@ -402,6 +428,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
             expandedProducts={expandedProducts}
             expandedVariants={expandedVariants}
             loadingEditorProductId={loadingEditorProductId}
+            lowStockThreshold={globalLowStockThreshold}
             tableShellRef={tableShellRef}
             onToggleProduct={(productId) => toggleExpanded(productId, setExpandedProducts)}
             onToggleVariant={(variantKey) => toggleExpanded(variantKey, setExpandedVariants)}
@@ -434,6 +461,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
       {quantityDetail ? (
         <ProductInventoryBySizeDialog
           detail={quantityDetail}
+          lowStockThreshold={globalLowStockThreshold}
           onClose={() => setQuantityDetail(null)}
         />
       ) : null}
@@ -458,7 +486,11 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
       ) : null}
 
       {viewingProduct ? (
-        <ProductDetailsDialog product={viewingProduct} onClose={() => setViewingProduct(null)} />
+        <ProductDetailsDialog
+          product={viewingProduct}
+          lowStockThreshold={globalLowStockThreshold}
+          onClose={() => setViewingProduct(null)}
+        />
       ) : null}
 
       {deletingProduct ? (

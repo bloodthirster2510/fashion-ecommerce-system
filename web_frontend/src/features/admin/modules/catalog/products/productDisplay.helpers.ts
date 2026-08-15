@@ -6,7 +6,7 @@ import {
 } from '../../../utils/stock'
 
 export type ProductActiveFilter = 'all' | 'active' | 'inactive'
-export type ProductStockFilter = 'all' | 'available' | 'low' | 'out'
+export type ProductStockFilter = 'all' | 'available' | 'warning'
 export type ProductDeleteMode = 'pause' | 'permanent'
 
 export type QuantityDetail = {
@@ -29,6 +29,13 @@ export const getInventory = (product: ManagedProduct) =>
     variant.colors.flatMap((color) => color.inventory),
   )
 
+export const isProductSelling = (product: ManagedProduct) =>
+  product.isActive &&
+  product.variants.some((variant) =>
+    variant.isActive &&
+    variant.colors.some((color) => color.isActive),
+  )
+
 export const getDisplayPrice = (price: number, discount: number) =>
   discount > 0 ? Math.round(price * (1 - discount / 100)) : price
 
@@ -37,9 +44,10 @@ export const getStockMeta = getSharedStockMeta
 export const getInventoryStatus = (
   items: Array<{ availableQuantity: number }>,
   isActive: boolean,
+  threshold = lowStockThreshold,
 ) => {
   if (!isActive) return { label: 'Tạm ẩn', className: 'is-inactive' }
-  const { label, className } = getStockStatus(items)
+  const { label, className } = getStockStatus(items, threshold)
   return { label, className }
 }
 
