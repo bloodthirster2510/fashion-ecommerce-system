@@ -47,6 +47,21 @@ const parseResponse = async <T>(response: Response, fallbackMessage: string) => 
   return result.data
 }
 
+const assertAdminRefreshUser = (storedUser: AdminSession['user'], refreshedUser?: AdminSession['user']) => {
+  if (!refreshedUser) {
+    throw new Error('Phiên đăng nhập quản trị không hợp lệ')
+  }
+
+  if (
+    refreshedUser._id !== storedUser._id ||
+    (refreshedUser.role !== 'admin' && refreshedUser.role !== 'staff')
+  ) {
+    throw new Error('Phiên đăng nhập quản trị đã thay đổi, vui lòng đăng nhập lại')
+  }
+
+  return refreshedUser
+}
+
 export const loginAdmin = async (
   credentials: AdminLoginCredentials,
 ): Promise<AdminSession> => {
@@ -85,9 +100,10 @@ const performAdminSessionRefresh = async () => {
     response,
     'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại',
   )
+  const refreshedUser = assertAdminRefreshUser(storedUser, result.user)
   const nextSession: AdminSession = {
     accessToken: result.accessToken,
-    user: result.user ?? storedUser,
+    user: refreshedUser,
   }
 
   if (getAdminSessionRevision() !== sessionRevision) {
