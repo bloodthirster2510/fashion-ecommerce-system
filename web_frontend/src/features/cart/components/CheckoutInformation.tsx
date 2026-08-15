@@ -33,11 +33,11 @@ export function CheckoutInformation({ user, addresses, addressId, note, onAddres
           />
         </Form.Item>
         <div className="checkout-form-row">
-          <Form.Item label="Họ và tên"><Input value={selected?.customerName || user?.name || ''} readOnly /></Form.Item>
-          <Form.Item label="Số điện thoại"><Input value={selected?.phoneNumber || user?.phone || ''} readOnly /></Form.Item>
+          <Form.Item label="Họ và tên"><Input value={selected?.customerName || user?.name || ''} disabled /></Form.Item>
+          <Form.Item label="Số điện thoại"><Input value={selected?.phoneNumber || user?.phone || ''} disabled /></Form.Item>
         </div>
-        <Form.Item label="Email"><Input value={user?.email || ''} readOnly /></Form.Item>
-        <Form.Item label="Địa chỉ"><Input value={fullAddress(selected)} readOnly placeholder="Vui lòng thêm địa chỉ trong trang tài khoản" /></Form.Item>
+        <Form.Item label="Email"><Input value={user?.email || ''} disabled /></Form.Item>
+        <Form.Item label="Địa chỉ"><Input value={fullAddress(selected)} disabled placeholder="Vui lòng thêm địa chỉ trong trang tài khoản" /></Form.Item>
         <Form.Item label="Ghi chú thêm"><Input.TextArea value={note} maxLength={300} showCount rows={3} placeholder="Ví dụ: giao hàng giờ hành chính" onChange={(event) => onNoteChange(event.target.value)} /></Form.Item>
       </Form>
     </section>

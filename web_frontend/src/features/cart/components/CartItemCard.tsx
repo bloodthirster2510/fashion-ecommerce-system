@@ -11,6 +11,18 @@ type Props = {
   onRemove: () => void
 }
 
+const getUnavailableMessage = (item: CartItem) => {
+  if (item.name && item.availableQuantity < item.quantity) {
+    return 'Không đủ hàng.'
+  }
+
+  if (item.name) {
+    return 'Phân loại này đã ngừng kinh doanh.'
+  }
+
+  return 'Sản phẩm không tồn tại hoặc đã bị xóa.'
+}
+
 export function CartItemCard({ item, pending, onSelect, onQuantityChange, onRemove }: Props) {
   return (
     <article className={`cart-item-card${!item.isAvailable ? ' unavailable' : ''}`}>
@@ -20,14 +32,13 @@ export function CartItemCard({ item, pending, onSelect, onQuantityChange, onRemo
         <div className="cart-item-heading">
           <div>
             <h3>{item.name || 'Sản phẩm'}</h3>
-            <p>Mã: {item.sku}</p>
           </div>
         </div>
         <strong className="cart-item-price">{formatPrice(item.priceAtAddedTime)}</strong>
         <div className="cart-item-meta">
           {item.color && <span>Màu sắc: <b>{item.color}</b></span>}
           <span>Kích thước: <b>{item.size}</b></span>
-          {!item.isAvailable && <Tag color="error">Không đủ hàng</Tag>}
+          {!item.isAvailable && <Tag color="error">{getUnavailableMessage(item)}</Tag>}
         </div>
       </div>
       <div className="cart-item-actions">
