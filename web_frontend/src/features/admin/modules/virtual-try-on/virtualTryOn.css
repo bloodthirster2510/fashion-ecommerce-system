@@ -255,6 +255,13 @@
 .admin-vto-config-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
 .admin-vto-config-group { min-width: 0; padding: 11px; border: 1px solid #e2e8ed; border-radius: 8px; background: #fbfcfd; }
 .admin-vto-config-group h3 { margin: 0 0 10px; font-size: 12px; line-height: 1.3; }
+.admin-vto-panel .admin-vto-config-group dl { display: grid; gap: 0; margin: 0; }
+.admin-vto-panel .admin-vto-config-group dl > div { display: grid; grid-template-columns: minmax(118px,.9fr) minmax(0,1.1fr); align-items: center; gap: 10px; min-height: 34px; padding: 7px 0; border-top: 1px solid #eef2f5; border-bottom: 0; }
+.admin-vto-panel .admin-vto-config-group dl > div:first-child { border-top: 0; }
+.admin-vto-panel .admin-vto-config-group dt { min-width: 0; color: #728091; font-size: 11px; font-weight: 850; line-height: 1.25; }
+.admin-vto-panel .admin-vto-config-group dd { min-width: 0; margin: 0; overflow: hidden; color: var(--admin-text); font-size: 12px; font-weight: 900; line-height: 1.25; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.admin-vto-panel .admin-vto-config-group .admin-vto-config-chips { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 5px; overflow: visible; white-space: normal; }
+.admin-vto-config-chips span { border: 1px solid #dfe7ed; border-radius: 999px; padding: 3px 7px; color: #243748; background: #fff; font-size: 10px; font-weight: 900; line-height: 1; white-space: nowrap; }
 .admin-vto-config-group.is-image h3 { color: #276348; }
 .admin-vto-config-group.is-video h3 { color: #315f83; }
 .admin-vto-config-group.is-validation h3 { color: #704b8c; }

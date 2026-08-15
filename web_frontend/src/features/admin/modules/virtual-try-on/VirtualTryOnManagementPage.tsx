@@ -1082,10 +1082,21 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   <div><dt>Trạng thái</dt><dd>{settings ? (settings.image.enabled ? 'Đang bật' : 'Đang tắt') : '-'}</dd></div>
                   <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(settings?.image.provider)}</dd></div>
                   <div><dt>Mô hình AI</dt><dd>{getModelDisplayName(settings?.image.model)}</dd></div>
-                  <div><dt>Đầu ra ảnh</dt><dd>{settings ? `${settings.image.outputCount} ảnh · ${settings.image.aspectRatio} · ${settings.image.resolution}` : '-'}</dd></div>
+                  <div>
+                    <dt>Đầu ra</dt>
+                    <dd className="admin-vto-config-chips">
+                      {settings ? (
+                        <>
+                          <span>{settings.image.outputCount} ảnh</span>
+                          <span>{settings.image.aspectRatio}</span>
+                          <span>{settings.image.resolution}</span>
+                        </>
+                      ) : '-'}
+                    </dd>
+                  </div>
                   <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
-                  <div><dt>Lượt đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
-                  <div><dt>Ảnh nguồn tối đa</dt><dd>{settings ? `${settings.sourceImageMaxMb} MB` : '-'}</dd></div>
+                  <div><dt>Đồng thời/khách</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Ảnh nguồn</dt><dd>{settings ? `${settings.sourceImageMaxMb} MB` : '-'}</dd></div>
                 </dl>
               </section>
 
@@ -1107,15 +1118,21 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(settings?.video.provider)}</dd></div>
                   <div><dt>Mô hình AI</dt><dd>{getModelDisplayName(settings?.video.model)}</dd></div>
                   <div>
-                    <dt>Đầu ra video</dt>
-                    <dd>
-                      {settings
-                        ? `Mặc định ${settings.video.durationSeconds} giây · ${settings.video.minDurationSeconds}–${settings.video.maxDurationSeconds} giây · ${settings.video.resolution} · ${settings.video.aspectRatio} · ${settings.video.generateAudio ? 'có âm thanh' : 'không âm thanh'}`
-                        : '-'}
+                    <dt>Đầu ra</dt>
+                    <dd className="admin-vto-config-chips">
+                      {settings ? (
+                        <>
+                          <span>{settings.video.durationSeconds}s</span>
+                          <span>{settings.video.minDurationSeconds}-{settings.video.maxDurationSeconds}s</span>
+                          <span>{settings.video.resolution}</span>
+                          <span>{settings.video.aspectRatio}</span>
+                          <span>{settings.video.generateAudio ? 'Có âm' : 'Tắt âm'}</span>
+                        </>
+                      ) : '-'}
                     </dd>
                   </div>
-                  <div><dt>Video mỗi khách/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
-                  <div><dt>Video đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Video/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
+                  <div><dt>Đồng thời/khách</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
                 </dl>
               </section>
 
