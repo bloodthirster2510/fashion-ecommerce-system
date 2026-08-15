@@ -2,16 +2,13 @@ name: Mobile Frontend CI
 
 on:
   push:
-    branches: [develop, main, "feature/*"]
+    branches: [develop, "feature/*"]
     paths:
       - "mobile/**"
       - ".github/workflows/mobile-frontend-ci.yml"
 
   pull_request:
     branches: [develop, main]
-    paths:
-      - "mobile/**"
-      - ".github/workflows/mobile-frontend-ci.yml"
 
 jobs:
   mobile-frontend-ci:
@@ -36,7 +33,10 @@ jobs:
         run: npm ci
 
       - name: Check TypeScript
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
 
       - name: Check Expo project
         run: npx expo-doctor

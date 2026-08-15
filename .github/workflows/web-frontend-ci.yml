@@ -2,16 +2,13 @@ name: Web Frontend CI
 
 on:
   push:
-    branches: [develop, main, "feature/*"]
+    branches: [develop, "feature/*"]
     paths:
       - "web_frontend/**"
       - ".github/workflows/web-frontend-ci.yml"
 
   pull_request:
     branches: [develop, main]
-    paths:
-      - "web_frontend/**"
-      - ".github/workflows/web-frontend-ci.yml"
 
 jobs:
   web-frontend-ci:
@@ -40,3 +37,6 @@ jobs:
 
       - name: Build web frontend
         run: npm run build
+
+      - name: Run unit tests
+        run: npm run test:unit
