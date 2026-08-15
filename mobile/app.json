@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "CDShop",
-    "slug": "fashion-ecommerce-mobile",
+    "slug": "fashion-ecommerce-prod",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,9 +16,9 @@
       "com.fashionshop.app"
     ],
     "extra": {
-      "EAS_PROJECT_ID": "a6a0028f-0aa6-440c-93f9-34b15a6773d6",
+      "EAS_PROJECT_ID": "2d37a020-c7b4-45b3-bd81-b1685927992c",
       "eas": {
-        "projectId": "a6a0028f-0aa6-440c-93f9-34b15a6773d6"
+        "projectId": "2d37a020-c7b4-45b3-bd81-b1685927992c"
       }
     },
     "ios": {
