@@ -871,11 +871,11 @@ const CartScreen = () => {
         <Text style={styles.shortcutHeaderTitle}>Giỏ hàng</Text>
         <TouchableOpacity
           style={styles.shortcutHeaderAction}
-          onPress={() => loadCart('refresh')}
-          accessibilityLabel="Tải lại"
+          onPress={() => navigation.navigate('Home')}
+          accessibilityLabel="Về trang chủ"
           activeOpacity={0.82}
         >
-          <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+          <MaterialCommunityIcons name="home-outline" size={23} color={colors.white} />
         </TouchableOpacity>
       </View>
 

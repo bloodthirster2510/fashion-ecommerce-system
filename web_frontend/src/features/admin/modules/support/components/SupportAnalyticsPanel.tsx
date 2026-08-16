@@ -1,3 +1,4 @@
+import { BarChart2, Calendar, CheckCircle, Clock, FileCheck, HelpCircle, MessageSquare, TrendingUp } from 'lucide-react'
 import { Button } from '../../../components/ui'
 import type { SupportAnalytics, SupportCategory, SupportTicketType } from '../support.types'
 
@@ -24,34 +25,175 @@ export function SupportAnalyticsPanel({
   onDateToChange,
   onApply,
 }: SupportAnalyticsPanelProps) {
+  const totalTickets = analytics?.tickets.total ?? 0
+  const respondedTickets = analytics?.tickets.responded ?? 0
+  const responseRate = totalTickets > 0 ? Math.round((respondedTickets / totalTickets) * 100) : 0
+  const faqHelpfulRate = Math.round((analytics?.faq.helpfulRate ?? 0) * 100)
+
   return (
-    <section className="admin-support-report">
-      <div className="admin-support-toolbar">
-        <label>Từ ngày<input type="date" value={dateFrom} onChange={(event) => onDateFromChange(event.target.value)} /></label>
-        <label>Đến ngày<input type="date" value={dateTo} onChange={(event) => onDateToChange(event.target.value)} /></label>
-        <Button variant="primary" onClick={() => void onApply()}>Áp dụng</Button>
+    <section className="admin-support-analytics-wrapper">
+      {/* TOOLBAR */}
+      <div className="admin-support-analytics-toolbar">
+        <div className="admin-support-date-range">
+          <label className="admin-support-date-field">
+            <Calendar aria-hidden="true" />
+            <span>Từ ngày:</span>
+            <input
+              type="date"
+              aria-label="Từ ngày"
+              value={dateFrom}
+              onChange={(event) => onDateFromChange(event.target.value)}
+            />
+          </label>
+
+          <label className="admin-support-date-field">
+            <Calendar aria-hidden="true" />
+            <span>Đến ngày:</span>
+            <input
+              type="date"
+              aria-label="Đến ngày"
+              value={dateTo}
+              onChange={(event) => onDateToChange(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <Button variant="primary" onClick={() => void onApply()}>
+          <TrendingUp aria-hidden="true" />
+          Áp dụng bộ lọc
+        </Button>
       </div>
-      <div className="admin-support-kpis">
-        <ReportKpi label="Tổng ticket" value={analytics?.tickets.total ?? 0} />
-        <ReportKpi label="Đã phản hồi" value={analytics?.tickets.responded ?? 0} />
-        <ReportKpi label="Phản hồi đầu" value={formatDuration(analytics?.tickets.avgFirstResponseMs)} />
-        <ReportKpi label="Thời gian xử lý" value={formatDuration(analytics?.tickets.avgResolutionMs)} />
+
+      {/* PRIMARY KPI METRICS */}
+      <div className="admin-support-analytics-kpis">
+        <article className="admin-support-analytics-kpi-card">
+          <div className="admin-support-analytics-kpi-card__icon is-blue">
+            <MessageSquare aria-hidden="true" />
+          </div>
+          <div className="admin-support-analytics-kpi-card__content">
+            <span>Tổng số ticket</span>
+            <strong>{totalTickets}</strong>
+            <small>Tất cả yêu cầu gửi về</small>
+          </div>
+        </article>
+
+        <article className="admin-support-analytics-kpi-card">
+          <div className="admin-support-analytics-kpi-card__icon is-green">
+            <CheckCircle aria-hidden="true" />
+          </div>
+          <div className="admin-support-analytics-kpi-card__content">
+            <span>Đã phản hồi</span>
+            <strong>{respondedTickets}</strong>
+            <small>Đạt tỷ lệ {responseRate}%</small>
+          </div>
+        </article>
+
+        <article className="admin-support-analytics-kpi-card">
+          <div className="admin-support-analytics-kpi-card__icon is-amber">
+            <Clock aria-hidden="true" />
+          </div>
+          <div className="admin-support-analytics-kpi-card__content">
+            <span>Phản hồi đầu TB</span>
+            <strong>{formatDuration(analytics?.tickets.avgFirstResponseMs)}</strong>
+            <small>Tốc độ tiếp nhận</small>
+          </div>
+        </article>
+
+        <article className="admin-support-analytics-kpi-card">
+          <div className="admin-support-analytics-kpi-card__icon is-purple">
+            <FileCheck aria-hidden="true" />
+          </div>
+          <div className="admin-support-analytics-kpi-card__content">
+            <span>Thời gian xử lý TB</span>
+            <strong>{formatDuration(analytics?.tickets.avgResolutionMs)}</strong>
+            <small>Đến khi giải quyết xong</small>
+          </div>
+        </article>
       </div>
-      <div className="admin-support-report-grid">
-        <ReportBreakdown title="Theo danh mục" items={(analytics?.byCategory ?? []).map((item) => ({ label: categoryLabels[item.key], count: item.count }))} />
-        <ReportBreakdown title="Theo loại" items={(analytics?.byType ?? []).map((item) => ({ label: typeLabels[item.key], count: item.count }))} />
-        <ReportBreakdown title="Lượng ticket theo ngày" items={(analytics?.dailyVolume ?? []).map((item) => ({ label: item.date, count: item.count }))} />
-        <article className="admin-support-report-card"><h3>FAQ hữu ích</h3><strong>{Math.round((analytics?.faq.helpfulRate ?? 0) * 100)}%</strong><p>{analytics?.faq.helpful ?? 0}/{analytics?.faq.totalVotes ?? 0} lượt đánh giá hữu ích</p></article>
+
+      {/* BREAKDOWN GRIDS */}
+      <div className="admin-support-analytics-grid">
+        <ReportBreakdownCard
+          title="Phân bổ theo danh mục"
+          items={(analytics?.byCategory ?? []).map((item) => ({
+            label: categoryLabels[item.key] ?? item.key,
+            count: item.count,
+          }))}
+        />
+
+        <ReportBreakdownCard
+          title="Phân bổ theo loại yêu cầu"
+          items={(analytics?.byType ?? []).map((item) => ({
+            label: typeLabels[item.key] ?? item.key,
+            count: item.count,
+          }))}
+        />
+
+        <ReportBreakdownCard
+          title="Lượng ticket theo ngày"
+          items={(analytics?.dailyVolume ?? []).map((item) => ({
+            label: item.date,
+            count: item.count,
+          }))}
+        />
+
+        <article className="admin-support-analytics-card is-faq-card">
+          <div className="admin-support-analytics-card__header">
+            <HelpCircle aria-hidden="true" />
+            <h3>Hiệu quả bài viết FAQ</h3>
+          </div>
+          <div className="admin-support-faq-metric">
+            <strong className="admin-support-faq-metric__percent">{faqHelpfulRate}%</strong>
+            <span className="admin-support-faq-metric__label">Tỷ lệ khách đánh giá hữu ích</span>
+            <p className="admin-support-faq-metric__details">
+              Đã ghi nhận <b>{analytics?.faq.helpful ?? 0}</b> lượt đánh giá tốt trên tổng số{' '}
+              <b>{analytics?.faq.totalVotes ?? 0}</b> lượt vote từ khách hàng.
+            </p>
+          </div>
+        </article>
       </div>
     </section>
   )
 }
 
-function ReportKpi({ label, value }: { label: string; value: number | string }) {
-  return <article className="admin-support-kpi"><span>{label}</span><strong>{value}</strong></article>
-}
-
-function ReportBreakdown({ title, items }: { title: string; items: Array<{ label: string; count: number }> }) {
+function ReportBreakdownCard({
+  title,
+  items,
+}: {
+  title: string
+  items: Array<{ label: string; count: number }>
+}) {
   const max = Math.max(1, ...items.map((item) => item.count))
-  return <article className="admin-support-report-card"><h3>{title}</h3>{items.length ? items.map((item) => <div className="admin-support-report-row" key={item.label}><span>{item.label}</span><i><b style={{ width: `${item.count / max * 100}%` }} /></i><strong>{item.count}</strong></div>) : <p>Chưa có dữ liệu.</p>}</article>
+
+  return (
+    <article className="admin-support-analytics-card">
+      <div className="admin-support-analytics-card__header">
+        <BarChart2 aria-hidden="true" />
+        <h3>{title}</h3>
+      </div>
+
+      <div className="admin-support-breakdown-list">
+        {items.length ? (
+          items.map((item) => {
+            const percentage = Math.round((item.count / max) * 100)
+            return (
+              <div className="admin-support-breakdown-row" key={item.label}>
+                <span className="admin-support-breakdown-label">{item.label}</span>
+                <div className="admin-support-breakdown-track">
+                  <div
+                    className="admin-support-breakdown-bar"
+                    style={{ width: `${percentage}%` }}
+                    title={`${item.count} ticket (${percentage}%)`}
+                  />
+                </div>
+                <strong className="admin-support-breakdown-count">{item.count}</strong>
+              </div>
+            )
+          })
+        ) : (
+          <p className="admin-support-breakdown-empty">Chưa có dữ liệu thống kê trong khoảng thời gian này.</p>
+        )}
+      </div>
+    </article>
+  )
 }

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import {
   createAdminFaq,
@@ -421,7 +421,30 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
       {tab === 'tickets' ? (
         <>
-          <SupportKpiSummary summary={summary} />
+          <SupportKpiSummary
+            summary={summary}
+            activeView={
+              filters.assignedTo === currentUser._id
+                ? 'mine'
+                : filters.assignedTo === 'unassigned'
+                  ? 'unassigned'
+                  : filters.requiresReply === true
+                    ? 'reply'
+                    : 'all'
+            }
+            onSelectKpi={(view) => {
+              if (view === 'reply') {
+                setFilters((old) => ({ ...old, page: 1, requiresReply: true, assignedTo: 'all' }))
+              } else if (view === 'unassigned') {
+                setFilters((old) => ({ ...old, page: 1, assignedTo: 'unassigned', requiresReply: 'all' }))
+              } else if (view === 'overdue') {
+                const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+                setFilters((old) => ({ ...old, page: 1, status: 'open', dateTo: yesterday, assignedTo: 'all', requiresReply: 'all' }))
+              } else {
+                setFilters((old) => ({ ...old, page: 1, status: 'all', assignedTo: 'all', requiresReply: 'all', dateFrom: undefined, dateTo: undefined }))
+              }
+            }}
+          />
 
           <SupportTicketFilters
             filters={filters}
@@ -454,6 +477,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             selectedCannedId={selectedCannedId}
             cannedResponses={cannedResponses}
             customerTypingTicketId={customerTypingTicketId}
+            replyFiles={replyFiles}
             statusLabels={statusLabels}
             typeLabels={typeLabels}
             categoryLabels={categoryLabels}

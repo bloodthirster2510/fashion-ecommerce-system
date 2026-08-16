@@ -4,6 +4,7 @@ import {
   Alert,
   AppState,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -90,6 +91,17 @@ export default function SupportTicketDetailScreen() {
   const reopeningRef = React.useRef(false);
   const requestSequenceRef = React.useRef(0);
   const messagesScrollRef = React.useRef<ScrollView>(null);
+
+  const scrollToLatestMessage = React.useCallback(() => {
+    requestAnimationFrame(() => {
+      messagesScrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const keyboardSubscription = Keyboard.addListener('keyboardDidShow', scrollToLatestMessage);
+    return () => keyboardSubscription.remove();
+  }, [scrollToLatestMessage]);
 
   React.useEffect(() => {
     requestSequenceRef.current += 1;
@@ -233,7 +245,7 @@ export default function SupportTicketDetailScreen() {
       </View>
       <KeyboardAvoidingView
         style={s.chatLayout}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {error ? <Text style={s.chatError}>{error}</Text> : null}
         {ticket ? (
@@ -390,6 +402,7 @@ export default function SupportTicketDetailScreen() {
                     placeholder="Nhập tin nhắn..."
                     placeholderTextColor={colors.textSubtle}
                     maxLength={1000}
+                    onFocus={scrollToLatestMessage}
                   />
                   <TouchableOpacity
                     style={[s.sendButton, (sending || !reply.trim()) && s.sendButtonDisabled]}

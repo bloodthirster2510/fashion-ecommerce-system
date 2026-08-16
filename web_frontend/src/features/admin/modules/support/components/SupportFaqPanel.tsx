@@ -1,4 +1,5 @@
-import { Button } from '../../../components/ui'
+import { ArrowDown, ArrowUp, Edit3, Plus, Search, Trash2 } from 'lucide-react'
+import { Button, EmptyState, StatusBadge } from '../../../components/ui'
 import type { FaqArticle, FaqCategory, SupportCategory } from '../support.types'
 
 type SupportFaqPanelProps = {
@@ -27,22 +28,111 @@ export function SupportFaqPanel({
   onMove,
 }: SupportFaqPanelProps) {
   return (
-    <section className="admin-support-faqs">
-      <div className="admin-support-toolbar">
-        <input aria-label="Tìm FAQ" placeholder="Tìm câu hỏi..." value={faqSearch} onChange={(event) => onSearchChange(event.target.value)} />
-        <select aria-label="Lọc danh mục FAQ" value={faqCategory} onChange={(event) => onCategoryChange(event.target.value as FaqCategory | 'all')}>
+    <section className="admin-support-faq-wrapper">
+      <div className="admin-support-panel-toolbar">
+        <label className="admin-support-toolbar-search">
+          <Search aria-hidden="true" />
+          <input
+            aria-label="Tìm kiếm FAQ"
+            placeholder="Tìm câu hỏi FAQ hoặc nội dung giải đáp..."
+            value={faqSearch}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </label>
+
+        <select
+          className="admin-support-toolbar-select"
+          aria-label="Lọc danh mục FAQ"
+          value={faqCategory}
+          onChange={(event) => onCategoryChange(event.target.value as FaqCategory | 'all')}
+        >
           <option value="all">Tất cả danh mục</option>
-          {Object.entries(categoryLabels).filter(([key]) => !['product', 'app_website', 'service'].includes(key)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {Object.entries(categoryLabels)
+            .filter(([key]) => !['product', 'app_website', 'service'].includes(key))
+            .map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
         </select>
-        <Button variant="primary" onClick={onCreate}>Thêm FAQ</Button>
+
+        <Button variant="primary" onClick={onCreate}>
+          <Plus aria-hidden="true" />
+          Thêm câu hỏi FAQ
+        </Button>
       </div>
+
       <div className="admin-support-faq-list">
-        {faqs.map((faq) => (
-          <article key={faq._id}>
-            <div><span>{categoryLabels[faq.category]}</span><h3>{faq.question}</h3><p>{faq.answer}</p><small>{faq.helpfulCount} hữu ích · {faq.notHelpfulCount} chưa hữu ích</small></div>
-            <aside><em className={faq.isPublished ? 'published' : ''}>{faq.isPublished ? 'Đang hiển thị' : 'Bản nháp'} · #{faq.sortOrder}</em><Button variant="secondary" onClick={() => void onMove(faq._id, -1)}>↑</Button><Button variant="secondary" onClick={() => void onMove(faq._id, 1)}>↓</Button><Button variant="secondary" onClick={() => onEdit(faq)}>Sửa</Button><Button variant="danger" onClick={() => void onDelete(faq._id)}>Ẩn/Xóa</Button></aside>
-          </article>
-        ))}
+        {faqs.length ? (
+          faqs.map((faq, index) => (
+            <article key={faq._id} className="admin-support-faq-card">
+              <div className="admin-support-faq-card__content">
+                <div className="admin-support-faq-card__header">
+                  <span className="admin-support-faq-category">{categoryLabels[faq.category]}</span>
+                  <StatusBadge tone={faq.isPublished ? 'success' : 'neutral'}>
+                    {faq.isPublished ? 'Đang hiển thị' : 'Bản nháp'}
+                  </StatusBadge>
+                  <span className="admin-support-faq-order">Thứ tự: #{faq.sortOrder}</span>
+                </div>
+
+                <h3 className="admin-support-faq-card__question">{faq.question}</h3>
+                <p className="admin-support-faq-card__answer">{faq.answer}</p>
+
+                <div className="admin-support-faq-card__stats">
+                  <span>👍 <b>{faq.helpfulCount}</b> hữu ích</span>
+                  <span>·</span>
+                  <span>👎 <b>{faq.notHelpfulCount}</b> chưa hữu ích</span>
+                  {faq.keywords.length > 0 ? (
+                    <>
+                      <span>·</span>
+                      <span className="admin-support-faq-keywords">
+                        Từ khóa: {faq.keywords.join(', ')}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+
+              <aside className="admin-support-faq-card__actions">
+                <div className="admin-support-faq-card__move-btns" role="group" aria-label="Thay đổi thứ tự">
+                  <button
+                    type="button"
+                    className="admin-support-icon-mini-btn"
+                    disabled={index === 0}
+                    onClick={() => void onMove(faq._id, -1)}
+                    title="Chuyển lên trên"
+                    aria-label="Chuyển lên trên"
+                  >
+                    <ArrowUp aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-support-icon-mini-btn"
+                    disabled={index === faqs.length - 1}
+                    onClick={() => void onMove(faq._id, 1)}
+                    title="Chuyển xuống dưới"
+                    aria-label="Chuyển xuống dưới"
+                  >
+                    <ArrowDown aria-hidden="true" />
+                  </button>
+                </div>
+
+                <Button variant="secondary" onClick={() => onEdit(faq)}>
+                  <Edit3 aria-hidden="true" />
+                  Sửa
+                </Button>
+
+                <Button variant="danger" onClick={() => void onDelete(faq._id)}>
+                  <Trash2 aria-hidden="true" />
+                  Ẩn / Xóa
+                </Button>
+              </aside>
+            </article>
+          ))
+        ) : (
+          <EmptyState
+            title="Không tìm thấy câu hỏi FAQ"
+            description="Thử đổi từ khóa tìm kiếm hoặc bấm 'Thêm câu hỏi FAQ' để tạo nội dung mới."
+          />
+        )}
       </div>
     </section>
   )
