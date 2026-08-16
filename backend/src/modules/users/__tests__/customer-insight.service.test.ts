@@ -138,6 +138,38 @@ describe('customerInsightService', () => {
       category: 'orders',
       createdAt: new Date('2026-01-04T00:00:00.000Z'),
     };
+    const audit = {
+      _id: new Types.ObjectId(),
+      action: 'customer.status_update',
+      actorId: {
+        _id: actorId,
+        name: 'Quản trị An',
+        email: 'admin@example.com',
+        avatarImage: 'https://cdn.example.com/admin.jpg',
+        role: 'admin',
+      },
+      actorRole: 'admin',
+      reason: null,
+      before: { isActive: true },
+      after: { isActive: false },
+      metadata: {},
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+    };
+    const interaction = {
+      _id: new Types.ObjectId(),
+      actionType: 'recommendation_click',
+      source: 'product_detail',
+      metadata: {},
+      productId: new Types.ObjectId(),
+      createdAt: new Date('2026-01-03T18:00:00.000Z'),
+    };
+    const tryOnJob = {
+      _id: new Types.ObjectId(),
+      status: 'processing',
+      outfitMode: 'single',
+      selectedItems: [{ productId: new Types.ObjectId() }],
+      createdAt: new Date('2026-01-03T12:00:00.000Z'),
+    };
 
     (Order.aggregate as jest.Mock).mockResolvedValue([
       { totalOrders: 1, successfulOrders: 1, totalSpent: 250000 },
@@ -147,14 +179,14 @@ describe('customerInsightService', () => {
       .mockReturnValueOnce(queryWithLean([order]));
     (SupportTicket.find as jest.Mock).mockReturnValue(queryWithLean([support]));
     (Review.find as jest.Mock).mockReturnValue(queryWithLean([]));
-    (UserProductInteraction.find as jest.Mock).mockReturnValue(queryWithLean([]));
-    (VirtualTryOnJob.find as jest.Mock).mockReturnValue(queryWithLean([]));
-    (AuditLog.find as jest.Mock).mockReturnValue(queryWithLean([]));
+    (UserProductInteraction.find as jest.Mock).mockReturnValue(queryWithLean([interaction]));
+    (VirtualTryOnJob.find as jest.Mock).mockReturnValue(queryWithLean([tryOnJob]));
+    (AuditLog.find as jest.Mock).mockReturnValue(queryWithLean([audit]));
     (SupportTicket.countDocuments as jest.Mock).mockResolvedValue(1);
     (Review.countDocuments as jest.Mock).mockResolvedValue(0);
-    (UserProductInteraction.countDocuments as jest.Mock).mockResolvedValue(0);
-    (VirtualTryOnJob.countDocuments as jest.Mock).mockResolvedValue(0);
-    (AuditLog.countDocuments as jest.Mock).mockResolvedValue(0);
+    (UserProductInteraction.countDocuments as jest.Mock).mockResolvedValue(1);
+    (VirtualTryOnJob.countDocuments as jest.Mock).mockResolvedValue(1);
+    (AuditLog.countDocuments as jest.Mock).mockResolvedValue(1);
 
     const result = await customerInsightService.getCustomerInsights({
       customerId: customerId.toString(),
@@ -168,12 +200,37 @@ describe('customerInsightService', () => {
       totalSpent: 250000,
     });
     expect(result.activity.items.map((item) => item.type)).toEqual([
+      'audit',
       'order',
       'support',
+      'interaction',
+      'virtual_try_on',
       'account',
       'account',
     ]);
-    expect(result.activity.pagination.totalItems).toBe(4);
+    expect(result.activity.items[0]).toMatchObject({
+      title: 'Đã khóa tài khoản',
+      description: 'Quản trị An · Quản trị viên',
+      actor: {
+        name: 'Quản trị An',
+        avatarImage: 'https://cdn.example.com/admin.jpg',
+      },
+    });
+    expect(result.activity.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'support',
+        description: 'Cần hỗ trợ đơn · Đã tiếp nhận',
+      }),
+      expect.objectContaining({
+        type: 'interaction',
+        description: 'Trang chi tiết sản phẩm',
+      }),
+      expect.objectContaining({
+        type: 'virtual_try_on',
+        description: '1 sản phẩm · Đang xử lý',
+      }),
+    ]));
+    expect(result.activity.pagination.totalItems).toBe(7);
   });
 
   it('rejects invalid note content before writing', async () => {

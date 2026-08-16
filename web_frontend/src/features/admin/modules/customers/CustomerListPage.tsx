@@ -208,8 +208,8 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
         setNotice({
           type: 'success',
           message: delivery.mode === 'mock'
-            ? `Mock email đã tạo. Token: ${delivery.testToken ?? 'xem mock outbox backend'}`
-            : 'SMTP đã tiếp nhận email đặt lại mật khẩu',
+            ? 'Email thử nghiệm đã được tạo. Vui lòng kiểm tra hộp thư thử nghiệm.'
+            : 'Email hướng dẫn đổi mật khẩu đã được gửi tới khách hàng.',
         })
       }
 
@@ -250,7 +250,14 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
       render: (user) => (
         <div className="admin-user-cell">
           <span className="admin-user-avatar" aria-hidden="true">
-            {getUserTitle(user).trim().charAt(0).toUpperCase() || 'U'}
+            <span>{getUserTitle(user).trim().charAt(0).toUpperCase() || 'U'}</span>
+            {user.avatarImage ? (
+              <img
+                src={user.avatarImage}
+                alt=""
+                onError={(event) => { event.currentTarget.style.display = 'none' }}
+              />
+            ) : null}
           </span>
           <div>
             <strong>{getUserTitle(user)}</strong>
@@ -322,7 +329,7 @@ export function CustomerListPage({ currentUser }: CustomerListPageProps) {
   ]
 
   return (
-    <section className="admin-ui-page" aria-busy={isLoading}>
+    <section className="admin-ui-page admin-customer-page" aria-busy={isLoading}>
       <PageHeader
         title="Khách hàng"
         description="Quản lý tài khoản khách mua hàng, thông tin liên hệ, trạng thái đăng nhập và điểm tích lũy."
