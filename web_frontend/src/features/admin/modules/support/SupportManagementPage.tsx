@@ -34,6 +34,7 @@ import type {
   SupportAnalytics,
   SupportTicket,
   SupportTicketDetail,
+  SupportMessage,
   SupportTicketStatus,
   SupportTicketType,
 } from './support.types'
@@ -102,6 +103,9 @@ const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 
 }
 
 const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }
+
+const appendMessageOnce = (messages: SupportMessage[], message: SupportMessage) =>
+  messages.some((item) => item._id === message._id) ? messages : [...messages, message]
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -209,12 +213,12 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     onMessage: (ticketId, message, isInternal) => {
       if (isInternal) {
         setDetail((prev) => prev && prev.ticket._id === ticketId
-          ? { ...prev, messages: [...prev.messages, message] }
+          ? { ...prev, messages: appendMessageOnce(prev.messages, message) }
           : prev)
         return
       }
       setDetail((prev) => prev && prev.ticket._id === ticketId
-        ? { ...prev, messages: [...prev.messages, message] }
+        ? { ...prev, messages: appendMessageOnce(prev.messages, message) }
         : prev)
       setTickets((prev) => prev.map((t) => t._id === ticketId
         ? { ...t, lastMessageAt: message.createdAt, lastMessageSender: message.senderType, requiresReply: message.senderType === 'customer', updatedAt: message.createdAt }
@@ -296,13 +300,50 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
   const sendReply = async () => {
     if (!selectedId || !reply.trim() || submittingRef.current) return
+    const ticketId = selectedId
+    const internal = isInternal
     submittingRef.current = true; setSubmitting(true)
+    setError('')
+    realtime.emitTyping(ticketId, false)
     try {
-      await replySupportTicket(selectedId, reply.trim(), isInternal, replyFiles, selectedCannedId || undefined)
+      const message = await replySupportTicket(ticketId, reply.trim(), internal, replyFiles, selectedCannedId || undefined)
       setReply('')
       setSelectedCannedId('')
       setReplyFiles([])
-      await Promise.all([loadDetail(selectedId), loadTickets()])
+      setDetail((prev) => {
+        if (!prev || prev.ticket._id !== ticketId) return prev
+        const messages = appendMessageOnce(prev.messages, message)
+        if (internal || new Date(prev.ticket.lastMessageAt).getTime() > new Date(message.createdAt).getTime()) {
+          return messages === prev.messages ? prev : { ...prev, messages }
+        }
+        const status = ['open', 'in_progress'].includes(prev.ticket.status) ? 'waiting_customer' : prev.ticket.status
+        return {
+          ...prev,
+          messages,
+          ticket: {
+            ...prev.ticket,
+            status,
+            requiresReply: false,
+            lastMessageAt: message.createdAt,
+            lastMessageSender: 'staff',
+            updatedAt: message.createdAt,
+          },
+        }
+      })
+      if (!internal) {
+        setTickets((prev) => prev.map((ticket) => {
+          if (ticket._id !== ticketId || new Date(ticket.lastMessageAt).getTime() > new Date(message.createdAt).getTime()) return ticket
+          return {
+            ...ticket,
+            status: ['open', 'in_progress'].includes(ticket.status) ? 'waiting_customer' : ticket.status,
+            requiresReply: false,
+            lastMessageAt: message.createdAt,
+            lastMessageSender: 'staff',
+            updatedAt: message.createdAt,
+          }
+        }))
+      }
+      loadSummaryOnly()
       requestAdminNotificationRefresh()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể gửi phản hồi.')

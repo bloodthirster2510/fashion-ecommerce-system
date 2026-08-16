@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { AlertTriangle, ImagePlus, MessageSquareText, PanelRightClose, PanelRightOpen, StickyNote } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, ImagePlus, LoaderCircle, MessageSquareText, PanelRightClose, PanelRightOpen, StickyNote } from 'lucide-react'
 import { Button, EmptyState, Modal, Pagination, StatusBadge } from '../../../components/ui'
 import type {
   CannedResponse,
@@ -84,7 +84,14 @@ export function SupportInboxPanel({
 }: SupportInboxPanelProps) {
   const [isSpamConfirmOpen, setIsSpamConfirmOpen] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const threadRef = useRef<HTMLDivElement>(null)
   const selectedTicket = detail?.ticket
+
+  useEffect(() => {
+    const thread = threadRef.current
+    if (!thread) return
+    thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' })
+  }, [customerTypingTicketId, detail?.messages.length, selectedId])
   const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
     open: ['open', 'in_progress', 'resolved', 'closed', ...(canMarkSpam ? ['spam' as const] : [])],
     in_progress: ['in_progress', 'resolved', 'closed', ...(canMarkSpam ? ['spam' as const] : [])],
@@ -270,7 +277,7 @@ export function SupportInboxPanel({
             </aside>
 
             <section className="admin-support-conversation" aria-label="Hội thoại với khách hàng">
-            <div className="admin-support-thread">
+            <div className="admin-support-thread" ref={threadRef} aria-live="polite">
               {detail.messages.map((message) => (
                 <article key={message._id} className={`admin-support-message ${message.senderType}${message.isInternal ? ' internal' : ''}`}>
                   <header><strong>{message.isInternal ? 'Ghi chú nội bộ' : message.senderType === 'staff' ? 'Nhân viên hỗ trợ' : 'Khách hàng'}</strong><time>{formatDate(message.createdAt)}</time></header>
@@ -294,11 +301,26 @@ export function SupportInboxPanel({
                   {cannedResponses.filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category)).map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}
                 </select>}
               </div>
-              <textarea rows={4} value={reply} onChange={(event) => onReplyChange(event.target.value)} placeholder={isInternal ? 'Ghi chú này chỉ nhân viên nhìn thấy...' : 'Nhập nội dung phản hồi cho khách hàng...'} maxLength={3000} />
+              <textarea
+                rows={3}
+                value={reply}
+                onChange={(event) => onReplyChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && reply.trim() && !submitting) {
+                    event.preventDefault()
+                    void onSendReply()
+                  }
+                }}
+                placeholder={isInternal ? 'Ghi chú này chỉ nhân viên nhìn thấy...' : 'Nhập nội dung phản hồi cho khách hàng...'}
+                maxLength={3000}
+                aria-label={isInternal ? 'Nội dung ghi chú nội bộ' : 'Nội dung phản hồi khách hàng'}
+              />
               <div className="admin-support-composer-footer">
                 <label className="admin-support-file"><ImagePlus aria-hidden="true" /> Đính kèm ảnh<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => onFilesChange(Array.from(event.target.files ?? []))} /></label>
-                <span>Tối đa 3 ảnh, mỗi ảnh 5 MB</span>
-                <button className="admin-support-send" type="button" disabled={!reply.trim() || submitting} onClick={() => void onSendReply()}>{submitting ? 'Đang gửi...' : isInternal ? 'Lưu ghi chú' : 'Gửi phản hồi'}</button>
+                <span>Tối đa 3 ảnh, mỗi ảnh 5 MB · Ctrl + Enter để gửi</span>
+                <button className={`admin-support-send${submitting ? ' is-sending' : ''}`} type="button" disabled={!reply.trim() || submitting} onClick={() => void onSendReply()} aria-busy={submitting}>
+                  {submitting ? <><LoaderCircle aria-hidden="true" /> Đang gửi</> : isInternal ? 'Lưu ghi chú' : 'Gửi phản hồi'}
+                </button>
               </div>
             </div> : (
               <div className="admin-support-closed-notice">

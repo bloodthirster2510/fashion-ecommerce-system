@@ -4,23 +4,26 @@ import { deleteFromCloudinary, uploadToCloudinary } from '../../utils/cloudinary
 export const uploadSupportAttachments = async (
   files: Express.Multer.File[] = [],
 ): Promise<ISupportAttachment[]> => {
-  const uploaded: ISupportAttachment[] = [];
+  const results = await Promise.allSettled(files.map(async (file) => {
+    const result = await uploadToCloudinary(file.buffer, file.originalname, 'fashion-ecommerce/support');
+    return {
+      url: result.secure_url,
+      publicId: result.public_id,
+      mimeType: file.mimetype as ISupportAttachment['mimeType'],
+      size: file.size,
+    };
+  }));
+  const uploaded = results
+    .filter((result): result is PromiseFulfilledResult<ISupportAttachment> => result.status === 'fulfilled')
+    .map((result) => result.value);
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
 
-  try {
-    for (const file of files) {
-      const result = await uploadToCloudinary(file.buffer, file.originalname, 'fashion-ecommerce/support');
-      uploaded.push({
-        url: result.secure_url,
-        publicId: result.public_id,
-        mimeType: file.mimetype as ISupportAttachment['mimeType'],
-        size: file.size,
-      });
-    }
-    return uploaded;
-  } catch (error) {
+  if (failed) {
     await cleanupSupportAttachments(uploaded);
-    throw error;
+    throw failed.reason;
   }
+
+  return uploaded;
 };
 
 export const cleanupSupportAttachments = async (attachments: ISupportAttachment[]) => {

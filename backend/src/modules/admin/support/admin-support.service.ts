@@ -11,6 +11,7 @@ import {
   SUPPORT_TICKET_STATUSES,
   SUPPORT_TICKET_TYPES,
   User,
+  type ISupportTicket,
   type SupportTicketStatus,
 } from '../../../database/models';
 import { auditLogService } from '../../audit-logs/audit-log.service';
@@ -34,6 +35,49 @@ import type {
 type SupportActor = { userId: string; role: 'admin' | 'staff' };
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+const sendReplyNotificationsInBackground = (
+  ticket: ISupportTicket,
+  body: string,
+  messageId: string,
+) => {
+  const userId = ticket.userId?.toString() ?? null;
+  const tasks: Promise<unknown>[] = [];
+
+  tasks.push((async () => {
+    const customer = userId
+      ? await User.findById(userId).select('email').lean<{ email?: string } | null>()
+      : null;
+    const customerEmail = customer?.email || ticket.guestContact?.email;
+    if (!customerEmail) return;
+    await sendSupportReplyEmail({
+      to: customerEmail,
+      ticketId: ticket._id.toString(),
+      ticketCode: ticket.ticketCode,
+      subject: ticket.subject,
+      reply: body,
+      isGuest: !userId,
+    });
+  })());
+
+  if (userId) {
+    tasks.push(pushNotificationService.sendSupportReplyPush({
+      userId,
+      ticketId: ticket._id.toString(),
+      ticketCode: ticket.ticketCode,
+      subject: ticket.subject,
+      messageId,
+    }));
+  }
+
+  void Promise.allSettled(tasks).then((results) => {
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error('Failed to send support reply notification:', result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
+    });
+  });
+};
 
 const transitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
   pending_verification: [],
@@ -224,42 +268,21 @@ export const addAdminMessage = async (
       effectiveTicket = currentTicket;
     }
 
-    const customer = effectiveTicket.userId
-      ? await User.findById(effectiveTicket.userId).select('email').lean<{ email?: string } | null>()
-      : null;
-    const customerEmail = customer?.email || effectiveTicket.guestContact?.email;
-    if (customerEmail) {
-      await sendSupportReplyEmail({
-        to: customerEmail,
-        ticketId: effectiveTicket._id.toString(),
-        ticketCode: effectiveTicket.ticketCode,
-        subject: effectiveTicket.subject,
-        reply: body,
-        isGuest: !effectiveTicket.userId,
-      });
-    }
-    if (effectiveTicket.userId) {
-      await pushNotificationService.sendSupportReplyPush({
-        userId: effectiveTicket.userId.toString(),
-        ticketId: effectiveTicket._id.toString(),
-        ticketCode: effectiveTicket.ticketCode,
-        subject: effectiveTicket.subject,
-        messageId: message._id.toString(),
-      }).catch((error) => {
-        console.error('Failed to send support reply push:', error instanceof Error ? error.message : String(error));
-      });
-    }
+    sendReplyNotificationsInBackground(effectiveTicket, body, message._id.toString());
   }
-  if (cannedResponseId) await SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } });
-
-  await auditLogService.recordAuditLogBestEffort({
-    actorId: actor.userId,
-    actorRole: actor.role,
-    action: 'support_ticket.reply',
-    targetType: 'SupportTicket',
-    targetId: ticketId,
-    metadata: { messageId: message._id.toString(), isInternal: Boolean(input.isInternal) },
-  });
+  await Promise.all([
+    cannedResponseId
+      ? SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } })
+      : Promise.resolve(),
+    auditLogService.recordAuditLogBestEffort({
+      actorId: actor.userId,
+      actorRole: actor.role,
+      action: 'support_ticket.reply',
+      targetType: 'SupportTicket',
+      targetId: ticketId,
+      metadata: { messageId: message._id.toString(), isInternal: Boolean(input.isInternal) },
+    }),
+  ]);
   const messageObj = message.toObject();
   emitTicketMessage(ticketId, messageObj, {
     isInternal: Boolean(input.isInternal),
