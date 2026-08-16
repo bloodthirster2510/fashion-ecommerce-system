@@ -287,7 +287,11 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.userId;
     const orderId = req.params.orderId as string;
-    const { bankCode, locale } = req.body as { bankCode?: string; locale?: string };
+    const { bankCode, locale, client } = req.body as {
+      bankCode?: string;
+      locale?: string;
+      client?: string;
+    };
 
     if (!Types.ObjectId.isValid(orderId)) {
       return error(res, 'Invalid orderId', 400);
@@ -338,6 +342,7 @@ export const createVNPayUrlFromOrder = async (req: Request, res: Response) => {
       ipAddr,
       bankCode: bankCode || undefined,
       locale: locale || 'vn',
+      client: client === 'mobile' ? 'mobile' : 'web',
     });
     const updatedTransaction = await transactionService.attachVNPayRequestMetadata({
       transactionId: transaction._id.toString(),
@@ -486,6 +491,7 @@ export const adjustOrderPaymentStatus = async (req: Request, res: Response) => {
 const buildClientReturnUrl = async (
   result: VNPayResponseResult,
   settledOrderId?: string | null,
+  client: 'web' | 'mobile' = 'web',
 ) => {
   const mobileReturnUrl = process.env.VNPAY_MOBILE_RETURN_URL?.trim();
   const webFrontendUrl = (
@@ -512,11 +518,12 @@ const buildClientReturnUrl = async (
     orderId = order?._id.toString() ?? null;
   }
 
-  // Web storefront is the primary checkout client. Keep the deep-link fallback
-  // for deployments that only configure the mobile application.
-  const url = webFrontendUrl
-    ? new URL(orderId ? `/orders/${orderId}` : '/account?section=orders', webFrontendUrl)
-    : new URL(mobileReturnUrl!);
+  const shouldReturnToMobile = client === 'mobile' && mobileReturnUrl;
+  const url = shouldReturnToMobile
+    ? new URL(mobileReturnUrl)
+    : webFrontendUrl
+      ? new URL(orderId ? `/orders/${orderId}` : '/account?section=orders', webFrontendUrl)
+      : new URL(mobileReturnUrl!);
   if (orderId) {
     url.searchParams.set('orderId', orderId);
   }
@@ -621,7 +628,12 @@ export const handleVNPayReturn = async (req: Request, res: Response) => {
   try {
     const result = verifyVNPayResponse(req.query);
     const settlement = await settleVNPayPayment(result);
-    const clientReturnUrl = await buildClientReturnUrl(result, settlement.orderId ?? null);
+    const client = req.path?.endsWith('/mobile') ? 'mobile' : 'web';
+    const clientReturnUrl = await buildClientReturnUrl(
+      result,
+      settlement.orderId ?? null,
+      client,
+    );
 
     if (clientReturnUrl) {
       return res.status(200).send(renderVNPayReturnPage(clientReturnUrl, settlement.paymentStatus === 'paid'));

@@ -507,4 +507,17 @@ describe('handleVNPayReturn', () => {
       `fashionapp://payment-result?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
     ));
   });
+
+  it('returns a mobile checkout to the app even when the storefront URL is configured', async () => {
+    process.env.CUSTOMER_FRONTEND_URL = 'http://localhost:5173';
+    process.env.VNPAY_MOBILE_RETURN_URL = 'fashion-ecommerce://payment-return';
+    const res = createResponse();
+
+    await handleVNPayReturn({ query: {}, path: '/vnpay/return/mobile' } as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining(
+      `fashion-ecommerce://payment-return?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
+    ));
+  });
 });

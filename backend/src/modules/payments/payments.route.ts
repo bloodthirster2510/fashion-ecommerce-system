@@ -32,6 +32,7 @@ router.get(
 
 // VNPay callbacks are unauthenticated because VNPay calls them directly.
 router.get('/vnpay/return', handleVNPayReturn);
+router.get('/vnpay/return/mobile', handleVNPayReturn);
 router.get('/vnpay/ipn', handleVNPayIpn);
 
 adminPaymentRouter.use(authenticate);

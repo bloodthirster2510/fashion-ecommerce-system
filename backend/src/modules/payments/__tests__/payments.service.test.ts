@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import { createVNPaySecureHash } from '../../../utils/vnpay.util';
 import {
+  createVNPayPaymentRequest,
   queryVNPayTransaction,
   refundVNPayTransaction,
   verifyVNPayResponse,
@@ -18,16 +19,43 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 describe('payments.service', () => {
   const previousSecret = process.env.VNPAY_HASH_SECRET;
+  const previousTmnCode = process.env.VNPAY_TMN_CODE;
+  const previousPayUrl = process.env.VNPAY_PAY_URL;
+  const previousPublicBaseUrl = process.env.VNPAY_PUBLIC_BASE_URL;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.VNPAY_HASH_SECRET = 'test-vnpay-secret';
     process.env.VNPAY_TMN_CODE = 'TESTV210';
+    process.env.VNPAY_PAY_URL = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
     process.env.VNPAY_TRANSACTION_API_URL = 'https://sandbox.example/transaction';
   });
 
   afterAll(() => {
-    process.env.VNPAY_HASH_SECRET = previousSecret;
+    if (previousSecret === undefined) delete process.env.VNPAY_HASH_SECRET;
+    else process.env.VNPAY_HASH_SECRET = previousSecret;
+    if (previousTmnCode === undefined) delete process.env.VNPAY_TMN_CODE;
+    else process.env.VNPAY_TMN_CODE = previousTmnCode;
+    if (previousPayUrl === undefined) delete process.env.VNPAY_PAY_URL;
+    else process.env.VNPAY_PAY_URL = previousPayUrl;
+    if (previousPublicBaseUrl === undefined) delete process.env.VNPAY_PUBLIC_BASE_URL;
+    else process.env.VNPAY_PUBLIC_BASE_URL = previousPublicBaseUrl;
+  });
+
+  it('uses the mobile callback route for payment links created by the app', () => {
+    process.env.VNPAY_PUBLIC_BASE_URL = 'https://api.example.com';
+
+    const result = createVNPayPaymentRequest({
+      orderId: 'FSORDERA1',
+      amount: 385000,
+      ipAddr: '127.0.0.1',
+      client: 'mobile',
+    });
+    const paymentUrl = new URL(result.paymentUrl);
+
+    expect(paymentUrl.searchParams.get('vnp_ReturnUrl')).toBe(
+      'https://api.example.com/api/payments/vnpay/return/mobile',
+    );
   });
 
   it('verifies VNPay callbacks with a timing-safe hash comparison', () => {
