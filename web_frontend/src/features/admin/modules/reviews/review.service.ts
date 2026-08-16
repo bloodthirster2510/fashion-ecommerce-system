@@ -22,11 +22,6 @@ export const getModerationRules = () =>
 export const getAdminReviewDetail = (id: string) =>
   requestAdmin<AdminReviewDetail>(`/admin/reviews/${id}`)
 
-export const setReviewStatus = (id: string, status: ReviewStatus, reason?: string) =>
-  requestAdmin<{ reviewId: string; status: ReviewStatus }>(`/admin/reviews/${id}/status`, {
-    method: 'PATCH', body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
-  })
-
 export const setManyReviewStatuses = (reviewIds: string[], status: Extract<ReviewStatus, 'visible' | 'hidden'>, reason?: string) =>
   // Bulk endpoint chỉ cho visible/hidden; pending được tạo bởi hệ thống moderation tự động.
   requestAdmin<{ updatedCount: number; status: ReviewStatus }>('/admin/reviews/bulk-status', {

@@ -3,6 +3,7 @@ import {
   createReview,
   listAdminReviews,
   listProductReviews,
+  replyToReview,
   updateModerationStatus,
   updateReview,
 } from '../review.controller';
@@ -105,6 +106,24 @@ describe('review controller validation', () => {
     expect(response.status).toHaveBeenCalledWith(400);
     expect(response.json).toHaveBeenCalledWith({ message: 'hasImages must be true or false' });
     expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects admin replies shorter than 10 characters', async () => {
+    const response = createResponse();
+    const request = {
+      params: { id: '665000000000000000000001' },
+      body: { content: 'Cảm ơn' },
+      user: { userId: '665000000000000000000002', role: 'staff' },
+    } as unknown as Request;
+    const replySpy = jest.spyOn(reviewService, 'replyToReview');
+
+    await replyToReview(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith({
+      message: 'Admin reply must contain between 10 and 2000 characters',
+    });
+    expect(replySpy).not.toHaveBeenCalled();
   });
 
   it('parses a valid false hasImages value', async () => {

@@ -726,6 +726,20 @@ describe('reviewService', () => {
     )).rejects.toMatchObject({ statusCode: 409 });
   });
 
+  it('rejects admin replies shorter than 10 characters before opening a transaction', async () => {
+    await expect(reviewService.replyToReview(
+      reviewId.toString(),
+      { userId: userId.toString(), role: 'admin' },
+      'Cảm ơn',
+    )).rejects.toMatchObject({
+      message: 'Admin reply must contain between 10 and 2000 characters',
+      statusCode: 400,
+    });
+
+    expect(startSessionSpy).not.toHaveBeenCalled();
+    expect(mockedReview.findById).not.toHaveBeenCalled();
+  });
+
   it('deletes an admin reply inside the review transaction', async () => {
     const reviewDocument = {
       ...populatedReview({ adminReply: 'Phản hồi cũ', repliedAt: new Date() }),
