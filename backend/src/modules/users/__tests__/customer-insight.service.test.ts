@@ -88,11 +88,20 @@ describe('customerInsightService', () => {
       _id: noteId,
       customerId,
       content: 'Khách ưu tiên email',
-      createdBy: { _id: actorId, name: 'Admin' },
-      updatedBy: { _id: actorId, name: 'Admin' },
+      createdBy: {
+        _id: actorId,
+        name: 'Admin',
+        avatarImage: 'https://cdn.example.com/admin.jpg',
+      },
+      updatedBy: {
+        _id: actorId,
+        name: 'Admin',
+        avatarImage: 'https://cdn.example.com/admin.jpg',
+      },
     };
+    const populatedNoteQuery = queryWithLean(populatedNote);
     (CustomerNote.create as jest.Mock).mockResolvedValue({ _id: noteId });
-    (CustomerNote.findById as jest.Mock).mockReturnValue(queryWithLean(populatedNote));
+    (CustomerNote.findById as jest.Mock).mockReturnValue(populatedNoteQuery);
 
     await expect(
       customerInsightService.createCustomerNote({
@@ -116,6 +125,25 @@ describe('customerInsightService', () => {
         targetId: customerId.toString(),
       }),
     );
+    expect(populatedNoteQuery.populate).toHaveBeenNthCalledWith(
+      1,
+      'createdBy',
+      'name email avatarImage',
+    );
+    expect(populatedNoteQuery.populate).toHaveBeenNthCalledWith(
+      2,
+      'updatedBy',
+      'name email avatarImage',
+    );
+  });
+
+  it('uses a business-facing message for an invalid customer id', async () => {
+    await expect(
+      customerInsightService.getCustomerInsights({ customerId: 'invalid-id' }),
+    ).rejects.toMatchObject({
+      message: 'Mã khách hàng không hợp lệ',
+      statusCode: 400,
+    });
   });
 
   it('combines customer sources into a paginated timeline', async () => {

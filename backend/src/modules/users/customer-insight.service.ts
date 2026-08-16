@@ -179,7 +179,7 @@ const getCustomerInsights = async (input: {
   activityPage?: number;
   activityLimit?: number;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
   const activityPage = clampPositiveInteger(input.activityPage, 1, 10_000);
   const activityLimit = clampPositiveInteger(
     input.activityLimit,
@@ -450,15 +450,15 @@ const listCustomerNotes = async (input: {
   customerId: string;
   limit?: number;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
   const limit = clampPositiveInteger(input.limit, DEFAULT_NOTE_LIMIT, MAX_NOTE_LIMIT);
   await ensureCustomer(customerId);
 
   return CustomerNote.find({ customerId })
     .sort({ createdAt: -1 })
     .limit(limit)
-    .populate('createdBy', 'name email')
-    .populate('updatedBy', 'name email')
+    .populate('createdBy', 'name email avatarImage')
+    .populate('updatedBy', 'name email avatarImage')
     .lean();
 };
 
@@ -468,8 +468,8 @@ const createCustomerNote = async (input: {
   actorId: string;
   actorRole: CustomerActorRole;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
-  const actorId = toObjectId(input.actorId, 'actorId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
+  const actorId = toObjectId(input.actorId, 'Mã người thực hiện');
   const content = normalizeNoteContent(input.content);
   await ensureCustomer(customerId);
 
@@ -490,8 +490,8 @@ const createCustomerNote = async (input: {
   });
 
   return CustomerNote.findById(note._id)
-    .populate('createdBy', 'name email')
-    .populate('updatedBy', 'name email')
+    .populate('createdBy', 'name email avatarImage')
+    .populate('updatedBy', 'name email avatarImage')
     .lean();
 };
 
@@ -502,9 +502,9 @@ const updateCustomerNote = async (input: {
   actorId: string;
   actorRole: CustomerActorRole;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
-  const noteId = toObjectId(input.noteId, 'noteId');
-  const actorId = toObjectId(input.actorId, 'actorId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
+  const noteId = toObjectId(input.noteId, 'Mã ghi chú');
+  const actorId = toObjectId(input.actorId, 'Mã người thực hiện');
   const content = normalizeNoteContent(input.content);
   const previousNote = await CustomerNote.findOne({ _id: noteId, customerId }).lean();
 
@@ -527,8 +527,8 @@ const updateCustomerNote = async (input: {
   });
 
   return CustomerNote.findById(noteId)
-    .populate('createdBy', 'name email')
-    .populate('updatedBy', 'name email')
+    .populate('createdBy', 'name email avatarImage')
+    .populate('updatedBy', 'name email avatarImage')
     .lean();
 };
 
@@ -538,8 +538,8 @@ const deleteCustomerNote = async (input: {
   actorId: string;
   actorRole: CustomerActorRole;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
-  const noteId = toObjectId(input.noteId, 'noteId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
+  const noteId = toObjectId(input.noteId, 'Mã ghi chú');
   const note = await CustomerNote.findOneAndDelete({ _id: noteId, customerId }).lean();
 
   if (!note) {

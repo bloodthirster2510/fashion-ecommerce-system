@@ -108,6 +108,7 @@ export type ManagedCustomerNoteAuthor = {
   _id: string
   name?: string
   email?: string
+  avatarImage?: string | null
 }
 
 export type ManagedCustomerNote = {

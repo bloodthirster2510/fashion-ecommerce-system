@@ -81,6 +81,9 @@ const getNoteAuthorLabel = (author: ManagedCustomerNoteAuthor | string) => {
   return author.name || author.email || 'Nhân viên'
 }
 
+const getNoteAuthorAvatar = (author: ManagedCustomerNoteAuthor | string) =>
+  typeof author === 'string' ? null : author.avatarImage
+
 export function CustomerDetailDrawer({
   user,
   currentUser,
@@ -490,9 +493,21 @@ export function CustomerDetailDrawer({
                 <article key={note._id} className="admin-customer-note">
                   <p>{note.content}</p>
                   <footer>
-                    <span>
-                      {getNoteAuthorLabel(note.createdBy)} · {formatDate(note.createdAt)}
-                      {note.updatedAt !== note.createdAt ? ' · đã sửa' : ''}
+                    <span className="admin-customer-note__author">
+                      <span className="admin-customer-note__author-avatar" aria-hidden="true">
+                        <span>{getNoteAuthorLabel(note.createdBy).trim().charAt(0).toUpperCase()}</span>
+                        {getNoteAuthorAvatar(note.createdBy) ? (
+                          <img
+                            src={getNoteAuthorAvatar(note.createdBy) ?? undefined}
+                            alt=""
+                            onError={(event) => { event.currentTarget.style.display = 'none' }}
+                          />
+                        ) : null}
+                      </span>
+                      <span>
+                        {getNoteAuthorLabel(note.createdBy)} · {formatDate(note.createdAt)}
+                        {note.updatedAt !== note.createdAt ? ' · đã sửa' : ''}
+                      </span>
                     </span>
                     {canManageUser ? (
                       <div>
