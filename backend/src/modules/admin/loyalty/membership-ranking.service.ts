@@ -333,7 +333,7 @@ const assertBaseTierStartsAtZero = (
   }
 
   if (minPoint === 0 && isActive === false) {
-    throw new MembershipRankingServiceError('Base membership ranking cannot be deactivated', 409);
+    throw new MembershipRankingServiceError('Không thể tạm tắt hạng thành viên cơ bản', 409);
   }
 };
 
@@ -394,7 +394,7 @@ const assertTierCanBeDeactivated = async (
   const memberCount = await countTierMembers(current);
   if (memberCount > 0) {
     throw new MembershipRankingServiceError(
-      `Membership ranking has ${memberCount} active member(s) and cannot be deactivated`,
+      `Không thể tạm tắt hạng thành viên vì đang có ${memberCount} khách hàng thuộc hạng này`,
       409,
     );
   }
@@ -500,14 +500,14 @@ const deleteMembershipRanking = async (id: string) => {
   }
 
   if (current.minPoint === 0) {
-    throw new MembershipRankingServiceError('Base membership ranking cannot be deleted', 409);
+    throw new MembershipRankingServiceError('Không thể xóa hạng thành viên cơ bản', 409);
   }
 
   if (current.isActive !== false) {
     const memberCount = await countTierMembers(current);
     if (memberCount > 0) {
       throw new MembershipRankingServiceError(
-        `Membership ranking has ${memberCount} active member(s) and cannot be deleted`,
+        `Không thể xóa hạng thành viên vì đang có ${memberCount} khách hàng thuộc hạng này`,
         409,
       );
     }
@@ -519,7 +519,7 @@ const deleteMembershipRanking = async (id: string) => {
   });
   if (couponCount > 0) {
     throw new MembershipRankingServiceError(
-      `Membership ranking is referenced by ${couponCount} coupon(s) and cannot be deleted`,
+      `Không thể xóa hạng thành viên vì đang có ${couponCount} voucher tham chiếu hạng này`,
       409,
     );
   }

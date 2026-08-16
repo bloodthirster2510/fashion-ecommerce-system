@@ -4,9 +4,9 @@ import {
   formatNumber,
   formatPrice,
   getDisplayPrice,
-  getInventory,
   getInventoryStatus,
   isProductSelling,
+  getProductStockMeta,
   getStockMeta,
 } from '../productDisplay.helpers'
 import {
@@ -82,8 +82,7 @@ export function ProductTable({
           ) : null}
           {!isLoading
             ? products.map((product) => {
-                const inventory = getInventory(product)
-                const stock = getStockMeta(inventory, lowStockThreshold)
+                const stock = getProductStockMeta(product, lowStockThreshold)
                 const colorCount = new Set(
                   product.variants.flatMap((variant) =>
                     variant.colors.map((color) => color.color.toLocaleLowerCase('vi')),

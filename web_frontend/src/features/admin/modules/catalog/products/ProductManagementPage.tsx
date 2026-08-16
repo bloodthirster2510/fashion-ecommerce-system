@@ -31,7 +31,7 @@ import {
   getErrorMessage,
   getInventory,
   isProductSelling,
-  getStockMeta,
+  getProductStockMeta,
   lowStockThreshold,
   pageSize,
 } from './productDisplay.helpers'
@@ -109,7 +109,7 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
   const stats = useMemo(() => {
     const inventory = products.flatMap(getInventory)
     const warningProductCount = products.filter((product) => {
-      const meta = getStockMeta(getInventory(product), globalLowStockThreshold)
+      const meta = getProductStockMeta(product, globalLowStockThreshold)
       return meta.low > 0 || meta.out > 0
     }).length
 
@@ -147,12 +147,9 @@ export function ProductManagementPage({ currentUser }: ProductManagementPageProp
     const normalizedKeyword = keyword.trim().toLocaleLowerCase('vi')
     const filtered = products.filter((product) => {
       const inventory = getInventory(product)
-      const hasOut = inventory.length === 0 || inventory.some((item) => item.availableQuantity === 0)
-      const hasLow = inventory.some(
-        (item) =>
-          item.availableQuantity > 0 &&
-          item.availableQuantity <= globalLowStockThreshold,
-      )
+      const stockMeta = getProductStockMeta(product, globalLowStockThreshold)
+      const hasOut = stockMeta.out > 0 || inventory.length === 0
+      const hasLow = stockMeta.low > 0
       const matchesStock =
         stockFilter === 'all' ||
         (stockFilter === 'warning' && (hasLow || hasOut)) ||

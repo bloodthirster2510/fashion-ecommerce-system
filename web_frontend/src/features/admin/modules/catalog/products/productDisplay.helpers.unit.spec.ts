@@ -3,6 +3,7 @@ import type { ManagedProduct } from './product.types'
 import {
   getInventory,
   getInventoryStatus,
+  getProductStockMeta,
   getStockMeta,
   isProductSelling,
   lowStockThreshold,
@@ -87,6 +88,77 @@ test.describe('admin catalog inventory presentation', () => {
       total: 11,
       low: 2,
       out: 1,
+    })
+  })
+
+  test('does not mark the product as low stock while at least one sellable color has enough stock', () => {
+    const multiColorProduct: ManagedProduct = {
+      ...product,
+      variants: [
+        {
+          ...product.variants[0],
+          colors: [
+            {
+              ...product.variants[0].colors[0],
+              _id: 'navy',
+              color: 'Xanh navy',
+              inventory: [{ size: 'M', sku: 'NAVY-M', availableQuantity: 61 }],
+            },
+            {
+              ...product.variants[0].colors[0],
+              _id: 'gray',
+              color: 'Ghi',
+              inventory: [{ size: 'M', sku: 'GRAY-M', availableQuantity: 74 }],
+            },
+            {
+              ...product.variants[0].colors[0],
+              _id: 'black-white',
+              color: 'Đen phối trắng',
+              inventory: [
+                { size: 'S', sku: 'BW-S', availableQuantity: 4 },
+                { size: 'M', sku: 'BW-M', availableQuantity: 4 },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(getProductStockMeta(multiColorProduct, lowStockThreshold)).toEqual({
+      total: 143,
+      low: 0,
+      out: 0,
+    })
+  })
+
+  test('marks product low stock only when every sellable color is low', () => {
+    const allColorsLowProduct: ManagedProduct = {
+      ...product,
+      variants: [
+        {
+          ...product.variants[0],
+          colors: [
+            {
+              ...product.variants[0].colors[0],
+              _id: 'navy',
+              color: 'Xanh navy',
+              inventory: [{ size: 'M', sku: 'NAVY-M', availableQuantity: 3 }],
+            },
+            {
+              ...product.variants[0].colors[0],
+              _id: 'gray',
+              color: 'Ghi',
+              inventory: [{ size: 'M', sku: 'GRAY-M', availableQuantity: 5 }],
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(getProductStockMeta(allColorsLowProduct, lowStockThreshold)).toEqual({
+      total: 8,
+      low: 2,
+      out: 0,
     })
   })
 

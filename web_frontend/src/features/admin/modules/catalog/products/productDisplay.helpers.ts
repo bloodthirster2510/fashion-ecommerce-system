@@ -29,6 +29,13 @@ export const getInventory = (product: ManagedProduct) =>
     variant.colors.flatMap((color) => color.inventory),
   )
 
+export const getSellableColorInventories = (product: ManagedProduct) =>
+  product.variants.flatMap((variant) =>
+    variant.colors
+      .filter((color) => product.isActive && variant.isActive && color.isActive)
+      .map((color) => color.inventory),
+  )
+
 export const isProductSelling = (product: ManagedProduct) =>
   product.isActive &&
   product.variants.some((variant) =>
@@ -40,6 +47,23 @@ export const getDisplayPrice = (price: number, discount: number) =>
   discount > 0 ? Math.round(price * (1 - discount / 100)) : price
 
 export const getStockMeta = getSharedStockMeta
+
+export const getProductStockMeta = (
+  product: ManagedProduct,
+  threshold = lowStockThreshold,
+) => {
+  const inventory = getInventory(product)
+  const colorInventories = getSellableColorInventories(product)
+  const colorStatuses = colorInventories.map((items) => getStockStatus(items, threshold).id)
+
+  return {
+    total: inventory.reduce((sum, item) => sum + item.availableQuantity, 0),
+    low: colorStatuses.length > 0 && colorStatuses.every((status) => status === 'low')
+      ? colorStatuses.length
+      : 0,
+    out: colorStatuses.filter((status) => status === 'out').length,
+  }
+}
 
 export const getInventoryStatus = (
   items: Array<{ availableQuantity: number }>,
