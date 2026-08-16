@@ -86,7 +86,7 @@ const transitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
   waiting_customer: ['in_progress', 'resolved', 'closed', 'spam'],
   resolved: ['in_progress', 'closed', 'spam'],
   closed: ['in_progress'],
-  spam: [],
+  spam: ['in_progress'],
 };
 
 const objectId = (value: string, name: string) => {

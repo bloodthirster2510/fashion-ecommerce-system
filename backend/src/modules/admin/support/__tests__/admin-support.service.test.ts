@@ -21,7 +21,7 @@ const secondFaqId = '665000000000000000000006';
 const omittedFaqId = '665000000000000000000007';
 const adminActor = { userId: actorId, role: 'admin' as const };
 
-describe('admin support assignment rules', () => {
+describe('admin support ticket updates', () => {
   const findTicketSpy = jest.spyOn(SupportTicket, 'findById');
   const findAssigneeSpy = jest.spyOn(User, 'exists');
 
@@ -65,6 +65,37 @@ describe('admin support assignment rules', () => {
         { role: 'staff', permissions: 'support.reply' },
       ],
     });
+  });
+
+  it('restores a spam ticket to in progress', async () => {
+    const spamTicket = {
+      _id: new Types.ObjectId(ticketId),
+      status: 'spam',
+      priority: 'normal',
+      category: 'other',
+      assignedTo: null,
+      lastMessageSender: 'customer',
+      userId: new Types.ObjectId('665000000000000000000004'),
+      resolvedAt: new Date(),
+      closedAt: new Date(),
+      reopenDeadline: new Date(),
+      requiresReply: false,
+      save: jest.fn().mockResolvedValue(undefined),
+      toObject: jest.fn().mockReturnValue({ _id: ticketId, status: 'in_progress' }),
+    };
+    findTicketSpy.mockResolvedValueOnce(spamTicket as never);
+
+    await expect(updateAdminTicket(ticketId, adminActor, { status: 'in_progress' }))
+      .resolves.toMatchObject({ status: 'in_progress' });
+
+    expect(spamTicket).toMatchObject({
+      status: 'in_progress',
+      resolvedAt: null,
+      closedAt: null,
+      reopenDeadline: null,
+      requiresReply: true,
+    });
+    expect(spamTicket.save).toHaveBeenCalledTimes(1);
   });
 });
 
