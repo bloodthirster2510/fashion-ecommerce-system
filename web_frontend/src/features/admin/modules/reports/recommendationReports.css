@@ -1571,6 +1571,7 @@
 .admin-merchandising-candidates button { min-height: 30px; display: inline-flex; align-items: center; gap: 4px; padding: 0 9px; border: 1px solid var(--admin-border); border-radius: 7px; color: var(--admin-accent); background: #fff; font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; }
 .admin-merchandising-candidates button:hover:not(:disabled) { background: #eef4f7; }
 .admin-merchandising-candidates button:disabled { opacity: 0.45; cursor: not-allowed; }
+.admin-merchandising-candidates button.is-pinned { color: #587064; border-color: #d6e2dc; background: #eef5f1; opacity: 1; }
 .admin-merchandising-candidates button svg { width: 13px; height: 13px; }
 .admin-merchandising-no-result { margin: 20px 0; color: var(--admin-text-muted); font-size: 12px; text-align: center; }
 

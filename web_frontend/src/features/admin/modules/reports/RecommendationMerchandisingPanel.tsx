@@ -11,6 +11,7 @@ import {
   type PinnedRecommendationProduct,
   type RecommendationMerchandisingRule,
 } from './recommendationMerchandising.service'
+import { getRecommendationProductCandidates } from './recommendationMerchandisingSearch'
 
 const contexts: Array<{ value: RecommendationContext; label: string; helper: string }> = [
   { value: 'home', label: 'Trang chủ', helper: 'Ưu tiên sản phẩm trong khu vực gợi ý cá nhân.' },
@@ -70,13 +71,7 @@ export function RecommendationMerchandisingPanel({ canManage }: { canManage: boo
     [activeRule?.pinnedProducts],
   )
   const candidates = useMemo(() => {
-    const keyword = search.trim().toLocaleLowerCase('vi-VN')
-    return products.filter((product) => {
-      if (pinnedIds.has(product._id)) return false
-      if (!keyword) return true
-      return [product.name, product.brandName, product.categoryName]
-        .some((value) => value.toLocaleLowerCase('vi-VN').includes(keyword))
-    }).slice(0, 10)
+    return getRecommendationProductCandidates(products, pinnedIds, search)
   }, [pinnedIds, products, search])
 
   const updateActiveRule = (updater: (rule: RecommendationMerchandisingRule) => RecommendationMerchandisingRule) => {
@@ -183,17 +178,23 @@ export function RecommendationMerchandisingPanel({ canManage }: { canManage: boo
             </section>
 
             <section className="admin-merchandising-picker">
-              <header><h3>Chọn sản phẩm</h3><p>Tìm theo tên, thương hiệu hoặc danh mục.</p></header>
-              <label className="admin-merchandising-search"><Search aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm sản phẩm..." /></label>
+              <header><h3>Chọn sản phẩm</h3><p>Tìm theo tên, thương hiệu, danh mục hoặc mã SKU.</p></header>
+              <label className="admin-merchandising-search"><Search aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm sản phẩm, thương hiệu, SKU..." /></label>
               <div className="admin-merchandising-candidates">
-                {candidates.map((product) => (
+                {candidates.map(({ product, isPinned }) => (
                   <article key={product._id}>
                     {product.productImage ? <img src={product.productImage} alt="" /> : <span className="admin-merchandising-image-placeholder" />}
                     <div><strong>{product.name}</strong><span>{product.brandName} · {product.categoryName}</span></div>
-                    <button type="button" disabled={!canManage || activeRule.pinnedProducts.length >= 8} onClick={() => addProduct(product)}><Plus aria-hidden="true" /> Thêm</button>
+                    <button type="button" className={isPinned ? 'is-pinned' : ''} disabled={isPinned || !canManage || activeRule.pinnedProducts.length >= 8} onClick={() => addProduct(product)}>
+                      {isPinned ? <><Pin aria-hidden="true" /> Đã ghim</> : <><Plus aria-hidden="true" /> Thêm</>}
+                    </button>
                   </article>
                 ))}
-                {!candidates.length ? <p className="admin-merchandising-no-result">Không tìm thấy sản phẩm phù hợp.</p> : null}
+                {!candidates.length ? (
+                  <p className="admin-merchandising-no-result">
+                    {search.trim() ? `Không tìm thấy sản phẩm khớp với “${search.trim()}”.` : 'Không còn sản phẩm để thêm.'}
+                  </p>
+                ) : null}
               </div>
             </section>
           </div>

@@ -1152,6 +1152,61 @@ describe('productService', () => {
     });
   });
 
+  it('returns only categories with active products and their ancestors in storefront filters', async () => {
+    const rootCategoryId = new Types.ObjectId('665000000000000000000020');
+    const footwearCategoryId = new Types.ObjectId('665000000000000000000021');
+    const otherFootwearCategoryId = new Types.ObjectId('665000000000000000000022');
+    const heelsCategoryId = new Types.ObjectId('665000000000000000000023');
+    const categories = [
+      {
+        _id: rootCategoryId,
+        name: 'Nữ',
+        gender: 'female' as const,
+        parent_id: null,
+        level: 1,
+      },
+      {
+        _id: footwearCategoryId,
+        name: 'Giày / Dép',
+        gender: 'female' as const,
+        parent_id: rootCategoryId,
+        level: 2,
+      },
+      {
+        _id: otherFootwearCategoryId,
+        name: 'Giày / Dép khác',
+        gender: 'female' as const,
+        parent_id: footwearCategoryId,
+        level: 3,
+      },
+      {
+        _id: heelsCategoryId,
+        name: 'Giày cao gót',
+        gender: 'female' as const,
+        parent_id: footwearCategoryId,
+        level: 3,
+      },
+    ];
+
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(categories),
+    } as never);
+    mockedProduct.distinct.mockImplementation(((field: string) => (
+      Promise.resolve(field === 'category_id' ? [heelsCategoryId] : [])
+    )) as never);
+
+    const result = await productService.getProductFilters({ gender: 'female' });
+
+    expect(result.categories.map((category) => category._id)).toEqual([
+      rootCategoryId.toString(),
+      footwearCategoryId.toString(),
+      heelsCategoryId.toString(),
+    ]);
+    expect(result.categories.map((category) => category._id)).not.toContain(otherFootwearCategoryId.toString());
+  });
+
   it('sorts the public product list by discounted final price', async () => {
     const regularProductId = new Types.ObjectId('665000000000000000000030');
     const discountedProductId = new Types.ObjectId('665000000000000000000031');

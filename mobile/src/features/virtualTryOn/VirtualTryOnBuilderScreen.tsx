@@ -20,6 +20,10 @@ import {
   type ProductDetailVariant,
   type ProductListResponse,
 } from '../catalog/catalogApi';
+import {
+  ALL_CATEGORY_FILTER_LABEL,
+  getCategoryFilterOptionLabel,
+} from '../catalog/categoryFilterLabels';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
 import {
@@ -368,7 +372,7 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
       if (!option) {
         option = {
           key: optionKey,
-          label: category.name,
+          label: getCategoryFilterOptionLabel(parent.name, category.name),
           categoryIds: [],
           representative: category,
         };
@@ -381,7 +385,7 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
 
       if (sortCategoriesByLevelAndName(category, option.representative) < 0) {
         option.representative = category;
-        option.label = category.name;
+        option.label = getCategoryFilterOptionLabel(parent.name, category.name);
       }
     }
 
@@ -651,7 +655,10 @@ const getCategorySelectionGroups = (
 
   categoryIds.forEach((categoryId) => {
     const category = categoryById.get(categoryId);
-    const label = category?.name ?? 'Danh mục';
+    const parentCategory = category?.parent_id ? categoryById.get(category.parent_id) : undefined;
+    const label = category
+      ? getCategoryFilterOptionLabel(parentCategory?.name ?? '', category.name)
+      : 'Danh mục';
     const key = category ? `${category.level}:${normalizeCategoryKey(category.name)}` : categoryId;
     const group = groups.get(key) ?? { key, label, categoryIds: [] };
 
@@ -2922,14 +2929,14 @@ const VirtualTryOnBuilderScreen = () => {
                 draftCategoryFilterGroups.length ? (
                   <View style={styles.categoryGroups}>
                     {draftCategoryFilterGroups.map((group) => {
-                      const groupSelectionIds = getCategoryGroupSelectionIds(group);
-                      const categoryChoices = group.options.length
-                        ? group.options
-                        : [{
-                          key: group.key,
-                          label: group.label,
-                          categoryIds: groupSelectionIds,
-                        }];
+                      const categoryChoices = [
+                        {
+                          key: `all-${group.key}`,
+                          label: ALL_CATEGORY_FILTER_LABEL,
+                          categoryIds: group.categoryIds,
+                        },
+                        ...group.options,
+                      ];
 
                       return (
                         <View key={group.key} style={styles.categoryGroup}>

@@ -40,6 +40,10 @@ import {
 } from '../recommendation/interactionApi';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import {
+  ALL_CATEGORY_FILTER_LABEL,
+  getCategoryFilterOptionLabel,
+} from './categoryFilterLabels';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
@@ -288,7 +292,7 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
       if (!option) {
         option = {
           key: optionKey,
-          label: category.name,
+          label: getCategoryFilterOptionLabel(parent.name, category.name),
           categoryIds: [],
           representative: category,
         };
@@ -301,7 +305,7 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
 
       if (sortCategoriesByLevelAndName(category, option.representative) < 0) {
         option.representative = category;
-        option.label = category.name;
+        option.label = getCategoryFilterOptionLabel(parent.name, category.name);
       }
     }
 
@@ -477,8 +481,11 @@ const getCategorySelectionGroups = (
 
   categoryIds.forEach((categoryId) => {
     const category = categoryById.get(categoryId);
+    const parentCategory = category?.parent_id ? categoryById.get(category.parent_id) : undefined;
     const label =
-      category?.name ?? (categoryIds.length === 1 ? fallbackTitle : undefined) ?? 'Danh mục';
+      (category
+        ? getCategoryFilterOptionLabel(parentCategory?.name ?? '', category.name)
+        : undefined) ?? (categoryIds.length === 1 ? fallbackTitle : undefined) ?? 'Danh mục';
     const key = category ? `${category.level}:${normalizeCategoryKey(category.name)}` : categoryId;
     const group = groups.get(key) ?? { key, label, categoryIds: [] };
 
@@ -1614,7 +1621,7 @@ const ProductListScreen = () => {
                         <Text style={styles.categoryGroupTitle}>{group.label}</Text>
                         <View style={styles.choiceWrap}>
                           {renderChoice(
-                            group.label,
+                            ALL_CATEGORY_FILTER_LABEL,
                             group.categoryIds.every((categoryId) => draftFilters.categoryId.includes(categoryId)),
                             () => toggleDraftValues('categoryId', group.categoryIds),
                             undefined,

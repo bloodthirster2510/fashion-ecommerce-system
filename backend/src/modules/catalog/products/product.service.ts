@@ -1497,13 +1497,45 @@ const mapFilterCategory = (category: {
   image: category.image,
 });
 
+type FilterCategoryDocument = Parameters<typeof mapFilterCategory>[0];
+
+const filterCategoriesWithActiveProducts = (
+  categories: FilterCategoryDocument[],
+  productCategoryIds: Array<Types.ObjectId | string>,
+) => {
+  const categoryById = new Map(categories.map((category) => [category._id.toString(), category]));
+  const visibleCategoryIds = new Set<string>();
+
+  productCategoryIds.forEach((productCategoryId) => {
+    let category = categoryById.get(productCategoryId.toString());
+    const visitedCategoryIds = new Set<string>();
+
+    while (category) {
+      const categoryId = category._id.toString();
+      if (visitedCategoryIds.has(categoryId)) break;
+
+      visitedCategoryIds.add(categoryId);
+      visibleCategoryIds.add(categoryId);
+      category = category.parent_id
+        ? categoryById.get(category.parent_id.toString())
+        : undefined;
+    }
+  });
+
+  return categories.filter((category) => visibleCategoryIds.has(category._id.toString()));
+};
+
 const getProductListFilters = async (filter: ProductListFilter, query: ProductListQueryInput) => {
-  const [brands, categories, colors, fitTypes, sizes, materials] = await Promise.all([
+  const [brands, categories, productCategoryIds, colors, fitTypes, sizes, materials] = await Promise.all([
     Brand.find({ isActive: true }).select('_id name image').sort({ name: 1 }).lean(),
     Category.find({ isActive: true, ...(query.gender ? { gender: query.gender } : {}) })
       .select('_id name gender parent_id level image')
       .sort({ gender: 1, level: 1, name: 1 })
       .lean(),
+    Product.distinct('category_id', {
+      isActive: true,
+      variant: { $elemMatch: buildVariantFilter({}) },
+    }),
     Product.distinct('variant.colors.color', filter),
     Product.distinct('variant.fitTypeId', filter),
     Product.distinct('variant.sizeMeasurements.size', filter),
@@ -1515,7 +1547,10 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
     colors: colors.filter(Boolean).sort(),
     fitTypes: fitTypes.filter(Boolean).map((fitTypeId) => String(fitTypeId)).sort(),
     sizes: sizes.filter(Boolean).sort(),
-    categories: categories.map(mapFilterCategory),
+    categories: filterCategoriesWithActiveProducts(
+      categories as FilterCategoryDocument[],
+      productCategoryIds as Array<Types.ObjectId | string>,
+    ).map(mapFilterCategory),
     materials: materials.filter(Boolean).sort(),
   };
 };
