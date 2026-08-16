@@ -50,8 +50,6 @@ import { SupportAnalyticsPanel } from './components/SupportAnalyticsPanel'
 import { SupportCannedResponsesPanel } from './components/SupportCannedResponsesPanel'
 import { SupportFaqPanel } from './components/SupportFaqPanel'
 import { SupportInboxPanel } from './components/SupportInboxPanel'
-import { SupportKpiSummary } from './components/SupportKpiSummary'
-import { SupportTicketFilters } from './components/SupportTicketFilters'
 
 type SupportTab = 'tickets' | 'faqs' | 'analytics' | 'canned'
 
@@ -93,13 +91,6 @@ const statusTones: Record<SupportTicketStatus, 'success' | 'warning' | 'danger' 
   resolved: 'success',
   closed: 'neutral',
   spam: 'neutral',
-}
-
-const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
-  low: 'neutral',
-  normal: 'neutral',
-  high: 'warning',
-  urgent: 'danger',
 }
 
 const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }
@@ -412,94 +403,53 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     <section className="admin-ui-page admin-support-page">
       <PageHeader
         title="Hỗ trợ khách hàng"
-        description="Quản lý ticket, phản hồi khách hàng, mẫu trả lời và nội dung FAQ trong cùng một hàng đợi."
-        breadcrumbs={['CSKH', 'Hỗ trợ']}
         actions={<Tabs items={supportTabs} value={tab} onChange={setTab} ariaLabel="Khu vực hỗ trợ" />}
       />
 
       {error && <div className="admin-support-error" role="alert">{error}<button type="button" onClick={() => setError('')}>Đóng</button></div>}
 
       {tab === 'tickets' ? (
-        <>
-          <SupportKpiSummary
-            summary={summary}
-            activeView={
-              filters.assignedTo === currentUser._id
-                ? 'mine'
-                : filters.assignedTo === 'unassigned'
-                  ? 'unassigned'
-                  : filters.requiresReply === true
-                    ? 'reply'
-                    : 'all'
-            }
-            onSelectKpi={(view) => {
-              if (view === 'reply') {
-                setFilters((old) => ({ ...old, page: 1, requiresReply: true, assignedTo: 'all' }))
-              } else if (view === 'unassigned') {
-                setFilters((old) => ({ ...old, page: 1, assignedTo: 'unassigned', requiresReply: 'all' }))
-              } else if (view === 'overdue') {
-                const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-                setFilters((old) => ({ ...old, page: 1, status: 'open', dateTo: yesterday, assignedTo: 'all', requiresReply: 'all' }))
-              } else {
-                setFilters((old) => ({ ...old, page: 1, status: 'all', assignedTo: 'all', requiresReply: 'all', dateFrom: undefined, dateTo: undefined }))
-              }
-            }}
-          />
-
-          <SupportTicketFilters
-            filters={filters}
-            currentUserId={currentUser._id}
-            canMarkSpam={canMarkSpam}
-            statusLabels={statusLabels}
-            priorityLabels={priorityLabels}
-            categoryLabels={categoryLabels}
-            typeLabels={typeLabels}
-            assignees={assignees}
-            onFiltersChange={(updater) => setFilters(updater)}
-            onReset={() => setFilters({ page: 1, status: 'all' })}
-            onRefresh={() => void loadTickets()}
-          />
-
-          <SupportInboxPanel
-            tickets={tickets}
-            ticketPagination={ticketPagination}
-            selectedId={selectedId}
-            detail={detail}
-            loading={loading}
-            detailLoading={detailLoading}
-            submitting={submitting}
-            canManage={canManage}
-            canMarkSpam={canMarkSpam}
-            currentUserId={currentUser._id}
-            assignees={assignees}
-            reply={reply}
-            isInternal={isInternal}
-            selectedCannedId={selectedCannedId}
-            cannedResponses={cannedResponses}
-            customerTypingTicketId={customerTypingTicketId}
-            replyFiles={replyFiles}
-            statusLabels={statusLabels}
-            typeLabels={typeLabels}
-            categoryLabels={categoryLabels}
-            priorityLabels={priorityLabels}
-            statusTones={statusTones}
-            priorityTones={priorityTones}
-            formatDate={formatDate}
-            getPersonName={getPersonName}
-            onSelectTicket={setSelectedId}
-            onPageChange={(page) => setFilters((old) => ({ ...old, page }))}
-            onMutateTicket={mutateTicket}
-            onCannedChange={(id) => {
-              setSelectedCannedId(id)
-              const canned = cannedResponses.find((item) => item._id === id)
-              if (canned) setReply(canned.body)
-            }}
-            onReplyChange={handleReplyChange}
-            onInternalChange={setIsInternal}
-            onFilesChange={handleReplyFiles}
-            onSendReply={sendReply}
-          />
-        </>
+        <SupportInboxPanel
+          tickets={tickets}
+          ticketPagination={ticketPagination}
+          selectedId={selectedId}
+          detail={detail}
+          loading={loading}
+          detailLoading={detailLoading}
+          submitting={submitting}
+          canManage={canManage}
+          canMarkSpam={canMarkSpam}
+          currentUserId={currentUser._id}
+          assignees={assignees}
+          summary={summary}
+          filters={filters}
+          reply={reply}
+          isInternal={isInternal}
+          selectedCannedId={selectedCannedId}
+          cannedResponses={cannedResponses}
+          customerTypingTicketId={customerTypingTicketId}
+          replyFiles={replyFiles}
+          statusLabels={statusLabels}
+          categoryLabels={categoryLabels}
+          priorityLabels={priorityLabels}
+          statusTones={statusTones}
+          formatDate={formatDate}
+          getPersonName={getPersonName}
+          onSelectTicket={setSelectedId}
+          onPageChange={(page) => setFilters((old) => ({ ...old, page }))}
+          onFiltersChange={(updater) => setFilters(updater)}
+          onRefresh={() => void loadTickets()}
+          onMutateTicket={mutateTicket}
+          onCannedChange={(id) => {
+            setSelectedCannedId(id)
+            const canned = cannedResponses.find((item) => item._id === id)
+            if (canned) setReply(canned.body)
+          }}
+          onReplyChange={handleReplyChange}
+          onInternalChange={setIsInternal}
+          onFilesChange={handleReplyFiles}
+          onSendReply={sendReply}
+        />
       ) : tab === 'faqs' ? (
         <SupportFaqPanel
           faqs={faqs}
