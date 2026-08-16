@@ -222,6 +222,11 @@ const getSystemCodeLabel = (
 
 type AdminTab = 'jobs' | 'promptViolations' | 'promptRules' | 'accountLocks' | 'settings'
 
+type IntegerSettingKey = {
+  [Key in keyof AdminVirtualTryOnSettingsConfiguration]-?:
+    AdminVirtualTryOnSettingsConfiguration[Key] extends number ? Key : never
+}[keyof AdminVirtualTryOnSettingsConfiguration]
+
 const initialPromptViolationFilters: AdminVirtualTryOnPromptViolationFilters = {
   page: 1,
   keyword: '',
@@ -529,6 +534,16 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const updateFilter = (key: keyof AdminVirtualTryOnFilters, value: string | number) => {
     setFilters((current) => ({ ...current, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }))
+  }
+
+  const updateIntegerSetting = (key: IntegerSettingKey, input: HTMLInputElement) => {
+    const value = input.valueAsNumber
+    if (!Number.isInteger(value)) return
+
+    // A controlled number input can retain a raw value such as "010" when its
+    // numeric state is already 10. Normalize the DOM value as well as the state.
+    input.value = String(value)
+    setSettingsDraft((current) => current ? { ...current, [key]: value } : current)
   }
 
   const runAction = async (action: () => Promise<AdminVirtualTryOnJob>, successMessage: string) => {
@@ -1327,9 +1342,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           required
                           disabled={settingsDraft.videoProvider !== 'comfy_kling'}
                           value={settingsDraft.videoDurationSeconds}
-                          onChange={(event) => setSettingsDraft((current) => current
-                            ? { ...current, videoDurationSeconds: Number(event.target.value) }
-                            : current)}
+                          onChange={(event) => updateIntegerSetting('videoDurationSeconds', event.currentTarget)}
                         />
                       </label>
                       <label>
@@ -1384,9 +1397,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="10"
                       required
                       value={settingsDraft.maxConcurrentJobsPerUser}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, maxConcurrentJobsPerUser: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('maxConcurrentJobsPerUser', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1397,9 +1408,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="50"
                       required
                       value={settingsDraft.maxVideoJobsPerUserPerDay}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, maxVideoJobsPerUserPerDay: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('maxVideoJobsPerUserPerDay', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1410,9 +1419,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="5"
                       required
                       value={settingsDraft.maxConcurrentVideoJobsPerUser}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, maxConcurrentVideoJobsPerUser: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('maxConcurrentVideoJobsPerUser', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1423,9 +1430,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="500"
                       required
                       value={settingsDraft.promptMaxLength}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, promptMaxLength: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('promptMaxLength', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1436,9 +1441,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="20"
                       required
                       value={settingsDraft.promptViolationLimitPerDay}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, promptViolationLimitPerDay: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('promptViolationLimitPerDay', event.currentTarget)}
                     />
                   </label>
                 </div>
