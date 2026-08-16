@@ -220,30 +220,37 @@ export function SupportInboxPanel({
             type="button"
             className={`admin-support-queue-tab${activeView === 'all' ? ' is-active' : ''}`}
             onClick={() => selectView('all')}
+            title="Tất cả ticket"
           >
-            Tất cả {ticketPagination.totalItems > 0 ? `(${ticketPagination.totalItems})` : ''}
+            <span>Tất cả</span>
+            {ticketPagination.totalItems > 0 ? <b>{ticketPagination.totalItems}</b> : null}
           </button>
           <button
             type="button"
             className={`admin-support-queue-tab is-urgent${activeView === 'reply' ? ' is-active' : ''}`}
             onClick={() => selectView('reply')}
+            title="Ticket cần phản hồi"
           >
             <Flame aria-hidden="true" />
-            Cần trả lời {summary?.waitingAdmin ? `(${summary.waitingAdmin})` : ''}
+            <span>Cần trả lời</span>
+            {summary?.waitingAdmin ? <b>{summary.waitingAdmin}</b> : null}
           </button>
           <button
             type="button"
             className={`admin-support-queue-tab${activeView === 'mine' ? ' is-active' : ''}`}
             onClick={() => selectView('mine')}
+            title="Ticket được giao cho tôi"
           >
-            Của tôi
+            <span>Của tôi</span>
           </button>
           <button
             type="button"
             className={`admin-support-queue-tab${activeView === 'unassigned' ? ' is-active' : ''}`}
             onClick={() => selectView('unassigned')}
+            title="Ticket chưa phân công"
           >
-            Chưa nhận {summary?.unassigned ? `(${summary.unassigned})` : ''}
+            <span>Chưa nhận</span>
+            {summary?.unassigned ? <b>{summary.unassigned}</b> : null}
           </button>
         </div>
 

@@ -52,7 +52,7 @@
    ========================================================================== */
 .admin-support-workspace {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 0px;
+  grid-template-columns: 320px minmax(0, 1fr) 0px;
   height: calc(100vh - 134px);
   min-height: 540px;
   border: 1px solid var(--admin-border, #e5e7eb);
@@ -64,7 +64,7 @@
 }
 
 .admin-support-workspace.is-inspector-open {
-  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  grid-template-columns: 320px minmax(0, 1fr) 300px;
 }
 
 /* ==========================================================================
@@ -86,7 +86,6 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid #f1f5f9;
   background: #ffffff;
 }
 
@@ -169,59 +168,93 @@
 
 /* QUEUE FILTER PILLS */
 .admin-support-queue-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 6px 12px;
-  border-bottom: 1px solid #f1f5f9;
-  background: #ffffff;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.admin-support-queue-tabs::-webkit-scrollbar {
-  display: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 3px;
+  margin: 0 10px 8px;
+  background: #f1f5f9;
+  border-radius: 8px;
 }
 
 .admin-support-queue-tab {
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 2px;
   border: 1px solid transparent;
   border-radius: 6px;
   color: #64748b;
   background: transparent;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
   transition: all 120ms ease;
 }
 
+.admin-support-queue-tab span {
+  white-space: nowrap;
+}
+
 .admin-support-queue-tab:hover {
   color: #0f172a;
-  background: #f1f5f9;
 }
 
 .admin-support-queue-tab.is-active {
-  color: var(--admin-accent, #111827);
-  background: #f1f5f9;
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
   font-weight: 850;
 }
 
 .admin-support-queue-tab.is-urgent {
-  color: #ea580c;
-}
-
-.admin-support-queue-tab.is-urgent svg {
-  width: 12px;
-  height: 12px;
+  color: #c2410c;
 }
 
 .admin-support-queue-tab.is-urgent.is-active {
   background: #fff7ed;
-  border-color: #ffedd5;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.admin-support-queue-tab svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+.admin-support-queue-tab b {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 99px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 9.5px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.admin-support-queue-tab.is-active b {
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.admin-support-queue-tab.is-urgent b {
+  background: #ffedd5;
+  color: #ea580c;
+}
+
+.admin-support-queue-tab.is-urgent.is-active b {
+  background: #ea580c;
+  color: #ffffff;
 }
 
 /* TICKET LIST ITEMS (CLEAN & SCANNABLE) */
