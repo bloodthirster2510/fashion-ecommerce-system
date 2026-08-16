@@ -39,10 +39,8 @@ import { CouponBulkDeleteDialog, CouponDeleteDialog } from './components/CouponD
 import { CouponDetailDialog } from './components/CouponDetailDialog'
 import { CouponFormDialog } from './components/CouponFormDialog'
 import { CouponTablePanel } from './components/CouponTablePanel'
-import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { PromotionBulkToolbar } from './components/PromotionBulkToolbar'
 import { PromotionFilterBar } from './components/PromotionFilterBar'
-import { PromotionKpiSummary } from './components/PromotionKpiSummary'
 
 type PromotionsPageProps = {
   currentUser: AdminUser
@@ -456,7 +454,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const [usageSearch, setUsageSearch] = useState('')
   const [usageDateFrom, setUsageDateFrom] = useState('')
   const [usageDateTo, setUsageDateTo] = useState('')
-  const [couponSummary, setCouponSummary] = useState({ totalCoupons: 0, usedCount: 0, activeCount: 0, publicCount: 0 })
   const [sampleSubTotal, setSampleSubTotal] = useState('500000')
   const [sampleShippingFee, setSampleShippingFee] = useState('30000')
   const [couponPreview, setCouponPreview] = useState<CouponPreview | null>(null)
@@ -573,7 +570,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       })
 
       setCoupons(result.items)
-      setCouponSummary(result.summary)
       setTotalItems(result.pagination.totalItems)
       setTotalPages(Math.max(1, result.pagination.totalPages))
     } catch (error) {
@@ -1349,12 +1345,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         </div>
       </header>
 
-      <PromotionKpiSummary
-        summary={couponSummary}
-        hasKeyword={Boolean(keyword)}
-        formatNumber={formatNumber}
-      />
-
       <PromotionBulkToolbar
         selectedCount={selectedCouponIds.length}
         isLoading={actionLoading}
@@ -1449,8 +1439,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         isDisabled={isLoading}
         onPageChange={setPage}
       />
-
-      <CampaignAnalyticsPanel currentUser={currentUser} />
 
       {dialog?.type === 'detail' ? (
         <CouponDetailDialog
