@@ -203,7 +203,9 @@ const styles = StyleSheet.create({
   },
   imageWrap: {
     width: '100%',
-    aspectRatio: 0.86,
+    // A near-square media area keeps two complete card rows inside the usable
+    // viewport on common 360x720dp phones (header and bottom nav excluded).
+    aspectRatio: 1.05,
     backgroundColor: colors.brandSoft,
   },
   image: {
@@ -271,16 +273,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   info: {
-    minHeight: 120,
-    padding: spacing.md,
+    minHeight: 106,
+    padding: spacing.sm,
     justifyContent: 'space-between',
   },
   productMetaRow: {
-    minHeight: 20,
+    minHeight: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.xs,
+    marginBottom: 2,
   },
   genderBadge: {
     minHeight: 20,
@@ -337,15 +339,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   name: {
-    minHeight: 36,
+    minHeight: 34,
     color: colors.brandDark,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 17,
     fontWeight: '700',
   },
   priceRow: {
-    minHeight: 34,
-    marginTop: spacing.sm,
+    minHeight: 32,
+    marginTop: spacing.xs,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -369,9 +371,9 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   cartButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: colors.brandDark,
     alignItems: 'center',
     justifyContent: 'center',
