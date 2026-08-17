@@ -1,7 +1,7 @@
 import type { RecommendationItem, RecommendationReasonCode } from '../recommendationApi';
 import {
   getRecommendationReasonLabel,
-  getUnsentVisibleRecommendationItems,
+  getVisibleRatioInViewport,
 } from '../recommendationUtils';
 
 const recommendationItem = (
@@ -28,19 +28,10 @@ describe('recommendation presentation', () => {
     )).toBe('Hoàn thiện set đồ');
   });
 
-  it('tracks only visible products that have not been sent', () => {
-    const items = [
-      recommendationItem('one'),
-      recommendationItem('two'),
-      recommendationItem('three'),
-    ];
-
-    const result = getUnsentVisibleRecommendationItems(
-      items,
-      new Set(['one', 'two']),
-      new Set(['one']),
-    );
-
-    expect(result.map((item) => item.product._id)).toEqual(['two']);
+  it('calculates how much of a vertical card is visible', () => {
+    expect(getVisibleRatioInViewport(100, 120, 800)).toBe(1);
+    expect(getVisibleRatioInViewport(-48, 120, 800)).toBe(0.6);
+    expect(getVisibleRatioInViewport(728, 120, 800)).toBe(0.6);
+    expect(getVisibleRatioInViewport(900, 120, 800)).toBe(0);
   });
 });

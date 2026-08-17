@@ -443,8 +443,8 @@ const ProductDetailScreen = () => {
   }, [isAuthenticated, productId, recommendationAlgorithmVersion, recommendationRequestId, runWithAuth]);
   const {
     recommendationSectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility,
-    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
@@ -482,8 +482,8 @@ const ProductDetailScreen = () => {
         setIsRecommendationLoading(true);
 
         const recommendationPromise = isAuthenticated
-          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 8, accessToken))
-          : recommendationApi.getSimilarProducts(detail._id, 8);
+          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 10, accessToken))
+          : recommendationApi.getSimilarProducts(detail._id, 10);
 
         recommendationPromise
           .then((response) => {
@@ -1397,7 +1397,7 @@ const ProductDetailScreen = () => {
           items={recommendationItems}
           isLoading={isRecommendationLoading}
           trackingRef={recommendationSectionRef}
-          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
+          onItemRef={setRecommendationItemRef}
           onProductPress={handleRecommendationProductPress}
         />
 

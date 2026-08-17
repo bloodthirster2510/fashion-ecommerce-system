@@ -207,7 +207,7 @@ const CartScreen = () => {
         if (cartRequestSequenceRef.current !== requestSequence) return;
         setCart(nextCart);
         loadedCartTokenRef.current = cartAccountScope;
-        void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(8, accessToken))
+        void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(10, accessToken))
           .then((response) => {
             if (cartRequestSequenceRef.current !== requestSequence) return;
             setCartRecommendationItems(response.items);
@@ -259,8 +259,8 @@ const CartScreen = () => {
   }, [cartRecommendationAlgorithmVersion, cartRecommendationRequestId, runWithAuth]);
   const {
     recommendationSectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility,
-    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: cartRecommendationRequestId,
     items: cartRecommendationItems,
@@ -665,7 +665,7 @@ const CartScreen = () => {
         subtitle="Những món có thể phối cùng lựa chọn hiện tại"
         items={cartRecommendationItems}
         trackingRef={recommendationSectionRef}
-        onViewableItemsChanged={handleRecommendationViewableItemsChanged}
+        onItemRef={setRecommendationItemRef}
         onProductPress={handleCartRecommendationPress}
       />
     );

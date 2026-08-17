@@ -111,8 +111,8 @@ const HomeScreen = () => {
   }, [isAuthenticated, recommendationAlgorithmVersion, recommendationRequestId, runWithAuth]);
   const {
     recommendationSectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility,
-    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
@@ -359,7 +359,7 @@ const HomeScreen = () => {
           error={recommendationError}
           onRetry={loadHomeProducts}
           trackingRef={recommendationSectionRef}
-          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
+          onItemRef={setRecommendationItemRef}
           onProductPress={handleRecommendationProductPress}
         />
 
