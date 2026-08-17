@@ -23,6 +23,7 @@ import { contextPresetLabel } from './contextPresets';
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
 const ASSET_PAGE_SIZE = 20;
+const RECENT_JOB_LIMIT = 4;
 
 const formatDate = (value: string) => {
   try {
@@ -341,7 +342,7 @@ const VirtualTryOnHomeScreen = () => {
       const [assetsResponse, latest, jobsResponse] = await Promise.all([
         virtualTryOnApi.getAssets(token, { page: 1, limit: ASSET_PAGE_SIZE }),
         virtualTryOnApi.getLatestJob(token),
-        virtualTryOnApi.getJobs(token, { limit: 8 }),
+        virtualTryOnApi.getJobs(token, { limit: RECENT_JOB_LIMIT }),
       ]);
       if (!isCurrent) return;
       const sourceAssets = assetsResponse.items.filter(isSourceAsset);
