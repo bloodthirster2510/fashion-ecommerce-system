@@ -125,6 +125,7 @@ export type VisualSearchQueryOptions = {
   brandId?: string[];
   gender?: ProductVisualGender;
   color?: string[];
+  size?: string[];
   minPrice?: number;
   maxPrice?: number;
   scoreThreshold?: number;

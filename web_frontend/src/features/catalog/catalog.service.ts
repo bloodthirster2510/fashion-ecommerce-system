@@ -146,8 +146,12 @@ const buildVisualSearchTextPayload = (text: string, query: ProductListQuery = {}
   ...(query.categoryId ? { categoryId: query.categoryId } : {}),
   ...(query.brandId ? { brandId: query.brandId } : {}),
   ...(query.color?.length ? { color: query.color } : {}),
+  ...(query.fitType?.length ? { fitType: query.fitType } : {}),
+  ...(query.size?.length ? { size: query.size } : {}),
   ...(query.minPrice !== undefined ? { minPrice: query.minPrice } : {}),
   ...(query.maxPrice !== undefined ? { maxPrice: query.maxPrice } : {}),
+  ...(query.isSale !== undefined ? { isSale: query.isSale } : {}),
+  ...(query.isNew !== undefined ? { isNew: query.isNew } : {}),
 })
 
 const CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000
