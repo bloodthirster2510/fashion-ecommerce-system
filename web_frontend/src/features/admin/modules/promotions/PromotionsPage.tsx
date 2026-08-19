@@ -170,6 +170,31 @@ const toDateTimeInputValue = (date: Date) => {
   return localDate.toISOString().slice(0, 16)
 }
 
+const parseDateTimeInputValue = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return new Date(Number.NaN)
+
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+  )
+
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3]) ||
+    date.getHours() !== Number(match[4]) ||
+    date.getMinutes() !== Number(match[5])
+  ) {
+    return new Date(Number.NaN)
+  }
+
+  return date
+}
+
 const createEmptyCouponForm = (): CouponFormState => {
   const startDate = new Date()
   const endDate = new Date()
@@ -328,8 +353,8 @@ const assertMoneyValue = (value: number, fieldName: string) => {
 const toCouponPayload = (form: CouponFormState): CouponPayload => {
   const code = form.code.trim().toUpperCase()
   const name = form.name.trim()
-  const startAt = new Date(form.startAt)
-  const endAt = new Date(form.endAt)
+  const startAt = parseDateTimeInputValue(form.startAt)
+  const endAt = parseDateTimeInputValue(form.endAt)
   const discountValue = form.discountType === 'free_shipping' ? 0 : Number(form.discountValue)
   const minOrderAmount = Number(form.minOrderAmount)
   const maxDiscountAmount = form.discountType === 'percent' && form.maxDiscountAmount.trim()
@@ -397,8 +422,8 @@ const validateCouponForm = (form: CouponFormState): CouponFieldErrors => {
   const maxDiscountAmount = Number(form.maxDiscountAmount)
   const usageLimit = Number(form.usageLimit)
   const perUserLimit = Number(form.perUserLimit)
-  const startAt = new Date(form.startAt)
-  const endAt = new Date(form.endAt)
+  const startAt = parseDateTimeInputValue(form.startAt)
+  const endAt = parseDateTimeInputValue(form.endAt)
 
   if (!/^[A-Z0-9_-]{2,40}$/.test(code)) errors.code = 'Dùng 2–40 ký tự in hoa, số, “_” hoặc “-”.'
   if (form.name.trim().length < 2) errors.name = 'Tên voucher cần ít nhất 2 ký tự.'
@@ -1192,7 +1217,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const estimatedAudience = couponForm.eligibleMembershipRanks.length
     ? tiers.filter((tier) => tier._id && couponForm.eligibleMembershipRanks.includes(tier._id)).reduce((sum, tier) => sum + (tier.memberCount ?? 0), 0)
     : tiers.reduce((sum, tier) => sum + (tier.memberCount ?? 0), 0)
-  const couponDurationDays = (new Date(couponForm.endAt).getTime() - new Date(couponForm.startAt).getTime()) / 86_400_000
+  const couponDurationDays = (parseDateTimeInputValue(couponForm.endAt).getTime() - parseDateTimeInputValue(couponForm.startAt).getTime()) / 86_400_000
   const formDiscountPreview =
     couponForm.discountType === 'free_shipping'
       ? 'Miễn phí vận chuyển'
