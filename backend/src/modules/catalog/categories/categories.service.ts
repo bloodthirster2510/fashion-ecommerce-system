@@ -34,7 +34,8 @@ const escapeRegex = (value: string) => {
 };
 
 const normalizeParentId = (parentId?: string | null) => {
-  return parentId ? new Types.ObjectId(parentId) : null;
+  const normalizedParentId = String(parentId ?? '').trim();
+  return normalizedParentId ? new Types.ObjectId(normalizedParentId) : null;
 };
 
 type CategoryHierarchyNode = {
@@ -50,18 +51,19 @@ type CategoryManagementDocument = {
 };
 
 const assertValidParentId = async (parentId?: string | null, currentCategoryId?: string) => {
-  if (!parentId) {
+  const normalizedParentId = String(parentId ?? '').trim();
+  if (!normalizedParentId) {
     return null;
   }
 
-  assertValidCategoryId(parentId);
+  assertValidCategoryId(normalizedParentId);
 
-  if (currentCategoryId && parentId === currentCategoryId) {
+  if (currentCategoryId && normalizedParentId === currentCategoryId) {
     throw new CategoryServiceError('Category cannot be its own parent', 400);
   }
 
   const visitedIds = new Set<string>();
-  let ancestorId: string | null = parentId;
+  let ancestorId: string | null = normalizedParentId;
   let parentCategory: CategoryHierarchyNode | null = null;
 
   while (ancestorId) {
@@ -404,10 +406,26 @@ const updateCategory = async (id: string, input: UpdateCategoryInput) => {
   }
   if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
-  return Category.findByIdAndUpdate(id, updateData, {
+  const updatedCategory = await Category.findByIdAndUpdate(id, updateData, {
     returnDocument: 'after',
     runValidators: true,
   });
+
+  if (updatedCategory && updateData.gender !== undefined && updateData.gender !== category.gender) {
+    const categories = await Category.find().select('_id parent_id').lean<CategoryManagementDocument[]>();
+    const descendantIds = getDescendantIdsFromCategories(categories, id)
+      .filter((categoryId) => categoryId !== id)
+      .map((categoryId) => new Types.ObjectId(categoryId));
+
+    if (descendantIds.length > 0) {
+      await Category.updateMany(
+        { _id: { $in: descendantIds } },
+        { $set: { gender: updateData.gender } },
+      );
+    }
+  }
+
+  return updatedCategory;
 };
 
 const upsertCategorySizeTemplate = async (
@@ -815,6 +833,30 @@ const getCategoriesForManagement = async () => {
   const directCountByCategoryId = new Map(countByCategoryId);
   const directActiveCountByCategoryId = new Map(activeCountByCategoryId);
   const managementCategories = categories as CategoryManagementDocument[];
+  const categoryById = new Map(
+    categories.map((category) => [category._id.toString(), category]),
+  );
+  const resolvedGenderById = new Map<string, CategoryGender>();
+  const resolvingGenderIds = new Set<string>();
+
+  const resolveCategoryGender = (category: (typeof categories)[number]): CategoryGender => {
+    const categoryId = category._id.toString();
+    const resolvedGender = resolvedGenderById.get(categoryId);
+    if (resolvedGender) return resolvedGender;
+
+    const parentId = category.parent_id?.toString();
+    const parent = parentId ? categoryById.get(parentId) : undefined;
+    if (!parent || resolvingGenderIds.has(categoryId)) {
+      resolvedGenderById.set(categoryId, category.gender);
+      return category.gender;
+    }
+
+    resolvingGenderIds.add(categoryId);
+    const gender = resolveCategoryGender(parent);
+    resolvingGenderIds.delete(categoryId);
+    resolvedGenderById.set(categoryId, gender);
+    return gender;
+  };
 
   categories.forEach((category) => {
     const categoryId = category._id.toString();
@@ -833,6 +875,7 @@ const getCategoriesForManagement = async () => {
 
   return categories.map((category) => ({
     ...category,
+    gender: resolveCategoryGender(category),
     productCount: countByCategoryId.get(category._id.toString()) ?? 0,
     activeProductCount: activeCountByCategoryId.get(category._id.toString()) ?? 0,
   }));

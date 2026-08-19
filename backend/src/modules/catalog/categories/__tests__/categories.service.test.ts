@@ -12,6 +12,7 @@ jest.mock('../../../../database/models/category.model', () => ({
     findByIdAndUpdate: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
+    updateMany: jest.fn(),
   },
 }));
 
@@ -289,6 +290,14 @@ describe('categoryService', () => {
       _id: categoryId,
       gender: 'female',
     } as never);
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        { _id: { toString: () => parentId }, parent_id: null },
+        { _id: { toString: () => categoryId }, parent_id: parentId },
+        { _id: { toString: () => '665000000000000000000004' }, parent_id: categoryId },
+      ]),
+    } as never);
 
     await categoryService.updateCategory(categoryId, {
       parent_id: parentId,
@@ -306,6 +315,10 @@ describe('categoryService', () => {
         returnDocument: 'after',
         runValidators: true,
       },
+    );
+    expect(mockedCategory.updateMany).toHaveBeenCalledWith(
+      { _id: { $in: [expect.any(Object)] } },
+      { $set: { gender: 'female' } },
     );
   });
 

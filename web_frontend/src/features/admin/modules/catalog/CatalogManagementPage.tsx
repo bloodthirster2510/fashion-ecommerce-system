@@ -166,6 +166,10 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
     const roots = categories.filter(
       (category) => !category.parent_id || !categoryById.has(category.parent_id),
     )
+    const compareCategories = (left: ManagedCategory, right: ManagedCategory) =>
+      left.level - right.level || left.name.localeCompare(right.name, 'vi')
+
+    roots.sort(compareCategories)
     const collectGroup = (root: ManagedCategory) => {
       const group: ManagedCategory[] = []
       const visited = new Set<string>()
@@ -173,7 +177,7 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
         if (visited.has(category._id)) return
         visited.add(category._id)
         group.push(category)
-        const children = childrenByParentId.get(category._id) ?? []
+        const children = [...(childrenByParentId.get(category._id) ?? [])].sort(compareCategories)
         children.forEach(visit)
       }
       visit(root)

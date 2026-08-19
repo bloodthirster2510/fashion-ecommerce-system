@@ -141,6 +141,7 @@ export function CategoryManagementSection({
         <table className="admin-table admin-catalog-table">
           <thead>
             <tr>
+              <th>Ảnh</th>
               <th>Tên danh mục</th>
               <th>Giới tính</th>
               <th>Bộ size</th>
@@ -151,9 +152,9 @@ export function CategoryManagementSection({
             </tr>
           </thead>
           <tbody>
-            {isLoading ? <LoadingRow colSpan={7} /> : null}
+            {isLoading ? <LoadingRow colSpan={8} /> : null}
             {!isLoading && pagination.categories.length === 0 ? (
-              <EmptyRow colSpan={7} label="Không có danh mục phù hợp." />
+              <EmptyRow colSpan={8} label="Không có danh mục phù hợp." />
             ) : null}
             {!isLoading
               ? pagination.categories.map((category) => (
@@ -161,6 +162,15 @@ export function CategoryManagementSection({
                     key={category._id}
                     className={`admin-category-level-${Math.min(category.level, 4)}`}
                   >
+                    <td>
+                      <span className="admin-category-image">
+                        {category.image ? (
+                          <img src={category.image} alt={category.name} />
+                        ) : (
+                          <span className="admin-image-placeholder">-</span>
+                        )}
+                      </span>
+                    </td>
                     <td>
                       <strong className="admin-category-level-name">{category.name}</strong>
                     </td>
