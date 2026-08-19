@@ -479,7 +479,6 @@ function CatalogManagementContent({ currentUser }: CatalogManagementPageProps) {
         <>
           <CategoryManagementSection
             categories={categories}
-            categoryNameById={categoryNameById}
             pagination={categoryPagination}
             keyword={categoryKeyword}
             genderFilter={genderFilter}
