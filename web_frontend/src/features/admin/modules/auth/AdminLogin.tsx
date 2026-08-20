@@ -117,8 +117,8 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
       <section className="admin-login-aside" aria-label="Thông tin vận hành">
         <div>
-          <p className="admin-login-kicker">Fashion operations</p>
-          <h2>Quản lý cửa hàng, đơn hàng và chăm sóc khách hàng trong một nơi.</h2>
+          <p className="admin-login-kicker">Hoạt động của cửa hàng</p>
+          <h2>Dịch vụ quản lý cửa hàng, đơn hàng và chăm sóc khách hàng</h2>
         </div>
       </section>
     </main>

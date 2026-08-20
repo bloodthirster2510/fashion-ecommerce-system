@@ -326,7 +326,19 @@ function DeleteIcon() {
 }
 
 export function LoadingRow({ colSpan }: { colSpan: number }) {
-  return <tr><td colSpan={colSpan}><div className="admin-table-loading">Đang tải dữ liệu...</div></td></tr>
+  return (
+    <>
+      {[1, 2, 3, 4].map((row) => (
+        <tr className="admin-catalog-skeleton-row" key={row} aria-hidden="true">
+          {Array.from({ length: colSpan }, (_, column) => (
+            <td key={column}>
+              <span className={`admin-catalog-skeleton-line ${column === 0 ? 'is-image' : ''} ${column === 1 ? 'is-wide' : ''}`} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  )
 }
 
 export function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {

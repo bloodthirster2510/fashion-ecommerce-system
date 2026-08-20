@@ -236,6 +236,39 @@
   justify-content: center;
 }
 
+.admin-catalog-skeleton-row td,
+.admin-inventory-skeleton-row td {
+  height: 76px;
+  background: #fff;
+}
+
+.admin-catalog-skeleton-line,
+.admin-inventory-skeleton-line,
+.admin-inventory-skeleton-image,
+.admin-catalog-skeleton-line.is-image,
+.admin-inventory-skeleton-pill {
+  display: inline-block;
+  background: linear-gradient(90deg, #edf2f5 25%, #f8fafb 50%, #edf2f5 75%);
+  background-size: 200% 100%;
+  animation: admin-list-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.admin-catalog-skeleton-line,
+.admin-inventory-skeleton-line {
+  width: 72px;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.admin-catalog-skeleton-line.is-wide,
+.admin-inventory-skeleton-line.is-wide { width: 130px; }
+.admin-catalog-skeleton-line.is-image { width: 48px; height: 48px; border-radius: 7px; }
+
+@keyframes admin-list-skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .admin-category-image {
   width: fit-content;
   max-width: 64px;

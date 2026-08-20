@@ -47,7 +47,7 @@ import {
   InventorySupplierDialog,
   InventoryThresholdDialog,
 } from './components/InventoryOperationsDialogs'
-import { ChevronIcon, EmptyRow, FilterSelect, SearchIcon, ViewIcon, WarningIcon } from './components/InventoryUi'
+import { ChevronIcon, EmptyRow, FilterSelect, LoadingRows, SearchIcon, ViewIcon, WarningIcon } from './components/InventoryUi'
 import type {
   InventoryColorGroup,
   InventoryProductGroup,
@@ -724,7 +724,7 @@ function InventoryManagementContent({
               </tr>
             </thead>
             <tbody>
-              {isLoading ? <EmptyRow label="Đang tải dữ liệu kho..." /> : null}
+              {isLoading ? <LoadingRows /> : null}
               {!isLoading && pagination.items.length === 0 ? <EmptyRow label="Không có tồn kho phù hợp." /> : null}
               {!isLoading ? pagination.items.flatMap((group) => {
                 const total = group.rows.reduce((sum, row) => sum + row.availableQuantity, 0)

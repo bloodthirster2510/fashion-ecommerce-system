@@ -589,6 +589,30 @@
   background: #fff;
 }
 
+.admin-inventory-skeleton-product {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-inventory-skeleton-image {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 8px;
+}
+
+.admin-inventory-skeleton-line.is-medium { width: 92px; }
+.admin-inventory-skeleton-line.is-short { width: 38px; }
+
+.admin-inventory-skeleton-pill {
+  width: 78px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.admin-inventory-skeleton-pill.is-small { width: 64px; }
+
 .admin-inventory-expand-hint {
   color: var(--admin-accent-dark);
   font-size: 12px;
