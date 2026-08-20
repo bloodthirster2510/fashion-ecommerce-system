@@ -2,6 +2,12 @@ import { requestCustomer } from '../../services/customerHttp'
 import type { Cart } from '../cart/cart.types'
 import type { ProductListItem, ProductSortOption } from './catalog.types'
 
+export const FAVORITES_CHANGED_EVENT = 'customer-favorites-changed'
+
+const notifyFavoritesChanged = () => {
+  window.dispatchEvent(new Event(FAVORITES_CHANGED_EVENT))
+}
+
 export type AddCartItemPayload = {
   productId: string
   variantId: string
@@ -96,13 +102,19 @@ export const customerProductActionsService = {
     return requestCustomer<FavoriteStatusResponse>('/favorites', {
       method: 'POST',
       body: JSON.stringify({ productId }),
-    }, productAuthMessages.addFavorite)
+    }, productAuthMessages.addFavorite).then((result) => {
+      notifyFavoritesChanged()
+      return result
+    })
   },
 
   removeFavorite(productId: string) {
     return requestCustomer<FavoriteStatusResponse>(`/favorites/${encodeURIComponent(productId)}`, {
       method: 'DELETE',
-    }, productAuthMessages.removeFavorite)
+    }, productAuthMessages.removeFavorite).then((result) => {
+      notifyFavoritesChanged()
+      return result
+    })
   },
 
   authMessages: productAuthMessages,

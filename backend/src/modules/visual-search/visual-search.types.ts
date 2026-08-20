@@ -53,6 +53,7 @@ export type VisualIndexBackfillResult = {
   imageCount: number;
   indexed: number;
   staleDeactivated: number;
+  invalidMetadataDeactivated: number;
   failed: number;
   model: string;
   modelVersion: string;
@@ -125,7 +126,6 @@ export type VisualSearchQueryOptions = {
   brandId?: string[];
   gender?: ProductVisualGender;
   color?: string[];
-  size?: string[];
   minPrice?: number;
   maxPrice?: number;
   scoreThreshold?: number;

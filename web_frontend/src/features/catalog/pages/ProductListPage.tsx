@@ -22,11 +22,32 @@ import type {
 } from '../catalog.types'
 import '../catalog.css'
 
-const LIMIT = 10
+const LIMIT = 20
 const MAX_VISUAL_SEARCH_FILE_SIZE = 5 * 1024 * 1024
 const VISUAL_SEARCH_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const CATALOG_VISUAL_SEARCH_FILE_EVENT = 'catalog:visual-search-file-selected'
 const PRICE_RANGE_ERROR = 'Giá thấp nhất không được cao hơn giá cao nhất.'
+
+function ProductListSkeleton() {
+  return (
+    <section className="product-grid product-grid-skeleton" aria-label="Đang tải danh sách sản phẩm" aria-busy="true">
+      {Array.from({ length: 10 }, (_, index) => (
+        <article className="product-card product-card-skeleton" key={index} aria-hidden="true">
+          <div className="product-card-media" />
+          <div className="product-card-body">
+            <span className="product-skeleton-line is-title" />
+            <span className="product-skeleton-line is-title-short" />
+            <span className="product-skeleton-line is-price" />
+            <div className="product-skeleton-action">
+              <span />
+              <span />
+            </div>
+          </div>
+        </article>
+      ))}
+    </section>
+  )
+}
 
 const sortOptions: Array<{ value: ProductSortOption; label: string }> = [
   { value: 'relevance', label: 'Liên quan' },
@@ -602,8 +623,10 @@ export function ProductListPage() {
         {error && <Alert className="catalog-alert" type="error" message={error} showIcon />}
         {!error && filterDataError && <Alert className="catalog-alert" type="warning" message={filterDataError} showIcon />}
 
-        <Spin spinning={isLoading || isVisualSearchLoading}>
-          {!error && displayedProductList && displayedProductList.items.length > 0 ? (
+        <Spin spinning={false}>
+          {!error && (isLoading || isVisualSearchLoading) ? (
+            <ProductListSkeleton />
+          ) : !error && displayedProductList && displayedProductList.items.length > 0 ? (
             <>
               <section className="product-grid" aria-label="Danh sách sản phẩm">
                 {displayedProductList.items.map((product) => (

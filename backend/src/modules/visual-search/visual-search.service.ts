@@ -2,8 +2,6 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Types } from 'mongoose';
 import {
-  Brand,
-  Category,
   Inventory,
   Product,
   ProductVisualIndex,
@@ -113,7 +111,7 @@ const DEFAULT_HTTP_TIMEOUT_MS = 30_000;
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 50;
 const DEFAULT_SCORE_THRESHOLD = 0;
-const HYDRATE_CANDIDATE_BATCH_MULTIPLIER = 3;
+const MAX_SEARCH_CANDIDATES = 5_000;
 
 export class VisualSearchServiceError extends Error {
   constructor(
@@ -358,7 +356,7 @@ const cosineSimilarity = (first: number[], second: number[]) => {
 // Kiểm tra và chuyển danh sách id filter sang ObjectId của MongoDB.
 const toObjectIdList = (values: string[] | undefined, fieldName: string) => {
   if (!values?.length) {
-    return [];
+    return undefined;
   }
 
   return values.map((value) => {
@@ -383,225 +381,15 @@ const toRegexList = (values?: string[]) => {
     .map((value) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
 };
 
-const hasVisualProductFilters = (options: VisualSearchQueryOptions) => {
-  return Boolean(
-    options.categoryId?.length ||
-    options.brandId?.length ||
-    options.gender ||
-    options.color?.length ||
-    options.minPrice !== undefined ||
-    options.maxPrice !== undefined
-  );
-};
-
-const getFinalPriceAggregationExpression = (variantPath: string) => ({
-  $round: [
-    {
-      $multiply: [
-        `${variantPath}.price`,
-        { $subtract: [1, { $divide: [`${variantPath}.discount`, 100] }] },
-      ],
-    },
-    0,
-  ],
-});
-
-const buildVariantAggregationConditions = (options: VisualSearchQueryOptions) => {
-  const conditions: Record<string, unknown>[] = [
-    { $eq: ['$$variant.isActive', true] },
-    {
-      $gt: [
-        {
-          $size: {
-            $filter: {
-              input: { $ifNull: ['$$variant.colors', []] },
-              as: 'color',
-              cond: { $ne: ['$$color.isActive', false] },
-            },
-          },
-        },
-        0,
-      ],
-    },
-  ];
-  const selectedColors = options.color?.map((color) => color.trim().toLowerCase()).filter(Boolean);
-
-  if (selectedColors?.length) {
-    conditions.push({
-      $gt: [
-        {
-          $size: {
-            $filter: {
-              input: { $ifNull: ['$$variant.colors', []] },
-              as: 'color',
-              cond: {
-                $and: [
-                  { $ne: ['$$color.isActive', false] },
-                  { $in: [{ $toLower: '$$color.color' }, selectedColors] },
-                ],
-              },
-            },
-          },
-        },
-        0,
-      ],
-    });
-  }
-
-  const finalPriceExpression = getFinalPriceAggregationExpression('$$variant');
-  if (options.minPrice !== undefined) {
-    conditions.push({ $gte: [finalPriceExpression, options.minPrice] });
-  }
-
-  if (options.maxPrice !== undefined) {
-    conditions.push({ $lte: [finalPriceExpression, options.maxPrice] });
-  }
-
-  return conditions;
-};
-
-const buildMatchingVariantExpression = (options: VisualSearchQueryOptions) => ({
-  $gt: [
-    {
-      $size: {
-        $filter: {
-          input: { $ifNull: ['$variant', []] },
-          as: 'variant',
-          cond: { $and: buildVariantAggregationConditions(options) },
-        },
-      },
-    },
-    0,
-  ],
-});
-
-const buildVisualVariantFilter = (options: VisualSearchQueryOptions) => {
-  const variantFilter: Record<string, unknown> = {
-    isActive: true,
-  };
-  const selectedColors = toRegexList(options.color);
-
-  if (selectedColors?.length) {
-    variantFilter['colors.color'] = { $in: selectedColors };
-  }
-
-  return variantFilter;
-};
-
-const getDescendantCategoryIds = async (categoryId: string, gender?: ProductVisualGender) => {
-  const [rootCategoryId] = toObjectIdList([categoryId], 'categoryId');
-  if (!rootCategoryId) {
-    return [];
-  }
-
-  const rootCategory = await Category.findById(rootCategoryId)
-    .select('_id gender isActive')
-    .lean<{ _id: Types.ObjectId; gender: ProductVisualGender; isActive: boolean } | null>();
-
-  if (!rootCategory || !rootCategory.isActive || (gender && rootCategory.gender !== gender)) {
-    return [];
-  }
-
-  const categoryIds = [rootCategory._id];
-  let parentIds = [rootCategory._id];
-
-  while (parentIds.length > 0) {
-    const childCategories = await Category.find({
-      parent_id: { $in: parentIds },
-      isActive: true,
-      ...(gender ? { gender } : {}),
-    })
-      .select('_id')
-      .lean<Array<{ _id: Types.ObjectId }>>();
-
-    parentIds = childCategories.map((category) => category._id);
-    categoryIds.push(...parentIds);
-  }
-
-  return categoryIds;
-};
-
-const getCategoryIdsByGender = async (gender: ProductVisualGender) => {
-  const categories = await Category.find({ gender, isActive: true })
-    .select('_id')
-    .lean<Array<{ _id: Types.ObjectId }>>();
-
-  return categories.map((category) => category._id);
-};
-
-const resolveVisualCategoryFilter = async (options: VisualSearchQueryOptions) => {
-  if (options.categoryId?.length) {
-    const categoryIdGroups = await Promise.all(
-      options.categoryId.map((categoryId) => getDescendantCategoryIds(categoryId, options.gender)),
-    );
-    const categoryIdsByString = new Map<string, Types.ObjectId>();
-
-    categoryIdGroups.flat().forEach((categoryId) => {
-      categoryIdsByString.set(categoryId.toString(), categoryId);
-    });
-
-    return Array.from(categoryIdsByString.values());
-  }
-
-  if (options.gender) {
-    return getCategoryIdsByGender(options.gender);
-  }
-
-  return undefined;
-};
-
-const resolveVisualBrandFilter = async (brandIds?: string[]) => {
-  if (!brandIds?.length) {
-    return undefined;
-  }
-
-  const objectIds = toObjectIdList(brandIds, 'brandId');
-  const brands = await Brand.find({ _id: { $in: objectIds }, isActive: true })
-    .select('_id')
-    .lean<Array<{ _id: Types.ObjectId }>>();
-
-  return brands.map((brand) => brand._id);
-};
-
-const getFilteredProductIds = async (options: VisualSearchQueryOptions) => {
-  if (!hasVisualProductFilters(options)) {
-    return undefined;
-  }
-
-  const filter: Record<string, unknown> = {
-    isActive: true,
-    variant: { $elemMatch: buildVisualVariantFilter(options) },
-  };
-  const [categoryIds, brandIds] = await Promise.all([
-    resolveVisualCategoryFilter(options),
-    resolveVisualBrandFilter(options.brandId),
-  ]);
-
-  if (categoryIds) {
-    filter.category_id = { $in: categoryIds };
-  }
-
-  if (brandIds) {
-    filter.brand_id = { $in: brandIds };
-  }
-
-  if (options.minPrice !== undefined || options.maxPrice !== undefined) {
-    filter.$expr = buildMatchingVariantExpression(options);
-  }
-
-  const products = await Product.find(filter)
-    .select('_id')
-    .lean<Array<{ _id: Types.ObjectId }>>();
-
-  return products.map((product) => product._id);
-};
-
-// Tạo bộ lọc visual index từ model hiện tại. Product filters được resolve qua Product
-// trước để không phụ thuộc metadata cũ trong ProductVisualIndex.
+// Tạo bộ lọc visual index từ model hiện tại và các filter người dùng chọn.
 const buildVisualIndexFilter = (
   embeddingResult: VisualEmbeddingResult,
-  productIds?: Types.ObjectId[],
+  options: VisualSearchQueryOptions,
 ) => {
+  const categoryIds = toObjectIdList(options.categoryId, 'categoryId');
+  const brandIds = toObjectIdList(options.brandId, 'brandId');
+  const colors = toRegexList(options.color);
+  const finalPriceFilter: Record<string, number> = {};
   const filter: Record<string, unknown> = {
     isActive: true,
     embeddingDimension: embeddingResult.embeddingDimension,
@@ -609,8 +397,32 @@ const buildVisualIndexFilter = (
     embeddingVersion: embeddingResult.embeddingVersion,
   };
 
-  if (productIds) {
-    filter.productId = { $in: productIds };
+  if (categoryIds?.length) {
+    filter.categoryId = { $in: categoryIds };
+  }
+
+  if (brandIds?.length) {
+    filter.brandId = { $in: brandIds };
+  }
+
+  if (options.gender) {
+    filter.gender = options.gender;
+  }
+
+  if (colors?.length) {
+    filter.color = { $in: colors };
+  }
+
+  if (options.minPrice !== undefined) {
+    finalPriceFilter.$gte = options.minPrice;
+  }
+
+  if (options.maxPrice !== undefined) {
+    finalPriceFilter.$lte = options.maxPrice;
+  }
+
+  if (Object.keys(finalPriceFilter).length) {
+    filter.finalPrice = finalPriceFilter;
   }
 
   return filter;
@@ -656,21 +468,12 @@ const searchSimilarIndexItems = async (
   options: VisualSearchQueryOptions,
 ) => {
   const scoreThreshold = getScoreThreshold(options.scoreThreshold);
-  const filteredProductIds = await getFilteredProductIds(options);
-
-  if (filteredProductIds?.length === 0) {
-    return {
-      candidateCount: 0,
-      scoreThreshold,
-      candidates: [],
-    };
-  }
-
-  const filter = buildVisualIndexFilter(embeddingResult, filteredProductIds);
+  const filter = buildVisualIndexFilter(embeddingResult, options);
   const rawCandidates = await ProductVisualIndex.find(filter)
     .select(
       'galleryImageId productId variantId colorVariantId imageUrl embedding embeddingDimension embeddingModel embeddingVersion categoryId brandId gender color finalPrice availableQuantity source',
     )
+    .limit(MAX_SEARCH_CANDIDATES)
     .lean<VisualIndexDocument[]>();
 
   const scoredCandidates = rawCandidates
@@ -740,6 +543,30 @@ const getDisplayVariant = (variants: IProductVariant[]) =>
   variants.find((variant) => variant.isActive) ?? variants[0];
 
 const toIsoString = (value?: Date | null) => value ? value.toISOString() : undefined;
+
+type ProductImageColorMatch = {
+  variant: IProductVariant;
+  color: IProductVariant['colors'][number];
+};
+
+const findProductImageColorMatch = (product: ProductForVisualSearch): ProductImageColorMatch | null => {
+  const productImage = product.product_image?.trim();
+  if (!productImage) {
+    return null;
+  }
+
+  const matches: ProductImageColorMatch[] = [];
+
+  (product.variant ?? []).forEach((variant) => {
+    variant.colors.forEach((color) => {
+      if (color.image?.trim() === productImage) {
+        matches.push({ variant, color });
+      }
+    });
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+};
 
 const getSourceBreakdown = (
   activeGalleryItems: VisualGalleryItem[],
@@ -910,22 +737,41 @@ const buildGalleryItems = (
     const brandId = toObjectIdOrNull(product.brand_id);
     const gender = getGender(product.category_id);
     const displayVariant = getDisplayVariant(product.variant ?? []);
+    const productImageColorMatch = findProductImageColorMatch(product);
+    const productImageVariant = productImageColorMatch?.variant ?? null;
+    const productImageColor = productImageColorMatch?.color ?? null;
+    const productImageVariantId = productImageVariant?._id ?? null;
+    const productImageColorVariantId = productImageColor?._id ?? null;
+    const productImageVariantIdString = productImageVariantId?.toString() ?? '';
+    const productImageColorVariantIdString = productImageColorVariantId?.toString() ?? '';
 
     if (product.product_image?.trim()) {
       items.push({
         galleryImageId: `${productId}:product_image`,
         productId: product._id,
+        variantId: productImageVariantId,
+        colorVariantId: productImageColorVariantId,
         imageUrl: product.product_image.trim(),
         imageHash: createImageHash(product.product_image),
         categoryId,
         brandId,
         gender,
-        color: null,
-        price: displayVariant?.price ?? null,
-        discount: displayVariant?.discount ?? null,
-        finalPrice: displayVariant ? getFinalPrice(displayVariant.price, displayVariant.discount) : null,
+        color: productImageColor?.color ?? null,
+        price: productImageVariant?.price ?? displayVariant?.price ?? null,
+        discount: productImageVariant?.discount ?? displayVariant?.discount ?? null,
+        finalPrice: productImageVariant
+          ? getFinalPrice(productImageVariant.price, productImageVariant.discount)
+          : displayVariant
+            ? getFinalPrice(displayVariant.price, displayVariant.discount)
+            : null,
         isActive: product.isActive,
-        availableQuantity: productTotals.get(getInventoryKey(productId)) ?? 0,
+        availableQuantity: productImageColorMatch
+          ? colorTotals.get(getInventoryKey(
+              productId,
+              productImageVariantIdString,
+              productImageColorVariantIdString,
+            )) ?? 0
+          : productTotals.get(getInventoryKey(productId)) ?? 0,
         source: 'product_image',
       });
     }
@@ -1031,86 +877,19 @@ const getVariantAvailableQuantity = (
     .reduce((sum, inventory) => sum + Math.max(0, inventory.availableQuantity), 0);
 };
 
-const hasVariantSize = (variant: IProductVariant, selectedSizes?: string[]) => {
-  const normalizedSizes = selectedSizes?.map((size) => size.trim().toLowerCase()).filter(Boolean);
-
-  return variant.sizeMeasurements.some((sizeMeasurement) => {
-    return !normalizedSizes?.length || normalizedSizes.includes(sizeMeasurement.size.trim().toLowerCase());
-  });
-};
-
-const matchesTextList = (value: string, selectedValues?: string[]) => {
-  if (!selectedValues?.length) {
-    return true;
-  }
-
-  const normalizedValue = value.trim().toLowerCase();
-  return selectedValues.some((selectedValue) => selectedValue.trim().toLowerCase() === normalizedValue);
-};
-
-const matchesObjectIdList = (value: Types.ObjectId, selectedValues?: string[]) => {
-  if (!selectedValues?.length) {
-    return true;
-  }
-
-  const normalizedValue = value.toString();
-  return selectedValues.some((selectedValue) => selectedValue.trim() === normalizedValue);
-};
-
-const matchesVisualVariantQuery = (
-  variant: IProductVariant,
-  options: VisualSearchQueryOptions,
-) => {
-  const activeColors = variant.colors.filter((color) => color.isActive ?? true);
-
-  const size = options.size;
-
-  if (!variant.isActive || !activeColors.length || !hasVariantSize(variant, size)) {
-    return false;
-  }
-
-  if (options.color?.length && !activeColors.some((color) => matchesTextList(color.color, options.color))) {
-    return false;
-  }
-
-  const fitTypeId = (options as VisualSearchQueryOptions & { fitTypeId?: string[] }).fitTypeId;
-  if (!matchesObjectIdList(variant.fitTypeId, fitTypeId)) {
-    return false;
-  }
-
-  const finalPrice = getFinalPrice(variant.price, variant.discount);
-
-  if (options.minPrice !== undefined && finalPrice < options.minPrice) {
-    return false;
-  }
-
-  if (options.maxPrice !== undefined && finalPrice > options.maxPrice) {
-    return false;
-  }
-
-  return true;
-};
-
 // Ưu tiên biến thể đã match ảnh; nếu không có thì chọn biến thể còn hàng.
 const selectVisualDisplayVariant = (
   product: ProductForVisualResult,
   candidate: ScoredVisualIndexItem,
   inventoryItems: InventoryForVisualResult[],
-  options: VisualSearchQueryOptions,
 ) => {
   const matchedVariantId = candidate.item.variantId?.toString();
   const matchedVariant = matchedVariantId
     ? product.variant.find((variant) => variant._id.toString() === matchedVariantId)
     : undefined;
-  const queryMatchingVariants = product.variant.filter((variant) => matchesVisualVariantQuery(variant, options));
-  const queryMatchingAvailableVariant = queryMatchingVariants.find((variant) =>
-    getVariantAvailableQuantity(variant, inventoryItems) > 0
-  );
 
   return (
-    (matchedVariant?.isActive && matchesVisualVariantQuery(matchedVariant, options) ? matchedVariant : undefined) ??
-    queryMatchingAvailableVariant ??
-    queryMatchingVariants[0] ??
+    (matchedVariant?.isActive ? matchedVariant : undefined) ??
     product.variant.find((variant) => variant.isActive && getVariantAvailableQuantity(variant, inventoryItems) > 0) ??
     product.variant.find((variant) => variant.isActive) ??
     product.variant[0]
@@ -1127,9 +906,8 @@ const mapVisualSearchProductItem = (
   product: ProductForVisualResult,
   candidate: ScoredVisualIndexItem,
   inventoryItems: InventoryForVisualResult[],
-  options: VisualSearchQueryOptions,
 ): VisualSearchResultItem => {
-  const displayVariant = selectVisualDisplayVariant(product, candidate, inventoryItems, options);
+  const displayVariant = selectVisualDisplayVariant(product, candidate, inventoryItems);
   const originalPrice = displayVariant?.price ?? candidate.item.finalPrice ?? 0;
   const discount = displayVariant?.discount ?? 0;
   const ratingBoost = Math.max(0, Math.min(product.averageRating ?? 0, 5)) / 5 * 0.02;
@@ -1162,11 +940,13 @@ const mapVisualSearchProductItem = (
   };
 };
 
-const hydrateVisualSearchCandidateBatch = async (
-  candidateBatch: ScoredVisualIndexItem[],
-  options: VisualSearchQueryOptions,
+// Lấy đầy đủ thông tin sản phẩm, brand, category và tồn kho cho các kết quả đã match.
+const hydrateVisualSearchResults = async (
+  candidates: ScoredVisualIndexItem[],
+  limit: number,
 ) => {
-  const productIds = candidateBatch.map((candidate) => candidate.item.productId);
+  const candidatePool = candidates.slice(0, limit * 3);
+  const productIds = candidatePool.map((candidate) => candidate.item.productId);
 
   if (!productIds.length) {
     return [];
@@ -1184,7 +964,7 @@ const hydrateVisualSearchCandidateBatch = async (
   const productById = new Map(products.map((product) => [product._id.toString(), product]));
   const inventoryByProductId = groupInventoryForResults(inventoryItems);
 
-  return candidateBatch
+  return candidatePool
     .flatMap((candidate) => {
       const product = productById.get(candidate.item.productId.toString());
 
@@ -1193,34 +973,10 @@ const hydrateVisualSearchCandidateBatch = async (
       }
 
       const productInventory = inventoryByProductId.get(product._id.toString()) ?? [];
-      return [mapVisualSearchProductItem(product, candidate, productInventory, options)];
+      return [mapVisualSearchProductItem(product, candidate, productInventory)];
     })
-    .sort((first, second) => second.finalVisualScore - first.finalVisualScore);
-};
-
-// Lấy đầy đủ thông tin sản phẩm, brand, category và tồn kho cho các kết quả đã match.
-const hydrateVisualSearchResults = async (
-  candidates: ScoredVisualIndexItem[],
-  limit: number,
-  options: VisualSearchQueryOptions,
-) => {
-  const batchSize = Math.max(limit * HYDRATE_CANDIDATE_BATCH_MULTIPLIER, limit);
-  let hydratedItems: VisualSearchResultItem[] = [];
-
-  for (
-    let offset = 0;
-    offset < candidates.length && hydratedItems.length < limit;
-    offset += batchSize
-  ) {
-    const candidateBatch = candidates.slice(offset, offset + batchSize);
-    const hydratedBatch = await hydrateVisualSearchCandidateBatch(candidateBatch, options);
-
-    hydratedItems = [...hydratedItems, ...hydratedBatch]
-      .sort((first, second) => second.finalVisualScore - first.finalVisualScore)
-      .slice(0, limit);
-  }
-
-  return hydratedItems;
+    .sort((first, second) => second.finalVisualScore - first.finalVisualScore)
+    .slice(0, limit);
 };
 
 // Lấy toàn bộ sản phẩm cần index và chuyển thành danh sách ảnh gallery.
@@ -1246,6 +1002,71 @@ const getGalleryItems = async (options: VisualIndexBackfillOptions = {}) => {
     products,
     galleryItems: buildGalleryItems(products, inventoryItems),
   };
+};
+
+const getMissingVisualIndexMetadataFields = (item: VisualGalleryItem) => {
+  if (!item.isActive) {
+    return [];
+  }
+
+  const missingFields: string[] = [];
+
+  if (!item.categoryId) missingFields.push('categoryId');
+  if (!item.brandId) missingFields.push('brandId');
+  if (!item.gender) missingFields.push('gender');
+  if (item.price === null || item.price === undefined) missingFields.push('price');
+  if (item.discount === null || item.discount === undefined) missingFields.push('discount');
+  if (item.finalPrice === null || item.finalPrice === undefined) missingFields.push('finalPrice');
+
+  if (item.source === 'color_variant_image') {
+    if (!item.variantId) missingFields.push('variantId');
+    if (!item.colorVariantId) missingFields.push('colorVariantId');
+    if (!item.color?.trim()) missingFields.push('color');
+  }
+
+  return missingFields;
+};
+
+const assertVisualIndexMetadataComplete = (item: VisualGalleryItem) => {
+  const missingFields = getMissingVisualIndexMetadataFields(item);
+
+  if (!missingFields.length) {
+    return;
+  }
+
+  throw new VisualSearchServiceError(
+    `Visual index metadata missing required fields: ${missingFields.join(', ')}`,
+    422,
+    'VISUAL_INDEX_METADATA_INCOMPLETE',
+  );
+};
+
+const deactivateInvalidMetadataIndexItem = async (
+  item: VisualGalleryItem,
+  model: string,
+  modelVersion: string,
+  dryRun?: boolean,
+) => {
+  if (dryRun) {
+    return 0;
+  }
+
+  const result = await ProductVisualIndex.updateMany(
+    {
+      galleryImageId: item.galleryImageId,
+      embeddingModel: model,
+      embeddingVersion: modelVersion,
+      isActive: true,
+    },
+    {
+      $set: {
+        isActive: false,
+        lastSyncedAt: new Date(),
+      },
+    },
+  );
+
+  return result.modifiedCount;
 };
 
 // Lưu hoặc cập nhật một ảnh trong visual index, tránh tạo trùng khi chạy lại.
@@ -1340,7 +1161,7 @@ const searchByEmbedding = async (
   const searchTimeMs = Date.now() - searchStartedAt;
 
   const hydrateStartedAt = Date.now();
-  const items = await hydrateVisualSearchResults(candidates, limit, options);
+  const items = await hydrateVisualSearchResults(candidates, limit);
   const hydrateTimeMs = Date.now() - hydrateStartedAt;
 
   return {
@@ -1409,13 +1230,17 @@ const searchByText = async (
 // Tạo lại visual index từ ảnh sản phẩm hiện có trong catalog.
 const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => {
   const provider = getProvider();
+  const model = getModel();
+  const modelVersion = getModelVersion();
   const { products, galleryItems } = await getGalleryItems(options);
   let indexed = 0;
   let failed = 0;
+  let invalidMetadataDeactivated = 0;
   const failures: Array<{ galleryImageId: string; imageUrl: string; message: string }> = [];
 
   for (const item of galleryItems) {
     try {
+      assertVisualIndexMetadataComplete(item);
       const embeddingResult = await createEmbedding({
         imageUrl: item.imageUrl,
         imageHash: item.imageHash,
@@ -1423,6 +1248,18 @@ const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => 
       await upsertVisualIndexItem(item, embeddingResult, options.dryRun);
       indexed += 1;
     } catch (error) {
+      if (
+        error instanceof VisualSearchServiceError &&
+        error.errorCode === 'VISUAL_INDEX_METADATA_INCOMPLETE'
+      ) {
+        invalidMetadataDeactivated += await deactivateInvalidMetadataIndexItem(
+          item,
+          model,
+          modelVersion,
+          options.dryRun,
+        );
+      }
+
       failed += 1;
       failures.push({
         galleryImageId: item.galleryImageId,
@@ -1435,8 +1272,8 @@ const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => 
     ? 0
     : await deactivateStaleVisualIndexItems(
         galleryItems,
-        getModel(),
-        getModelVersion(),
+        model,
+        modelVersion,
         options.dryRun,
       );
 
@@ -1447,9 +1284,10 @@ const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => 
     imageCount: galleryItems.length,
     indexed,
     staleDeactivated,
+    invalidMetadataDeactivated,
     failed,
-    model: getModel(),
-    modelVersion: getModelVersion(),
+    model,
+    modelVersion,
     provider,
     failures,
   };

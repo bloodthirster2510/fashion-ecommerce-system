@@ -98,7 +98,6 @@ const parseVisualSearchQuery = (req: Request): VisualSearchQueryOptions => {
   const categoryId = parseStringList(req.body.categoryId);
   const brandId = parseStringList(req.body.brandId);
   const color = parseStringList(req.body.color);
-  const size = parseStringList(req.body.size);
   const minPrice = parsePositiveNumber(req.body.minPrice, 'minPrice');
   const maxPrice = parsePositiveNumber(req.body.maxPrice, 'maxPrice');
 
@@ -116,7 +115,6 @@ const parseVisualSearchQuery = (req: Request): VisualSearchQueryOptions => {
     ...(categoryId.length ? { categoryId } : {}),
     ...(brandId.length ? { brandId } : {}),
     ...(color.length ? { color } : {}),
-    ...(size.length ? { size } : {}),
     minPrice,
     maxPrice,
     scoreThreshold: parseNumber(req.body.scoreThreshold, 'scoreThreshold'),

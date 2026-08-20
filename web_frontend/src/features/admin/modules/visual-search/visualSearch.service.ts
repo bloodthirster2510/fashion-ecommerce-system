@@ -109,7 +109,14 @@ const parseBackfillResult = (value: unknown): VisualIndexBackfillResult => {
   const valid = (
     typeof value.dryRun === 'boolean' &&
     typeof value.activeOnly === 'boolean' &&
-    ['productCount', 'imageCount', 'indexed', 'staleDeactivated', 'failed'].every((field) => isFiniteNumber(value[field])) &&
+    [
+      'productCount',
+      'imageCount',
+      'indexed',
+      'staleDeactivated',
+      'invalidMetadataDeactivated',
+      'failed',
+    ].every((field) => isFiniteNumber(value[field])) &&
     typeof value.model === 'string' &&
     typeof value.modelVersion === 'string' &&
     isVisualProvider(value.provider) &&
