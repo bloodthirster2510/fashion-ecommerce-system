@@ -16,6 +16,10 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
+import StickySectionHeader, {
+  StickySectionBoundary,
+  useStickySectionHeader,
+} from '../../components/layout/StickySectionHeader';
 import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
@@ -285,6 +289,18 @@ const CartScreen = () => {
     items: cartRecommendationItems,
     onImpression: (item) => recordCartRecommendationEvent(item, 'impression'),
   });
+  const {
+    activeTitle: stickySectionTitle,
+    onScroll: handleScroll,
+    onSectionLayout,
+    unregisterSection,
+  } = useStickySectionHeader(checkRecommendationVisibility);
+
+  React.useEffect(() => {
+    if (!cartRecommendationItems.length) {
+      unregisterSection('cart-recommendations');
+    }
+  }, [cartRecommendationItems.length, unregisterSection]);
 
   useStaleFocusEffect(
     () => {
@@ -587,7 +603,7 @@ const CartScreen = () => {
               color={isInTryOnQueue ? colors.white : colors.brand}
             />
             <Text style={[styles.itemTryOnText, isInTryOnQueue && styles.itemTryOnTextActive]}>
-              {isInTryOnQueue ? 'Đã thêm' : 'Thêm vào phối'}
+              {isInTryOnQueue ? 'Đã thêm' : 'Thêm vào phối đồ'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -680,14 +696,20 @@ const CartScreen = () => {
     }
 
     return (
-      <RecommendationRail
+      <StickySectionBoundary
+        sectionKey="cart-recommendations"
         title="Gợi ý cho giỏ hàng"
-        subtitle="Những món có thể phối cùng lựa chọn hiện tại"
-        items={cartRecommendationItems}
-        trackingRef={recommendationSectionRef}
-        onItemRef={setRecommendationItemRef}
-        onProductPress={handleCartRecommendationPress}
-      />
+        onSectionLayout={onSectionLayout}
+      >
+        <RecommendationRail
+          title="Gợi ý cho giỏ hàng"
+          subtitle="Những món có thể phối cùng lựa chọn hiện tại"
+          items={cartRecommendationItems}
+          trackingRef={recommendationSectionRef}
+          onItemRef={setRecommendationItemRef}
+          onProductPress={handleCartRecommendationPress}
+        />
+      </StickySectionBoundary>
     );
   };
 
@@ -899,24 +921,27 @@ const CartScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled
-        showsVerticalScrollIndicator={false}
-        onScroll={checkRecommendationVisibility}
-        scrollEventThrottle={100}
-        refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart('refresh')} tintColor={colors.brand} />
-        }
-      >
-        {renderNotice()}
-        {renderContent()}
-        <View style={styles.footerGapStorefront}>
-          <StorefrontFooter />
-        </View>
-      </ScrollView>
+      <View style={styles.scrollArea}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart('refresh')} tintColor={colors.brand} />
+          }
+        >
+          {renderNotice()}
+          {renderContent()}
+          <View style={styles.footerGapStorefront}>
+            <StorefrontFooter />
+          </View>
+        </ScrollView>
+        <StickySectionHeader title={stickySectionTitle} />
+      </View>
 
       <View style={styles.stickyFooter}>
         <View style={styles.stickyFooterLeft}>
@@ -953,6 +978,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   content: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollArea: {
     flex: 1,
     backgroundColor: colors.background,
   },

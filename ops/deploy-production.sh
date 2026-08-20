@@ -161,9 +161,11 @@ while IFS= read -r file; do
     web_frontend/*) add_service web ;;
     ai_services/image-validation/*) add_service image-validation ;;
     ai_services/garment-processing/*) add_service garment-processing ;;
+    ai_services/visual_search/*) add_service visual-search ;;
     compose.yaml|docker.env.example)
       add_service image-validation
       add_service garment-processing
+      add_service visual-search
       add_service backend
       add_service web
       ;;

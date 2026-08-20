@@ -18,6 +18,7 @@ import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { AvailableCouponItem, couponApi } from './couponApi';
+import { getCouponDisplayMessage, getCouponErrorMessage } from './couponPresentation';
 
 type CouponsNavigationProp = StackNavigationProp<RootStackParamList, 'Coupons'>;
 type CouponsRouteProp = RouteProp<RootStackParamList, 'Coupons'>;
@@ -172,7 +173,7 @@ const CouponsScreen = () => {
         if (requestSequenceRef.current !== requestSequence) return;
         Alert.alert(
           'Chưa tải được voucher',
-          error instanceof Error ? error.message : 'Bạn thử lại sau nha.',
+          getCouponErrorMessage(error),
         );
       } finally {
         if (requestSequenceRef.current === requestSequence) {
@@ -202,7 +203,10 @@ const CouponsScreen = () => {
 
   const handleToggleCoupon = (item: AvailableCouponItem) => {
     if (item.isApplicable === false) {
-      Alert.alert('Voucher chưa đủ điều kiện', item.reason || 'Voucher chưa phù hợp với đơn hàng này.');
+      Alert.alert(
+        'Voucher chưa đủ điều kiện',
+        getCouponDisplayMessage(item.reason, 'Voucher chưa phù hợp với đơn hàng này.'),
+      );
       return;
     }
 
@@ -238,6 +242,10 @@ const CouponsScreen = () => {
 
   const renderCoupon = (item: AvailableCouponItem) => {
     const estimateText = getEstimateText(item);
+    const unavailableReason = getCouponDisplayMessage(
+      item.reason,
+      'Voucher chưa phù hợp với đơn hàng này.',
+    );
     const isDisabled = item.isApplicable === false;
     const isFreeship = item.coupon.discountType === 'free_shipping';
     const isSelected = isFreeship
@@ -324,7 +332,7 @@ const CouponsScreen = () => {
           {isDisabled && item.reason ? (
             <View style={styles.reasonPill}>
               <MaterialCommunityIcons name="alert-circle-outline" size={13} color={colors.danger} />
-              <Text style={styles.reasonPillText} numberOfLines={1}>{item.reason}</Text>
+              <Text style={styles.reasonPillText} numberOfLines={1}>{unavailableReason}</Text>
             </View>
           ) : null}
         </View>

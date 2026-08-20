@@ -18,6 +18,7 @@
     "migrate:user-phone-index": "node scripts/migrate-user-phone-index.js",
     "migrate:reviews": "node scripts/migrate-review-schema.js",
     "migrate:payment-deadlines": "node scripts/migrate-order-payment-deadlines.js",
+    "migrate:category-genders": "node scripts/migrate-category-genders.js",
     "recommendations:backfill": "npm run build && node dist/scripts/recommendation-backfill.js",
     "recommendations:evaluate": "npm run build && node dist/scripts/recommendation-evaluate.js",
     "recommendations:benchmark": "npm run build && node dist/scripts/recommendation-benchmark.js",

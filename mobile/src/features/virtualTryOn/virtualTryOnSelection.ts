@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   TRY_ON_ACTIVE_ITEM_LIMIT,
+  TRY_ON_QUEUE_LIMIT,
   type TryOnItemRole,
   type TryOnOutfitMode,
   type TryOnSeedItem,
@@ -8,6 +9,13 @@ import {
 } from './virtualTryOn.types';
 
 export type FashionIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+export type TryOnCategoryNode = {
+  _id: string;
+  name: string;
+  parent_id?: string | null;
+  gender?: 'male' | 'female' | 'unisex';
+};
 
 export const tryOnRoleLabel: Record<TryOnItemRole, string> = {
   top: 'Áo',
@@ -82,6 +90,31 @@ export const isFullOutfitProduct = (product: {
 export const isFullOutfitSelectedItem = (item: Pick<TryOnSelectedItem, 'isFullOutfit' | 'nameSnapshot'>) =>
   Boolean(item.isFullOutfit) || isFullOutfitText(item.nameSnapshot);
 
+export const getTryOnCategoryHierarchy = (
+  category: TryOnCategoryNode | null | undefined,
+  categories: TryOnCategoryNode[],
+) => {
+  if (!category) return [];
+
+  const categoryById = new Map(categories.map((item) => [item._id, item]));
+  const hierarchy: TryOnCategoryNode[] = [];
+  const visitedIds = new Set<string>();
+  let current: TryOnCategoryNode | undefined = categoryById.get(category._id) ?? category;
+
+  while (current && !visitedIds.has(current._id)) {
+    hierarchy.unshift(current);
+    visitedIds.add(current._id);
+    current = current.parent_id ? categoryById.get(current.parent_id) : undefined;
+  }
+
+  return hierarchy;
+};
+
+export const getTryOnCategoryGender = (
+  category: TryOnCategoryNode | null | undefined,
+  categories: TryOnCategoryNode[],
+) => getTryOnCategoryHierarchy(category, categories)[0]?.gender ?? category?.gender;
+
 export const getSeedItemKey = (item: TryOnSeedItem) =>
   item.cartItemId ?? `${item.productId}:${item.variantId}:${item.colorVariantId}:${item.size ?? ''}`;
 
@@ -132,8 +165,16 @@ export const getOutfitSlots = (mode: TryOnOutfitMode): OutfitSlot[] => {
   ];
 };
 
-export const inferRole = (product: { name: string; category?: { name?: string } | null }): TryOnItemRole => {
-  const haystack = normalizeRoleText(`${product.name} ${product.category?.name ?? ''}`);
+export const inferRole = (product: {
+  name: string;
+  category?: { name?: string } | null;
+  categoryBreadcrumb?: Array<{ name?: string }>;
+}): TryOnItemRole => {
+  const categoryNames = [
+    product.category?.name,
+    ...(product.categoryBreadcrumb ?? []).map((category) => category.name),
+  ].filter(Boolean).join(' ');
+  const haystack = normalizeRoleText(`${product.name} ${categoryNames}`);
   if (isFullOutfitProduct(product)) return 'dress';
   if (hasAnyKeyword(haystack, ['giay', 'dep', 'sandal', 'sneaker', 'boot', 'loafer'])) return 'shoes';
   if (hasAnyKeyword(haystack, ['chan vay', 'quan', 'jean', 'short', 'pants', 'trouser'])) return 'bottom';
@@ -141,6 +182,14 @@ export const inferRole = (product: { name: string; category?: { name?: string } 
   if (hasAnyKeyword(haystack, ['khoac', 'blazer', 'jacket', 'cardigan', 'hoodie', 'coat', 'outerwear'])) return 'outerwear';
   return 'top';
 };
+
+export const inferRoleFromCategoryHierarchy = (
+  product: { name: string; category?: TryOnCategoryNode | null },
+  categories: TryOnCategoryNode[],
+) => inferRole({
+  ...product,
+  categoryBreadcrumb: getTryOnCategoryHierarchy(product.category, categories),
+});
 
 export const normalizeSelectionForMode = (items: TryOnSelectedItem[], mode: TryOnOutfitMode): NormalizedSelection => {
   const fullOutfitItem = items.find(isFullOutfitSelectedItem);
@@ -204,6 +253,23 @@ export const getPrefillOutfitMode = (items: TryOnSelectedItem[]) => {
   const initialMode = getSuggestedOutfitMode(items);
   const normalized = normalizeSelectionForMode(items, initialMode);
   return getSuggestedOutfitMode(normalized.items);
+};
+
+export const buildPrefillQueueItems = (
+  selectedItems: TryOnSelectedItem[],
+  resolvedItems: TryOnSelectedItem[],
+  alternativeItems: TryOnSelectedItem[] = [],
+) => {
+  const seenKeys = new Set<string>();
+
+  return [...selectedItems, ...resolvedItems, ...alternativeItems]
+    .filter((item) => {
+      const key = getSelectedItemKey(item);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    })
+    .slice(0, TRY_ON_QUEUE_LIMIT);
 };
 
 export const getQueueSlotForRole = (role: TryOnItemRole, mode: TryOnOutfitMode) =>

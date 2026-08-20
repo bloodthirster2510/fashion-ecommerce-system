@@ -261,6 +261,7 @@ const request = async <T>(path: string, signal?: AbortSignal, token?: string): P
 
 const CATEGORIES_CACHE_TTL_MS = 5 * 60 * 1000;
 const PRODUCT_DETAIL_CACHE_TTL_MS = 60 * 1000;
+const CATEGORIES_CACHE_VERSION = 2;
 const PRODUCT_DETAIL_STALE_MS = 5 * 60 * 1000;
 
 type ProductDetailRequestOptions = {
@@ -298,7 +299,7 @@ const getCategories = (
   options: CategoryRequestOptions = {},
 ) => {
   const query = toQueryString({ activeOnly: true, ...params });
-  const key = `categories:${query}`;
+  const key = `categories:v${CATEGORIES_CACHE_VERSION}:${query}`;
   return withCache(
     key,
     () => request<CatalogCategory[]>(`/categories${query}`, signal),

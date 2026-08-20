@@ -205,8 +205,16 @@ const AppNavigator = () => {
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <Stack.Screen name="ReviewComposer" component={ReviewComposerScreen} />
       <Stack.Screen name="MyReviews" component={MyReviewsScreen} />
-      <Stack.Screen name="VirtualTryOnHome" component={session ? VirtualTryOnHomeScreen : LoginScreen} />
-      <Stack.Screen name="VirtualTryOnBuilder" component={session ? VirtualTryOnBuilderScreen : LoginScreen} />
+      <Stack.Screen
+        name="VirtualTryOnHome"
+        component={session ? VirtualTryOnHomeScreen : LoginScreen}
+        options={{ gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="VirtualTryOnBuilder"
+        component={session ? VirtualTryOnBuilderScreen : LoginScreen}
+        options={{ gestureEnabled: false }}
+      />
       <Stack.Screen name="VirtualTryOnProcessing" component={session ? VirtualTryOnProcessingScreen : LoginScreen} />
       <Stack.Screen name="VirtualTryOnResult" component={session ? VirtualTryOnResultScreen : LoginScreen} />
       <Stack.Screen name="VirtualTryOnHistory" component={session ? VirtualTryOnHistoryScreen : LoginScreen} />

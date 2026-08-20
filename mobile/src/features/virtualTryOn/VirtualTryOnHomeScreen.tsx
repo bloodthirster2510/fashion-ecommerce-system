@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, BackHandler, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,6 +20,7 @@ import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type 
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
 import { mergeTryOnQueueItems, useTryOnQueue } from './TryOnQueueProvider';
+import ZoomableTryOnImage from './ZoomableTryOnImage';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
@@ -278,6 +279,22 @@ const VirtualTryOnHomeScreen = () => {
   const [isPreviewVisible, setIsPreviewVisible] = React.useState(false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const heroLift = React.useRef(new Animated.Value(0)).current;
+
+  const returnToHome = React.useCallback(() => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Home' }],
+    });
+  }, [navigation]);
+
+  useFocusEffect(React.useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      returnToHome();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [returnToHome]));
 
   React.useEffect(() => {
     const nextSeedItems = route.params?.seedItems;
@@ -547,7 +564,7 @@ const VirtualTryOnHomeScreen = () => {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={() => navigation.navigate('Home', undefined, { pop: true })}
+          onPress={returnToHome}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
@@ -589,50 +606,72 @@ const VirtualTryOnHomeScreen = () => {
           ))}
         </View>
 
-        {pendingSeedItems.length ? (
-          <View style={styles.pendingOutfitCard}>
+        <View style={styles.pendingOutfitCard}>
             <View style={styles.pendingOutfitTopRow}>
               <View style={styles.pendingOutfitIcon}>
-                <MaterialCommunityIcons name="cart-check" size={22} color={colors.white} />
+                <MaterialCommunityIcons name="hanger" size={22} color={colors.white} />
               </View>
               <View style={styles.pendingOutfitCopy}>
-                <Text style={styles.pendingOutfitEyebrow}>
-                  {pendingEntryPoint === 'cart' ? 'Mang từ giỏ hàng' : 'Bộ đồ được giữ lại'}
+                <Text style={styles.pendingOutfitEyebrow}>Hàng chờ phối</Text>
+                <Text style={styles.pendingOutfitTitle}>
+                  {pendingSeedItems.length ? `${pendingSeedItems.length} món chờ thử` : 'Chưa có món nào'}
                 </Text>
-                <Text style={styles.pendingOutfitTitle}>{pendingSeedItems.length} món chờ thử</Text>
-                <Text style={styles.pendingOutfitText}>Chọn ảnh để bắt đầu. Mỗi lượt tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món.</Text>
+                <Text style={styles.pendingOutfitText}>
+                  {pendingSeedItems.length
+                    ? `Chọn ảnh để bắt đầu. Mỗi lượt tối đa ${TRY_ON_ACTIVE_ITEM_LIMIT} món.`
+                    : 'Thêm món từ giỏ hàng hoặc danh sách yêu thích.'}
+                </Text>
               </View>
             </View>
-            <View style={styles.pendingOutfitThumbRow}>
-              {pendingSeedItems.map((item, index) => (
-                <View key={item.cartItemId ?? `${item.productId}-${item.variantId}-${item.colorVariantId}-${item.size ?? index}`} style={styles.pendingOutfitThumbWrap}>
-                  {item.imageSnapshot ? (
-                    <RemoteImage
-                      uri={item.imageSnapshot}
-                      style={styles.pendingOutfitThumb}
-                      recyclingKey={`pending-outfit-${item.colorVariantId}`}
-                    />
-                  ) : (
-                    <View style={styles.pendingOutfitThumbPlaceholder}>
-                      <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
-                    </View>
-                  )}
-                  <View style={styles.pendingOutfitIndex}>
-                    <Text style={styles.pendingOutfitIndexText}>{index + 1}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.pendingOutfitRemove}
-                    onPress={() => removeQueueItem(item)}
-                    activeOpacity={0.82}
-                    accessibilityLabel={`Bỏ ${item.nameSnapshot ?? 'sản phẩm'} khỏi hàng chờ phối`}
-                  >
-                    <MaterialCommunityIcons name="close" size={13} color={colors.white} />
-                  </TouchableOpacity>
-                </View>
-              ))}
+            <View style={styles.queueSourceRow}>
+              <TouchableOpacity
+                style={styles.queueSourceButton}
+                onPress={() => navigation.navigate('Cart', { selectionSource: 'virtualTryOn' })}
+                activeOpacity={0.84}
+              >
+                <MaterialCommunityIcons name="cart-outline" size={18} color={colors.white} />
+                <Text style={styles.queueSourceButtonText}>Giỏ hàng</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.queueSourceButton}
+                onPress={() => navigation.navigate('Favorites')}
+                activeOpacity={0.84}
+              >
+                <MaterialCommunityIcons name="bookmark-outline" size={18} color={colors.white} />
+                <Text style={styles.queueSourceButtonText}>Yêu thích</Text>
+              </TouchableOpacity>
             </View>
+            {pendingSeedItems.length ? (
+              <View style={styles.pendingOutfitThumbRow}>
+                {pendingSeedItems.map((item, index) => (
+                  <View key={item.cartItemId ?? `${item.productId}-${item.variantId}-${item.colorVariantId}-${item.size ?? index}`} style={styles.pendingOutfitThumbWrap}>
+                    {item.imageSnapshot ? (
+                      <RemoteImage
+                        uri={item.imageSnapshot}
+                        style={styles.pendingOutfitThumb}
+                        recyclingKey={`pending-outfit-${item.colorVariantId}`}
+                      />
+                    ) : (
+                      <View style={styles.pendingOutfitThumbPlaceholder}>
+                        <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
+                      </View>
+                    )}
+                    <View style={styles.pendingOutfitIndex}>
+                      <Text style={styles.pendingOutfitIndexText}>{index + 1}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.pendingOutfitRemove}
+                      onPress={() => removeQueueItem(item)}
+                      activeOpacity={0.82}
+                      accessibilityLabel={`Bỏ ${item.nameSnapshot ?? 'sản phẩm'} khỏi hàng chờ phối`}
+                    >
+                      <MaterialCommunityIcons name="close" size={13} color={colors.white} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
-        ) : null}
 
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
@@ -885,12 +924,16 @@ const VirtualTryOnHomeScreen = () => {
         visible={Boolean(isPreviewVisible && latestAsset)}
         transparent
         animationType="fade"
+        hardwareAccelerated
+        statusBarTranslucent
         onRequestClose={() => setIsPreviewVisible(false)}
       >
         <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
           <Pressable style={styles.previewBackdrop} onPress={() => setIsPreviewVisible(false)} />
           <View style={styles.previewHeader}>
-            <Text style={styles.previewTitle}>Ảnh người mặc</Text>
+            <View style={styles.previewTitleCopy}>
+              <Text style={styles.previewTitle}>Ảnh người mặc</Text>
+            </View>
             <TouchableOpacity
               style={styles.previewCloseButton}
               onPress={() => setIsPreviewVisible(false)}
@@ -901,12 +944,7 @@ const VirtualTryOnHomeScreen = () => {
           </View>
           <View style={[styles.previewImageFrame, { width: windowWidth, height: windowHeight }]}>
             {latestAsset ? (
-              <RemoteImage
-                uri={latestAsset.url}
-                style={styles.previewImage}
-                recyclingKey={`preview-${latestAsset._id}`}
-                resizeMode="contain"
-              />
+              <ZoomableTryOnImage uri={latestAsset.url} />
             ) : null}
           </View>
         </SafeAreaView>
@@ -1061,6 +1099,29 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '600',
     marginTop: 4,
+  },
+  queueSourceRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  queueSourceButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  queueSourceButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
   },
   pendingOutfitThumbRow: {
     flexDirection: 'row',
@@ -1586,11 +1647,14 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   previewTitle: {
-    flex: 1,
     color: colors.white,
     fontSize: 16,
     lineHeight: 22,
     fontWeight: '900',
+  },
+  previewTitleCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   previewCloseButton: {
     width: 42,

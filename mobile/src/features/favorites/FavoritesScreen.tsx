@@ -418,10 +418,12 @@ const FavoritesScreen = () => {
 
         {items.length ? (
           <>
-            <FlatList
-              data={items}
-              keyExtractor={(item) => item._id}
-              renderItem={renderProductCard}
+            <FlatList<FavoriteProduct | null>
+              data={items.length % 2 === 0 ? items : [...items, null]}
+              keyExtractor={(item) => item?._id ?? 'favorite-grid-placeholder'}
+              renderItem={({ item }) => item
+                ? renderProductCard({ item })
+                : <View style={styles.gridPlaceholder} pointerEvents="none" />}
               numColumns={2}
               columnWrapperStyle={styles.grid}
               contentContainerStyle={styles.gridContent}
@@ -677,6 +679,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
+  },
+  gridPlaceholder: {
+    flex: 1,
+    minWidth: 0,
   },
   tryOnButtonText: {
     color: colors.brand,

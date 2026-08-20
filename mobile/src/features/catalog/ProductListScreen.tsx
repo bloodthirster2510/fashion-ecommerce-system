@@ -1208,14 +1208,6 @@ const ProductListScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerAction}
-            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
-            accessibilityLabel="Sản phẩm yêu thích"
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="heart-outline" size={23} color={colors.white} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerAction}
             onPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
             accessibilityLabel={notificationSummary?.cartItems
               ? `Giỏ hàng, ${notificationSummary.cartItems} sản phẩm`

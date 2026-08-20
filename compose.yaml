@@ -41,6 +41,26 @@ services:
       retries: 5
       start_period: 90s
 
+  visual-search:
+    build:
+      context: ./ai_services/visual_search
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${VISUAL_SEARCH_PORT:-8001}:8001"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5)"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
   backend:
     build:
       context: ./backend
@@ -62,7 +82,7 @@ services:
       VIRTUAL_TRY_ON_GARMENT_PROCESSING_ENABLED: "true"
       VIRTUAL_TRY_ON_GARMENT_PROCESSING_URL: http://garment-processing:7002/prepare-collage
       VISUAL_EMBEDDING_PROVIDER: http
-      VISUAL_EMBEDDING_SERVICE_URL: http://host.docker.internal:8001
+      VISUAL_EMBEDDING_SERVICE_URL: http://visual-search:8001
     init: true
     restart: unless-stopped
     security_opt:
@@ -71,6 +91,8 @@ services:
       image-validation:
         condition: service_healthy
       garment-processing:
+        condition: service_healthy
+      visual-search:
         condition: service_healthy
     ports:
       - "${BACKEND_PORT:-5000}:5000"

@@ -460,7 +460,7 @@ const NotificationsScreen = () => {
             return (
               <TouchableOpacity
                 key={option.key}
-                style={styles.filterTab}
+                style={[styles.filterTab, active && styles.filterTabActive]}
                 onPress={() => {
                   if (option.key === filter) return;
                   setItems([]);
@@ -595,6 +595,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
+  filterTabActive: {
+    backgroundColor: colors.brandMist,
+  },
   filterIconWrap: { width: 38, height: 34, alignItems: 'center', justifyContent: 'center' },
   filterBadge: {
     position: 'absolute',
@@ -620,12 +623,11 @@ const styles = StyleSheet.create({
   filterLabelActive: { color: colors.brand, fontWeight: '900' },
   filterIndicator: {
     position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 0,
+    left: 14,
+    right: 14,
+    bottom: 4,
     height: 3,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
+    borderRadius: 3,
     backgroundColor: colors.brand,
   },
   listContent: { paddingBottom: spacing.xxl },

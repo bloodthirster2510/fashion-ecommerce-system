@@ -1,8 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, LayoutAnimation, Modal, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, BackHandler, Easing, LayoutAnimation, Modal, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -44,13 +44,17 @@ import {
   type VirtualTryOnCapabilities,
 } from './virtualTryOn.types';
 import {
+  buildPrefillQueueItems,
   allTryOnRoles,
   getOutfitSlots,
   getPrefillOutfitMode,
   getQueueSlotGroups,
   getSelectedItemKey,
   getSeedItemKey,
+  getTryOnCategoryGender,
+  getTryOnCategoryHierarchy,
   inferRole,
+  inferRoleFromCategoryHierarchy,
   isFullOutfitProduct,
   isFullOutfitSelectedItem,
   isSameTryOnItem,
@@ -65,6 +69,7 @@ import {
   } from './virtualTryOnSelection';
 import { contextPresets } from './contextPresets';
 import { useTryOnQueue } from './TryOnQueueProvider';
+import ZoomableTryOnImage from './ZoomableTryOnImage';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
@@ -156,6 +161,7 @@ const tryOnPalette = {
   successSoft: '#EAF7EF',
 } as const;
 const PRODUCT_PAGE_SIZE = 30;
+const PRODUCT_SCROLL_TOP_VISIBILITY_OFFSET = 360;
 
 const VIDEO_DURATION_MIN_SECONDS = 5;
 const VIDEO_DURATION_MAX_SECONDS = 12;
@@ -417,16 +423,20 @@ const getCategoryRailVisual = (label: string): CategoryRailVisual => {
   return { icon: 'wardrobe-outline' };
 };
 
-const isTryOnGenderMatch = (
-  gender: CatalogCategory['gender'] | undefined,
-  filter: TryOnGenderFilter,
-) => gender === filter;
-
-const isTryOnCategorySlotMatch = (category: CatalogCategory, slot: OutfitSlot) => {
+const isTryOnCategorySlotMatch = (
+  category: CatalogCategory,
+  categories: CatalogCategory[],
+  slot: OutfitSlot,
+) => {
   if (slot.roles.length === allTryOnRoles.length) return true;
-  if (isFullOutfitProduct({ name: category.name, category: { name: category.name } })) return false;
+  const categoryBreadcrumb = getTryOnCategoryHierarchy(category, categories);
+  if (isFullOutfitProduct({
+    name: category.name,
+    category,
+    categoryBreadcrumb,
+  })) return false;
 
-  return slot.roles.includes(inferRole({ name: category.name, category: { name: category.name } }));
+  return slot.roles.includes(inferRoleFromCategoryHierarchy({ name: category.name, category }, categories));
 };
 
 const getTryOnScopedCategories = (
@@ -434,8 +444,8 @@ const getTryOnScopedCategories = (
   gender: TryOnGenderFilter,
   slot: OutfitSlot,
 ) => categories.filter((category) =>
-  isTryOnGenderMatch(category.gender, gender) &&
-  isTryOnCategorySlotMatch(category, slot),
+  getTryOnCategoryGender(category, categories) === gender &&
+  isTryOnCategorySlotMatch(category, categories, slot),
 );
 
 const getTryOnProductApiSort = (sort: TryOnProductSort): ProductListParams['sort'] =>
@@ -444,29 +454,29 @@ const getTryOnProductApiSort = (sort: TryOnProductSort): ProductListParams['sort
 const getTryOnCategoryQueryIds = (
   filters: TryOnProductFilters,
   scopedCategories: CatalogCategory[],
-  slot: OutfitSlot,
 ) => {
-  if (filters.categoryIds.length) return filters.categoryIds;
-  if (slot.roles.length === allTryOnRoles.length) return [];
+  const scopedCategoryIds = new Set(scopedCategories.map((category) => category._id));
+  const selectedScopedCategoryIds = filters.categoryIds.filter((categoryId) =>
+    scopedCategoryIds.has(categoryId),
+  );
+
+  if (selectedScopedCategoryIds.length) return selectedScopedCategoryIds;
   return scopedCategories.map((category) => category._id);
 };
 
 const buildTryOnProductQueryParams = ({
   filters,
   scopedCategories,
-  slot,
   searchTerm,
 }: {
   filters: TryOnProductFilters;
   scopedCategories: CatalogCategory[];
-  slot: OutfitSlot;
   searchTerm: string;
 }): ProductListParams => {
-  const categoryIds = getTryOnCategoryQueryIds(filters, scopedCategories, slot);
+  const categoryIds = getTryOnCategoryQueryIds(filters, scopedCategories);
   const keyword = searchTerm.trim();
 
   return {
-    gender: filters.gender,
     ...(keyword ? { keyword } : {}),
     ...(categoryIds.length ? { categoryId: categoryIds } : {}),
     ...(filters.brandIds.length ? { brandId: filters.brandIds } : {}),
@@ -1029,9 +1039,36 @@ const VirtualTryOnBuilderScreen = () => {
   const [selectedColorId, setSelectedColorId] = React.useState<string>();
   const [selectedSize, setSelectedSize] = React.useState<string>();
   const [previewImage, setPreviewImage] = React.useState<BuilderPreviewImage | null>(null);
+  const [showProductScrollTop, setShowProductScrollTop] = React.useState(false);
   const iconPulse = React.useRef(new Animated.Value(0)).current;
   const lastPrefillKeyRef = React.useRef('');
   const isLoadingMoreProductsRef = React.useRef(false);
+  const productListRef = React.useRef<ScrollView>(null);
+
+  const returnToImagePicker = React.useCallback(() => {
+    const imagePickerParams = route.params ? {
+      seedItems: route.params.seedItems,
+      alternativeSeedItems: route.params.alternativeSeedItems,
+      entryPoint: route.params.entryPoint,
+    } : undefined;
+
+    navigation.reset({
+      index: 1,
+      routes: [
+        { name: 'Home' },
+        { name: 'VirtualTryOnHome', params: imagePickerParams },
+      ],
+    });
+  }, [navigation, route.params]);
+
+  useFocusEffect(React.useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      returnToImagePicker();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [returnToImagePicker]));
 
   const sourceAssetId = route.params?.assetId;
   const sourceImageUrl = route.params?.imageUrl;
@@ -1097,7 +1134,6 @@ const VirtualTryOnBuilderScreen = () => {
     () => buildTryOnProductQueryParams({
       filters: productFilters,
       scopedCategories: productScopedCategories,
-      slot: activeSlot,
       searchTerm,
     }),
     [activeSlot, productFilters, productScopedCategories, searchTerm],
@@ -1257,23 +1293,11 @@ const VirtualTryOnBuilderScreen = () => {
         const mode = getPrefillOutfitMode(activeResolved);
         const normalized = normalizeSelectionForMode(activeResolved, mode);
 
-        const seenKeys = new Set(normalized.items.map(getSelectedItemKey));
-        const remainingActive = activeResolved.filter((item) => {
-          const key = getSelectedItemKey(item);
-          if (seenKeys.has(key)) return false;
-          seenKeys.add(key);
-          return true;
-        });
-	        const uniqueAlternatives = alternativeResolved.filter((item) => {
-	          const key = getSelectedItemKey(item);
-	          if (seenKeys.has(key)) return false;
-	          seenKeys.add(key);
-	          return true;
-	        });
-	        const normalizedHasFullOutfit = normalized.items.some(isFullOutfitSelectedItem);
-	        const mergedQueue = normalizedHasFullOutfit
-	          ? normalized.items
-	          : [...normalized.items, ...remainingActive, ...uniqueAlternatives];
+        const mergedQueue = buildPrefillQueueItems(
+          normalized.items,
+          activeResolved,
+          alternativeResolved,
+        );
 
         setOutfitMode(mode);
         setSelectedItems(normalized.items);
@@ -1283,12 +1307,11 @@ const VirtualTryOnBuilderScreen = () => {
 
         const unavailableCount = limitedSeedItems.length - activeResolved.length;
         const truncatedCount = Math.max(0, incomingSeedItems.length - limitedSeedItems.length);
-        const queuedButInactiveCount = remainingActive.length + uniqueAlternatives.length;
-        setPrefillNotice(
-          unavailableCount || queuedButInactiveCount || truncatedCount
-            ? `Đã đưa ${normalized.items.length} món vào phối, ${queuedButInactiveCount} món chờ thử. ${queuedButInactiveCount ? `${queuedButInactiveCount} món sẽ thử lần lượt. ` : ''}${unavailableCount ? `${unavailableCount} món không còn đúng màu/size. ` : ''}${truncatedCount ? `${truncatedCount} món vượt giới hạn. ` : ''}`.trim()
-            : `Đã điền sẵn ${normalized.items.length} món cùng màu và size đã chọn.`,
-        );
+        setPrefillNotice([
+          `Đã thêm ${mergedQueue.length} món vào phòng phối.`,
+          unavailableCount ? `${unavailableCount} món không còn đúng màu/size.` : '',
+          truncatedCount ? `${truncatedCount} món vượt giới hạn.` : '',
+        ].filter(Boolean).join(' '));
       })
       .catch((error: unknown) => {
         if (!isCurrent) return;
@@ -1321,21 +1344,24 @@ const VirtualTryOnBuilderScreen = () => {
 
   const slotProducts = React.useMemo(
     () => products.filter((product) => {
-      const isFullOutfit = isFullOutfitProduct(product);
+      const categoryBreadcrumb = getTryOnCategoryHierarchy(product.category, availableFilters.categories);
+      const isFullOutfit = isFullOutfitProduct({ ...product, categoryBreadcrumb });
       if (outfitMode === 'full_set' && isFullOutfit) {
         return false;
       }
 
-      return activeSlot.roles.includes(isFullOutfit ? 'dress' : inferRole(product));
+      return activeSlot.roles.includes(
+        isFullOutfit ? 'dress' : inferRoleFromCategoryHierarchy(product, availableFilters.categories),
+      );
     }),
-    [activeSlot, outfitMode, products],
+    [activeSlot, availableFilters.categories, outfitMode, products],
   );
 
   const genderSlotProducts = React.useMemo(
     () => slotProducts.filter((product) =>
-      isTryOnGenderMatch(product.category?.gender, productFilters.gender),
+      getTryOnCategoryGender(product.category, availableFilters.categories) === productFilters.gender,
     ),
-    [productFilters.gender, slotProducts],
+    [availableFilters.categories, productFilters.gender, slotProducts],
   );
 
   const draftCategoryFilterGroups = React.useMemo(
@@ -1416,7 +1442,9 @@ const VirtualTryOnBuilderScreen = () => {
     gender: TryOnGenderFilter,
   ) => {
     const categoryById = new Map(availableFilters.categories.map((category) => [category._id, category]));
-    return categoryIds.filter((categoryId) => isTryOnGenderMatch(categoryById.get(categoryId)?.gender, gender));
+    return categoryIds.filter((categoryId) =>
+      getTryOnCategoryGender(categoryById.get(categoryId), availableFilters.categories) === gender,
+    );
   }, [availableFilters.categories]);
 
   const filteredProducts = genderSlotProducts;
@@ -2015,11 +2043,20 @@ const VirtualTryOnBuilderScreen = () => {
   const handleProductListScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    const shouldShowScrollTop = contentOffset.y > PRODUCT_SCROLL_TOP_VISIBILITY_OFFSET;
+
+    setShowProductScrollTop((current) => (
+      current === shouldShowScrollTop ? current : shouldShowScrollTop
+    ));
 
     if (distanceFromBottom <= 220 && hasNextPage(productPagination)) {
       void loadMoreProducts();
     }
   }, [loadMoreProducts, productPagination]);
+
+  const scrollProductListToTop = React.useCallback(() => {
+    productListRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
 
   const renderFilterChoice = (
     label: string,
@@ -2053,7 +2090,7 @@ const VirtualTryOnBuilderScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.headerButton} onPress={returnToImagePicker} activeOpacity={0.8}>
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
@@ -2460,6 +2497,8 @@ const VirtualTryOnBuilderScreen = () => {
         visible={Boolean(previewImage)}
         transparent
         animationType="fade"
+        hardwareAccelerated
+        statusBarTranslucent
         onRequestClose={() => setPreviewImage(null)}
       >
         <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
@@ -2479,12 +2518,7 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
           <View style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
             {previewImage ? (
-              <RemoteImage
-                uri={previewImage.uri}
-                style={styles.previewImage}
-                recyclingKey={previewImage.recyclingKey}
-                resizeMode={previewImage.resizeMode ?? 'contain'}
-              />
+              <ZoomableTryOnImage uri={previewImage.uri} />
             ) : null}
           </View>
         </SafeAreaView>
@@ -2557,6 +2591,7 @@ const VirtualTryOnBuilderScreen = () => {
           </View>
 
           <ScrollView
+            ref={productListRef}
             style={styles.content}
             contentContainerStyle={styles.productListContent}
             showsVerticalScrollIndicator={false}
@@ -2696,8 +2731,11 @@ const VirtualTryOnBuilderScreen = () => {
 	                {filteredProducts.map((product) => {
 	                  const selected = selectedItems.some((item) => item.productId === product._id);
 	                  const isSelecting = selectingProductId === product._id;
-	                  const productIsFullOutfit = isFullOutfitProduct(product);
-	                  const productRole = productIsFullOutfit ? 'dress' : inferRole(product);
+	                  const categoryBreadcrumb = getTryOnCategoryHierarchy(product.category, availableFilters.categories);
+	                  const productIsFullOutfit = isFullOutfitProduct({ ...product, categoryBreadcrumb });
+	                  const productRole = productIsFullOutfit
+	                    ? 'dress'
+	                    : inferRoleFromCategoryHierarchy(product, availableFilters.categories);
 
                   return (
                     <TouchableOpacity
@@ -2752,6 +2790,18 @@ const VirtualTryOnBuilderScreen = () => {
               </View>
             ) : null}
           </ScrollView>
+
+          {showProductScrollTop ? (
+            <TouchableOpacity
+              style={styles.productScrollTopButton}
+              onPress={scrollProductListToTop}
+              activeOpacity={0.86}
+              accessibilityRole="button"
+              accessibilityLabel="Quay lại đầu danh sách chọn đồ"
+            >
+              <MaterialCommunityIcons name="arrow-up" size={24} color={colors.white} />
+            </TouchableOpacity>
+          ) : null}
         </SafeAreaView>
       </Modal>
 
@@ -3096,8 +3146,23 @@ const styles = StyleSheet.create({
   },
   productListContent: {
     padding: spacing.md,
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.xl + 56,
     gap: spacing.md,
+  },
+  productScrollTopButton: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
+    zIndex: 25,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: colors.brand,
+    borderWidth: 1,
+    borderColor: colors.brandLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.card,
   },
   sourceCard: {
     borderRadius: radii.md,

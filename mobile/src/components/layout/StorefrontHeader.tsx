@@ -12,7 +12,6 @@ type StorefrontHeaderProps = {
   menuAccessibilityLabel?: string;
   isAuthenticated?: boolean;
   onAccountPress?: () => void;
-  onFavoritesPress?: () => void;
   onCartPress?: () => void;
   onSearchSubmit?: (keyword: string) => void;
   onSearchFocus?: () => void;
@@ -25,7 +24,6 @@ const StorefrontHeader = ({
   menuAccessibilityLabel = 'Mở menu',
   isAuthenticated = false,
   onAccountPress,
-  onFavoritesPress,
   onCartPress,
   onSearchSubmit,
   onSearchFocus,
@@ -83,29 +81,19 @@ const StorefrontHeader = ({
 
         <View style={styles.actions}>
           {isAuthenticated ? (
-            <>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={onFavoritesPress}
-                accessibilityLabel="Sản phẩm yêu thích"
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="heart-outline" size={25} color={colors.white} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={onCartPress}
-                accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="cart-outline" size={25} color={colors.white} />
-                {cartBadgeCount > 0 ? (
-                  <View style={styles.cartBadge}>
-                    <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            </>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={onCartPress}
+              accessibilityLabel={cartBadgeCount > 0 ? `Giỏ hàng, ${cartBadgeCount} sản phẩm` : 'Giỏ hàng'}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="cart-outline" size={25} color={colors.white} />
+              {cartBadgeCount > 0 ? (
+                <View style={styles.cartBadge}>
+                  <Text style={styles.cartBadgeText}>{cartBadgeCount > 99 ? '99+' : cartBadgeCount}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={styles.accountButton}
@@ -135,7 +123,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actions: {
-    minWidth: 76,
+    minWidth: 36,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.xs,

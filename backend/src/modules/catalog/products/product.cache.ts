@@ -14,6 +14,7 @@ export const PRODUCT_FILTERS_CACHE_TTL_MS = 5 * 60_000;
 const PRODUCT_LIST_CACHE_NAMESPACE = 'product-list';
 const PRODUCT_DETAIL_CACHE_NAMESPACE = 'product-detail';
 const PRODUCT_FILTERS_CACHE_NAMESPACE = 'product-filters';
+const PRODUCT_QUERY_CACHE_VERSION = 2;
 
 const normalizeValues = (values?: string[]) => (
   Array.from(new Set(
@@ -28,6 +29,7 @@ const getEffectiveSort = (query: ProductListQueryInput) => (
 );
 
 const buildQueryKey = (query: ProductListQueryInput, includePaging: boolean) => JSON.stringify({
+  version: PRODUCT_QUERY_CACHE_VERSION,
   keyword: query.keyword ? normalizeVietnamese(query.keyword) : undefined,
   gender: query.gender,
   categoryId: normalizeValues(query.categoryId),

@@ -1,9 +1,12 @@
 import type { TryOnItemRole, TryOnSelectedItem } from '../virtualTryOn.types';
 import {
+  buildPrefillQueueItems,
   getOutfitSlots,
   getPrefillOutfitMode,
   getQueueSlotGroups,
+  getTryOnCategoryGender,
   inferRole,
+  inferRoleFromCategoryHierarchy,
   isFullOutfitProduct,
   normalizeSelectionForMode,
   selectItemForSlot,
@@ -68,6 +71,18 @@ describe('virtualTryOnSelection', () => {
     expect(getPrefillOutfitMode([top, fullSet, shoes])).toBe('single');
   });
 
+  it('keeps every cart item in the waiting queue when a full outfit is active', () => {
+    const fullSet = fullOutfitItem('set-linen');
+    const top = item('top', 'top');
+    const shoes = item('shoes', 'shoes');
+    const selected = normalizeSelectionForMode([top, fullSet, shoes], 'full_set').items;
+
+    const queue = buildPrefillQueueItems(selected, [top, fullSet, shoes]);
+
+    expect(selected.map((entry) => entry.productId)).toEqual(['set-linen']);
+    expect(queue.map((entry) => entry.productId)).toEqual(['set-linen', 'top', 'shoes']);
+  });
+
   it('replaces a selected full outfit when selecting a normal item', () => {
     const fullSet = fullOutfitItem('set-linen');
     const top = item('top', 'top');
@@ -119,6 +134,28 @@ describe('virtualTryOnSelection', () => {
     expect(inferRole({ name: 'Giay sneaker trang', category: { name: 'giay dep' } })).toBe('shoes');
     expect(inferRole({ name: 'Quan jean nam', category: { name: 'quan' } })).toBe('bottom');
     expect(inferRole({ name: 'Dam du tiec', category: { name: 'vay dam' } })).toBe('dress');
+  });
+
+  it('infers footwear from the full category hierarchy when a leaf name is generic', () => {
+    const categories = [
+      { _id: 'female', name: 'Thời trang nữ', gender: 'female' as const },
+      { _id: 'shoes', name: 'Giày / Dép', parent_id: 'female', gender: 'male' as const },
+      { _id: 'other', name: 'Khác', parent_id: 'shoes', gender: 'male' as const },
+    ];
+
+    expect(inferRoleFromCategoryHierarchy({
+      name: 'Mẫu da tối giản',
+      category: categories[2],
+    }, categories)).toBe('shoes');
+  });
+
+  it('uses the root category gender when stale descendants contain the wrong gender', () => {
+    const categories = [
+      { _id: 'female', name: 'Thời trang nữ', gender: 'female' as const },
+      { _id: 'shoes', name: 'Giày / Dép', parent_id: 'female', gender: 'male' as const },
+    ];
+
+    expect(getTryOnCategoryGender(categories[1], categories)).toBe('female');
   });
 
   it('recognizes full outfit products from product or category text', () => {
