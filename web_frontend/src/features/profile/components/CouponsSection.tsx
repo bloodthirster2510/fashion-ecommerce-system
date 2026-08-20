@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Empty, Skeleton } from 'antd'
+import { Alert, Button, Empty } from 'antd'
 import { GiftOutlined } from '@ant-design/icons'
 import { formatPrice } from '../../../utils/formatPrice'
 import { cartService } from '../../cart/cart.service'
 import { profileService, type AvailableCouponItem } from '../profile.service'
 import { formatCouponValue, formatDisplayDate } from '../profile.utils'
+import { AccountSectionSkeleton } from './AccountSectionSkeleton'
 
 export function CouponsSection() {
   const [coupons, setCoupons] = useState<AvailableCouponItem[]>([])
-  const [isLoadingCoupons, setIsLoadingCoupons] = useState(false)
+  const [isLoadingCoupons, setIsLoadingCoupons] = useState(true)
   const [couponsError, setCouponsError] = useState('')
 
   useEffect(() => {
@@ -55,8 +56,9 @@ export function CouponsSection() {
 
       {couponsError && <Alert type="error" message={couponsError} showIcon />}
 
-      <Skeleton active loading={isLoadingCoupons} paragraph={{ rows: 8 }}>
-        {!coupons.length && !couponsError ? (
+      {isLoadingCoupons ? (
+        <AccountSectionSkeleton variant="list" />
+      ) : !coupons.length && !couponsError ? (
           <Empty description="Hiện chưa có voucher khả dụng." />
         ) : (
           <div className="account-coupon-list">
@@ -80,7 +82,6 @@ export function CouponsSection() {
             ))}
           </div>
         )}
-      </Skeleton>
       <Button href="/account/support/new?category=promotions&source=coupon">Cần hỗ trợ về voucher?</Button>
     </section>
   )

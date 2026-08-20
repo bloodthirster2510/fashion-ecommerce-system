@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query'
-import { Alert, Button, Empty, Input, Modal, Pagination, Segmented, Skeleton, Spin, Tag, Tooltip, message } from 'antd'
+import { Alert, Button, Empty, Input, Modal, Pagination, Segmented, Skeleton, Tag, Tooltip, message } from 'antd'
 import { DownloadOutlined, FileTextOutlined, PrinterOutlined, StopOutlined, UndoOutlined } from '@ant-design/icons'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { requestCustomer } from '../../../services/customerHttp'
 import { ProfileSidebar } from '../components/ProfileSidebar'
+import { AccountSectionSkeleton } from '../components/AccountSectionSkeleton'
 import { useAppSelector } from '../../../app/hooks'
 import {
   fallbackStorefrontSettings,
@@ -699,8 +700,9 @@ function AccountOrdersContent() {
               ]}
             />
 
-            <Spin spinning={loading}>
-              {!orders.length && !loading ? (
+            {loading ? (
+              <AccountSectionSkeleton variant="list" />
+            ) : !orders.length ? (
                 <Empty description="Chưa có đơn hàng" />
               ) : (
                 <div className="account-order-list">
@@ -840,7 +842,6 @@ function AccountOrdersContent() {
                   })}
                 </div>
               )}
-            </Spin>
             {pagination.totalItems > ORDER_PAGE_SIZE && (
               <Pagination
                 className="account-order-pagination"

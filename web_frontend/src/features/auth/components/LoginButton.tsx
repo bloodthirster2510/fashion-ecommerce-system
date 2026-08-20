@@ -271,7 +271,10 @@ export function LoginButton() {
         <Form.Item
           label="Mật khẩu"
           name="password"
-          rules={[{ required: true, message: 'Vui lòng nhập mật khẩu.' }]}
+          rules={[
+            { required: true, message: 'Vui lòng nhập mật khẩu.' },
+            { min: 8, message: 'Mật khẩu tối thiểu 8 ký tự.' },
+          ]}
         >
           <Input.Password prefix={<LockOutlined />} placeholder="Nhập mật khẩu" size="large" />
         </Form.Item>

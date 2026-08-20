@@ -20,6 +20,7 @@ import {
   passwordPattern,
 } from '../profile.utils'
 import { AddressManagerModal } from './AddressManagerModal'
+import { AccountSectionSkeleton } from './AccountSectionSkeleton'
 
 const isFormValidationError = (value: unknown) => Boolean(value && typeof value === 'object' && 'errorFields' in value)
 
@@ -358,7 +359,10 @@ export function ProfileInfoSection() {
 
   return (
     <>
-      <Space direction="vertical" size={20} className="profile-panel">
+      {isLoading ? (
+        <AccountSectionSkeleton variant="profile" />
+      ) : (
+        <Space direction="vertical" size={20} className="profile-panel">
         {error && <Alert type="error" message={error} showIcon />}
 
         <section aria-labelledby="personal-info-title">
@@ -582,7 +586,8 @@ export function ProfileInfoSection() {
             </Button>
           </Form>
         </section>
-      </Space>
+        </Space>
+      )}
 
       <AddressManagerModal
         open={isAddressModalOpen}

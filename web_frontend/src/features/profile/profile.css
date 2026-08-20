@@ -30,6 +30,10 @@
   overflow: hidden;
 }
 
+.my-review-deadline-alert {
+  margin-top: 16px;
+}
+
 .my-review-section {
   display: grid;
   gap: 12px;
@@ -336,6 +340,33 @@
   padding: 32px;
 }
 
+.account-section-skeleton {
+  display: grid;
+  gap: 28px;
+  padding: 4px 0;
+}
+
+.account-section-skeleton .ant-skeleton {
+  padding: 4px 0;
+}
+
+.account-section-skeleton-profile {
+  gap: 36px;
+}
+
+.account-section-skeleton-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.account-section-skeleton-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #e4ebf0;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .account-login-required {
   grid-column: 1 / -1;
   min-height: 260px;
@@ -554,6 +585,49 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.account-address-action-button.ant-btn {
+  min-width: 76px;
+  height: 36px;
+  border-radius: 7px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.account-address-action-button--select.ant-btn {
+  border-color: #9fd3b3;
+  background: #eefaf2;
+  color: #15803d;
+}
+
+.account-address-action-button--select.ant-btn:not(:disabled):hover,
+.account-address-action-button--select.ant-btn:not(:disabled):focus-visible {
+  border-color: #55b879 !important;
+  background: #ddf6e6 !important;
+  color: #0f6b32 !important;
+}
+
+.account-address-action-button--delete.ant-btn {
+  border-color: #f0aaaa;
+  background: #fff5f5;
+  color: #c92a2a;
+}
+
+.account-address-action-button--delete.ant-btn:not(:disabled):hover,
+.account-address-action-button--delete.ant-btn:not(:disabled):focus-visible {
+  border-color: #e66b6b !important;
+  background: #ffe3e3 !important;
+  color: #a61e1e !important;
+}
+
+.account-address-action-button.ant-btn:disabled,
+.account-address-action-button.ant-btn:disabled:hover,
+.account-address-action-button.ant-btn:disabled:focus-visible {
+  border-color: #dce4eb !important;
+  background: #f4f7f9 !important;
+  color: #8b9aa7 !important;
+  opacity: 1;
 }
 
 .field-hint {
@@ -850,15 +924,6 @@
   text-transform: uppercase;
 }
 
-.membership-rank-icon {
-  position: absolute;
-  top: 48px;
-  right: 56px;
-  color: #f6eddb;
-  font-size: 72px;
-  opacity: 0.95;
-}
-
 .membership-rank-hero .ant-progress {
   position: relative;
   z-index: 1;
@@ -1103,7 +1168,8 @@
   }
 
   .account-shell,
-  .account-form-grid {
+  .account-form-grid,
+  .account-section-skeleton-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1173,11 +1239,6 @@
 
   .membership-rank-hero {
     padding: 24px;
-  }
-
-  .membership-rank-icon {
-    position: static;
-    font-size: 52px;
   }
 
   .membership-rank-row {

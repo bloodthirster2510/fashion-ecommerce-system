@@ -100,8 +100,8 @@ export const validateLogin = (body: Record<string, unknown>): ValidationError[] 
     errors.push({ field: 'identifier', message: 'Email hoặc số điện thoại không hợp lệ.' });
   }
 
-  if (!body.password || typeof body.password !== 'string' || body.password.length === 0) {
-    errors.push({ field: 'password', message: 'Vui lòng nhập mật khẩu.' });
+  if (!body.password || typeof body.password !== 'string' || body.password.length < 8) {
+    errors.push({ field: 'password', message: 'Mật khẩu tối thiểu 8 ký tự' });
   }
 
   return errors;

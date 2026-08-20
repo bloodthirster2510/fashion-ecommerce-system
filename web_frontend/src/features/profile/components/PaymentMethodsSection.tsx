@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Checkbox, Empty, Input, Modal, Skeleton, Tag, message } from 'antd'
+import { Alert, Button, Checkbox, Empty, Input, Modal, Tag, message } from 'antd'
 import { BankOutlined, CheckCircleOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import {
   paymentMethodsService,
   type CustomerPaymentMethod,
   type SavePaymentMethodInput,
 } from '../payment-methods.service'
+import { AccountSectionSkeleton } from './AccountSectionSkeleton'
 
 const statusLabels: Record<CustomerPaymentMethod['status'], string> = {
   pending: 'Chờ xác minh',
@@ -200,8 +201,9 @@ export function PaymentMethodsSection() {
 
       {error && <Alert type="error" showIcon message={error} />}
 
-      <Skeleton active loading={isLoading} paragraph={{ rows: 5 }}>
-        {activeMethods.length === 0 ? (
+      {isLoading ? (
+        <AccountSectionSkeleton variant="payment" />
+      ) : activeMethods.length === 0 ? (
           <Empty description="Chưa có tài khoản hoàn tiền." />
         ) : (
           <div className="account-payment-method-list">
@@ -240,7 +242,6 @@ export function PaymentMethodsSection() {
             ))}
           </div>
         )}
-      </Skeleton>
 
       <Modal
         open={isDialogOpen}

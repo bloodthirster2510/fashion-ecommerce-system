@@ -25,6 +25,7 @@ import {
   sendResetPasswordEmail,
 } from '../../../utils/email';
 import { revokeSupportSocketAccess } from '../../realtime/support.gateway';
+import { shippingAreaMappingService } from '../../shipping/shipping-area-mapping.service';
 
 jest.mock('../../realtime/support.gateway', () => ({
   revokeSupportSocketAccess: jest.fn(),
@@ -41,10 +42,64 @@ jest.mock('../../../utils/email', () => ({
   getResetPasswordEmailCapability: jest.fn(),
   sendResetPasswordEmail: jest.fn(),
 }));
+jest.mock('../../shipping/shipping-area-mapping.service', () => {
+  const resolveAddress = (address: {
+    provinceId?: number | null;
+    provinceCode?: string | number | null;
+    districtId?: number | null;
+    wardCode?: string | number | null;
+    ghnProvinceId?: number | null;
+    ghnDistrictId?: number | null;
+    ghnWardCode?: string | null;
+    ghnMappingStatus?: 'mapped' | 'missing' | 'manual';
+    ghnMappingConfidence?: 'exact' | 'manual' | 'legacy' | null;
+    ghnMappingVerifiedAt?: Date | string | null;
+    ghnMappingVerificationSource?: 'admin' | 'managed' | 'seed' | null;
+  }) => {
+    if (String(address.provinceCode ?? '') === '92' && String(address.wardCode ?? '') === '31135') {
+      return {
+        ghnProvinceId: 220,
+        ghnDistrictId: 1572,
+        ghnWardCode: '550108',
+        ghnMappingStatus: 'manual',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: null,
+        ghnMappingVerificationSource: null,
+        source: 'mapping',
+        mapping: null,
+      };
+    }
+
+    return {
+      ghnProvinceId: address.ghnProvinceId ?? address.provinceId ?? null,
+      ghnDistrictId: address.ghnDistrictId ?? address.districtId ?? null,
+      ghnWardCode: address.ghnWardCode ?? (address.wardCode == null ? null : String(address.wardCode)),
+      ghnMappingStatus: address.ghnMappingStatus ?? 'missing',
+      ghnMappingConfidence: address.ghnMappingConfidence ?? null,
+      ghnMappingVerifiedAt: address.ghnMappingVerifiedAt
+        ? new Date(address.ghnMappingVerifiedAt)
+        : null,
+      ghnMappingVerificationSource: address.ghnMappingVerificationSource ?? null,
+      source: 'missing',
+      mapping: null,
+    };
+  };
+
+  return {
+    shippingAreaMappingService: {
+      resolveStoredGhnFields: jest.fn(resolveAddress),
+      resolveStoredGhnFieldsWithManagedMapping: jest.fn(async (address) => resolveAddress(address)),
+    },
+  };
+});
+
+const mockedShippingAreaMappingService = shippingAreaMappingService as jest.Mocked<typeof shippingAreaMappingService>;
 
 describe('User Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedShippingAreaMappingService.resolveStoredGhnFieldsWithManagedMapping.mockImplementation(async (address) =>
+      mockedShippingAreaMappingService.resolveStoredGhnFields(address));
     (getResetPasswordEmailCapability as jest.Mock).mockReturnValue({
       mode: 'mock',
       provider: 'mock',
@@ -249,6 +304,46 @@ describe('User Service', () => {
       expect(user.save).toHaveBeenCalled();
     });
 
+    it('should persist a verified managed GHN mapping when adding an address', async () => {
+      const verifiedAt = new Date('2026-08-10T12:13:47.360Z');
+      mockedShippingAreaMappingService.resolveStoredGhnFieldsWithManagedMapping.mockResolvedValueOnce({
+        ghnProvinceId: 220,
+        ghnDistrictId: 1572,
+        ghnWardCode: '550108',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: verifiedAt,
+        ghnMappingVerificationSource: 'managed',
+        source: 'managed',
+        mapping: null,
+      });
+      const user = {
+        address: [],
+        save: jest.fn(),
+      };
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      const result = await addAddress('user123', {
+        customerName: 'Test',
+        province: 'Thành phố Cần Thơ',
+        provinceCode: '92',
+        ward: 'Phường Ninh Kiều',
+        wardCode: '31135',
+        streetName: '365 Tran Minh Son',
+        phoneNumber: '0343149695',
+      });
+
+      expect(result[0]).toMatchObject({
+        ghnProvinceId: 220,
+        ghnDistrictId: 1572,
+        ghnWardCode: '550108',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: verifiedAt,
+        ghnMappingVerificationSource: 'managed',
+      });
+    });
+
     it('should throw if max addresses reached', async () => {
       const user = {
         address: [
@@ -302,6 +397,48 @@ describe('User Service', () => {
 
       expect(result[0].isDefault).toBe(true);
       expect(user.save).toHaveBeenCalled();
+    });
+
+    it('should persist a verified managed GHN mapping when updating an address', async () => {
+      const verifiedAt = new Date('2026-08-10T12:13:47.360Z');
+      mockedShippingAreaMappingService.resolveStoredGhnFieldsWithManagedMapping.mockResolvedValueOnce({
+        ghnProvinceId: 204,
+        ghnDistrictId: 1452,
+        ghnWardCode: '480101',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: verifiedAt,
+        ghnMappingVerificationSource: 'managed',
+        source: 'managed',
+        mapping: null,
+      });
+      const address = savedAddress();
+      const addresses = [address] as typeof address[] & { id?: jest.Mock };
+      addresses.id = jest.fn().mockReturnValue(address);
+      const user = { address: addresses, save: jest.fn(), profileCompleted: true };
+      (User.findById as jest.Mock).mockResolvedValue(user);
+
+      const result = await updateAddress('user123', 'addr-default', {
+        province: 'Tỉnh Đồng Nai',
+        provinceCode: '75',
+        ward: 'Phường Trấn Biên',
+        wardCode: '26368',
+        streetName: '12 Nguyen Ai Quoc',
+      });
+
+      expect(result[0]).toMatchObject({
+        province: 'Tỉnh Đồng Nai',
+        provinceCode: '75',
+        ward: 'Phường Trấn Biên',
+        wardCode: '26368',
+        ghnProvinceId: 204,
+        ghnDistrictId: 1452,
+        ghnWardCode: '480101',
+        ghnMappingStatus: 'mapped',
+        ghnMappingConfidence: 'manual',
+        ghnMappingVerifiedAt: verifiedAt,
+        ghnMappingVerificationSource: 'managed',
+      });
     });
 
     it('should reject a null update payload', async () => {

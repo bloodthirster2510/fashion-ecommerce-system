@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { DeleteOutlined, HeartFilled } from '@ant-design/icons'
-import { Alert, Button, Empty, Input, Pagination, Select, Skeleton, Switch, message } from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
+import { Alert, Button, Empty, Input, Pagination, Select, Switch, message } from 'antd'
 import { ProductCard } from '../../../components/ProductCard/ProductCard'
 import {
   customerProductActionsService,
@@ -8,6 +8,7 @@ import {
   type FavoriteSortOption,
 } from '../../catalog/customerProductActions.service'
 import '../../catalog/catalog.css'
+import { AccountSectionSkeleton } from './AccountSectionSkeleton'
 
 const PAGE_SIZE = 12
 
@@ -86,17 +87,6 @@ export function FavoritesSection() {
     }
   }
 
-  const handleCardFavoriteChange = (product: { _id: string }, isFavorited: boolean) => {
-    if (isFavorited) return
-
-    setFavorites((currentFavorites) => currentFavorites.filter((favorite) => favorite._id !== product._id))
-    setTotalItems((currentTotal) => Math.max(currentTotal - 1, 0))
-
-    if (favorites.length === 1 && page > 1) {
-      setPage((currentPage) => currentPage - 1)
-    }
-  }
-
   return (
     <section className="account-favorites" aria-labelledby="favorites-heading">
       <div className="account-section-heading account-favorites-heading">
@@ -104,7 +94,6 @@ export function FavoritesSection() {
           <h1 id="favorites-heading">Sản phẩm yêu thích</h1>
           <p>{totalItems} sản phẩm đã lưu</p>
         </div>
-        <HeartFilled aria-hidden="true" />
       </div>
 
       <div className="account-favorite-controls">
@@ -150,8 +139,9 @@ export function FavoritesSection() {
         />
       )}
 
-      <Skeleton active loading={isLoading} paragraph={{ rows: 8 }}>
-        {!error && favorites.length === 0 ? (
+      {isLoading ? (
+        <AccountSectionSkeleton variant="grid" />
+      ) : !error && favorites.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={keyword || inStock ? 'Không có sản phẩm phù hợp.' : 'Bạn chưa có sản phẩm yêu thích.'}
@@ -163,7 +153,7 @@ export function FavoritesSection() {
             <div className="account-favorite-grid">
               {favorites.map((product) => (
                 <div className="account-favorite-card" key={product._id}>
-                  <ProductCard product={product} onFavoriteChange={handleCardFavoriteChange} />
+                  <ProductCard product={product} showFavoriteButton={false} />
                   <Button
                     danger
                     block
@@ -179,7 +169,6 @@ export function FavoritesSection() {
             </div>
           )
         )}
-      </Skeleton>
 
       {!error && totalItems > PAGE_SIZE && (
         <Pagination
