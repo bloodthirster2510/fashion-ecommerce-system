@@ -103,6 +103,10 @@ fi
 
 cd "$REPO_DIR"
 
+# Keep VNPay web returns and API CORS aligned with the public storefront.
+export DOCKER_FRONTEND_URL="$PUBLIC_URL"
+export DOCKER_FRONTEND_URL_ALT="$PUBLIC_URL"
+
 if ! git diff --quiet || ! git diff --cached --quiet; then
   log "tracked files on the server have local changes; refusing to overwrite them"
   exit 1
@@ -162,7 +166,7 @@ while IFS= read -r file; do
     ai_services/image-validation/*) add_service image-validation ;;
     ai_services/garment-processing/*) add_service garment-processing ;;
     ai_services/visual_search/*) add_service visual-search ;;
-    compose.yaml|docker.env.example)
+  compose.yaml|docker.env.example|ops/deploy-production.sh)
       add_service image-validation
       add_service garment-processing
       add_service visual-search
