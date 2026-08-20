@@ -21,6 +21,7 @@ import {
 } from './features/notifications/pushNotifications';
 import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
 import { TryOnQueueProvider } from './features/virtualTryOn/TryOnQueueProvider';
+import VirtualTryOnCompletionBanner from './features/virtualTryOn/VirtualTryOnCompletionBanner';
 import { getUrlParam, parsePasswordResetLink } from './features/auth/passwordResetLink';
 import { hydrateScreenDataCache } from './config/screenDataCache';
 import { colors } from './theme';
@@ -92,7 +93,11 @@ type PendingPushOpen = {
 
 const NavigationContent = () => {
   const { isRestoringSession, runWithAuth } = useAuth();
-  const { refresh: refreshNotificationSummary } = useCustomerNotifications();
+  const {
+    latestVirtualTryOnEvent,
+    refresh: refreshNotificationSummary,
+  } = useCustomerNotifications();
+  const [currentRouteName, setCurrentRouteName] = React.useState<keyof RootStackParamList>();
   const pendingUrlRef = React.useRef<string | null>(null);
   const pendingPushOpenRef = React.useRef<PendingPushOpen | null>(null);
 
@@ -159,8 +164,13 @@ const NavigationContent = () => {
 
   const handleNavigationReady = React.useCallback(() => {
     resetRootToHome();
+    setCurrentRouteName(navigationRef.getCurrentRoute()?.name);
     flushPendingNavigation();
   }, [flushPendingNavigation]);
+
+  const handleNavigationStateChange = React.useCallback(() => {
+    setCurrentRouteName(navigationRef.getCurrentRoute()?.name);
+  }, []);
 
   React.useEffect(() => {
     flushPendingNavigation();
@@ -196,13 +206,25 @@ const NavigationContent = () => {
   }, [openPushTarget]);
 
   return (
-    <NavigationContainer
-      ref={navigationRef}
-      onReady={handleNavigationReady}
-      onUnhandledAction={handleUnhandledNavigationAction}
-    >
-      <AppNavigator />
-    </NavigationContainer>
+    <View style={styles.navigationRoot}>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={handleNavigationReady}
+        onStateChange={handleNavigationStateChange}
+        onUnhandledAction={handleUnhandledNavigationAction}
+      >
+        <AppNavigator />
+      </NavigationContainer>
+      <VirtualTryOnCompletionBanner
+        currentRouteName={currentRouteName}
+        event={latestVirtualTryOnEvent}
+        onOpenResult={(jobId) => {
+          if (navigationRef.isReady()) {
+            navigationRef.navigate('VirtualTryOnResult', { jobId });
+          }
+        }}
+      />
+    </View>
   );
 };
 
@@ -229,6 +251,9 @@ const App = () => (
 );
 
 const styles = StyleSheet.create({
+  navigationRoot: {
+    flex: 1,
+  },
   cacheBootstrap: {
     alignItems: 'center',
     backgroundColor: colors.background,

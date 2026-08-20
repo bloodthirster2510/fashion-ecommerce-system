@@ -39,6 +39,7 @@ import {
   createVirtualTryOnVideoProvider,
   getVirtualTryOnImageConfiguration,
   getVirtualTryOnVideoConfiguration,
+  normalizeVideoWorkflowProfile,
   VirtualTryOnProviderError,
   VirtualTryOnVideoProviderError,
   type VirtualTryOnContextPresetPreview,
@@ -516,6 +517,7 @@ const getVideoCapabilities = (settings?: VirtualTryOnRuntimeSettings) => {
   const configuration = getVirtualTryOnVideoConfiguration({
     provider,
     model,
+    workflowProfile: settings?.videoWorkflowProfile,
     durationSeconds: settings?.videoDurationSeconds,
     resolution: settings?.videoResolution,
     aspectRatio: settings?.videoAspectRatio,
@@ -531,6 +533,7 @@ const getVideoCapabilities = (settings?: VirtualTryOnRuntimeSettings) => {
         ? 'VIDEO_GENERATION_DISABLED'
         : configuration.issues[0] || 'VIDEO_PROVIDER_CONFIG_MISSING',
     provider: configuration.provider,
+    workflowProfile: configuration.workflowProfile,
     model: configuration.model,
     durationSeconds: configuration.durationSeconds,
     minDurationSeconds: configuration.minDurationSeconds,
@@ -980,6 +983,9 @@ const runVideoStage = async (
     if (!job) return;
 
     const videoProviderMetadata = job.videoProviderMetadata || {};
+    const videoWorkflowProfile = normalizeVideoWorkflowProfile(
+      getStringMetadataValue(videoProviderMetadata, 'workflowProfile'),
+    );
     const videoProvider = job.videoProvider?.trim() || DEFAULT_VIDEO_PROVIDER;
     const videoModel = getStringMetadataValue(videoProviderMetadata, 'model')
       || process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
@@ -988,6 +994,7 @@ const runVideoStage = async (
     const videoConfiguration = getVirtualTryOnVideoConfiguration({
       provider: videoProvider,
       model: videoModel,
+      workflowProfile: videoWorkflowProfile,
       durationSeconds: videoDurationSeconds ?? undefined,
       resolution: getStringMetadataValue(videoProviderMetadata, 'resolution'),
       aspectRatio: getStringMetadataValue(videoProviderMetadata, 'aspectRatio'),
@@ -1017,7 +1024,7 @@ const runVideoStage = async (
       );
     }
 
-    const provider = createVirtualTryOnVideoProvider(videoProvider);
+    const provider = createVirtualTryOnVideoProvider(videoProvider, videoWorkflowProfile);
     let providerJobId = job.videoProviderJobId || null;
     let providerMetadata = { ...videoProviderMetadata };
 
@@ -1059,6 +1066,7 @@ const runVideoStage = async (
       providerJobId = submission.providerJobId;
       providerMetadata = {
         ...providerMetadata,
+        workflowProfile: videoWorkflowProfile,
         ...(submission.metadata || {}),
         prompt: videoPrompt.prompt,
         negativePrompt: videoPrompt.negativePrompt,
@@ -2149,6 +2157,7 @@ const validateCreateJobInput = (
   const videoConfiguration = getVirtualTryOnVideoConfiguration({
     provider: settings.videoProvider,
     model: settings.videoModel,
+    workflowProfile: settings.videoWorkflowProfile,
     durationSeconds: settings.videoDurationSeconds,
     resolution: settings.videoResolution,
     aspectRatio: settings.videoAspectRatio,
@@ -2422,6 +2431,7 @@ const createJob = async (
       : null,
     videoProviderMetadata: normalized.outputMode === 'image_and_video'
       ? {
+        workflowProfile: runtimeSettings.videoWorkflowProfile,
         model: runtimeSettings.videoModel,
         durationSeconds: normalized.videoDurationSeconds,
         resolution: runtimeSettings.videoResolution,
@@ -2581,6 +2591,7 @@ const retryJob = async (userId: string, jobId: string) => {
   job.videoProviderJobId = null;
   job.videoProviderMetadata = job.outputMode === 'image_and_video'
     ? {
+      workflowProfile: runtimeSettings.videoWorkflowProfile,
       model: runtimeSettings.videoModel,
       durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
       resolution: runtimeSettings.videoResolution,
@@ -2665,6 +2676,7 @@ const retryVideoJobForFilter = async (
   job.videoProvider = runtimeSettings.videoProvider;
   job.videoProviderJobId = null;
   job.videoProviderMetadata = {
+    workflowProfile: runtimeSettings.videoWorkflowProfile,
     model: runtimeSettings.videoModel,
     durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
     resolution: runtimeSettings.videoResolution,
@@ -2852,6 +2864,9 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     videoProgress: job.videoProgress ?? 0,
     videoSourceImageUrl: job.videoSourceImageUrlSnapshot ?? null,
     videoProvider: job.videoProvider ?? null,
+    videoWorkflowProfile: typeof job.videoProviderMetadata?.workflowProfile === 'string'
+      ? job.videoProviderMetadata.workflowProfile
+      : 'quality',
     videoModel: typeof job.videoProviderMetadata?.model === 'string'
       ? job.videoProviderMetadata.model
       : null,
@@ -3050,7 +3065,7 @@ const getAdminSettings = async () => {
     updatedAt: runtimeSettings.updatedAt?.toISOString() ?? null,
     historyVersions: runtimeSettings.historyVersions,
     modelOptions: virtualTryOnSettingsService.getModelOptions(runtimeSettings),
-    secretStatus: virtualTryOnSettingsService.getSecretStatus(),
+    secretStatus: virtualTryOnSettingsService.getSecretStatus(runtimeSettings),
     imageValidation,
     image: {
       enabled: imageEnabled,
@@ -3137,6 +3152,7 @@ const retryAdminJob = async (jobId: string) => {
   job.videoProviderJobId = null;
   job.videoProviderMetadata = job.outputMode === 'image_and_video'
     ? {
+      workflowProfile: runtimeSettings.videoWorkflowProfile,
       model: runtimeSettings.videoModel,
       durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
       resolution: runtimeSettings.videoResolution,

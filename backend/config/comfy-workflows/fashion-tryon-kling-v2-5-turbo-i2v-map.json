@@ -1,0 +1,11 @@
+{
+  "inputs": {
+    "sourceImage": "1.inputs.image",
+    "prompt": "2.inputs.prompt",
+    "negativePrompt": "2.inputs.negative_prompt",
+    "duration": "2.inputs.duration",
+    "model": "2.inputs.model_name",
+    "aspectRatio": "2.inputs.aspect_ratio"
+  },
+  "outputs": { "videoNodeIds": ["5"] }
+}

@@ -336,6 +336,7 @@ const toSettingsConfiguration = (
   imageAspectRatio: settings.image.aspectRatio,
   imageResolution: settings.image.resolution,
   videoProvider: settings.video.provider as AdminVirtualTryOnSettingsConfiguration['videoProvider'],
+  videoWorkflowProfile: settings.video.workflowProfile,
   videoModel: settings.video.model,
   videoDurationSeconds: settings.video.durationSeconds,
   videoResolution: settings.video.resolution,
@@ -354,6 +355,8 @@ const modelDisplayNames: Record<string, string> = {
   'gemini-3-pro-image-preview': 'Gemini 3 Pro Image',
   'Nano Banana 2 (Gemini 3.1 Flash Image)': 'Nano Banana 2 · Gemini 3.1 Flash',
   'kling-v3-omni': 'Kling 3.0 Omni',
+  'kling-v2-5-turbo': 'Kling 2.5 Turbo',
+  'viduq2-turbo': 'Vidu Q2 Turbo',
   mock: 'Mô phỏng nội bộ',
 }
 
@@ -1308,13 +1311,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           onChange={(event) => setSettingsDraft((current) => {
                             if (!current) return current
                             const videoProvider = event.target.value as AdminVirtualTryOnSettingsConfiguration['videoProvider']
-                            const suggestedModel = settings.modelOptions.videoModels.find((model) => model !== 'mock') || 'kling-v3-omni'
+                            const selectedWorkflow = settings.modelOptions.videoWorkflowProfiles.find(
+                              (workflow) => workflow.id === current.videoWorkflowProfile,
+                            )
                             return {
                               ...current,
                               videoProvider,
                               videoModel: videoProvider === 'mock'
                                 ? 'mock'
-                                : current.videoModel === 'mock' ? suggestedModel : current.videoModel,
+                                : selectedWorkflow?.model || 'kling-v3-omni',
                             }
                           })}
                         >
@@ -1323,22 +1328,51 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           ))}
                         </select>
                       </label>
-                      <ModelPicker
-                        id="vto-video-model"
-                        value={settingsDraft.videoModel}
-                        options={settings.modelOptions.videoModels}
-                        enabled={settingsDraft.videoProvider === 'comfy_kling'}
-                        inactiveLabel={settingsDraft.videoProvider === 'mock' ? 'Mô phỏng nội bộ' : 'Không áp dụng'}
-                        onChange={(videoModel) => setSettingsDraft((current) => current
-                          ? { ...current, videoModel }
-                          : current)}
-                      />
+                      <label>
+                        <span>Workflow video</span>
+                        <select
+                          value={settingsDraft.videoWorkflowProfile}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          onChange={(event) => setSettingsDraft((current) => {
+                            if (!current) return current
+                            const workflowProfile = event.target.value as AdminVirtualTryOnSettingsConfiguration['videoWorkflowProfile']
+                            const workflow = settings.modelOptions.videoWorkflowProfiles.find(
+                              (option) => option.id === workflowProfile,
+                            )
+                            if (!workflow) return current
+                            return {
+                              ...current,
+                              videoWorkflowProfile: workflowProfile,
+                              videoModel: workflow.model,
+                              videoDurationSeconds: workflow.defaults.durationSeconds,
+                              videoResolution: workflow.defaults.resolution,
+                              videoAspectRatio: workflow.defaults.aspectRatio,
+                              videoGenerateAudio: workflow.defaults.generateAudio,
+                            }
+                          })}
+                        >
+                          {settings.modelOptions.videoWorkflowProfiles.map((workflow) => (
+                            <option key={workflow.id} value={workflow.id}>{workflow.label}</option>
+                          ))}
+                        </select>
+                        <small>{settings.modelOptions.videoWorkflowProfiles.find(
+                          (workflow) => workflow.id === settingsDraft.videoWorkflowProfile,
+                        )?.description}</small>
+                      </label>
+                      <label>
+                        <span>Mô hình AI</span>
+                        <input
+                          value={getModelDisplayName(settingsDraft.videoModel)}
+                          disabled
+                          readOnly
+                        />
+                      </label>
                       <label>
                         <span>Thời lượng mặc định</span>
                         <input
                           type="number"
                           min={settings.video.minDurationSeconds}
-                          max={settings.video.maxDurationSeconds}
+                          max={settingsDraft.videoWorkflowProfile === 'quality' ? 12 : 10}
                           required
                           disabled={settingsDraft.videoProvider !== 'comfy_kling'}
                           value={settingsDraft.videoDurationSeconds}
@@ -1349,7 +1383,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <span>Độ phân giải video</span>
                         <select
                           value={settingsDraft.videoResolution}
-                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile === 'balanced'}
                           onChange={(event) => setSettingsDraft((current) => current
                             ? { ...current, videoResolution: event.target.value }
                             : current)}
@@ -1363,7 +1397,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <span>Tỷ lệ video</span>
                         <select
                           value={settingsDraft.videoAspectRatio}
-                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile === 'fast'}
                           onChange={(event) => setSettingsDraft((current) => current
                             ? { ...current, videoAspectRatio: event.target.value }
                             : current)}
@@ -1377,7 +1411,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <input
                           type="checkbox"
                           checked={settingsDraft.videoGenerateAudio}
-                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile !== 'quality'}
                           onChange={(event) => setSettingsDraft((current) => current
                             ? { ...current, videoGenerateAudio: event.target.checked }
                             : current)}
@@ -1386,7 +1420,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       </label>
                     </fieldset>
                   </div>
-                  <p>Dịch vụ AI được giới hạn theo các tích hợp hiện có. Tên mô hình phải tồn tại trong quy trình ComfyUI tương ứng.</p>
+                  <p>Đổi workflow chỉ áp dụng cho yêu cầu mới. Các job đang chạy tiếp tục dùng workflow đã được ghi nhận khi tạo.</p>
                 </section>
                 <div className="admin-vto-settings-fields">
                   <label>

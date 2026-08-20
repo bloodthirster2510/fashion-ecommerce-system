@@ -1,6 +1,7 @@
 export type VirtualTryOnJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled'
 export type VirtualTryOnVideoStatus = 'not_requested' | 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled'
 export type VirtualTryOnProcessingStage = 'queued' | 'image_generation' | 'image_persisting' | 'video_generation' | 'video_persisting' | 'completed'
+export type VideoWorkflowProfile = 'fast' | 'balanced' | 'quality'
 
 export type AdminVirtualTryOnJob = {
   _id: string
@@ -37,6 +38,7 @@ export type AdminVirtualTryOnJob = {
   videoProgress: number
   videoSourceImageUrl?: string | null
   videoProvider?: string | null
+  videoWorkflowProfile?: VideoWorkflowProfile | null
   videoModel?: string | null
   videoProviderJobId?: string | null
   videoErrorCode?: string | null
@@ -112,6 +114,18 @@ export type AdminVirtualTryOnSettings = {
     videoProviders: Array<'comfy_kling' | 'mock' | 'disabled'>
     imageModels: string[]
     videoModels: string[]
+    videoWorkflowProfiles: Array<{
+      id: VideoWorkflowProfile
+      label: string
+      description: string
+      model: string
+      defaults: {
+        durationSeconds: number
+        resolution: string
+        aspectRatio: string
+        generateAudio: boolean
+      }
+    }>
     imageAspectRatios: string[]
     imageResolutions: string[]
     videoAspectRatios: string[]
@@ -147,6 +161,7 @@ export type AdminVirtualTryOnSettings = {
     available: boolean
     reasonCode: string | null
     provider: string
+    workflowProfile: VideoWorkflowProfile
     model: string
     durationSeconds: number
     minDurationSeconds: number
@@ -178,6 +193,7 @@ export type AdminVirtualTryOnSettingsConfiguration = Pick<
   imageAspectRatio: string
   imageResolution: string
   videoProvider: 'comfy_kling' | 'mock' | 'disabled'
+  videoWorkflowProfile: VideoWorkflowProfile
   videoModel: string
   videoDurationSeconds: number
   videoResolution: string

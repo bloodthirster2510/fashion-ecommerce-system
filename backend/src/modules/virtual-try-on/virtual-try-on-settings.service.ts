@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { Types } from 'mongoose';
 import {
   VirtualTryOnSettings,
@@ -5,6 +6,12 @@ import {
 } from '../../database/models';
 import { auditLogService } from '../audit-logs/audit-log.service';
 import { PROMPT_MAX_LENGTH } from './prompt-policy/prompt-policy.service';
+import {
+  getVideoWorkflowDefinition,
+  getVideoWorkflowOptions,
+  inferVideoWorkflowProfile,
+  type VirtualTryOnVideoWorkflowProfile,
+} from './providers/virtual-try-on-video-workflows';
 
 export type VirtualTryOnRuntimeSettings = IVirtualTryOnRuntimeConfiguration & {
   version: number;
@@ -55,8 +62,15 @@ const normalizeVideoProvider = (value: unknown): IVirtualTryOnRuntimeConfigurati
 const getDefaultImageModel = () =>
   process.env.VIRTUAL_TRY_ON_COMFY_MODEL?.trim() || 'workflow_default';
 
-const getDefaultVideoModel = () =>
-  process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim() || 'kling-v3-omni';
+const getDefaultVideoWorkflowProfile = () => inferVideoWorkflowProfile(
+  process.env.VIRTUAL_TRY_ON_VIDEO_WORKFLOW_PROFILE,
+  process.env.VIRTUAL_TRY_ON_VIDEO_MODEL,
+);
+
+const getDefaultVideoModel = () => {
+  const definition = getVideoWorkflowDefinition(getDefaultVideoWorkflowProfile());
+  return definition.model;
+};
 
 const normalizeStoredModel = (value: unknown, fallback: string) => {
   const normalized = typeof value === 'string' ? value.trim() : '';
@@ -120,6 +134,7 @@ const getDefaultConfiguration = (): IVirtualTryOnRuntimeConfiguration => ({
   imageAspectRatio: getDefaultImageAspectRatio(),
   imageResolution: getDefaultImageResolution(),
   videoProvider: normalizeVideoProvider(process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER),
+  videoWorkflowProfile: getDefaultVideoWorkflowProfile(),
   videoModel: normalizeVideoProvider(process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER) === 'mock'
     ? 'mock'
     : getDefaultVideoModel(),
@@ -156,7 +171,16 @@ const getDefaultConfiguration = (): IVirtualTryOnRuntimeConfiguration => ({
 
 const toConfiguration = (
   value: Partial<IVirtualTryOnRuntimeConfiguration>,
-): IVirtualTryOnRuntimeConfiguration => ({
+): IVirtualTryOnRuntimeConfiguration => {
+  const videoProvider = normalizeVideoProvider(
+    value.videoProvider ?? process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER,
+  );
+  const videoWorkflowProfile = inferVideoWorkflowProfile(
+    value.videoWorkflowProfile,
+    value.videoModel,
+  );
+  const workflowDefinition = getVideoWorkflowDefinition(videoWorkflowProfile);
+  return {
   enabled: value.enabled === true,
   imageProvider: normalizeImageProvider(value.imageProvider ?? process.env.VIRTUAL_TRY_ON_PROVIDER),
   imageModel: normalizeStoredModel(
@@ -175,13 +199,11 @@ const toConfiguration = (
     IMAGE_RESOLUTION_OPTIONS,
     getDefaultImageResolution(),
   ),
-  videoProvider: normalizeVideoProvider(value.videoProvider ?? process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER),
-  videoModel: normalizeStoredModel(
-    value.videoModel,
-    normalizeVideoProvider(value.videoProvider ?? process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER) === 'mock'
-      ? 'mock'
-      : getDefaultVideoModel(),
-  ),
+  videoProvider,
+  videoWorkflowProfile,
+  videoModel: videoProvider === 'comfy_kling'
+    ? workflowDefinition.model
+    : normalizeStoredModel(value.videoModel, videoProvider === 'mock' ? 'mock' : workflowDefinition.model),
   videoDurationSeconds: Number(value.videoDurationSeconds) || getDefaultVideoDurationSeconds(),
   videoResolution: normalizeOption(
     value.videoResolution,
@@ -199,7 +221,8 @@ const toConfiguration = (
   maxConcurrentVideoJobsPerUser: Number(value.maxConcurrentVideoJobsPerUser),
   promptMaxLength: Number(value.promptMaxLength),
   promptViolationLimitPerDay: Number(value.promptViolationLimitPerDay),
-});
+  };
+};
 
 const toAuditSnapshot = (
   value: IVirtualTryOnRuntimeConfiguration,
@@ -210,6 +233,7 @@ const toAuditSnapshot = (
   imageAspectRatio: value.imageAspectRatio,
   imageResolution: value.imageResolution,
   videoProvider: value.videoProvider,
+  videoWorkflowProfile: value.videoWorkflowProfile,
   videoModel: value.videoModel,
   videoDurationSeconds: value.videoDurationSeconds,
   videoResolution: value.videoResolution,
@@ -323,6 +347,18 @@ const normalizeConfiguration = (value: unknown): IVirtualTryOnRuntimeConfigurati
     throw new VirtualTryOnSettingsServiceError('Trạng thái tính năng không hợp lệ', 400);
   }
 
+  const videoProvider = parseProvider(
+    input.videoProvider,
+    'Provider tạo video',
+    ['mock', 'comfy_kling', 'disabled'] as const,
+  );
+  const videoWorkflowProfile = parseOption(
+    input.videoWorkflowProfile,
+    'Workflow video',
+    ['fast', 'balanced', 'quality'] as const,
+  ) as VirtualTryOnVideoWorkflowProfile;
+  const workflowDefinition = getVideoWorkflowDefinition(videoWorkflowProfile);
+
   return {
     enabled: input.enabled,
     imageProvider: parseProvider(
@@ -341,17 +377,16 @@ const normalizeConfiguration = (value: unknown): IVirtualTryOnRuntimeConfigurati
       'Độ phân giải ảnh',
       IMAGE_RESOLUTION_OPTIONS,
     ),
-    videoProvider: parseProvider(
-      input.videoProvider,
-      'Provider tạo video',
-      ['mock', 'comfy_kling', 'disabled'] as const,
-    ),
-    videoModel: parseModel(input.videoModel, 'Model tạo video'),
+    videoProvider,
+    videoWorkflowProfile,
+    videoModel: videoProvider === 'comfy_kling'
+      ? workflowDefinition.model
+      : parseModel(input.videoModel, 'Model tạo video'),
     videoDurationSeconds: parseInteger(
       input.videoDurationSeconds,
       'Thời lượng video',
       VIDEO_DURATION_MIN_SECONDS,
-      VIDEO_DURATION_MAX_SECONDS,
+      videoWorkflowProfile === 'quality' ? VIDEO_DURATION_MAX_SECONDS : 10,
     ),
     videoResolution: parseOption(
       input.videoResolution,
@@ -582,17 +617,21 @@ const rollbackSettings = async (
   return serialize(updated, true);
 };
 
-const getSecretStatus = () => ({
+const getSecretStatus = (settings?: IVirtualTryOnRuntimeConfiguration) => {
+  const workflow = getVideoWorkflowDefinition(
+    settings?.videoWorkflowProfile ?? getDefaultVideoWorkflowProfile(),
+  );
+  return {
   providerApiKeyConfigured: Boolean(process.env.VIRTUAL_TRY_ON_API_KEY?.trim()),
   imageEndpointConfigured: Boolean(
     process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL?.trim() ||
     process.env.VIRTUAL_TRY_ON_SERVICE_URL?.trim(),
   ),
   videoWorkflowConfigured: Boolean(
-    process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_PATH?.trim() &&
-    process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_MAP_PATH?.trim(),
+    existsSync(workflow.workflowPath) && existsSync(workflow.workflowMapPath),
   ),
-});
+  };
+};
 
 const parseModelOptions = (value: string | undefined, current: string) => Array.from(new Set([
   current,
@@ -610,6 +649,13 @@ const getModelOptions = (settings: IVirtualTryOnRuntimeConfiguration) => ({
     process.env.VIRTUAL_TRY_ON_ALLOWED_VIDEO_MODELS,
     settings.videoModel,
   ),
+  videoWorkflowProfiles: getVideoWorkflowOptions().map((workflow) => ({
+    id: workflow.id,
+    label: workflow.label,
+    description: workflow.description,
+    model: workflow.model,
+    defaults: workflow.defaults,
+  })),
   imageAspectRatios: IMAGE_ASPECT_RATIO_OPTIONS,
   imageResolutions: IMAGE_RESOLUTION_OPTIONS,
   videoAspectRatios: VIDEO_ASPECT_RATIO_OPTIONS,

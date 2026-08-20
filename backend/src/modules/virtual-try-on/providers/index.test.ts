@@ -89,7 +89,7 @@ describe('virtual try-on video provider', () => {
     },
   );
 
-  it('stays unavailable until the workflow and map files are supplied', () => {
+  it('uses the shipped quality workflow when path overrides are empty', () => {
     const previous = {
       provider: process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER,
       workflow: process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_PATH,
@@ -104,8 +104,10 @@ describe('virtual try-on video provider', () => {
     delete process.env.VIRTUAL_TRY_ON_SERVICE_URL;
 
     expect(getVirtualTryOnVideoConfiguration()).toEqual(expect.objectContaining({
-      ready: false,
-      issues: expect.arrayContaining(['VIDEO_WORKFLOW_MISSING', 'VIDEO_WORKFLOW_MAP_MISSING']),
+      ready: true,
+      issues: [],
+      workflowProfile: 'quality',
+      model: 'kling-v3-omni',
     }));
 
     Object.entries(previous).forEach(([key, value]) => {
