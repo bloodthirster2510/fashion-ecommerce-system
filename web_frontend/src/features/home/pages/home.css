@@ -173,9 +173,61 @@
   gap: 20px;
 }
 
+.home-loading-skeleton {
+  pointer-events: none;
+}
+
+.home-skeleton-heading {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.home-skeleton-heading span,
+.home-skeleton-heading strong,
+.home-skeleton-product-image,
+.home-skeleton-product-body span,
+.home-skeleton-product-body strong,
+.home-skeleton-product-body i,
+.home-skeleton-coupon > div,
+.home-skeleton-coupon section span,
+.home-skeleton-coupon section strong,
+.home-skeleton-coupon section i,
+.home-skeleton-coupon b {
+  display: block;
+  background: linear-gradient(90deg, #e8edf0 25%, #f8fafb 50%, #e8edf0 75%);
+  background-size: 200% 100%;
+  animation: home-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.home-skeleton-heading span { width: 92px; height: 9px; border-radius: 5px; }
+.home-skeleton-heading strong { width: 210px; height: 26px; border-radius: 6px; }
+.home-skeleton-product { overflow: hidden; border: 1px solid #e5eaed; border-radius: 8px; background: #fff; }
+.home-skeleton-product-image { aspect-ratio: 1 / 1; }
+.home-skeleton-product-body { display: grid; gap: 8px; padding: 12px; }
+.home-skeleton-product-body span { width: 92%; height: 10px; border-radius: 5px; }
+.home-skeleton-product-body span:nth-child(2) { width: 68%; }
+.home-skeleton-product-body strong { width: 42%; height: 16px; margin-top: 3px; border-radius: 5px; }
+.home-skeleton-product-body div { display: flex; gap: 8px; margin-top: 7px; }
+.home-skeleton-product-body i { width: 30px; height: 28px; border-radius: 6px; }
+.home-skeleton-product-body i:last-child { width: 76px; height: 10px; margin-top: 9px; }
+.home-skeleton-coupon { min-height: 156px; display: grid; grid-template-columns: 64px 1fr 76px; gap: 18px; align-items: center; overflow: hidden; border: 1px solid #e5eaed; border-radius: 8px; background: #fff; }
+.home-skeleton-coupon > div { align-self: stretch; }
+.home-skeleton-coupon section { display: grid; gap: 8px; }
+.home-skeleton-coupon section span { width: 110px; height: 22px; border-radius: 999px; }
+.home-skeleton-coupon section strong { width: 75%; height: 16px; border-radius: 5px; }
+.home-skeleton-coupon section i { width: 90%; height: 10px; border-radius: 5px; }
+.home-skeleton-coupon section i:last-child { width: 60%; }
+.home-skeleton-coupon b { width: 76px; height: 34px; margin-right: 18px; border-radius: 999px; }
+
+@keyframes home-skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .home-coupon-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -191,19 +243,19 @@
 }
 
 .home-coupon-card {
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 18px;
   position: relative;
   overflow: hidden;
-  min-height: 174px;
-  padding: 18px 18px 18px 0;
+  min-height: 156px;
+  padding: 0 22px 0 0;
 }
 
 .home-coupon-card::before,
 .home-coupon-card::after {
   content: '';
   position: absolute;
-  left: 48px;
+  left: 56px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -234,7 +286,8 @@
 .home-coupon-copy {
   min-width: 0;
   display: grid;
-  gap: 5px;
+  align-content: center;
+  gap: 4px;
 }
 
 .home-coupon-copy span {
@@ -265,7 +318,7 @@
 
 .home-coupon-copy strong {
   color: #111820;
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1.08;
 }
 
@@ -287,14 +340,13 @@
 }
 
 .home-coupon-action {
-  grid-column: 2;
   width: fit-content;
   min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-top: 6px;
-  padding: 0 13px;
+  margin: 0;
+  padding: 0 14px;
   border-radius: 999px;
   color: #fff;
   background: #213448;
@@ -465,6 +517,23 @@
 
   .home-coupon-fallback {
     grid-template-columns: 1fr;
+  }
+
+  .home-coupon-card {
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 14px;
+    min-height: 166px;
+    padding-right: 16px;
+  }
+
+  .home-coupon-card::before,
+  .home-coupon-card::after {
+    left: 44px;
+  }
+
+  .home-coupon-action {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .home-coupon-fallback a {

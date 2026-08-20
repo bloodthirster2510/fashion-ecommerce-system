@@ -42,6 +42,10 @@ export type CheckoutSummary = {
 export type CheckoutPreview = {
   quoteVersion: string
   summary: CheckoutSummary
+  shippingQuote?: {
+    provider: 'GHN' | 'FIXED' | 'GHTK'
+    status: 'quoted' | 'fallback'
+  } | null
   coupon: null | { code: string; name: string; description?: string; discountAmount: number }
   appliedMembership: null | { name: string; discountPercent: number; discountAmount: number }
 }

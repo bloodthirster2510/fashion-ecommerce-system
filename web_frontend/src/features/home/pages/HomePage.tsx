@@ -1,12 +1,12 @@
-import { Alert, Empty, Spin } from 'antd'
+import { Alert, Empty } from 'antd'
 import { ChevronRight, RefreshCcw, ShieldCheck, Sparkles, Star, TicketPercent, Truck } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { ProductCard } from '../../../components/ProductCard'
 import { formatPrice } from '../../../utils/formatPrice'
 import { cartService } from '../../cart/cart.service'
 import { catalogService } from '../../catalog/catalog.service'
-import type { CatalogCategory, ProductListItem } from '../../catalog/catalog.types'
+import type { ProductListItem } from '../../catalog/catalog.types'
 import { profileService, type AvailableCouponItem } from '../../profile/profile.service'
 import { formatCouponValue, formatDisplayDate } from '../../profile/profile.utils'
 import { HomeSlider } from '../components/HomeSlider'
@@ -65,16 +65,6 @@ const styleStories = [
     href: '/products?sort=best_seller',
   },
 ]
-
-const getCategoryHref = (category: CatalogCategory) => {
-  const params = new URLSearchParams({ categoryId: category._id })
-
-  if (category.gender === 'male' || category.gender === 'female') {
-    params.set('gender', category.gender)
-  }
-
-  return `/products?${params.toString()}`
-}
 
 const loadAvailableCoupons = async () => {
   const cartItemIds = await cartService.getCart()
@@ -182,8 +172,51 @@ function ProductShowcase({
   )
 }
 
+function HomeLoadingSkeleton() {
+  return (
+    <div className="home-loading-skeleton" aria-label="Đang tải nội dung trang chủ" aria-busy="true">
+      {[1, 2].map((section) => (
+        <section className="home-section" key={section}>
+          <div className="home-skeleton-heading">
+            <span />
+            <strong />
+          </div>
+          <div className="home-product-grid">
+            {Array.from({ length: 5 }, (_, index) => (
+              <article className="home-skeleton-product" key={index}>
+                <div className="home-skeleton-product-image" />
+                <div className="home-skeleton-product-body">
+                  <span />
+                  <span />
+                  <strong />
+                  <div><i /><i /></div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      <section className="home-section">
+        <div className="home-skeleton-heading">
+          <span />
+          <strong />
+        </div>
+        <div className="home-coupon-grid">
+          {[1, 2].map((coupon) => (
+            <article className="home-skeleton-coupon" key={coupon}>
+              <div />
+              <section><span /><strong /><i /><i /></section>
+              <b />
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function HomePage() {
-  const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [products, setProducts] = useState<HomeProducts>(emptyProducts)
   const [coupons, setCoupons] = useState<AvailableCouponItem[]>([])
   const [hasCouponError, setHasCouponError] = useState(false)
@@ -199,8 +232,7 @@ export function HomePage() {
         setIsLoading(true)
         setError('')
 
-        const [categoryResult, newestResult, saleResult, bestSellerResult, couponResult] = await Promise.all([
-          catalogService.getActiveCategories(),
+        const [newestResult, saleResult, bestSellerResult, couponResult] = await Promise.all([
           catalogService.getProducts({ isNew: true, sort: 'newest', page: 1, limit: 5 }, false, {
             signal: abortController.signal,
           }),
@@ -217,7 +249,6 @@ export function HomePage() {
 
         if (!isMounted) return
 
-        setCategories(categoryResult.filter((category) => category.isActive).slice(0, 8))
         setCoupons(couponResult.items)
         setHasCouponError(couponResult.hasError)
         setProducts({
@@ -244,7 +275,6 @@ export function HomePage() {
   }, [])
 
   const hasAnyProducts = products.newest.length > 0 || products.sale.length > 0 || products.bestSeller.length > 0
-  const featuredCategories = useMemo(() => categories.filter((category) => category.image).slice(0, 6), [categories])
 
   return (
     <MainLayout>
@@ -268,25 +298,11 @@ export function HomePage() {
           })}
         </section>
 
-        <Spin spinning={isLoading}>
+        {isLoading ? (
+          <HomeLoadingSkeleton />
+        ) : (
+        <div>
           {error && <Alert className="home-alert" type="warning" message={error} showIcon />}
-
-          {featuredCategories.length > 0 && (
-            <section className="home-section" aria-label="Danh mục nổi bật">
-              <SectionHeading eyebrow="Mua nhanh theo nhu cầu" title="Danh mục nổi bật" href="/products" />
-              <div className="home-category-grid">
-                {featuredCategories.map((category) => (
-                  <a className="home-category-card" href={getCategoryHref(category)} key={category._id}>
-                    <img src={category.image} alt={category.name} loading="lazy" />
-                    <span>
-                      <strong>{category.name}</strong>
-                      <small>{category.gender === 'male' ? 'Nam' : category.gender === 'female' ? 'Nữ' : 'Unisex'}</small>
-                    </span>
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
 
           <ProductShowcase
             eyebrow="Vừa lên kệ"
@@ -327,10 +343,11 @@ export function HomePage() {
             products={products.bestSeller}
           />
 
-          {!isLoading && !error && featuredCategories.length === 0 && !hasAnyProducts && (
+          {!isLoading && !error && !hasAnyProducts && (
             <Empty className="home-empty" description="Chưa có dữ liệu nổi bật để hiển thị." />
           )}
-        </Spin>
+        </div>
+        )}
       </main>
     </MainLayout>
   )

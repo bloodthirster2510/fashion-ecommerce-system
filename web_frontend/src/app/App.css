@@ -50,16 +50,6 @@ input {
   min-height: 100svh;
 }
 
-.app-route-loading {
-  min-height: 100svh;
-  display: grid;
-  place-items: center;
-  color: #213448;
-  background: #f7f8fa;
-  font-size: 14px;
-  font-weight: 800;
-}
-
 .site-frame {
   width: 100%;
   min-height: 100svh;
@@ -486,6 +476,7 @@ input {
 }
 
 .header-actions .client-action-button--favorite {
+  position: relative;
   border-color: rgba(234, 224, 207, 0.34);
   background: rgba(53, 88, 114, 0.42);
 }
@@ -625,7 +616,16 @@ input {
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 8px);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: opacity 160ms ease 350ms, transform 160ms ease 350ms;
+}
+
+.category-popout::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  right: 0;
+  left: 0;
+  height: 12px;
 }
 
 .category-nav-item:hover .category-popout,
@@ -633,6 +633,7 @@ input {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0);
+  transition-delay: 0ms;
 }
 
 .category-popout-grid {

@@ -5,12 +5,6 @@ import { Router } from './router'
 import { StorefrontSettingsProvider } from '../features/storefront-settings/StorefrontSettingsProvider'
 import './App.css'
 
-const appLoadingFallback = (
-  <main className="app-route-loading" role="status">
-    Đang tải màn hình...
-  </main>
-)
-
 function App() {
   return (
     <ConfigProvider
@@ -22,7 +16,7 @@ function App() {
         },
       }}
     >
-      <Suspense fallback={appLoadingFallback}>
+      <Suspense fallback={null}>
         <StorefrontSettingsProvider>
           <Router />
         </StorefrontSettingsProvider>

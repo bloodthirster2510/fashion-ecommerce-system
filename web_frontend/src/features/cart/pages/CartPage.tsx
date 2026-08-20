@@ -49,6 +49,7 @@ export function CartPage() {
       return
     }
     const requestId = ++previewRequest.current
+    setPreview(null)
     setPreviewLoading(true)
     cartService.preview({ cartItemIds: selectedIds, addressId, paymentMethod, couponCode: appliedCoupon || undefined })
       .then((data) => { if (requestId === previewRequest.current) setPreview(data) })
