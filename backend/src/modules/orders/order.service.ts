@@ -1677,20 +1677,20 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
 
       await inventoryService.commitReservations({ reservationIds }, sessionOptions);
 
-      await Promise.all(
-        orderItems.map((item) =>
-          session
-            ? Product.updateOne(
-                { _id: item.productId },
-                { $inc: { sold_quantity: item.quantity } },
-                { session },
-              )
-            : Product.updateOne(
-                { _id: item.productId },
-                { $inc: { sold_quantity: item.quantity } },
-              ),
-        ),
-      );
+      for (const item of orderItems) {
+        if (session) {
+          await Product.updateOne(
+            { _id: item.productId },
+            { $inc: { sold_quantity: item.quantity } },
+            { session },
+          );
+        } else {
+          await Product.updateOne(
+            { _id: item.productId },
+            { $inc: { sold_quantity: item.quantity } },
+          );
+        }
+      }
 
       return order;
     });

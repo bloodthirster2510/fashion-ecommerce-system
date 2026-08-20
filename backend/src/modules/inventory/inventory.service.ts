@@ -1461,26 +1461,26 @@ const rollbackReservedItems = async (
   }>,
   options: SessionOptions = {},
 ) => {
-  await Promise.all(
-    reservedItems.map((item) => {
-      const filter = {
-        productId: item.productId,
-        variantId: item.variantId,
-        colorVariantId: item.colorVariantId,
-        size: item.size,
-      };
-      const update = {
-        $inc: {
-          reservedQuantity: -item.quantity,
-          availableQuantity: item.quantity,
-        },
-      };
+  for (const item of reservedItems) {
+    const filter = {
+      productId: item.productId,
+      variantId: item.variantId,
+      colorVariantId: item.colorVariantId,
+      size: item.size,
+    };
+    const update = {
+      $inc: {
+        reservedQuantity: -item.quantity,
+        availableQuantity: item.quantity,
+      },
+    };
 
-      return options.session
-        ? Inventory.updateOne(filter, update, { session: options.session })
-        : Inventory.updateOne(filter, update);
-    }),
-  );
+    if (options.session) {
+      await Inventory.updateOne(filter, update, { session: options.session });
+    } else {
+      await Inventory.updateOne(filter, update);
+    }
+  }
 };
 
 const reserveInventory = async (input: ReserveInventoryInput, options: SessionOptions = {}) => {
@@ -1496,7 +1496,10 @@ const reserveInventory = async (input: ReserveInventoryInput, options: SessionOp
     throw new InventoryServiceError('expiresAt must be in the future', 400);
   }
 
-  const normalizedItems = await Promise.all(input.items.map((item) => normalizeReservationItem(item, options)));
+  const normalizedItems: Array<Awaited<ReturnType<typeof normalizeReservationItem>>> = [];
+  for (const item of input.items) {
+    normalizedItems.push(await normalizeReservationItem(item, options));
+  }
   const reservedItems: typeof normalizedItems = [];
   const reservations: IInventoryReservation[] = [];
 

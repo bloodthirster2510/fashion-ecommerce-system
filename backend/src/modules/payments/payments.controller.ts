@@ -636,6 +636,10 @@ export const handleVNPayReturn = async (req: Request, res: Response) => {
     );
 
     if (clientReturnUrl) {
+      if (client === 'web' && /^https?:\/\//i.test(clientReturnUrl)) {
+        return res.redirect(303, clientReturnUrl);
+      }
+
       return res.status(200).send(renderVNPayReturnPage(clientReturnUrl, settlement.paymentStatus === 'paid'));
     }
 
