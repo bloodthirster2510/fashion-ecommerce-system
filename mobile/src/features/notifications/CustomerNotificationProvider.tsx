@@ -3,18 +3,37 @@ import { AppState } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
 import { useOrderRealtime } from '../orders/orderRealtime';
 import { useSupportRealtime } from '../support/supportSocket';
-import { useVirtualTryOnRealtime } from '../virtualTryOn/virtualTryOnRealtime';
+import {
+  useVirtualTryOnRealtime,
+  type VirtualTryOnRealtimeEvent,
+} from '../virtualTryOn/virtualTryOnRealtime';
 import { notificationApi, type CustomerNotificationSummary } from './notificationApi';
 
 type CustomerNotificationContextValue = {
   summary: CustomerNotificationSummary | null;
   loading: boolean;
+  latestVirtualTryOnEvent: VirtualTryOnRealtimeEvent | null;
   refresh: () => Promise<void>;
 };
 
 const CustomerNotificationContext = React.createContext<CustomerNotificationContextValue | null>(null);
 const POLL_INTERVAL_MS = 90_000;
 const REALTIME_REFRESH_DELAY_MS = 500;
+
+const isTryOnMediaReadyEvent = (event: VirtualTryOnRealtimeEvent) => {
+  const hasImage = Boolean(
+    event.generatedImageUrl?.trim()
+    || event.generatedImageUrls?.some((url) => Boolean(url?.trim())),
+  );
+  const isImageMilestone = hasImage && (
+    event.processingStage === 'image_persisting'
+    || (event.type === 'succeeded' && event.videoStatus !== 'succeeded')
+  );
+  const isVideoMilestone = event.videoStatus === 'succeeded'
+    && Boolean(event.generatedVideoUrl?.trim());
+
+  return isImageMilestone || isVideoMilestone;
+};
 
 const isSameSummary = (
   left: CustomerNotificationSummary | null,
@@ -36,6 +55,7 @@ export const CustomerNotificationProvider = ({ children }: { children: React.Rea
   const { isRestoringSession, runWithAuth, session } = useAuth();
   const [summary, setSummary] = React.useState<CustomerNotificationSummary | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [latestVirtualTryOnEvent, setLatestVirtualTryOnEvent] = React.useState<VirtualTryOnRealtimeEvent | null>(null);
   const requestSequence = React.useRef(0);
   const realtimeRefreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -85,6 +105,7 @@ export const CustomerNotificationProvider = ({ children }: { children: React.Rea
     onStaffRead: scheduleRealtimeRefresh,
   });
   useVirtualTryOnRealtime(session?.accessToken, (event) => {
+    if (isTryOnMediaReadyEvent(event)) setLatestVirtualTryOnEvent(event);
     if (event.type === 'succeeded' || event.type === 'failed' || event.type === 'canceled') {
       scheduleRealtimeRefresh();
     }
@@ -94,6 +115,7 @@ export const CustomerNotificationProvider = ({ children }: { children: React.Rea
     if (!session?.accessToken || isRestoringSession) {
       requestSequence.current += 1;
       setSummary(null);
+      setLatestVirtualTryOnEvent(null);
       setLoading(false);
       return;
     }
@@ -115,7 +137,12 @@ export const CustomerNotificationProvider = ({ children }: { children: React.Rea
     };
   }, [isRestoringSession, refresh, session?.accessToken]);
 
-  const value = React.useMemo(() => ({ summary, loading, refresh }), [loading, refresh, summary]);
+  const value = React.useMemo(() => ({
+    summary,
+    loading,
+    latestVirtualTryOnEvent,
+    refresh,
+  }), [latestVirtualTryOnEvent, loading, refresh, summary]);
 
   return (
     <CustomerNotificationContext.Provider value={value}>

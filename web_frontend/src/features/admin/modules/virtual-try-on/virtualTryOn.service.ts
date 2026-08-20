@@ -54,6 +54,7 @@ export const updateVirtualTryOnSettings = (
         imageAspectRatio: configuration.imageAspectRatio,
         imageResolution: configuration.imageResolution,
         videoProvider: configuration.videoProvider,
+        videoWorkflowProfile: configuration.videoWorkflowProfile,
         videoModel: configuration.videoModel,
         videoDurationSeconds: configuration.videoDurationSeconds,
         videoResolution: configuration.videoResolution,

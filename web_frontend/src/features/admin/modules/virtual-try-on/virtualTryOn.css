@@ -285,6 +285,7 @@
 .admin-vto-model-grid label > span,
 .admin-vto-model-picker > label,
 .admin-vto-custom-model > label { color: #5f6f80; font-size: 10px; font-weight: 850; }
+.admin-vto-model-grid label > small { color: #728091; font-size: 10px; line-height: 1.35; }
 .admin-vto-model-picker,
 .admin-vto-custom-model { min-width: 0; display: grid; gap: 5px; }
 .admin-vto-custom-model { margin-top: 2px; padding-top: 8px; border-top: 1px solid #edf1f4; }
