@@ -64,6 +64,7 @@ import {
   type SlotAlternativeGroup,
   } from './virtualTryOnSelection';
 import { contextPresets } from './contextPresets';
+import { useTryOnQueue } from './TryOnQueueProvider';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnBuilder'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnBuilder'>;
@@ -994,11 +995,12 @@ const VirtualTryOnBuilderScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { runWithAuth } = useAuth();
+  const { replaceItems: replaceSharedQueueItems } = useTryOnQueue();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [products, setProducts] = React.useState<CatalogProduct[]>([]);
   const [selectedItems, setSelectedItems] = React.useState<TryOnSelectedItem[]>([]);
   const [outfitMode, setOutfitMode] = React.useState<TryOnOutfitMode>('single');
-  const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('custom');
+  const [contextPreset, setContextPreset] = React.useState<TryOnContextPreset>('none');
   const [contextPrompt, setContextPrompt] = React.useState('');
   const [includeVideo, setIncludeVideo] = React.useState(false);
   const [videoDurationSeconds, setVideoDurationSeconds] = React.useState(VIDEO_DURATION_DEFAULT_SECONDS);
@@ -1044,6 +1046,7 @@ const VirtualTryOnBuilderScreen = () => {
       .join('|'),
     [incomingSeedItems],
   );
+  const queueSyncReadyRef = React.useRef(!incomingSeedKey);
   const outfitSlots = React.useMemo(() => getOutfitSlots(outfitMode), [outfitMode]);
   const activeSlot = outfitSlots.find((slot) => slot.key === activeSlotKey) ?? outfitSlots[0];
   const hasSelectedFullOutfit = selectedItems.some(isFullOutfitSelectedItem);
@@ -1275,6 +1278,7 @@ const VirtualTryOnBuilderScreen = () => {
         setOutfitMode(mode);
         setSelectedItems(normalized.items);
         setQueueItems(mergedQueue);
+        queueSyncReadyRef.current = true;
         setActiveSlotKey(getOutfitSlots(mode)[0].key);
 
         const unavailableCount = limitedSeedItems.length - activeResolved.length;
@@ -1297,6 +1301,11 @@ const VirtualTryOnBuilderScreen = () => {
 
     return () => { isCurrent = false; };
   }, [incomingAlternativeSeedItems, incomingSeedItems, incomingSeedKey]);
+
+  React.useEffect(() => {
+    if (!queueSyncReadyRef.current || isPrefilling) return;
+    replaceSharedQueueItems(queueItems.map(selectedItemToSeed));
+  }, [isPrefilling, queueItems, replaceSharedQueueItems]);
 
   React.useEffect(() => {
     if (!outfitSlots.some((slot) => slot.key === activeSlotKey)) {
@@ -1896,8 +1905,13 @@ const VirtualTryOnBuilderScreen = () => {
   const submitCreateJob = async (confirmedSourceAssetId: string) => {
     setIsCreateConfirmVisible(false);
     setIsSubmitting(true);
+    const submittedAt = Date.now();
     const retainedSeedItems = (queueItems.length ? queueItems : selectedItems).map(selectedItemToSeed);
     try {
+      const normalizedContextPrompt = contextPrompt.trim();
+      const effectiveContextPreset = contextPreset === 'custom' && !normalizedContextPrompt
+        ? 'none'
+        : contextPreset;
       const job = await runWithAuth((token) =>
         virtualTryOnApi.createJob(token, {
           sourceAssetId: confirmedSourceAssetId,
@@ -1909,8 +1923,8 @@ const VirtualTryOnBuilderScreen = () => {
             size: item.size,
             role: item.role,
           })),
-          contextPreset,
-          contextPrompt: contextPreset === 'custom' ? contextPrompt.trim() : undefined,
+          contextPreset: effectiveContextPreset,
+          contextPrompt: effectiveContextPreset === 'custom' ? normalizedContextPrompt : undefined,
           outputMode: includeVideo ? 'image_and_video' : 'image',
           videoDurationSeconds: includeVideo ? videoDurationSeconds : undefined,
         }, `try-on-${Date.now()}-${Math.random().toString(16).slice(2)}`),
@@ -1920,6 +1934,24 @@ const VirtualTryOnBuilderScreen = () => {
         seedItems: retainedSeedItems.length ? retainedSeedItems : undefined,
       });
     } catch (error) {
+      if (error instanceof VirtualTryOnApiError && error.status === undefined) {
+        try {
+          const recoveredJob = await runWithAuth((token) => virtualTryOnApi.getLatestJob(token));
+          const recoveredCreatedAt = recoveredJob?.createdAt ? new Date(recoveredJob.createdAt).getTime() : 0;
+          if (recoveredJob && recoveredCreatedAt >= submittedAt - 5_000) {
+            navigation.replace(
+              recoveredJob.status === 'succeeded' ? 'VirtualTryOnResult' : 'VirtualTryOnProcessing',
+              {
+                jobId: recoveredJob._id,
+                seedItems: retainedSeedItems.length ? retainedSeedItems : undefined,
+              },
+            );
+            return;
+          }
+        } catch {
+          // Keep the original network error when the latest job cannot be recovered.
+        }
+      }
       const alert = getCreateJobErrorAlert(error);
       Alert.alert(alert.title, alert.message);
     } finally {
@@ -2336,15 +2368,20 @@ const VirtualTryOnBuilderScreen = () => {
           })}
         </View>
         {contextPreset === 'custom' ? (
-          <TextInput
-            style={styles.promptInput}
-            value={contextPrompt}
-            onChangeText={setContextPrompt}
-            placeholder="Ví dụ: quán cà phê sáng, phong cách thanh lịch"
-            placeholderTextColor={colors.textMuted}
-            maxLength={200}
-            multiline
-          />
+          <View>
+            <TextInput
+              style={styles.promptInput}
+              value={contextPrompt}
+              onChangeText={setContextPrompt}
+              placeholder="Ví dụ: quán cà phê sáng, phong cách thanh lịch"
+              placeholderTextColor={colors.textMuted}
+              maxLength={200}
+              multiline
+            />
+            {!contextPrompt.trim() ? (
+              <Text style={styles.promptFallbackText}>Để trống sẽ giữ nguyên nền ảnh.</Text>
+            ) : null}
+          </View>
         ) : null}
 
         <View style={styles.outputOptionCard}>
@@ -4308,6 +4345,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlignVertical: 'top',
+  },
+  promptFallbackText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: spacing.xs,
   },
   contextPreviewCard: {
     marginTop: spacing.sm,

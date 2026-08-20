@@ -20,6 +20,7 @@ import {
   type PushNavigationTarget,
 } from './features/notifications/pushNotifications';
 import { StorefrontSettingsProvider } from './features/storefrontSettings/StorefrontSettingsProvider';
+import { TryOnQueueProvider } from './features/virtualTryOn/TryOnQueueProvider';
 import { getUrlParam, parsePasswordResetLink } from './features/auth/passwordResetLink';
 import { hydrateScreenDataCache } from './config/screenDataCache';
 import { colors } from './theme';
@@ -218,7 +219,9 @@ const App = () => (
     <CacheBootstrap>
       <StorefrontSettingsProvider>
         <AuthProvider>
-          <NavigationRoot />
+          <TryOnQueueProvider>
+            <NavigationRoot />
+          </TryOnQueueProvider>
         </AuthProvider>
       </StorefrontSettingsProvider>
     </CacheBootstrap>

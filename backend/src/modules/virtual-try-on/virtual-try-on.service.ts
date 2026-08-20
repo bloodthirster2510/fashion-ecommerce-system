@@ -2384,6 +2384,9 @@ const createJob = async (
     input.contextPrompt,
     runtimeSettings,
   );
+  const effectiveContextPreset = normalized.contextPreset === 'custom' && !promptValidation.normalizedPrompt
+    ? 'none'
+    : normalized.contextPreset;
   if (normalized.outputMode === 'image_and_video') {
     await ensureVideoJobCapacity(userObjectId, runtimeSettings);
   }
@@ -2405,7 +2408,7 @@ const createJob = async (
     sourceImageUrlSnapshot: sourceAsset.url,
     selectedItems,
     outfitMode: input.outfitMode,
-    contextPreset: normalized.contextPreset,
+    contextPreset: effectiveContextPreset,
     contextPrompt: promptValidation.normalizedPrompt || undefined,
     outputMode: normalized.outputMode,
     videoDurationSeconds: normalized.videoDurationSeconds,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +15,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { colors, radii, spacing } from '../../theme';
+import { colors, radii, shadows, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import { AvailableCouponItem, couponApi } from './couponApi';
 
@@ -23,11 +23,16 @@ type CouponsNavigationProp = StackNavigationProp<RootStackParamList, 'Coupons'>;
 type CouponsRouteProp = RouteProp<RootStackParamList, 'Coupons'>;
 type CouponCategory = 'all' | 'discount' | 'freeship';
 
-const couponCategories: Array<{ key: CouponCategory; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
+const couponCategories: Array<{
+  key: CouponCategory;
+  label: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+}> = [
   { key: 'all', label: 'Tất cả', icon: 'ticket-confirmation-outline' },
   { key: 'discount', label: 'Mã giảm giá', icon: 'ticket-percent-outline' },
   { key: 'freeship', label: 'Freeship', icon: 'truck-fast-outline' },
 ];
+
 const PAGE_LIMIT = 20;
 const initialPagination = { page: 1, limit: PAGE_LIMIT, totalItems: 0, totalPages: 0 };
 
@@ -47,24 +52,26 @@ const formatDate = (value: string) => {
 
 const getCouponValueText = (item: AvailableCouponItem) => {
   if (item.coupon.discountType === 'free_shipping') {
-    return 'Miễn phí ship';
+    return 'FREESHIP';
   }
 
   if (item.coupon.discountType === 'percent') {
     return `${item.coupon.discountValue}%`;
   }
 
-  return formatCurrency(item.coupon.discountValue);
+  const val = item.coupon.discountValue;
+  if (val >= 1000) {
+    return `${Math.round(val / 1000)}K`;
+  }
+
+  return formatCurrency(val);
 };
 
 const getCouponCategory = (item: AvailableCouponItem): Exclude<CouponCategory, 'all'> =>
   item.coupon.discountType === 'free_shipping' ? 'freeship' : 'discount';
 
 const getCouponTypeLabel = (item: AvailableCouponItem) =>
-  getCouponCategory(item) === 'freeship' ? 'Mã freeship' : 'Mã giảm giá';
-
-const getCouponTypeIcon = (item: AvailableCouponItem): keyof typeof MaterialCommunityIcons.glyphMap =>
-  getCouponCategory(item) === 'freeship' ? 'truck-fast-outline' : 'ticket-percent-outline';
+  getCouponCategory(item) === 'freeship' ? 'Vận chuyển' : 'Đơn hàng';
 
 const getEstimateText = (item: AvailableCouponItem) => {
   const totalDiscount = item.estimatedDiscountAmount + item.estimatedShippingDiscountAmount;
@@ -79,23 +86,43 @@ const CouponsScreen = () => {
   const navigation = useNavigation<CouponsNavigationProp>();
   const route = useRoute<CouponsRouteProp>();
   const { session, runWithAuth } = useAuth();
-  const [items, setItems] = React.useState<AvailableCouponItem[]>([]);
-  const [activeCategory, setActiveCategory] = React.useState<CouponCategory>('all');
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
-  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
-  const [pagination, setPagination] = React.useState(initialPagination);
-  const [applyingCouponCode, setApplyingCouponCode] = React.useState<string | null>(null);
-  const paginationRef = React.useRef(initialPagination);
-  const isLoadingMoreRef = React.useRef(false);
-  const requestSequenceRef = React.useRef(0);
+  const [items, setItems] = useState<AvailableCouponItem[]>([]);
+  const [activeCategory, setActiveCategory] = useState<CouponCategory>('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [pagination, setPagination] = useState(initialPagination);
+  const [selectedDiscountCode, setSelectedDiscountCode] = useState<string | null>(null);
+  const [selectedFreeshipCode, setSelectedFreeshipCode] = useState<string | null>(null);
+  const paginationRef = useRef(initialPagination);
+  const isLoadingMoreRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+  const isInitializedRef = useRef(false);
 
   const routeCartItemIds = route.params?.cartItemIds;
-  const cartItemIds = React.useMemo(() => routeCartItemIds ?? [], [routeCartItemIds]);
+  const cartItemIds = useMemo(() => routeCartItemIds ?? [], [routeCartItemIds]);
   const hasCartContext = cartItemIds.length > 0;
   const paymentMethod = route.params?.paymentMethod ?? 'COD';
 
-  const loadCoupons = React.useCallback(
+  useEffect(() => {
+    if (isInitializedRef.current) return;
+    const initialCodes = route.params?.selectedCouponCodes ?? (route.params?.selectedCouponCode ? [route.params.selectedCouponCode] : []);
+    if (initialCodes.length > 0 && items.length > 0) {
+      isInitializedRef.current = true;
+      initialCodes.forEach((code) => {
+        const found = items.find((it) => it.coupon.code.toUpperCase() === code.toUpperCase());
+        if (found) {
+          if (found.coupon.discountType === 'free_shipping') {
+            setSelectedFreeshipCode(found.coupon.code);
+          } else {
+            setSelectedDiscountCode(found.coupon.code);
+          }
+        }
+      });
+    }
+  }, [items, route.params?.selectedCouponCode, route.params?.selectedCouponCodes]);
+
+  const loadCoupons = useCallback(
     async (mode: 'initial' | 'refresh' | 'more' = 'initial') => {
       if (!session?.accessToken) {
         requestSequenceRef.current += 1;
@@ -159,11 +186,11 @@ const CouponsScreen = () => {
     [cartItemIds, hasCartContext, paymentMethod, runWithAuth, session?.accessToken],
   );
 
-  React.useEffect(() => {
+  useEffect(() => {
     void loadCoupons();
   }, [loadCoupons]);
 
-  const filteredItems = React.useMemo(
+  const filteredItems = useMemo(
     () => items.filter((item) => activeCategory === 'all' || getCouponCategory(item) === activeCategory),
     [activeCategory, items],
   );
@@ -173,101 +200,135 @@ const CouponsScreen = () => {
       ? items.length
       : items.filter((item) => getCouponCategory(item) === category).length;
 
-  const handleUseCoupon = async (item: AvailableCouponItem) => {
+  const handleToggleCoupon = (item: AvailableCouponItem) => {
     if (item.isApplicable === false) {
-      Alert.alert('Voucher chưa dùng được', item.reason || 'Voucher chưa phù hợp với đơn hàng này.');
+      Alert.alert('Voucher chưa đủ điều kiện', item.reason || 'Voucher chưa phù hợp với đơn hàng này.');
       return;
     }
 
-    if (hasCartContext && session?.accessToken) {
-      try {
-        setApplyingCouponCode(item.coupon.code);
-        await runWithAuth((accessToken) => couponApi.validateCoupon(accessToken, {
-          couponCode: item.coupon.code,
-          cartItemIds,
-          paymentMethod,
-        }));
-      } catch (error) {
-        Alert.alert(
-          'Voucher chưa dùng được',
-          error instanceof Error ? error.message : 'Voucher không còn phù hợp với đơn hàng này.',
-        );
-        return;
-      } finally {
-        setApplyingCouponCode(null);
-      }
+    if (!hasCartContext) {
+      navigation.navigate('Cart', { couponCode: item.coupon.code, selectionSource: 'normal' });
+      return;
     }
 
+    const isFreeship = item.coupon.discountType === 'free_shipping';
+    const code = item.coupon.code;
+
+    if (isFreeship) {
+      setSelectedFreeshipCode((prev) => (prev === code ? null : code));
+    } else {
+      setSelectedDiscountCode((prev) => (prev === code ? null : code));
+    }
+  };
+
+  const handleApplySelectedCoupons = () => {
+    const selectedCodes = [selectedDiscountCode, selectedFreeshipCode].filter(Boolean) as string[];
     if (hasCartContext) {
-      navigation.navigate('Checkout', {
-        couponCode: item.coupon.code,
+      navigation.popTo('Checkout', {
+        couponCodes: selectedCodes,
+        couponCode: selectedCodes[0] ?? undefined,
         cartItemIds,
       });
       return;
     }
-
-    navigation.navigate('Cart', { couponCode: item.coupon.code, selectionSource: 'normal' });
+    navigation.navigate('Cart', { selectionSource: 'normal' });
   };
+
+  const selectedCount = (selectedDiscountCode ? 1 : 0) + (selectedFreeshipCode ? 1 : 0);
 
   const renderCoupon = (item: AvailableCouponItem) => {
     const estimateText = getEstimateText(item);
     const isDisabled = item.isApplicable === false;
-    const isApplying = applyingCouponCode === item.coupon.code;
-    const isSelected = route.params?.selectedCouponCode === item.coupon.code;
-    const couponCategory = getCouponCategory(item);
-    const isDiscountCoupon = couponCategory === 'discount';
-    const typeColor = couponCategory === 'freeship' ? colors.success : colors.danger;
-    const typeBackground = couponCategory === 'freeship' ? colors.successSoft : colors.dangerSoft;
+    const isFreeship = item.coupon.discountType === 'free_shipping';
+    const isSelected = isFreeship
+      ? selectedFreeshipCode === item.coupon.code
+      : selectedDiscountCode === item.coupon.code;
+
+    const accentColor = isFreeship ? colors.success : colors.brand;
+    const accentSoftBg = isFreeship ? colors.successSoft : colors.brandSoft;
 
     return (
-      <View
+      <TouchableOpacity
         key={item.coupon._id}
         style={[
-          styles.couponCard,
-          isDiscountCoupon && styles.discountCouponCard,
-          isSelected && (isDiscountCoupon ? styles.discountCouponCardSelected : styles.couponCardSelected),
-          isDisabled && styles.couponCardDisabled,
+          styles.ticketCard,
+          isSelected && styles.ticketCardSelected,
+          isDisabled && styles.ticketCardDisabled,
         ]}
+        onPress={() => handleToggleCoupon(item)}
+        activeOpacity={isDisabled ? 1 : 0.85}
       >
-        <View style={styles.couponTop}>
-          <View style={styles.codeRow}>
-            <MaterialCommunityIcons name={getCouponTypeIcon(item)} size={22} color={typeColor} />
-            <Text style={styles.codeText} numberOfLines={1}>
-              {item.coupon.code}
+        {/* Left stub */}
+        <View style={[styles.ticketStub, { backgroundColor: accentSoftBg }, isSelected && { backgroundColor: accentColor }]}>
+          <MaterialCommunityIcons
+            name={isFreeship ? 'truck-fast' : 'ticket-percent'}
+            size={26}
+            color={isSelected ? colors.white : accentColor}
+          />
+          <Text style={[styles.stubValueText, isSelected && styles.stubValueTextActive]} numberOfLines={1}>
+            {getCouponValueText(item)}
+          </Text>
+          <Text style={[styles.stubTypeText, isSelected && styles.stubTypeTextActive]} numberOfLines={1}>
+            {getCouponTypeLabel(item)}
+          </Text>
+        </View>
+
+        {/* Clean vertical divider */}
+        <View style={styles.ticketDivider} />
+
+        {/* Right body */}
+        <View style={styles.ticketBody}>
+          <View style={styles.ticketHeaderRow}>
+            <View style={styles.codeBadge}>
+              <Text style={styles.codeBadgeText}>{item.coupon.code}</Text>
+            </View>
+
+            {hasCartContext ? (
+              <View style={[styles.selectionCircle, isSelected && styles.selectionCircleActive, isDisabled && styles.selectionCircleDisabled]}>
+                {isSelected ? <MaterialCommunityIcons name="check" size={14} color={colors.white} /> : null}
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.useNowBtn, isDisabled && styles.useNowBtnDisabled]}
+                onPress={() => handleToggleCoupon(item)}
+                disabled={isDisabled}
+              >
+                <Text style={styles.useNowText}>Dùng ngay</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <Text style={styles.ticketTitle} numberOfLines={2}>
+            {item.coupon.name}
+          </Text>
+
+          <View style={styles.ticketMetaRow}>
+            <MaterialCommunityIcons name="shopping-outline" size={13} color={colors.textMuted} />
+            <Text style={styles.ticketMetaText}>
+              Đơn tối thiểu: {formatCurrency(item.coupon.minOrderAmount)}
             </Text>
           </View>
-          <TouchableOpacity
-            style={[
-              styles.useButton,
-              isDiscountCoupon && styles.discountUseButton,
-              (isDisabled || isApplying) && styles.useButtonDisabled,
-            ]}
-            onPress={() => void handleUseCoupon(item)}
-            disabled={isDisabled || isApplying}
-            activeOpacity={0.82}
-          >
-            {isApplying ? (
-              <ActivityIndicator color={colors.white} size="small" />
-            ) : (
-              <Text style={styles.useButtonText}>{isSelected ? 'Đang dùng' : 'Sử dụng'}</Text>
-            )}
-          </TouchableOpacity>
+
+          <View style={styles.ticketMetaRow}>
+            <MaterialCommunityIcons name="clock-outline" size={13} color={colors.textMuted} />
+            <Text style={styles.ticketMetaText}>HSD: {formatDate(item.coupon.endAt)}</Text>
+          </View>
+
+          {estimateText ? (
+            <View style={styles.estimatePill}>
+              <MaterialCommunityIcons name="lightning-bolt" size={13} color={colors.success} />
+              <Text style={styles.estimatePillText}>{estimateText}</Text>
+            </View>
+          ) : null}
+
+          {isDisabled && item.reason ? (
+            <View style={styles.reasonPill}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={13} color={colors.danger} />
+              <Text style={styles.reasonPillText} numberOfLines={1}>{item.reason}</Text>
+            </View>
+          ) : null}
         </View>
-
-        <View style={[styles.typePill, { backgroundColor: typeBackground }]}>
-          <MaterialCommunityIcons name={getCouponTypeIcon(item)} size={15} color={typeColor} />
-          <Text style={[styles.typePillText, { color: typeColor }]}>{getCouponTypeLabel(item)}</Text>
-        </View>
-
-        <Text style={[styles.valueText, isDiscountCoupon && styles.discountValueText]}>
-          {getCouponValueText(item)}
-        </Text>
-        <Text style={styles.metaText}>Đơn tối thiểu: {formatCurrency(item.coupon.minOrderAmount)}</Text>
-        <Text style={styles.metaText}>HSD: {formatDate(item.coupon.endAt)}</Text>
-
-        {estimateText ? <Text style={styles.estimateText}>{estimateText}</Text> : null}
-        {isDisabled ? <Text style={styles.reasonText}>{item.reason}</Text> : null}
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -275,20 +336,28 @@ const CouponsScreen = () => {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.82}>
-          <MaterialCommunityIcons name="arrow-left" size={26} color={colors.white} />
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Voucher & Ưu đãi</Text>
         <View style={styles.headerButton} />
       </View>
 
+      <View style={styles.ruleBanner}>
+        <MaterialCommunityIcons name="information-outline" size={16} color={colors.brandDark} />
+        <Text style={styles.ruleBannerText}>
+          Áp dụng tối đa <Text style={styles.ruleBannerBold}>1 Mã giảm giá</Text> + <Text style={styles.ruleBannerBold}>1 Mã Freeship</Text> cho mỗi đơn hàng.
+        </Text>
+      </View>
+
       {isLoading ? (
         <View style={styles.loadingState}>
           <ActivityIndicator size="large" color={colors.brand} />
+          <Text style={styles.loadingText}>Đang tải danh sách ưu đãi...</Text>
         </View>
       ) : (
         <ScrollView
           style={styles.content}
-          contentContainerStyle={styles.contentBody}
+          contentContainerStyle={[styles.contentBody, hasCartContext && styles.contentBodyWithFooter]}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadCoupons('refresh')} />}
           showsVerticalScrollIndicator={false}
         >
@@ -305,27 +374,34 @@ const CouponsScreen = () => {
                 >
                   <MaterialCommunityIcons
                     name={category.icon}
-                    size={17}
-                    color={isActive ? colors.brandDark : colors.textMuted}
+                    size={16}
+                    color={isActive ? colors.white : colors.textMuted}
                   />
                   <Text style={[styles.categoryTabText, isActive && styles.categoryTabTextActive]}>
                     {category.label}
                   </Text>
-                  <Text style={[styles.categoryCount, isActive && styles.categoryCountActive]}>
-                    {getCategoryCount(category.key)}
-                  </Text>
+                  <View style={[styles.categoryCountBadge, isActive && styles.categoryCountBadgeActive]}>
+                    <Text style={[styles.categoryCountText, isActive && styles.categoryCountTextActive]}>
+                      {getCategoryCount(category.key)}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
 
-          {filteredItems.length ? filteredItems.map(renderCoupon) : (
+          {filteredItems.length ? (
+            <View style={styles.couponListStack}>
+              {filteredItems.map(renderCoupon)}
+            </View>
+          ) : (
             <View style={styles.emptyState}>
-              <MaterialCommunityIcons name="ticket-confirmation-outline" size={36} color={colors.textSubtle} />
+              <MaterialCommunityIcons name="ticket-confirmation-outline" size={48} color={colors.textSubtle} />
               <Text style={styles.emptyTitle}>Chưa có voucher khả dụng</Text>
               <Text style={styles.emptyText}>Ưu đãi mới sẽ xuất hiện tại đây khi được mở.</Text>
             </View>
           )}
+
           {pagination.page < pagination.totalPages ? (
             <TouchableOpacity
               style={styles.loadMoreButton}
@@ -339,12 +415,44 @@ const CouponsScreen = () => {
               )}
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity style={styles.supportButton} onPress={() => navigation.navigate('SupportTicketCreate', { category: 'promotions', contextSource: 'coupon' })}>
-            <MaterialCommunityIcons name="lifebuoy" size={20} color={colors.brand} />
-            <Text style={styles.supportButtonText}>Cần hỗ trợ về voucher?</Text>
+
+          <TouchableOpacity
+            style={styles.supportButton}
+            onPress={() => navigation.navigate('SupportTicketCreate', { category: 'promotions', contextSource: 'coupon' })}
+          >
+            <MaterialCommunityIcons name="lifebuoy" size={18} color={colors.brand} />
+            <Text style={styles.supportButtonText}>Cần hỗ trợ về voucher & ưu đãi?</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
+
+      {hasCartContext && !isLoading ? (
+        <View style={styles.stickyFooter}>
+          <View style={styles.stickyFooterInfo}>
+            <Text style={styles.stickyFooterCount}>
+              Đã chọn: <Text style={styles.stickyFooterCountBold}>{selectedCount}/2 voucher</Text>
+            </Text>
+            <Text style={styles.stickyFooterSubtext}>
+              {selectedDiscountCode && selectedFreeshipCode
+                ? '1 Giảm giá + 1 Freeship'
+                : selectedDiscountCode
+                ? '1 Mã giảm giá (có thể thêm Freeship)'
+                : selectedFreeshipCode
+                ? '1 Mã Freeship (có thể thêm Giảm giá)'
+                : 'Chưa chọn voucher nào'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.applyFooterBtn}
+            onPress={handleApplySelectedCoupons}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.applyFooterBtnText}>
+              Áp dụng {selectedCount > 0 ? `(${selectedCount})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 };
@@ -355,10 +463,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    minHeight: 72,
+    minHeight: 56,
     backgroundColor: colors.brand,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
   },
   headerButton: {
@@ -368,17 +477,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {
-    flex: 1,
     color: colors.white,
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  ruleBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.brandMist,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  ruleBannerText: {
+    flex: 1,
+    color: colors.brandDark,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  ruleBannerBold: {
+    fontWeight: '900',
+    color: colors.brandDark,
   },
   loadingState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  loadingText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -388,31 +523,15 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     paddingBottom: spacing.xxl,
   },
-  supportButton: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: colors.brand,
-    borderRadius: radii.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
+  contentBodyWithFooter: {
+    paddingBottom: 100,
   },
-  supportButtonText: { color: colors.brand, fontWeight: '800' },
-  loadMoreButton: {
-    minHeight: 48,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadMoreText: { color: colors.white, fontWeight: '900' },
   categoryTabs: {
     gap: spacing.sm,
     paddingRight: spacing.lg,
   },
   categoryTab: {
-    minHeight: 40,
+    minHeight: 38,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.border,
@@ -425,7 +544,7 @@ const styles = StyleSheet.create({
   },
   categoryTabActive: {
     borderColor: colors.brand,
-    backgroundColor: colors.brandSoft,
+    backgroundColor: colors.brand,
   },
   categoryTabText: {
     color: colors.textMuted,
@@ -433,143 +552,276 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   categoryTabTextActive: {
-    color: colors.brandDark,
-  },
-  categoryCount: {
-    minWidth: 22,
-    borderRadius: radii.pill,
-    overflow: 'hidden',
-    color: colors.textMuted,
-    backgroundColor: colors.background,
-    fontSize: 11,
-    lineHeight: 18,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  categoryCountActive: {
     color: colors.white,
-    backgroundColor: colors.brand,
   },
-  couponCard: {
-    borderRadius: radii.sm,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: colors.brand,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  couponCardSelected: {
-    backgroundColor: colors.brandSoft,
-  },
-  discountCouponCard: {
-    borderColor: colors.danger,
-  },
-  discountCouponCardSelected: {
-    backgroundColor: colors.dangerSoft,
-  },
-  couponCardDisabled: {
-    opacity: 0.58,
-  },
-  couponTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  codeRow: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  codeText: {
-    color: colors.text,
-    fontSize: 17,
-    lineHeight: 23,
-    fontWeight: '900',
-  },
-  useButton: {
-    minWidth: 98,
-    height: 48,
-    borderRadius: radii.sm,
-    backgroundColor: colors.brand,
+  categoryCountBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 4,
   },
-  useButtonDisabled: {
-    backgroundColor: colors.textSubtle,
+  categoryCountBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
-  discountUseButton: {
-    backgroundColor: colors.danger,
-  },
-  useButtonText: {
-    color: colors.white,
-    fontSize: 15,
-    lineHeight: 20,
+  categoryCountText: {
+    color: colors.textMuted,
+    fontSize: 11,
     fontWeight: '900',
   },
-  typePill: {
-    alignSelf: 'flex-start',
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+  categoryCountTextActive: {
+    color: colors.white,
+  },
+  couponListStack: {
+    gap: spacing.md,
+  },
+  ticketCard: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 115,
+  },
+  ticketCardSelected: {
+    borderColor: colors.brand,
+    borderWidth: 1.5,
+  },
+  ticketCardDisabled: {
+    opacity: 0.6,
+  },
+  ticketStub: {
+    width: 90,
+    paddingVertical: spacing.md,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderTopLeftRadius: radii.sm - 1,
+    borderBottomLeftRadius: radii.sm - 1,
+  },
+  stubValueText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.brandDark,
+    textAlign: 'center',
+  },
+  stubValueTextActive: {
+    color: colors.white,
+  },
+  stubTypeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  stubTypeTextActive: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  ticketDivider: {
+    width: 1,
+    backgroundColor: colors.border,
+  },
+  ticketBody: {
+    flex: 1,
+    padding: spacing.md,
+    gap: 4,
+    justifyContent: 'center',
+  },
+  ticketHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
+    marginBottom: 2,
   },
-  typePillText: {
+  codeBadge: {
+    backgroundColor: colors.field,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  codeBadgeText: {
+    color: colors.brandDark,
     fontSize: 12,
     fontWeight: '900',
+    letterSpacing: 0.5,
   },
-  valueText: {
-    color: colors.brand,
-    fontSize: 28,
-    lineHeight: 36,
-    fontWeight: '900',
-    marginTop: spacing.sm,
+  selectionCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  discountValueText: {
-    color: colors.danger,
+  selectionCircleActive: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
   },
-  metaText: {
-    color: colors.textMuted,
+  selectionCircleDisabled: {
+    borderColor: colors.disabled,
+    backgroundColor: colors.field,
+  },
+  useNowBtn: {
+    backgroundColor: colors.brand,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+  },
+  useNowBtnDisabled: {
+    backgroundColor: colors.disabled,
+  },
+  useNowText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  ticketTitle: {
+    color: colors.text,
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: '800',
+  },
+  ticketMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  ticketMetaText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  estimatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radii.xs,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  estimatePillText: {
+    color: colors.success,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  reasonPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.dangerSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radii.xs,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  reasonPillText: {
+    color: colors.danger,
+    fontSize: 11,
     fontWeight: '700',
   },
-  estimateText: {
-    color: colors.success,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '900',
-    marginTop: spacing.xs,
-  },
-  reasonText: {
-    color: colors.danger,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '800',
-    marginTop: spacing.xs,
-  },
   emptyState: {
-    minHeight: 260,
+    minHeight: 220,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
   },
   emptyTitle: {
     color: colors.text,
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 16,
     fontWeight: '900',
   },
   emptyText: {
     color: colors.textMuted,
     fontSize: 13,
-    lineHeight: 18,
     textAlign: 'center',
+  },
+  loadMoreButton: {
+    minHeight: 44,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreText: {
+    color: colors.white,
+    fontWeight: '900',
+    fontSize: 13,
+  },
+  supportButton: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  supportButtonText: {
+    color: colors.brandDark,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  stickyFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...shadows.card,
+  },
+  stickyFooterInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  stickyFooterCount: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  stickyFooterCountBold: {
+    color: colors.brand,
+    fontWeight: '900',
+  },
+  stickyFooterSubtext: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  applyFooterBtn: {
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  applyFooterBtnText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '900',
   },
 });
 

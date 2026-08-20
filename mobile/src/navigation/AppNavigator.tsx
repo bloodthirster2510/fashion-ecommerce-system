@@ -63,6 +63,7 @@ export type RootStackParamList = {
   ProductDetail: {
     productId: string;
     recommendationRequestId?: string;
+    openTryOn?: boolean;
   };
   Cart: {
     couponCode?: string;
@@ -70,11 +71,13 @@ export type RootStackParamList = {
   } | undefined;
   Checkout: {
     couponCode?: string;
+    couponCodes?: string[];
     cartItemIds?: string[];
   } | undefined;
   Coupons: {
     cartItemIds?: string[];
     selectedCouponCode?: string | null;
+    selectedCouponCodes?: string[];
     paymentMethod?: 'COD' | 'VNPAY';
   } | undefined;
   Favorites: undefined;

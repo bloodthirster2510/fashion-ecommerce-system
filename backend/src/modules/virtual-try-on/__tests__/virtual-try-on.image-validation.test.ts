@@ -461,6 +461,19 @@ describe('virtualTryOnService image validation', () => {
     expect(mockedVirtualTryOnJob.create).toHaveBeenCalledTimes(1);
   });
 
+  it('falls back to the original background when a custom prompt is blank', async () => {
+    await virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      contextPreset: 'custom',
+      contextPrompt: '   ',
+    });
+
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledWith(expect.objectContaining({
+      contextPreset: 'none',
+      contextPrompt: undefined,
+    }));
+  });
+
   it('treats multiple people as ready for job creation', async () => {
     process.env.IMAGE_VALIDATION_MOCK_REASON_CODE = 'MULTIPLE_PEOPLE_DETECTED';
 

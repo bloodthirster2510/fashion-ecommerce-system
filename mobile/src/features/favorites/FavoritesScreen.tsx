@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -22,6 +24,7 @@ import { brandedHeaderStyles, colors, radii, shadows, spacing } from '../../them
 import { useAuth } from '../auth/AuthContext';
 import { FavoriteProduct, favoritesApi, type FavoriteListResponse } from './favoritesApi';
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import { useTryOnQueue } from '../virtualTryOn/TryOnQueueProvider';
 
 type FavoritesNavigationProp = StackNavigationProp<RootStackParamList, 'Favorites'>;
 
@@ -56,6 +59,7 @@ const formatFavoriteDate = (value: string) => {
 const FavoritesScreen = () => {
   const navigation = useNavigation<FavoritesNavigationProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
+  const { items: tryOnQueueItems } = useTryOnQueue();
   const favoritesAccountScope = session?.user?._id ?? 'logged-out';
   const initialFavoritesQueryKeyRef = React.useRef(getFavoritesQueryKey(favoritesAccountScope, 1, ''));
   const initialFavoritesRef = React.useRef(
@@ -213,6 +217,25 @@ const FavoritesScreen = () => {
     navigation.navigate('ProductDetail', { productId: product._id });
   };
 
+  const handleAddToTryOn = (product: FavoriteProduct) => {
+    navigation.navigate('ProductDetail', { productId: product._id, openTryOn: true });
+  };
+
+  const changePageBySwipe = React.useCallback((direction: -1 | 1) => {
+    setPage((currentPage) => Math.max(1, Math.min(currentPage + direction, pagination.totalPages || 1)));
+  }, [pagination.totalPages]);
+
+  const pageSwipeGesture = Gesture.Pan()
+    .activeOffsetX([-42, 42])
+    .failOffsetY([-24, 24])
+    .onEnd((event) => {
+      const direction: -1 | 1 = event.translationX < 0 ? 1 : -1;
+      const canMove = direction === 1 ? page < pagination.totalPages : page > 1;
+      if (canMove && (Math.abs(event.translationX) >= 72 || Math.abs(event.velocityX) >= 650)) {
+        runOnJS(changePageBySwipe)(direction);
+      }
+    });
+
   const renderProductCard = React.useCallback(
     ({ item: product }: { item: FavoriteProduct }) => {
       const imageUri = isRemoteImage(product.image) ? product.image.trim() : '';
@@ -271,16 +294,17 @@ const FavoritesScreen = () => {
               ) : null}
             </View>
             <TouchableOpacity
-              style={[styles.cartButton, !product.isAvailable && styles.cartButtonDisabled]}
+              style={[styles.tryOnButton, !product.isAvailable && styles.cartButtonDisabled]}
               onPress={(event) => {
                 event.stopPropagation();
-                handleProductPress(product);
+                handleAddToTryOn(product);
               }}
               disabled={!product.isAvailable}
               activeOpacity={0.82}
-              accessibilityLabel={`Mua ${product.name}`}
+              accessibilityLabel={`Thêm ${product.name} vào hàng chờ phối`}
             >
-              <MaterialCommunityIcons name="cart-outline" size={18} color={colors.white} />
+              <MaterialCommunityIcons name="hanger" size={15} color={colors.brand} />
+              <Text style={styles.tryOnButtonText}>Phối</Text>
             </TouchableOpacity>
           </View>
 
@@ -361,12 +385,13 @@ const FavoritesScreen = () => {
     }
 
     return (
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadFavorites('refresh')} />}
-      >
+      <GestureDetector gesture={pageSwipeGesture}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => loadFavorites('refresh')} />}
+        >
         <View style={styles.searchPanel}>
           <View style={styles.searchRow}>
             <MaterialCommunityIcons name="magnify" size={20} color={colors.textMuted} />
@@ -468,7 +493,8 @@ const FavoritesScreen = () => {
             </TouchableOpacity>
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </GestureDetector>
     );
   };
 
@@ -476,6 +502,22 @@ const FavoritesScreen = () => {
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       {renderHeader()}
       {renderContent()}
+      {isAuthenticated && tryOnQueueItems.length ? (
+        <View style={styles.tryOnQueueBar}>
+          <View style={styles.tryOnQueueCopy}>
+            <Text style={styles.tryOnQueueTitle}>Hàng chờ phối</Text>
+            <Text style={styles.tryOnQueueText}>{tryOnQueueItems.length} món đã sẵn sàng</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.tryOnQueueButton}
+            onPress={() => navigation.navigate('VirtualTryOnHome', { seedItems: tryOnQueueItems, entryPoint: 'builder' })}
+            activeOpacity={0.84}
+          >
+            <Text style={styles.tryOnQueueButtonText}>Phối thử ({tryOnQueueItems.length})</Text>
+            <MaterialCommunityIcons name="arrow-right" size={18} color={colors.white} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 };
@@ -624,13 +666,23 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     marginTop: 1,
   },
-  cartButton: {
-    width: 34,
+  tryOnButton: {
     height: 34,
-    borderRadius: radii.xs,
-    backgroundColor: colors.brand,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 3,
+  },
+  tryOnButtonText: {
+    color: colors.brand,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
   },
   cartButtonDisabled: {
     backgroundColor: colors.disabled,
@@ -641,6 +693,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  tryOnQueueBar: {
+    minHeight: 68,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  tryOnQueueCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  tryOnQueueTitle: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  tryOnQueueText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  tryOnQueueButton: {
+    minHeight: 42,
+    borderRadius: radii.sm,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  tryOnQueueButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
   },
   ratingRow: {
     flexDirection: 'row',

@@ -53,8 +53,8 @@ const normalizeCouponCodes = (input: { couponCode?: string; couponCodes?: string
     .map((code) => normalizeCouponCode(code))
     .filter((code): code is string => Boolean(code));
   const uniqueCodes = Array.from(new Set(codes));
-  if (uniqueCodes.length > 3) {
-    throw new PromotionPricingError('A maximum of 3 coupon codes can be applied', 400);
+  if (uniqueCodes.length > 2) {
+    throw new PromotionPricingError('Chỉ có thể áp dụng tối đa 2 voucher (1 mã giảm giá + 1 mã freeship)', 400);
   }
   return uniqueCodes;
 };
@@ -394,14 +394,14 @@ const calculateCheckout = async (input: CalculateCheckoutInput): Promise<Checkou
   let stackingCampaign = null;
   if (rawAppliedCoupons.length > 1) {
     if (rawAppliedCoupons.filter((coupon) => coupon.discountType === 'free_shipping').length > 1) {
-      throw new PromotionPricingError('Only one free-shipping coupon can be stacked', 409);
+      throw new PromotionPricingError('Chỉ có thể áp dụng tối đa 1 mã freeship', 409);
+    }
+    if (rawAppliedCoupons.filter((coupon) => coupon.discountType !== 'free_shipping').length > 1) {
+      throw new PromotionPricingError('Chỉ có thể áp dụng tối đa 1 mã giảm giá đơn hàng', 409);
     }
     stackingCampaign = await promotionCampaignService.findStackingCampaignForCoupons(
       rawAppliedCoupons.map((coupon) => coupon.coupon._id),
     );
-    if (!stackingCampaign) {
-      throw new PromotionPricingError('These coupons cannot be stacked together', 409);
-    }
   }
 
   let remainingProductDiscount = subTotal;

@@ -19,6 +19,7 @@ import {
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
+import { mergeTryOnQueueItems, useTryOnQueue } from './TryOnQueueProvider';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
@@ -261,6 +262,7 @@ const VirtualTryOnHomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { isAuthenticated, runWithAuth } = useAuth();
+  const { items: queuedItems, addItems: addQueueItems, removeItem: removeQueueItem } = useTryOnQueue();
   const [latestAsset, setLatestAsset] = React.useState<VirtualTryOnAsset | null>(null);
   const [assetLibrary, setAssetLibrary] = React.useState<VirtualTryOnAsset[]>([]);
   const [assetPagination, setAssetPagination] = React.useState<PageInfo | null>(null);
@@ -281,11 +283,17 @@ const VirtualTryOnHomeScreen = () => {
     const nextSeedItems = route.params?.seedItems;
     if (!nextSeedItems?.length) return;
 
-    setPendingSeedItems(nextSeedItems.slice(0, TRY_ON_QUEUE_LIMIT));
+    const nextQueue = mergeTryOnQueueItems(queuedItems, nextSeedItems);
+    addQueueItems(nextSeedItems);
+    setPendingSeedItems(nextQueue);
     setPendingAlternativeSeedItems(route.params?.alternativeSeedItems ?? []);
     setPendingEntryPoint(route.params?.entryPoint);
     navigation.setParams({ seedItems: undefined, alternativeSeedItems: undefined, entryPoint: undefined });
-  }, [navigation, route.params?.entryPoint, route.params?.seedItems, route.params?.alternativeSeedItems]);
+  }, [addQueueItems, navigation, queuedItems, route.params?.entryPoint, route.params?.seedItems, route.params?.alternativeSeedItems]);
+
+  React.useEffect(() => {
+    setPendingSeedItems(queuedItems);
+  }, [queuedItems]);
 
   React.useEffect(() => {
     const animation = Animated.loop(
@@ -390,17 +398,10 @@ const VirtualTryOnHomeScreen = () => {
     }
   }, [assetPagination, isLoadingMoreAssets, runWithAuth]);
 
-  React.useEffect(() => {
-    if (pendingSeedItems.length && !latestAsset && assetLibrary.length) {
-      setLatestAsset(assetLibrary[0]);
-    }
-  }, [assetLibrary, latestAsset, pendingSeedItems.length]);
-
   const openBuilderWithAsset = React.useCallback((asset: VirtualTryOnAsset) => {
     const seedItems = pendingSeedItems;
     const alternativeSeedItems = pendingAlternativeSeedItems;
     const entryPoint = pendingEntryPoint;
-    setPendingSeedItems([]);
     setPendingAlternativeSeedItems([]);
     setPendingEntryPoint(undefined);
     navigation.navigate('VirtualTryOnBuilder', {
@@ -619,6 +620,14 @@ const VirtualTryOnHomeScreen = () => {
                   <View style={styles.pendingOutfitIndex}>
                     <Text style={styles.pendingOutfitIndexText}>{index + 1}</Text>
                   </View>
+                  <TouchableOpacity
+                    style={styles.pendingOutfitRemove}
+                    onPress={() => removeQueueItem(item)}
+                    activeOpacity={0.82}
+                    accessibilityLabel={`Bỏ ${item.nameSnapshot ?? 'sản phẩm'} khỏi hàng chờ phối`}
+                  >
+                    <MaterialCommunityIcons name="close" size={13} color={colors.white} />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
@@ -1092,6 +1101,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 13,
     fontWeight: '900',
+  },
+  pendingOutfitRemove: {
+    position: 'absolute',
+    right: 3,
+    top: 3,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: studioPalette.ink,
+    borderWidth: 2,
+    borderColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   hero: {
     borderRadius: radii.md,
