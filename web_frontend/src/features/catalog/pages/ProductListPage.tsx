@@ -598,9 +598,12 @@ export function ProductListPage() {
           fitTypeLabelById={fitTypeLabelById}
           sortOptions={visibleSortOptions}
           selectedSort={selectedSort}
+          isVisualSearchLoading={isVisualSearchLoading}
+          visualSearchDisabled={Boolean(queryValidationError)}
           onQueryValueChange={applyQueryValue}
           onQueryChange={applyQueryValues}
           onClearFilters={clearFilters}
+          onVisualSearchFile={(file) => void handleVisualSearch(file)}
         />
 
         {searchKeyword && !visualSearchResult && (

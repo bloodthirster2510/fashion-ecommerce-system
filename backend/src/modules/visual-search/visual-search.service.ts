@@ -2,6 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Types } from 'mongoose';
 import {
+  Category,
   Inventory,
   Product,
   ProductVisualIndex,
@@ -381,12 +382,67 @@ const toRegexList = (values?: string[]) => {
     .map((value) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
 };
 
+const getDescendantCategoryIds = async (
+  categoryId: string,
+  gender?: ProductVisualGender,
+) => {
+  const [rootCategoryId] = toObjectIdList([categoryId], 'categoryId') ?? [];
+  if (!rootCategoryId) {
+    return [];
+  }
+
+  const rootCategory = await Category.findById(rootCategoryId)
+    .select('_id gender isActive')
+    .lean<{ _id: Types.ObjectId; gender: ProductVisualGender; isActive: boolean } | null>();
+
+  if (!rootCategory || !rootCategory.isActive || (gender && rootCategory.gender !== gender)) {
+    return [];
+  }
+
+  const categoryIdsByString = new Map<string, Types.ObjectId>([
+    [rootCategory._id.toString(), rootCategory._id],
+  ]);
+  let parentIds = [rootCategory._id];
+
+  while (parentIds.length) {
+    const childCategories = await Category.find({
+      parent_id: { $in: parentIds },
+      isActive: true,
+      ...(gender ? { gender } : {}),
+    })
+      .select('_id')
+      .lean<Array<{ _id: Types.ObjectId }>>();
+
+    parentIds = childCategories.map((category) => category._id);
+    parentIds.forEach((id) => categoryIdsByString.set(id.toString(), id));
+  }
+
+  return Array.from(categoryIdsByString.values());
+};
+
+const resolveVisualCategoryIds = async (options: VisualSearchQueryOptions) => {
+  if (!options.categoryId?.length) {
+    return undefined;
+  }
+
+  const categoryIdGroups = await Promise.all(
+    options.categoryId.map((categoryId) => getDescendantCategoryIds(categoryId, options.gender)),
+  );
+  const categoryIdsByString = new Map<string, Types.ObjectId>();
+
+  categoryIdGroups.flat().forEach((categoryId) => {
+    categoryIdsByString.set(categoryId.toString(), categoryId);
+  });
+
+  return Array.from(categoryIdsByString.values());
+};
+
 // Tạo bộ lọc visual index từ model hiện tại và các filter người dùng chọn.
-const buildVisualIndexFilter = (
+const buildVisualIndexFilter = async (
   embeddingResult: VisualEmbeddingResult,
   options: VisualSearchQueryOptions,
 ) => {
-  const categoryIds = toObjectIdList(options.categoryId, 'categoryId');
+  const categoryIds = await resolveVisualCategoryIds(options);
   const brandIds = toObjectIdList(options.brandId, 'brandId');
   const colors = toRegexList(options.color);
   const finalPriceFilter: Record<string, number> = {};
@@ -397,7 +453,7 @@ const buildVisualIndexFilter = (
     embeddingVersion: embeddingResult.embeddingVersion,
   };
 
-  if (categoryIds?.length) {
+  if (categoryIds) {
     filter.categoryId = { $in: categoryIds };
   }
 
@@ -468,7 +524,7 @@ const searchSimilarIndexItems = async (
   options: VisualSearchQueryOptions,
 ) => {
   const scoreThreshold = getScoreThreshold(options.scoreThreshold);
-  const filter = buildVisualIndexFilter(embeddingResult, options);
+  const filter = await buildVisualIndexFilter(embeddingResult, options);
   const rawCandidates = await ProductVisualIndex.find(filter)
     .select(
       'galleryImageId productId variantId colorVariantId imageUrl embedding embeddingDimension embeddingModel embeddingVersion categoryId brandId gender color finalPrice availableQuantity source',

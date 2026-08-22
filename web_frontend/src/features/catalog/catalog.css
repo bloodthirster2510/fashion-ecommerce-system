@@ -323,6 +323,19 @@
   width: 116px;
 }
 
+.catalog-visual-search-button.ant-btn-primary {
+  min-height: 34px;
+  background: #213448;
+  border-color: #213448;
+  font-weight: 700;
+}
+
+.catalog-visual-search-button.ant-btn-primary:hover,
+.catalog-visual-search-button.ant-btn-primary:focus-visible {
+  background: #315f7c;
+  border-color: #315f7c;
+}
+
 .visual-search-upload {
   display: flex;
   flex-wrap: wrap;

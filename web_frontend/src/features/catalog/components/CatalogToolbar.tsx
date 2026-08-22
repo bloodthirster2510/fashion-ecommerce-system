@@ -1,6 +1,6 @@
 import { Button, Checkbox, InputNumber, Select } from 'antd'
-import { FilterOutlined, ReloadOutlined, SortAscendingOutlined } from '@ant-design/icons'
-import { useEffect, useMemo, useState } from 'react'
+import { CameraOutlined, FilterOutlined, ReloadOutlined, SortAscendingOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import type { ProductListFilters, ProductListQuery, ProductSortOption } from '../catalog.types'
 
 type SortOption = {
@@ -20,9 +20,12 @@ type CatalogToolbarProps = {
   fitTypeLabelById: Map<string, string>
   sortOptions: SortOption[]
   selectedSort: SortOption
+  isVisualSearchLoading?: boolean
+  visualSearchDisabled?: boolean
   onQueryValueChange: <K extends keyof ProductListQuery>(key: K, value: ProductListQuery[K]) => void
   onQueryChange: (updates: Partial<ProductListQuery>) => void
   onClearFilters: () => void
+  onVisualSearchFile: (file: File) => void
 }
 
 type PriceDraft = {
@@ -69,10 +72,14 @@ export function CatalogToolbar({
   fitTypeLabelById,
   sortOptions,
   selectedSort,
+  isVisualSearchLoading = false,
+  visualSearchDisabled = false,
   onQueryValueChange,
   onQueryChange,
   onClearFilters,
+  onVisualSearchFile,
 }: CatalogToolbarProps) {
+  const visualSearchInputRef = useRef<HTMLInputElement | null>(null)
   const fitTypeOptions = useMemo(
     () => buildFitTypeOptions(filters?.fitTypes, fitTypeLabelById),
     [filters?.fitTypes, fitTypeLabelById],
@@ -101,9 +108,30 @@ export function CatalogToolbar({
     return () => window.clearTimeout(timeoutId)
   }, [onQueryChange, priceDraft.maxPrice, priceDraft.minPrice, query.maxPrice, query.minPrice])
 
+  const openVisualSearchPicker = () => {
+    visualSearchInputRef.current?.click()
+  }
+
+  const handleVisualSearchFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (file) {
+      onVisualSearchFile(file)
+    }
+  }
+
   return (
     <div className="catalog-toolbar">
       <section className="catalog-filter-panel" aria-labelledby="catalog-filter-title">
+        <input
+          ref={visualSearchInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleVisualSearchFileChange}
+          hidden
+        />
+
         <div className="catalog-section-title" id="catalog-filter-title">
           <FilterOutlined aria-hidden="true" />
           <span>Bộ lọc sản phẩm</span>
@@ -179,6 +207,16 @@ export function CatalogToolbar({
           <Checkbox checked={Boolean(query.isSale)} onChange={(event) => onQueryValueChange('isSale', event.target.checked)}>
             Sale
           </Checkbox>
+          <Button
+            className="catalog-visual-search-button"
+            type="primary"
+            icon={<CameraOutlined />}
+            loading={isVisualSearchLoading}
+            disabled={visualSearchDisabled}
+            onClick={openVisualSearchPicker}
+          >
+            Tìm bằng ảnh
+          </Button>
           <Button icon={<ReloadOutlined />} onClick={onClearFilters}>
             Xóa lọc
           </Button>
