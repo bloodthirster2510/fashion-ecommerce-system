@@ -355,7 +355,7 @@ const normalizeConfiguration = (value: unknown): IVirtualTryOnRuntimeConfigurati
   const videoWorkflowProfile = parseOption(
     input.videoWorkflowProfile,
     'Workflow video',
-    ['fast', 'balanced', 'quality'] as const,
+    ['budget', 'fast', 'balanced', 'quality'] as const,
   ) as VirtualTryOnVideoWorkflowProfile;
   const workflowDefinition = getVideoWorkflowDefinition(videoWorkflowProfile);
 
@@ -654,6 +654,7 @@ const getModelOptions = (settings: IVirtualTryOnRuntimeConfiguration) => ({
     label: workflow.label,
     description: workflow.description,
     model: workflow.model,
+    performance: workflow.performance,
     defaults: workflow.defaults,
   })),
   imageAspectRatios: IMAGE_ASPECT_RATIO_OPTIONS,

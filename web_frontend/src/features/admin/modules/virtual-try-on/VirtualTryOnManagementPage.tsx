@@ -1319,7 +1319,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           })}
                         >
                           {settings.modelOptions.videoProviders.map((provider) => (
-                            <option key={provider} value={provider}>{provider === 'comfy_kling' ? 'ComfyUI / Kling' : provider === 'mock' ? 'Mô phỏng' : 'Tắt'}</option>
+                            <option key={provider} value={provider}>{provider === 'comfy_kling' ? 'ComfyUI Video (Vidu / Kling)' : provider === 'mock' ? 'Mô phỏng' : 'Tắt'}</option>
                           ))}
                         </select>
                       </label>
@@ -1353,6 +1353,17 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <small>{settings.modelOptions.videoWorkflowProfiles.find(
                           (workflow) => workflow.id === settingsDraft.videoWorkflowProfile,
                         )?.description}</small>
+                        {(() => {
+                          const performance = settings.modelOptions.videoWorkflowProfiles.find(
+                            (workflow) => workflow.id === settingsDraft.videoWorkflowProfile,
+                          )?.performance
+                          return performance ? (
+                            <small>
+                              Tốc độ: {performance.speedLabel} · Chi phí: {performance.costLabel}
+                              {' '}— khoảng ${performance.estimatedCostUsd.toFixed(2)} ({performance.estimateBasis})
+                            </small>
+                          ) : null
+                        })()}
                       </label>
                       <label>
                         <span>Mô hình AI</span>
@@ -1392,7 +1403,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <span>Tỷ lệ video</span>
                         <select
                           value={settingsDraft.videoAspectRatio}
-                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile === 'fast'}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || ['budget', 'fast'].includes(settingsDraft.videoWorkflowProfile)}
                           onChange={(event) => setSettingsDraft((current) => current
                             ? { ...current, videoAspectRatio: event.target.value }
                             : current)}
@@ -1415,7 +1426,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       </label>
                     </fieldset>
                   </div>
-                  <p>Đổi quy trình chỉ áp dụng cho yêu cầu mới. Các lượt đang chạy tiếp tục dùng quy trình đã được ghi nhận khi tạo.</p>
+                  <p>Đổi quy trình chỉ áp dụng cho yêu cầu mới. Các lượt đang chạy tiếp tục dùng quy trình đã được ghi nhận khi tạo. Giá hiển thị là ước tính theo bảng giá Comfy Cloud và có thể thay đổi.</p>
                 </section>
                 <div className="admin-vto-settings-fields">
                   <label>
