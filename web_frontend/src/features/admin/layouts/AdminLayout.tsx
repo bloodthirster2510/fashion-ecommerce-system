@@ -601,7 +601,7 @@ function AdminWorkspace({ currentUser, onLogout }: AdminLayoutProps) {
                     aria-current={isActive ? 'page' : undefined}
                     aria-disabled={isDisabled || undefined}
                     aria-label={`${item.label}: ${navHelper}`}
-                    className={`admin-nav-item${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
+                    className={`admin-nav-item${notificationBadge ? ' has-notification' : ''}${isOrderPaymentRoute ? ' is-child' : ''}${isActive ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
                     type="button"
                     key={item.id}
                     title={navHelper}

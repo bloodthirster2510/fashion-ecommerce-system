@@ -320,7 +320,14 @@
 
 .admin-nav-item strong {
   line-height: 1.15;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-nav-item.has-notification {
+  gap: 8px;
+  padding-inline: 8px;
 }
 
 .admin-nav-item strong {
