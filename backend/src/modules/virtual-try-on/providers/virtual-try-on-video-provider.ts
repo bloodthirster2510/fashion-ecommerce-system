@@ -9,6 +9,7 @@ export type VirtualTryOnVideoProviderInput = {
   model?: string;
   durationSeconds: number;
   resolution: string;
+  aspectRatio?: string;
   generateAudio: boolean;
 };
 

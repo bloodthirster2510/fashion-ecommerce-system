@@ -28,7 +28,7 @@ export function VisualSearchResultHeader({
 
       <div>
         <span>{isTextSearch ? 'Tìm kiếm bằng mô tả' : 'Tìm kiếm bằng hình ảnh'}</span>
-        <strong>{isTextSearch ? queryText || imageName || 'Mô tả sản phẩm' : 'Kết quả sản phẩm tương tự'}</strong>
+        <strong>{isTextSearch ? queryText || imageName || 'Mô tả sản phẩm' : 'Kết quả tìm kiếm sản phẩm'}</strong>
       </div>
 
       <Button onClick={onClear}>Quay lại danh mục</Button>

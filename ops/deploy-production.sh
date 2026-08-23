@@ -7,6 +7,7 @@ readonly STATE_FILE="${STATE_DIR}/deployed-sha"
 readonly LOCK_FILE="/tmp/fashion-ecommerce-deploy.lock"
 readonly PUBLIC_URL="https://cdshopfashion.duckdns.org"
 readonly CHECK_RUNS_URL="https://api.github.com/repos/bloodthirster2510/fashion-ecommerce-system/commits"
+readonly DEPLOY_BRANCH="${DEPLOY_BRANCH:-develop}"
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -102,13 +103,17 @@ fi
 
 cd "$REPO_DIR"
 
+# Keep VNPay web returns and API CORS aligned with the public storefront.
+export DOCKER_FRONTEND_URL="$PUBLIC_URL"
+export DOCKER_FRONTEND_URL_ALT="$PUBLIC_URL"
+
 if ! git diff --quiet || ! git diff --cached --quiet; then
   log "tracked files on the server have local changes; refusing to overwrite them"
   exit 1
 fi
 
-log "fetching origin/main"
-git fetch origin main
+log "fetching origin/$DEPLOY_BRANCH"
+git fetch origin "$DEPLOY_BRANCH"
 target_sha="$(git rev-parse FETCH_HEAD)"
 current_sha="$(git rev-parse HEAD)"
 mkdir -p "$STATE_DIR"
@@ -138,11 +143,11 @@ else
   changed_files="$(git diff --name-only "$deployed_sha" "$target_sha")"
 fi
 
-if git show-ref --verify --quiet refs/heads/main; then
-  git switch main
+if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
+  git switch "$DEPLOY_BRANCH"
   git merge --ff-only "$target_sha"
 else
-  git switch --create main "$target_sha"
+  git switch --create "$DEPLOY_BRANCH" "$target_sha"
 fi
 
 declare -a services=()
@@ -160,9 +165,11 @@ while IFS= read -r file; do
     web_frontend/*) add_service web ;;
     ai_services/image-validation/*) add_service image-validation ;;
     ai_services/garment-processing/*) add_service garment-processing ;;
-    compose.yaml|docker.env.example)
+    ai_services/visual_search/*) add_service visual-search ;;
+  compose.yaml|docker.env.example|ops/deploy-production.sh)
       add_service image-validation
       add_service garment-processing
+      add_service visual-search
       add_service backend
       add_service web
       ;;

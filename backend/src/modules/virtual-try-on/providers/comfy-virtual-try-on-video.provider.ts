@@ -17,6 +17,12 @@ import {
 import { VirtualTryOnProviderError } from './virtual-try-on-provider';
 import type { VirtualTryOnVideoProvider } from './virtual-try-on-video-provider';
 import { VirtualTryOnVideoProviderError } from './virtual-try-on-video-provider';
+import {
+  getVideoWorkflowDefinition,
+  normalizeVideoWorkflowProfile,
+  transformVideoWorkflowInput,
+  type VirtualTryOnVideoWorkflowProfile,
+} from './virtual-try-on-video-workflows';
 
 const DEFAULT_VIDEO_TIMEOUT_MS = 600_000;
 const DEFAULT_POLL_INTERVAL_MS = 4_000;
@@ -51,23 +57,11 @@ const toVideoProviderError = (error: unknown) => {
   );
 };
 
-const requireVideoConfigPaths = () => {
-  const workflowPath = process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_PATH?.trim();
-  const workflowMapPath = process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_MAP_PATH?.trim();
-  if (!workflowPath || !workflowMapPath) {
-    throw new VirtualTryOnVideoProviderError(
-      'Thiếu đường dẫn workflow hoặc workflow map sinh video',
-      500,
-      'VIDEO_PROVIDER_CONFIG_MISSING',
-    );
-  }
-  return { workflowPath, workflowMapPath };
-};
-
 const applyVideoWorkflowInputs = async (
   workflow: unknown,
   workflowMap: ComfyWorkflowMap,
   input: Parameters<VirtualTryOnVideoProvider['submit']>[0],
+  workflowProfile: VirtualTryOnVideoWorkflowProfile,
 ) => {
   const client = createComfyClient();
   const uploadTimeoutMs = getPositiveComfyNumberEnv(
@@ -107,13 +101,13 @@ const applyVideoWorkflowInputs = async (
     workflow,
     workflowMap,
     'duration',
-    input.durationSeconds,
+    transformVideoWorkflowInput(workflowProfile, 'duration', input.durationSeconds),
   );
   setComfyMappedInput(
     workflow,
     workflowMap,
     'resolution',
-    getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_RESOLUTION') || input.resolution,
+    input.resolution,
   );
   setComfyMappedInput(workflow, workflowMap, 'generateAudio', input.generateAudio);
 
@@ -131,22 +125,24 @@ const applyVideoWorkflowInputs = async (
     );
   }
 
-  const optionalInputs: Array<[string, string]> = [
-    ['aspectRatio', 'VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO'],
-    ['mode', 'VIRTUAL_TRY_ON_VIDEO_MODE'],
-  ];
-  optionalInputs.forEach(([mapKey, envKey]) => {
-    const value = getOptionalComfyEnvValue(envKey);
-    if (value) setComfyMappedInput(workflow, workflowMap, mapKey, value);
-  });
+  const configuredAspectRatio = input.aspectRatio?.trim()
+    || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO');
+  if (configuredAspectRatio) setComfyMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
+  const configuredMode = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODE');
+  if (configuredMode) setComfyMappedInput(workflow, workflowMap, 'mode', configuredMode);
 
-  return { client, sourceFileName, promptMapping };
+  return { client, sourceFileName, promptMapping, aspectRatio: configuredAspectRatio };
 };
 
-export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvider => ({
-  async submit(input) {
-    try {
-      const { workflowPath, workflowMapPath } = requireVideoConfigPaths();
+export const createComfyVirtualTryOnVideoProvider = (
+  profile: VirtualTryOnVideoWorkflowProfile = 'quality',
+): VirtualTryOnVideoProvider => {
+  const workflowProfile = normalizeVideoWorkflowProfile(profile);
+  const workflowDefinition = getVideoWorkflowDefinition(workflowProfile);
+  const { workflowPath, workflowMapPath } = workflowDefinition;
+  return {
+    async submit(input) {
+      try {
       const [workflowTemplate, workflowMap] = await Promise.all([
         readComfyJsonFile<unknown>(workflowPath),
         readComfyJsonFile<ComfyWorkflowMap>(workflowMapPath),
@@ -160,31 +156,33 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
       }
 
       const workflow = cloneComfyJson(workflowTemplate);
-      const { client, sourceFileName, promptMapping } = await applyVideoWorkflowInputs(workflow, workflowMap, input);
+      const { client, sourceFileName, promptMapping, aspectRatio } =
+        await applyVideoWorkflowInputs(workflow, workflowMap, input, workflowProfile);
       const providerJobId = await submitComfyPrompt(client, workflow);
 
       return {
         providerJobId,
         metadata: {
           provider: 'comfy_kling',
+          workflowProfile,
           sourceFileName,
           model: input.model?.trim() || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_VIDEO_MODEL'),
           durationSeconds: input.durationSeconds,
           resolution: input.resolution,
+          aspectRatio,
           generateAudio: input.generateAudio,
           promptInputKey: promptMapping.positivePromptKey,
           negativePromptMapped: promptMapping.negativePromptMapped,
           negativePromptFallbackApplied: promptMapping.negativePromptFallbackApplied,
         },
       };
-    } catch (error) {
-      throw toVideoProviderError(error);
-    }
-  },
+      } catch (error) {
+        throw toVideoProviderError(error);
+      }
+    },
 
-  async waitForResult(providerJobId) {
-    try {
-      const { workflowMapPath } = requireVideoConfigPaths();
+    async waitForResult(providerJobId) {
+      try {
       const workflowMap = await readComfyJsonFile<ComfyWorkflowMap>(workflowMapPath);
       const client = createComfyClient();
       const history = await waitForComfyHistory(
@@ -218,8 +216,9 @@ export const createComfyVirtualTryOnVideoProvider = (): VirtualTryOnVideoProvide
           outputVideo: video.comfyFile,
         },
       };
-    } catch (error) {
-      throw toVideoProviderError(error);
-    }
-  },
-});
+      } catch (error) {
+        throw toVideoProviderError(error);
+      }
+    },
+  };
+};

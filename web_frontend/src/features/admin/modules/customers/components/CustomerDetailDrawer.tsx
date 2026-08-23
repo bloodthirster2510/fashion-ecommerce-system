@@ -56,10 +56,33 @@ const activityTypeLabels: Record<ManagedCustomerInsights['activity']['items'][nu
   audit: 'Quản trị',
 }
 
+const orderStatusLabels: Record<string, string> = {
+  confirmed: 'Chờ xử lý',
+  packed: 'Đã đóng gói',
+  shipping: 'Đang giao',
+  delivered: 'Đã giao',
+  completed: 'Hoàn tất',
+  cancelled: 'Đã hủy',
+  return_requested: 'Chờ duyệt trả',
+  return_approved: 'Chờ nhận hàng trả',
+  returned: 'Đã nhận trả',
+}
+
+const paymentMethodLabels: Record<string, string> = {
+  COD: 'Thanh toán khi nhận hàng',
+  VNPAY: 'VNPay',
+  MOMO: 'MoMo',
+  CARD: 'Thẻ ngân hàng',
+  BANK: 'Chuyển khoản',
+}
+
 const getNoteAuthorLabel = (author: ManagedCustomerNoteAuthor | string) => {
   if (typeof author === 'string') return 'Nhân viên'
   return author.name || author.email || 'Nhân viên'
 }
+
+const getNoteAuthorAvatar = (author: ManagedCustomerNoteAuthor | string) =>
+  typeof author === 'string' ? null : author.avatarImage
 
 export function CustomerDetailDrawer({
   user,
@@ -203,7 +226,14 @@ export function CustomerDetailDrawer({
 
       <section className="admin-customer-summary" aria-label="Tóm tắt khách hàng">
         <span className="admin-customer-avatar" aria-hidden="true">
-          {getDisplayName(user).trim().charAt(0).toUpperCase() || 'U'}
+          <span>{getDisplayName(user).trim().charAt(0).toUpperCase() || 'U'}</span>
+          {user.avatarImage ? (
+            <img
+              src={user.avatarImage}
+              alt=""
+              onError={(event) => { event.currentTarget.style.display = 'none' }}
+            />
+          ) : null}
         </span>
         <div>
           <strong>{getDisplayName(user)}</strong>
@@ -315,7 +345,9 @@ export function CustomerDetailDrawer({
                     <article key={order._id} className="admin-customer-order">
                       <div>
                         <strong>{order.orderCode}</strong>
-                        <span>{formatDate(order.createdAt)} · {order.paymentMethod}</span>
+                        <span>
+                          {formatDate(order.createdAt)} · {paymentMethodLabels[order.paymentMethod] ?? 'Thanh toán khác'}
+                        </span>
                       </div>
                       <div className="admin-customer-order__status">
                         <StatusBadge
@@ -327,7 +359,7 @@ export function CustomerDetailDrawer({
                                 : 'neutral'
                           }
                         >
-                          {order.status}
+                          {orderStatusLabels[order.status] ?? 'Đang cập nhật'}
                         </StatusBadge>
                         <strong>{formatCurrency(order.totalAmount)}</strong>
                       </div>
@@ -358,7 +390,23 @@ export function CustomerDetailDrawer({
                   <span className={`is-${item.type}`}>{activityTypeLabels[item.type]}</span>
                   <div>
                     <strong>{item.title}</strong>
-                    <p>{item.description}</p>
+                    {item.actor ? (
+                      <p className="admin-customer-activity-actor">
+                        <span className="admin-customer-activity-actor__avatar" aria-hidden="true">
+                          <span>
+                            {(item.actor.name || item.actor.email || 'N').trim().charAt(0).toUpperCase()}
+                          </span>
+                          {item.actor.avatarImage ? (
+                            <img
+                              src={item.actor.avatarImage}
+                              alt=""
+                              onError={(event) => { event.currentTarget.style.display = 'none' }}
+                            />
+                          ) : null}
+                        </span>
+                        <span>{item.description}</span>
+                      </p>
+                    ) : <p>{item.description}</p>}
                     <time dateTime={item.occurredAt}>{formatDate(item.occurredAt)}</time>
                   </div>
                 </article>
@@ -432,7 +480,7 @@ export function CustomerDetailDrawer({
             </div>
           ) : (
             <p className="admin-permission-note">
-              Cần quyền customers.manage để thêm, sửa hoặc xóa ghi chú.
+              Bạn không có quyền thêm, sửa hoặc xóa ghi chú nội bộ.
             </p>
           )}
           {notesError ? <p className="admin-customer-error" role="alert">{notesError}</p> : null}
@@ -445,9 +493,21 @@ export function CustomerDetailDrawer({
                 <article key={note._id} className="admin-customer-note">
                   <p>{note.content}</p>
                   <footer>
-                    <span>
-                      {getNoteAuthorLabel(note.createdBy)} · {formatDate(note.createdAt)}
-                      {note.updatedAt !== note.createdAt ? ' · đã sửa' : ''}
+                    <span className="admin-customer-note__author">
+                      <span className="admin-customer-note__author-avatar" aria-hidden="true">
+                        <span>{getNoteAuthorLabel(note.createdBy).trim().charAt(0).toUpperCase()}</span>
+                        {getNoteAuthorAvatar(note.createdBy) ? (
+                          <img
+                            src={getNoteAuthorAvatar(note.createdBy) ?? undefined}
+                            alt=""
+                            onError={(event) => { event.currentTarget.style.display = 'none' }}
+                          />
+                        ) : null}
+                      </span>
+                      <span>
+                        {getNoteAuthorLabel(note.createdBy)} · {formatDate(note.createdAt)}
+                        {note.updatedAt !== note.createdAt ? ' · đã sửa' : ''}
+                      </span>
                     </span>
                     {canManageUser ? (
                       <div>
@@ -499,7 +559,7 @@ export function CustomerDetailDrawer({
 
           {!canManageUser ? (
             <p className="admin-permission-note">
-              Cần quyền customers.manage để đổi trạng thái hoặc yêu cầu đổi mật khẩu.
+              Bạn không có quyền đổi trạng thái hoặc yêu cầu đổi mật khẩu cho tài khoản này.
             </p>
           ) : null}
         </section>

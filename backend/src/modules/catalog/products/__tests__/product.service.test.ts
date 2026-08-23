@@ -14,6 +14,7 @@ import {
 } from '../../../../database/models';
 import { ProductServiceError, productService } from '../product.service';
 import type { CreateProductInput, UpdateProductInput } from '../product.types';
+import { clearMemoryCache } from '../../../../utils/cache';
 
 jest.mock('../../../../database/models', () => ({
   Brand: {
@@ -117,6 +118,7 @@ const createProductInput: CreateProductInput = {
 describe('productService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    clearMemoryCache();
     mockedBrand.findById.mockResolvedValue({ _id: brandId } as never);
     mockedCategory.findById.mockResolvedValue({
       _id: categoryId,
@@ -1150,6 +1152,61 @@ describe('productService', () => {
     });
   });
 
+  it('returns only categories with active products and their ancestors in storefront filters', async () => {
+    const rootCategoryId = new Types.ObjectId('665000000000000000000020');
+    const footwearCategoryId = new Types.ObjectId('665000000000000000000021');
+    const otherFootwearCategoryId = new Types.ObjectId('665000000000000000000022');
+    const heelsCategoryId = new Types.ObjectId('665000000000000000000023');
+    const categories = [
+      {
+        _id: rootCategoryId,
+        name: 'Nữ',
+        gender: 'female' as const,
+        parent_id: null,
+        level: 1,
+      },
+      {
+        _id: footwearCategoryId,
+        name: 'Giày / Dép',
+        gender: 'female' as const,
+        parent_id: rootCategoryId,
+        level: 2,
+      },
+      {
+        _id: otherFootwearCategoryId,
+        name: 'Giày / Dép khác',
+        gender: 'female' as const,
+        parent_id: footwearCategoryId,
+        level: 3,
+      },
+      {
+        _id: heelsCategoryId,
+        name: 'Giày cao gót',
+        gender: 'female' as const,
+        parent_id: footwearCategoryId,
+        level: 3,
+      },
+    ];
+
+    mockedCategory.find.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(categories),
+    } as never);
+    mockedProduct.distinct.mockImplementation(((field: string) => (
+      Promise.resolve(field === 'category_id' ? [heelsCategoryId] : [])
+    )) as never);
+
+    const result = await productService.getProductFilters({ gender: 'female' });
+
+    expect(result.categories.map((category) => category._id)).toEqual([
+      rootCategoryId.toString(),
+      footwearCategoryId.toString(),
+      heelsCategoryId.toString(),
+    ]);
+    expect(result.categories.map((category) => category._id)).not.toContain(otherFootwearCategoryId.toString());
+  });
+
   it('sorts the public product list by discounted final price', async () => {
     const regularProductId = new Types.ObjectId('665000000000000000000030');
     const discountedProductId = new Types.ObjectId('665000000000000000000031');
@@ -1214,6 +1271,88 @@ describe('productService', () => {
     expect(result.items.map((item) => item.finalPrice)).toEqual([40000, 50000]);
   });
 
+  it('sorts keyword searches by relevance before freshness', async () => {
+    const preferredProductId = new Types.ObjectId('665000000000000000000032');
+    const genericProductId = new Types.ObjectId('665000000000000000000033');
+    const fitTypeId = new Types.ObjectId('665000000000000000000010');
+    const createListProduct = (id: Types.ObjectId, name: string, createdAt: Date) => ({
+      _id: id,
+      category_id: { _id: new Types.ObjectId(categoryId), name: 'Quần', gender: 'male' },
+      name,
+      brand_id: { _id: new Types.ObjectId(brandId), name: 'YODY' },
+      variant: [{
+        _id: new Types.ObjectId(),
+        fitTypeId,
+        price: 250000,
+        discount: 0,
+        sizeMeasurements: [{ size: 'M', measurements: [] }],
+        colors: [{ _id: new Types.ObjectId(), color: 'Black', image: colorImageUrl }],
+        isActive: true,
+      }],
+      description: 'Chất liệu kaki đứng form',
+      material: 'Kaki',
+      materialNormalized: 'kaki',
+      product_image: productImageUrl,
+      isActive: true,
+      sold_quantity: 0,
+      averageRating: 0,
+      reviewCount: 0,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const preferredProduct = createListProduct(
+      preferredProductId,
+      'Quần kaki nam regular',
+      new Date('2026-04-01T00:00:00.000Z'),
+    );
+    const genericProduct = createListProduct(
+      genericProductId,
+      'Quần nam basic',
+      new Date('2026-05-01T00:00:00.000Z'),
+    );
+    const productListQuery = {
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([genericProduct, preferredProduct]),
+    };
+
+    mockedProduct.aggregate.mockResolvedValue([
+      { _id: preferredProductId },
+      { _id: genericProductId },
+    ] as never);
+    mockedProduct.find.mockReturnValue(productListQuery as never);
+    mockedProduct.countDocuments.mockResolvedValue(2);
+    mockedInventory.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) } as never);
+
+    const result = await productService.getProductList({
+      keyword: 'quần kaki',
+      sort: 'relevance',
+      page: 1,
+      limit: 10,
+      includeFilters: false,
+    });
+    const aggregatePipeline = mockedProduct.aggregate.mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+
+    expect(aggregatePipeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $addFields: expect.objectContaining({ __searchRelevanceScore: expect.anything() }) }),
+      {
+        $sort: {
+          __searchRelevanceScore: -1,
+          sold_quantity: -1,
+          averageRating: -1,
+          reviewCount: -1,
+          createdAt: -1,
+        },
+      },
+    ]));
+    expect(mockedProduct.find).toHaveBeenCalledWith({
+      _id: { $in: [preferredProductId, genericProductId] },
+    });
+    expect(result.items.map((item) => item.name)).toEqual([
+      'Quần kaki nam regular',
+      'Quần nam basic',
+    ]);
+  });
+
   it('only applies matched category ids to their corresponding keyword groups', async () => {
     const matchedCategoryId = new Types.ObjectId(categoryId);
     const productListQuery = {
@@ -1236,6 +1375,7 @@ describe('productService', () => {
 
     await productService.getProductList({
       keyword: 'áo polo mềm',
+      sort: 'name_asc',
       includeFilters: false,
     });
     const filter = mockedProduct.find.mock.calls[0][0] as unknown as {
@@ -1259,7 +1399,7 @@ describe('productService', () => {
     };
     mockedProduct.find.mockReturnValue(productListQuery as never);
 
-    await productService.getProductList({ keyword: 'leather', includeFilters: false });
+    await productService.getProductList({ keyword: 'leather', sort: 'name_asc', includeFilters: false });
     const leatherFilter = mockedProduct.find.mock.calls[0][0] as unknown as {
       $and: Array<{ $or: Array<{ description?: RegExp }> }>;
     };
@@ -1274,7 +1414,7 @@ describe('productService', () => {
       'Chất liệu viscose co giãn, giữ ấm và không gây kích ứng lên da nhạy cảm',
     ))).toBe(false);
 
-    await productService.getProductList({ keyword: 'wool', includeFilters: false });
+    await productService.getProductList({ keyword: 'wool', sort: 'name_asc', includeFilters: false });
     const woolFilter = mockedProduct.find.mock.calls[1][0] as unknown as {
       $and: Array<{ $or: Array<{ description?: RegExp }> }>;
     };

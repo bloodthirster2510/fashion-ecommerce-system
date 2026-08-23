@@ -8,6 +8,7 @@ import {
   sendResetPasswordEmail,
 } from '../../utils/email';
 import { revokeSupportSocketAccess } from '../realtime/support.gateway';
+import { shippingAreaMappingService } from '../shipping/shipping-area-mapping.service';
 
 const safeUserSelect = '-password -refreshToken -resetPasswordToken -resetPasswordExpires';
 const adminUserRoles: UserRole[] = ['admin', 'staff', 'user'];
@@ -123,6 +124,26 @@ const ensureAddressDefaultInvariant = (addresses: IUserAddress[]) => {
   addresses.forEach((address, index) => {
     address.isDefault = index === selectedIndex;
   });
+};
+
+const normalizeAddressWithManagedGhnMapping = async (
+  address: UserAddressInput,
+  options: { trustStoredGhnVerification?: boolean } = {},
+) => {
+  const normalizedAddress = normalizeUserAddressInput(address, options);
+  const resolvedGhnFields =
+    await shippingAreaMappingService.resolveStoredGhnFieldsWithManagedMapping(normalizedAddress);
+
+  return {
+    ...normalizedAddress,
+    ghnProvinceId: resolvedGhnFields.ghnProvinceId,
+    ghnDistrictId: resolvedGhnFields.ghnDistrictId,
+    ghnWardCode: resolvedGhnFields.ghnWardCode,
+    ghnMappingStatus: resolvedGhnFields.ghnMappingStatus,
+    ghnMappingConfidence: resolvedGhnFields.ghnMappingConfidence,
+    ghnMappingVerifiedAt: resolvedGhnFields.ghnMappingVerifiedAt,
+    ghnMappingVerificationSource: resolvedGhnFields.ghnMappingVerificationSource,
+  };
 };
 
 const assertNotLastActiveAdmin = async (user: IUser, nextRole: UserRole) => {
@@ -311,7 +332,7 @@ export const addAddress = async (userId: string, address: UserAddressInput) => {
 
   normalizeSavedAddressesForCurrentSchema(user);
 
-  user.address.push(normalizeUserAddressInput({
+  user.address.push(await normalizeAddressWithManagedGhnMapping({
     ...address,
     isDefault: shouldSetDefault,
   }));
@@ -347,11 +368,11 @@ export const updateAddress = async (userId: string, addressId: string, data: Par
   normalizeSavedAddressesForCurrentSchema(user);
 
   const currentAddress = toPlainAddress(address);
-  Object.assign(address, normalizeUserAddressInput({
+  Object.assign(address, await normalizeAddressWithManagedGhnMapping({
     ...currentAddress,
     ...data,
     isDefault: data.isDefault ?? currentAddress.isDefault,
-  }));
+  }, { trustStoredGhnVerification: true }));
   ensureAddressDefaultInvariant(user.address);
 
   syncProfileCompleted(user);

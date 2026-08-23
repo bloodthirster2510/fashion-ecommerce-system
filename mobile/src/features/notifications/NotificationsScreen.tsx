@@ -66,6 +66,56 @@ const categoryPresentation: Record<CustomerNotificationCategory, {
   system: { icon: 'information-outline', label: 'Hệ thống', color: colors.textMuted, background: colors.background },
 };
 
+type NotificationTone = 'neutral' | 'success' | 'warning' | 'danger';
+
+const readNotificationDataText = (item: CustomerNotificationItem, key: string) => {
+  const value = item.data?.[key];
+  return typeof value === 'string' ? value : '';
+};
+
+const resolveNotificationTone = (item: CustomerNotificationItem): NotificationTone => {
+  const status = readNotificationDataText(item, 'status');
+  const paymentStatus = readNotificationDataText(item, 'paymentStatus');
+  const milestone = readNotificationDataText(item, 'milestone');
+  const outcome = readNotificationDataText(item, 'outcome');
+  const accessState = readNotificationDataText(item, 'accessState');
+
+  if (
+    ['cancelled', 'payment_expired', 'return_rejected'].includes(status)
+    || paymentStatus === 'failed'
+    || milestone === 'failed'
+    || ['failed', 'policy_blocked', 'admin_canceled'].includes(outcome)
+    || ['locked', 'prompt_blocked'].includes(accessState)
+  ) return 'danger';
+
+  if (
+    item.type === 'payment_deadline'
+    || ['return_requested', 'return_approved'].includes(status)
+    || outcome === 'partial_video_failed'
+  ) return 'warning';
+
+  if (
+    ['completed', 'returned'].includes(status)
+    || ['paid', 'refunded'].includes(paymentStatus)
+    || milestone === 'delivered'
+    || outcome === 'completed'
+    || accessState === 'unlocked'
+    || item.type === 'loyalty'
+  ) return 'success';
+
+  return 'neutral';
+};
+
+const resolveNotificationPresentation = (item: CustomerNotificationItem) => {
+  const base = categoryPresentation[item.category];
+  const tone = resolveNotificationTone(item);
+
+  if (tone === 'success') return { ...base, color: colors.success, background: colors.successSoft };
+  if (tone === 'warning') return { ...base, color: colors.goldDark, background: colors.goldSoft };
+  if (tone === 'danger') return { ...base, color: colors.danger, background: colors.dangerSoft };
+  return base;
+};
+
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
 
 const toDayKey = (value: string) => {
@@ -136,6 +186,7 @@ const NotificationsScreen = () => {
   const loadedNotificationsQueryKeyRef = React.useRef<string | null>(
     initialNotificationsRef.current ? initialNotificationsQueryKeyRef.current : null,
   );
+  const observedUnreadCountRef = React.useRef<number | null>(summary?.unreadCount ?? null);
   const notificationsQueryKey = getNotificationsQueryKey(notificationsAccountScope, filter);
 
   React.useEffect(() => {
@@ -221,6 +272,16 @@ const NotificationsScreen = () => {
     }
   }, [filter, isAuthenticated, notificationsQueryKey, refreshSummary, runWithAuth, session?.accessToken]);
 
+  React.useEffect(() => {
+    const nextUnreadCount = summary?.unreadCount;
+    if (nextUnreadCount === undefined || observedUnreadCountRef.current === nextUnreadCount) return;
+
+    observedUnreadCountRef.current = nextUnreadCount;
+    if (loadedNotificationsQueryKeyRef.current === notificationsQueryKey) {
+      void loadNotifications('silent');
+    }
+  }, [loadNotifications, notificationsQueryKey, summary?.unreadCount]);
+
   useStaleFocusEffect(
     () => {
       const mode = resolveFocusRefreshMode(
@@ -303,7 +364,7 @@ const NotificationsScreen = () => {
   };
 
   const renderNotification = ({ item }: { item: CustomerNotificationItem }) => {
-    const presentation = categoryPresentation[item.category];
+    const presentation = resolveNotificationPresentation(item);
     const imageUri = isRemoteImage(item.imageUrl) ? item.imageUrl!.trim() : '';
     const hasPromotionBanner = item.category === 'promotion' && Boolean(imageUri);
 
@@ -432,7 +493,7 @@ const NotificationsScreen = () => {
         <View style={styles.updatesHeader}>
           <View>
             <Text style={styles.updatesTitle}>Cập nhật mới nhất</Text>
-            <Text style={styles.updatesSubtitle}>{unreadCount} thông báo chưa đọc</Text>
+            <Text style={styles.updatesSubtitle}>Tổng cộng {unreadCount} thông báo chưa đọc</Text>
           </View>
           <TouchableOpacity
             style={styles.readAllButton}
@@ -460,7 +521,7 @@ const NotificationsScreen = () => {
             return (
               <TouchableOpacity
                 key={option.key}
-                style={styles.filterTab}
+                style={[styles.filterTab, active && styles.filterTabActive]}
                 onPress={() => {
                   if (option.key === filter) return;
                   setItems([]);
@@ -595,6 +656,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
+  filterTabActive: {
+    backgroundColor: colors.brandMist,
+  },
   filterIconWrap: { width: 38, height: 34, alignItems: 'center', justifyContent: 'center' },
   filterBadge: {
     position: 'absolute',
@@ -620,12 +684,11 @@ const styles = StyleSheet.create({
   filterLabelActive: { color: colors.brand, fontWeight: '900' },
   filterIndicator: {
     position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 0,
+    left: 14,
+    right: 14,
+    bottom: 4,
     height: 3,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
+    borderRadius: 3,
     backgroundColor: colors.brand,
   },
   listContent: { paddingBottom: spacing.xxl },

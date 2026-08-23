@@ -40,12 +40,18 @@ import {
 } from '../recommendation/interactionApi';
 import { useCustomerNotifications } from '../notifications/CustomerNotificationProvider';
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
+import {
+  ALL_CATEGORY_FILTER_LABEL,
+  getCategoryFilterOptionLabel,
+} from './categoryFilterLabels';
 
 type ProductListRouteProp = RouteProp<RootStackParamList, 'ProductList'>;
 type ProductListNavigationProp = StackNavigationProp<RootStackParamList, 'ProductList'>;
 type MaterialIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+type CategoryRailVisual = { icon: MaterialIconName } | { custom: 'pants' };
 
 type MultiFilterKey = 'categoryId' | 'brandId';
+type ProductListSortOption = ProductSortOption | 'default';
 
 type ProductListFilters = {
   gender?: CatalogGender;
@@ -55,7 +61,7 @@ type ProductListFilters = {
   maxPrice?: number;
   isSale?: boolean;
   isNew?: boolean;
-  sort: ProductSortOption;
+  sort: ProductListSortOption;
 };
 
 type ActiveChip = {
@@ -101,7 +107,9 @@ const emptyAvailableFilters: ProductListResponse['filters'] = {
   categories: [],
 };
 
-const sortOptions: Array<{ label: string; value: ProductSortOption }> = [
+const sortOptions: Array<{ label: string; value: ProductListSortOption }> = [
+  { label: 'Mặc định', value: 'default' },
+  { label: 'Liên quan', value: 'relevance' },
   { label: 'Mới nhất', value: 'newest' },
   { label: 'Bán chạy', value: 'best_seller' },
   { label: 'Giá thấp', value: 'price_asc' },
@@ -127,6 +135,27 @@ const pricePresets = [
   { label: 'Trên 500k', minPrice: 500000, maxPrice: undefined },
 ];
 
+const getDefaultSort = (params?: RootStackParamList['ProductList']): ProductListSortOption =>
+  params?.keyword ? 'relevance' : 'default';
+
+const getApiSort = (sort: ProductListSortOption): ProductSortOption | undefined =>
+  sort === 'default' ? undefined : sort;
+
+const hasScopedCatalogParams = (params?: RootStackParamList['ProductList']) => Boolean(
+  params?.keyword
+    || params?.gender
+    || params?.categoryId
+    || params?.brandId
+    || params?.minPrice !== undefined
+    || params?.maxPrice !== undefined
+    || params?.isSale
+    || params?.isNew
+    || params?.sort,
+);
+
+const shouldDefaultToMaleCatalog = (params?: RootStackParamList['ProductList']) =>
+  params?.discoveryEntry === 'products' || !hasScopedCatalogParams(params);
+
 const uniqueStrings = (values: string[]) =>
   Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 
@@ -148,14 +177,14 @@ const normalizeFilters = (filters: ProductListFilters): ProductListFilters => ({
 
 const createFiltersFromParams = (params?: RootStackParamList['ProductList']): ProductListFilters =>
   normalizeFilters({
-    gender: params?.gender,
+    gender: params?.gender ?? (shouldDefaultToMaleCatalog(params) ? 'male' : undefined),
     categoryId: toArray(params?.categoryId),
     brandId: toArray(params?.brandId),
     minPrice: params?.minPrice,
     maxPrice: params?.maxPrice,
     isSale: params?.isSale,
     isNew: params?.isNew,
-    sort: params?.sort ?? 'newest',
+    sort: params?.sort ?? getDefaultSort(params),
   });
 
 const getTitle = (params?: RootStackParamList['ProductList']) => {
@@ -194,9 +223,23 @@ const isPricePresetActive = (
   preset: (typeof pricePresets)[number],
 ) => filters.minPrice === preset.minPrice && filters.maxPrice === preset.maxPrice;
 
+const normalizeCategoryLabel = (label: string) => label
+  .trim()
+  .toLocaleLowerCase('vi-VN')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd');
+
+const isFootwearCategoryLabel = (label: string) =>
+  /(^|[\s/.-])(giay|dep)([\s/.-]|$)/.test(normalizeCategoryLabel(label));
+
 const sortCategoriesByLevelAndName = (a: CatalogCategory, b: CatalogCategory) => {
   const levelDelta = a.level - b.level;
   if (levelDelta !== 0) return levelDelta;
+
+  const footwearDelta = Number(isFootwearCategoryLabel(a.name)) - Number(isFootwearCategoryLabel(b.name));
+  if (footwearDelta !== 0) return footwearDelta;
+
   return a.name.localeCompare(b.name);
 };
 
@@ -249,7 +292,7 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
       if (!option) {
         option = {
           key: optionKey,
-          label: category.name,
+          label: getCategoryFilterOptionLabel(parent.name, category.name),
           categoryIds: [],
           representative: category,
         };
@@ -262,7 +305,7 @@ const buildCategoryFilterGroups = (categories: CatalogCategory[]): CategoryFilte
 
       if (sortCategoriesByLevelAndName(category, option.representative) < 0) {
         option.representative = category;
-        option.label = category.name;
+        option.label = getCategoryFilterOptionLabel(parent.name, category.name);
       }
     }
 
@@ -282,22 +325,151 @@ const getCategoryGroupSelectionIds = (group: CategoryFilterGroup) => uniqueStrin
   ...group.options.flatMap((option) => option.categoryIds),
 ]);
 
-const normalizeCategoryLabel = (label: string) => label
-  .trim()
-  .toLocaleLowerCase('vi-VN')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/đ/g, 'd');
-
-const getCategoryRailIcon = (label: string): MaterialIconName => {
+const getCategoryRailVisual = (label: string): CategoryRailVisual => {
   const normalizedLabel = normalizeCategoryLabel(label);
 
-  if (normalizedLabel.includes('giay') || normalizedLabel.includes('dep')) return 'shoe-sneaker';
-  if (normalizedLabel.includes('set') || normalizedLabel.includes('bo')) return 'layers-triple-outline';
-  if (normalizedLabel.includes('ao')) return 'tshirt-crew-outline';
-  if (normalizedLabel.includes('quan')) return 'hanger';
-  return 'wardrobe-outline';
+  if (isFootwearCategoryLabel(label)) return { icon: 'shoe-sneaker' };
+  if (normalizedLabel.includes('set') || normalizedLabel.includes('bo')) return { icon: 'layers-triple-outline' };
+  if (normalizedLabel.includes('ao')) return { icon: 'tshirt-crew-outline' };
+  if (normalizedLabel.includes('quan')) return { custom: 'pants' };
+  if (normalizedLabel.includes('vay') || normalizedLabel.includes('dam')) return { icon: 'human-female-dance' };
+  return { icon: 'wardrobe-outline' };
 };
+
+const PantsGlyph = ({ color, size = 22 }: { color: string; size?: number }) => {
+  const stroke = Math.max(2, Math.round(size * 0.09));
+  const waistHeight = Math.round(size * 0.22);
+  const legTop = Math.round(size * 0.24);
+  const legWidth = Math.round(size * 0.29);
+  const legHeight = Math.round(size * 0.68);
+  const sideInset = Math.round(size * 0.17);
+  const pocketTop = Math.round(size * 0.29);
+
+  return (
+    <View style={[pantsGlyphStyles.root, { width: size, height: size }]}>
+      <View
+        style={[
+          pantsGlyphStyles.waist,
+          {
+            left: sideInset,
+            width: size - sideInset * 2,
+            height: waistHeight,
+            borderColor: color,
+            borderWidth: stroke,
+            borderRadius: Math.round(size * 0.12),
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.leg,
+          pantsGlyphStyles.leftLeg,
+          {
+            top: legTop,
+            left: sideInset + 1,
+            width: legWidth,
+            height: legHeight,
+            borderColor: color,
+            borderWidth: stroke,
+            borderTopWidth: 0,
+            borderRadius: Math.round(size * 0.1),
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.leg,
+          pantsGlyphStyles.rightLeg,
+          {
+            top: legTop,
+            right: sideInset + 1,
+            width: legWidth,
+            height: legHeight,
+            borderColor: color,
+            borderWidth: stroke,
+            borderTopWidth: 0,
+            borderRadius: Math.round(size * 0.1),
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.fly,
+          {
+            top: legTop,
+            left: Math.round(size / 2 - stroke / 2),
+            width: stroke,
+            height: Math.round(size * 0.36),
+            borderRadius: stroke,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.pocket,
+          pantsGlyphStyles.leftPocket,
+          {
+            top: pocketTop,
+            left: Math.round(size * 0.26),
+            width: Math.round(size * 0.17),
+            height: stroke,
+            borderRadius: stroke,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          pantsGlyphStyles.pocket,
+          pantsGlyphStyles.rightPocket,
+          {
+            top: pocketTop,
+            right: Math.round(size * 0.26),
+            width: Math.round(size * 0.17),
+            height: stroke,
+            borderRadius: stroke,
+            backgroundColor: color,
+          },
+        ]}
+      />
+    </View>
+  );
+};
+
+const pantsGlyphStyles = StyleSheet.create({
+  root: {
+    alignItems: 'center',
+    position: 'relative',
+  },
+  waist: {
+    position: 'absolute',
+    top: 0,
+    backgroundColor: 'transparent',
+  },
+  leg: {
+    position: 'absolute',
+    backgroundColor: 'transparent',
+  },
+  leftLeg: {
+    transform: [{ rotate: '4deg' }],
+  },
+  rightLeg: {
+    transform: [{ rotate: '-4deg' }],
+  },
+  fly: {
+    position: 'absolute',
+  },
+  pocket: {
+    position: 'absolute',
+  },
+  leftPocket: {
+    transform: [{ rotate: '34deg' }],
+  },
+  rightPocket: {
+    transform: [{ rotate: '-34deg' }],
+  },
+});
 
 const getCategorySelectionGroups = (
   categoryIds: string[],
@@ -309,8 +481,11 @@ const getCategorySelectionGroups = (
 
   categoryIds.forEach((categoryId) => {
     const category = categoryById.get(categoryId);
+    const parentCategory = category?.parent_id ? categoryById.get(category.parent_id) : undefined;
     const label =
-      category?.name ?? (categoryIds.length === 1 ? fallbackTitle : undefined) ?? 'Danh mục';
+      (category
+        ? getCategoryFilterOptionLabel(parentCategory?.name ?? '', category.name)
+        : undefined) ?? (categoryIds.length === 1 ? fallbackTitle : undefined) ?? 'Danh mục';
     const key = category ? `${category.level}:${normalizeCategoryKey(category.name)}` : categoryId;
     const group = groups.get(key) ?? { key, label, categoryIds: [] };
 
@@ -325,7 +500,6 @@ const getCategorySelectionGroups = (
 };
 
 const discoveryGenderOptions = [
-  { label: 'Tất cả', value: undefined, icon: 'account-group-outline' },
   { label: 'Nam', value: 'male', icon: 'gender-male' },
   { label: 'Nữ', value: 'female', icon: 'gender-female' },
 ] as const;
@@ -349,19 +523,10 @@ const ProductListScreen = () => {
   const { isAuthenticated, runWithAuth, session } = useAuth();
   const { summary: notificationSummary } = useCustomerNotifications();
   const params = route.params;
-  const hasScopedCatalogRequest = Boolean(
-    params?.keyword
-      || params?.gender
-      || params?.categoryId
-      || params?.brandId
-      || params?.minPrice !== undefined
-      || params?.maxPrice !== undefined
-      || params?.isSale
-      || params?.isNew
-      || params?.sort,
-  );
+  const hasScopedCatalogRequest = hasScopedCatalogParams(params);
   const opensAtDiscoveryProducts = params?.discoveryEntry === 'products';
   const showDiscoveryExperience = opensAtDiscoveryProducts || !hasScopedCatalogRequest;
+  const usesDefaultMaleCatalog = shouldDefaultToMaleCatalog(params);
   const accountScope = session?.user?._id ?? 'guest';
   const initialFiltersRef = React.useRef(createFiltersFromParams(params));
   const initialProductQueryKeyRef = React.useRef(
@@ -506,15 +671,19 @@ const ProductListScreen = () => {
   );
 
   const activeFilterCount = React.useMemo(() => {
+    const hasNonDefaultGenderFilter = Boolean(
+      appliedFilters.gender && !(usesDefaultMaleCatalog && appliedFilters.gender === 'male'),
+    );
+
     return (
-      (appliedFilters.gender ? 1 : 0) +
+      (hasNonDefaultGenderFilter ? 1 : 0) +
       categorySelectionGroups.length +
       appliedFilters.brandId.length +
       (appliedFilters.minPrice !== undefined || appliedFilters.maxPrice !== undefined ? 1 : 0) +
       (appliedFilters.isSale ? 1 : 0) +
       (appliedFilters.isNew ? 1 : 0)
     );
-  }, [appliedFilters, categorySelectionGroups.length]);
+  }, [appliedFilters, categorySelectionGroups.length, usesDefaultMaleCatalog]);
 
   const categoryFilterGroups = React.useMemo(
     () =>
@@ -555,6 +724,15 @@ const ProductListScreen = () => {
       return availableGenders.has(option.value);
     });
   }, [appliedFilters.gender, availableFilters.categories, draftFilters.gender]);
+  const visibleSortOptions = React.useMemo(() => {
+    const shouldShowRelevance = Boolean(
+      params?.keyword || appliedFilters.sort === 'relevance' || draftFilters.sort === 'relevance',
+    );
+
+    return shouldShowRelevance
+      ? sortOptions
+      : sortOptions.filter((option) => option.value !== 'relevance');
+  }, [appliedFilters.sort, draftFilters.sort, params?.keyword]);
 
   const updateAppliedFilters = React.useCallback((updater: (current: ProductListFilters) => ProductListFilters) => {
     setLoadMoreError(null);
@@ -588,7 +766,7 @@ const ProductListScreen = () => {
       }));
     };
 
-    if (appliedFilters.gender) {
+    if (appliedFilters.gender && !(usesDefaultMaleCatalog && appliedFilters.gender === 'male')) {
       chips.push({
         id: `gender-${appliedFilters.gender}`,
         label: genderLabels[appliedFilters.gender],
@@ -648,7 +826,7 @@ const ProductListScreen = () => {
     }
 
     return chips;
-  }, [appliedFilters, categorySelectionGroups, getBrandLabel, updateAppliedFilters]);
+  }, [appliedFilters, categorySelectionGroups, getBrandLabel, updateAppliedFilters, usesDefaultMaleCatalog]);
 
   const loadProducts = React.useCallback((
     targetPage = 1,
@@ -689,7 +867,7 @@ const ProductListScreen = () => {
       maxPrice: appliedFilters.maxPrice,
       isNew: appliedFilters.isNew,
       isSale: appliedFilters.isSale,
-      sort: appliedFilters.sort,
+      sort: getApiSort(appliedFilters.sort),
       page: targetPage,
       limit: PRODUCT_PAGE_LIMIT,
     };
@@ -808,11 +986,11 @@ const ProductListScreen = () => {
     [availableFilters.categories],
   );
 
-  const selectDiscoveryGender = React.useCallback((gender?: CatalogGender) => {
+  const selectDiscoveryGender = React.useCallback((gender: CatalogGender) => {
     updateAppliedFilters((current) => ({
       ...current,
-      gender: current.gender === gender ? undefined : gender,
-      categoryId: [],
+      gender,
+      categoryId: current.gender === gender ? current.categoryId : [],
     }));
   }, [updateAppliedFilters]);
 
@@ -942,7 +1120,7 @@ const ProductListScreen = () => {
   const activeCategoryRailGroupKey = categoryRailGroups.find((group) =>
     getCategoryGroupSelectionIds(group).some((categoryId) => appliedFilters.categoryId.includes(categoryId)),
   )?.key;
-  const isAllCategoryRailActive = !activeCategoryRailGroupKey;
+  const shouldBalanceCategoryRail = categoryRailGroups.length > 0 && categoryRailGroups.length <= 4;
 
   const renderGenderSpotlight = (gender: 'male' | 'female') => {
     const isMale = gender === 'male';
@@ -1027,14 +1205,6 @@ const ProductListScreen = () => {
             activeOpacity={0.8}
           >
             <MaterialCommunityIcons name="magnify" size={23} color={colors.white} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerAction}
-            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
-            accessibilityLabel="Sản phẩm yêu thích"
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="heart-outline" size={23} color={colors.white} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerAction}
@@ -1212,43 +1382,22 @@ const ProductListScreen = () => {
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.categoryScroller}
-          contentContainerStyle={styles.categoryRail}
+          contentContainerStyle={[
+            styles.categoryRail,
+            shouldBalanceCategoryRail && styles.categoryRailBalanced,
+          ]}
         >
-          <TouchableOpacity
-            style={styles.categoryTab}
-            onPress={() => updateAppliedFilters((current) => ({ ...current, categoryId: [] }))}
-            activeOpacity={0.82}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isAllCategoryRailActive }}
-            accessibilityLabel="Danh mục: Tất cả"
-          >
-            <View style={[
-              styles.categoryTabIcon,
-              isAllCategoryRailActive && styles.categoryTabIconActive,
-            ]}>
-              <MaterialCommunityIcons
-                name="view-grid-outline"
-                size={23}
-                color={isAllCategoryRailActive ? colors.brandDark : colors.textMuted}
-              />
-            </View>
-            <Text style={[
-              styles.categoryTabLabel,
-              isAllCategoryRailActive && styles.categoryTabLabelActive,
-            ]}>
-              Tất cả
-            </Text>
-            {isAllCategoryRailActive ? <View style={styles.categoryTabIndicator} /> : null}
-          </TouchableOpacity>
-
           {categoryRailGroups.map((group) => {
             const active = activeCategoryRailGroupKey === group.key;
-            const categoryIcon = getCategoryRailIcon(group.label);
+            const categoryVisual = getCategoryRailVisual(group.label);
 
             return (
               <TouchableOpacity
                 key={group.key}
-                style={styles.categoryTab}
+                style={[
+                  styles.categoryTab,
+                  shouldBalanceCategoryRail && styles.categoryTabBalanced,
+                ]}
                 onPress={() => updateAppliedFilters((current) => ({
                   ...current,
                   categoryId: active ? [] : group.categoryIds,
@@ -1259,11 +1408,15 @@ const ProductListScreen = () => {
                 accessibilityLabel={`Danh mục: ${group.label}`}
               >
                 <View style={[styles.categoryTabIcon, active && styles.categoryTabIconActive]}>
-                  <MaterialCommunityIcons
-                    name={categoryIcon}
-                    size={23}
-                    color={active ? colors.brandDark : colors.textMuted}
-                  />
+                  {'icon' in categoryVisual ? (
+                    <MaterialCommunityIcons
+                      name={categoryVisual.icon}
+                      size={23}
+                      color={active ? colors.brandDark : colors.textMuted}
+                    />
+                  ) : (
+                    <PantsGlyph color={active ? colors.brandDark : colors.textMuted} />
+                  )}
                 </View>
                 <Text
                   style={[styles.categoryTabLabel, active && styles.categoryTabLabelActive]}
@@ -1406,7 +1559,7 @@ const ProductListScreen = () => {
               {renderGroup(
                 'Sắp xếp',
                 <View style={styles.choiceWrap}>
-                  {sortOptions.map((option) =>
+                  {visibleSortOptions.map((option) =>
                     renderChoice(
                       option.label,
                       draftFilters.sort === option.value,
@@ -1460,7 +1613,7 @@ const ProductListScreen = () => {
                         <Text style={styles.categoryGroupTitle}>{group.label}</Text>
                         <View style={styles.choiceWrap}>
                           {renderChoice(
-                            group.options.length ? `Tất cả ${group.label}` : group.label,
+                            ALL_CATEGORY_FILTER_LABEL,
                             group.categoryIds.every((categoryId) => draftFilters.categoryId.includes(categoryId)),
                             () => toggleDraftValues('categoryId', group.categoryIds),
                             undefined,
@@ -1929,6 +2082,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     alignItems: 'stretch',
   },
+  categoryRailBalanced: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    justifyContent: 'space-between',
+  },
   categoryTab: {
     position: 'relative',
     width: 82,
@@ -1938,6 +2096,9 @@ const styles = StyleSheet.create({
     paddingBottom: 7,
     alignItems: 'center',
     justifyContent: 'flex-start',
+  },
+  categoryTabBalanced: {
+    flexShrink: 0,
   },
   categoryTabIcon: {
     width: 40,

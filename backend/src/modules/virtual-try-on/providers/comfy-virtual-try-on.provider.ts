@@ -270,9 +270,10 @@ export const buildComfyTryOnPrompt = (
   garments: VirtualTryOnProviderGarment[],
   usesIndividualGarmentImages: boolean,
   sourceImageProfile?: VirtualTryOnSourceImageProfile,
+  outputAspectRatio = '3:4',
 ) => [
   'Create one single 2x2 grid image for virtual fashion try-on.',
-  'The full returned image must be a vertical 3:4 portrait canvas, so each cropped grid cell is also a vertical 3:4 portrait.',
+  `The full returned image must use a ${outputAspectRatio} canvas, so each cropped grid cell also keeps the same ${outputAspectRatio} aspect ratio.`,
   'The grid order is fixed: cell 1 is top-left, cell 2 is top-right, cell 3 is bottom-left, and cell 4 is bottom-right.',
   'Cell 1 is the baseline try-on: apply the selected outfit while preserving the source person pose, expression, camera angle, perspective, crop, and body alignment as closely as possible.',
   'Cells 2, 3, and 4 may each use a different subtle, natural fashion pose, but must keep the same person identity, body shape, body proportions, skin tone, visible body coverage, camera framing, and complete selected outfit as cell 1.',
@@ -815,11 +816,16 @@ const applyWorkflowInputs = async (
     );
   }
 
+  const configuredAspectRatio = input.aspectRatio?.trim()
+    || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO');
+  const configuredResolution = input.resolution?.trim()
+    || getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_RESOLUTION');
   const comfyPrompt = buildComfyTryOnPrompt(
     input.prompt,
     input.garments,
     multiGarmentMapped,
     input.sourceImageProfile,
+    configuredAspectRatio || '3:4',
   );
   const promptMapping = mapComfyPromptInputs(
     workflow,
@@ -849,16 +855,18 @@ const applyWorkflowInputs = async (
       'COMFY_MAP_INVALID',
     );
   }
-  const configuredAspectRatio = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO');
   if (configuredAspectRatio) setComfyMappedInput(workflow, workflowMap, 'aspectRatio', configuredAspectRatio);
-  const configuredResolution = getOptionalComfyEnvValue('VIRTUAL_TRY_ON_COMFY_RESOLUTION');
   if (configuredResolution) setComfyMappedInput(workflow, workflowMap, 'resolution', configuredResolution);
   const model = getByPath(workflow, workflowMap.inputs?.model);
+  const aspectRatio = getByPath(workflow, workflowMap.inputs?.aspectRatio);
+  const resolution = getByPath(workflow, workflowMap.inputs?.resolution);
 
   return {
     sourceFileName,
     garmentFileNames,
     model: typeof model === 'string' ? model : configuredModel,
+    aspectRatio: typeof aspectRatio === 'string' ? aspectRatio : configuredAspectRatio,
+    resolution: typeof resolution === 'string' ? resolution : configuredResolution,
     promptInputKey: promptMapping.positivePromptKey,
     negativePromptMapped: promptMapping.negativePromptMapped,
     negativePromptFallbackApplied: promptMapping.negativePromptFallbackApplied,

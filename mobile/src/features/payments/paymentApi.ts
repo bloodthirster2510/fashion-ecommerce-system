@@ -109,6 +109,7 @@ export const paymentApi = {
         body: {
           ...(options?.bankCode ? { bankCode: options.bankCode } : {}),
           locale: options?.locale ?? 'vn',
+          client: 'mobile',
         },
       },
     ),

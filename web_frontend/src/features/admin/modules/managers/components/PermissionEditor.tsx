@@ -46,7 +46,7 @@ const permissionGroups: PermissionGroup[] = [
   },
   {
     title: 'Khuyến mãi',
-    helper: 'Coupon và chiến dịch',
+    helper: 'Mã giảm giá và chiến dịch',
     items: [
       { value: 'promotions.read', label: 'Xem' },
       { value: 'promotions.write', label: 'Tạo, sửa, bật tắt' },
@@ -65,7 +65,7 @@ const permissionGroups: PermissionGroup[] = [
     helper: 'Tài khoản người mua hàng',
     items: [
       { value: 'customers.read', label: 'Xem' },
-      { value: 'customers.manage', label: 'Khóa, mở, reset' },
+      { value: 'customers.manage', label: 'Khóa, mở, đặt lại mật khẩu' },
     ],
   },
   {
@@ -75,8 +75,8 @@ const permissionGroups: PermissionGroup[] = [
       { value: 'reviews.read', label: 'Xem đánh giá' },
       { value: 'reviews.moderate', label: 'Kiểm duyệt đánh giá' },
       { value: 'reviews.reply', label: 'Phản hồi đánh giá' },
-      { value: 'support.reply', label: 'Phản hồi ticket' },
-      { value: 'support.manage', label: 'Quản lý FAQ, mẫu trả lời & báo cáo hỗ trợ' },
+      { value: 'support.reply', label: 'Phản hồi yêu cầu hỗ trợ' },
+      { value: 'support.manage', label: 'Quản lý bài hướng dẫn, mẫu trả lời và báo cáo hỗ trợ' },
       { value: 'virtual_try_on.read', label: 'Xem lượt phối đồ ảo' },
       { value: 'virtual_try_on.manage', label: 'Vận hành và hạn chế tài khoản' },
       { value: 'virtual_try_on.settings', label: 'Cấu hình và quy tắc nội dung' },

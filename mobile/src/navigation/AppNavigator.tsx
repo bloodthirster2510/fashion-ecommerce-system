@@ -56,13 +56,14 @@ export type RootStackParamList = {
     maxPrice?: number;
     isSale?: boolean;
     isNew?: boolean;
-    sort?: 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'rating_desc';
+    sort?: 'relevance' | 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'rating_desc';
     discoveryEntry?: 'products';
   } | undefined;
   Search: undefined;
   ProductDetail: {
     productId: string;
     recommendationRequestId?: string;
+    openTryOn?: boolean;
   };
   Cart: {
     couponCode?: string;
@@ -70,11 +71,13 @@ export type RootStackParamList = {
   } | undefined;
   Checkout: {
     couponCode?: string;
+    couponCodes?: string[];
     cartItemIds?: string[];
   } | undefined;
   Coupons: {
     cartItemIds?: string[];
     selectedCouponCode?: string | null;
+    selectedCouponCodes?: string[];
     paymentMethod?: 'COD' | 'VNPAY';
   } | undefined;
   Favorites: undefined;
@@ -202,8 +205,16 @@ const AppNavigator = () => {
       <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
       <Stack.Screen name="ReviewComposer" component={ReviewComposerScreen} />
       <Stack.Screen name="MyReviews" component={MyReviewsScreen} />
-      <Stack.Screen name="VirtualTryOnHome" component={session ? VirtualTryOnHomeScreen : LoginScreen} />
-      <Stack.Screen name="VirtualTryOnBuilder" component={session ? VirtualTryOnBuilderScreen : LoginScreen} />
+      <Stack.Screen
+        name="VirtualTryOnHome"
+        component={session ? VirtualTryOnHomeScreen : LoginScreen}
+        options={{ gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="VirtualTryOnBuilder"
+        component={session ? VirtualTryOnBuilderScreen : LoginScreen}
+        options={{ gestureEnabled: false }}
+      />
       <Stack.Screen name="VirtualTryOnProcessing" component={session ? VirtualTryOnProcessingScreen : LoginScreen} />
       <Stack.Screen name="VirtualTryOnResult" component={session ? VirtualTryOnResultScreen : LoginScreen} />
       <Stack.Screen name="VirtualTryOnHistory" component={session ? VirtualTryOnHistoryScreen : LoginScreen} />

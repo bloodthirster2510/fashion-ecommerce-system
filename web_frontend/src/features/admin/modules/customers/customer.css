@@ -23,6 +23,32 @@
   box-shadow: -18px 0 42px rgba(31, 45, 61, 0.18);
 }
 
+.admin-customer-page .admin-ui-drawer__body > .admin-ui-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-customer-page .admin-ui-drawer__body > .admin-ui-tabs button {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 8px;
+  white-space: nowrap;
+}
+
+.admin-customer-page .admin-ui-table th:last-child,
+.admin-customer-page .admin-ui-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--admin-surface);
+  box-shadow: -12px 0 14px -16px rgba(31, 45, 61, 0.55);
+}
+
+.admin-customer-page .admin-ui-table th:last-child {
+  z-index: 2;
+  background: var(--admin-surface-subtle);
+}
+
 .admin-drawer-header,
 .admin-drawer-actions {
   display: flex;
@@ -106,6 +132,24 @@
   background: var(--admin-accent);
   font-size: 16px;
   font-weight: 900;
+  overflow: hidden;
+  position: relative;
+}
+
+.admin-customer-avatar img,
+.admin-user-avatar img,
+.admin-customer-activity-actor__avatar img,
+.admin-customer-note__author-avatar img {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
+}
+
+.admin-user-avatar {
+  overflow: hidden;
+  position: relative;
 }
 
 .admin-customer-summary div {
@@ -123,7 +167,7 @@
   white-space: nowrap;
 }
 
-.admin-customer-summary span:not(.admin-customer-avatar, .admin-ui-status) {
+.admin-customer-summary > div > span {
   overflow: hidden;
   color: var(--admin-text-muted);
   font-size: 13px;
@@ -393,6 +437,27 @@
   line-height: 1.45;
 }
 
+.admin-customer-timeline__item p.admin-customer-activity-actor {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-customer-activity-actor__avatar {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--admin-accent);
+  font-size: 10px;
+  font-weight: 900;
+}
+
 .admin-customer-pagination {
   display: flex;
   align-items: center;
@@ -462,6 +527,32 @@
 
 .admin-customer-note footer {
   justify-content: space-between;
+}
+
+.admin-customer-note__author {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-customer-note__author > span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.admin-customer-note__author-avatar {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--admin-accent);
+  font-size: 10px;
+  font-weight: 900;
 }
 
 .admin-customer-note footer span,

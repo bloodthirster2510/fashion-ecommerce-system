@@ -8,6 +8,7 @@ import {
   type VirtualTryOnAssetType,
 } from '../database/models/virtual-try-on-asset.model';
 import {
+  applyImageValidationBasePolicy,
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
   getImageValidationReasonMessage,
@@ -44,11 +45,6 @@ const getNumberArg = (name: string) => {
   return Number.isInteger(value) && value > 0 ? value : undefined;
 };
 
-const getPersonScoreThreshold = () => {
-  const threshold = Number(process.env.IMAGE_VALIDATION_PERSON_SCORE_THRESHOLD);
-  return Number.isFinite(threshold) ? threshold : 0.5;
-};
-
 const getImageValidationSource = (asset: IVirtualTryOnAsset): ImageValidationInput['source'] =>
   asset.source === 'camera' ? 'camera' : 'upload';
 
@@ -68,31 +64,6 @@ const downloadImageValidationBuffer = async (asset: IVirtualTryOnAsset) => {
   };
 };
 
-const rejectImageValidationResult = (
-  result: ImageValidationResult,
-  reasonCode: ImageValidationReasonCode,
-): ImageValidationResult => ({
-  ...result,
-  allowed: false,
-  reasonCode,
-  message: getImageValidationReasonMessage(reasonCode),
-});
-
-const applyUploadImageValidationPolicy = (result: ImageValidationResult): ImageValidationResult => {
-  if (!result.allowed) return result;
-  if (result.safetyFlags.length > 0) return rejectImageValidationResult(result, 'IMAGE_POLICY_BLOCKED');
-  if (result.quality.resolution === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_SMALL');
-  if (result.quality.blur === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_BLURRY');
-  if (result.quality.brightness === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_DARK');
-  if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
-    return rejectImageValidationResult(result, 'NO_PERSON_DETECTED');
-  }
-  if (result.personCount > 1) return rejectImageValidationResult(result, 'MULTIPLE_PEOPLE_DETECTED');
-  if (result.bodyVisibility === 'partial') return rejectImageValidationResult(result, 'BODY_NOT_VISIBLE');
-
-  return result;
-};
-
 const validateAsset = async (asset: IVirtualTryOnAsset) => {
   const providerName = getConfiguredImageValidationProviderName();
   if (providerName === 'disabled') return null;
@@ -109,7 +80,11 @@ const validateAsset = async (asset: IVirtualTryOnAsset) => {
 
   try {
     const provider = createImageValidationProvider(providerName);
-    return applyUploadImageValidationPolicy(await provider.validate(input));
+    const personScoreThreshold = Number(process.env.IMAGE_VALIDATION_PERSON_SCORE_THRESHOLD);
+    return applyImageValidationBasePolicy(
+      await provider.validate(input),
+      Number.isFinite(personScoreThreshold) ? personScoreThreshold : 0.5,
+    );
   } catch (error) {
     if (isImageValidationFailOpen()) {
       console.warn('Image validation failed open, clearing warning for asset:', asset._id.toString(), error);

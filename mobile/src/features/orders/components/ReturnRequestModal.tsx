@@ -43,7 +43,7 @@ export function ReturnRequestModal({
         <View style={styles.returnModal}>
           <View style={styles.invoiceHeader}>
             <View>
-              <Text style={styles.invoiceEyebrow}>RETURN REQUEST</Text>
+              <Text style={styles.invoiceEyebrow}>YÊU CẦU TRẢ HÀNG</Text>
               <Text style={styles.invoiceTitle}>Lý do trả hàng</Text>
             </View>
             <TouchableOpacity style={styles.modalCloseButton} onPress={onClose} disabled={isSubmitting}>

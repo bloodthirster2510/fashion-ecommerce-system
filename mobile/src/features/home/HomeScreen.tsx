@@ -5,11 +5,15 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
 import StorefrontHeader from '../../components/layout/StorefrontHeader';
+import StickySectionHeader, {
+  StickySectionBoundary,
+  useStickySectionHeader,
+} from '../../components/layout/StickySectionHeader';
 import StorefrontBottomNav from '../../components/navigation/StorefrontBottomNav';
 import { colors, spacing } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
-import { catalogApi, CatalogCategory, CatalogGender, CatalogProduct } from '../catalog/catalogApi';
+import { catalogApi, CatalogCategory, CatalogProduct } from '../catalog/catalogApi';
 import { interactionApi, type InteractionPayload } from '../recommendation/interactionApi';
 import { recommendationApi, type RecommendationItem } from '../recommendation/recommendationApi';
 import RecommendationRail from '../recommendation/RecommendationRail';
@@ -111,13 +115,18 @@ const HomeScreen = () => {
   }, [isAuthenticated, recommendationAlgorithmVersion, recommendationRequestId, runWithAuth]);
   const {
     recommendationSectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility,
-    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
     onImpression: (item) => recordRecommendationEvent(item, 'impression'),
   });
+  const {
+    activeTitle: stickySectionTitle,
+    onScroll: handleScroll,
+    onSectionLayout,
+  } = useStickySectionHeader(checkRecommendationVisibility);
 
   const loadCategories = React.useCallback(() => {
     let isCurrentRequest = true;
@@ -231,18 +240,6 @@ const HomeScreen = () => {
     navigation.navigate('ProductList', params);
   };
 
-  const handleGenderSelect = (gender: CatalogGender) => {
-    navigateToProductList({
-      title:
-        gender === 'male'
-          ? 'Thời trang nam'
-          : gender === 'female'
-            ? 'Thời trang nữ'
-            : 'Thời trang unisex',
-      gender,
-    });
-  };
-
   const handleCategorySelect = (category: CatalogCategory) => {
     navigateToProductList({
       title: category.name,
@@ -312,19 +309,19 @@ const HomeScreen = () => {
         menuAccessibilityLabel="Mở bộ lọc sản phẩm"
         isAuthenticated={isAuthenticated}
         onAccountPress={() => navigation.navigate('Login')}
-        onFavoritesPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
         onCartPress={() => navigation.navigate(isAuthenticated ? 'Cart' : 'Login')}
         onSearchSubmit={handleSearchSubmit}
         onSearchFocus={() => navigation.navigate('Search')}
         cartBadgeCount={notificationSummary?.cartItems ?? 0}
       />
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        onScroll={checkRecommendationVisibility}
-        scrollEventThrottle={100}
-      >
+      <View style={styles.scrollArea}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+        >
         <TouchableOpacity
           onPress={() => navigateToProductList({ title: 'Khám phá gu riêng' })}
           activeOpacity={0.88}
@@ -348,37 +345,51 @@ const HomeScreen = () => {
           />
         </View>
 
-        <ProductSection
-          title="Sản phẩm bán chạy"
-          products={bestSellers}
-          isLoading={isProductLoading}
-          error={bestSellerError}
-          onRetry={loadHomeProducts}
-          onViewMore={() => navigateToProductList({
-            title: 'Sản phẩm bán chạy',
-            sort: 'best_seller',
-            discoveryEntry: 'products',
-          })}
-          onProductPress={handleProductPress}
-          onCartPress={handleCartPress}
-        />
+          <StickySectionBoundary
+            sectionKey="best-sellers"
+            title="Sản phẩm bán chạy"
+            onSectionLayout={onSectionLayout}
+          >
+            <ProductSection
+              title="Sản phẩm bán chạy"
+              products={bestSellers}
+              isLoading={isProductLoading}
+              error={bestSellerError}
+              onRetry={loadHomeProducts}
+              onViewMore={() => navigateToProductList({
+                title: 'Sản phẩm bán chạy',
+                sort: 'best_seller',
+                discoveryEntry: 'products',
+              })}
+              onProductPress={handleProductPress}
+              onCartPress={handleCartPress}
+            />
+          </StickySectionBoundary>
 
-        <RecommendationRail
-          title="Dành cho bạn"
-          subtitle={isAuthenticated ? 'Dựa trên những sản phẩm bạn đã quan tâm' : 'Những lựa chọn đang được yêu thích'}
-          items={recommendationItems}
-          isLoading={isProductLoading}
-          error={recommendationError}
-          onRetry={loadHomeProducts}
-          trackingRef={recommendationSectionRef}
-          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
-          onProductPress={handleRecommendationProductPress}
-        />
+          <StickySectionBoundary
+            sectionKey="for-you"
+            title="Dành cho bạn"
+            onSectionLayout={onSectionLayout}
+          >
+            <RecommendationRail
+              title="Dành cho bạn"
+              subtitle={isAuthenticated ? 'Dựa trên những sản phẩm bạn đã quan tâm' : 'Những lựa chọn đang được yêu thích'}
+              items={recommendationItems}
+              isLoading={isProductLoading}
+              error={recommendationError}
+              onRetry={loadHomeProducts}
+              trackingRef={recommendationSectionRef}
+              onItemRef={setRecommendationItemRef}
+              onProductPress={handleRecommendationProductPress}
+            />
+          </StickySectionBoundary>
 
         <View style={styles.footerGap}>
           <StorefrontFooter />
         </View>
-      </ScrollView>
+        </ScrollView>
+        <StickySectionHeader title={stickySectionTitle} />
+      </View>
 
       <CategoryDrawer
         visible={isCategoryDrawerVisible}
@@ -386,7 +397,6 @@ const HomeScreen = () => {
         isLoading={isCategoryLoading}
         onClose={() => setIsCategoryDrawerVisible(false)}
         onSelectAll={() => navigateToProductList({ title: 'Tất cả sản phẩm' })}
-        onSelectGender={handleGenderSelect}
         onSelectCategory={handleCategorySelect}
       />
       <StorefrontBottomNav activeTab="home" />
@@ -400,6 +410,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
   },
   content: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollArea: {
     flex: 1,
     backgroundColor: colors.background,
   },

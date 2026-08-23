@@ -1,0 +1,31 @@
+{
+  "1": {
+    "inputs": { "image": "source.png" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load Image" }
+  },
+  "2": {
+    "inputs": {
+      "start_frame": ["1", 0],
+      "prompt": "",
+      "negative_prompt": "",
+      "model_name": "kling-v2-5-turbo",
+      "cfg_scale": 0.8,
+      "mode": "pro",
+      "aspect_ratio": "9:16",
+      "duration": "5"
+    },
+    "class_type": "KlingImage2VideoNode",
+    "_meta": { "title": "Kling 2.5 Turbo Image to Video" }
+  },
+  "5": {
+    "inputs": {
+      "filename_prefix": "video/fashion-tryon-kling-2-5-turbo",
+      "format": "auto",
+      "codec": "auto",
+      "video": ["2", 0]
+    },
+    "class_type": "SaveVideo",
+    "_meta": { "title": "Save Video" }
+  }
+}

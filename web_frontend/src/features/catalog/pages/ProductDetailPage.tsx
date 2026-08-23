@@ -28,6 +28,27 @@ const getRecommendationRequestIdFromSearch = () => {
   return requestId && requestId.length <= 120 ? requestId : undefined
 }
 
+function ProductDetailSkeleton() {
+  return (
+    <section className="product-detail-skeleton" aria-label="Đang tải chi tiết sản phẩm" aria-busy="true">
+      <div className="product-detail-skeleton-gallery">
+        <div className="product-detail-skeleton-image" />
+        <div className="product-detail-skeleton-thumbnails">
+          <span /><span /><span /><span />
+        </div>
+      </div>
+      <div className="product-detail-skeleton-info">
+        <span className="product-skeleton-line is-breadcrumb" />
+        <span className="product-skeleton-line is-heading" />
+        <span className="product-skeleton-line is-heading-short" />
+        <span className="product-skeleton-line is-detail-price" />
+        <div className="product-detail-skeleton-block"><span /><span /><span /></div>
+        <div className="product-detail-skeleton-button" />
+      </div>
+    </section>
+  )
+}
+
 const getFinalPrice = (variant?: ProductVariant) => {
   return variant?.finalPrice ?? 0
 }
@@ -49,6 +70,38 @@ const stripDescription = (value: string) => {
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+type DescriptionBlock = {
+  heading?: string
+  paragraphs: string[]
+}
+
+const splitIntoParagraphs = (value: string) => {
+  const sentences = value.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [value]
+  const paragraphs: string[] = []
+
+  for (let index = 0; index < sentences.length; index += 3) {
+    paragraphs.push(sentences.slice(index, index + 3).join(' '))
+  }
+
+  return paragraphs
+}
+
+const formatDescription = (value: string): DescriptionBlock[] => {
+  const sections = value.split(/(?=\b\d+\.\s+)/).map((section) => section.trim()).filter(Boolean)
+
+  return sections.map((section) => {
+    const numberedHeading = section.match(/^(\d+\.\s+[^:]{2,70}?)(?=\s+(?:Vải|Dây|Cúc|Chất liệu|Thiết kế|Bề mặt|Nền|Có|Đây|Với|Thoáng|Thấm|Nhanh|Co giãn):)/i)
+    const fallbackHeading = section.match(/^(\d+\.\s+[^.]{2,70}?)(?=\.)/)
+    const heading = numberedHeading?.[1].trim() || fallbackHeading?.[1].trim()
+    const body = heading ? section.slice(heading.length).replace(/^[:.\s]+/, '').trim() : section
+
+    return {
+      ...(heading ? { heading } : {}),
+      paragraphs: splitIntoParagraphs(body),
+    }
+  })
 }
 
 const isCssColor = (value?: string) => Boolean(value && (value.startsWith('#') || value.startsWith('rgb') || value.startsWith('hsl')))
@@ -251,6 +304,7 @@ export function ProductDetailPage() {
   const canSlideImages = images.length > 1
   const categoryTrail = product?.categoryBreadcrumb ?? []
   const description = product ? stripDescription(product.description) : ''
+  const descriptionBlocks = useMemo(() => formatDescription(description), [description])
 
   const handleImageChange = (image: string) => {
     const imageIndex = images.indexOf(image)
@@ -356,8 +410,10 @@ export function ProductDetailPage() {
       <main className="product-detail-page">
         {error && <Alert className="catalog-alert" type="error" message={error} showIcon />}
 
-        <Spin spinning={isLoading}>
-          {!isLoading && (isNotFound || !product) ? (
+        <Spin spinning={false}>
+          {isLoading ? (
+            <ProductDetailSkeleton />
+          ) : isNotFound || !product ? (
             <Empty description="Không tìm thấy sản phẩm." />
           ) : (
             product && (
@@ -443,7 +499,8 @@ export function ProductDetailPage() {
                     </div>
 
                     <p className="product-meta">
-                      Loại: <strong>{product.category?.name ?? 'Chưa phân loại'}</strong>
+                      <span>Loại áo: <strong>{product.category?.name ?? 'Chưa phân loại'}</strong></span>
+                      <span>Thương hiệu: <strong>{product.brand?.name ?? 'Chưa cập nhật'}</strong></span>
                     </p>
 
                     <div className="detail-price">
@@ -590,7 +647,14 @@ export function ProductDetailPage() {
                 {description && (
                   <section className="product-description">
                     <h2>Mô tả sản phẩm</h2>
-                    <p>{description}</p>
+                    <div className="product-description-content">
+                      {descriptionBlocks.map((block, index) => (
+                        <section className="product-description-block" key={`${block.heading ?? 'intro'}-${index}`}>
+                          {block.heading && <h3>{block.heading}</h3>}
+                          {block.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                        </section>
+                      ))}
+                    </div>
                   </section>
                 )}
 

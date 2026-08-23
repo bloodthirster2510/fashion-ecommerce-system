@@ -12,6 +12,24 @@ type CheckoutRequestError = {
   data?: unknown;
 };
 
+type CheckoutCouponRouteParams = {
+  couponCode?: string | null;
+  couponCodes?: string[];
+};
+
+export const getCouponCodesFromRouteParams = (
+  params?: CheckoutCouponRouteParams,
+): string[] | null => {
+  if (params?.couponCodes === undefined && params?.couponCode == null) {
+    return null;
+  }
+
+  const rawCodes = params.couponCodes ?? [params.couponCode ?? ''];
+  return Array.from(
+    new Set(rawCodes.map((code) => code.trim().toUpperCase()).filter(Boolean)),
+  ).slice(0, 2);
+};
+
 export type CheckoutErrorPresentation = {
   kind: 'quote_changed' | 'coupon_exhausted' | 'coupon_user_limit' | 'generic';
   title: string;

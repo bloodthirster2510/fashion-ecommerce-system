@@ -39,7 +39,7 @@ export function AddressManagerModal({
                 </div>
                 <div className="account-address-actions">
                   <Button
-                    type={address.isDefault ? 'default' : 'primary'}
+                    className="account-address-action-button account-address-action-button--select"
                     disabled={address.isDefault || !address._id}
                     loading={isPending}
                     onClick={() => onSetDefault(address)}
@@ -47,7 +47,10 @@ export function AddressManagerModal({
                     Chọn
                   </Button>
                   <Popconfirm title="Xóa địa chỉ này?" okText="Xóa" cancelText="Hủy" onConfirm={() => onDelete(address)}>
-                    <Button danger disabled={!address._id || isPending || addresses.length <= 1}>
+                    <Button
+                      className="account-address-action-button account-address-action-button--delete"
+                      disabled={!address._id || isPending || addresses.length <= 1}
+                    >
                       Xóa
                     </Button>
                   </Popconfirm>

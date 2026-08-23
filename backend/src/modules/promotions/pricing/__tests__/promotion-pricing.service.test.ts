@@ -183,37 +183,34 @@ beforeEach(() => {
 });
 
 describe('promotionPricingService coupon membership eligibility', () => {
-  it('stacks coupons only when an active campaign allows the combination', async () => {
+  it('stacks one product discount with one freeship coupon without requiring a campaign', async () => {
     mockUser(6000);
-    const fixedCoupon = {
+    const freeshipCoupon = {
       ...baseCoupon,
       _id: new Types.ObjectId('665000000000000000000202'),
-      code: 'STACK5000',
-      discountType: 'fixed',
-      discountValue: 5000,
+      code: 'FREESHIPMAX',
+      discountType: 'free_shipping',
+      discountValue: 0,
     };
     mockedCoupon.findOne
       .mockResolvedValueOnce(baseCoupon as never)
-      .mockResolvedValueOnce(fixedCoupon as never);
-    mockedCampaignService.findStackingCampaignForCoupons.mockResolvedValue({
-      _id: new Types.ObjectId('665000000000000000000301'),
-      code: 'STACKABLE',
-      name: 'Stackable campaign',
-    } as never);
+      .mockResolvedValueOnce(freeshipCoupon as never);
+    mockedCampaignService.findStackingCampaignForCoupons.mockResolvedValue(null);
 
     const result = await promotionPricingService.calculateCheckout({
       userId,
       cartItemIds: [cartItemId.toString()],
-      couponCodes: ['GOLDONLY', 'STACK5000'],
+      couponCodes: ['GOLDONLY', 'FREESHIPMAX'],
       paymentMethod: 'COD',
     });
 
     expect(result.appliedCoupons).toHaveLength(2);
-    expect(result.summary.couponDiscountAmount).toBe(15000);
-    expect(result.appliedCampaign?.code).toBe('STACKABLE');
+    expect(result.summary.couponDiscountAmount).toBe(10000);
+    expect(result.summary.shippingDiscountAmount).toBe(30000);
+    expect(result.appliedCampaign).toBeNull();
   });
 
-  it('rejects coupon stacking without an eligible campaign', async () => {
+  it('rejects multiple product discount coupons on the same order', async () => {
     mockUser(6000);
     mockedCoupon.findOne.mockResolvedValueOnce(baseCoupon as never).mockResolvedValueOnce({
       ...baseCoupon,
@@ -222,14 +219,62 @@ describe('promotionPricingService coupon membership eligibility', () => {
       discountType: 'fixed',
       discountValue: 5000,
     } as never);
-    mockedCampaignService.findStackingCampaignForCoupons.mockResolvedValue(null);
 
     await expect(promotionPricingService.calculateCheckout({
       userId,
       cartItemIds: [cartItemId.toString()],
       couponCodes: ['GOLDONLY', 'STACK5000'],
       paymentMethod: 'COD',
-    })).rejects.toMatchObject({ statusCode: 409 });
+    })).rejects.toMatchObject({
+      message: 'Chỉ có thể áp dụng tối đa 1 mã giảm giá đơn hàng',
+      statusCode: 409,
+    });
+  });
+
+  it('rejects multiple freeship coupons on the same order', async () => {
+    mockUser(6000);
+    const freeshipCoupon = {
+      ...baseCoupon,
+      discountType: 'free_shipping',
+      discountValue: 0,
+      eligibleMembershipRanks: [],
+    };
+    mockedCoupon.findOne
+      .mockResolvedValueOnce({
+        ...freeshipCoupon,
+        _id: new Types.ObjectId('665000000000000000000202'),
+        code: 'FREESHIP30',
+      } as never)
+      .mockResolvedValueOnce({
+        ...freeshipCoupon,
+        _id: new Types.ObjectId('665000000000000000000203'),
+        code: 'FREESHIP50',
+      } as never);
+
+    await expect(promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCodes: ['FREESHIP30', 'FREESHIP50'],
+      paymentMethod: 'COD',
+    })).rejects.toMatchObject({
+      message: 'Chỉ có thể áp dụng tối đa 1 mã freeship',
+      statusCode: 409,
+    });
+  });
+
+  it('rejects more than two coupon codes before looking them up', async () => {
+    mockUser(6000);
+
+    await expect(promotionPricingService.calculateCheckout({
+      userId,
+      cartItemIds: [cartItemId.toString()],
+      couponCodes: ['SAVE10', 'FREESHIP', 'EXTRA'],
+      paymentMethod: 'COD',
+    })).rejects.toMatchObject({
+      message: 'Chỉ có thể áp dụng tối đa 2 voucher (1 mã giảm giá + 1 mã freeship)',
+      statusCode: 400,
+    });
+    expect(mockedCoupon.findOne).not.toHaveBeenCalled();
   });
 
   it('treats the base tier as a member even when its discount is zero', async () => {

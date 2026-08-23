@@ -39,6 +39,7 @@ import {
   createVirtualTryOnVideoProvider,
   getVirtualTryOnImageConfiguration,
   getVirtualTryOnVideoConfiguration,
+  normalizeVideoWorkflowProfile,
   VirtualTryOnProviderError,
   VirtualTryOnVideoProviderError,
   type VirtualTryOnContextPresetPreview,
@@ -46,6 +47,7 @@ import {
   type VirtualTryOnSourceImageProfile,
 } from './providers';
 import {
+  applyImageValidationBasePolicy,
   checkImageValidationProviderHealth,
   createImageValidationProvider,
   getConfiguredImageValidationProviderName,
@@ -53,6 +55,7 @@ import {
   getImageValidationReasonStatus,
   isImageValidationFailOpen,
   isImageValidationReasonCode,
+  isImageValidationSourceBlockReason,
   type ImageValidationBodyRegion,
   type ImageValidationCapability,
   type ImageValidationCapabilityMode,
@@ -117,9 +120,6 @@ const DEFAULT_PROVIDER = process.env.VIRTUAL_TRY_ON_PROVIDER?.trim() || 'mock';
 const ENABLE_VIDEO = process.env.VIRTUAL_TRY_ON_ENABLE_VIDEO === 'true';
 const DEFAULT_VIDEO_PROVIDER = process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim() || 'comfy_kling';
 const IMAGE_VALIDATION_DOWNLOAD_TIMEOUT_MS = 15_000;
-const hardBlockingImageValidationReasonCodes = new Set<ImageValidationReasonCode>([
-  'NO_PERSON_DETECTED',
-]);
 const terminalPolicyJobErrorCodes = new Set([
   'PROVIDER_SAFETY_BLOCKED',
 ]);
@@ -182,6 +182,35 @@ const roleDisplayLabels: Record<VirtualTryOnItemRole, string> = {
   accessory: 'phụ kiện',
   outerwear: 'áo khoác',
 };
+const normalizeVirtualTryOnRuleText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase();
+const fullOutfitProductPattern =
+  /(^|[\s/.-])(full set|bo do|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
+const exactFullOutfitCategoryPattern = /^(bo|set|combo|outfit|full set)$/;
+const getProductCategoryNameForTryOn = (product: IProduct) => {
+  const category = product.category_id as unknown;
+
+  if (category && typeof category === 'object' && 'name' in category) {
+    const name = (category as { name?: unknown }).name;
+    return typeof name === 'string' ? name : '';
+  }
+
+  return '';
+};
+const isVirtualTryOnFullOutfitText = (value: string) =>
+  fullOutfitProductPattern.test(normalizeVirtualTryOnRuleText(value));
+const isVirtualTryOnFullOutfitCategoryText = (value: string) => {
+  const normalizedValue = normalizeVirtualTryOnRuleText(value).trim();
+  return fullOutfitProductPattern.test(normalizedValue) || exactFullOutfitCategoryPattern.test(normalizedValue);
+};
+const isVirtualTryOnFullOutfitProduct = (product: IProduct) =>
+  isVirtualTryOnFullOutfitText(product.name) ||
+  isVirtualTryOnFullOutfitCategoryText(getProductCategoryNameForTryOn(product));
 const allowedOutfitModes = new Set<VirtualTryOnOutfitMode>(['single', 'top_bottom', 'full_set']);
 const allowedContextPresets = new Set<VirtualTryOnContextPreset>([
   'none',
@@ -485,7 +514,15 @@ const notifyVirtualTryOnAccessBestEffort = async (input: {
 const getVideoCapabilities = (settings?: VirtualTryOnRuntimeSettings) => {
   const provider = settings?.videoProvider || DEFAULT_VIDEO_PROVIDER;
   const model = settings?.videoModel || process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
-  const configuration = getVirtualTryOnVideoConfiguration({ provider, model });
+  const configuration = getVirtualTryOnVideoConfiguration({
+    provider,
+    model,
+    workflowProfile: settings?.videoWorkflowProfile,
+    durationSeconds: settings?.videoDurationSeconds,
+    resolution: settings?.videoResolution,
+    aspectRatio: settings?.videoAspectRatio,
+    generateAudio: settings?.videoGenerateAudio,
+  });
   const available = ENABLE_VIDEO && provider !== 'disabled' && configuration.ready;
   return {
     enabled: ENABLE_VIDEO,
@@ -496,13 +533,39 @@ const getVideoCapabilities = (settings?: VirtualTryOnRuntimeSettings) => {
         ? 'VIDEO_GENERATION_DISABLED'
         : configuration.issues[0] || 'VIDEO_PROVIDER_CONFIG_MISSING',
     provider: configuration.provider,
+    workflowProfile: configuration.workflowProfile,
     model: configuration.model,
     durationSeconds: configuration.durationSeconds,
     minDurationSeconds: configuration.minDurationSeconds,
     maxDurationSeconds: configuration.maxDurationSeconds,
     resolution: configuration.resolution,
+    aspectRatio: configuration.aspectRatio,
     generateAudio: configuration.generateAudio,
   };
+};
+
+const getStringMetadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : undefined;
+};
+
+const getNumberMetadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = metadata?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+};
+
+const getBooleanMetadataValue = (
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) => {
+  const value = metadata?.[key];
+  return typeof value === 'boolean' ? value : undefined;
 };
 
 const getEffectiveVideoResult = (job: IVirtualTryOnJob) => {
@@ -785,6 +848,10 @@ const buildProviderInput = (job: IVirtualTryOnJob) => {
       && job.providerMetadata.model !== 'workflow_default'
       ? job.providerMetadata.model
       : undefined,
+    aspectRatio: getStringMetadataValue(job.providerMetadata, 'imageAspectRatio')
+      || getStringMetadataValue(job.providerMetadata, 'aspectRatio'),
+    resolution: getStringMetadataValue(job.providerMetadata, 'imageResolution')
+      || getStringMetadataValue(job.providerMetadata, 'resolution'),
   };
 };
 
@@ -915,13 +982,23 @@ const runVideoStage = async (
     });
     if (!job) return;
 
+    const videoProviderMetadata = job.videoProviderMetadata || {};
+    const videoWorkflowProfile = normalizeVideoWorkflowProfile(
+      getStringMetadataValue(videoProviderMetadata, 'workflowProfile'),
+    );
     const videoProvider = job.videoProvider?.trim() || DEFAULT_VIDEO_PROVIDER;
-    const videoModel = typeof job.videoProviderMetadata?.model === 'string'
-      ? job.videoProviderMetadata.model
-      : process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
+    const videoModel = getStringMetadataValue(videoProviderMetadata, 'model')
+      || process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim();
+    const videoDurationSeconds = job.videoDurationSeconds
+      ?? getNumberMetadataValue(videoProviderMetadata, 'durationSeconds');
     const videoConfiguration = getVirtualTryOnVideoConfiguration({
       provider: videoProvider,
       model: videoModel,
+      workflowProfile: videoWorkflowProfile,
+      durationSeconds: videoDurationSeconds ?? undefined,
+      resolution: getStringMetadataValue(videoProviderMetadata, 'resolution'),
+      aspectRatio: getStringMetadataValue(videoProviderMetadata, 'aspectRatio'),
+      generateAudio: getBooleanMetadataValue(videoProviderMetadata, 'generateAudio'),
     });
     if (!ENABLE_VIDEO) {
       throw new VirtualTryOnVideoProviderError(
@@ -947,12 +1024,12 @@ const runVideoStage = async (
       );
     }
 
-    const provider = createVirtualTryOnVideoProvider(videoProvider);
+    const provider = createVirtualTryOnVideoProvider(videoProvider, videoWorkflowProfile);
     let providerJobId = job.videoProviderJobId || null;
-    let providerMetadata = { ...(job.videoProviderMetadata || {}) };
+    let providerMetadata = { ...videoProviderMetadata };
 
     if (!providerJobId) {
-      const durationSeconds = job.videoDurationSeconds ?? videoConfiguration.durationSeconds;
+      const durationSeconds = videoDurationSeconds ?? videoConfiguration.durationSeconds;
       const videoPrompt = buildVirtualTryOnVideoPrompt({
         preset: job.contextPreset,
         durationSeconds,
@@ -983,11 +1060,13 @@ const runVideoStage = async (
         model: videoConfiguration.model,
         durationSeconds,
         resolution: videoConfiguration.resolution,
+        aspectRatio: videoConfiguration.aspectRatio,
         generateAudio: videoConfiguration.generateAudio,
       });
       providerJobId = submission.providerJobId;
       providerMetadata = {
         ...providerMetadata,
+        workflowProfile: videoWorkflowProfile,
         ...(submission.metadata || {}),
         prompt: videoPrompt.prompt,
         negativePrompt: videoPrompt.negativePrompt,
@@ -1466,7 +1545,6 @@ const getBaseBodySuitabilityReason = (result: ImageValidationResult): ImageValid
   if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
     return 'NO_PERSON_DETECTED';
   }
-  if (result.personCount > 1) return 'MULTIPLE_PEOPLE_DETECTED';
   return null;
 };
 
@@ -1590,21 +1668,6 @@ const rejectImageValidationResult = (
   message: getImageValidationReasonMessage(reasonCode),
 });
 
-const applyImageValidationPolicy = (result: ImageValidationResult): ImageValidationResult => {
-  if (!result.allowed) return result;
-  if (result.safetyFlags.length > 0) return rejectImageValidationResult(result, 'IMAGE_POLICY_BLOCKED');
-  if (result.quality.resolution === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_SMALL');
-  if (result.quality.blur === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_BLURRY');
-  if (result.quality.brightness === 'fail') return rejectImageValidationResult(result, 'IMAGE_TOO_DARK');
-  if (result.personCount < 1 || result.mainPersonScore < getPersonScoreThreshold()) {
-    return rejectImageValidationResult(result, 'NO_PERSON_DETECTED');
-  }
-  if (result.personCount > 1) return rejectImageValidationResult(result, 'MULTIPLE_PEOPLE_DETECTED');
-  if (result.bodyVisibility === 'partial') return rejectImageValidationResult(result, 'BODY_NOT_VISIBLE');
-
-  return result;
-};
-
 const applySelectionCapabilityPolicy = (
   result: ImageValidationResult,
   outfitMode: VirtualTryOnOutfitMode,
@@ -1721,7 +1784,7 @@ const getImageValidationResultForInput = async (input: ImageValidationInput) => 
 
   try {
     const provider = createImageValidationProvider(providerName);
-    return applyImageValidationPolicy(await provider.validate(input));
+    return applyImageValidationBasePolicy(await provider.validate(input), getPersonScoreThreshold());
   } catch (error) {
     if (isImageValidationFailOpen()) {
       console.warn('Image validation failed open:', error);
@@ -1798,7 +1861,10 @@ const warnSourceImageForJob = async (
   const result = await getSourceImageValidationResult(sourceAsset, outfitMode, itemRoles);
   const suitabilityResult = buildBodySuitabilityResult(result, outfitMode, itemRoles);
   const suitabilityWarning = getImageValidationWarning(suitabilityResult);
-  if (suitabilityWarning && hardBlockingImageValidationReasonCodes.has(suitabilityWarning.reasonCode)) {
+  if (
+    suitabilityWarning &&
+    isImageValidationSourceBlockReason(suitabilityWarning.reasonCode)
+  ) {
     throw new VirtualTryOnServiceError(
       suitabilityWarning.message,
       getImageValidationReasonStatus(suitabilityWarning.reasonCode),
@@ -1883,12 +1949,14 @@ const resolveSelectedItem = (
     }
   }
 
+  const isFullOutfit = isVirtualTryOnFullOutfitProduct(product);
+
   return {
     productId: product._id,
     variantId: variant._id,
     colorVariantId: color._id,
     ...(normalizedSize ? { size: normalizedSize } : {}),
-    role: input.role,
+    role: isFullOutfit ? 'dress' : input.role,
     nameSnapshot: product.name,
     colorSnapshot: color.color,
     imageSnapshot: color.image || product.product_image,
@@ -1905,8 +1973,23 @@ const resolveSelectedItems = async (items: CreateVirtualTryOnItemInput[]) => {
   const productIds = Array.from(new Set(items.map((item) => item.productId)));
   productIds.forEach((id) => toObjectId(id, 'product id'));
 
-  const products = await Product.find({ _id: { $in: productIds }, isActive: true });
+  const productQuery = Product.find({ _id: { $in: productIds }, isActive: true });
+  const products = await (typeof productQuery.populate === 'function'
+    ? productQuery.populate('category_id', 'name')
+    : productQuery);
   const productById = new Map(products.map((product) => [product._id.toString(), product]));
+  const fullOutfitProducts = items.filter((item) => {
+    const product = productById.get(item.productId);
+    return product ? isVirtualTryOnFullOutfitProduct(product) : false;
+  });
+
+  if (fullOutfitProducts.length && items.length > 1) {
+    throw new VirtualTryOnServiceError(
+      'Bộ đồ full set đã là một phối hoàn chỉnh. Hãy chọn riêng bộ đó hoặc bỏ các món khác.',
+      400,
+      'FULL_OUTFIT_EXCLUSIVE',
+    );
+  }
 
   return items.map((item) => {
     const product = productById.get(item.productId);
@@ -2074,6 +2157,11 @@ const validateCreateJobInput = (
   const videoConfiguration = getVirtualTryOnVideoConfiguration({
     provider: settings.videoProvider,
     model: settings.videoModel,
+    workflowProfile: settings.videoWorkflowProfile,
+    durationSeconds: settings.videoDurationSeconds,
+    resolution: settings.videoResolution,
+    aspectRatio: settings.videoAspectRatio,
+    generateAudio: settings.videoGenerateAudio,
   });
   const videoDurationSeconds = input.videoDurationSeconds ?? videoConfiguration.durationSeconds;
   if (
@@ -2124,7 +2212,7 @@ const uploadAsset = async (userId: string, file: Express.Multer.File, source: Up
     const validationWarning = getImageValidationWarning(validationResult);
     if (
       validationWarning &&
-      hardBlockingImageValidationReasonCodes.has(validationWarning.reasonCode)
+      isImageValidationSourceBlockReason(validationWarning.reasonCode)
     ) {
       throw new VirtualTryOnServiceError(
         validationWarning.message,
@@ -2305,6 +2393,9 @@ const createJob = async (
     input.contextPrompt,
     runtimeSettings,
   );
+  const effectiveContextPreset = normalized.contextPreset === 'custom' && !promptValidation.normalizedPrompt
+    ? 'none'
+    : normalized.contextPreset;
   if (normalized.outputMode === 'image_and_video') {
     await ensureVideoJobCapacity(userObjectId, runtimeSettings);
   }
@@ -2326,7 +2417,7 @@ const createJob = async (
     sourceImageUrlSnapshot: sourceAsset.url,
     selectedItems,
     outfitMode: input.outfitMode,
-    contextPreset: normalized.contextPreset,
+    contextPreset: effectiveContextPreset,
     contextPrompt: promptValidation.normalizedPrompt || undefined,
     outputMode: normalized.outputMode,
     videoDurationSeconds: normalized.videoDurationSeconds,
@@ -2340,7 +2431,12 @@ const createJob = async (
       : null,
     videoProviderMetadata: normalized.outputMode === 'image_and_video'
       ? {
+        workflowProfile: runtimeSettings.videoWorkflowProfile,
         model: runtimeSettings.videoModel,
+        durationSeconds: normalized.videoDurationSeconds,
+        resolution: runtimeSettings.videoResolution,
+        aspectRatio: runtimeSettings.videoAspectRatio,
+        generateAudio: runtimeSettings.videoGenerateAudio,
         settingsVersion: runtimeSettings.version,
       }
       : {},
@@ -2349,6 +2445,8 @@ const createJob = async (
     providerMetadata: {
       sourceImageProfile: buildSourceImageProfile(sourceImageValidationResult),
       model: runtimeSettings.imageModel,
+      imageAspectRatio: runtimeSettings.imageAspectRatio,
+      imageResolution: runtimeSettings.imageResolution,
       settingsVersion: runtimeSettings.version,
     },
   });
@@ -2483,6 +2581,8 @@ const retryJob = async (userId: string, jobId: string) => {
   job.providerMetadata = {
     sourceImageProfile: job.providerMetadata?.sourceImageProfile,
     model: runtimeSettings.imageModel,
+    imageAspectRatio: runtimeSettings.imageAspectRatio,
+    imageResolution: runtimeSettings.imageResolution,
     settingsVersion: runtimeSettings.version,
   };
   job.videoProvider = job.outputMode === 'image_and_video'
@@ -2490,7 +2590,15 @@ const retryJob = async (userId: string, jobId: string) => {
     : null;
   job.videoProviderJobId = null;
   job.videoProviderMetadata = job.outputMode === 'image_and_video'
-    ? { model: runtimeSettings.videoModel, settingsVersion: runtimeSettings.version }
+    ? {
+      workflowProfile: runtimeSettings.videoWorkflowProfile,
+      model: runtimeSettings.videoModel,
+      durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
+      resolution: runtimeSettings.videoResolution,
+      aspectRatio: runtimeSettings.videoAspectRatio,
+      generateAudio: runtimeSettings.videoGenerateAudio,
+      settingsVersion: runtimeSettings.version,
+    }
     : {};
   job.videoErrorCode = null;
   job.videoErrorMessage = null;
@@ -2568,7 +2676,12 @@ const retryVideoJobForFilter = async (
   job.videoProvider = runtimeSettings.videoProvider;
   job.videoProviderJobId = null;
   job.videoProviderMetadata = {
+    workflowProfile: runtimeSettings.videoWorkflowProfile,
     model: runtimeSettings.videoModel,
+    durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
+    resolution: runtimeSettings.videoResolution,
+    aspectRatio: runtimeSettings.videoAspectRatio,
+    generateAudio: runtimeSettings.videoGenerateAudio,
     settingsVersion: runtimeSettings.version,
   };
   job.videoErrorCode = null;
@@ -2751,6 +2864,9 @@ const serializeAdminJob = async (job: IVirtualTryOnJob) => {
     videoProgress: job.videoProgress ?? 0,
     videoSourceImageUrl: job.videoSourceImageUrlSnapshot ?? null,
     videoProvider: job.videoProvider ?? null,
+    videoWorkflowProfile: typeof job.videoProviderMetadata?.workflowProfile === 'string'
+      ? job.videoProviderMetadata.workflowProfile
+      : 'quality',
     videoModel: typeof job.videoProviderMetadata?.model === 'string'
       ? job.videoProviderMetadata.model
       : null,
@@ -2949,16 +3065,14 @@ const getAdminSettings = async () => {
     updatedAt: runtimeSettings.updatedAt?.toISOString() ?? null,
     historyVersions: runtimeSettings.historyVersions,
     modelOptions: virtualTryOnSettingsService.getModelOptions(runtimeSettings),
-    secretStatus: virtualTryOnSettingsService.getSecretStatus(),
+    secretStatus: virtualTryOnSettingsService.getSecretStatus(runtimeSettings),
     imageValidation,
     image: {
       enabled: imageEnabled,
       provider: runtimeSettings.imageProvider,
       model: runtimeSettings.imageModel,
-      aspectRatio: process.env.VIRTUAL_TRY_ON_COMFY_ASPECT_RATIO?.trim() || '3:4',
-      resolution: runtimeSettings.imageProvider === 'mock'
-        ? '1440×1920'
-        : process.env.VIRTUAL_TRY_ON_COMFY_RESOLUTION?.trim() || '2K',
+      aspectRatio: runtimeSettings.imageAspectRatio,
+      resolution: runtimeSettings.imageResolution,
       outputCount: 4,
     },
     videoEnabled: video.available,
@@ -3028,6 +3142,8 @@ const retryAdminJob = async (jobId: string) => {
   job.providerMetadata = {
     sourceImageProfile: job.providerMetadata?.sourceImageProfile,
     model: runtimeSettings.imageModel,
+    imageAspectRatio: runtimeSettings.imageAspectRatio,
+    imageResolution: runtimeSettings.imageResolution,
     settingsVersion: runtimeSettings.version,
   };
   job.videoProvider = job.outputMode === 'image_and_video'
@@ -3035,7 +3151,15 @@ const retryAdminJob = async (jobId: string) => {
     : null;
   job.videoProviderJobId = null;
   job.videoProviderMetadata = job.outputMode === 'image_and_video'
-    ? { model: runtimeSettings.videoModel, settingsVersion: runtimeSettings.version }
+    ? {
+      workflowProfile: runtimeSettings.videoWorkflowProfile,
+      model: runtimeSettings.videoModel,
+      durationSeconds: job.videoDurationSeconds ?? runtimeSettings.videoDurationSeconds,
+      resolution: runtimeSettings.videoResolution,
+      aspectRatio: runtimeSettings.videoAspectRatio,
+      generateAudio: runtimeSettings.videoGenerateAudio,
+      settingsVersion: runtimeSettings.version,
+    }
     : {};
   job.videoErrorCode = null;
   job.videoErrorMessage = null;

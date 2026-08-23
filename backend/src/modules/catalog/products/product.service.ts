@@ -45,6 +45,15 @@ import {
   expandMaterialTokenGroups,
   isMaterialToken,
 } from './search-keywords';
+import {
+  getProductDetailCache,
+  getProductFiltersCache,
+  getProductListCache,
+  invalidateProductCatalogCache,
+  setProductDetailCache,
+  setProductFiltersCache,
+  setProductListCache,
+} from './product.cache';
 
 export class ProductServiceError extends Error {
   constructor(
@@ -715,6 +724,8 @@ const isNewProduct = (createdAt: Date) => {
 
 const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
   switch (sort) {
+    case 'relevance':
+      return { createdAt: -1 };
     case 'name_asc':
       return { name: 1 };
     case 'name_desc':
@@ -731,6 +742,120 @@ const getSortOption = (sort?: ProductSortOption): Record<string, SortOrder> => {
 
 const isPriceSort = (sort?: ProductSortOption): sort is 'price_asc' | 'price_desc' =>
   sort === 'price_asc' || sort === 'price_desc';
+
+const isRelevanceSort = (query: ProductListQueryInput) =>
+  (query.sort === 'relevance' || (!query.sort && Boolean(query.keyword?.trim()))) &&
+  Boolean(query.keyword?.trim());
+
+const toFlexiblePhraseRegex = (tokens: string[]) =>
+  new RegExp(tokens.map((token) => toAccentInsensitiveRegex(token).source).join('\\s+'), 'i');
+
+const toExactPhraseBoundaryRegex = (tokens: string[]) =>
+  new RegExp(
+    `(?:^|[^0-9A-Za-zÀ-ỹĐđ])${tokens
+      .map((token) => toAccentInsensitiveRegex(token).source)
+      .join('\\s+')}(?=$|[^0-9A-Za-zÀ-ỹĐđ])`,
+    'i',
+  );
+
+const regexMatchExpression = (input: string | Record<string, unknown>, regex: RegExp) => ({
+  $regexMatch: {
+    input: { $ifNull: [input, ''] },
+    regex: regex.source,
+    options: 'i',
+  },
+});
+
+const orExpression = (conditions: Record<string, unknown>[]) =>
+  conditions.length === 1 ? conditions[0] : { $or: conditions };
+
+const andExpression = (conditions: Record<string, unknown>[]) =>
+  conditions.length === 1 ? conditions[0] : { $and: conditions };
+
+const scoreWhen = (condition: Record<string, unknown>, score: number) => ({
+  $cond: [condition, score, 0],
+});
+
+const buildFieldGroupMatchExpression = (fieldPath: string, group: string[]) =>
+  orExpression(group.map((token) => regexMatchExpression(fieldPath, toAccentInsensitiveRegex(token))));
+
+const buildAllGroupsFieldMatchExpression = (fieldPath: string, groups: string[][]) =>
+  andExpression(groups.map((group) => buildFieldGroupMatchExpression(fieldPath, group)));
+
+const buildVariantColorGroupMatchExpression = (group: string[]) => ({
+  $anyElementTrue: [{
+    $map: {
+      input: { $ifNull: ['$variant', []] },
+      as: 'variant',
+      in: {
+        $anyElementTrue: [{
+          $map: {
+            input: { $ifNull: ['$$variant.colors', []] },
+            as: 'color',
+            in: {
+              $and: [
+                { $ne: ['$$color.isActive', false] },
+                buildFieldGroupMatchExpression('$$color.color', group),
+              ],
+            },
+          },
+        }],
+      },
+    },
+  }],
+});
+
+const buildVariantSizeGroupMatchExpression = (group: string[]) => ({
+  $anyElementTrue: [{
+    $map: {
+      input: { $ifNull: ['$variant', []] },
+      as: 'variant',
+      in: {
+        $anyElementTrue: [{
+          $map: {
+            input: { $ifNull: ['$$variant.sizeMeasurements', []] },
+            as: 'sizeMeasurement',
+            in: buildFieldGroupMatchExpression('$$sizeMeasurement.size', group),
+          },
+        }],
+      },
+    },
+  }],
+});
+
+const buildSearchRelevanceScoreExpression = (keyword?: string) => {
+  const tokens = tokenize(keyword ?? '');
+  if (!tokens.length) {
+    return undefined;
+  }
+
+  const tokenGroups = expandMaterialTokenGroups(tokens);
+  const phraseRegex = toFlexiblePhraseRegex(tokens);
+  const exactPhraseRegex = toExactPhraseBoundaryRegex(tokens);
+  const scoreExpressions: Record<string, unknown>[] = [
+    scoreWhen(regexMatchExpression('$name', exactPhraseRegex), 240),
+    scoreWhen(regexMatchExpression('$name', phraseRegex), 120),
+    scoreWhen(buildAllGroupsFieldMatchExpression('$name', tokenGroups), 70),
+    scoreWhen(regexMatchExpression('$description', phraseRegex), 15),
+  ];
+
+  tokenGroups.forEach((group) => {
+    const isMaterialGroup = group.some(isMaterialToken);
+
+    scoreExpressions.push(
+      scoreWhen(buildFieldGroupMatchExpression('$name', group), 18),
+      scoreWhen(
+        buildFieldGroupMatchExpression('$materialNormalized', group),
+        isMaterialGroup ? 45 : 8,
+      ),
+      scoreWhen(buildVariantColorGroupMatchExpression(group), 16),
+      scoreWhen(buildVariantSizeGroupMatchExpression(group), 10),
+      scoreWhen(buildFieldGroupMatchExpression('$description', group), isMaterialGroup ? 8 : 3),
+    );
+  });
+
+  return scoreExpressions.length === 1 ? scoreExpressions[0] : { $add: scoreExpressions };
+};
 
 const buildVariantAggregationConditions = (query: ProductListQueryInput) => {
   const conditions: Record<string, unknown>[] = [
@@ -866,6 +991,40 @@ const getPriceSortedProductIds = async (
       },
     },
     { $sort: { __catalogFinalPrice: direction, createdAt: -1 } },
+    { $skip: (page - 1) * limit },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
+};
+
+const getRelevanceSortedProductIds = async (
+  filter: ProductListFilter,
+  query: ProductListQueryInput,
+  page: number,
+  limit: number,
+) => {
+  const scoreExpression = buildSearchRelevanceScoreExpression(query.keyword);
+
+  if (!scoreExpression) {
+    return undefined;
+  }
+
+  return Product.aggregate<{ _id: Types.ObjectId }>([
+    { $match: filter },
+    {
+      $addFields: {
+        __searchRelevanceScore: scoreExpression,
+      },
+    },
+    {
+      $sort: {
+        __searchRelevanceScore: -1,
+        sold_quantity: -1,
+        averageRating: -1,
+        reviewCount: -1,
+        createdAt: -1,
+      },
+    },
     { $skip: (page - 1) * limit },
     { $limit: limit },
     { $project: { _id: 1 } },
@@ -1338,13 +1497,45 @@ const mapFilterCategory = (category: {
   image: category.image,
 });
 
+type FilterCategoryDocument = Parameters<typeof mapFilterCategory>[0];
+
+const filterCategoriesWithActiveProducts = (
+  categories: FilterCategoryDocument[],
+  productCategoryIds: Array<Types.ObjectId | string>,
+) => {
+  const categoryById = new Map(categories.map((category) => [category._id.toString(), category]));
+  const visibleCategoryIds = new Set<string>();
+
+  productCategoryIds.forEach((productCategoryId) => {
+    let category = categoryById.get(productCategoryId.toString());
+    const visitedCategoryIds = new Set<string>();
+
+    while (category) {
+      const categoryId = category._id.toString();
+      if (visitedCategoryIds.has(categoryId)) break;
+
+      visitedCategoryIds.add(categoryId);
+      visibleCategoryIds.add(categoryId);
+      category = category.parent_id
+        ? categoryById.get(category.parent_id.toString())
+        : undefined;
+    }
+  });
+
+  return categories.filter((category) => visibleCategoryIds.has(category._id.toString()));
+};
+
 const getProductListFilters = async (filter: ProductListFilter, query: ProductListQueryInput) => {
-  const [brands, categories, colors, fitTypes, sizes, materials] = await Promise.all([
+  const [brands, categories, productCategoryIds, colors, fitTypes, sizes, materials] = await Promise.all([
     Brand.find({ isActive: true }).select('_id name image').sort({ name: 1 }).lean(),
     Category.find({ isActive: true, ...(query.gender ? { gender: query.gender } : {}) })
       .select('_id name gender parent_id level image')
       .sort({ gender: 1, level: 1, name: 1 })
       .lean(),
+    Product.distinct('category_id', {
+      isActive: true,
+      variant: { $elemMatch: buildVariantFilter({}) },
+    }),
     Product.distinct('variant.colors.color', filter),
     Product.distinct('variant.fitTypeId', filter),
     Product.distinct('variant.sizeMeasurements.size', filter),
@@ -1356,7 +1547,10 @@ const getProductListFilters = async (filter: ProductListFilter, query: ProductLi
     colors: colors.filter(Boolean).sort(),
     fitTypes: fitTypes.filter(Boolean).map((fitTypeId) => String(fitTypeId)).sort(),
     sizes: sizes.filter(Boolean).sort(),
-    categories: categories.map(mapFilterCategory),
+    categories: filterCategoriesWithActiveProducts(
+      categories as FilterCategoryDocument[],
+      productCategoryIds as Array<Types.ObjectId | string>,
+    ).map(mapFilterCategory),
     materials: materials.filter(Boolean).sort(),
   };
 };
@@ -1849,7 +2043,7 @@ const createProduct = async (input: CreateProductInput) => {
   assertVariantPayload(input.variant);
   await assertVariantTemplateMatchesCategory(input.category_id, input.variant);
 
-  return Product.create({
+  const product = await Product.create({
     category_id: new Types.ObjectId(input.category_id),
     name: input.name.trim(),
     brand_id: new Types.ObjectId(input.brand_id),
@@ -1858,6 +2052,9 @@ const createProduct = async (input: CreateProductInput) => {
     product_image: normalizeProductImageUrl(input.product_image),
     isActive: input.isActive ?? true,
   });
+
+  await invalidateProductCatalogCache();
+  return product;
 };
 
 const updateProduct = async (id: string, input: UpdateProductInput) => {
@@ -1930,6 +2127,7 @@ const updateProduct = async (id: string, input: UpdateProductInput) => {
     );
   }
 
+  await invalidateProductCatalogCache();
   return updatedProduct;
 };
 
@@ -1959,6 +2157,7 @@ const deleteProduct = async (id: string) => {
     },
   );
 
+  await invalidateProductCatalogCache();
   return product;
 };
 
@@ -2062,6 +2261,7 @@ const permanentlyDeleteProduct = async (id: string) => {
   await Inventory.deleteMany({ productId: productObjectId });
   await Product.findByIdAndDelete(id);
   await ProductVisualIndex.deleteMany({ productId: productObjectId });
+  await invalidateProductCatalogCache();
 
   return product;
 };
@@ -2231,17 +2431,26 @@ const getActiveProducts = () => {
 };
 
 const getProductList = async (query: ProductListQueryInput): Promise<ProductListResponse> => {
+  const cached = await getProductListCache(query);
+  if (cached) {
+    return cached;
+  }
+
   const { page, limit } = clampPagination(query);
   const filter = await buildProductListFilter(query);
   const sort = getSortOption(query.sort);
   const priceSortedProductIds = isPriceSort(query.sort)
     ? await getPriceSortedProductIds(filter, query, query.sort, page, limit)
     : undefined;
-  const priceSortOrder = new Map(
-    priceSortedProductIds?.map((item, index) => [item._id.toString(), index]),
-  );
-  const productQuery = priceSortedProductIds
-    ? Product.find({ _id: { $in: priceSortedProductIds.map((item) => item._id) } })
+  const relevanceSortedProductIds = !priceSortedProductIds && isRelevanceSort(query)
+    ? await getRelevanceSortedProductIds(filter, query, page, limit)
+    : undefined;
+  const sortedProductIds = priceSortedProductIds ?? relevanceSortedProductIds;
+  const sortedProductOrder = sortedProductIds
+    ? new Map(sortedProductIds.map((item, index) => [item._id.toString(), index]))
+    : undefined;
+  const productQuery = sortedProductIds
+    ? Product.find({ _id: { $in: sortedProductIds.map((item) => item._id) } })
     : Product.find(filter).sort(sort).skip((page - 1) * limit).limit(limit);
 
   const [products, totalItems, filters] = await Promise.all([
@@ -2254,9 +2463,9 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
       ? Promise.resolve(undefined)
       : getProductListFilters(filter, query),
   ]);
-  if (priceSortOrder) {
+  if (sortedProductOrder) {
     products.sort((left, right) => {
-      return (priceSortOrder.get(left._id.toString()) ?? 0) - (priceSortOrder.get(right._id.toString()) ?? 0);
+      return (sortedProductOrder.get(left._id.toString()) ?? 0) - (sortedProductOrder.get(right._id.toString()) ?? 0);
     });
   }
   const inventoryItems = products.length
@@ -2275,7 +2484,7 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
     ),
   );
 
-  return {
+  const result: ProductListResponse = {
     items: products.map((product) => mapProductListItem(product, query, inventoryByProductId)),
     pagination: {
       page,
@@ -2285,11 +2494,21 @@ const getProductList = async (query: ProductListQueryInput): Promise<ProductList
     },
     ...(filters ? { filters } : {}),
   };
+
+  await setProductListCache(query, result);
+  return result;
 };
 
 const getProductFilters = async (query: ProductListQueryInput) => {
+  const cached = await getProductFiltersCache(query);
+  if (cached) {
+    return cached;
+  }
+
   const filter = await buildProductListFilter(query);
-  return getProductListFilters(filter, query);
+  const result = await getProductListFilters(filter, query);
+  await setProductFiltersCache(query, result);
+  return result;
 };
 
 const getProductById = async (id: string) => {
@@ -2310,6 +2529,10 @@ const getProductDetailById = async (
 ): Promise<ProductDetailResponse> => {
   assertValidObjectId(id, 'product id');
   const activeOnly = options.activeOnly ?? true;
+  const cached = await getProductDetailCache(id, activeOnly);
+  if (cached) {
+    return cached;
+  }
 
   const product = await Product.findOne({
     _id: id,
@@ -2323,7 +2546,9 @@ const getProductDetailById = async (
     throw new ProductServiceError('Product not found', 404);
   }
 
-  return mapProductDetail(product, { includeInactiveVariants: !activeOnly });
+  const result = await mapProductDetail(product, { includeInactiveVariants: !activeOnly });
+  await setProductDetailCache(id, activeOnly, result);
+  return result;
 };
 
 export const productService = {

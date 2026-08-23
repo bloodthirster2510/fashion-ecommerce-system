@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "sourceImage": "1.inputs.image",
+    "prompt": "2.inputs.prompt",
+    "duration": "2.inputs.duration",
+    "resolution": "2.inputs.resolution",
+    "model": "2.inputs.model"
+  },
+  "outputs": { "videoNodeIds": ["5"] }
+}

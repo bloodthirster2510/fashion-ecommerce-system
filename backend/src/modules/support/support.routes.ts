@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticate, optionalAuthenticate } from '../../middlewares/auth.middleware';
 import { createRateLimitMiddleware } from '../../middlewares/security.middleware';
 import { uploadMultiple, withMulterErrorHandling } from '../../middlewares/upload.middleware';
 import {
@@ -26,7 +26,7 @@ const voteLimiter = createRateLimitMiddleware({ windowMs: 60_000, max: 20, keyPr
 const supportUpload = withMulterErrorHandling(uploadMultiple.array('attachments', 3));
 const guestFeedbackLimiter = createRateLimitMiddleware({ windowMs: 60 * 60_000, max: 5, keyPrefix: 'guest-feedback' });
 
-router.get('/faqs', listPublicFaqs);
+router.get('/faqs', optionalAuthenticate, listPublicFaqs);
 router.post('/faqs/:id/vote', authenticate, voteLimiter, votePublicFaq);
 router.post('/guest-feedback', guestFeedbackLimiter, createGuestFeedback);
 router.get('/guest-feedback/verify', guestFeedbackLimiter, verifyGuestFeedback);

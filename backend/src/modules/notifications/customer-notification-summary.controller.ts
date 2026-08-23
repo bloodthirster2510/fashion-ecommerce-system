@@ -4,7 +4,7 @@ import { getCustomerNotificationSummary } from './customer-notification-summary.
 
 export const getMyNotificationSummary = async (req: Request, res: Response) => {
   try {
-    if (!req.user?.userId) return error(res, 'Authentication required', 401);
+    if (!req.user?.userId) return error(res, 'Bạn cần đăng nhập', 401);
     return ok(res, await getCustomerNotificationSummary(req.user.userId));
   } catch (caught) {
     const statusCode = caught instanceof Error && 'statusCode' in caught
@@ -14,7 +14,7 @@ export const getMyNotificationSummary = async (req: Request, res: Response) => {
       res,
       statusCode >= 400 && statusCode < 500 && caught instanceof Error
         ? caught.message
-        : 'Unable to load notification summary',
+        : 'Chưa tải được tổng quan thông báo',
       statusCode >= 400 && statusCode < 500 ? statusCode : 500,
     );
   }

@@ -75,19 +75,20 @@ export const buildImageValidationResult = (
   provider: ImageValidationProviderName,
   reasonCode: ImageValidationReasonCode | null,
 ): ImageValidationResult => {
+  const effectiveReasonCode = reasonCode === 'MULTIPLE_PEOPLE_DETECTED' ? null : reasonCode;
   const quality = baseQuality(input);
-  const allowed = reasonCode === null;
+  const allowed = effectiveReasonCode === null;
 
-  if (reasonCode === 'IMAGE_TOO_BLURRY') quality.blur = 'fail';
-  if (reasonCode === 'IMAGE_TOO_DARK') quality.brightness = 'fail';
-  if (reasonCode === 'IMAGE_TOO_SMALL') quality.resolution = 'fail';
-  const capabilities = buildMockCapabilities(reasonCode);
+  if (effectiveReasonCode === 'IMAGE_TOO_BLURRY') quality.blur = 'fail';
+  if (effectiveReasonCode === 'IMAGE_TOO_DARK') quality.brightness = 'fail';
+  if (effectiveReasonCode === 'IMAGE_TOO_SMALL') quality.resolution = 'fail';
+  const capabilities = buildMockCapabilities(effectiveReasonCode);
   const supportedModes = capabilities.filter((capability) => capability.allowed).map((capability) => capability.mode);
 
   return {
     allowed,
-    reasonCode,
-    message: reasonCode ? getImageValidationReasonMessage(reasonCode) : null,
+    reasonCode: effectiveReasonCode,
+    message: effectiveReasonCode ? getImageValidationReasonMessage(effectiveReasonCode) : null,
     provider,
     personCount: reasonCode === 'NO_PERSON_DETECTED' ? 0 : reasonCode === 'MULTIPLE_PEOPLE_DETECTED' ? 2 : 1,
     mainPersonScore: reasonCode === 'NO_PERSON_DETECTED' ? 0.12 : 0.94,
@@ -102,7 +103,7 @@ export const buildImageValidationResult = (
     bodyVisibility: reasonCode === 'BODY_NOT_VISIBLE' ? 'partial' : allowed ? 'unknown' : 'good',
     poseConfidence: reasonCode === 'POSE_NOT_SUPPORTED' ? 0.22 : 0.88,
     quality,
-    safetyFlags: reasonCode ? getSafetyFlags(reasonCode) : [],
+    safetyFlags: effectiveReasonCode ? getSafetyFlags(effectiveReasonCode) : [],
     visibleRegions: allowed ? ['upper', 'hips', 'legs', 'feet'] : [],
     supportedModes,
     blockedModes: capabilities.reduce<ImageValidationResult['blockedModes']>((blockedModes, capability) => {

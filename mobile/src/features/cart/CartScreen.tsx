@@ -16,6 +16,10 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
+import StickySectionHeader, {
+  StickySectionBoundary,
+  useStickySectionHeader,
+} from '../../components/layout/StickySectionHeader';
 import { brandedHeaderStyles, colors, radii, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { resolveFocusRefreshMode, useStaleFocusEffect } from '../../hooks/useStaleFocusEffect';
@@ -25,6 +29,8 @@ import { recommendationApi, type RecommendationItem } from '../recommendation/re
 import RecommendationRail from '../recommendation/RecommendationRail';
 import { useRecommendationImpressions } from '../recommendation/useRecommendationImpressions';
 import { TRY_ON_QUEUE_LIMIT } from '../virtualTryOn/virtualTryOn.types';
+import type { TryOnSeedItem } from '../virtualTryOn/virtualTryOn.types';
+import { useTryOnQueue } from '../virtualTryOn/TryOnQueueProvider';
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 
 type CartNavigationProp = StackNavigationProp<RootStackParamList, 'Cart'>;
@@ -67,6 +73,17 @@ const getErrorMessage = (error: unknown) => {
 
 const getItemTitle = (item: CartItem) => item.name || `Sản phẩm ${item.sku}`;
 
+const cartItemToTryOnSeed = (item: CartItem): TryOnSeedItem => ({
+  cartItemId: item._id,
+  productId: item.productId,
+  variantId: item.variantId,
+  colorVariantId: item.colorVariantId,
+  size: item.size,
+  nameSnapshot: getItemTitle(item),
+  colorSnapshot: item.color,
+  imageSnapshot: item.image,
+});
+
 const getStockText = (item: CartItem) => {
   const availableQuantity = item.availableQuantity;
 
@@ -93,6 +110,12 @@ const CartScreen = () => {
   const navigation = useNavigation<CartNavigationProp>();
   const route = useRoute<CartRouteProp>();
   const { isAuthenticated, session, runWithAuth } = useAuth();
+  const {
+    items: tryOnQueueItems,
+    addItem: addTryOnItem,
+    removeItem: removeTryOnItem,
+    hasItem: hasTryOnItem,
+  } = useTryOnQueue();
   const cartAccountScope = session?.user?._id ?? null;
   const cartCacheKey = `cart:${cartAccountScope ?? 'logged-out'}`;
   const initialCartCacheRef = React.useRef(
@@ -207,7 +230,7 @@ const CartScreen = () => {
         if (cartRequestSequenceRef.current !== requestSequence) return;
         setCart(nextCart);
         loadedCartTokenRef.current = cartAccountScope;
-        void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(8, accessToken))
+        void runWithAuth((accessToken) => recommendationApi.getCartRecommendations(10, accessToken))
           .then((response) => {
             if (cartRequestSequenceRef.current !== requestSequence) return;
             setCartRecommendationItems(response.items);
@@ -259,13 +282,25 @@ const CartScreen = () => {
   }, [cartRecommendationAlgorithmVersion, cartRecommendationRequestId, runWithAuth]);
   const {
     recommendationSectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility,
-    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: cartRecommendationRequestId,
     items: cartRecommendationItems,
     onImpression: (item) => recordCartRecommendationEvent(item, 'impression'),
   });
+  const {
+    activeTitle: stickySectionTitle,
+    onScroll: handleScroll,
+    onSectionLayout,
+    unregisterSection,
+  } = useStickySectionHeader(checkRecommendationVisibility);
+
+  React.useEffect(() => {
+    if (!cartRecommendationItems.length) {
+      unregisterSection('cart-recommendations');
+    }
+  }, [cartRecommendationItems.length, unregisterSection]);
 
   useStaleFocusEffect(
     () => {
@@ -327,45 +362,36 @@ const CartScreen = () => {
       return;
     }
 
-    if (!selectedCheckoutItems.length) {
+    if (!tryOnQueueItems.length) {
       showNotice({
         tone: 'info',
-        title: 'Chọn đồ muốn phối',
-        message: `Tick từ 1 đến ${TRY_ON_QUEUE_LIMIT} sản phẩm còn hàng trong giỏ rồi mở phòng phối đồ ảo.`,
+        title: 'Hàng chờ đang trống',
+        message: `Bấm “Thêm vào phối” ở sản phẩm muốn thử, tối đa ${TRY_ON_QUEUE_LIMIT} món.`,
       });
       return;
-    }
-
-    if (selectedCheckoutItems.length > TRY_ON_QUEUE_LIMIT) {
-      showNotice({
-        tone: 'warning',
-        title: `Chọn tối đa ${TRY_ON_QUEUE_LIMIT} món`,
-        message: `Bạn đang chọn ${selectedCheckoutItems.length} món còn hàng. Bỏ chọn bớt để đưa vào hàng chờ phối đồ ảo.`,
-      });
-      return;
-    }
-
-    if (unavailableSelectedItems.length) {
-      showNotice({
-        tone: 'info',
-        title: 'Bỏ qua món chưa khả dụng',
-        message: `${unavailableSelectedItems.length} món hết hàng hoặc chưa khả dụng sẽ không được đưa vào phòng phối.`,
-      });
     }
 
     navigation.navigate('VirtualTryOnHome', {
       entryPoint: 'cart',
-      seedItems: selectedCheckoutItems.map((item) => ({
-        cartItemId: item._id,
-        productId: item.productId,
-        variantId: item.variantId,
-        colorVariantId: item.colorVariantId,
-        size: item.size,
-        nameSnapshot: getItemTitle(item),
-        colorSnapshot: item.color,
-        imageSnapshot: item.image,
-      })),
+      seedItems: tryOnQueueItems,
     });
+  };
+
+  const handleToggleTryOnItem = (item: CartItem) => {
+    const seedItem = cartItemToTryOnSeed(item);
+    if (hasTryOnItem(seedItem)) {
+      removeTryOnItem(seedItem);
+      return;
+    }
+
+    const result = addTryOnItem(seedItem);
+    if (result === 'full') {
+      showNotice({
+        tone: 'warning',
+        title: 'Hàng chờ đã đầy',
+        message: `Bạn chỉ có thể giữ tối đa ${TRY_ON_QUEUE_LIMIT} món để phối thử.`,
+      });
+    }
   };
   const localSubTotal = selectedCheckoutItems.reduce(
     (sum, item) => sum + item.quantity * item.priceAtAddedTime,
@@ -454,6 +480,7 @@ const CartScreen = () => {
     try {
       setPendingItemId(item._id);
       const nextCart = await runWithAuth((accessToken) => cartApi.deleteItem(accessToken, item._id));
+      removeTryOnItem(cartItemToTryOnSeed(item));
       updateCartState(nextCart);
     } catch (error) {
       showNotice({
@@ -504,6 +531,8 @@ const CartScreen = () => {
     const isStockWarning = Boolean(stockText);
     const imageUri = item.image?.trim();
     const isPending = pendingItemId === item._id;
+    const tryOnSeed = cartItemToTryOnSeed(item);
+    const isInTryOnQueue = hasTryOnItem(tryOnSeed);
 
     return (
       <View key={item._id} style={[styles.cartItem, item.isAvailable === false && styles.cartItemUnavailable]}>
@@ -561,15 +590,30 @@ const CartScreen = () => {
               {stockText}
             </Text>
           ) : null}
+          <TouchableOpacity
+            style={[styles.itemTryOnButton, isInTryOnQueue && styles.itemTryOnButtonActive]}
+            onPress={() => handleToggleTryOnItem(item)}
+            disabled={item.isAvailable === false}
+            activeOpacity={0.82}
+            accessibilityLabel={isInTryOnQueue ? 'Bỏ khỏi hàng chờ phối' : 'Thêm vào hàng chờ phối'}
+          >
+            <MaterialCommunityIcons
+              name={isInTryOnQueue ? 'check' : 'hanger'}
+              size={16}
+              color={isInTryOnQueue ? colors.white : colors.brand}
+            />
+            <Text style={[styles.itemTryOnText, isInTryOnQueue && styles.itemTryOnTextActive]}>
+              {isInTryOnQueue ? 'Đã thêm' : 'Thêm vào phối đồ'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
   };
 
   const renderVirtualTryOnCard = () => {
-    const selectedCount = selectedCheckoutItems.length;
-    const hasTooManyItems = selectedCount > TRY_ON_QUEUE_LIMIT;
-    const previewItems = selectedCheckoutItems.slice(0, 4);
+    const selectedCount = tryOnQueueItems.length;
+    const previewItems = tryOnQueueItems.slice(0, 4);
     const hiddenPreviewCount = Math.max(0, selectedCount - previewItems.length);
 
     return (
@@ -583,7 +627,7 @@ const CartScreen = () => {
             <Text style={styles.virtualTryOnEyebrow}>Fit Studio</Text>
             <Text style={styles.virtualTryOnTitle}>Thử đồ ảo trước khi mua</Text>
             <Text style={styles.virtualTryOnText}>
-              Chọn sản phẩm trong giỏ để xem chúng lên ảnh người thật trước khi thanh toán.
+              Giữ các món từ giỏ hàng, yêu thích hoặc chi tiết sản phẩm để phối cùng nhau.
             </Text>
           </View>
         </View>
@@ -591,11 +635,11 @@ const CartScreen = () => {
         <View style={styles.virtualTryOnSelectionRow}>
           <View style={styles.virtualTryOnThumbs}>
             {previewItems.map((item, index) => {
-              const imageUri = item.image?.trim();
+              const imageUri = item.imageSnapshot?.trim();
 
               return (
                 <View
-                  key={`try-on-${item._id}`}
+                  key={`try-on-${item.cartItemId ?? `${item.productId}-${item.variantId}-${item.colorVariantId}-${item.size ?? index}`}`}
                   style={[styles.virtualTryOnThumb, index > 0 && styles.virtualTryOnThumbOverlap]}
                 >
                   {isRemoteImage(imageUri) ? (
@@ -617,12 +661,8 @@ const CartScreen = () => {
               </View>
             ) : null}
           </View>
-          <Text style={[styles.virtualTryOnSelectionText, hasTooManyItems && styles.virtualTryOnSelectionTextWarning]}>
-            {hasTooManyItems
-              ? `${selectedCount} món · tối đa ${TRY_ON_QUEUE_LIMIT} món`
-              : selectedCount
-                ? `${selectedCount} món đã chọn`
-                : 'Chưa chọn món nào'}
+          <Text style={styles.virtualTryOnSelectionText}>
+            {selectedCount ? `${selectedCount} món trong hàng chờ` : 'Hàng chờ đang trống'}
           </Text>
         </View>
 
@@ -634,11 +674,7 @@ const CartScreen = () => {
           accessibilityLabel="Mở phòng phối đồ ảo với các sản phẩm đã chọn"
         >
           <Text style={styles.virtualTryOnButtonText}>
-            {hasTooManyItems
-              ? `Bỏ chọn ${selectedCount - TRY_ON_QUEUE_LIMIT} món để tiếp tục`
-              : selectedCount
-                ? `Phối thử ${selectedCount} món`
-                : 'Chọn sản phẩm để thử'}
+            {selectedCount ? `Phối thử (${selectedCount})` : 'Thêm món để phối'}
           </Text>
           <MaterialCommunityIcons name="arrow-right" size={20} color={colors.white} />
         </TouchableOpacity>
@@ -660,14 +696,20 @@ const CartScreen = () => {
     }
 
     return (
-      <RecommendationRail
+      <StickySectionBoundary
+        sectionKey="cart-recommendations"
         title="Gợi ý cho giỏ hàng"
-        subtitle="Những món có thể phối cùng lựa chọn hiện tại"
-        items={cartRecommendationItems}
-        trackingRef={recommendationSectionRef}
-        onViewableItemsChanged={handleRecommendationViewableItemsChanged}
-        onProductPress={handleCartRecommendationPress}
-      />
+        onSectionLayout={onSectionLayout}
+      >
+        <RecommendationRail
+          title="Gợi ý cho giỏ hàng"
+          subtitle="Những món có thể phối cùng lựa chọn hiện tại"
+          items={cartRecommendationItems}
+          trackingRef={recommendationSectionRef}
+          onItemRef={setRecommendationItemRef}
+          onProductPress={handleCartRecommendationPress}
+        />
+      </StickySectionBoundary>
     );
   };
 
@@ -871,32 +913,35 @@ const CartScreen = () => {
         <Text style={styles.shortcutHeaderTitle}>Giỏ hàng</Text>
         <TouchableOpacity
           style={styles.shortcutHeaderAction}
-          onPress={() => loadCart('refresh')}
-          accessibilityLabel="Tải lại"
+          onPress={() => navigation.navigate('Home')}
+          accessibilityLabel="Về trang chủ"
           activeOpacity={0.82}
         >
-          <MaterialCommunityIcons name="refresh" size={22} color={colors.white} />
+          <MaterialCommunityIcons name="home-outline" size={23} color={colors.white} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled
-        showsVerticalScrollIndicator={false}
-        onScroll={checkRecommendationVisibility}
-        scrollEventThrottle={100}
-        refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart('refresh')} tintColor={colors.brand} />
-        }
-      >
-        {renderNotice()}
-        {renderContent()}
-        <View style={styles.footerGapStorefront}>
-          <StorefrontFooter />
-        </View>
-      </ScrollView>
+      <View style={styles.scrollArea}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+          refreshControl={
+            <RefreshControl refreshing={isRefreshing} onRefresh={() => loadCart('refresh')} tintColor={colors.brand} />
+          }
+        >
+          {renderNotice()}
+          {renderContent()}
+          <View style={styles.footerGapStorefront}>
+            <StorefrontFooter />
+          </View>
+        </ScrollView>
+        <StickySectionHeader title={stickySectionTitle} />
+      </View>
 
       <View style={styles.stickyFooter}>
         <View style={styles.stickyFooterLeft}>
@@ -933,6 +978,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   content: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollArea: {
     flex: 1,
     backgroundColor: colors.background,
   },
@@ -1329,6 +1378,32 @@ const styles = StyleSheet.create({
   },
   stockTextDanger: {
     color: colors.danger,
+  },
+  itemTryOnButton: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    marginTop: spacing.sm,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    borderColor: colors.brandPale,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  itemTryOnButtonActive: {
+    borderColor: colors.brand,
+    backgroundColor: colors.brand,
+  },
+  itemTryOnText: {
+    color: colors.brand,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '900',
+  },
+  itemTryOnTextActive: {
+    color: colors.white,
   },
   sectionTitle: {
     color: colors.black,

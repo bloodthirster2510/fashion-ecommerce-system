@@ -23,6 +23,7 @@ import {
   preferFreshVirtualTryOnJob,
 } from './virtualTryOnJobState';
 import { contextPresetLabel } from './contextPresets';
+import ZoomableTryOnImage from './ZoomableTryOnImage';
 import { tryOnRoleLabel } from './virtualTryOnSelection';
 import { getTryOnVideoErrorMessage } from './virtualTryOnErrorMessages';
 
@@ -186,6 +187,7 @@ const VirtualTryOnResultScreen = () => {
   const [previewImages, setPreviewImages] = React.useState<PreviewImage[]>([]);
   const [previewImageIndex, setPreviewImageIndex] = React.useState(0);
   const [previewSyncsResult, setPreviewSyncsResult] = React.useState(false);
+  const [isPreviewPagingEnabled, setIsPreviewPagingEnabled] = React.useState(true);
   const resultScrollRef = React.useRef<ScrollView>(null);
   const previewScrollRef = React.useRef<ScrollView>(null);
   const imageActionInFlightRef = React.useRef(false);
@@ -309,6 +311,7 @@ const VirtualTryOnResultScreen = () => {
     setPreviewImages(validImages);
     setPreviewImageIndex(clampedIndex);
     setPreviewSyncsResult(syncResult);
+    setIsPreviewPagingEnabled(true);
     setIsPreviewVisible(true);
   }, []);
 
@@ -1019,10 +1022,12 @@ const VirtualTryOnResultScreen = () => {
         visible={isPreviewVisible}
         animationType="fade"
         transparent
+        hardwareAccelerated
+        statusBarTranslucent
         onRequestClose={() => setIsPreviewVisible(false)}
       >
         <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
-          <View style={styles.previewHeader}>
+          <View style={[styles.previewHeader, { top: Math.max(insets.top, spacing.md) }]}>
             <View style={styles.previewCounter}>
               <Text style={styles.previewCounterLabel} numberOfLines={1}>
                 {previewImages[previewImageIndex]?.label ?? 'Ảnh'}
@@ -1076,16 +1081,17 @@ const VirtualTryOnResultScreen = () => {
             ref={previewScrollRef}
             horizontal
             pagingEnabled
+            scrollEnabled={isPreviewPagingEnabled}
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={(event) => handlePreviewScroll(event.nativeEvent.contentOffset.x)}
           >
             {previewImages.map((image, index) => (
               <View key={`${image.recyclingKey}-${index}`} style={[styles.previewSlide, { width: windowWidth, height: windowHeight }]}>
-                <RemoteImage
+                <ZoomableTryOnImage
                   uri={image.uri}
-                  style={styles.previewImage}
-                  recyclingKey={image.recyclingKey}
-                  resizeMode={image.resizeMode ?? 'contain'}
+                  onZoomChange={(isZoomed) => {
+                    if (index === previewImageIndex) setIsPreviewPagingEnabled(!isZoomed);
+                  }}
                 />
               </View>
             ))}

@@ -4,9 +4,9 @@ import {
   formatNumber,
   formatPrice,
   getDisplayPrice,
-  getInventory,
   getInventoryStatus,
   isProductSelling,
+  getProductStockMeta,
   getStockMeta,
 } from '../productDisplay.helpers'
 import {
@@ -17,6 +17,14 @@ import {
   ViewIcon,
 } from './ProductIcons'
 import { StockWarning } from './ProductStatusIndicators'
+
+const productSkeletonRows = [
+  'product-skeleton-1',
+  'product-skeleton-2',
+  'product-skeleton-3',
+  'product-skeleton-4',
+  'product-skeleton-5',
+]
 
 type ProductTableProps = {
   products: ManagedProduct[]
@@ -75,15 +83,39 @@ export function ProductTable({
         </thead>
         <tbody>
           {isLoading ? (
-            <tr><td colSpan={10}><div className="admin-table-loading">Đang tải sản phẩm...</div></td></tr>
+            productSkeletonRows.map((rowKey) => (
+              <tr className="admin-product-skeleton-row" key={rowKey} aria-hidden="true">
+                <td>
+                  <div className="admin-product-skeleton-main">
+                    <span className="admin-product-skeleton-chevron" />
+                    <span className="admin-product-skeleton-image" />
+                    <span className="admin-product-skeleton-line is-wide" />
+                  </div>
+                </td>
+                <td><span className="admin-product-skeleton-line" /></td>
+                <td><span className="admin-product-skeleton-line is-medium" /></td>
+                <td><span className="admin-product-skeleton-line is-medium" /></td>
+                <td><span className="admin-product-skeleton-line is-short" /></td>
+                <td><span className="admin-product-skeleton-line is-medium" /></td>
+                <td><span className="admin-product-skeleton-line is-short" /></td>
+                <td><span className="admin-product-skeleton-line is-medium" /></td>
+                <td><span className="admin-product-skeleton-pill" /></td>
+                <td>
+                  <div className="admin-product-skeleton-actions">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </td>
+              </tr>
+            ))
           ) : null}
           {!isLoading && products.length === 0 ? (
             <tr><td colSpan={10}><div className="admin-table-loading">Không có sản phẩm phù hợp.</div></td></tr>
           ) : null}
           {!isLoading
             ? products.map((product) => {
-                const inventory = getInventory(product)
-                const stock = getStockMeta(inventory, lowStockThreshold)
+                const stock = getProductStockMeta(product, lowStockThreshold)
                 const colorCount = new Set(
                   product.variants.flatMap((variant) =>
                     variant.colors.map((color) => color.color.toLocaleLowerCase('vi')),

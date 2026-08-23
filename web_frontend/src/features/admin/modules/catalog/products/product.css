@@ -647,6 +647,76 @@
   background: #fff;
 }
 
+.admin-product-skeleton-row td {
+  height: 76px;
+  background: #fff;
+}
+
+.admin-product-skeleton-main,
+.admin-product-skeleton-actions {
+  display: flex;
+  align-items: center;
+}
+
+.admin-product-skeleton-main {
+  gap: 10px;
+}
+
+.admin-product-skeleton-line,
+.admin-product-skeleton-image,
+.admin-product-skeleton-chevron,
+.admin-product-skeleton-pill,
+.admin-product-skeleton-actions span {
+  display: inline-block;
+  background: linear-gradient(90deg, #edf2f5 25%, #f8fafb 50%, #edf2f5 75%);
+  background-size: 200% 100%;
+  animation: admin-product-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.admin-product-skeleton-line {
+  width: 72px;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.admin-product-skeleton-line.is-wide { width: 150px; }
+.admin-product-skeleton-line.is-medium { width: 92px; }
+.admin-product-skeleton-line.is-short { width: 34px; }
+
+.admin-product-skeleton-image {
+  width: 42px;
+  height: 52px;
+  border-radius: 6px;
+}
+
+.admin-product-skeleton-chevron {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.admin-product-skeleton-pill {
+  width: 70px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.admin-product-skeleton-actions {
+  justify-content: center;
+  gap: 6px;
+}
+
+.admin-product-skeleton-actions span {
+  width: 42px;
+  height: 30px;
+  border-radius: 6px;
+}
+
+@keyframes admin-product-skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 .admin-product-actions {
   display: flex;
   justify-content: center;

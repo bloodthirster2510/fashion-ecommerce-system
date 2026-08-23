@@ -30,8 +30,15 @@ const configuration = {
   enabled: true,
   imageProvider: 'comfy' as const,
   imageModel: 'flux-fill-dev.safetensors',
+  imageAspectRatio: '3:4',
+  imageResolution: '2K',
   videoProvider: 'comfy_kling' as const,
+  videoWorkflowProfile: 'quality' as const,
   videoModel: 'kling-v3-omni',
+  videoDurationSeconds: 5,
+  videoResolution: '720p',
+  videoAspectRatio: '9:16',
+  videoGenerateAudio: false,
   maxConcurrentJobsPerUser: 2,
   maxVideoJobsPerUserPerDay: 5,
   maxConcurrentVideoJobsPerUser: 1,
@@ -116,7 +123,7 @@ describe('virtualTryOnSettingsService', () => {
     expect(mockedSettings.create).not.toHaveBeenCalled();
   });
 
-  it('rejects unsupported providers and empty model names', async () => {
+  it('rejects unsupported providers, workflow profiles, and empty image model names', async () => {
     await expect(virtualTryOnSettingsService.updateSettings({
       expectedVersion: 0,
       configuration: { ...configuration, imageProvider: 'unknown' },
@@ -124,7 +131,12 @@ describe('virtualTryOnSettingsService', () => {
 
     await expect(virtualTryOnSettingsService.updateSettings({
       expectedVersion: 0,
-      configuration: { ...configuration, videoModel: '   ' },
+      configuration: { ...configuration, videoWorkflowProfile: 'unknown' },
+    }, actor)).rejects.toMatchObject({ statusCode: 400 });
+
+    await expect(virtualTryOnSettingsService.updateSettings({
+      expectedVersion: 0,
+      configuration: { ...configuration, imageModel: '   ' },
     }, actor)).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -135,6 +147,11 @@ describe('virtualTryOnSettingsService', () => {
     expect(options.videoProviders).toEqual(['comfy_kling', 'mock', 'disabled']);
     expect(options.imageModels).toContain(configuration.imageModel);
     expect(options.videoModels).toContain(configuration.videoModel);
+    expect(options.videoWorkflowProfiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'fast', model: 'viduq2-turbo' }),
+      expect.objectContaining({ id: 'balanced', model: 'kling-v2-5-turbo' }),
+      expect.objectContaining({ id: 'quality', model: 'kling-v3-omni' }),
+    ]));
   });
 
   it.each([

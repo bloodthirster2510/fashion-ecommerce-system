@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { deletePendingReview, getModerationRules, listAdminReviews, replyToReview, setManyReviewStatuses, setReviewStatus } from './review.service'
+import { deletePendingReview, getModerationRules, listAdminReviews, replyToReview, setManyReviewStatuses } from './review.service'
 import type { AdminReview, ModerationRules, ReviewFilters, ReviewListResponse, ReviewStatus } from './review.types'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
 import './review.css'
@@ -7,6 +7,9 @@ import './review.css'
 const initialFilters: ReviewFilters = {
   keyword: '', rating: '', status: '', productId: '', period: '', hasImages: '', page: 1,
 }
+
+const MIN_ADMIN_REPLY_LENGTH = 10
+const MAX_ADMIN_REPLY_LENGTH = 2000
 
 const statusMeta: Record<ReviewStatus, { label: string; className: string }> = {
   pending: { label: 'Chờ duyệt', className: 'is-warning' },
@@ -34,13 +37,8 @@ export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }
   const [showRules, setShowRules] = useState(false)
   const [replyingReview, setReplyingReview] = useState<AdminReview | null>(null)
   const [reply, setReply] = useState('')
+  const [replyError, setReplyError] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [moderationTarget, setModerationTarget] = useState<{
-    review: AdminReview | null
-    reviewIds: string[]
-    status: Extract<ReviewStatus, 'visible' | 'hidden'>
-  } | null>(null)
-  const [moderationReason, setModerationReason] = useState('')
   const tableShellRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarRef = useRef<HTMLDivElement>(null)
   const stickyScrollbarContentRef = useRef<HTMLDivElement>(null)
@@ -153,39 +151,6 @@ export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }
     }
   }
 
-  const openModeration = (
-    status: Extract<ReviewStatus, 'visible' | 'hidden'>,
-    review?: AdminReview,
-  ) => {
-    setModerationReason('')
-    setModerationTarget({ review: review ?? null, reviewIds: review ? [review._id] : selectedIds, status })
-  }
-
-  const handleModeration = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!moderationTarget || !moderationTarget.reviewIds.length) return
-    if (moderationTarget.status === 'hidden' && moderationReason.trim().length < 5) {
-      setNotice({ type: 'error', message: 'Lý do ẩn cần ít nhất 5 ký tự.' })
-      return
-    }
-    setActionLoading(true)
-    try {
-      if (moderationTarget.review) {
-        await setReviewStatus(moderationTarget.review._id, moderationTarget.status, moderationReason.trim())
-      } else {
-        await setManyReviewStatuses(moderationTarget.reviewIds, moderationTarget.status, moderationReason.trim())
-      }
-      setNotice({ type: 'success', message: moderationTarget.status === 'hidden' ? 'Đã ẩn đánh giá.' : 'Đã hiển thị đánh giá.' })
-      setModerationTarget(null)
-      setSelectedIds([])
-      await loadReviews()
-    } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể cập nhật trạng thái đánh giá' })
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   const handleDeleteReview = async (review: AdminReview) => {
     if (!window.confirm('Xóa đánh giá chưa được phê duyệt này?')) return
     setActionLoading(true)
@@ -204,15 +169,30 @@ export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }
   const openReply = (review: AdminReview) => {
     setReplyingReview(review)
     setReply(review.adminReply ?? '')
+    setReplyError('')
+  }
+
+  const validateReply = (value: string) => {
+    const length = value.trim().length
+    if (length === 0) return 'Vui lòng nhập nội dung phản hồi.'
+    if (length < MIN_ADMIN_REPLY_LENGTH) return `Phản hồi cần ít nhất ${MIN_ADMIN_REPLY_LENGTH} ký tự.`
+    if (length > MAX_ADMIN_REPLY_LENGTH) return `Phản hồi không được vượt quá ${MAX_ADMIN_REPLY_LENGTH} ký tự.`
+    return ''
   }
 
   const handleReply = async (event: FormEvent) => {
     event.preventDefault()
-    if (!replyingReview || !reply.trim()) return
+    if (!replyingReview) return
+    const validationError = validateReply(reply)
+    if (validationError) {
+      setReplyError(validationError)
+      return
+    }
     setActionLoading(true)
     try {
-      await replyToReview(replyingReview._id, reply)
+      await replyToReview(replyingReview._id, reply.trim())
       setReplyingReview(null)
+      setReplyError('')
       setNotice({ type: 'success', message: 'Đã gửi phản hồi của cửa hàng.' })
       await loadReviews()
     } catch (error) {
@@ -284,7 +264,6 @@ export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }
         <span>Chọn các đánh giá đang chờ duyệt</span>
         <div>
           <button className="admin-link-button" type="button" disabled={actionLoading || selectedIds.length === 0} onClick={() => void handleBulkApprove()}>Duyệt đánh giá</button>
-          <button className="admin-link-button" type="button" disabled={actionLoading || selectedIds.length === 0} onClick={() => openModeration('hidden')}>Ẩn đánh giá</button>
         </div>
       </div> : null}
 
@@ -309,7 +288,6 @@ export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }
                   <td><span className={`admin-status-pill ${status.className}`}>{status.label}</span></td>
                   <td className="admin-review-date">{formatDate(review.createdAt)}</td>
                   <td><div className="admin-review-actions">
-                    {canModerate && review.status === 'hidden' ? <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openModeration('visible', review)}>Khôi phục</button> : null}
                     {canReply && review.status !== 'hidden' ? <button className="admin-link-button" disabled={actionLoading} type="button" onClick={() => openReply(review)}>{review.adminReply ? 'Sửa phản hồi' : 'Phản hồi'}</button> : null}
                     {canModerate && review.status === 'pending' ? <button className="admin-link-button is-danger" disabled={actionLoading} type="button" onClick={() => void handleDeleteReview(review)}>Xóa</button> : null}
                   </div></td>
@@ -327,8 +305,7 @@ export function ReviewManagementPage({ currentUser }: { currentUser: AdminUser }
       {data && data.pagination.totalPages > 1 ? <footer className="admin-table-footer"><span>Trang {data.pagination.page}/{data.pagination.totalPages} · {data.pagination.totalItems} đánh giá</span><div><button className="admin-secondary-button" disabled={filters.page <= 1} onClick={() => updateFilter('page', filters.page - 1)}>Trước</button><button className="admin-secondary-button" disabled={filters.page >= data.pagination.totalPages} onClick={() => updateFilter('page', filters.page + 1)}>Sau</button></div></footer> : null}
 
       {showRules ? <RulesDialog rules={rules} onClose={() => setShowRules(false)} /> : null}
-      {replyingReview ? <div className="admin-confirm-layer" role="dialog" aria-modal="true"><form className="admin-account-dialog admin-review-reply-dialog" onSubmit={handleReply}><span className="admin-dialog-eyebrow">Phản hồi đánh giá</span><h2>{replyingReview.product?.name}</h2><blockquote>“{replyingReview.comment}”</blockquote><label><span>Nội dung phản hồi</span><textarea autoFocus value={reply} maxLength={2000} placeholder="Cảm ơn bạn đã chia sẻ..." onChange={(event) => setReply(event.target.value)} /></label><div className="admin-dialog-actions"><button className="admin-secondary-button" type="button" onClick={() => setReplyingReview(null)}>Hủy</button><button className="admin-primary-button" disabled={actionLoading || !reply.trim()} type="submit">{actionLoading ? 'Đang gửi...' : 'Gửi phản hồi'}</button></div></form></div> : null}
-      {moderationTarget ? <div className="admin-confirm-layer" role="dialog" aria-modal="true"><form className="admin-account-dialog" onSubmit={handleModeration}><span className="admin-dialog-eyebrow">Kiểm duyệt đánh giá</span><h2>{moderationTarget.status === 'hidden' ? 'Ẩn đánh giá' : 'Hiển thị đánh giá'}</h2>{moderationTarget.status === 'hidden' ? <label><span>Lý do ẩn</span><textarea autoFocus value={moderationReason} minLength={5} maxLength={500} onChange={(event) => setModerationReason(event.target.value)} placeholder="Nội dung vi phạm tiêu chuẩn cộng đồng..." /></label> : <p>Đánh giá sẽ được hiển thị công khai và tính lại điểm sản phẩm.</p>}<div className="admin-dialog-actions"><button className="admin-secondary-button" type="button" onClick={() => setModerationTarget(null)}>Hủy</button><button className="admin-primary-button" disabled={actionLoading || (moderationTarget.status === 'hidden' && moderationReason.trim().length < 5)} type="submit">Xác nhận</button></div></form></div> : null}
+      {replyingReview ? <div className="admin-confirm-layer" role="dialog" aria-modal="true"><form className="admin-account-dialog admin-review-reply-dialog" onSubmit={handleReply}><span className="admin-dialog-eyebrow">Phản hồi đánh giá</span><h2>{replyingReview.product?.name}</h2><blockquote>“{replyingReview.comment}”</blockquote><label><span>Nội dung phản hồi</span><textarea autoFocus className={replyError ? 'is-invalid' : ''} value={reply} minLength={MIN_ADMIN_REPLY_LENGTH} maxLength={MAX_ADMIN_REPLY_LENGTH} placeholder="Cảm ơn bạn đã chia sẻ..." onBlur={() => setReplyError(validateReply(reply))} onChange={(event) => { setReply(event.target.value); if (replyError) setReplyError(validateReply(event.target.value)) }} />{replyError ? <small className="admin-field-error">{replyError}</small> : null}</label><div className="admin-dialog-actions"><button className="admin-secondary-button" type="button" onClick={() => { setReplyingReview(null); setReplyError('') }}>Hủy</button><button className="admin-primary-button" disabled={actionLoading || Boolean(validateReply(reply))} type="submit">{actionLoading ? 'Đang gửi...' : 'Gửi phản hồi'}</button></div></form></div> : null}
     </section>
   )
 }

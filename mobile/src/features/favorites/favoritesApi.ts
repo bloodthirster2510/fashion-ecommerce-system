@@ -6,7 +6,7 @@ import type { CatalogProduct, ProductSortOption } from '../catalog/catalogApi';
 const FAVORITES_READ_TIMEOUT_MS = 20000;
 const FAVORITES_WRITE_TIMEOUT_MS = 20000;
 
-export type FavoriteSortOption = ProductSortOption | 'favorited_desc' | 'favorited_asc';
+export type FavoriteSortOption = Exclude<ProductSortOption, 'relevance'> | 'favorited_desc' | 'favorited_asc';
 
 export type FavoriteProduct = CatalogProduct & {
   favoritedAt: string;

@@ -14,6 +14,7 @@ type VNPayCreatePaymentUrlInput = {
   ipAddr: string;
   bankCode?: string;
   locale?: string;
+  client?: 'web' | 'mobile';
 };
 
 type VNPayTransactionQueryInput = {
@@ -114,16 +115,26 @@ const postVNPayTransactionRequest = async (payload: Record<string, string>) => {
   return normalizeVNPayApiResponse(response.data);
 };
 
-const getVNPayReturnUrl = () => {
+const getVNPayReturnUrl = (client: 'web' | 'mobile' = 'web') => {
   const publicBaseUrl =
     process.env.VNPAY_PUBLIC_BASE_URL?.trim() ||
     process.env.PUBLIC_API_BASE_URL?.trim();
 
   if (publicBaseUrl) {
-    return buildApiCallbackUrl(publicBaseUrl, '/api/payments/vnpay/return');
+    return buildApiCallbackUrl(
+      publicBaseUrl,
+      client === 'mobile'
+        ? '/api/payments/vnpay/return/mobile'
+        : '/api/payments/vnpay/return',
+    );
   }
 
-  return process.env.VNPAY_RETURN_URL?.trim();
+  const configuredReturnUrl = process.env.VNPAY_RETURN_URL?.trim();
+  if (!configuredReturnUrl || client !== 'mobile') return configuredReturnUrl;
+
+  const url = new URL(configuredReturnUrl);
+  url.pathname = `${trimTrailingSlashes(url.pathname)}/mobile`;
+  return url.toString();
 };
 
 export const createVNPayPaymentRequest = ({
@@ -132,11 +143,12 @@ export const createVNPayPaymentRequest = ({
   ipAddr,
   bankCode,
   locale = 'vn',
+  client = 'web',
 }: VNPayCreatePaymentUrlInput) => {
   const tmnCode = process.env.VNPAY_TMN_CODE?.trim();
   const secretKey = process.env.VNPAY_HASH_SECRET?.trim();
   const vnpUrl = process.env.VNPAY_PAY_URL?.trim() || process.env.VNPAY_API_URL?.trim();
-  const returnUrl = getVNPayReturnUrl();
+  const returnUrl = getVNPayReturnUrl(client);
 
   if (!tmnCode || !secretKey || !vnpUrl || !returnUrl) {
     throw new Error('Missing VNPay configuration');

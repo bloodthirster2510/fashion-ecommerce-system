@@ -6,6 +6,7 @@ import {
   markAllCustomerNotificationsRead,
   markCustomerNotificationRead,
   recordOrderCreatedNotification,
+  recordOrderStatusNotification,
   recordVirtualTryOnAccessNotification,
   recordVirtualTryOnOutcomeNotification,
 } from '../customer-notification.service';
@@ -46,7 +47,7 @@ describe('customer notification service', () => {
       }),
       expect.objectContaining({
         $setOnInsert: expect.objectContaining({
-          title: 'Đặt hàng thành công',
+          title: 'Shop đã nhận đơn hàng',
           action: expect.objectContaining({
             type: 'order_detail',
             entityId: '665000000000000000000010',
@@ -54,6 +55,33 @@ describe('customer notification service', () => {
         }),
       }),
       expect.objectContaining({ upsert: true, returnDocument: 'after' }),
+    );
+  });
+
+  it('uses a distinct actionable copy when a return request is rejected', async () => {
+    mockedNotification.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() } as never);
+
+    await recordOrderStatusNotification({
+      userId,
+      orderId: '665000000000000000000010',
+      orderCode: 'FS-1001',
+      status: 'return_rejected',
+    });
+
+    expect(mockedNotification.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: 'order:665000000000000000000010:status:return_rejected',
+      }),
+      expect.objectContaining({
+        $setOnInsert: expect.objectContaining({
+          title: 'Shop chưa thể duyệt yêu cầu trả hàng',
+          action: expect.objectContaining({
+            type: 'order_detail',
+            entityId: '665000000000000000000010',
+          }),
+        }),
+      }),
+      expect.any(Object),
     );
   });
 
@@ -194,7 +222,7 @@ describe('customer notification service', () => {
       $setOnInsert?: { title?: string; body?: string; action?: { type?: string }; data?: Record<string, unknown> };
     };
     expect(inserted.$setOnInsert).toMatchObject({
-      title: 'Yêu cầu phối đồ không thể hoàn tất',
+      title: 'Chưa thể tạo ảnh phối đồ',
       action: { type: 'virtual_try_on_processing' },
       data: { retryable: false },
     });

@@ -21,7 +21,7 @@ jest.mock('../../../database/models', () => ({
     findByIdAndUpdate: jest.fn(),
     countDocuments: jest.fn(),
   },
-  FaqVote: { create: jest.fn(), deleteOne: jest.fn() },
+  FaqVote: { find: jest.fn(), create: jest.fn(), deleteOne: jest.fn() },
   FAQ_CATEGORIES: ['orders', 'shipping', 'returns', 'payments', 'promotions', 'loyalty', 'account', 'other'],
   Order: { exists: jest.fn() },
   SupportMessage: { find: jest.fn(), create: jest.fn(), deleteOne: jest.fn() },
@@ -96,7 +96,9 @@ describe('support service security and state rules', () => {
     mockedFaq.find.mockReturnValue(query as never);
     mockedFaq.countDocuments.mockResolvedValue(1);
 
-    await expect(listFaqs({ page: 1, limit: 20 })).resolves.toMatchObject({ items: [faq] });
+    await expect(listFaqs({ page: 1, limit: 20 })).resolves.toMatchObject({
+      items: [{ ...faq, userVote: null }],
+    });
 
     expect(mockedFaq.find).toHaveBeenCalledWith({ isPublished: true });
     expect(query.select).toHaveBeenCalledWith(
@@ -120,6 +122,40 @@ describe('support service security and state rules', () => {
     expect(query.select).not.toHaveBeenCalled();
   });
 
+  it('returns the signed-in customer vote with public FAQs', async () => {
+    const faqId = '665000000000000000000006';
+    const query: Record<string, jest.Mock> = {};
+    query.select = jest.fn().mockReturnValue(query);
+    query.sort = jest.fn().mockReturnValue(query);
+    query.skip = jest.fn().mockReturnValue(query);
+    query.limit = jest.fn().mockReturnValue(query);
+    query.lean = jest.fn().mockResolvedValue([{ _id: faqId, question: 'Câu hỏi', answer: 'Câu trả lời' }]);
+    mockedFaq.find.mockReturnValue(query as never);
+    mockedFaq.countDocuments.mockResolvedValue(1);
+    const voteQuery: Record<string, jest.Mock> = {};
+    voteQuery.select = jest.fn().mockReturnValue(voteQuery);
+    voteQuery.lean = jest.fn().mockResolvedValue([{ faqId, value: 'helpful' }]);
+    mockedFaqVote.find.mockReturnValue(voteQuery as never);
+
+    await expect(listFaqs({ page: 1, limit: 20, viewerUserId: userId })).resolves.toMatchObject({
+      items: [{ _id: faqId, userVote: 'helpful' }],
+    });
+
+    expect(mockedFaqVote.find).toHaveBeenCalledWith({
+      faqId: { $in: [faqId] },
+      userId: expect.anything(),
+    });
+  });
+
+  it('returns a Vietnamese message when the customer already voted', async () => {
+    const faqId = '665000000000000000000006';
+    mockedFaq.findOne.mockResolvedValue({ _id: faqId, isPublished: true } as never);
+    mockedFaqVote.create.mockRejectedValue(Object.assign(new Error('duplicate'), { code: 11000 }));
+
+    await expect(voteFaq(faqId, userId, { value: 'helpful' }))
+      .rejects.toMatchObject({ message: 'Bạn đã đánh giá câu trả lời này rồi.', statusCode: 409 });
+  });
+
   it('removes a vote if the FAQ becomes unavailable before its counter update', async () => {
     const faqId = '665000000000000000000006';
     const voteId = '665000000000000000000007';
@@ -132,7 +168,7 @@ describe('support service security and state rules', () => {
     mockedFaq.findByIdAndUpdate.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) } as never);
 
     await expect(voteFaq(faqId, userId, { value: 'helpful' }))
-      .rejects.toMatchObject({ message: 'FAQ is no longer available', statusCode: 409 });
+      .rejects.toMatchObject({ message: 'Câu hỏi này không còn khả dụng.', statusCode: 409 });
 
     expect(mockedFaq.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: expect.anything(), isPublished: true },

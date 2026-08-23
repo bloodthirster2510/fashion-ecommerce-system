@@ -25,7 +25,6 @@ type CategoryPagination = {
 
 type CategoryManagementSectionProps = {
   categories: ManagedCategory[]
-  categoryNameById: Map<string, string>
   pagination: CategoryPagination
   keyword: string
   genderFilter: 'all' | CatalogGender
@@ -48,7 +47,6 @@ type CategoryManagementSectionProps = {
 
 export function CategoryManagementSection({
   categories,
-  categoryNameById,
   pagination,
   keyword,
   genderFilter,
@@ -143,8 +141,8 @@ export function CategoryManagementSection({
         <table className="admin-table admin-catalog-table">
           <thead>
             <tr>
+              <th>Ảnh</th>
               <th>Tên danh mục</th>
-              <th>Danh mục cha</th>
               <th>Giới tính</th>
               <th>Bộ size</th>
               <th>Bộ phom dáng</th>
@@ -165,10 +163,16 @@ export function CategoryManagementSection({
                     className={`admin-category-level-${Math.min(category.level, 4)}`}
                   >
                     <td>
-                      <strong className="admin-category-level-name">{category.name}</strong>
+                      <span className="admin-category-image">
+                        {category.image ? (
+                          <img src={category.image} alt={category.name} />
+                        ) : (
+                          <span className="admin-image-placeholder">-</span>
+                        )}
+                      </span>
                     </td>
                     <td>
-                      {category.parent_id ? categoryNameById.get(category.parent_id) ?? '-' : '-'}
+                      <strong className="admin-category-level-name">{category.name}</strong>
                     </td>
                     <td>{genderLabels[category.gender]}</td>
                     <td>

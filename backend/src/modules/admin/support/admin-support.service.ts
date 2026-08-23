@@ -11,6 +11,7 @@ import {
   SUPPORT_TICKET_STATUSES,
   SUPPORT_TICKET_TYPES,
   User,
+  type ISupportTicket,
   type SupportTicketStatus,
 } from '../../../database/models';
 import { auditLogService } from '../../audit-logs/audit-log.service';
@@ -35,6 +36,49 @@ type SupportActor = { userId: string; role: 'admin' | 'staff' };
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+const sendReplyNotificationsInBackground = (
+  ticket: ISupportTicket,
+  body: string,
+  messageId: string,
+) => {
+  const userId = ticket.userId?.toString() ?? null;
+  const tasks: Promise<unknown>[] = [];
+
+  tasks.push((async () => {
+    const customer = userId
+      ? await User.findById(userId).select('email').lean<{ email?: string } | null>()
+      : null;
+    const customerEmail = customer?.email || ticket.guestContact?.email;
+    if (!customerEmail) return;
+    await sendSupportReplyEmail({
+      to: customerEmail,
+      ticketId: ticket._id.toString(),
+      ticketCode: ticket.ticketCode,
+      subject: ticket.subject,
+      reply: body,
+      isGuest: !userId,
+    });
+  })());
+
+  if (userId) {
+    tasks.push(pushNotificationService.sendSupportReplyPush({
+      userId,
+      ticketId: ticket._id.toString(),
+      ticketCode: ticket.ticketCode,
+      subject: ticket.subject,
+      messageId,
+    }));
+  }
+
+  void Promise.allSettled(tasks).then((results) => {
+    results.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error('Failed to send support reply notification:', result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
+    });
+  });
+};
+
 const transitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
   pending_verification: [],
   open: ['in_progress', 'waiting_customer', 'resolved', 'closed', 'spam'],
@@ -42,7 +86,7 @@ const transitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
   waiting_customer: ['in_progress', 'resolved', 'closed', 'spam'],
   resolved: ['in_progress', 'closed', 'spam'],
   closed: ['in_progress'],
-  spam: [],
+  spam: ['in_progress'],
 };
 
 const objectId = (value: string, name: string) => {
@@ -117,15 +161,34 @@ export const listAdminTickets = async (input: AdminTicketQuery = {}) => {
     ];
   }
 
-  const [items, totalItems] = await Promise.all([
-    SupportTicket.find(filter)
-      .sort({ requiresReply: -1, priority: -1, lastMessageAt: 1 })
-      .skip((normalized.page - 1) * normalized.limit)
-      .limit(normalized.limit)
-      .populate('userId', 'name email phone avatarImage')
-      .populate('assignedTo', 'name email')
-      .lean(),
+  const [rawItems, totalItems] = await Promise.all([
+    SupportTicket.aggregate([
+      { $match: filter },
+      {
+        $addFields: {
+          supportPriorityRank: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$priority', 'urgent'] }, then: 4 },
+                { case: { $eq: ['$priority', 'high'] }, then: 3 },
+                { case: { $eq: ['$priority', 'normal'] }, then: 2 },
+                { case: { $eq: ['$priority', 'low'] }, then: 1 },
+              ],
+              default: 0,
+            },
+          },
+        },
+      },
+      { $sort: { requiresReply: -1, supportPriorityRank: -1, lastMessageAt: 1 } },
+      { $skip: (normalized.page - 1) * normalized.limit },
+      { $limit: normalized.limit },
+      { $unset: 'supportPriorityRank' },
+    ]),
     SupportTicket.countDocuments(filter),
+  ]);
+  const items = await SupportTicket.populate(rawItems, [
+    { path: 'userId', select: 'name email phone avatarImage' },
+    { path: 'assignedTo', select: 'name email' },
   ]);
   return { items, pagination: { ...normalized, totalItems, totalPages: Math.ceil(totalItems / normalized.limit) } };
 };
@@ -224,42 +287,21 @@ export const addAdminMessage = async (
       effectiveTicket = currentTicket;
     }
 
-    const customer = effectiveTicket.userId
-      ? await User.findById(effectiveTicket.userId).select('email').lean<{ email?: string } | null>()
-      : null;
-    const customerEmail = customer?.email || effectiveTicket.guestContact?.email;
-    if (customerEmail) {
-      await sendSupportReplyEmail({
-        to: customerEmail,
-        ticketId: effectiveTicket._id.toString(),
-        ticketCode: effectiveTicket.ticketCode,
-        subject: effectiveTicket.subject,
-        reply: body,
-        isGuest: !effectiveTicket.userId,
-      });
-    }
-    if (effectiveTicket.userId) {
-      await pushNotificationService.sendSupportReplyPush({
-        userId: effectiveTicket.userId.toString(),
-        ticketId: effectiveTicket._id.toString(),
-        ticketCode: effectiveTicket.ticketCode,
-        subject: effectiveTicket.subject,
-        messageId: message._id.toString(),
-      }).catch((error) => {
-        console.error('Failed to send support reply push:', error instanceof Error ? error.message : String(error));
-      });
-    }
+    sendReplyNotificationsInBackground(effectiveTicket, body, message._id.toString());
   }
-  if (cannedResponseId) await SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } });
-
-  await auditLogService.recordAuditLogBestEffort({
-    actorId: actor.userId,
-    actorRole: actor.role,
-    action: 'support_ticket.reply',
-    targetType: 'SupportTicket',
-    targetId: ticketId,
-    metadata: { messageId: message._id.toString(), isInternal: Boolean(input.isInternal) },
-  });
+  await Promise.all([
+    cannedResponseId
+      ? SupportCannedResponse.updateOne({ _id: cannedResponseId }, { $inc: { useCount: 1 } })
+      : Promise.resolve(),
+    auditLogService.recordAuditLogBestEffort({
+      actorId: actor.userId,
+      actorRole: actor.role,
+      action: 'support_ticket.reply',
+      targetType: 'SupportTicket',
+      targetId: ticketId,
+      metadata: { messageId: message._id.toString(), isInternal: Boolean(input.isInternal) },
+    }),
+  ]);
   const messageObj = message.toObject();
   emitTicketMessage(ticketId, messageObj, {
     isInternal: Boolean(input.isInternal),
@@ -299,6 +341,9 @@ export const updateAdminTicket = async (
       throw new SupportServiceError(`Cannot transition ticket from ${ticket.status} to ${input.status}`, 409);
     }
     if (input.status === 'spam' && actor.role !== 'admin') throw new SupportServiceError('Only admin can mark spam', 403);
+    if (currentStatus === 'spam' && actor.role !== 'admin') {
+      throw new SupportServiceError('Only admin can restore a spam ticket', 403);
+    }
     if (input.status === 'waiting_customer' && ticket.lastMessageSender !== 'staff') {
       throw new SupportServiceError('Reply to the customer before setting waiting customer', 409);
     }
@@ -420,6 +465,9 @@ const dateRange = (dateFrom?: string, dateTo?: string) => {
     if (Number.isNaN(value.getTime())) throw new SupportServiceError('dateTo is invalid');
     value.setHours(23, 59, 59, 999);
     createdAt.$lte = value;
+  }
+  if (createdAt.$gte && createdAt.$lte && createdAt.$gte > createdAt.$lte) {
+    throw new SupportServiceError('dateFrom must not be after dateTo');
   }
   return { status: { $ne: 'pending_verification' }, ...(Object.keys(createdAt).length ? { createdAt } : {}) };
 };

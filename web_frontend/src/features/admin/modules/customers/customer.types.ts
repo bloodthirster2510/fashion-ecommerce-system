@@ -77,6 +77,13 @@ export type ManagedCustomerActivity = {
   description: string
   occurredAt: string
   metadata?: Record<string, unknown>
+  actor?: {
+    id: string
+    name?: string
+    email?: string
+    avatarImage?: string | null
+    role: string
+  }
 }
 
 export type ManagedCustomerInsights = {
@@ -101,6 +108,7 @@ export type ManagedCustomerNoteAuthor = {
   _id: string
   name?: string
   email?: string
+  avatarImage?: string | null
 }
 
 export type ManagedCustomerNote = {

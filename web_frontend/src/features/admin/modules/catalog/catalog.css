@@ -190,15 +190,15 @@
 }
 
 .admin-catalog-table {
-  min-width: 880px;
+  min-width: 940px;
 }
 
 .admin-catalog-table.is-brand {
   min-width: 720px;
 }
 
-.admin-catalog-table th:nth-child(6),
-.admin-catalog-table td:nth-child(6) {
+.admin-catalog-table th:nth-child(7),
+.admin-catalog-table td:nth-child(7) {
   width: 132px;
   white-space: nowrap;
 }
@@ -234,6 +234,61 @@
 .admin-catalog-table td .admin-row-actions-wrapper {
   display: flex;
   justify-content: center;
+}
+
+.admin-catalog-skeleton-row td,
+.admin-inventory-skeleton-row td {
+  height: 76px;
+  background: #fff;
+}
+
+.admin-catalog-skeleton-line,
+.admin-inventory-skeleton-line,
+.admin-inventory-skeleton-image,
+.admin-catalog-skeleton-line.is-image,
+.admin-inventory-skeleton-pill {
+  display: inline-block;
+  background: linear-gradient(90deg, #edf2f5 25%, #f8fafb 50%, #edf2f5 75%);
+  background-size: 200% 100%;
+  animation: admin-list-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.admin-catalog-skeleton-line,
+.admin-inventory-skeleton-line {
+  width: 72px;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.admin-catalog-skeleton-line.is-wide,
+.admin-inventory-skeleton-line.is-wide { width: 130px; }
+.admin-catalog-skeleton-line.is-image { width: 48px; height: 48px; border-radius: 7px; }
+
+@keyframes admin-list-skeleton-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.admin-category-image {
+  width: fit-content;
+  max-width: 64px;
+  height: fit-content;
+  max-height: 64px;
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-category-image img {
+  display: block;
+  width: auto;
+  max-width: 64px;
+  height: auto;
+  max-height: 64px;
+  object-fit: contain;
 }
 
 .admin-catalog-table .admin-status-pill {
@@ -500,6 +555,12 @@
 .admin-catalog-form label > small {
   color: var(--admin-muted);
   font-size: 12px;
+}
+
+.admin-catalog-form .admin-field-error {
+  color: var(--admin-danger);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .admin-catalog-image-preview {

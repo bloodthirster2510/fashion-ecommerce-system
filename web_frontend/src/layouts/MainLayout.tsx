@@ -23,6 +23,7 @@ import { Shirt } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { fetchCart } from '../features/cart/cart.slice'
 import { catalogService } from '../features/catalog/catalog.service'
+import { customerProductActionsService, FAVORITES_CHANGED_EVENT } from '../features/catalog/customerProductActions.service'
 import type {
   CatalogCategory,
   SearchSuggestCategory,
@@ -177,6 +178,7 @@ function Header() {
   const { settings } = useStorefrontSettings()
   const currentUser = useAppSelector((state) => state.auth.currentUser)
   const cart = useAppSelector((state) => state.cart.data)
+  const [favoriteCount, setFavoriteCount] = useState(0)
   const [categories, setCategories] = useState<CatalogCategory[]>([])
   const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [categoryError, setCategoryError] = useState('')
@@ -264,6 +266,34 @@ function Header() {
 
     void dispatch(fetchCart())
   }, [currentUser, dispatch])
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'user') {
+      setFavoriteCount(0)
+      return
+    }
+
+    let isMounted = true
+
+    const loadFavoriteCount = () => {
+      void customerProductActionsService
+        .listFavorites({ limit: 1 })
+        .then((result) => {
+          if (isMounted) setFavoriteCount(result.pagination.totalItems)
+        })
+        .catch(() => {
+          if (isMounted) setFavoriteCount(0)
+        })
+    }
+
+    loadFavoriteCount()
+    window.addEventListener(FAVORITES_CHANGED_EVENT, loadFavoriteCount)
+
+    return () => {
+      isMounted = false
+      window.removeEventListener(FAVORITES_CHANGED_EVENT, loadFavoriteCount)
+    }
+  }, [currentUser])
 
   // Dữ liệu API giữ dạng flat list; memo hóa việc dựng menu để không tính lại
   // mỗi lần Header render vì login/search/action thay đổi.
@@ -574,6 +604,9 @@ function Header() {
               <span className="client-action-icon">
                 <HeartOutlined />
               </span>
+              {currentUser && favoriteCount > 0 && (
+                <span className="cart-count-badge">{favoriteCount > 99 ? '99+' : favoriteCount}</span>
+              )}
             </Button>
           )}
           <Button className="client-action-button client-action-button--cart" type="text" href="/cart">

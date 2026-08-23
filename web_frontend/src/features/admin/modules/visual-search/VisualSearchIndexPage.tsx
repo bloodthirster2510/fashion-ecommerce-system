@@ -41,6 +41,7 @@ function BackfillResultPanel({ result }: { result: VisualIndexBackfillResult }) 
         <span><strong>{formatNumber(result.imageCount)}</strong>Ảnh xử lý</span>
         <span><strong>{formatNumber(result.indexed)}</strong>Ảnh thành công</span>
         <span><strong>{formatNumber(result.staleDeactivated)}</strong>Mục cũ đã ẩn</span>
+        <span><strong>{formatNumber(result.invalidMetadataDeactivated)}</strong>Metadata lỗi đã ẩn</span>
         <span><strong>{formatNumber(result.failed)}</strong>Lỗi embedding</span>
       </div>
       {result.failures.length ? (

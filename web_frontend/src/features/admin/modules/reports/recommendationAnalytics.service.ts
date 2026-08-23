@@ -148,7 +148,7 @@ export const normalizeRecommendationAnalyticsFilters = (
   const context = filters.context ?? 'all'
 
   if (context !== 'all' && !isRecommendationContext(context)) {
-    throw new Error('Ngữ cảnh recommendation không hợp lệ.')
+    throw new Error('Vị trí đề xuất không hợp lệ.')
   }
 
   if (from && to) {
@@ -162,11 +162,11 @@ export const normalizeRecommendationAnalyticsFilters = (
   }
 
   if (typeof filters.algorithmVersion !== 'string' && filters.algorithmVersion !== undefined) {
-    throw new Error('Algorithm version không hợp lệ.')
+    throw new Error('Phiên bản thuật toán không hợp lệ.')
   }
   const algorithmVersion = filters.algorithmVersion?.trim() ?? ''
   if (algorithmVersion.length > MAX_ALGORITHM_VERSION_LENGTH) {
-    throw new Error('Algorithm version không hợp lệ.')
+    throw new Error('Phiên bản thuật toán không hợp lệ.')
   }
 
   return {

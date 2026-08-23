@@ -15,7 +15,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
 import { supportApi } from './supportApi';
-import type { FaqArticle } from './support.types';
+import type { FaqArticle, FaqVoteValue } from './support.types';
 import { supportStyles as s } from './supportStyles';
 import { colors } from '../../theme';
 import { useAuth } from '../auth/AuthContext';
@@ -27,7 +27,7 @@ type LoadMode = 'initial' | 'refresh' | 'more';
 export default function FaqListScreen() {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList, 'FaqList'>>();
   const route = useRoute<RouteProp<RootStackParamList, 'FaqList'>>();
-  const { runWithAuth } = useAuth();
+  const { runWithAuth, session } = useAuth();
   const [search, setSearch] = React.useState('');
   const [items, setItems] = React.useState<FaqArticle[]>([]);
   const [expanded, setExpanded] = React.useState<string | null>(null);
@@ -36,7 +36,9 @@ export default function FaqListScreen() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [votingByFaqId, setVotingByFaqId] = React.useState<Record<string, FaqVoteValue | undefined>>({});
   const requestSequenceRef = React.useRef(0);
+  const votingFaqIdsRef = React.useRef(new Set<string>());
 
   const loadFaqs = React.useCallback(async (mode: LoadMode = 'initial', page = 1) => {
     if (mode === 'refresh') setIsRefreshing(true);
@@ -47,10 +49,10 @@ export default function FaqListScreen() {
     const requestSequence = requestSequenceRef.current + 1;
     requestSequenceRef.current = requestSequence;
     try {
-      const result = await supportApi.listFaqs(search, route.params?.category, {
-        page,
-        limit: PAGE_SIZE,
-      });
+      const query = { page, limit: PAGE_SIZE };
+      const result = session?.user.role === 'user'
+        ? await runWithAuth((token) => supportApi.listFaqs(search, route.params?.category, query, token))
+        : await supportApi.listFaqs(search, route.params?.category, query);
       if (requestSequenceRef.current !== requestSequence) return;
       setItems((current) => mode === 'more' ? mergePageItems(current, result.items) : result.items);
       setPagination(result.pagination);
@@ -65,7 +67,7 @@ export default function FaqListScreen() {
       setIsRefreshing(false);
       setIsLoadingMore(false);
     }
-  }, [route.params?.category, search]);
+  }, [route.params?.category, runWithAuth, search, session?.user.role]);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -77,12 +79,22 @@ export default function FaqListScreen() {
       requestSequenceRef.current += 1;
     };
   }, [loadFaqs]);
-  const vote = async (faq: FaqArticle, value: 'helpful' | 'not_helpful') => {
+  const vote = async (faq: FaqArticle, value: FaqVoteValue) => {
+    if (faq.userVote || votingFaqIdsRef.current.has(faq._id)) return;
+    votingFaqIdsRef.current.add(faq._id);
+    setVotingByFaqId((current) => ({ ...current, [faq._id]: value }));
     try {
       const updated = await runWithAuth((token) => supportApi.voteFaq(token, faq._id, value));
       setItems((current) => current.map((item) => item._id === updated._id ? updated : item));
     } catch (caught) {
       Alert.alert('Không thể đánh giá', caught instanceof Error ? caught.message : 'Bạn thử lại sau.');
+    } finally {
+      votingFaqIdsRef.current.delete(faq._id);
+      setVotingByFaqId((current) => {
+        const next = { ...current };
+        delete next[faq._id];
+        return next;
+      });
     }
   };
   const canLoadMore = hasNextPage(pagination);
@@ -123,16 +135,52 @@ export default function FaqListScreen() {
             {expanded === faq._id ? (
               <>
                 <Text style={s.faqAnswer}>{faq.answer}</Text>
-                <View style={s.row}>
-                  <Text style={s.muted}>Hữu ích?</Text>
-                  <View style={s.chips}>
-                    <TouchableOpacity style={s.chip} onPress={() => void vote(faq, 'helpful')}>
-                      <Text style={s.chipText}>Có ({faq.helpfulCount})</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={s.chip} onPress={() => void vote(faq, 'not_helpful')}>
-                      <Text style={s.chipText}>Chưa ({faq.notHelpfulCount})</Text>
-                    </TouchableOpacity>
+                <View style={s.faqVotePanel}>
+                  <Text style={s.faqVoteQuestion}>Câu trả lời này có hữu ích với bạn không?</Text>
+                  <View style={s.faqVoteActions}>
+                    {([
+                      { value: 'helpful', label: 'Có', count: faq.helpfulCount, icon: 'thumb-up-outline' },
+                      { value: 'not_helpful', label: 'Không', count: faq.notHelpfulCount, icon: 'thumb-down-outline' },
+                    ] as const).map((option) => {
+                      const selected = faq.userVote === option.value;
+                      const pending = votingByFaqId[faq._id] === option.value;
+                      const disabled = Boolean(faq.userVote || votingByFaqId[faq._id]);
+                      return (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[
+                            s.faqVoteButton,
+                            selected && s.faqVoteButtonActive,
+                            disabled && !selected && !pending && s.faqVoteButtonDisabled,
+                          ]}
+                          disabled={disabled}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${option.label}, ${option.count} lượt đánh giá`}
+                          accessibilityState={{ selected, disabled, busy: pending }}
+                          onPress={() => void vote(faq, option.value)}
+                        >
+                          {pending ? (
+                            <ActivityIndicator size="small" color={colors.brand} />
+                          ) : (
+                            <MaterialCommunityIcons
+                              name={selected ? option.icon.replace('-outline', '') as never : option.icon}
+                              size={18}
+                              color={selected ? colors.white : colors.brandDark}
+                            />
+                          )}
+                          <Text style={[s.faqVoteButtonText, selected && s.faqVoteButtonTextActive]}>
+                            {option.label} ({option.count})
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
+                  {faq.userVote ? (
+                    <View style={s.faqVoteConfirmation} accessibilityLiveRegion="polite">
+                      <MaterialCommunityIcons name="check-circle" size={16} color={colors.success} />
+                      <Text style={s.faqVoteConfirmationText}>Cảm ơn bạn đã góp ý.</Text>
+                    </View>
+                  ) : null}
                 </View>
               </>
             ) : null}

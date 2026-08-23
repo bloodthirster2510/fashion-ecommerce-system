@@ -10,6 +10,8 @@ const adminEmail = 'browser.e2e.admin@fashion.test';
 const customerEmail = 'browser.e2e.customer@fashion.test';
 const password = 'BrowserE2E123!';
 const orderCode = 'FS-BROWSER-E2E';
+const customerAvatar = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="96" height="96"%3E%3Crect width="96" height="96" rx="48" fill="%23884d73"/%3E%3Ctext x="48" y="60" text-anchor="middle" font-size="36" fill="white"%3EC%3C/text%3E%3C/svg%3E';
+const adminAvatar = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="96" height="96"%3E%3Crect width="96" height="96" rx="48" fill="%232f5873"/%3E%3Ctext x="48" y="60" text-anchor="middle" font-size="36" fill="white"%3EA%3C/text%3E%3C/svg%3E';
 const shippingAddress = {
   customerName: 'Browser E2E Customer',
   province: 'Hồ Chí Minh',
@@ -31,6 +33,7 @@ const seedBrowserFixtures = async () => {
       phone: '0343149694',
       gender: 'female',
       dateOfBirth: new Date('1995-01-01'),
+      avatarImage: customerAvatar,
       address: [{ ...shippingAddress, isDefault: true }],
       mustChangePassword: false,
       isActive: true,
@@ -43,6 +46,7 @@ const seedBrowserFixtures = async () => {
       phone: '0900000001',
       gender: 'male',
       dateOfBirth: new Date('1990-01-01'),
+      avatarImage: adminAvatar,
       address: [{
         ...shippingAddress,
         customerName: 'Browser E2E Admin',

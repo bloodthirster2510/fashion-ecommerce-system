@@ -13,6 +13,14 @@ import { auditLogService } from '../audit-logs/audit-log.service';
 
 type CustomerActorRole = 'admin' | 'staff';
 
+type CustomerActivityActor = {
+  id: string;
+  name?: string;
+  email?: string;
+  avatarImage?: string | null;
+  role: string;
+};
+
 type CustomerActivityItem = {
   id: string;
   type:
@@ -27,6 +35,7 @@ type CustomerActivityItem = {
   description: string;
   occurredAt: Date;
   metadata?: Record<string, unknown>;
+  actor?: CustomerActivityActor;
 };
 
 export class CustomerInsightServiceError extends Error {
@@ -90,7 +99,17 @@ const getOrderStatusLabel = (status: string) => ({
   return_requested: 'yêu cầu trả hàng',
   return_approved: 'đã duyệt trả hàng',
   returned: 'đã hoàn hàng',
-}[status] ?? status);
+}[status] ?? 'đang được cập nhật');
+
+const getSupportStatusLabel = (status: string) => ({
+  open: 'Đã tiếp nhận',
+  pending_verification: 'Chờ xác minh',
+  in_progress: 'Đang xử lý',
+  waiting_customer: 'Chờ khách hàng bổ sung',
+  resolved: 'Đã giải quyết',
+  closed: 'Đã đóng',
+  spam: 'Thư rác',
+}[status] ?? 'Đang xử lý');
 
 const getInteractionLabel = (actionType: string) => ({
   search: 'Tìm kiếm sản phẩm',
@@ -100,12 +119,67 @@ const getInteractionLabel = (actionType: string) => ({
   try_on: 'Thử phối đồ ảo',
 }[actionType] ?? 'Tương tác sản phẩm');
 
+const getInteractionSourceLabel = (source: string) => ({
+  search: 'Trang tìm kiếm',
+  product_list: 'Danh sách sản phẩm',
+  product_detail: 'Trang chi tiết sản phẩm',
+  recommendation: 'Khu vực gợi ý sản phẩm',
+  virtual_try_on: 'Phòng phối đồ ảo',
+  backend: 'Hệ thống',
+}[source] ?? 'Ứng dụng mua sắm');
+
+const getVirtualTryOnStatusLabel = (status: string) => ({
+  queued: 'Đang chờ',
+  processing: 'Đang xử lý',
+  succeeded: 'Đã hoàn tất',
+  failed: 'Không thành công',
+  canceled: 'Đã hủy',
+}[status] ?? 'Đang cập nhật');
+
+const getAuditActionTitle = (
+  action: string,
+  after?: Record<string, unknown> | null,
+) => {
+  if (action === 'customer.status_update') {
+    if (after?.isActive === false) return 'Đã khóa tài khoản';
+    if (after?.isActive === true) return 'Đã mở khóa tài khoản';
+    return 'Đã cập nhật trạng thái tài khoản';
+  }
+
+  return ({
+    'customer.password_reset_requested': 'Đã yêu cầu đổi mật khẩu',
+    'customer_note.create': 'Đã thêm ghi chú nội bộ',
+    'customer_note.update': 'Đã cập nhật ghi chú nội bộ',
+    'customer_note.delete': 'Đã xóa ghi chú nội bộ',
+  }[action] ?? 'Đã cập nhật tài khoản');
+};
+
+const getActorRoleLabel = (role: string) => ({
+  admin: 'Quản trị viên',
+  staff: 'Nhân viên',
+  system: 'Hệ thống',
+  user: 'Khách hàng',
+}[role] ?? 'Người thực hiện');
+
+const isPopulatedAuditActor = (value: unknown): value is {
+  _id: Types.ObjectId;
+  name?: string;
+  email?: string;
+  avatarImage?: string | null;
+  role?: string;
+} => Boolean(
+  value &&
+  typeof value === 'object' &&
+  '_id' in value &&
+  ('name' in value || 'email' in value || 'avatarImage' in value),
+);
+
 const getCustomerInsights = async (input: {
   customerId: string;
   activityPage?: number;
   activityLimit?: number;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
   const activityPage = clampPositiveInteger(input.activityPage, 1, 10_000);
   const activityLimit = clampPositiveInteger(
     input.activityLimit,
@@ -203,7 +277,8 @@ const getCustomerInsights = async (input: {
       .limit(activityFetchLimit)
       .lean(),
     AuditLog.find({ targetType: 'User', targetId: customerId })
-      .select('action actorId actorRole reason metadata createdAt')
+      .select('action actorId actorRole reason before after metadata createdAt')
+      .populate('actorId', 'name email avatarImage role')
       .sort({ createdAt: -1 })
       .limit(activityFetchLimit)
       .lean(),
@@ -251,7 +326,7 @@ const getCustomerInsights = async (input: {
       id: `support-${ticket._id.toString()}`,
       type: 'support' as const,
       title: `Yêu cầu ${ticket.ticketCode}`,
-      description: `${ticket.subject} · ${ticket.status}`,
+      description: `${ticket.subject} · ${getSupportStatusLabel(ticket.status)}`,
       occurredAt: ticket.createdAt,
       metadata: { ticketId: ticket._id.toString(), ticketCode: ticket.ticketCode },
     })),
@@ -271,7 +346,7 @@ const getCustomerInsights = async (input: {
       id: `interaction-${interaction._id.toString()}`,
       type: 'interaction' as const,
       title: getInteractionLabel(interaction.actionType),
-      description: `Nguồn: ${interaction.source}`,
+      description: getInteractionSourceLabel(interaction.source),
       occurredAt: interaction.createdAt,
       metadata: {
         actionType: interaction.actionType,
@@ -283,22 +358,43 @@ const getCustomerInsights = async (input: {
       id: `try-on-${job._id.toString()}`,
       type: 'virtual_try_on' as const,
       title: 'Phối đồ ảo',
-      description: `${job.selectedItems.length} sản phẩm · ${job.status}`,
+      description: `${job.selectedItems.length} sản phẩm · ${getVirtualTryOnStatusLabel(job.status)}`,
       occurredAt: job.createdAt,
       metadata: { jobId: job._id.toString(), status: job.status },
     })),
-    ...auditLogs.map((log) => ({
-      id: `audit-${log._id.toString()}`,
-      type: 'audit' as const,
-      title: `Quản trị: ${log.action}`,
-      description: log.reason || `Thực hiện bởi ${log.actorRole}`,
-      occurredAt: log.createdAt,
-      metadata: {
-        action: log.action,
-        actorRole: log.actorRole,
-        ...(log.actorId ? { actorId: log.actorId.toString() } : {}),
-      },
-    })),
+    ...auditLogs.map((log) => {
+      const populatedActor = isPopulatedAuditActor(log.actorId) ? log.actorId : null;
+      const actorRole = populatedActor?.role || log.actorRole;
+      const actorName = populatedActor?.name || populatedActor?.email;
+      const actorLabel = actorName
+        ? `${actorName} · ${getActorRoleLabel(actorRole)}`
+        : getActorRoleLabel(actorRole);
+      const actorId = populatedActor?._id ?? log.actorId;
+
+      return {
+        id: `audit-${log._id.toString()}`,
+        type: 'audit' as const,
+        title: getAuditActionTitle(log.action, log.after),
+        description: log.reason ? `${actorLabel} · ${log.reason}` : actorLabel,
+        occurredAt: log.createdAt,
+        metadata: {
+          action: log.action,
+          actorRole,
+          ...(actorId ? { actorId: actorId.toString() } : {}),
+        },
+        ...(populatedActor
+          ? {
+              actor: {
+                id: populatedActor._id.toString(),
+                name: populatedActor.name,
+                email: populatedActor.email,
+                avatarImage: populatedActor.avatarImage ?? null,
+                role: actorRole,
+              },
+            }
+          : {}),
+      };
+    }),
   ].sort((first, second) => second.occurredAt.getTime() - first.occurredAt.getTime());
   const totalActivityItems =
     accountActivity.length +
@@ -354,15 +450,15 @@ const listCustomerNotes = async (input: {
   customerId: string;
   limit?: number;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
   const limit = clampPositiveInteger(input.limit, DEFAULT_NOTE_LIMIT, MAX_NOTE_LIMIT);
   await ensureCustomer(customerId);
 
   return CustomerNote.find({ customerId })
     .sort({ createdAt: -1 })
     .limit(limit)
-    .populate('createdBy', 'name email')
-    .populate('updatedBy', 'name email')
+    .populate('createdBy', 'name email avatarImage')
+    .populate('updatedBy', 'name email avatarImage')
     .lean();
 };
 
@@ -372,8 +468,8 @@ const createCustomerNote = async (input: {
   actorId: string;
   actorRole: CustomerActorRole;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
-  const actorId = toObjectId(input.actorId, 'actorId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
+  const actorId = toObjectId(input.actorId, 'Mã người thực hiện');
   const content = normalizeNoteContent(input.content);
   await ensureCustomer(customerId);
 
@@ -394,8 +490,8 @@ const createCustomerNote = async (input: {
   });
 
   return CustomerNote.findById(note._id)
-    .populate('createdBy', 'name email')
-    .populate('updatedBy', 'name email')
+    .populate('createdBy', 'name email avatarImage')
+    .populate('updatedBy', 'name email avatarImage')
     .lean();
 };
 
@@ -406,9 +502,9 @@ const updateCustomerNote = async (input: {
   actorId: string;
   actorRole: CustomerActorRole;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
-  const noteId = toObjectId(input.noteId, 'noteId');
-  const actorId = toObjectId(input.actorId, 'actorId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
+  const noteId = toObjectId(input.noteId, 'Mã ghi chú');
+  const actorId = toObjectId(input.actorId, 'Mã người thực hiện');
   const content = normalizeNoteContent(input.content);
   const previousNote = await CustomerNote.findOne({ _id: noteId, customerId }).lean();
 
@@ -431,8 +527,8 @@ const updateCustomerNote = async (input: {
   });
 
   return CustomerNote.findById(noteId)
-    .populate('createdBy', 'name email')
-    .populate('updatedBy', 'name email')
+    .populate('createdBy', 'name email avatarImage')
+    .populate('updatedBy', 'name email avatarImage')
     .lean();
 };
 
@@ -442,8 +538,8 @@ const deleteCustomerNote = async (input: {
   actorId: string;
   actorRole: CustomerActorRole;
 }) => {
-  const customerId = toObjectId(input.customerId, 'customerId');
-  const noteId = toObjectId(input.noteId, 'noteId');
+  const customerId = toObjectId(input.customerId, 'Mã khách hàng');
+  const noteId = toObjectId(input.noteId, 'Mã ghi chú');
   const note = await CustomerNote.findOneAndDelete({ _id: noteId, customerId }).lean();
 
   if (!note) {

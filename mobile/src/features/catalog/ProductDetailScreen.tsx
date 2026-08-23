@@ -27,6 +27,10 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import StorefrontFooter from '../../components/layout/StorefrontFooter';
+import StickySectionHeader, {
+  StickySectionBoundary,
+  useStickySectionHeader,
+} from '../../components/layout/StickySectionHeader';
 import { resolveColorSwatch } from '../../components/ui/ColorSwatch';
 import { colors, radii, shadows, spacing } from '../../theme';
 import type { RootStackParamList } from '../../navigation/AppNavigator';
@@ -58,12 +62,17 @@ import {
 import { readScreenData, writeScreenData } from '../../config/screenDataCache';
 import ProductReviewsSection from '../reviews/ProductReviewsSection';
 import type { PublicReviewList } from '../reviews/review.types';
+import { useTryOnQueue } from '../virtualTryOn/TryOnQueueProvider';
+import { inferRole, isFullOutfitProduct } from '../virtualTryOn/virtualTryOnSelection';
+import type { TryOnSeedItem } from '../virtualTryOn/virtualTryOn.types';
+import { normalizeProductDescription } from './productDescription';
 
 type ProductDetailRouteProp = RouteProp<RootStackParamList, 'ProductDetail'>;
 type ProductDetailNavigationProp = StackNavigationProp<RootStackParamList, 'ProductDetail'>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 type ReviewSummary = PublicReviewList['summary'];
 type ProductLoadMode = 'loading' | 'refresh' | 'silent';
+type SelectionSheetAction = 'cart' | 'buy' | 'tryOn';
 type AddCartFeedback = {
   id: number;
   productName: string;
@@ -195,9 +204,9 @@ const ZoomableProductImage = ({ uri, previousUri, nextUri, onSwipe }: ZoomablePr
       }
     });
 
-  const imageGesture = Gesture.Race(
-    doubleTapGesture,
-    Gesture.Simultaneous(pinchGesture, panGesture),
+  const imageGesture = Gesture.Simultaneous(
+    pinchGesture,
+    Gesture.Race(doubleTapGesture, panGesture),
   );
   const animatedImageStyle = useAnimatedStyle(() => ({
     transform: [
@@ -248,13 +257,6 @@ const formatCurrency = (value: number) => {
 };
 
 const isRemoteImage = (value?: string | null) => Boolean(value && /^https?:\/\//i.test(value.trim()));
-
-const stripDescription = (value?: string | null) =>
-  (value ?? '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 
 const findCartItemIdForSelection = (
   cart: CartResponse,
@@ -331,6 +333,7 @@ const ProductDetailScreen = () => {
   const route = useRoute<ProductDetailRouteProp>();
   const insets = useSafeAreaInsets();
   const { isAuthenticated, session, runWithAuth } = useAuth();
+  const { items: tryOnQueueItems, addItem: addTryOnItem } = useTryOnQueue();
   const { productId } = route.params;
   const productCacheKey = `catalog:detail:${productId}`;
   const initialProductRef = React.useRef(readScreenData<CatalogProductDetail>(productCacheKey));
@@ -364,7 +367,7 @@ const ProductDetailScreen = () => {
   const [isDescriptionExpanded, setIsDescriptionExpanded] = React.useState(false);
   const [isImagePreviewVisible, setIsImagePreviewVisible] = React.useState(false);
   const [isSelectionSheetVisible, setIsSelectionSheetVisible] = React.useState(false);
-  const [selectionSheetAction, setSelectionSheetAction] = React.useState<'cart' | 'buy'>('cart');
+  const [selectionSheetAction, setSelectionSheetAction] = React.useState<SelectionSheetAction>('cart');
   const [publicReviewSummary, setPublicReviewSummary] = React.useState<ReviewSummary | null>(null);
   const [addCartFeedback, setAddCartFeedback] = React.useState<AddCartFeedback | null>(null);
   const addCartFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -443,13 +446,18 @@ const ProductDetailScreen = () => {
   }, [isAuthenticated, productId, recommendationAlgorithmVersion, recommendationRequestId, runWithAuth]);
   const {
     recommendationSectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility,
-    handleRecommendationViewableItemsChanged,
   } = useRecommendationImpressions({
     requestId: recommendationRequestId,
     items: recommendationItems,
     onImpression: (item) => recordRecommendationEvent(item, 'impression'),
   });
+  const {
+    activeTitle: stickySectionTitle,
+    onScroll: handleScroll,
+    onSectionLayout,
+  } = useStickySectionHeader(checkRecommendationVisibility);
 
   const loadProduct = React.useCallback((mode: ProductLoadMode = 'loading') => {
     let isCurrentRequest = true;
@@ -482,8 +490,8 @@ const ProductDetailScreen = () => {
         setIsRecommendationLoading(true);
 
         const recommendationPromise = isAuthenticated
-          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 8, accessToken))
-          : recommendationApi.getSimilarProducts(detail._id, 8);
+          ? runWithAuth((accessToken) => recommendationApi.getSimilarProducts(detail._id, 10, accessToken))
+          : recommendationApi.getSimilarProducts(detail._id, 10);
 
         recommendationPromise
           .then((response) => {
@@ -610,7 +618,7 @@ const ProductDetailScreen = () => {
   const selectedImageIndex = Math.max(imageOptions.indexOf(selectedImage ?? ''), 0);
   const ratingDistribution = product ? getRatingDistribution(product) : [];
   const productDescription = React.useMemo(
-    () => stripDescription(product?.description),
+    () => normalizeProductDescription(product?.description),
     [product?.description],
   );
   const handleReviewSummaryChange = React.useCallback((summary: ReviewSummary) => {
@@ -692,7 +700,16 @@ const ProductDetailScreen = () => {
     }
   };
 
-  const handleOpenSelectionSheet = (action: 'cart' | 'buy') => {
+  const heroSwipeGesture = Gesture.Pan()
+    .activeOffsetX([-24, 24])
+    .failOffsetY([-18, 18])
+    .onEnd((event) => {
+      const isHorizontal = Math.abs(event.translationX) > Math.abs(event.translationY);
+      if (!isHorizontal || (Math.abs(event.translationX) < 48 && Math.abs(event.velocityX) < 500)) return;
+      runOnJS(handlePreviewImageChange)(event.translationX < 0 ? 1 : -1);
+    });
+
+  const handleOpenSelectionSheet = (action: SelectionSheetAction) => {
     if (!product || !hasPurchasableOption) {
       return;
     }
@@ -706,6 +723,58 @@ const ProductDetailScreen = () => {
     setSelectionSheetAction(action);
     setIsSelectionSheetVisible(true);
   };
+
+  const buildTryOnSeedItem = (): TryOnSeedItem | null => {
+    if (!product || !selectedVariant || !selectedColor || !selectedSizeOption || !canCheckout) return null;
+
+    return {
+      productId: product._id,
+      variantId: selectedVariant._id,
+      colorVariantId: selectedColor._id,
+      size: selectedSizeOption.size,
+      role: inferRole(product),
+      isFullOutfit: isFullOutfitProduct(product),
+      nameSnapshot: product.name,
+      colorSnapshot: selectedColor.color,
+      imageSnapshot: selectedColor.image || selectedImage || product.productImage,
+    };
+  };
+
+  const addSelectionToTryOnQueue = () => {
+    const seedItem = buildTryOnSeedItem();
+    if (!seedItem) {
+      Alert.alert('Chọn sản phẩm', 'Bạn chọn đủ màu và size trước nha.');
+      return false;
+    }
+
+    const result = addTryOnItem(seedItem);
+    if (result === 'full') {
+      Alert.alert('Hàng chờ đã đầy', 'Bạn bỏ bớt một món trong phòng phối rồi thử lại nha.');
+      return false;
+    }
+
+    setIsSelectionSheetVisible(false);
+    navigation.navigate('VirtualTryOnHome', {
+      entryPoint: 'builder',
+      seedItems: result === 'added' ? [...tryOnQueueItems, seedItem] : tryOnQueueItems,
+    });
+    return true;
+  };
+
+  const handleTryOnPress = () => {
+    if (!isAuthenticated || !session?.accessToken) {
+      navigation.navigate('Login');
+      return;
+    }
+
+    handleOpenSelectionSheet('tryOn');
+  };
+
+  React.useEffect(() => {
+    if (!route.params.openTryOn || !product || isLoading) return;
+    handleOpenSelectionSheet('tryOn');
+    navigation.setParams({ openTryOn: undefined });
+  }, [isLoading, navigation, product, route.params.openTryOn]);
 
   const handleCloseSelectionSheet = () => {
     if (!isAddingToCart) {
@@ -791,6 +860,11 @@ const ProductDetailScreen = () => {
   };
 
   const handleConfirmSelection = async () => {
+    if (selectionSheetAction === 'tryOn') {
+      addSelectionToTryOnQueue();
+      return;
+    }
+
     const wasCompleted = await handleSelectionAction(selectionSheetAction);
 
     if (wasCompleted) {
@@ -984,14 +1058,6 @@ const ProductDetailScreen = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerIcon}
-            onPress={() => navigation.navigate(isAuthenticated ? 'Favorites' : 'Login')}
-            activeOpacity={0.82}
-            accessibilityLabel="Sản phẩm yêu thích"
-          >
-            <MaterialCommunityIcons name="heart-outline" size={22} color={colors.white} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.headerIcon}
             onPress={() => navigation.navigate('Cart', { selectionSource: 'normal' })}
             activeOpacity={0.82}
             accessibilityLabel="Giỏ hàng"
@@ -1003,7 +1069,10 @@ const ProductDetailScreen = () => {
     </View>
   );
 
-  const renderSelectionControls = (detail: CatalogProductDetail) => (
+  const renderSelectionControls = (
+    detail: CatalogProductDetail,
+    options: { showQuantity?: boolean } = {},
+  ) => (
     <>
       {detail.variants.length > 1 ? (
         <View style={styles.selectorBlock}>
@@ -1147,30 +1216,32 @@ const ProductDetailScreen = () => {
         </View>
       ) : null}
 
-      <View style={styles.quantityRow}>
-        <Text style={styles.selectorTitle}>Số lượng</Text>
-        <View style={styles.stepper}>
-          <TouchableOpacity
-            style={[styles.stepperButton, quantity === 1 && styles.stepperButtonDisabled]}
-            onPress={() => handleQuantityChange(-1)}
-            disabled={quantity === 1}
-            activeOpacity={0.82}
-            accessibilityLabel="Giảm số lượng"
-          >
-            <MaterialCommunityIcons name="minus" size={18} color={quantity === 1 ? colors.textSubtle : colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.quantityText}>{quantity}</Text>
-          <TouchableOpacity
-            style={[styles.stepperButton, isQuantityAtLimit && styles.stepperButtonDisabled]}
-            onPress={() => handleQuantityChange(1)}
-            disabled={isQuantityAtLimit}
-            activeOpacity={0.82}
-            accessibilityLabel="Tăng số lượng"
-          >
-            <MaterialCommunityIcons name="plus" size={18} color={isQuantityAtLimit ? colors.textSubtle : colors.text} />
-          </TouchableOpacity>
+      {options.showQuantity !== false ? (
+        <View style={styles.quantityRow}>
+          <Text style={styles.selectorTitle}>Số lượng</Text>
+          <View style={styles.stepper}>
+            <TouchableOpacity
+              style={[styles.stepperButton, quantity === 1 && styles.stepperButtonDisabled]}
+              onPress={() => handleQuantityChange(-1)}
+              disabled={quantity === 1}
+              activeOpacity={0.82}
+              accessibilityLabel="Giảm số lượng"
+            >
+              <MaterialCommunityIcons name="minus" size={18} color={quantity === 1 ? colors.textSubtle : colors.text} />
+            </TouchableOpacity>
+            <Text style={styles.quantityText}>{quantity}</Text>
+            <TouchableOpacity
+              style={[styles.stepperButton, isQuantityAtLimit && styles.stepperButtonDisabled]}
+              onPress={() => handleQuantityChange(1)}
+              disabled={isQuantityAtLimit}
+              activeOpacity={0.82}
+              accessibilityLabel="Tăng số lượng"
+            >
+              <MaterialCommunityIcons name="plus" size={18} color={isQuantityAtLimit ? colors.textSubtle : colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      ) : null}
     </>
   );
 
@@ -1214,21 +1285,22 @@ const ProductDetailScreen = () => {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       {renderHeader()}
 
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={(
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={() => { void loadProduct('refresh'); }}
-            colors={[colors.brand]}
-            tintColor={colors.brand}
-          />
-        )}
-        onScroll={checkRecommendationVisibility}
-        scrollEventThrottle={100}
-      >
+      <View style={styles.scrollArea}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={(
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={() => { void loadProduct('refresh'); }}
+              colors={[colors.brand]}
+              tintColor={colors.brand}
+            />
+          )}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+        >
         <View style={styles.breadcrumb}>
           <ScrollView
             horizontal
@@ -1260,23 +1332,24 @@ const ProductDetailScreen = () => {
 
         <View style={styles.mediaSection}>
           <View style={styles.heroImageWrap}>
-            <TouchableOpacity
-              style={styles.heroImagePress}
-              onPress={() => setIsImagePreviewVisible(true)}
-              disabled={!isRemoteImage(selectedImage)}
-              activeOpacity={0.92}
-              accessibilityRole="button"
-              accessibilityLabel="Xem ảnh sản phẩm toàn màn hình"
-            >
-              {isRemoteImage(selectedImage) ? (
-                <Image source={{ uri: selectedImage!.trim() }} style={styles.heroImage} resizeMode="cover" />
-              ) : (
-                <View style={styles.imagePlaceholder}>
-                  <MaterialCommunityIcons name="tshirt-crew-outline" size={54} color={colors.brand} />
-                </View>
-              )}
-
-            </TouchableOpacity>
+            <GestureDetector gesture={heroSwipeGesture}>
+              <TouchableOpacity
+                style={styles.heroImagePress}
+                onPress={() => setIsImagePreviewVisible(true)}
+                disabled={!isRemoteImage(selectedImage)}
+                activeOpacity={0.92}
+                accessibilityRole="button"
+                accessibilityLabel="Xem ảnh sản phẩm toàn màn hình"
+              >
+                {isRemoteImage(selectedImage) ? (
+                  <Image source={{ uri: selectedImage!.trim() }} style={styles.heroImage} resizeMode="cover" />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <MaterialCommunityIcons name="tshirt-crew-outline" size={54} color={colors.brand} />
+                  </View>
+                )}
+              </TouchableOpacity>
+            </GestureDetector>
 
             <TouchableOpacity
               style={styles.favoriteButton}
@@ -1294,6 +1367,18 @@ const ProductDetailScreen = () => {
                   color={isFavorited ? colors.coral : colors.brand}
                 />
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tryOnImageButton, !hasPurchasableOption && styles.tryOnImageButtonDisabled]}
+              onPress={handleTryOnPress}
+              disabled={!hasPurchasableOption}
+              activeOpacity={0.86}
+              accessibilityRole="button"
+              accessibilityLabel="Chọn màu và size để phối thử"
+            >
+              <MaterialCommunityIcons name="hanger" size={17} color={colors.white} />
+              <Text style={styles.tryOnImageButtonText}>Phối thử</Text>
             </TouchableOpacity>
           </View>
 
@@ -1365,6 +1450,7 @@ const ProductDetailScreen = () => {
             <View style={styles.statDivider} />
             <Text style={styles.statText}>Đã bán {product.soldQuantity}</Text>
           </View>
+
         </View>
 
         <View style={styles.selectorSection}>
@@ -1391,18 +1477,26 @@ const ProductDetailScreen = () => {
           <ProductReviewsSection productId={product._id} onSummaryChange={handleReviewSummaryChange} />
         </View>
 
-        <RecommendationRail
-          title="Sản phẩm tương tự"
-          subtitle="Những lựa chọn cùng tinh thần với món bạn đang xem"
-          items={recommendationItems}
-          isLoading={isRecommendationLoading}
-          trackingRef={recommendationSectionRef}
-          onViewableItemsChanged={handleRecommendationViewableItemsChanged}
-          onProductPress={handleRecommendationProductPress}
-        />
+          <StickySectionBoundary
+            sectionKey="similar-products"
+            title="Sản phẩm tương tự"
+            onSectionLayout={onSectionLayout}
+          >
+            <RecommendationRail
+              title="Sản phẩm tương tự"
+              subtitle="Những lựa chọn cùng tinh thần với món bạn đang xem"
+              items={recommendationItems}
+              isLoading={isRecommendationLoading}
+              trackingRef={recommendationSectionRef}
+              onItemRef={setRecommendationItemRef}
+              onProductPress={handleRecommendationProductPress}
+            />
+          </StickySectionBoundary>
 
-        <StorefrontFooter />
-      </ScrollView>
+          <StorefrontFooter />
+        </ScrollView>
+        <StickySectionHeader title={stickySectionTitle} />
+      </View>
 
       <Modal
         visible={isImagePreviewVisible}
@@ -1429,10 +1523,13 @@ const ProductDetailScreen = () => {
               onPress={() => setIsImagePreviewVisible(false)}
               activeOpacity={0.82}
               accessibilityRole="button"
-              accessibilityLabel="Đóng ảnh phóng to"
+              accessibilityLabel="Đóng ảnh"
             >
               <MaterialCommunityIcons name="close" size={26} color={colors.white} />
             </TouchableOpacity>
+            <View style={styles.imagePreviewHint}>
+              <Text style={styles.imagePreviewCounter}>{selectedImageIndex + 1}/{imageOptions.length}</Text>
+            </View>
           </View>
 
           {imageOptions.length > 1 ? (
@@ -1502,8 +1599,14 @@ const ProductDetailScreen = () => {
             <View style={styles.selectionSheetHandle} />
             <View style={styles.selectionSheetHeader}>
               <View style={styles.selectionSheetHeading}>
-                <Text style={styles.selectionSheetTitle}>Chọn sản phẩm</Text>
-                <Text style={styles.selectionSheetSubtitle}>Chọn màu, kích thước và số lượng</Text>
+                <Text style={styles.selectionSheetTitle}>
+                  {selectionSheetAction === 'tryOn' ? 'Chọn đồ để phối thử' : 'Chọn sản phẩm'}
+                </Text>
+                <Text style={styles.selectionSheetSubtitle}>
+                  {selectionSheetAction === 'tryOn'
+                    ? 'Chọn màu và kích thước trước khi qua phòng phối'
+                    : 'Chọn màu, kích thước và số lượng'}
+                </Text>
               </View>
               <TouchableOpacity
                 style={styles.selectionSheetClose}
@@ -1531,11 +1634,15 @@ const ProductDetailScreen = () => {
               <View style={styles.selectionProductCopy}>
                 <Text style={styles.selectionProductName} numberOfLines={2}>{product.name}</Text>
                 <Text style={styles.selectionProductPrice}>
-                  {formatCurrency((selectedVariant?.finalPrice ?? product.finalPrice) * quantity)}
+                  {formatCurrency(
+                    (selectedVariant?.finalPrice ?? product.finalPrice)
+                    * (selectionSheetAction === 'tryOn' ? 1 : quantity),
+                  )}
                 </Text>
                 {canCheckout ? (
                   <Text style={styles.selectionProductMeta} numberOfLines={1}>
-                    {selectedColor?.color} · Size {selectedSizeOption?.size} · SL {quantity}
+                    {selectedColor?.color} · Size {selectedSizeOption?.size}
+                    {selectionSheetAction === 'tryOn' ? '' : ` · SL ${quantity}`}
                   </Text>
                 ) : null}
               </View>
@@ -1547,7 +1654,7 @@ const ProductDetailScreen = () => {
               showsVerticalScrollIndicator={false}
               bounces={false}
             >
-              {renderSelectionControls(product)}
+              {renderSelectionControls(product, { showQuantity: selectionSheetAction !== 'tryOn' })}
             </ScrollView>
 
             <View style={styles.selectionSheetFooter}>
@@ -1564,7 +1671,7 @@ const ProductDetailScreen = () => {
               >
                 {isAddingToCart ? <ActivityIndicator size="small" color={colors.white} /> : (
                   <MaterialCommunityIcons
-                    name={selectionSheetAction === 'buy' ? 'flash' : 'cart-plus'}
+                    name={selectionSheetAction === 'buy' ? 'flash' : selectionSheetAction === 'tryOn' ? 'hanger' : 'cart-plus'}
                     size={20}
                     color={colors.white}
                   />
@@ -1572,7 +1679,7 @@ const ProductDetailScreen = () => {
                 <Text style={styles.selectionConfirmButtonText}>
                   {isAddingToCart
                     ? selectionSheetAction === 'buy' ? 'Đang chuyển...' : 'Đang thêm...'
-                    : selectionSheetAction === 'buy' ? 'Mua ngay' : 'Thêm vào giỏ'}
+                    : selectionSheetAction === 'buy' ? 'Mua ngay' : selectionSheetAction === 'tryOn' ? 'Thêm vào phối' : 'Thêm vào giỏ'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1656,6 +1763,10 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  scrollArea: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
   scrollContent: {
     paddingBottom: 0,
@@ -1760,6 +1871,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 2,
     ...shadows.card,
+  },
+  tryOnImageButton: {
+    position: 'absolute',
+    right: spacing.md,
+    bottom: spacing.md,
+    zIndex: 2,
+    minHeight: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+    backgroundColor: 'rgba(33,52,72,0.92)',
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    ...shadows.card,
+  },
+  tryOnImageButtonDisabled: {
+    opacity: 0.5,
+  },
+  tryOnImageButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
   },
   thumbnailRow: {
     minHeight: 78,
@@ -2335,7 +2472,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
     backgroundColor: 'rgba(0,0,0,0.42)',
   },
   imagePreviewHeaderButton: {
@@ -2345,6 +2483,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  imagePreviewHint: {
+    flex: 1,
+    minWidth: 0,
+  },
+  imagePreviewCounter: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
   },
   imagePreviewThumbnails: {
     position: 'absolute',

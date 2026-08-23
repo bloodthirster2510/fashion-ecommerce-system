@@ -2,6 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Types } from 'mongoose';
 import {
+  Category,
   Inventory,
   Product,
   ProductVisualIndex,
@@ -250,9 +251,10 @@ const callHttpEmbeddingService = async (input: VisualEmbeddingInput): Promise<Vi
 
     if (input.imageBuffer) {
       const formData = new FormData();
+      const fileBytes = Uint8Array.from(input.imageBuffer);
       formData.append(
         'file',
-        new Blob([input.imageBuffer], { type: input.mimeType ?? 'application/octet-stream' }),
+        new Blob([fileBytes], { type: input.mimeType ?? 'application/octet-stream' }),
         input.fileName ?? 'query-image',
       );
 
@@ -380,12 +382,67 @@ const toRegexList = (values?: string[]) => {
     .map((value) => new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
 };
 
+const getDescendantCategoryIds = async (
+  categoryId: string,
+  gender?: ProductVisualGender,
+) => {
+  const [rootCategoryId] = toObjectIdList([categoryId], 'categoryId') ?? [];
+  if (!rootCategoryId) {
+    return [];
+  }
+
+  const rootCategory = await Category.findById(rootCategoryId)
+    .select('_id gender isActive')
+    .lean<{ _id: Types.ObjectId; gender: ProductVisualGender; isActive: boolean } | null>();
+
+  if (!rootCategory || !rootCategory.isActive || (gender && rootCategory.gender !== gender)) {
+    return [];
+  }
+
+  const categoryIdsByString = new Map<string, Types.ObjectId>([
+    [rootCategory._id.toString(), rootCategory._id],
+  ]);
+  let parentIds = [rootCategory._id];
+
+  while (parentIds.length) {
+    const childCategories = await Category.find({
+      parent_id: { $in: parentIds },
+      isActive: true,
+      ...(gender ? { gender } : {}),
+    })
+      .select('_id')
+      .lean<Array<{ _id: Types.ObjectId }>>();
+
+    parentIds = childCategories.map((category) => category._id);
+    parentIds.forEach((id) => categoryIdsByString.set(id.toString(), id));
+  }
+
+  return Array.from(categoryIdsByString.values());
+};
+
+const resolveVisualCategoryIds = async (options: VisualSearchQueryOptions) => {
+  if (!options.categoryId?.length) {
+    return undefined;
+  }
+
+  const categoryIdGroups = await Promise.all(
+    options.categoryId.map((categoryId) => getDescendantCategoryIds(categoryId, options.gender)),
+  );
+  const categoryIdsByString = new Map<string, Types.ObjectId>();
+
+  categoryIdGroups.flat().forEach((categoryId) => {
+    categoryIdsByString.set(categoryId.toString(), categoryId);
+  });
+
+  return Array.from(categoryIdsByString.values());
+};
+
 // Tạo bộ lọc visual index từ model hiện tại và các filter người dùng chọn.
-const buildVisualIndexFilter = (
+const buildVisualIndexFilter = async (
   embeddingResult: VisualEmbeddingResult,
   options: VisualSearchQueryOptions,
 ) => {
-  const categoryIds = toObjectIdList(options.categoryId, 'categoryId');
+  const categoryIds = await resolveVisualCategoryIds(options);
   const brandIds = toObjectIdList(options.brandId, 'brandId');
   const colors = toRegexList(options.color);
   const finalPriceFilter: Record<string, number> = {};
@@ -396,7 +453,7 @@ const buildVisualIndexFilter = (
     embeddingVersion: embeddingResult.embeddingVersion,
   };
 
-  if (categoryIds?.length) {
+  if (categoryIds) {
     filter.categoryId = { $in: categoryIds };
   }
 
@@ -467,7 +524,7 @@ const searchSimilarIndexItems = async (
   options: VisualSearchQueryOptions,
 ) => {
   const scoreThreshold = getScoreThreshold(options.scoreThreshold);
-  const filter = buildVisualIndexFilter(embeddingResult, options);
+  const filter = await buildVisualIndexFilter(embeddingResult, options);
   const rawCandidates = await ProductVisualIndex.find(filter)
     .select(
       'galleryImageId productId variantId colorVariantId imageUrl embedding embeddingDimension embeddingModel embeddingVersion categoryId brandId gender color finalPrice availableQuantity source',
@@ -542,6 +599,30 @@ const getDisplayVariant = (variants: IProductVariant[]) =>
   variants.find((variant) => variant.isActive) ?? variants[0];
 
 const toIsoString = (value?: Date | null) => value ? value.toISOString() : undefined;
+
+type ProductImageColorMatch = {
+  variant: IProductVariant;
+  color: IProductVariant['colors'][number];
+};
+
+const findProductImageColorMatch = (product: ProductForVisualSearch): ProductImageColorMatch | null => {
+  const productImage = product.product_image?.trim();
+  if (!productImage) {
+    return null;
+  }
+
+  const matches: ProductImageColorMatch[] = [];
+
+  (product.variant ?? []).forEach((variant) => {
+    variant.colors.forEach((color) => {
+      if (color.image?.trim() === productImage) {
+        matches.push({ variant, color });
+      }
+    });
+  });
+
+  return matches.length === 1 ? matches[0] : null;
+};
 
 const getSourceBreakdown = (
   activeGalleryItems: VisualGalleryItem[],
@@ -712,22 +793,41 @@ const buildGalleryItems = (
     const brandId = toObjectIdOrNull(product.brand_id);
     const gender = getGender(product.category_id);
     const displayVariant = getDisplayVariant(product.variant ?? []);
+    const productImageColorMatch = findProductImageColorMatch(product);
+    const productImageVariant = productImageColorMatch?.variant ?? null;
+    const productImageColor = productImageColorMatch?.color ?? null;
+    const productImageVariantId = productImageVariant?._id ?? null;
+    const productImageColorVariantId = productImageColor?._id ?? null;
+    const productImageVariantIdString = productImageVariantId?.toString() ?? '';
+    const productImageColorVariantIdString = productImageColorVariantId?.toString() ?? '';
 
     if (product.product_image?.trim()) {
       items.push({
         galleryImageId: `${productId}:product_image`,
         productId: product._id,
+        variantId: productImageVariantId,
+        colorVariantId: productImageColorVariantId,
         imageUrl: product.product_image.trim(),
         imageHash: createImageHash(product.product_image),
         categoryId,
         brandId,
         gender,
-        color: null,
-        price: displayVariant?.price ?? null,
-        discount: displayVariant?.discount ?? null,
-        finalPrice: displayVariant ? getFinalPrice(displayVariant.price, displayVariant.discount) : null,
+        color: productImageColor?.color ?? null,
+        price: productImageVariant?.price ?? displayVariant?.price ?? null,
+        discount: productImageVariant?.discount ?? displayVariant?.discount ?? null,
+        finalPrice: productImageVariant
+          ? getFinalPrice(productImageVariant.price, productImageVariant.discount)
+          : displayVariant
+            ? getFinalPrice(displayVariant.price, displayVariant.discount)
+            : null,
         isActive: product.isActive,
-        availableQuantity: productTotals.get(getInventoryKey(productId)) ?? 0,
+        availableQuantity: productImageColorMatch
+          ? colorTotals.get(getInventoryKey(
+              productId,
+              productImageVariantIdString,
+              productImageColorVariantIdString,
+            )) ?? 0
+          : productTotals.get(getInventoryKey(productId)) ?? 0,
         source: 'product_image',
       });
     }
@@ -960,6 +1060,71 @@ const getGalleryItems = async (options: VisualIndexBackfillOptions = {}) => {
   };
 };
 
+const getMissingVisualIndexMetadataFields = (item: VisualGalleryItem) => {
+  if (!item.isActive) {
+    return [];
+  }
+
+  const missingFields: string[] = [];
+
+  if (!item.categoryId) missingFields.push('categoryId');
+  if (!item.brandId) missingFields.push('brandId');
+  if (!item.gender) missingFields.push('gender');
+  if (item.price === null || item.price === undefined) missingFields.push('price');
+  if (item.discount === null || item.discount === undefined) missingFields.push('discount');
+  if (item.finalPrice === null || item.finalPrice === undefined) missingFields.push('finalPrice');
+
+  if (item.source === 'color_variant_image') {
+    if (!item.variantId) missingFields.push('variantId');
+    if (!item.colorVariantId) missingFields.push('colorVariantId');
+    if (!item.color?.trim()) missingFields.push('color');
+  }
+
+  return missingFields;
+};
+
+const assertVisualIndexMetadataComplete = (item: VisualGalleryItem) => {
+  const missingFields = getMissingVisualIndexMetadataFields(item);
+
+  if (!missingFields.length) {
+    return;
+  }
+
+  throw new VisualSearchServiceError(
+    `Visual index metadata missing required fields: ${missingFields.join(', ')}`,
+    422,
+    'VISUAL_INDEX_METADATA_INCOMPLETE',
+  );
+};
+
+const deactivateInvalidMetadataIndexItem = async (
+  item: VisualGalleryItem,
+  model: string,
+  modelVersion: string,
+  dryRun?: boolean,
+) => {
+  if (dryRun) {
+    return 0;
+  }
+
+  const result = await ProductVisualIndex.updateMany(
+    {
+      galleryImageId: item.galleryImageId,
+      embeddingModel: model,
+      embeddingVersion: modelVersion,
+      isActive: true,
+    },
+    {
+      $set: {
+        isActive: false,
+        lastSyncedAt: new Date(),
+      },
+    },
+  );
+
+  return result.modifiedCount;
+};
+
 // Lưu hoặc cập nhật một ảnh trong visual index, tránh tạo trùng khi chạy lại.
 const upsertVisualIndexItem = async (
   item: VisualGalleryItem,
@@ -1121,13 +1286,17 @@ const searchByText = async (
 // Tạo lại visual index từ ảnh sản phẩm hiện có trong catalog.
 const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => {
   const provider = getProvider();
+  const model = getModel();
+  const modelVersion = getModelVersion();
   const { products, galleryItems } = await getGalleryItems(options);
   let indexed = 0;
   let failed = 0;
+  let invalidMetadataDeactivated = 0;
   const failures: Array<{ galleryImageId: string; imageUrl: string; message: string }> = [];
 
   for (const item of galleryItems) {
     try {
+      assertVisualIndexMetadataComplete(item);
       const embeddingResult = await createEmbedding({
         imageUrl: item.imageUrl,
         imageHash: item.imageHash,
@@ -1135,6 +1304,18 @@ const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => 
       await upsertVisualIndexItem(item, embeddingResult, options.dryRun);
       indexed += 1;
     } catch (error) {
+      if (
+        error instanceof VisualSearchServiceError &&
+        error.errorCode === 'VISUAL_INDEX_METADATA_INCOMPLETE'
+      ) {
+        invalidMetadataDeactivated += await deactivateInvalidMetadataIndexItem(
+          item,
+          model,
+          modelVersion,
+          options.dryRun,
+        );
+      }
+
       failed += 1;
       failures.push({
         galleryImageId: item.galleryImageId,
@@ -1147,8 +1328,8 @@ const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => 
     ? 0
     : await deactivateStaleVisualIndexItems(
         galleryItems,
-        getModel(),
-        getModelVersion(),
+        model,
+        modelVersion,
         options.dryRun,
       );
 
@@ -1159,9 +1340,10 @@ const backfillVisualIndex = async (options: VisualIndexBackfillOptions = {}) => 
     imageCount: galleryItems.length,
     indexed,
     staleDeactivated,
+    invalidMetadataDeactivated,
     failed,
-    model: getModel(),
-    modelVersion: getModelVersion(),
+    model,
+    modelVersion,
     provider,
     failures,
   };

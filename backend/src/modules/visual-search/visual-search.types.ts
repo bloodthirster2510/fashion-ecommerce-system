@@ -53,6 +53,7 @@ export type VisualIndexBackfillResult = {
   imageCount: number;
   indexed: number;
   staleDeactivated: number;
+  invalidMetadataDeactivated: number;
   failed: number;
   model: string;
   modelVersion: string;

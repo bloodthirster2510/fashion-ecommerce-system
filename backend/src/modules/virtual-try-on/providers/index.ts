@@ -8,6 +8,20 @@ import type { VirtualTryOnProvider } from './virtual-try-on-provider';
 import { VirtualTryOnProviderError } from './virtual-try-on-provider';
 import type { VirtualTryOnVideoProvider } from './virtual-try-on-video-provider';
 import { VirtualTryOnVideoProviderError } from './virtual-try-on-video-provider';
+import {
+  getVideoWorkflowDefinition,
+  normalizeVideoWorkflowProfile,
+  type VirtualTryOnVideoWorkflowProfile,
+} from './virtual-try-on-video-workflows';
+
+export {
+  getVideoWorkflowDefinition,
+  getVideoWorkflowOptions,
+  inferVideoWorkflowProfile,
+  normalizeVideoWorkflowProfile,
+  type VirtualTryOnVideoWorkflowDefinition,
+  type VirtualTryOnVideoWorkflowProfile,
+} from './virtual-try-on-video-workflows';
 
 export {
   buildVirtualTryOnVideoPrompt,
@@ -58,14 +72,17 @@ export const createVirtualTryOnProvider = (providerName: string): VirtualTryOnPr
   }
 };
 
-export const createVirtualTryOnVideoProvider = (providerName: string): VirtualTryOnVideoProvider => {
+export const createVirtualTryOnVideoProvider = (
+  providerName: string,
+  workflowProfile: VirtualTryOnVideoWorkflowProfile = 'quality',
+): VirtualTryOnVideoProvider => {
   switch (normalizeProviderName(providerName)) {
     case 'mock':
       return createMockVirtualTryOnVideoProvider();
     case 'comfy-kling':
     case 'comfy_kling':
     case 'kling':
-      return createComfyVirtualTryOnVideoProvider();
+      return createComfyVirtualTryOnVideoProvider(workflowProfile);
     case 'disabled':
       throw new VirtualTryOnVideoProviderError(
         'Tính năng sinh video đang tắt',
@@ -124,11 +141,20 @@ const VIDEO_DURATION_DEFAULT_SECONDS = 5;
 export const getVirtualTryOnVideoConfiguration = (override?: {
   provider?: string;
   model?: string;
+  durationSeconds?: number;
+  resolution?: string;
+  aspectRatio?: string;
+  generateAudio?: boolean;
+  workflowProfile?: VirtualTryOnVideoWorkflowProfile;
 }) => {
   const provider = override?.provider?.trim()
     || process.env.VIRTUAL_TRY_ON_VIDEO_PROVIDER?.trim()
     || 'comfy_kling';
   const normalizedProvider = normalizeProviderName(provider);
+  const workflowProfile = normalizeVideoWorkflowProfile(
+    override?.workflowProfile ?? process.env.VIRTUAL_TRY_ON_VIDEO_WORKFLOW_PROFILE,
+  );
+  const workflowDefinition = getVideoWorkflowDefinition(workflowProfile);
   const issues: string[] = [];
 
   if (normalizedProvider === 'disabled') {
@@ -138,10 +164,10 @@ export const getVirtualTryOnVideoConfiguration = (override?: {
       issues.push('VIDEO_MOCK_OUTPUT_MISSING');
     }
   } else if (['comfy-kling', 'comfy_kling', 'kling'].includes(normalizedProvider)) {
-    if (!configuredFileExists(process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_PATH)) {
+    if (!configuredFileExists(workflowDefinition.workflowPath)) {
       issues.push('VIDEO_WORKFLOW_MISSING');
     }
-    if (!configuredFileExists(process.env.VIRTUAL_TRY_ON_VIDEO_COMFY_WORKFLOW_MAP_PATH)) {
+    if (!configuredFileExists(workflowDefinition.workflowMapPath)) {
       issues.push('VIDEO_WORKFLOW_MAP_MISSING');
     }
     if (!(process.env.VIRTUAL_TRY_ON_COMFY_BASE_URL || process.env.VIRTUAL_TRY_ON_SERVICE_URL)) {
@@ -151,13 +177,14 @@ export const getVirtualTryOnVideoConfiguration = (override?: {
     issues.push('VIDEO_PROVIDER_NOT_CONFIGURED');
   }
 
-  const configuredDurationValue = process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS?.trim();
-  const configuredDurationSeconds = configuredDurationValue
-    ? Number(configuredDurationValue)
-    : Number.NaN;
+  const configuredDurationSeconds = override?.durationSeconds
+    ?? Number(process.env.VIRTUAL_TRY_ON_VIDEO_DURATION_SECONDS);
+  const profileMaxDurationSeconds = workflowProfile === 'quality'
+    ? VIDEO_DURATION_MAX_SECONDS
+    : 10;
   const durationSeconds = Number.isFinite(configuredDurationSeconds)
     ? Math.min(
-        VIDEO_DURATION_MAX_SECONDS,
+        profileMaxDurationSeconds,
         Math.max(VIDEO_DURATION_MIN_SECONDS, Math.round(configuredDurationSeconds)),
       )
     : VIDEO_DURATION_DEFAULT_SECONDS;
@@ -165,13 +192,20 @@ export const getVirtualTryOnVideoConfiguration = (override?: {
     provider,
     ready: issues.length === 0,
     issues,
+    workflowProfile,
     model: override?.model?.trim()
-      || process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim()
-      || 'kling-v3-omni',
+      || (override?.workflowProfile ? undefined : process.env.VIRTUAL_TRY_ON_VIDEO_MODEL?.trim())
+      || workflowDefinition.model,
     durationSeconds,
     minDurationSeconds: VIDEO_DURATION_MIN_SECONDS,
-    maxDurationSeconds: VIDEO_DURATION_MAX_SECONDS,
-    resolution: process.env.VIRTUAL_TRY_ON_VIDEO_RESOLUTION?.trim() || '720p',
-    generateAudio: process.env.VIRTUAL_TRY_ON_VIDEO_GENERATE_AUDIO === 'true',
+    maxDurationSeconds: profileMaxDurationSeconds,
+    resolution: override?.resolution?.trim()
+      || process.env.VIRTUAL_TRY_ON_VIDEO_RESOLUTION?.trim()
+      || '720p',
+    aspectRatio: override?.aspectRatio?.trim()
+      || process.env.VIRTUAL_TRY_ON_VIDEO_ASPECT_RATIO?.trim()
+      || '9:16',
+    generateAudio: override?.generateAudio
+      ?? process.env.VIRTUAL_TRY_ON_VIDEO_GENERATE_AUDIO === 'true',
   };
 };

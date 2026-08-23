@@ -222,6 +222,11 @@ const getSystemCodeLabel = (
 
 type AdminTab = 'jobs' | 'promptViolations' | 'promptRules' | 'accountLocks' | 'settings'
 
+type IntegerSettingKey = {
+  [Key in keyof AdminVirtualTryOnSettingsConfiguration]-?:
+    AdminVirtualTryOnSettingsConfiguration[Key] extends number ? Key : never
+}[keyof AdminVirtualTryOnSettingsConfiguration]
+
 const initialPromptViolationFilters: AdminVirtualTryOnPromptViolationFilters = {
   page: 1,
   keyword: '',
@@ -328,8 +333,15 @@ const toSettingsConfiguration = (
   runtimeEnabled: settings.runtimeEnabled,
   imageProvider: settings.image.provider as AdminVirtualTryOnSettingsConfiguration['imageProvider'],
   imageModel: settings.image.model,
+  imageAspectRatio: settings.image.aspectRatio,
+  imageResolution: settings.image.resolution,
   videoProvider: settings.video.provider as AdminVirtualTryOnSettingsConfiguration['videoProvider'],
+  videoWorkflowProfile: settings.video.workflowProfile,
   videoModel: settings.video.model,
+  videoDurationSeconds: settings.video.durationSeconds,
+  videoResolution: settings.video.resolution,
+  videoAspectRatio: settings.video.aspectRatio,
+  videoGenerateAudio: settings.video.generateAudio,
   maxConcurrentJobsPerUser: settings.maxConcurrentJobsPerUser,
   maxVideoJobsPerUserPerDay: settings.maxVideoJobsPerUserPerDay,
   maxConcurrentVideoJobsPerUser: settings.maxConcurrentVideoJobsPerUser,
@@ -343,6 +355,8 @@ const modelDisplayNames: Record<string, string> = {
   'gemini-3-pro-image-preview': 'Gemini 3 Pro Image',
   'Nano Banana 2 (Gemini 3.1 Flash Image)': 'Nano Banana 2 · Gemini 3.1 Flash',
   'kling-v3-omni': 'Kling 3.0 Omni',
+  'kling-v2-5-turbo': 'Kling 2.5 Turbo',
+  'viduq2-turbo': 'Vidu Q2 Turbo',
   mock: 'Mô phỏng nội bộ',
 }
 
@@ -523,6 +537,16 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
 
   const updateFilter = (key: keyof AdminVirtualTryOnFilters, value: string | number) => {
     setFilters((current) => ({ ...current, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }))
+  }
+
+  const updateIntegerSetting = (key: IntegerSettingKey, input: HTMLInputElement) => {
+    const value = input.valueAsNumber
+    if (!Number.isInteger(value)) return
+
+    // A controlled number input can retain a raw value such as "010" when its
+    // numeric state is already 10. Normalize the DOM value as well as the state.
+    input.value = String(value)
+    setSettingsDraft((current) => current ? { ...current, [key]: value } : current)
   }
 
   const runAction = async (action: () => Promise<AdminVirtualTryOnJob>, successMessage: string) => {
@@ -838,7 +862,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       <header className="admin-vto-ops-bar">
         <div className="admin-vto-ops-copy">
           <span>Phối đồ ảo</span>
-          <strong>Vận hành và kiểm soát</strong>
+          <h1>Vận hành và kiểm soát</h1>
           <p>Theo dõi lượt tạo, kết quả, nội dung và giới hạn sử dụng.</p>
         </div>
         <div className="admin-vto-ops-actions">
@@ -1076,10 +1100,21 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   <div><dt>Trạng thái</dt><dd>{settings ? (settings.image.enabled ? 'Đang bật' : 'Đang tắt') : '-'}</dd></div>
                   <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(settings?.image.provider)}</dd></div>
                   <div><dt>Mô hình AI</dt><dd>{getModelDisplayName(settings?.image.model)}</dd></div>
-                  <div><dt>Đầu ra ảnh</dt><dd>{settings ? `${settings.image.outputCount} ảnh · ${settings.image.aspectRatio} · ${settings.image.resolution}` : '-'}</dd></div>
+                  <div>
+                    <dt>Đầu ra</dt>
+                    <dd className="admin-vto-config-chips">
+                      {settings ? (
+                        <>
+                          <span>{settings.image.outputCount} ảnh</span>
+                          <span>{settings.image.aspectRatio}</span>
+                          <span>{settings.image.resolution}</span>
+                        </>
+                      ) : '-'}
+                    </dd>
+                  </div>
                   <div><dt>Số món tối đa</dt><dd>{settings?.maxSelectedItems ?? '-'}</dd></div>
-                  <div><dt>Lượt đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
-                  <div><dt>Ảnh nguồn tối đa</dt><dd>{settings ? `${settings.sourceImageMaxMb} MB` : '-'}</dd></div>
+                  <div><dt>Đồng thời/khách</dt><dd>{settings?.maxConcurrentJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Ảnh nguồn</dt><dd>{settings ? `${settings.sourceImageMaxMb} MB` : '-'}</dd></div>
                 </dl>
               </section>
 
@@ -1101,15 +1136,21 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                   <div><dt>Dịch vụ AI</dt><dd>{getProviderDisplayName(settings?.video.provider)}</dd></div>
                   <div><dt>Mô hình AI</dt><dd>{getModelDisplayName(settings?.video.model)}</dd></div>
                   <div>
-                    <dt>Đầu ra video</dt>
-                    <dd>
-                      {settings
-                        ? `Mặc định ${settings.video.durationSeconds} giây · ${settings.video.minDurationSeconds}–${settings.video.maxDurationSeconds} giây · ${settings.video.resolution}`
-                        : '-'}
+                    <dt>Đầu ra</dt>
+                    <dd className="admin-vto-config-chips">
+                      {settings ? (
+                        <>
+                          <span>{settings.video.durationSeconds}s</span>
+                          <span>{settings.video.minDurationSeconds}-{settings.video.maxDurationSeconds}s</span>
+                          <span>{settings.video.resolution}</span>
+                          <span>{settings.video.aspectRatio}</span>
+                          <span>{settings.video.generateAudio ? 'Có âm' : 'Tắt âm'}</span>
+                        </>
+                      ) : '-'}
                     </dd>
                   </div>
-                  <div><dt>Video mỗi khách/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
-                  <div><dt>Video đồng thời mỗi khách</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
+                  <div><dt>Video/ngày</dt><dd>{settings?.maxVideoJobsPerUserPerDay ?? '-'}</dd></div>
+                  <div><dt>Đồng thời/khách</dt><dd>{settings?.maxConcurrentVideoJobsPerUser ?? '-'}</dd></div>
                 </dl>
               </section>
 
@@ -1231,6 +1272,34 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           ? { ...current, imageModel }
                           : current)}
                       />
+                      <label>
+                        <span>Tỷ lệ ảnh</span>
+                        <select
+                          value={settingsDraft.imageAspectRatio}
+                          disabled={settingsDraft.imageProvider !== 'comfy'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, imageAspectRatio: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.imageAspectRatios.map((aspectRatio) => (
+                            <option key={aspectRatio} value={aspectRatio}>{aspectRatio}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Độ phân giải ảnh</span>
+                        <select
+                          value={settingsDraft.imageResolution}
+                          disabled={settingsDraft.imageProvider !== 'comfy'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, imageResolution: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.imageResolutions.map((resolution) => (
+                            <option key={resolution} value={resolution}>{resolution}</option>
+                          ))}
+                        </select>
+                      </label>
                     </fieldset>
 
                     <fieldset>
@@ -1242,13 +1311,15 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           onChange={(event) => setSettingsDraft((current) => {
                             if (!current) return current
                             const videoProvider = event.target.value as AdminVirtualTryOnSettingsConfiguration['videoProvider']
-                            const suggestedModel = settings.modelOptions.videoModels.find((model) => model !== 'mock') || 'kling-v3-omni'
+                            const selectedWorkflow = settings.modelOptions.videoWorkflowProfiles.find(
+                              (workflow) => workflow.id === current.videoWorkflowProfile,
+                            )
                             return {
                               ...current,
                               videoProvider,
                               videoModel: videoProvider === 'mock'
                                 ? 'mock'
-                                : current.videoModel === 'mock' ? suggestedModel : current.videoModel,
+                                : selectedWorkflow?.model || 'kling-v3-omni',
                             }
                           })}
                         >
@@ -1257,19 +1328,99 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           ))}
                         </select>
                       </label>
-                      <ModelPicker
-                        id="vto-video-model"
-                        value={settingsDraft.videoModel}
-                        options={settings.modelOptions.videoModels}
-                        enabled={settingsDraft.videoProvider === 'comfy_kling'}
-                        inactiveLabel={settingsDraft.videoProvider === 'mock' ? 'Mô phỏng nội bộ' : 'Không áp dụng'}
-                        onChange={(videoModel) => setSettingsDraft((current) => current
-                          ? { ...current, videoModel }
-                          : current)}
-                      />
+                      <label>
+                        <span>Workflow video</span>
+                        <select
+                          value={settingsDraft.videoWorkflowProfile}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          onChange={(event) => setSettingsDraft((current) => {
+                            if (!current) return current
+                            const workflowProfile = event.target.value as AdminVirtualTryOnSettingsConfiguration['videoWorkflowProfile']
+                            const workflow = settings.modelOptions.videoWorkflowProfiles.find(
+                              (option) => option.id === workflowProfile,
+                            )
+                            if (!workflow) return current
+                            return {
+                              ...current,
+                              videoWorkflowProfile: workflowProfile,
+                              videoModel: workflow.model,
+                              videoDurationSeconds: workflow.defaults.durationSeconds,
+                              videoResolution: workflow.defaults.resolution,
+                              videoAspectRatio: workflow.defaults.aspectRatio,
+                              videoGenerateAudio: workflow.defaults.generateAudio,
+                            }
+                          })}
+                        >
+                          {settings.modelOptions.videoWorkflowProfiles.map((workflow) => (
+                            <option key={workflow.id} value={workflow.id}>{workflow.label}</option>
+                          ))}
+                        </select>
+                        <small>{settings.modelOptions.videoWorkflowProfiles.find(
+                          (workflow) => workflow.id === settingsDraft.videoWorkflowProfile,
+                        )?.description}</small>
+                      </label>
+                      <label>
+                        <span>Mô hình AI</span>
+                        <input
+                          value={getModelDisplayName(settingsDraft.videoModel)}
+                          disabled
+                          readOnly
+                        />
+                      </label>
+                      <label>
+                        <span>Thời lượng mặc định</span>
+                        <input
+                          type="number"
+                          min={settings.video.minDurationSeconds}
+                          max={settingsDraft.videoWorkflowProfile === 'quality' ? 12 : 10}
+                          required
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling'}
+                          value={settingsDraft.videoDurationSeconds}
+                          onChange={(event) => updateIntegerSetting('videoDurationSeconds', event.currentTarget)}
+                        />
+                      </label>
+                      <label>
+                        <span>Độ phân giải video</span>
+                        <select
+                          value={settingsDraft.videoResolution}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile === 'balanced'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoResolution: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.videoResolutions.map((resolution) => (
+                            <option key={resolution} value={resolution}>{resolution}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Tỷ lệ video</span>
+                        <select
+                          value={settingsDraft.videoAspectRatio}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile === 'fast'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoAspectRatio: event.target.value }
+                            : current)}
+                        >
+                          {settings.modelOptions.videoAspectRatios.map((aspectRatio) => (
+                            <option key={aspectRatio} value={aspectRatio}>{aspectRatio}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="admin-vto-inline-check">
+                        <input
+                          type="checkbox"
+                          checked={settingsDraft.videoGenerateAudio}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile !== 'quality'}
+                          onChange={(event) => setSettingsDraft((current) => current
+                            ? { ...current, videoGenerateAudio: event.target.checked }
+                            : current)}
+                        />
+                        <span>Tạo âm thanh</span>
+                      </label>
                     </fieldset>
                   </div>
-                  <p>Dịch vụ AI được giới hạn theo các tích hợp hiện có. Tên mô hình phải tồn tại trong quy trình ComfyUI tương ứng.</p>
+                  <p>Đổi quy trình chỉ áp dụng cho yêu cầu mới. Các lượt đang chạy tiếp tục dùng quy trình đã được ghi nhận khi tạo.</p>
                 </section>
                 <div className="admin-vto-settings-fields">
                   <label>
@@ -1280,9 +1431,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="10"
                       required
                       value={settingsDraft.maxConcurrentJobsPerUser}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, maxConcurrentJobsPerUser: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('maxConcurrentJobsPerUser', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1293,9 +1442,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="50"
                       required
                       value={settingsDraft.maxVideoJobsPerUserPerDay}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, maxVideoJobsPerUserPerDay: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('maxVideoJobsPerUserPerDay', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1306,9 +1453,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="5"
                       required
                       value={settingsDraft.maxConcurrentVideoJobsPerUser}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, maxConcurrentVideoJobsPerUser: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('maxConcurrentVideoJobsPerUser', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1319,9 +1464,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="500"
                       required
                       value={settingsDraft.promptMaxLength}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, promptMaxLength: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('promptMaxLength', event.currentTarget)}
                     />
                   </label>
                   <label>
@@ -1332,9 +1475,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       max="20"
                       required
                       value={settingsDraft.promptViolationLimitPerDay}
-                      onChange={(event) => setSettingsDraft((current) => current
-                        ? { ...current, promptViolationLimitPerDay: Number(event.target.value) }
-                        : current)}
+                      onChange={(event) => updateIntegerSetting('promptViolationLimitPerDay', event.currentTarget)}
                     />
                   </label>
                 </div>

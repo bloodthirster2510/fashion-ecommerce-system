@@ -417,7 +417,6 @@ export function ProductCreateDialog({
                 <ProductImageFilePicker
                   className={fieldErrors.product_image ? 'is-invalid' : ''}
                   buttonLabel={product ? 'Chọn ảnh mới' : 'Chọn ảnh'}
-                  currentUrl={form.product_image}
                   file={productImageFile}
                   onChange={handleProductImageFileChange}
                 />
@@ -724,7 +723,6 @@ function VariantEditor({
                 <ProductImageFilePicker
                   className={colorFieldError(colorIndex, 'image') ? 'is-invalid' : ''}
                   buttonLabel={color._id ? 'Chọn ảnh mới' : 'Chọn ảnh'}
-                  currentUrl={color.image}
                   file={colorImageFiles[createColorImageKey(index, colorIndex)] ?? null}
                   onChange={(file, input) =>
                     handleColorImageFileChange(
@@ -774,20 +772,17 @@ function VariantEditor({
 
 function ProductImageFilePicker({
   buttonLabel,
-  currentUrl,
   file,
   className = '',
   onChange,
 }: {
   buttonLabel: string
-  currentUrl: string
   file: File | null
   className?: string
   onChange: (file: File | null, input: HTMLInputElement) => void
 }) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const normalizedUrl = currentUrl.trim()
 
   return (
     <div className={`admin-product-image-file-picker${className ? ` ${className}` : ''}`}>
@@ -799,9 +794,9 @@ function ProductImageFilePicker({
         onChange={(event) => onChange(event.target.files?.[0] ?? null, event.currentTarget)}
       />
       <label htmlFor={inputId}>{buttonLabel}</label>
-      {file || normalizedUrl ? (
+      {file ? (
         <div>
-          <span>{file ? `Đã chọn ảnh mới: ${file.name}` : 'Đang dùng ảnh hiện tại'}</span>
+          <span>Đã chọn ảnh mới: {file.name}</span>
         </div>
       ) : null}
       {file ? (

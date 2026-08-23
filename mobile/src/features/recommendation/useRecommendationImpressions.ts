@@ -1,6 +1,6 @@
 import React from 'react';
-import { Dimensions, type View, type ViewToken } from 'react-native';
-import { getUnsentVisibleRecommendationItems } from './recommendationUtils';
+import { Dimensions, type View } from 'react-native';
+import { getVisibleRatioInViewport } from './recommendationUtils';
 
 type TrackableRecommendationItem = {
   product: {
@@ -20,15 +20,22 @@ export const useRecommendationImpressions = <T extends TrackableRecommendationIt
   onImpression,
 }: UseRecommendationImpressionsInput<T>) => {
   const sectionRef = React.useRef<View>(null);
+  const itemRefsRef = React.useRef(new Map<string, View>());
   const sentProductIdsRef = React.useRef(new Set<string>());
-  const visibleProductIdsRef = React.useRef(new Set<string>());
   const latestInputRef = React.useRef({ requestId, items, onImpression });
   latestInputRef.current = { requestId, items, onImpression };
 
   React.useEffect(() => {
     sentProductIdsRef.current.clear();
-    visibleProductIdsRef.current.clear();
   }, [requestId]);
+
+  const setRecommendationItemRef = React.useCallback((productId: string, view: View | null) => {
+    if (view) {
+      itemRefsRef.current.set(productId, view);
+    } else {
+      itemRefsRef.current.delete(productId);
+    }
+  }, []);
 
   const checkVisibility = React.useCallback(() => {
     const current = latestInputRef.current;
@@ -44,32 +51,24 @@ export const useRecommendationImpressions = <T extends TrackableRecommendationIt
         return;
       }
 
-      const trackableItems = getUnsentVisibleRecommendationItems(
-        current.items,
-        visibleProductIdsRef.current,
-        sentProductIdsRef.current,
-      );
-
-      trackableItems.forEach((item) => {
+      current.items.forEach((item) => {
         const productId = item.product._id;
-        sentProductIdsRef.current.add(productId);
-        current.onImpression(item);
+        const itemView = itemRefsRef.current.get(productId);
+        if (!itemView || sentProductIdsRef.current.has(productId)) {
+          return;
+        }
+
+        itemView.measureInWindow((_itemX, itemY, _itemWidth, itemHeight) => {
+          const visibleRatio = getVisibleRatioInViewport(itemY, itemHeight, viewportHeight);
+
+          if (visibleRatio >= 0.6 && !sentProductIdsRef.current.has(productId)) {
+            sentProductIdsRef.current.add(productId);
+            current.onImpression(item);
+          }
+        });
       });
     });
   }, []);
-
-  const handleViewableItemsChanged = React.useCallback(({
-    viewableItems,
-  }: {
-    viewableItems: ViewToken<T>[];
-  }) => {
-    visibleProductIdsRef.current = new Set(
-      viewableItems
-        .filter((token) => token.isViewable)
-        .map((token) => token.item.product._id),
-    );
-    checkVisibility();
-  }, [checkVisibility]);
 
   React.useEffect(() => {
     const frame = requestAnimationFrame(checkVisibility);
@@ -78,7 +77,7 @@ export const useRecommendationImpressions = <T extends TrackableRecommendationIt
 
   return {
     recommendationSectionRef: sectionRef,
+    setRecommendationItemRef,
     checkRecommendationVisibility: checkVisibility,
-    handleRecommendationViewableItemsChanged: handleViewableItemsChanged,
   };
 };

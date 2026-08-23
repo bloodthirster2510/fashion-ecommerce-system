@@ -8,7 +8,6 @@ import {
   HomeOutlined,
   QuestionCircleOutlined,
   ShoppingCartOutlined,
-  SkinOutlined,
   StarOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -25,7 +24,6 @@ const menuItems = [
   { key: 'orders', icon: <HomeOutlined />, label: 'Đơn hàng của tôi' },
   { key: 'reviews', icon: <StarOutlined />, label: 'Đánh giá của tôi' },
   { key: 'favorites', icon: <HeartOutlined />, label: 'Sản phẩm yêu thích' },
-  { key: 'styling', icon: <SkinOutlined />, label: 'Phòng phối đồ ảo' },
   { key: 'ranking', icon: <StarOutlined />, label: 'Hạng thành viên' },
   { key: 'coupons', icon: <GiftOutlined />, label: 'Voucher & Ưu đãi' },
   { key: 'payment', icon: <CreditCardOutlined />, label: 'Phương thức thanh toán' },

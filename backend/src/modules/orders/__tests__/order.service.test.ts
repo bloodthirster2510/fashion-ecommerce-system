@@ -14,6 +14,7 @@ import { recommendationService } from '../../recommendations/recommendation.serv
 import { calculateLoyaltyPointsForOrder, orderService } from '../order.service';
 import { emitOrderUpdate } from '../../realtime/order.gateway';
 import { sendPaidOrderInvoiceEmailBestEffort } from '../invoice-email.service';
+import { recordOrderStatusNotification } from '../../notifications/customer-notification.service';
 
 jest.mock('../../../database/models', () => ({
   Order: {
@@ -109,6 +110,7 @@ jest.mock('../../recommendations/recommendation.service', () => ({
 }));
 
 jest.mock('../../notifications/push-notification.service', () => ({
+  sendCustomerPush: jest.fn().mockResolvedValue({ sent: 0 }),
   sendShippingUpdatePush: jest.fn().mockResolvedValue({ sent: 0 }),
 }));
 
@@ -142,6 +144,9 @@ const mockedLoyaltyRuleService = loyaltyRuleService as jest.Mocked<typeof loyalt
 const mockedInteractionService = interactionService as jest.Mocked<typeof interactionService>;
 const mockedRecommendationService = recommendationService as jest.Mocked<typeof recommendationService>;
 const mockedEmitOrderUpdate = emitOrderUpdate as jest.MockedFunction<typeof emitOrderUpdate>;
+const mockedRecordOrderStatusNotification = recordOrderStatusNotification as jest.MockedFunction<
+  typeof recordOrderStatusNotification
+>;
 
 type MockSession = {
   withTransaction: jest.Mock;
@@ -1196,6 +1201,10 @@ describe('orderService', () => {
       reviewReason: null,
     });
     expect(order.save).toHaveBeenCalled();
+    expect(mockedRecordOrderStatusNotification).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: orderId.toString(),
+      status: 'return_requested',
+    }));
     expect(result).toBe(order);
   });
 
@@ -1262,6 +1271,10 @@ describe('orderService', () => {
       reviewReason: 'Eligible return',
     });
     expect(order.save).toHaveBeenCalled();
+    expect(mockedRecordOrderStatusNotification).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: orderId.toString(),
+      status: 'return_approved',
+    }));
     expect(result).toBe(order);
   });
 
@@ -1399,6 +1412,10 @@ describe('orderService', () => {
       reviewReason: 'Product was already used',
     });
     expect(order.save).toHaveBeenCalled();
+    expect(mockedRecordOrderStatusNotification).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: orderId.toString(),
+      status: 'return_rejected',
+    }));
     expect(result).toBe(order);
   });
 
@@ -2674,6 +2691,10 @@ describe('orderService', () => {
       userId,
       {},
     );
+    expect(mockedRecordOrderStatusNotification).toHaveBeenCalledWith(expect.objectContaining({
+      orderId: orderId.toString(),
+      status: 'payment_expired',
+    }));
     expect(result).toBe(cancelledOrder);
   });
 });

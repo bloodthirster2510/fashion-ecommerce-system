@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Empty, Progress, Skeleton } from 'antd'
-import { TrophyOutlined } from '@ant-design/icons'
+import { Alert, Button, Empty, Progress } from 'antd'
 import { profileService, type UserMembership } from '../profile.service'
 import { formatPoint, getTierBenefit, getTierCondition } from '../profile.utils'
+import { AccountSectionSkeleton } from './AccountSectionSkeleton'
 
 const openLoyaltySupport = () => {
   window.history.pushState(null, '', '/account/support/new?category=loyalty&source=loyalty')
@@ -11,7 +11,7 @@ const openLoyaltySupport = () => {
 
 export function MembershipSection() {
   const [membership, setMembership] = useState<UserMembership | null>(null)
-  const [isLoadingMembership, setIsLoadingMembership] = useState(false)
+  const [isLoadingMembership, setIsLoadingMembership] = useState(true)
   const [membershipError, setMembershipError] = useState('')
 
   useEffect(() => {
@@ -43,8 +43,9 @@ export function MembershipSection() {
 
       {membershipError && <Alert type="error" message={membershipError} showIcon />}
 
-      <Skeleton active loading={isLoadingMembership} paragraph={{ rows: 8 }}>
-        {!membership ? (
+      {isLoadingMembership ? (
+        <AccountSectionSkeleton variant="ranking" />
+      ) : !membership ? (
           <Empty description="Chưa có dữ liệu hạng thành viên." />
         ) : (
           <>
@@ -65,7 +66,6 @@ export function MembershipSection() {
                     : 'Bạn đang ở hạng cao nhất'}
                 </p>
               </div>
-              <TrophyOutlined className="membership-rank-icon" />
               <Progress percent={membership.progressPercent} showInfo={false} strokeColor="#f6eddb" trailColor="rgba(246,237,219,0.24)" />
             </section>
 
@@ -99,7 +99,6 @@ export function MembershipSection() {
             />
           </>
         )}
-      </Skeleton>
       <Button onClick={openLoyaltySupport}>Cần hỗ trợ về điểm hoặc hạng?</Button>
     </section>
   )

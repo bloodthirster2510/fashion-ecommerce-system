@@ -23,16 +23,18 @@ export const getRecommendationReasonLabel = (item: RecommendationItem) => {
   return reasonCode ? reasonLabels[reasonCode] : 'Gợi ý phù hợp';
 };
 
-type TrackableRecommendationItem = {
-  product: {
-    _id: string;
-  };
-};
+export const getVisibleRatioInViewport = (
+  itemY: number,
+  itemHeight: number,
+  viewportHeight: number,
+) => {
+  if (itemHeight <= 0 || viewportHeight <= 0) {
+    return 0;
+  }
 
-export const getUnsentVisibleRecommendationItems = <T extends TrackableRecommendationItem>(
-  items: T[],
-  visibleProductIds: Set<string>,
-  sentProductIds: Set<string>,
-) => items.filter((item) => (
-  visibleProductIds.has(item.product._id) && !sentProductIds.has(item.product._id)
-));
+  const visibleHeight = Math.max(
+    0,
+    Math.min(itemY + itemHeight, viewportHeight) - Math.max(itemY, 0),
+  );
+  return visibleHeight / itemHeight;
+};

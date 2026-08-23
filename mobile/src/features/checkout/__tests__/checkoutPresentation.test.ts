@@ -1,5 +1,6 @@
 import {
   canSubmitCheckout,
+  getCouponCodesFromRouteParams,
   getCheckoutErrorPresentation,
   getCheckoutValidationIssue,
   getShippingStatusText,
@@ -16,6 +17,16 @@ describe('checkout presentation helpers', () => {
     isSubmitting: false,
     paymentMethod: 'COD',
   };
+
+  it('consumes explicit voucher route results, including an empty selection', () => {
+    expect(getCouponCodesFromRouteParams(undefined)).toBeNull();
+    expect(getCouponCodesFromRouteParams({})).toBeNull();
+    expect(getCouponCodesFromRouteParams({ couponCodes: [] })).toEqual([]);
+    expect(getCouponCodesFromRouteParams({ couponCode: ' save10 ' })).toEqual(['SAVE10']);
+    expect(getCouponCodesFromRouteParams({
+      couponCodes: [' save10 ', 'FREESHIP', 'SAVE10'],
+    })).toEqual(['SAVE10', 'FREESHIP']);
+  });
 
   it('prioritizes a missing address before stock validation', () => {
     expect(

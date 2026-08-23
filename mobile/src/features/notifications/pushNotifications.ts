@@ -105,7 +105,7 @@ export const resolvePushNotificationConfig = (
       status: 'disabled',
       remoteEnabled: false,
       projectId,
-      message: 'Thông báo đẩy đang được tắt cho môi trường này.',
+      message: 'Thông báo trên thiết bị đang tắt ở phiên bản này.',
     };
   }
   if (platform !== 'ios' && platform !== 'android') {
@@ -113,7 +113,7 @@ export const resolvePushNotificationConfig = (
       status: 'unsupported',
       remoteEnabled: false,
       projectId,
-      message: 'Thông báo đẩy chỉ hỗ trợ trên ứng dụng iOS và Android.',
+      message: 'Tính năng này chỉ dùng được trên điện thoại iOS và Android.',
     };
   }
   if (isExpoGo) {
@@ -121,7 +121,7 @@ export const resolvePushNotificationConfig = (
       status: 'expo_go',
       remoteEnabled: false,
       projectId,
-      message: 'Thông báo đẩy cần development build, không hỗ trợ trên Expo Go.',
+      message: 'Phiên bản chạy thử này chưa hỗ trợ thông báo trên thiết bị.',
     };
   }
   if (!projectId) {
@@ -129,7 +129,7 @@ export const resolvePushNotificationConfig = (
       status: 'missing_project_id',
       remoteEnabled: false,
       projectId: '',
-      message: 'Ứng dụng chưa được cấu hình EAS Project ID.',
+      message: 'Phiên bản ứng dụng này chưa được cấu hình để nhận thông báo.',
     };
   }
 
@@ -137,7 +137,7 @@ export const resolvePushNotificationConfig = (
     status: 'ready',
     remoteEnabled: true,
     projectId,
-    message: 'Thiết bị có thể đăng ký nhận thông báo đẩy.',
+    message: 'Thiết bị có thể nhận thông báo.',
   };
 };
 
@@ -198,7 +198,7 @@ export const resolvePushNavigationTarget = (
     return { screen: 'SupportTicketDetail', params: { ticketId: data.ticketId } };
   }
   if (
-    (data?.type === 'payment_deadline' || data?.type === 'shipping_update')
+    (data?.type === 'payment_deadline' || data?.type === 'shipping_update' || data?.type === 'order_update')
     && typeof data.orderId === 'string'
   ) {
     return { screen: 'OrderDetail', params: { orderId: data.orderId } };

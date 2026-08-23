@@ -168,7 +168,7 @@ const updateCategory = async (req: Request, res: Response) => {
     const updateData: UpdateCategoryInput = {};
 
     if (input.name !== undefined) updateData.name = input.name;
-    if (input.parent_id !== undefined) updateData.parent_id = input.parent_id;
+    if (input.parent_id !== undefined) updateData.parent_id = parseString(input.parent_id) ?? null;
     if (input.level !== undefined) updateData.level = Number(input.level);
     if (input.gender !== undefined) updateData.gender = input.gender;
     if (input.image !== undefined) updateData.image = input.image;

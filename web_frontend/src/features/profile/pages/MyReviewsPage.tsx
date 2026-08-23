@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DeleteOutlined, EditOutlined, FormOutlined, StarOutlined } from '@ant-design/icons'
-import { Button, Empty, Image, Input, Modal, Rate, Select, Spin, message } from 'antd'
+import { Alert, Button, Empty, Image, Input, Modal, Rate, Select, message } from 'antd'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { useAppSelector } from '../../../app/hooks'
 import { formatDate } from '../../../utils/formatDate'
 import { ProfileSidebar } from '../components/ProfileSidebar'
+import { AccountSectionSkeleton } from '../components/AccountSectionSkeleton'
 import { reviewService } from '../../catalog/reviews/review.service'
 import type { EligibleReviewItem, MyReview } from '../../catalog/reviews/review.types'
 import '../profile.css'
@@ -97,15 +98,25 @@ export function MyReviewsPage() {
           <ProfileSidebar name={user?.name} avatarImage={user?.avatarImage} role={user?.role} selectedKey="reviews" />
           <section className="account-content account-reviews-content">
             <h1>Đánh giá của tôi</h1>
-            <Spin spinning={loading}>
-              <div className="my-review-section">
+            <Alert
+              className="my-review-deadline-alert"
+              type="info"
+              showIcon
+              message="Bạn có thể sửa hoặc xóa đánh giá trong vòng 30 ngày kể từ khi gửi."
+              description="Thời hạn cụ thể của từng đánh giá được hiển thị bên dưới."
+            />
+            {loading ? (
+              <AccountSectionSkeleton variant="list" />
+            ) : (
+              <>
+                <div className="my-review-section">
                 <h2><FormOutlined /> Có thể đánh giá</h2>
                 {eligible.length ? eligible.map((item) => (
                   <article className="my-review-card my-review-card--eligible" key={item.orderItemId}>
                     <img src={item.product.image} alt="" />
                     <div className="my-review-main">
                       <strong>{item.product.name}</strong>
-                      <span>{item.orderCode} · {item.variant.color} · Size {item.variant.size}</span>
+                      <span>Đơn hàng: {item.orderCode} · {item.variant.color} · Size {item.variant.size}</span>
                     </div>
                     <Button
                       className="my-review-write-button"
@@ -115,9 +126,9 @@ export function MyReviewsPage() {
                     </Button>
                   </article>
                 )) : <Empty description="Không có sản phẩm đang chờ đánh giá" />}
-              </div>
+                </div>
 
-              <div className="my-review-section">
+                <div className="my-review-section">
                 <h2><StarOutlined /> Đã đánh giá</h2>
                 {reviews.length ? reviews.map((review) => (
                   <article className="my-review-card my-review-card--done" key={review._id}>
@@ -157,8 +168,9 @@ export function MyReviewsPage() {
                     </div>
                   </article>
                 )) : <Empty description="Bạn chưa có đánh giá" />}
-              </div>
-            </Spin>
+                </div>
+              </>
+            )}
           </section>
         </div>
       </main>

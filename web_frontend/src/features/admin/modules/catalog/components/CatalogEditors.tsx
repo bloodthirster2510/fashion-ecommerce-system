@@ -326,7 +326,19 @@ function DeleteIcon() {
 }
 
 export function LoadingRow({ colSpan }: { colSpan: number }) {
-  return <tr><td colSpan={colSpan}><div className="admin-table-loading">Đang tải dữ liệu...</div></td></tr>
+  return (
+    <>
+      {[1, 2, 3, 4].map((row) => (
+        <tr className="admin-catalog-skeleton-row" key={row} aria-hidden="true">
+          {Array.from({ length: colSpan }, (_, column) => (
+            <td key={column}>
+              <span className={`admin-catalog-skeleton-line ${column === 0 ? 'is-image' : ''} ${column === 1 ? 'is-wide' : ''}`} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  )
 }
 
 export function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
@@ -354,6 +366,7 @@ export function CategoryEditor({
 }) {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [localError, setLocalError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<'name' | 'image' | 'description', string>>>({})
   const [form, setForm] = useState<CategoryInput>(() =>
     item
       ? {
@@ -396,21 +409,31 @@ export function CategoryEditor({
     const validationError = getImageFileValidationError(file)
     if (validationError) {
       setImageFile(null)
-      setLocalError(validationError)
+      setFieldErrors((current) => ({ ...current, image: validationError }))
       input.value = ''
       return
     }
 
     setLocalError('')
+    setFieldErrors((current) => ({ ...current, image: '' }))
     setImageFile(file)
   }
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
-    if (!form.image.trim() && !imageFile) {
-      setLocalError('Vui lòng chọn ảnh danh mục.')
-      return
-    }
+    const nextFieldErrors: Partial<Record<'name' | 'image' | 'description', string>> = {}
+    const trimmedName = form.name.trim()
+    const trimmedDescription = form.description.trim()
+
+    if (!trimmedName) nextFieldErrors.name = 'Vui lòng nhập tên danh mục.'
+    else if (trimmedName.length < 2) nextFieldErrors.name = 'Tên danh mục phải có ít nhất 2 ký tự.'
+    if (!form.image.trim() && !imageFile) nextFieldErrors.image = 'Vui lòng chọn ảnh danh mục.'
+    if (!trimmedDescription) nextFieldErrors.description = 'Vui lòng nhập mô tả danh mục.'
+    else if (trimmedDescription.length < 5) nextFieldErrors.description = 'Mô tả phải có ít nhất 5 ký tự.'
+
+    setFieldErrors(nextFieldErrors)
+    if (Object.keys(nextFieldErrors).length > 0) return
+
     if (form.parent_id && blockedParentIds.has(form.parent_id)) {
       setLocalError('Không thể chọn chính danh mục này hoặc danh mục con làm danh mục cha.')
       return
@@ -438,7 +461,18 @@ export function CategoryEditor({
         ) : null}
         <label>
           <span>Tên danh mục</span>
-          <input required minLength={2} maxLength={80} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+          <input
+            minLength={2}
+            maxLength={80}
+            value={form.name}
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? 'category-name-error' : undefined}
+            onChange={(event) => {
+              setForm({ ...form, name: event.target.value })
+              setFieldErrors((current) => ({ ...current, name: '' }))
+            }}
+          />
+          {fieldErrors.name ? <small id="category-name-error" className="admin-field-error">{fieldErrors.name}</small> : null}
         </label>
         <div className="admin-catalog-form-grid">
           <label>
@@ -467,15 +501,27 @@ export function CategoryEditor({
           <span>Ảnh danh mục</span>
           <ImageFilePicker
             buttonLabel="Chọn ảnh mới"
-            currentUrl={form.image}
             file={imageFile}
             onChange={handleImageFileChange}
           />
           <ImagePreview file={imageFile} url={form.image} alt="Ảnh danh mục" />
+          {fieldErrors.image ? <small id="category-image-error" className="admin-field-error">{fieldErrors.image}</small> : null}
         </label>
         <label>
           <span>Mô tả</span>
-          <textarea required minLength={5} maxLength={1000} rows={4} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+          <textarea
+            minLength={5}
+            maxLength={1000}
+            rows={4}
+            value={form.description}
+            aria-invalid={Boolean(fieldErrors.description)}
+            aria-describedby={fieldErrors.description ? 'category-description-error' : undefined}
+            onChange={(event) => {
+              setForm({ ...form, description: event.target.value })
+              setFieldErrors((current) => ({ ...current, description: '' }))
+            }}
+          />
+          {fieldErrors.description ? <small id="category-description-error" className="admin-field-error">{fieldErrors.description}</small> : null}
         </label>
         <label className="admin-catalog-checkbox">
           <input
@@ -914,7 +960,6 @@ export function SizeTemplateManager({
             <span>Ảnh hướng dẫn chọn size</span>
             <ImageFilePicker
               buttonLabel="Chọn ảnh"
-              currentUrl={sizeGuideImageUrl}
               file={sizeGuideImageFile}
               onChange={handleSizeGuideImageFileChange}
             />
@@ -1435,7 +1480,6 @@ export function BrandEditor({
           <span>Logo thương hiệu</span>
           <ImageFilePicker
             buttonLabel="Chọn logo mới"
-            currentUrl={form.image}
             file={imageFile}
             onChange={handleImageFileChange}
           />
@@ -1557,18 +1601,15 @@ function ImagePreview({
 
 function ImageFilePicker({
   buttonLabel,
-  currentUrl,
   file,
   onChange,
 }: {
   buttonLabel: string
-  currentUrl: string
   file: File | null
   onChange: (file: File | null, input: HTMLInputElement) => void
 }) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const normalizedUrl = currentUrl.trim()
 
   return (
     <div className="admin-image-file-picker">
@@ -1580,9 +1621,9 @@ function ImageFilePicker({
         onChange={(event) => onChange(event.target.files?.[0] ?? null, event.currentTarget)}
       />
       <label className="admin-image-file-button" htmlFor={inputId}>{buttonLabel}</label>
-      {file || normalizedUrl ? (
+      {file ? (
         <div className="admin-image-file-current">
-          <span>{file ? `Đã chọn ảnh mới: ${file.name}` : 'Đang dùng ảnh hiện tại'}</span>
+          <span>Đã chọn ảnh mới: {file.name}</span>
         </div>
       ) : null}
       {file ? (

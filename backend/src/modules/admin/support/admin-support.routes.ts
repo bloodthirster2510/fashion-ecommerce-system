@@ -38,7 +38,9 @@ router.patch('/tickets/:id', requirePermission('support.reply'), updateTicket);
 router.patch('/tickets/:id/read', requirePermission('support.reply'), markTicketRead);
 
 router.get('/analytics', requirePermission('support.manage'), getAnalytics);
-router.get('/canned-responses', requirePermission('support.manage'), listCannedResponses);
+// Nhân viên trực tiếp hỗ trợ cần được dùng các mẫu đang hoạt động khi trả lời.
+// Quyền quản lý vẫn được giữ riêng cho các thao tác tạo, sửa và xóa.
+router.get('/canned-responses', requirePermission('support.reply'), listCannedResponses);
 router.post('/canned-responses', requirePermission('support.manage'), createCannedResponse);
 router.patch('/canned-responses/:id', requirePermission('support.manage'), updateCannedResponse);
 router.delete('/canned-responses/:id', requirePermission('support.manage'), deleteCannedResponse);

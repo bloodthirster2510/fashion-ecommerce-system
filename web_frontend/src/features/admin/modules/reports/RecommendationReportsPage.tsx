@@ -49,7 +49,7 @@ const reportTabs: Array<{ value: ReportTab; label: string }> = [
 ]
 
 const contextLabels: Record<RecommendationContext, string> = {
-  home: 'Home',
+  home: 'Trang chủ',
   product_detail_similar: 'Chi tiết sản phẩm',
   cart: 'Giỏ hàng',
 }
@@ -136,7 +136,7 @@ const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: Recomm
   if (analytics.summary.fallbackRate >= 0.15 && analytics.summary.requests >= 50) {
     items.push({
       title: 'Tỷ lệ dự phòng cần theo dõi',
-      detail: `${formatPercent(analytics.summary.fallbackRate)} request đang dùng kết quả dự phòng; nên xem lại dữ liệu hành vi hoặc danh mục sản phẩm thiếu tín hiệu.`,
+      detail: `${formatPercent(analytics.summary.fallbackRate)} yêu cầu đang dùng kết quả dự phòng; nên xem lại dữ liệu hành vi hoặc danh mục sản phẩm thiếu tín hiệu.`,
       tone: 'warn',
       actionLabel: 'Kiểm tra mô hình',
       href: '#rec-model-health',
@@ -146,9 +146,9 @@ const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: Recomm
   if (analytics.diversity.averageCategoryDiversityAt10 < 0.45 && analytics.diversity.requestsSampled >= 20) {
     items.push({
       title: 'Độ đa dạng danh mục thấp',
-      detail: `Top 10 trung bình chỉ đạt ${formatPercent(analytics.diversity.averageCategoryDiversityAt10)} danh mục khác nhau trên mỗi sản phẩm.`,
+      detail: `Mười vị trí đầu trung bình chỉ đạt ${formatPercent(analytics.diversity.averageCategoryDiversityAt10)} danh mục khác nhau trên mỗi sản phẩm.`,
       tone: 'warn',
-      actionLabel: 'Xem diversity',
+      actionLabel: 'Xem độ đa dạng',
       href: '#rec-model-health',
     })
   }
@@ -168,7 +168,7 @@ const getInsightItems = (analytics: RecommendationAnalytics, bestSegment: Recomm
       title: 'Lượt nhấp chưa chuyển sang giỏ',
       detail: 'Có lượt nhấp đề xuất nhưng chưa ghi nhận sản phẩm được thêm vào giỏ trong kỳ này.',
       tone: 'info',
-      actionLabel: 'Xem funnel',
+      actionLabel: 'Xem phễu chuyển đổi',
       href: '#rec-performance',
     })
   }
@@ -413,8 +413,8 @@ function RecentRequestsPanel({ analytics }: { analytics: RecommendationAnalytics
     <section className="admin-rec-panel admin-rec-requests-panel">
       <header>
         <div>
-          <span>Chẩn đoán request</span>
-          <strong>Attribution gần nhất</strong>
+          <span>Chẩn đoán lượt đề xuất</span>
+          <strong>Ghi nhận tương tác gần nhất</strong>
         </div>
         <MousePointerClick aria-hidden="true" />
       </header>
@@ -427,12 +427,12 @@ function RecentRequestsPanel({ analytics }: { analytics: RecommendationAnalytics
             </div>
             <small>{formatDateTime(request.createdAt)}</small>
             <em className={request.fallbackUsed ? 'is-fallback' : 'is-primary'}>
-              {request.fallbackUsed ? 'Fallback' : `${request.itemCount} sản phẩm`}
+              {request.fallbackUsed ? 'Dự phòng' : `${request.itemCount} sản phẩm`}
             </em>
             <b>{formatNumber(request.impressions)} hiển thị · {formatNumber(request.clicks)} nhấp · {formatNumber(request.paymentsCompleted)} thanh toán</b>
           </article>
         )) : (
-          <p>Chưa có request đề xuất trong kỳ này.</p>
+          <p>Chưa có yêu cầu đề xuất trong kỳ này.</p>
         )}
       </div>
     </section>
@@ -481,15 +481,15 @@ function CoverageList({ title, group }: { title: string; group: RecommendationCo
 
 function DiversityPanel({ analytics }: { analytics: RecommendationAnalytics }) {
   const metrics = [
-    { label: 'Danh mục trong top 10', value: analytics.diversity.averageCategoryDiversityAt10 },
-    { label: 'Thương hiệu trong top 10', value: analytics.diversity.averageBrandDiversityAt10 },
+    { label: 'Danh mục trong 10 vị trí đầu', value: analytics.diversity.averageCategoryDiversityAt10 },
+    { label: 'Thương hiệu trong 10 vị trí đầu', value: analytics.diversity.averageBrandDiversityAt10 },
   ]
 
   return (
     <section className="admin-rec-panel admin-rec-diversity-panel">
       <header>
         <div>
-          <span>Độ đa dạng top 10</span>
+          <span>Độ đa dạng 10 vị trí đầu</span>
           <strong>Độ đa dạng top đầu</strong>
         </div>
         <Layers3 aria-hidden="true" />
@@ -502,7 +502,7 @@ function DiversityPanel({ analytics }: { analytics: RecommendationAnalytics }) {
           </article>
         ))}
       </div>
-      <p>{formatNumber(analytics.diversity.requestsSampled)} request có đủ dữ liệu để tính độ đa dạng.</p>
+      <p>{formatNumber(analytics.diversity.requestsSampled)} yêu cầu có đủ dữ liệu để tính độ đa dạng.</p>
     </section>
   )
 }
@@ -713,7 +713,7 @@ export function RecommendationReportsPage({ currentUser }: { currentUser: AdminU
           {activeTab === 'recommendations' && !hasRecommendationData && hasAnyData ? (
             <ReportEmptyState
               title="Chưa có dữ liệu đề xuất sản phẩm"
-              detail="Khoảng thời gian này có dữ liệu tìm kiếm nhưng chưa ghi nhận request hoặc lượt hiển thị đề xuất."
+              detail="Khoảng thời gian này có dữ liệu tìm kiếm nhưng chưa ghi nhận yêu cầu hoặc lượt hiển thị đề xuất."
             />
           ) : null}
 
@@ -750,8 +750,8 @@ export function RecommendationReportsPage({ currentUser }: { currentUser: AdminU
             <TopProductsPanel analytics={analytics} />
 
             <div className="admin-rec-main-grid">
-              <CoverageList title="Coverage danh mục" group={analytics.coverage.categories} />
-              <CoverageList title="Coverage thương hiệu" group={analytics.coverage.brands} />
+              <CoverageList title="Độ phủ danh mục" group={analytics.coverage.categories} />
+              <CoverageList title="Độ phủ thương hiệu" group={analytics.coverage.brands} />
             </div>
           </section>
 

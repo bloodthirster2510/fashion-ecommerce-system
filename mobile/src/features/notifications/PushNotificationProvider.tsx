@@ -132,7 +132,7 @@ export const PushNotificationProvider = ({ children }: { children: React.ReactNo
       const current = stateRef.current;
       if (!current.enabled || !session?.accessToken) return;
       void syncRegistration(false, true).catch((caught) => {
-        setError(caught instanceof Error ? caught.message : 'Không thể cập nhật push token.');
+        setError(caught instanceof Error ? caught.message : 'Chưa cập nhật được thông tin nhận thông báo.');
       });
     }).then((cleanup) => {
       unsubscribe = cleanup;

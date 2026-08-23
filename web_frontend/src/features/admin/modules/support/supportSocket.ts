@@ -57,7 +57,7 @@ const acquireSharedSocket = (token: string) => {
 
 export type SupportRealtimeHandlers = {
   onMessage?: (ticketId: string, message: SupportMessage, isInternal: boolean) => void
-  onTyping?: (ticketId: string, isTyping: boolean, senderId?: string) => void
+  onTyping?: (ticketId: string, isTyping: boolean, senderId?: string, scope?: 'admin' | 'customer') => void
   onRead?: (ticketId: string, scope: 'admin' | 'customer') => void
   onUpdated?: (ticketId: string, ticket: SupportTicket) => void
   onSummary?: () => void
@@ -92,7 +92,7 @@ export function useSupportRealtime(handlers: SupportRealtimeHandlers) {
     const onEvent = (event: SupportRealtimeEvent) => {
       const h = handlersRef.current
       if (event.type === 'message' && h.onMessage) h.onMessage(event.ticketId, event.message, Boolean(event.isInternal))
-      else if (event.type === 'typing' && h.onTyping) h.onTyping(event.ticketId, event.isTyping, event.senderId)
+      else if (event.type === 'typing' && h.onTyping) h.onTyping(event.ticketId, event.isTyping, event.senderId, event.scope)
       else if (event.type === 'read' && h.onRead && event.scope) h.onRead(event.ticketId, event.scope)
       else if (event.type === 'updated' && h.onUpdated) h.onUpdated(event.ticketId, event.ticket)
       else if (event.type === 'summary' && h.onSummary) h.onSummary()

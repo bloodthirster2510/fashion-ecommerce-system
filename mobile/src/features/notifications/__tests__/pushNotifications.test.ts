@@ -72,6 +72,13 @@ describe('push navigation', () => {
       params: { orderId: 'order-1' },
     });
     expect(resolvePushNavigationTarget({
+      type: 'order_update',
+      orderId: 'order-2',
+    })).toEqual({
+      screen: 'OrderDetail',
+      params: { orderId: 'order-2' },
+    });
+    expect(resolvePushNavigationTarget({
       type: 'virtual_try_on',
       jobId: 'job-1',
       destination: 'result',

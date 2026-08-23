@@ -36,13 +36,12 @@ import {
 } from '../../components/ui'
 import './promotion.css'
 import { CouponBulkDeleteDialog, CouponDeleteDialog } from './components/CouponDeleteDialogs'
+import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { CouponDetailDialog } from './components/CouponDetailDialog'
 import { CouponFormDialog } from './components/CouponFormDialog'
 import { CouponTablePanel } from './components/CouponTablePanel'
-import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { PromotionBulkToolbar } from './components/PromotionBulkToolbar'
 import { PromotionFilterBar } from './components/PromotionFilterBar'
-import { PromotionKpiSummary } from './components/PromotionKpiSummary'
 
 type PromotionsPageProps = {
   currentUser: AdminUser
@@ -170,6 +169,31 @@ const formatDateTime = (value: string) => {
 const toDateTimeInputValue = (date: Date) => {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
   return localDate.toISOString().slice(0, 16)
+}
+
+const parseDateTimeInputValue = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return new Date(Number.NaN)
+
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+  )
+
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3]) ||
+    date.getHours() !== Number(match[4]) ||
+    date.getMinutes() !== Number(match[5])
+  ) {
+    return new Date(Number.NaN)
+  }
+
+  return date
 }
 
 const createEmptyCouponForm = (): CouponFormState => {
@@ -330,8 +354,8 @@ const assertMoneyValue = (value: number, fieldName: string) => {
 const toCouponPayload = (form: CouponFormState): CouponPayload => {
   const code = form.code.trim().toUpperCase()
   const name = form.name.trim()
-  const startAt = new Date(form.startAt)
-  const endAt = new Date(form.endAt)
+  const startAt = parseDateTimeInputValue(form.startAt)
+  const endAt = parseDateTimeInputValue(form.endAt)
   const discountValue = form.discountType === 'free_shipping' ? 0 : Number(form.discountValue)
   const minOrderAmount = Number(form.minOrderAmount)
   const maxDiscountAmount = form.discountType === 'percent' && form.maxDiscountAmount.trim()
@@ -399,8 +423,8 @@ const validateCouponForm = (form: CouponFormState): CouponFieldErrors => {
   const maxDiscountAmount = Number(form.maxDiscountAmount)
   const usageLimit = Number(form.usageLimit)
   const perUserLimit = Number(form.perUserLimit)
-  const startAt = new Date(form.startAt)
-  const endAt = new Date(form.endAt)
+  const startAt = parseDateTimeInputValue(form.startAt)
+  const endAt = parseDateTimeInputValue(form.endAt)
 
   if (!/^[A-Z0-9_-]{2,40}$/.test(code)) errors.code = 'Dùng 2–40 ký tự in hoa, số, “_” hoặc “-”.'
   if (form.name.trim().length < 2) errors.name = 'Tên voucher cần ít nhất 2 ký tự.'
@@ -456,7 +480,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const [usageSearch, setUsageSearch] = useState('')
   const [usageDateFrom, setUsageDateFrom] = useState('')
   const [usageDateTo, setUsageDateTo] = useState('')
-  const [couponSummary, setCouponSummary] = useState({ totalCoupons: 0, usedCount: 0, activeCount: 0, publicCount: 0 })
   const [sampleSubTotal, setSampleSubTotal] = useState('500000')
   const [sampleShippingFee, setSampleShippingFee] = useState('30000')
   const [couponPreview, setCouponPreview] = useState<CouponPreview | null>(null)
@@ -573,7 +596,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
       })
 
       setCoupons(result.items)
-      setCouponSummary(result.summary)
       setTotalItems(result.pagination.totalItems)
       setTotalPages(Math.max(1, result.pagination.totalPages))
     } catch (error) {
@@ -1196,7 +1218,7 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const estimatedAudience = couponForm.eligibleMembershipRanks.length
     ? tiers.filter((tier) => tier._id && couponForm.eligibleMembershipRanks.includes(tier._id)).reduce((sum, tier) => sum + (tier.memberCount ?? 0), 0)
     : tiers.reduce((sum, tier) => sum + (tier.memberCount ?? 0), 0)
-  const couponDurationDays = (new Date(couponForm.endAt).getTime() - new Date(couponForm.startAt).getTime()) / 86_400_000
+  const couponDurationDays = (parseDateTimeInputValue(couponForm.endAt).getTime() - parseDateTimeInputValue(couponForm.startAt).getTime()) / 86_400_000
   const formDiscountPreview =
     couponForm.discountType === 'free_shipping'
       ? 'Miễn phí vận chuyển'
@@ -1348,12 +1370,6 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
           </button>
         </div>
       </header>
-
-      <PromotionKpiSummary
-        summary={couponSummary}
-        hasKeyword={Boolean(keyword)}
-        formatNumber={formatNumber}
-      />
 
       <PromotionBulkToolbar
         selectedCount={selectedCouponIds.length}

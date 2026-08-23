@@ -281,7 +281,10 @@ export const replyToReview = async (req: Request, res: Response) => {
   try {
     const content = req.body?.content;
     if (typeof content !== 'string' || !content.trim()) throw new ReviewServiceError('Content is required', 400);
-    if (content.trim().length > 2000) throw new ReviewServiceError('Content must not exceed 2000 characters', 400);
+    const contentLength = content.trim().length;
+    if (contentLength < 10 || contentLength > 2000) {
+      throw new ReviewServiceError('Admin reply must contain between 10 and 2000 characters', 400);
+    }
     return ok(res, await reviewService.replyToReview(
       req.params.id as string,
       getAdminActor(req),

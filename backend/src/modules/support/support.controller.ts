@@ -45,6 +45,7 @@ export const listPublicFaqs = async (req: Request, res: Response) => {
       search: typeof req.query.search === 'string' ? req.query.search : undefined,
       page: numberQuery(req.query.page, 1),
       limit: numberQuery(req.query.limit, 50),
+      viewerUserId: req.user?.role === 'user' ? req.user.userId : undefined,
     }));
   } catch (caught) {
     return handleError(res, caught);

@@ -21,6 +21,23 @@ export function EmptyRow({ label }: { label: string }) {
   return <tr><td colSpan={6}><div className="admin-table-loading">{label}</div></td></tr>
 }
 
+export function LoadingRows() {
+  return (
+    <>
+      {[1, 2, 3, 4, 5].map((row) => (
+        <tr className="admin-inventory-skeleton-row" key={row} aria-hidden="true">
+          <td><div className="admin-inventory-skeleton-product"><span className="admin-inventory-skeleton-image" /><span className="admin-inventory-skeleton-line is-wide" /></div></td>
+          <td><span className="admin-inventory-skeleton-line" /></td>
+          <td><span className="admin-inventory-skeleton-line is-medium" /></td>
+          <td><span className="admin-inventory-skeleton-line is-short" /></td>
+          <td><span className="admin-inventory-skeleton-pill" /></td>
+          <td><span className="admin-inventory-skeleton-pill is-small" /></td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
 export function SearchIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 20-4.6-4.6a7 7 0 1 0-1.4 1.4l4.6 4.6L21 20ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z" /></svg>
 }

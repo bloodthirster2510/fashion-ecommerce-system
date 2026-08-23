@@ -120,7 +120,7 @@ test('customer can retry a failed VNPay payment from the web order detail', asyn
     }))
   })
 
-  await page.route('http://localhost:5000/api/**', async (route) => {
+  await page.route('**/api/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const responseHeaders = {

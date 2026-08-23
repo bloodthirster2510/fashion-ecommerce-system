@@ -20,6 +20,9 @@ jest.mock('@react-navigation/native', () => {
 });
 
 jest.mock('../../auth/AuthContext', () => ({ useAuth: jest.fn() }));
+jest.mock('../../virtualTryOn/TryOnQueueProvider', () => ({
+  useTryOnQueue: () => ({ items: [] }),
+}));
 jest.mock('../favoritesApi', () => ({
   favoritesApi: {
     getFavorites: jest.fn(),

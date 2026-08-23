@@ -3,13 +3,14 @@ import { useEffect, useRef, type ReactNode } from 'react'
 type ModalProps = {
   title: string
   description?: string
+  className?: string
   isOpen: boolean
   onClose: () => void
   children?: ReactNode
   actions?: ReactNode
 }
 
-export function Modal({ title, description, isOpen, onClose, children, actions }: ModalProps) {
+export function Modal({ title, description, className = '', isOpen, onClose, children, actions }: ModalProps) {
   const modalRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function Modal({ title, description, isOpen, onClose, children, actions }
     <div className="admin-ui-modal-layer" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
     }}>
-      <section ref={modalRef} className="admin-ui-modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+      <section ref={modalRef} className={`admin-ui-modal${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div>
           <h2>{title}</h2>
           {description ? <p>{description}</p> : null}

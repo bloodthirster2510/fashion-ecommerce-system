@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
 import {
   createAdminFaq,
@@ -34,6 +34,7 @@ import type {
   SupportAnalytics,
   SupportTicket,
   SupportTicketDetail,
+  SupportMessage,
   SupportTicketStatus,
   SupportTicketType,
 } from './support.types'
@@ -49,8 +50,6 @@ import { SupportAnalyticsPanel } from './components/SupportAnalyticsPanel'
 import { SupportCannedResponsesPanel } from './components/SupportCannedResponsesPanel'
 import { SupportFaqPanel } from './components/SupportFaqPanel'
 import { SupportInboxPanel } from './components/SupportInboxPanel'
-import { SupportKpiSummary } from './components/SupportKpiSummary'
-import { SupportTicketFilters } from './components/SupportTicketFilters'
 
 type SupportTab = 'tickets' | 'faqs' | 'analytics' | 'canned'
 
@@ -60,7 +59,7 @@ const statusLabels: Record<SupportTicketStatus, string> = {
   waiting_customer: 'Chờ khách bổ sung',
   resolved: 'Đã giải quyết',
   closed: 'Đã đóng',
-  spam: 'Spam',
+  spam: 'Thư rác',
 }
 
 const typeLabels: Record<SupportTicketType, string> = {
@@ -73,8 +72,8 @@ const typeLabels: Record<SupportTicketType, string> = {
 
 const categoryLabels: Record<SupportCategory | FaqCategory, string> = {
   orders: 'Đơn hàng', shipping: 'Giao hàng', returns: 'Đổi trả', payments: 'Thanh toán',
-  promotions: 'Voucher', loyalty: 'Thành viên', account: 'Tài khoản', product: 'Sản phẩm',
-  app_website: 'Ứng dụng/website', service: 'Dịch vụ', other: 'Khác',
+  promotions: 'Ưu đãi', loyalty: 'Thành viên', account: 'Tài khoản', product: 'Sản phẩm',
+  app_website: 'Ứng dụng/trang web', service: 'Dịch vụ', other: 'Khác',
 }
 
 const priorityLabels: Record<SupportPriority, string> = {
@@ -94,22 +93,43 @@ const statusTones: Record<SupportTicketStatus, 'success' | 'warning' | 'danger' 
   spam: 'neutral',
 }
 
-const priorityTones: Record<SupportPriority, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
-  low: 'neutral',
-  normal: 'neutral',
-  high: 'warning',
-  urgent: 'danger',
-}
-
 const emptyCanned: CannedResponsePayload = { title: '', body: '', category: null, isActive: true }
+
+const appendMessageOnce = (messages: SupportMessage[], message: SupportMessage) =>
+  messages.some((item) => item._id === message._id) ? messages : [...messages, message]
+
+const getSupportErrorMessage = (caught: unknown, fallback: string) => {
+  if (!(caught instanceof Error)) return fallback
+  const exactMessages: Record<string, string> = {
+    'Ticket not found': 'Không tìm thấy yêu cầu hỗ trợ.',
+    'This ticket cannot receive messages': 'Yêu cầu này đã kết thúc nên không thể nhận thêm tin nhắn.',
+    'Canned response not found': 'Mẫu trả lời không còn tồn tại hoặc đã bị tắt.',
+    'Only admin can mark spam': 'Chỉ quản trị viên mới có thể đánh dấu thư rác.',
+    'Only admin can restore a spam ticket': 'Chỉ quản trị viên mới có thể khôi phục yêu cầu từ thư rác.',
+    'Reply to the customer before setting waiting customer': 'Hãy phản hồi khách trước khi chuyển sang trạng thái chờ khách bổ sung.',
+    'Assignee is not an active support admin/staff member': 'Người được chọn hiện không thể xử lý yêu cầu hỗ trợ.',
+    'dateFrom must not be after dateTo': 'Ngày bắt đầu không được sau ngày kết thúc.',
+    'FAQ not found': 'Không tìm thấy bài hướng dẫn.',
+    'FAQ list changed while reordering': 'Danh sách vừa thay đổi. Vui lòng thử sắp xếp lại.',
+  }
+  if (exactMessages[caught.message]) return exactMessages[caught.message]
+  if (/must contain|is invalid|must be|Cannot transition/i.test(caught.message)) return fallback
+  return caught.message
+}
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
 }).format(new Date(value))
 
-const formatDuration = (value = 0) => value < 60 * 60 * 1000
-  ? `${Math.round(value / 60000)} phút`
-  : `${(value / 3600000).toFixed(1)} giờ`
+const formatDuration = (value = 0) => value <= 0
+  ? '—'
+  : value < 60000
+    ? 'Dưới 1 phút'
+    : value < 60 * 60 * 1000
+      ? `${Math.round(value / 60000)} phút`
+      : value < 24 * 60 * 60 * 1000
+        ? `${(value / 3600000).toFixed(1)} giờ`
+        : `${(value / (24 * 60 * 60 * 1000)).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} ngày`
 
 const getPersonName = (ticket: SupportTicket) => {
   const value = ticket.userId
@@ -150,57 +170,105 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
   const [dateTo, setDateTo] = useState('')
   const [customerTypingTicketId, setCustomerTypingTicketId] = useState<string | null>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typingTicketRef = useRef<string | null>(null)
+  const selectedIdRef = useRef<string | null>(null)
+  const ticketRequestRef = useRef(0)
+  const detailRequestRef = useRef(0)
+  const faqRequestRef = useRef(0)
   const submittingRef = useRef(false)
 
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+
   const loadTickets = useCallback(async () => {
+    const requestId = ++ticketRequestRef.current
     setLoading(true)
     setError('')
     try {
       const [list, nextSummary] = await Promise.all([listSupportTickets(filters), getSupportSummary()])
+      if (requestId !== ticketRequestRef.current) return
       setTickets(list.items)
       setTicketPagination(list.pagination)
       setSummary(nextSummary)
-      if (!selectedId && list.items[0]) setSelectedId(list.items[0]._id)
+      const currentId = selectedIdRef.current
+      const nextId = currentId && list.items.some((item) => item._id === currentId)
+        ? currentId
+        : list.items[0]?._id ?? null
+      if (nextId !== currentId) {
+        selectedIdRef.current = nextId
+        setSelectedId(nextId)
+        setDetail(null)
+        setReply('')
+        setIsInternal(false)
+        setReplyFiles([])
+        setSelectedCannedId('')
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể tải hàng đợi hỗ trợ.')
+      if (requestId === ticketRequestRef.current) {
+        setError(getSupportErrorMessage(caught, 'Không thể tải danh sách hỗ trợ.'))
+      }
     } finally {
-      setLoading(false)
+      if (requestId === ticketRequestRef.current) setLoading(false)
     }
-  }, [filters, selectedId])
+  }, [filters])
 
   const loadDetail = useCallback(async (id: string) => {
+    const requestId = ++detailRequestRef.current
     setDetailLoading(true)
+    setError('')
     try {
-      setDetail(await getSupportTicket(id))
+      const nextDetail = await getSupportTicket(id)
+      if (requestId === detailRequestRef.current && selectedIdRef.current === id) setDetail(nextDetail)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể tải ticket.')
+      if (requestId === detailRequestRef.current) {
+        setError(getSupportErrorMessage(caught, 'Không thể tải nội dung yêu cầu.'))
+      }
     } finally {
-      setDetailLoading(false)
+      if (requestId === detailRequestRef.current) setDetailLoading(false)
     }
   }, [])
 
   const loadFaqs = useCallback(async () => {
+    const requestId = ++faqRequestRef.current
     try {
-      setFaqs((await listAdminFaqs(faqSearch, faqCategory)).items)
+      const result = await listAdminFaqs(faqSearch, faqCategory)
+      if (requestId === faqRequestRef.current) setFaqs(result.items)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể tải FAQ.')
+      if (requestId === faqRequestRef.current) setError(getSupportErrorMessage(caught, 'Không thể tải bài hướng dẫn.'))
     }
   }, [faqCategory, faqSearch])
 
   const loadCanned = useCallback(async () => {
-    try { setCannedResponses(await listCannedResponses()) }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tải mẫu trả lời.') }
-  }, [])
+    try { setCannedResponses(await listCannedResponses(!canManage)) }
+    catch (caught) { setError(getSupportErrorMessage(caught, 'Không thể tải mẫu trả lời.')) }
+  }, [canManage])
 
   const loadAnalytics = useCallback(async () => {
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      setError('Ngày bắt đầu không được sau ngày kết thúc.')
+      return
+    }
+    setError('')
     try { setAnalytics(await getSupportAnalytics(dateFrom, dateTo)) }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể tải báo cáo.') }
+    catch (caught) { setError(getSupportErrorMessage(caught, 'Không thể tải báo cáo.')) }
   }, [dateFrom, dateTo])
 
-  useEffect(() => { if (tab === 'tickets') void loadTickets() }, [loadTickets, tab])
-  useEffect(() => { void listSupportAssignees().then(setAssignees).catch(() => {}) }, [])
-  useEffect(() => { if (tab === 'faqs') void loadFaqs() }, [loadFaqs, tab])
-  useEffect(() => { if (canManage && (tab === 'canned' || tab === 'tickets')) void loadCanned() }, [canManage, loadCanned, tab])
+  useEffect(() => {
+    if (tab !== 'tickets') return
+    const timer = setTimeout(() => { void loadTickets() }, filters.search?.trim() ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [filters.search, loadTickets, tab])
+  useEffect(() => {
+    void listSupportAssignees().then(setAssignees).catch((caught) => {
+      setError(getSupportErrorMessage(caught, 'Không thể tải danh sách người xử lý.'))
+    })
+  }, [])
+  useEffect(() => {
+    if (tab !== 'faqs') return
+    const timer = setTimeout(() => { void loadFaqs() }, faqSearch.trim() ? 300 : 0)
+    return () => clearTimeout(timer)
+  }, [faqSearch, loadFaqs, tab])
+  useEffect(() => { if (tab === 'canned' || tab === 'tickets') void loadCanned() }, [loadCanned, tab])
   useEffect(() => { if (tab === 'analytics') void loadAnalytics() }, [loadAnalytics, tab])
   useEffect(() => { if (selectedId) void loadDetail(selectedId) }, [loadDetail, selectedId])
   useEffect(() => { if (!canManage && tab !== 'tickets') setTab('tickets') }, [canManage, tab])
@@ -209,33 +277,32 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     onMessage: (ticketId, message, isInternal) => {
       if (isInternal) {
         setDetail((prev) => prev && prev.ticket._id === ticketId
-          ? { ...prev, messages: [...prev.messages, message] }
+          ? { ...prev, messages: appendMessageOnce(prev.messages, message) }
           : prev)
         return
       }
       setDetail((prev) => prev && prev.ticket._id === ticketId
-        ? { ...prev, messages: [...prev.messages, message] }
+        ? { ...prev, messages: appendMessageOnce(prev.messages, message) }
         : prev)
       setTickets((prev) => prev.map((t) => t._id === ticketId
         ? { ...t, lastMessageAt: message.createdAt, lastMessageSender: message.senderType, requiresReply: message.senderType === 'customer', updatedAt: message.createdAt }
         : t))
       setCustomerTypingTicketId(null)
     },
-    onTyping: (ticketId, isTyping, senderId) => {
-      if (senderId === currentUser._id) return
+    onTyping: (ticketId, isTyping, senderId, scope) => {
+      if (scope !== 'customer' || senderId === currentUser._id) return
       if (isTyping) {
         setCustomerTypingTicketId(ticketId)
         if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
         typingTimerRef.current = setTimeout(() => setCustomerTypingTicketId(null), 4000)
-      } else if (customerTypingTicketId === ticketId) {
-        setCustomerTypingTicketId(null)
+      } else {
+        setCustomerTypingTicketId((current) => current === ticketId ? null : current)
       }
     },
     onUpdated: (ticketId, ticket) => {
-      setTickets((prev) => prev.some((t) => t._id === ticketId)
-        ? prev.map((t) => (t._id === ticketId ? { ...t, ...ticket } : t))
-        : [ticket, ...prev])
+      setTickets((prev) => prev.map((item) => item._id === ticketId ? { ...item, ...ticket } : item))
       setDetail((prev) => prev && prev.ticket._id === ticketId ? { ...prev, ticket: { ...prev.ticket, ...ticket } } : prev)
+      loadSummaryOnly()
     },
     onSummary: () => { void loadSummaryOnly() },
   })
@@ -249,6 +316,19 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
         setTickets(list.items)
         setTicketPagination(list.pagination)
         setSummary(nextSummary)
+        const currentId = selectedIdRef.current
+        const nextId = currentId && list.items.some((item) => item._id === currentId)
+          ? currentId
+          : list.items[0]?._id ?? null
+        if (nextId !== currentId) {
+          selectedIdRef.current = nextId
+          setSelectedId(nextId)
+          setDetail(null)
+          setReply('')
+          setIsInternal(false)
+          setReplyFiles([])
+          setSelectedCannedId('')
+        }
       } catch { /* ignore realtime refresh errors */ }
     }, 600)
   }, [filters])
@@ -260,21 +340,66 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
   useEffect(() => {
     if (!selectedId || !detail) return
-    if (detail.ticket.lastMessageSender === 'customer' && detail.ticket.requiresReply) {
-      void markSupportTicketRead(selectedId).catch(() => {})
-    }
+    const lastMessageAt = new Date(detail.ticket.lastMessageAt).getTime()
+    const staffLastReadAt = detail.ticket.staffLastReadAt ? new Date(detail.ticket.staffLastReadAt).getTime() : 0
+    if (detail.ticket.lastMessageSender !== 'customer' || staffLastReadAt >= lastMessageAt) return
+    void markSupportTicketRead(selectedId).then((ticket) => {
+      setDetail((current) => current && current.ticket._id === selectedId
+        ? { ...current, ticket: { ...current.ticket, staffLastReadAt: ticket.staffLastReadAt } }
+        : current)
+      setTickets((current) => current.map((item) => item._id === selectedId
+        ? { ...item, staffLastReadAt: ticket.staffLastReadAt }
+        : item))
+    }).catch(() => {})
   }, [selectedId, detail])
 
   const handleReplyChange = (value: string) => {
     setReply(value)
-    if (selectedId) realtime.emitTyping(selectedId, value.trim().length > 0)
+    if (!selectedId) return
+    const isTyping = value.trim().length > 0
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current)
+    if (isTyping && typingTicketRef.current !== selectedId) {
+      if (typingTicketRef.current) realtime.emitTyping(typingTicketRef.current, false)
+      realtime.emitTyping(selectedId, true)
+      typingTicketRef.current = selectedId
+    }
+    if (!isTyping && typingTicketRef.current === selectedId) {
+      realtime.emitTyping(selectedId, false)
+      typingTicketRef.current = null
+      return
+    }
+    if (isTyping) {
+      typingStopTimerRef.current = setTimeout(() => {
+        realtime.emitTyping(selectedId, false)
+        if (typingTicketRef.current === selectedId) typingTicketRef.current = null
+      }, 2500)
+    }
   }
 
-  const queueCount = useMemo(() => tickets.filter((ticket) => ticket.requiresReply).length, [tickets])
+  const handleSelectTicket = (ticketId: string) => {
+    if (ticketId === selectedId) return
+    if (typingTicketRef.current) realtime.emitTyping(typingTicketRef.current, false)
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current)
+    typingTicketRef.current = null
+    setReply('')
+    setIsInternal(false)
+    setReplyFiles([])
+    setSelectedCannedId('')
+    setDetail(null)
+    setSelectedId(ticketId)
+  }
+
+  useEffect(() => () => {
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current)
+    if (typingTicketRef.current) realtime.emitTyping(typingTicketRef.current, false)
+  }, [realtime])
+
+  const queueCount = useMemo(() => summary?.waitingAdmin ?? 0, [summary])
   const supportTabs: Array<TabItem<SupportTab>> = [
-    { value: 'tickets', label: 'Ticket', badge: queueCount || undefined },
+    { value: 'tickets', label: 'Yêu cầu', badge: queueCount || undefined },
     ...(canManage ? [
-      { value: 'faqs' as const, label: 'FAQ' },
+      { value: 'faqs' as const, label: 'Hướng dẫn' },
       { value: 'canned' as const, label: 'Mẫu trả lời' },
       { value: 'analytics' as const, label: 'Báo cáo' },
     ] : []),
@@ -288,7 +413,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
       await Promise.all([loadDetail(selectedId), loadTickets()])
       requestAdminNotificationRefresh()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể cập nhật ticket.')
+      setError(getSupportErrorMessage(caught, 'Không thể cập nhật yêu cầu.'))
     } finally {
       submittingRef.current = false; setSubmitting(false)
     }
@@ -296,16 +421,53 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
 
   const sendReply = async () => {
     if (!selectedId || !reply.trim() || submittingRef.current) return
+    const ticketId = selectedId
+    const internal = isInternal
     submittingRef.current = true; setSubmitting(true)
+    setError('')
+    realtime.emitTyping(ticketId, false)
     try {
-      await replySupportTicket(selectedId, reply.trim(), isInternal, replyFiles, selectedCannedId || undefined)
+      const message = await replySupportTicket(ticketId, reply.trim(), internal, replyFiles, selectedCannedId || undefined)
       setReply('')
       setSelectedCannedId('')
       setReplyFiles([])
-      await Promise.all([loadDetail(selectedId), loadTickets()])
+      setDetail((prev) => {
+        if (!prev || prev.ticket._id !== ticketId) return prev
+        const messages = appendMessageOnce(prev.messages, message)
+        if (internal || new Date(prev.ticket.lastMessageAt).getTime() > new Date(message.createdAt).getTime()) {
+          return messages === prev.messages ? prev : { ...prev, messages }
+        }
+        const status = ['open', 'in_progress'].includes(prev.ticket.status) ? 'waiting_customer' : prev.ticket.status
+        return {
+          ...prev,
+          messages,
+          ticket: {
+            ...prev.ticket,
+            status,
+            requiresReply: false,
+            lastMessageAt: message.createdAt,
+            lastMessageSender: 'staff',
+            updatedAt: message.createdAt,
+          },
+        }
+      })
+      if (!internal) {
+        setTickets((prev) => prev.map((ticket) => {
+          if (ticket._id !== ticketId || new Date(ticket.lastMessageAt).getTime() > new Date(message.createdAt).getTime()) return ticket
+          return {
+            ...ticket,
+            status: ['open', 'in_progress'].includes(ticket.status) ? 'waiting_customer' : ticket.status,
+            requiresReply: false,
+            lastMessageAt: message.createdAt,
+            lastMessageSender: 'staff',
+            updatedAt: message.createdAt,
+          }
+        }))
+      }
+      loadSummaryOnly()
       requestAdminNotificationRefresh()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể gửi phản hồi.')
+      setError(getSupportErrorMessage(caught, 'Không thể gửi phản hồi.'))
     } finally {
       submittingRef.current = false; setSubmitting(false)
     }
@@ -329,7 +491,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
       setFaqEditorOpen(false)
       await loadFaqs()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể lưu FAQ.')
+      setError(getSupportErrorMessage(caught, 'Không thể lưu bài hướng dẫn.'))
     } finally {
       submittingRef.current = false; setSubmitting(false)
     }
@@ -345,7 +507,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
       setCannedForm(emptyCanned)
       await loadCanned()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể lưu mẫu trả lời.')
+      setError(getSupportErrorMessage(caught, 'Không thể lưu mẫu trả lời.'))
     } finally { submittingRef.current = false; setSubmitting(false) }
   }
 
@@ -357,7 +519,21 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     ;[next[index], next[target]] = [next[target], next[index]]
     setFaqs(next)
     try { await reorderAdminFaqs(next.map((faq) => faq._id)); await loadFaqs() }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Không thể đổi thứ tự FAQ.'); await loadFaqs() }
+    catch (caught) { setError(getSupportErrorMessage(caught, 'Không thể đổi thứ tự bài hướng dẫn.')); await loadFaqs() }
+  }
+
+  const removeFaq = async (faqId: string) => {
+    if (!window.confirm('Gỡ bài hướng dẫn này khỏi trang hỗ trợ?')) return
+    setError('')
+    try { await deleteAdminFaq(faqId); await loadFaqs() }
+    catch (caught) { setError(getSupportErrorMessage(caught, 'Không thể gỡ bài hướng dẫn.')) }
+  }
+
+  const removeCanned = async (id: string) => {
+    if (!window.confirm('Xóa mẫu trả lời này? Thao tác này không thể hoàn tác.')) return
+    setError('')
+    try { await deleteCannedResponse(id); await loadCanned() }
+    catch (caught) { setError(getSupportErrorMessage(caught, 'Không thể xóa mẫu trả lời.')) }
   }
 
   const handleReplyFiles = (files: File[]) => {
@@ -371,70 +547,52 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
     <section className="admin-ui-page admin-support-page">
       <PageHeader
         title="Hỗ trợ khách hàng"
-        description="Quản lý ticket, phản hồi khách hàng, mẫu trả lời và nội dung FAQ trong cùng một hàng đợi."
-        breadcrumbs={['CSKH', 'Hỗ trợ']}
         actions={<Tabs items={supportTabs} value={tab} onChange={setTab} ariaLabel="Khu vực hỗ trợ" />}
       />
 
       {error && <div className="admin-support-error" role="alert">{error}<button type="button" onClick={() => setError('')}>Đóng</button></div>}
 
       {tab === 'tickets' ? (
-        <>
-          <SupportKpiSummary summary={summary} />
-
-          <SupportTicketFilters
-            filters={filters}
-            currentUserId={currentUser._id}
-            canMarkSpam={canMarkSpam}
-            statusLabels={statusLabels}
-            priorityLabels={priorityLabels}
-            categoryLabels={categoryLabels}
-            typeLabels={typeLabels}
-            assignees={assignees}
-            onFiltersChange={(updater) => setFilters(updater)}
-            onReset={() => setFilters({ page: 1, status: 'all' })}
-            onRefresh={() => void loadTickets()}
-          />
-
-          <SupportInboxPanel
-            tickets={tickets}
-            ticketPagination={ticketPagination}
-            selectedId={selectedId}
-            detail={detail}
-            loading={loading}
-            detailLoading={detailLoading}
-            submitting={submitting}
-            canManage={canManage}
-            canMarkSpam={canMarkSpam}
-            currentUserId={currentUser._id}
-            assignees={assignees}
-            reply={reply}
-            isInternal={isInternal}
-            selectedCannedId={selectedCannedId}
-            cannedResponses={cannedResponses}
-            customerTypingTicketId={customerTypingTicketId}
-            statusLabels={statusLabels}
-            typeLabels={typeLabels}
-            categoryLabels={categoryLabels}
-            priorityLabels={priorityLabels}
-            statusTones={statusTones}
-            priorityTones={priorityTones}
-            formatDate={formatDate}
-            getPersonName={getPersonName}
-            onSelectTicket={setSelectedId}
-            onPageChange={(page) => setFilters((old) => ({ ...old, page }))}
-            onMutateTicket={mutateTicket}
-            onCannedChange={(id) => {
-              setSelectedCannedId(id)
-              const canned = cannedResponses.find((item) => item._id === id)
-              if (canned) setReply(canned.body)
-            }}
-            onReplyChange={handleReplyChange}
-            onInternalChange={setIsInternal}
-            onFilesChange={handleReplyFiles}
-            onSendReply={sendReply}
-          />
-        </>
+        <SupportInboxPanel
+          tickets={tickets}
+          ticketPagination={ticketPagination}
+          selectedId={selectedId}
+          detail={detail}
+          loading={loading}
+          detailLoading={detailLoading}
+          submitting={submitting}
+          canMarkSpam={canMarkSpam}
+          currentUserId={currentUser._id}
+          assignees={assignees}
+          summary={summary}
+          filters={filters}
+          reply={reply}
+          isInternal={isInternal}
+          selectedCannedId={selectedCannedId}
+          cannedResponses={cannedResponses}
+          customerTypingTicketId={customerTypingTicketId}
+          replyFiles={replyFiles}
+          statusLabels={statusLabels}
+          categoryLabels={categoryLabels}
+          priorityLabels={priorityLabels}
+          statusTones={statusTones}
+          formatDate={formatDate}
+          getPersonName={getPersonName}
+          onSelectTicket={handleSelectTicket}
+          onPageChange={(page) => setFilters((old) => ({ ...old, page }))}
+          onFiltersChange={(updater) => setFilters(updater)}
+          onRefresh={() => void loadTickets()}
+          onMutateTicket={mutateTicket}
+          onCannedChange={(id) => {
+            setSelectedCannedId(id)
+            const canned = cannedResponses.find((item) => item._id === id)
+            if (canned) setReply(canned.body)
+          }}
+          onReplyChange={handleReplyChange}
+          onInternalChange={setIsInternal}
+          onFilesChange={handleReplyFiles}
+          onSendReply={sendReply}
+        />
       ) : tab === 'faqs' ? (
         <SupportFaqPanel
           faqs={faqs}
@@ -445,7 +603,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
           onCategoryChange={setFaqCategory}
           onCreate={() => openFaqEditor()}
           onEdit={openFaqEditor}
-          onDelete={(faqId) => void deleteAdminFaq(faqId).then(loadFaqs)}
+          onDelete={removeFaq}
           onMove={moveFaq}
         />
       ) : tab === 'analytics' ? (
@@ -474,7 +632,7 @@ export function SupportManagementPage({ currentUser }: { currentUser: AdminUser 
             setEditingCannedId(item._id)
             setCannedForm({ title: item.title, body: item.body, category: item.category ?? null, isActive: item.isActive })
           }}
-          onDelete={(id) => void deleteCannedResponse(id).then(loadCanned)}
+          onDelete={removeCanned}
         />
       )}
 

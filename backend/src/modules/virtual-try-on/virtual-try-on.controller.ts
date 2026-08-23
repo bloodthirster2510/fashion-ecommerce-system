@@ -136,10 +136,11 @@ export const validateAsset = async (req: Request, res: Response) => {
 };
 
 export const createJob = async (req: Request, res: Response) => {
+  const startedAt = Date.now();
+  const idempotencyKey = typeof req.headers['idempotency-key'] === 'string'
+    ? req.headers['idempotency-key']
+    : undefined;
   try {
-    const idempotencyKey = typeof req.headers['idempotency-key'] === 'string'
-      ? req.headers['idempotency-key']
-      : undefined;
     const job = await virtualTryOnService.createJob(
       getUserId(req),
       req.body as CreateVirtualTryOnJobInput,
@@ -147,6 +148,16 @@ export const createJob = async (req: Request, res: Response) => {
     );
     return created(res, job);
   } catch (error) {
+    console.warn('Virtual try-on create request rejected:', {
+      userId: req.user?.userId,
+      requestId: idempotencyKey,
+      errorCode: error instanceof VirtualTryOnServiceError ? error.errorCode : 'INTERNAL_ERROR',
+      statusCode: error instanceof VirtualTryOnServiceError ? error.statusCode : 500,
+      durationMs: Date.now() - startedAt,
+      hasContextPrompt: typeof req.body?.contextPrompt === 'string' && Boolean(req.body.contextPrompt.trim()),
+      contextPreset: req.body?.contextPreset,
+      selectedItemCount: Array.isArray(req.body?.selectedItems) ? req.body.selectedItems.length : 0,
+    });
     return handleError(res, error);
   }
 };

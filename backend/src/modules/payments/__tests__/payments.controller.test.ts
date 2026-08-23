@@ -456,6 +456,7 @@ describe('handleVNPayReturn', () => {
 
   const createResponse = () => ({
     status: jest.fn().mockReturnThis(),
+    redirect: jest.fn(),
     send: jest.fn(),
     json: jest.fn(),
   }) as unknown as Response;
@@ -481,17 +482,18 @@ describe('handleVNPayReturn', () => {
     jest.restoreAllMocks();
   });
 
-  it('returns to the web order page when the storefront URL is configured', async () => {
+  it('redirects directly to the web order detail page when the storefront URL is configured', async () => {
     process.env.CUSTOMER_FRONTEND_URL = 'http://localhost:5173';
     process.env.VNPAY_MOBILE_RETURN_URL = 'fashionapp://payment-result';
     const res = createResponse();
 
     await handleVNPayReturn({ query: {} } as Request, res);
 
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.send).toHaveBeenCalledWith(expect.stringContaining(
+    expect(res.redirect).toHaveBeenCalledWith(
+      303,
       `http://localhost:5173/orders/${orderId.toString()}?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
-    ));
+    );
+    expect(res.send).not.toHaveBeenCalled();
   });
 
   it('falls back to the mobile deep link when no storefront URL is configured', async () => {
@@ -505,6 +507,19 @@ describe('handleVNPayReturn', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.send).toHaveBeenCalledWith(expect.stringContaining(
       `fashionapp://payment-result?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
+    ));
+  });
+
+  it('returns a mobile checkout to the app even when the storefront URL is configured', async () => {
+    process.env.CUSTOMER_FRONTEND_URL = 'http://localhost:5173';
+    process.env.VNPAY_MOBILE_RETURN_URL = 'fashion-ecommerce://payment-return';
+    const res = createResponse();
+
+    await handleVNPayReturn({ query: {}, path: '/vnpay/return/mobile' } as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.send).toHaveBeenCalledWith(expect.stringContaining(
+      `fashion-ecommerce://payment-return?orderId=${orderId.toString()}&paymentStatus=paid&responseCode=00&txnRef=FSRETURNA1`,
     ));
   });
 });

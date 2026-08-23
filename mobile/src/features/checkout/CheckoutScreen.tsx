@@ -26,6 +26,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import {
   canSubmitCheckout,
+  getCouponCodesFromRouteParams,
   getCheckoutErrorPresentation,
   getCheckoutItemTitle,
   getCheckoutValidationIssue,
@@ -106,6 +107,7 @@ const CheckoutScreen = () => {
     note: '',
   });
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousCheckoutCartItemIdsKeyRef = useRef('');
 
   const selectedAddress = useMemo(
     () =>
@@ -331,19 +333,22 @@ const CheckoutScreen = () => {
   });
 
   useEffect(() => {
-    const nextCouponCode = route.params?.couponCode?.trim().toUpperCase();
-    if (!nextCouponCode || appliedCouponCodes.includes(nextCouponCode)) return;
-
-    setCouponCode(nextCouponCode);
-    setAppliedCouponCodes((current) => [...current, nextCouponCode].slice(0, 3));
-  }, [appliedCouponCodes, route.params?.couponCode]);
-
-  useEffect(() => {
-    if (route.params?.couponCode) return;
+    const previousKey = previousCheckoutCartItemIdsKeyRef.current;
+    previousCheckoutCartItemIdsKeyRef.current = checkoutCartItemIdsKey;
+    if (!previousKey || previousKey === checkoutCartItemIdsKey) return;
 
     setCouponCode('');
     setAppliedCouponCodes([]);
-  }, [checkoutCartItemIdsKey, route.params?.couponCode]);
+  }, [checkoutCartItemIdsKey]);
+
+  useEffect(() => {
+    const nextCodes = getCouponCodesFromRouteParams(route.params);
+    if (nextCodes === null) return;
+
+    setAppliedCouponCodes(nextCodes);
+    setCouponCode('');
+    navigation.setParams({ couponCode: undefined, couponCodes: undefined });
+  }, [navigation, route.params?.couponCode, route.params?.couponCodes]);
 
   useEffect(() => {
     if (!session?.accessToken || !selectedCheckoutItems.length) {
@@ -588,6 +593,7 @@ const CheckoutScreen = () => {
 
   const handleApplyCoupon = async () => {
     const code = couponCode.trim();
+    const normalizedCode = code.toUpperCase();
 
     if (!session?.accessToken) {
       navigation.navigate('Login');
@@ -604,8 +610,8 @@ const CheckoutScreen = () => {
       return;
     }
 
-    if (!appliedCouponCodes.includes(code.toUpperCase()) && appliedCouponCodes.length >= 3) {
-      showNotice({ tone: 'warning', title: 'Đã đạt giới hạn voucher', message: 'Mỗi đơn chỉ có thể áp dụng tối đa 3 voucher.' });
+    if (!appliedCouponCodes.includes(normalizedCode) && appliedCouponCodes.length >= 2) {
+      showNotice({ tone: 'warning', title: 'Đã đạt giới hạn voucher', message: 'Mỗi đơn chỉ áp dụng tối đa 1 mã giảm giá + 1 mã Freeship.' });
       return;
     }
 
@@ -613,7 +619,7 @@ const CheckoutScreen = () => {
       setIsApplyingCoupon(true);
       const preview = await runWithAuth((accessToken) =>
         cartApi.previewCheckout(accessToken, {
-          couponCodes: Array.from(new Set([...appliedCouponCodes, code.toUpperCase()])).slice(0, 3),
+          couponCodes: Array.from(new Set([...appliedCouponCodes, normalizedCode])).slice(0, 2),
           cartItemIds: selectedCheckoutItems.map((item) => item._id),
           ...getCheckoutAddressPayload(),
           paymentMethod,
@@ -629,7 +635,8 @@ const CheckoutScreen = () => {
       setCheckoutPreviewKey([selectedCheckoutItemKey, selectedAddressKey, previewCodes.join(','), paymentMethod].join('::'));
       setAppliedCouponCodes(previewCodes);
       setCouponCode('');
-      showNotice({ tone: 'success', title: 'Đã áp dụng voucher', message: `${preview.coupon.code} đã được tính vào đơn hàng.` }, 3200);
+      const appliedCode = previewCodes.find((previewCode) => previewCode === normalizedCode) ?? normalizedCode;
+      showNotice({ tone: 'success', title: 'Đã áp dụng voucher', message: `${appliedCode} đã được tính vào đơn hàng.` }, 3200);
     } catch (error) {
       const errorPresentation = getCheckoutErrorPresentation(error);
       const isCouponLimitError =
@@ -658,6 +665,7 @@ const CheckoutScreen = () => {
     navigation.navigate('Coupons', {
       cartItemIds: selectedCheckoutItems.map((item) => item._id),
       selectedCouponCode: appliedCouponCode,
+      selectedCouponCodes: appliedCouponCodes,
       paymentMethod,
     });
   };
@@ -1024,16 +1032,30 @@ const CheckoutScreen = () => {
           <Text style={styles.sectionTitle}>Ưu đãi dành cho bạn</Text>
           <View style={styles.promoStack}>
             <View style={styles.couponCard}>
+              <TouchableOpacity style={styles.couponSelector} onPress={handleOpenCoupons} activeOpacity={0.82} disabled={!selectedCheckoutItems.length}>
+                <View style={styles.couponSelectorIcon}>
+                  <MaterialCommunityIcons name="ticket-percent" size={24} color={colors.white} />
+                </View>
+                <View style={styles.couponSelectorCopy}>
+                  <Text style={styles.couponSelectorTitle}>Voucher của hệ thống</Text>
+                  <Text style={styles.couponSelectorMeta}>Chọn hoặc nhập mã khuyến mãi</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+
               <View style={styles.couponInputRow}>
-                <TextInput
-                  style={styles.couponInput}
-                  value={couponCode}
-                  onChangeText={(value) => setCouponCode(value.toUpperCase())}
-                  placeholder="Nhập mã voucher"
-                  placeholderTextColor={colors.textSubtle}
-                  autoCapitalize="characters"
-                  editable={!isApplyingCoupon}
-                />
+                <View style={styles.couponInputWrapper}>
+                  <MaterialCommunityIcons name="ticket-confirmation-outline" size={20} color={colors.textMuted} />
+                  <TextInput
+                    style={styles.couponInput}
+                    value={couponCode}
+                    onChangeText={(value) => setCouponCode(value.toUpperCase())}
+                    placeholder="Nhập mã voucher"
+                    placeholderTextColor={colors.textSubtle}
+                    autoCapitalize="characters"
+                    editable={!isApplyingCoupon}
+                  />
+                </View>
                 <TouchableOpacity
                   style={[
                     styles.couponApplyButton,
@@ -1046,27 +1068,26 @@ const CheckoutScreen = () => {
                   {isApplyingCoupon ? <ActivityIndicator color={colors.white} size="small" /> : <Text style={styles.couponApplyText}>Áp dụng</Text>}
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.couponListButton} onPress={handleOpenCoupons} activeOpacity={0.82} disabled={!selectedCheckoutItems.length}>
-                <MaterialCommunityIcons name="ticket-percent-outline" size={18} color={colors.brand} />
-                <Text style={styles.couponListText}>Chọn voucher khả dụng</Text>
-                <MaterialCommunityIcons name="chevron-right" size={20} color={colors.brand} />
-              </TouchableOpacity>
+
               {appliedCoupons.length ? (
-                appliedCoupons.map((coupon) => (
-                  <View style={styles.couponAppliedRow} key={coupon.code}>
-                    <View style={styles.couponAppliedCopy}>
-                      <Text style={styles.couponAppliedTitle}>{coupon.name}</Text>
-                      <Text style={styles.couponAppliedMeta}>Mã {coupon.code} đang được tính vào đơn hàng</Text>
+                <View style={styles.appliedCouponsWrapper}>
+                  {appliedCoupons.map((coupon) => (
+                    <View style={styles.couponAppliedRow} key={coupon.code}>
+                      <MaterialCommunityIcons name="check-decagram" size={20} color={colors.success} />
+                      <View style={styles.couponAppliedCopy}>
+                        <Text style={styles.couponAppliedTitle}>{coupon.name}</Text>
+                        <Text style={styles.couponAppliedMeta}>Mã {coupon.code} đã được áp dụng</Text>
+                      </View>
+                      <TouchableOpacity style={styles.couponClearButton} onPress={() => handleClearCoupon(coupon.code)} activeOpacity={0.82}>
+                        <Text style={styles.couponClearText}>Bỏ</Text>
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity onPress={() => handleClearCoupon(coupon.code)} activeOpacity={0.82}>
-                      <Text style={styles.couponClearText}>Bỏ</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
+                  ))}
+                </View>
               ) : (
                 <Text style={styles.couponHint}>
                   {isPreviewLoading
-                    ? 'Đang tính lại voucher, phí ship và tổng tiền...'
+                    ? 'Đang tính lại voucher...'
                     : 'Voucher sẽ được kiểm tra theo sản phẩm, địa chỉ giao hàng và hạng thành viên.'}
                 </Text>
               )}
@@ -1653,15 +1674,22 @@ const styles = StyleSheet.create({
   couponInputRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+    paddingTop: spacing.sm,
   },
-  couponInput: {
+  couponInputWrapper: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.sm,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  couponInput: {
+    flex: 1,
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
     color: colors.text,
     fontSize: 14,
     fontWeight: '700',
@@ -1682,30 +1710,55 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '900',
   },
-  couponListButton: {
+  couponSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
+    gap: spacing.md,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  couponListText: {
+  couponSelectorIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  couponSelectorCopy: {
     flex: 1,
-    color: colors.brand,
-    fontSize: 13,
-    lineHeight: 18,
+    gap: 2,
+  },
+  couponSelectorTitle: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '900',
+  },
+  couponSelectorMeta: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  appliedCouponsWrapper: {
+    gap: spacing.sm,
   },
   couponAppliedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    backgroundColor: colors.successSoft,
+    padding: spacing.md,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(33, 150, 83, 0.2)',
   },
   couponAppliedCopy: {
     flex: 1,
-    gap: spacing.xs,
+    gap: 2,
   },
   couponAppliedTitle: {
     color: colors.text,
@@ -1718,6 +1771,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '600',
+  },
+  couponClearButton: {
+    paddingLeft: spacing.sm,
   },
   couponClearText: {
     color: colors.danger,

@@ -4,7 +4,7 @@ import { supportService } from '../support/support.service';
 
 export const getCustomerNotificationSummary = async (userId: string) => {
   if (!Types.ObjectId.isValid(userId)) {
-    throw Object.assign(new Error('Invalid user'), { statusCode: 400 });
+    throw Object.assign(new Error('Người dùng không hợp lệ'), { statusCode: 400 });
   }
 
   const userObjectId = new Types.ObjectId(userId);

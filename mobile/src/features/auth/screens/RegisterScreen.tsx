@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  FlatList,
+  Keyboard,
   ScrollView,
   View,
   Text,
@@ -85,6 +85,7 @@ const isInlineSelectId = (id?: string) =>
   id === 'gender' || id === 'birthDay' || id === 'birthMonth' || id === 'birthYear';
 
 const RegisterScreen = () => {
+  const [keyboardBottomPadding, setKeyboardBottomPadding] = useState(0);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -165,6 +166,20 @@ const RegisterScreen = () => {
 
   useEffect(() => {
     void loadProvinces();
+  }, []);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardBottomPadding(Math.max(480, event.endCoordinates.height + 120));
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardBottomPadding(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
   }, []);
 
   const openSelect = (config: SelectConfig) => {
@@ -727,14 +742,16 @@ const RegisterScreen = () => {
           }}
           onManualSubmit={handleManualWardSubmit}
         />
-        <FlatList
+        <ScrollView
           style={styles.flex}
-          data={[]}
-          renderItem={() => null}
-          contentContainerStyle={styles.scrollContainer}
+          contentContainerStyle={[
+            styles.scrollContainer,
+            keyboardBottomPadding > 0 ? { paddingBottom: keyboardBottomPadding } : undefined,
+          ]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={(
+        >
         <View style={styles.form}>
           {generalError ? (
             <Text style={styles.errorBanner}>{generalError}</Text>
@@ -962,8 +979,7 @@ const RegisterScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
-          )}
-        />
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -972,7 +988,10 @@ const RegisterScreen = () => {
 const styles = StyleSheet.create({
   flex: sharedStyles.flex,
   container: sharedStyles.authContainer,
-  scrollContainer: sharedStyles.authScrollContent,
+  scrollContainer: {
+    ...sharedStyles.authScrollContent,
+    paddingBottom: 360,
+  },
   topHeader: sharedStyles.authTopHeader,
   headerBack: sharedStyles.authHeaderBack,
   headerBackIcon: sharedStyles.authHeaderBackIcon,

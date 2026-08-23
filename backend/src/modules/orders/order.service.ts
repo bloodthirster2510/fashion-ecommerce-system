@@ -48,6 +48,7 @@ import {
   type OrderShippingMilestone,
 } from '../realtime/order.gateway';
 import {
+  sendCustomerPush,
   sendShippingUpdatePush,
   type ShippingPushMilestone,
 } from '../notifications/push-notification.service';
@@ -538,6 +539,10 @@ const triggerOrderStatusChange = async (
   before: OrderChangeSnapshot,
   type: OrderRealtimeEventType,
   milestone?: OrderShippingMilestone,
+  options: {
+    notificationStatus?: string;
+    suppressLoyaltyEarned?: boolean;
+  } = {},
 ) => {
   const shippingStatusBefore = before.shipping?.status ?? null;
   const shippingStatusAfter = order.shipping?.status ?? null;
@@ -563,13 +568,40 @@ const triggerOrderStatusChange = async (
   );
 
   if (before.status !== order.status) {
-    await recordOrderStatusNotification({
+    const notificationStatus = options.notificationStatus ?? order.status;
+    const notification = await recordOrderStatusNotification({
       userId: order.user_id.toString(),
       orderId: order._id.toString(),
       orderCode: order.orderCode,
-      status: order.status,
+      status: notificationStatus,
       imageUrl: order.order_list[0]?.image ?? null,
     });
+
+    if (notification && [
+      'packed',
+      'completed',
+      'cancelled',
+      'payment_expired',
+      'return_approved',
+      'return_rejected',
+      'returned',
+    ].includes(notificationStatus)) {
+      await runBestEffort(
+        'Failed to send order status push notification',
+        sendCustomerPush({
+          userId: order.user_id.toString(),
+          title: notification.title,
+          body: notification.body,
+          notificationId: notification._id.toString(),
+          category: 'order',
+          data: {
+            type: 'order_update',
+            orderId: order._id.toString(),
+            status: notificationStatus,
+          },
+        }),
+      );
+    }
   }
 
   if (milestone && ['picked', 'shipping', 'delivered', 'failed'].includes(milestone)) {
@@ -601,6 +633,7 @@ const triggerOrderStatusChange = async (
 
   if (
     before.status !== order.status &&
+    !options.suppressLoyaltyEarned &&
     ['delivered', 'completed'].includes(order.status) &&
     (order.loyaltyPointsAwarded ?? 0) > 0
   ) {
@@ -1677,20 +1710,20 @@ const createOrder = async (userId: string, input: CreateOrderInput) => {
 
       await inventoryService.commitReservations({ reservationIds }, sessionOptions);
 
-      await Promise.all(
-        orderItems.map((item) =>
-          session
-            ? Product.updateOne(
-                { _id: item.productId },
-                { $inc: { sold_quantity: item.quantity } },
-                { session },
-              )
-            : Product.updateOne(
-                { _id: item.productId },
-                { $inc: { sold_quantity: item.quantity } },
-              ),
-        ),
-      );
+      for (const item of orderItems) {
+        if (session) {
+          await Product.updateOne(
+            { _id: item.productId },
+            { $inc: { sold_quantity: item.quantity } },
+            { session },
+          );
+        } else {
+          await Product.updateOne(
+            { _id: item.productId },
+            { $inc: { sold_quantity: item.quantity } },
+          );
+        }
+      }
 
       return order;
     });
@@ -1983,6 +2016,30 @@ const cancelOrderForPaymentDeadline = async (orderId: string, now = new Date()) 
     'Order cancelled due to payment deadline exceeded',
   );
   await recordRecommendationOrderLifecycle(finalOrder, 'order_cancelled');
+  const notification = await recordOrderStatusNotification({
+    userId: finalOrder.user_id.toString(),
+    orderId: finalOrder._id.toString(),
+    orderCode: finalOrder.orderCode,
+    status: 'payment_expired',
+    imageUrl: finalOrder.order_list[0]?.image ?? null,
+  });
+  if (notification) {
+    await runBestEffort(
+      'Failed to send payment deadline cancellation push notification',
+      sendCustomerPush({
+        userId: finalOrder.user_id.toString(),
+        title: notification.title,
+        body: notification.body,
+        notificationId: notification._id.toString(),
+        category: 'order',
+        data: {
+          type: 'order_update',
+          orderId: finalOrder._id.toString(),
+          status: 'payment_expired',
+        },
+      }),
+    );
+  }
   return finalOrder;
 };
 
@@ -2101,6 +2158,7 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
   assertReturnWindowIsOpen(order);
   assertOrderStatusTransition(order.status, 'return_requested');
   assertPaymentAllowsOrderStatus(order, 'return_requested');
+  const before = createOrderChangeSnapshot(order);
   const evidenceImageUrls = await resolveEvidenceImageUrls(order._id.toString(), 'return', input);
   order.status = 'return_requested';
   order.returnRequest = {
@@ -2114,7 +2172,9 @@ const requestReturn = async (userId: string, id: string, input: RequestReturnInp
     reviewReason: null,
   };
 
-  return order.save();
+  const savedOrder = await order.save();
+  await triggerOrderStatusChange(savedOrder, before, 'status_update');
+  return savedOrder;
 };
 
 const reviewReturnRequest = async (
@@ -2130,6 +2190,7 @@ const reviewReturnRequest = async (
   }
 
   const reviewReason = normalizeReturnReviewReason(input.reason, input.decision);
+  const before = createOrderChangeSnapshot(order);
   const reviewedAt = new Date();
   const reviewedBy = toObjectId(reviewerId, 'reviewerId');
 
@@ -2153,7 +2214,18 @@ const reviewReturnRequest = async (
     reviewReason,
   };
 
-  return order.save();
+  const savedOrder = await order.save();
+  await triggerOrderStatusChange(
+    savedOrder,
+    before,
+    'status_update',
+    undefined,
+    {
+      notificationStatus: input.decision === 'approved' ? 'return_approved' : 'return_rejected',
+      suppressLoyaltyEarned: input.decision === 'rejected',
+    },
+  );
+  return savedOrder;
 };
 
 const updateOrderStatus = async (
@@ -2221,7 +2293,12 @@ const updateOrderStatus = async (
   }
 
   const savedOrder = await order.save();
-  await triggerOrderStatusChange(savedOrder, before, 'status_update');
+  await triggerOrderStatusChange(
+    savedOrder,
+    before,
+    'status_update',
+    input.status === 'shipping' ? 'shipping' : undefined,
+  );
   return savedOrder;
 };
 

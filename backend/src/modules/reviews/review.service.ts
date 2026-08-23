@@ -27,6 +27,8 @@ import type {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
+const MIN_ADMIN_REPLY_LENGTH = 10;
+const MAX_ADMIN_REPLY_LENGTH = 2000;
 const DEFAULT_REVIEW_MUTATION_WINDOW_DAYS = 30;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -1262,6 +1264,10 @@ const updateManyModerationStatuses = async (
 const replyToReview = async (reviewIdValue: string, actor: ReviewAdminActor, reply: string) => {
   const reviewId = toObjectId(reviewIdValue, 'reviewId');
   const adminId = toObjectId(actor.userId, 'adminId');
+  const normalizedReply = reply.trim();
+  if (normalizedReply.length < MIN_ADMIN_REPLY_LENGTH || normalizedReply.length > MAX_ADMIN_REPLY_LENGTH) {
+    throw new ReviewServiceError('Admin reply must contain between 10 and 2000 characters', 400);
+  }
   const result = await withReviewTransaction(async (session) => {
     const review = await Review.findById(reviewId).session(session);
     if (!review) throw new ReviewServiceError('Review not found', 404);
@@ -1269,7 +1275,7 @@ const replyToReview = async (reviewIdValue: string, actor: ReviewAdminActor, rep
       throw new ReviewServiceError('A hidden review must be restored before replying', 409);
     }
     const previousReply = review.adminReply ?? null;
-    review.adminReply = reply.trim();
+    review.adminReply = normalizedReply;
     review.repliedAt = new Date();
     review.repliedBy = adminId;
     await review.save({ session });

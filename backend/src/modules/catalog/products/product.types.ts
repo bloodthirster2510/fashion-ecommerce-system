@@ -49,6 +49,7 @@ export interface UpdateProductInput {
 export type ProductGenderFilter = 'male' | 'female' | 'unisex';
 
 export type ProductSortOption =
+  | 'relevance'
   | 'name_asc'
   | 'name_desc'
   | 'price_asc'

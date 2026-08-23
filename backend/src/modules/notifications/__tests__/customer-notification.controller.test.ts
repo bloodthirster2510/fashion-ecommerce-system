@@ -34,12 +34,12 @@ describe('customer notification controller', () => {
     } as unknown as Request;
     const response = createResponse();
     (pushNotificationService.unregisterPushToken as jest.Mock).mockRejectedValue(
-      Object.assign(new Error('Invalid Expo push token'), { statusCode: 400 }),
+      Object.assign(new Error('Thông tin nhận thông báo không hợp lệ'), { statusCode: 400 }),
     );
 
     await unregisterMyPushToken(request, response);
 
     expect(response.status).toHaveBeenCalledWith(400);
-    expect(response.json).toHaveBeenCalledWith({ message: 'Invalid Expo push token' });
+    expect(response.json).toHaveBeenCalledWith({ message: 'Thông tin nhận thông báo không hợp lệ' });
   });
 });

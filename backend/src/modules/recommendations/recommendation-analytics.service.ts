@@ -113,6 +113,7 @@ type TrendEventRow = {
 type CoverageRow = {
   id: string;
   name: string;
+  gender?: 'male' | 'female' | 'unisex';
   recommendedCount: number;
   requestCount: number;
 };
@@ -290,6 +291,26 @@ export const buildActiveCoverageProductFilter = (
     [`${prefix}isActive`]: true,
     [`${prefix}${dimension}`]: { $exists: true, $ne: null },
   };
+};
+
+const coverageGenderLabels: Record<NonNullable<CoverageRow['gender']>, string> = {
+  male: 'Nam',
+  female: 'Nữ',
+  unisex: 'Phi giới tính',
+};
+
+export const disambiguateCoverageRows = (rows: CoverageRow[]) => {
+  const occurrences = rows.reduce<Map<string, number>>((counts, row) => {
+    const key = row.name.trim().toLocaleLowerCase('vi-VN');
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map());
+
+  return rows.map(({ gender, ...row }) => {
+    const key = row.name.trim().toLocaleLowerCase('vi-VN');
+    if ((occurrences.get(key) ?? 0) < 2 || !gender) return row;
+    return { ...row, name: `${coverageGenderLabels[gender]} / ${row.name}` };
+  });
 };
 
 const parseDate = (value: unknown, fallback: Date, endOfDay = false) => {
@@ -672,6 +693,7 @@ const collectCoverageBreakdown = async (
           _id: 0,
           id: { $toString: '$_id' },
           name: { $ifNull: [{ $arrayElemAt: ['$category.name', 0] }, 'Không rõ danh mục'] },
+          gender: { $arrayElemAt: ['$category.gender', 0] },
           recommendedCount: 1,
           requestCount: { $size: '$requestIds' },
         },
@@ -710,7 +732,7 @@ const collectCoverageBreakdown = async (
       uniqueRecommended: categoryRows.length,
       totalActive: activeCategoryRows.length,
       coverageRate: calculateAnalyticsRate(categoryRows.length, activeCategoryRows.length),
-      top: categoryRows.slice(0, 10),
+      top: disambiguateCoverageRows(categoryRows).slice(0, 10),
     },
     brands: {
       uniqueRecommended: brandRows.length,

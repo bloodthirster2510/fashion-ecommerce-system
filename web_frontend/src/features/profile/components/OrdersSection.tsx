@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Empty, Image, Skeleton } from 'antd'
+import { Alert, Button, Empty, Image } from 'antd'
 import { formatPrice } from '../../../utils/formatPrice'
 import { orderService } from '../../orders/order.service'
 import type { CustomerOrder, OrderStatus } from '../../orders/order.types'
 import { formatDisplayDate, getOrderItemMeta } from '../profile.utils'
+import { AccountSectionSkeleton } from './AccountSectionSkeleton'
 
 const statusLabels: Record<OrderStatus, string> = {
   confirmed: 'Đang xử lý',
@@ -31,7 +32,7 @@ const statusClasses: Record<OrderStatus, string> = {
 
 export function OrdersSection() {
   const [orders, setOrders] = useState<CustomerOrder[]>([])
-  const [isLoadingOrders, setIsLoadingOrders] = useState(false)
+  const [isLoadingOrders, setIsLoadingOrders] = useState(true)
   const [ordersError, setOrdersError] = useState('')
 
   const loadOrders = () => {
@@ -59,8 +60,9 @@ export function OrdersSection() {
 
       {ordersError && <Alert type="error" message={ordersError} showIcon />}
 
-      <Skeleton active loading={isLoadingOrders} paragraph={{ rows: 8 }}>
-        {!orders.length && !ordersError ? (
+      {isLoadingOrders ? (
+        <AccountSectionSkeleton variant="list" />
+      ) : !orders.length && !ordersError ? (
           <Empty description="Bạn chưa có đơn hàng nào." />
         ) : (
           <div className="account-order-list">
@@ -105,7 +107,6 @@ export function OrdersSection() {
             ))}
           </div>
         )}
-      </Skeleton>
     </section>
   )
 }

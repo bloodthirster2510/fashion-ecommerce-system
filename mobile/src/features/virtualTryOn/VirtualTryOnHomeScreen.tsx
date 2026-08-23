@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, BackHandler, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -12,14 +12,20 @@ import { colors, radii, shadows, spacing } from '../../theme';
 import { hasNextPage, mergePageItems, type PageInfo } from '../../utils/pagination';
 import { useAuth } from '../auth/AuthContext';
 import { VirtualTryOnApiError, virtualTryOnApi } from './virtualTryOnApi';
-import { isImageValidationHardBlockReason } from './imageValidationPolicy';
+import {
+  isImageValidationSoftGuidanceReason,
+  isImageValidationSourceBlockReason,
+} from './imageValidationPolicy';
 import { TRY_ON_ACTIVE_ITEM_LIMIT, TRY_ON_QUEUE_LIMIT, type TryOnSeedItem, type VirtualTryOnAsset, type VirtualTryOnJob } from './virtualTryOn.types';
 import { getGeneratedTryOnImageUrls } from './virtualTryOnResultMedia';
 import { contextPresetLabel } from './contextPresets';
+import { mergeTryOnQueueItems, useTryOnQueue } from './TryOnQueueProvider';
+import ZoomableTryOnImage from './ZoomableTryOnImage';
 
 type NavigationProp = StackNavigationProp<RootStackParamList, 'VirtualTryOnHome'>;
 type RouteProps = RouteProp<RootStackParamList, 'VirtualTryOnHome'>;
 const ASSET_PAGE_SIZE = 20;
+const RECENT_JOB_LIMIT = 4;
 
 const formatDate = (value: string) => {
   try {
@@ -48,7 +54,7 @@ const isSourceAsset = (asset: VirtualTryOnAsset) =>
   asset.type === 'source_upload' || asset.type === 'source_camera';
 
 const isBlockedSourceAsset = (asset: VirtualTryOnAsset | null) =>
-  isImageValidationHardBlockReason(asset?.validationWarning?.reasonCode);
+  isImageValidationSourceBlockReason(asset?.validationWarning?.reasonCode);
 
 const getUploadAssetErrorAlert = (error: unknown) => {
   if (error instanceof VirtualTryOnApiError) {
@@ -56,13 +62,6 @@ const getUploadAssetErrorAlert = (error: unknown) => {
       return {
         title: 'Tài khoản bị khóa',
         message: error.message || 'Tính năng phối đồ đang bị khóa. Hãy liên hệ cửa hàng để được hỗ trợ.',
-      };
-    }
-
-    if (error.errorCode === 'IMAGE_POLICY_BLOCKED') {
-      return {
-        title: 'Ảnh chưa phù hợp',
-        message: 'Hãy chọn ảnh khác, rõ người hơn.',
       };
     }
 
@@ -92,7 +91,7 @@ const getUploadAssetErrorAlert = (error: unknown) => {
     if (error.errorCode === 'VALIDATION_PROVIDER_FAILED') {
       return {
         title: 'Chưa kiểm tra được ảnh',
-        message: 'Bạn thử lại sau nhé.',
+        message: 'Hãy thử tải lại ảnh sau ít phút.',
       };
     }
   }
@@ -120,16 +119,16 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   if (!warning && !asset.validationCheckedAt) {
     return {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Sẽ kiểm tra',
-      title: 'Ảnh đã chọn',
-      message: 'Ảnh sẽ được kiểm tra ở bước tiếp theo.',
+      label: 'Chưa có kết quả',
+      title: 'Ảnh chưa được kiểm tra',
+      message: 'Hệ thống sẽ kiểm tra lại ảnh này trước khi tạo phối đồ.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
     };
   }
 
-  if (!warning) {
+  if (!warning || warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
     return {
       icon: 'check' as keyof typeof MaterialCommunityIcons.glyphMap,
       label: 'Ảnh đã sẵn sàng',
@@ -141,60 +140,90 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
     };
   }
 
-  if (warning.reasonCode === 'IMAGE_POLICY_BLOCKED') {
-    return {
-      icon: 'alert-octagon-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có cảnh báo',
-      title: 'Ảnh cần xem lại',
-      message: 'Bạn có thể tiếp tục hoặc chọn ảnh khác.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
-    };
-  }
-
-  if (warning.reasonCode === 'NO_PERSON_DETECTED') {
-    return {
-      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Cần đổi ảnh',
-      title: 'Không thấy người trong ảnh',
-      message: 'Chọn ảnh thấy rõ người hơn.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
-    };
-  }
-
-  if (warning.reasonCode === 'MULTIPLE_PEOPLE_DETECTED') {
-    return {
-      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có cảnh báo',
-      title: 'Ảnh có nhiều người',
-      message: 'Nên dùng ảnh chỉ có một người.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
-    };
-  }
-
-  if (warning.reasonCode === 'VALIDATION_PROVIDER_FAILED') {
-    return {
+  if (isImageValidationSourceBlockReason(warning.reasonCode)) {
+    const block = {
+      NO_PERSON_DETECTED: {
+        icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Không thấy người trong ảnh',
+        message: 'Chọn ảnh thấy rõ người hoặc một phần cơ thể hơn.',
+      },
+      VALIDATION_PROVIDER_FAILED: {
+        icon: 'cloud-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Chưa kiểm tra được ảnh',
+        message: 'Hãy thử lại sau ít phút.',
+      },
+    }[warning.reasonCode] ?? {
       icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có thể tiếp tục',
-      title: 'Chưa kiểm tra được ảnh',
-      message: 'Bạn vẫn có thể tiếp tục.',
-      color: colors.goldDark,
-      softColor: colors.goldSoft,
-      borderColor: 'rgba(201,151,52,0.28)',
+      title: 'Ảnh không thể dùng',
+      message: 'Hãy chọn ảnh khác để phối đồ.',
+    };
+
+    return {
+      icon: block.icon,
+      label: 'Cần đổi ảnh',
+      title: block.title,
+      message: block.message,
+      color: '#B42318',
+      softColor: '#FFF1F0',
+      borderColor: 'rgba(180,35,24,0.24)',
     };
   }
 
-  if (warning.reasonCode === 'PERSON_TOO_SMALL') {
+  if (isImageValidationSoftGuidanceReason(warning.reasonCode)) {
+    const guidance = {
+      MULTIPLE_PEOPLE_DETECTED: {
+        icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh có nhiều người',
+        message: 'Nên dùng ảnh chỉ có một người.',
+      },
+      PERSON_TOO_SMALL: {
+        icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Người trong ảnh quá nhỏ',
+        message: 'Nên chọn ảnh chụp gần hơn.',
+      },
+      IMAGE_TOO_BLURRY: {
+        icon: 'image-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh bị mờ',
+        message: 'Nên chọn ảnh rõ nét hơn.',
+      },
+      IMAGE_TOO_DARK: {
+        icon: 'weather-night' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh quá tối',
+        message: 'Nên chọn ảnh sáng hơn.',
+      },
+      IMAGE_TOO_SMALL: {
+        icon: 'image-size-select-small' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Ảnh có độ phân giải thấp',
+        message: 'Nên chọn ảnh chất lượng cao hơn.',
+      },
+      POSE_NOT_SUPPORTED: {
+        icon: 'human-handsup' as keyof typeof MaterialCommunityIcons.glyphMap,
+        title: 'Tư thế khó xử lý',
+        message: 'Nên chọn ảnh đứng thẳng, ít bị che.',
+      },
+    }[warning.reasonCode] ?? {
+      icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
+      title: 'Ảnh cần lưu ý',
+      message: 'Bạn vẫn có thể tiếp tục.',
+    };
+
     return {
-      icon: 'account-alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
-      label: 'Có cảnh báo',
-      title: 'Người trong ảnh quá nhỏ',
-      message: 'Nên chọn ảnh chụp gần hơn.',
+      icon: guidance.icon,
+      label: 'Có lưu ý',
+      title: guidance.title,
+      message: guidance.message,
+      color: studioPalette.success,
+      softColor: studioPalette.guidanceSoft,
+      borderColor: 'rgba(25,135,84,0.14)',
+    };
+  }
+
+  if (warning.reasonCode === 'BODY_NOT_VISIBLE') {
+    return {
+      icon: 'human-male-height-variant' as keyof typeof MaterialCommunityIcons.glyphMap,
+      label: 'Cần chọn đồ phù hợp',
+      title: 'Ảnh chưa đủ vùng cơ thể',
+      message: 'Chỉ các món dùng vùng cơ thể nhìn thấy rõ mới có thể tạo ảnh.',
       color: colors.goldDark,
       softColor: colors.goldSoft,
       borderColor: 'rgba(201,151,52,0.28)',
@@ -204,7 +233,7 @@ const getAssetReadiness = (asset: VirtualTryOnAsset | null) => {
   return {
     icon: 'alert-outline' as keyof typeof MaterialCommunityIcons.glyphMap,
     label: 'Nên kiểm tra',
-    title: 'Ảnh chưa thật rõ',
+    title: 'Ảnh chưa rõ',
     message: 'Bạn vẫn có thể tiếp tục.',
     color: colors.goldDark,
     softColor: colors.goldSoft,
@@ -225,6 +254,7 @@ const studioPalette = {
   line: '#DDE7EC',
   success: '#198754',
   successSoft: '#EAF7EF',
+  guidanceSoft: '#D7FAE4',
 } as const;
 
 const virtualTryOnHeroImage = require('../../../assets/virtual-try-on/hero-studio.jpg');
@@ -233,6 +263,7 @@ const VirtualTryOnHomeScreen = () => {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
   const { isAuthenticated, runWithAuth } = useAuth();
+  const { items: queuedItems, addItems: addQueueItems, removeItem: removeQueueItem } = useTryOnQueue();
   const [latestAsset, setLatestAsset] = React.useState<VirtualTryOnAsset | null>(null);
   const [assetLibrary, setAssetLibrary] = React.useState<VirtualTryOnAsset[]>([]);
   const [assetPagination, setAssetPagination] = React.useState<PageInfo | null>(null);
@@ -249,15 +280,37 @@ const VirtualTryOnHomeScreen = () => {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const heroLift = React.useRef(new Animated.Value(0)).current;
 
+  const returnToHome = React.useCallback(() => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Home' }],
+    });
+  }, [navigation]);
+
+  useFocusEffect(React.useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      returnToHome();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [returnToHome]));
+
   React.useEffect(() => {
     const nextSeedItems = route.params?.seedItems;
     if (!nextSeedItems?.length) return;
 
-    setPendingSeedItems(nextSeedItems.slice(0, TRY_ON_QUEUE_LIMIT));
+    const nextQueue = mergeTryOnQueueItems(queuedItems, nextSeedItems);
+    addQueueItems(nextSeedItems);
+    setPendingSeedItems(nextQueue);
     setPendingAlternativeSeedItems(route.params?.alternativeSeedItems ?? []);
     setPendingEntryPoint(route.params?.entryPoint);
     navigation.setParams({ seedItems: undefined, alternativeSeedItems: undefined, entryPoint: undefined });
-  }, [navigation, route.params?.entryPoint, route.params?.seedItems, route.params?.alternativeSeedItems]);
+  }, [addQueueItems, navigation, queuedItems, route.params?.entryPoint, route.params?.seedItems, route.params?.alternativeSeedItems]);
+
+  React.useEffect(() => {
+    setPendingSeedItems(queuedItems);
+  }, [queuedItems]);
 
   React.useEffect(() => {
     const animation = Animated.loop(
@@ -314,7 +367,7 @@ const VirtualTryOnHomeScreen = () => {
       const [assetsResponse, latest, jobsResponse] = await Promise.all([
         virtualTryOnApi.getAssets(token, { page: 1, limit: ASSET_PAGE_SIZE }),
         virtualTryOnApi.getLatestJob(token),
-        virtualTryOnApi.getJobs(token, { limit: 8 }),
+        virtualTryOnApi.getJobs(token, { limit: RECENT_JOB_LIMIT }),
       ]);
       if (!isCurrent) return;
       const sourceAssets = assetsResponse.items.filter(isSourceAsset);
@@ -362,17 +415,10 @@ const VirtualTryOnHomeScreen = () => {
     }
   }, [assetPagination, isLoadingMoreAssets, runWithAuth]);
 
-  React.useEffect(() => {
-    if (pendingSeedItems.length && !latestAsset && assetLibrary.length) {
-      setLatestAsset(assetLibrary[0]);
-    }
-  }, [assetLibrary, latestAsset, pendingSeedItems.length]);
-
   const openBuilderWithAsset = React.useCallback((asset: VirtualTryOnAsset) => {
     const seedItems = pendingSeedItems;
     const alternativeSeedItems = pendingAlternativeSeedItems;
     const entryPoint = pendingEntryPoint;
-    setPendingSeedItems([]);
     setPendingAlternativeSeedItems([]);
     setPendingEntryPoint(undefined);
     navigation.navigate('VirtualTryOnBuilder', {
@@ -518,7 +564,7 @@ const VirtualTryOnHomeScreen = () => {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerButton}
-          onPress={() => navigation.navigate('Home', undefined, { pop: true })}
+          onPress={returnToHome}
           activeOpacity={0.8}
         >
           <MaterialCommunityIcons name="arrow-left" size={25} color={colors.white} />
@@ -560,42 +606,72 @@ const VirtualTryOnHomeScreen = () => {
           ))}
         </View>
 
-        {pendingSeedItems.length ? (
-          <View style={styles.pendingOutfitCard}>
+        <View style={styles.pendingOutfitCard}>
             <View style={styles.pendingOutfitTopRow}>
               <View style={styles.pendingOutfitIcon}>
-                <MaterialCommunityIcons name="cart-check" size={22} color={colors.white} />
+                <MaterialCommunityIcons name="hanger" size={22} color={colors.white} />
               </View>
               <View style={styles.pendingOutfitCopy}>
-                <Text style={styles.pendingOutfitEyebrow}>
-                  {pendingEntryPoint === 'cart' ? 'Mang từ giỏ hàng' : 'Bộ đồ được giữ lại'}
+                <Text style={styles.pendingOutfitEyebrow}>Hàng chờ phối</Text>
+                <Text style={styles.pendingOutfitTitle}>
+                  {pendingSeedItems.length ? `${pendingSeedItems.length} món chờ thử` : 'Chưa có món nào'}
                 </Text>
-                <Text style={styles.pendingOutfitTitle}>{pendingSeedItems.length} món chờ thử</Text>
-                <Text style={styles.pendingOutfitText}>Chọn ảnh để bắt đầu. Mỗi lượt tối đa {TRY_ON_ACTIVE_ITEM_LIMIT} món.</Text>
+                <Text style={styles.pendingOutfitText}>
+                  {pendingSeedItems.length
+                    ? `Chọn ảnh để bắt đầu. Mỗi lượt tối đa ${TRY_ON_ACTIVE_ITEM_LIMIT} món.`
+                    : 'Thêm món từ giỏ hàng hoặc danh sách yêu thích.'}
+                </Text>
               </View>
             </View>
-            <View style={styles.pendingOutfitThumbRow}>
-              {pendingSeedItems.map((item, index) => (
-                <View key={item.cartItemId ?? `${item.productId}-${item.variantId}-${item.colorVariantId}-${item.size ?? index}`} style={styles.pendingOutfitThumbWrap}>
-                  {item.imageSnapshot ? (
-                    <RemoteImage
-                      uri={item.imageSnapshot}
-                      style={styles.pendingOutfitThumb}
-                      recyclingKey={`pending-outfit-${item.colorVariantId}`}
-                    />
-                  ) : (
-                    <View style={styles.pendingOutfitThumbPlaceholder}>
-                      <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
-                    </View>
-                  )}
-                  <View style={styles.pendingOutfitIndex}>
-                    <Text style={styles.pendingOutfitIndexText}>{index + 1}</Text>
-                  </View>
-                </View>
-              ))}
+            <View style={styles.queueSourceRow}>
+              <TouchableOpacity
+                style={styles.queueSourceButton}
+                onPress={() => navigation.navigate('Cart', { selectionSource: 'virtualTryOn' })}
+                activeOpacity={0.84}
+              >
+                <MaterialCommunityIcons name="cart-outline" size={18} color={colors.white} />
+                <Text style={styles.queueSourceButtonText}>Giỏ hàng</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.queueSourceButton}
+                onPress={() => navigation.navigate('Favorites')}
+                activeOpacity={0.84}
+              >
+                <MaterialCommunityIcons name="bookmark-outline" size={18} color={colors.white} />
+                <Text style={styles.queueSourceButtonText}>Yêu thích</Text>
+              </TouchableOpacity>
             </View>
+            {pendingSeedItems.length ? (
+              <View style={styles.pendingOutfitThumbRow}>
+                {pendingSeedItems.map((item, index) => (
+                  <View key={item.cartItemId ?? `${item.productId}-${item.variantId}-${item.colorVariantId}-${item.size ?? index}`} style={styles.pendingOutfitThumbWrap}>
+                    {item.imageSnapshot ? (
+                      <RemoteImage
+                        uri={item.imageSnapshot}
+                        style={styles.pendingOutfitThumb}
+                        recyclingKey={`pending-outfit-${item.colorVariantId}`}
+                      />
+                    ) : (
+                      <View style={styles.pendingOutfitThumbPlaceholder}>
+                        <MaterialCommunityIcons name="hanger" size={22} color={studioPalette.primary} />
+                      </View>
+                    )}
+                    <View style={styles.pendingOutfitIndex}>
+                      <Text style={styles.pendingOutfitIndexText}>{index + 1}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.pendingOutfitRemove}
+                      onPress={() => removeQueueItem(item)}
+                      activeOpacity={0.82}
+                      accessibilityLabel={`Bỏ ${item.nameSnapshot ?? 'sản phẩm'} khỏi hàng chờ phối`}
+                    >
+                      <MaterialCommunityIcons name="close" size={13} color={colors.white} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
-        ) : null}
 
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
@@ -632,18 +708,10 @@ const VirtualTryOnHomeScreen = () => {
                   >
                     <MaterialCommunityIcons name="close" size={18} color={colors.white} />
                   </TouchableOpacity>
-                  <View style={[styles.heroBadge, { backgroundColor: assetReadiness.color }]}>
-                    <MaterialCommunityIcons name={assetReadiness.icon} size={16} color={colors.white} />
-                    <Text style={styles.heroBadgeText}>{assetReadiness.label}</Text>
-                  </View>
                 </TouchableOpacity>
               ) : (
                 <View style={styles.heroImageWrap}>
                   <Image source={virtualTryOnHeroImage} style={styles.heroImage} resizeMode="cover" />
-                  <View style={[styles.heroBadge, { backgroundColor: assetReadiness.color }]}>
-                    <MaterialCommunityIcons name={assetReadiness.icon} size={16} color={colors.white} />
-                    <Text style={styles.heroBadgeText}>{assetReadiness.label}</Text>
-                  </View>
                 </View>
               )}
             </Animated.View>
@@ -856,12 +924,16 @@ const VirtualTryOnHomeScreen = () => {
         visible={Boolean(isPreviewVisible && latestAsset)}
         transparent
         animationType="fade"
+        hardwareAccelerated
+        statusBarTranslucent
         onRequestClose={() => setIsPreviewVisible(false)}
       >
         <SafeAreaView style={styles.previewModal} edges={['top', 'bottom']}>
           <Pressable style={styles.previewBackdrop} onPress={() => setIsPreviewVisible(false)} />
           <View style={styles.previewHeader}>
-            <Text style={styles.previewTitle}>Ảnh người mặc</Text>
+            <View style={styles.previewTitleCopy}>
+              <Text style={styles.previewTitle}>Ảnh người mặc</Text>
+            </View>
             <TouchableOpacity
               style={styles.previewCloseButton}
               onPress={() => setIsPreviewVisible(false)}
@@ -872,12 +944,7 @@ const VirtualTryOnHomeScreen = () => {
           </View>
           <View style={[styles.previewImageFrame, { width: windowWidth, height: windowHeight }]}>
             {latestAsset ? (
-              <RemoteImage
-                uri={latestAsset.url}
-                style={styles.previewImage}
-                recyclingKey={`preview-${latestAsset._id}`}
-                resizeMode="contain"
-              />
+              <ZoomableTryOnImage uri={latestAsset.url} />
             ) : null}
           </View>
         </SafeAreaView>
@@ -1033,6 +1100,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
+  queueSourceRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  queueSourceButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  queueSourceButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
   pendingOutfitThumbRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -1072,6 +1162,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 13,
     fontWeight: '900',
+  },
+  pendingOutfitRemove: {
+    position: 'absolute',
+    right: 3,
+    top: 3,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: studioPalette.ink,
+    borderWidth: 2,
+    borderColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   hero: {
     borderRadius: radii.md,
@@ -1124,24 +1227,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.26)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  heroBadge: {
-    position: 'absolute',
-    left: spacing.md,
-    bottom: spacing.md,
-    minHeight: 32,
-    borderRadius: radii.pill,
-    backgroundColor: studioPalette.primary,
-    paddingHorizontal: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  heroBadgeText: {
-    color: colors.white,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '900',
   },
   readinessCard: {
     marginTop: spacing.md,
@@ -1562,11 +1647,14 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   previewTitle: {
-    flex: 1,
     color: colors.white,
     fontSize: 16,
     lineHeight: 22,
     fontWeight: '900',
+  },
+  previewTitleCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   previewCloseButton: {
     width: 42,

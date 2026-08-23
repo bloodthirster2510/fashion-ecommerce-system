@@ -64,7 +64,7 @@ def test_rejects_when_no_person_is_detected():
     assert response.reasonCode == "NO_PERSON_DETECTED"
 
 
-def test_rejects_multiple_people():
+def test_allows_multiple_people():
     response = evaluate_validation_rules(
         quality_assessment(),
         PersonPoseSummary(person_count=2, main_person_score=0.88),
@@ -72,8 +72,8 @@ def test_rejects_multiple_people():
         Settings(),
     )
 
-    assert response.allowed is False
-    assert response.reasonCode == "MULTIPLE_PEOPLE_DETECTED"
+    assert response.allowed is True
+    assert response.reasonCode is None
 
 
 def test_rejects_small_person_for_full_set():
