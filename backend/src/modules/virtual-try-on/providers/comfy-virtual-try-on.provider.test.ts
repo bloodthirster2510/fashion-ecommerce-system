@@ -7,10 +7,43 @@ import {
   createComfyVirtualTryOnProvider,
   getComfySafetyBlockReason,
   mapComfyPromptInputs,
+  validateGarmentProcessingItems,
 } from './comfy-virtual-try-on.provider';
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+describe('validateGarmentProcessingItems', () => {
+  const garments = [{
+    role: 'top' as const,
+    productId: 'product-1',
+    variantId: 'variant-1',
+    colorVariantId: 'color-1',
+    imageUrl: 'https://example.com/top.png',
+    name: 'Cotton top',
+  }];
+
+  it('accepts a complete usable extraction with non-blocking warnings', () => {
+    expect(validateGarmentProcessingItems(garments, [{
+      role: 'top',
+      imageBase64: 'aW1hZ2U=',
+      isUsable: true,
+      warnings: ['tiny_image'],
+    }])).toEqual(['tiny_image']);
+  });
+
+  it.each([
+    { items: [], errorCode: 'GARMENT_PROCESSING_ITEM_MISMATCH' },
+    { items: [{ role: 'bottom', imageBase64: 'aW1hZ2U=', isUsable: true }], errorCode: 'GARMENT_PROCESSING_ITEM_MISMATCH' },
+    { items: [{ role: 'top', imageBase64: 'aW1hZ2U=', isUsable: false }], errorCode: 'GARMENT_PROCESSING_ITEM_UNUSABLE' },
+    { items: [{ role: 'top', imageBase64: 'aW1hZ2U=', isUsable: true, warnings: ['ambiguous_foreground'] }], errorCode: 'GARMENT_PROCESSING_ITEM_LOW_QUALITY' },
+    { items: [{ role: 'top', imageBase64: 'aW1hZ2U=', isUsable: true, warnings: ['low_confidence'] }], errorCode: 'GARMENT_PROCESSING_ITEM_LOW_QUALITY' },
+  ])('rejects incomplete or risky extraction output with $errorCode', ({ items, errorCode }) => {
+    expect(() => validateGarmentProcessingItems(garments, items)).toThrow(
+      expect.objectContaining({ errorCode }),
+    );
+  });
 });
 
 describe('mapComfyPromptInputs', () => {

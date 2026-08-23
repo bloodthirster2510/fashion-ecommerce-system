@@ -433,7 +433,7 @@ describe('virtualTryOnService image validation', () => {
     });
 
     expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
-    expect(mockedProduct.find).not.toHaveBeenCalled();
+    expect(mockedProduct.find).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -526,6 +526,124 @@ describe('virtualTryOnService image validation', () => {
 
     expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
     expect(mockedProduct.find).not.toHaveBeenCalled();
+  });
+
+  it('enforces item count and slot rules for every outfit mode', async () => {
+    await expect(virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      selectedItems: [
+        createJobInput.selectedItems[0],
+        { ...createJobInput.selectedItems[0], role: 'bottom' },
+      ],
+    })).rejects.toMatchObject({ errorCode: 'OUTFIT_MODE_ITEM_COUNT', statusCode: 400 });
+
+    await expect(virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      outfitMode: 'top_bottom',
+      selectedItems: [
+        createJobInput.selectedItems[0],
+        { ...createJobInput.selectedItems[0], role: 'shoes' },
+      ],
+    })).rejects.toMatchObject({ errorCode: 'OUTFIT_MODE_ROLE_MISMATCH', statusCode: 400 });
+
+    await expect(virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      outfitMode: 'full_set',
+      selectedItems: [
+        createJobInput.selectedItems[0],
+        { ...createJobInput.selectedItems[0], role: 'outerwear' },
+      ],
+    })).rejects.toMatchObject({ errorCode: 'DUPLICATE_ITEM_SLOT', statusCode: 400 });
+
+    expect(mockedProduct.find).not.toHaveBeenCalled();
+  });
+
+  it('rejects a client role that conflicts with the catalog category', async () => {
+    mockedProduct.find.mockResolvedValueOnce([{
+      ...product,
+      category_id: { name: 'Giày / Dép khác' },
+    }]);
+
+    await expect(virtualTryOnService.createJob(userId, createJobInput)).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: 'ITEM_ROLE_MISMATCH',
+      data: expect.objectContaining({ receivedRole: 'top', expectedRole: 'shoes' }),
+    });
+    expect(mockedVirtualTryOnJob.create).not.toHaveBeenCalled();
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['Áo giữ nhiệt', 'top'],
+    ['Áo hai dây', 'top'],
+    ['Áo len', 'top'],
+    ['Áo polo', 'top'],
+    ['Áo sơ mi', 'top'],
+    ['Áo thun', 'top'],
+    ['Hoodie / Áo nỉ', 'top'],
+    ['Quần baggy', 'bottom'],
+    ['Quần âu', 'bottom'],
+    ['Quần jeans', 'bottom'],
+    ['Quần kaki', 'bottom'],
+    ['Quần thể thao', 'bottom'],
+    ['Chân váy', 'bottom'],
+    ['Đầm', 'dress'],
+    ['Bộ thể thao', 'dress'],
+    ['Đồ bộ', 'dress'],
+    ['Giày cao gót', 'shoes'],
+    ['Giày lười', 'shoes'],
+    ['Giày thể thao', 'shoes'],
+    ['Sandal', 'shoes'],
+    ['Giày / Dép khác', 'shoes'],
+  ] as const)('maps the current catalog category %s to %s on the server', async (categoryName, role) => {
+    mockedProduct.find.mockResolvedValueOnce([{
+      ...product,
+      name: 'Sản phẩm catalog',
+      category_id: { name: categoryName },
+    }]);
+
+    await virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      selectedItems: [{ ...createJobInput.selectedItems[0], role }],
+    });
+
+    expect(mockedVirtualTryOnJob.create).toHaveBeenCalledWith(expect.objectContaining({
+      selectedItems: [expect.objectContaining({ role })],
+    }));
+  });
+
+  it('validates a catalog full outfit against full-body requirements after role resolution', async () => {
+    process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
+    process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
+    mockedProduct.find.mockResolvedValueOnce([{
+      ...product,
+      name: 'Bộ quần áo thể thao nữ',
+      category_id: { name: 'Bộ thể thao' },
+    }]);
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        allowed: true,
+        personCount: 1,
+        mainPersonScore: 0.94,
+        bodyVisibility: 'good',
+        quality: { blur: 'ok', brightness: 'ok', resolution: 'ok' },
+        safetyFlags: [],
+        visibleRegions: ['upper', 'hips', 'legs'],
+        supportedModes: ['dress'],
+        recommendedMode: 'dress',
+      },
+    });
+
+    await virtualTryOnService.createJob(userId, {
+      ...createJobInput,
+      selectedItems: [{ ...createJobInput.selectedItems[0], role: 'dress' }],
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'http://127.0.0.1:7001/validate-image',
+      expect.objectContaining({ itemRoles: ['dress'] }),
+      expect.any(Object),
+    );
   });
 
   it('rejects createJob when a full set product is combined with another selected item', async () => {
@@ -665,6 +783,12 @@ describe('virtualTryOnService image validation', () => {
   });
 
   it('allows full-set creation with bottom and shoes when the lower body is visible', async () => {
+    const bottomProductId = new Types.ObjectId();
+    const shoesProductId = new Types.ObjectId();
+    mockedProduct.find.mockResolvedValueOnce([
+      { ...product, _id: bottomProductId, name: 'Quần jeans', category_id: { name: 'Quần jeans' } },
+      { ...product, _id: shoesProductId, name: 'Giày sneaker', category_id: { name: 'Giày thể thao' } },
+    ]);
     process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
     process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
     mockedAxios.post.mockResolvedValue({
@@ -720,8 +844,8 @@ describe('virtualTryOnService image validation', () => {
       ...createJobInput,
       outfitMode: 'full_set',
       selectedItems: [
-        { ...createJobInput.selectedItems[0], role: 'bottom' },
-        { ...createJobInput.selectedItems[0], role: 'shoes' },
+        { ...createJobInput.selectedItems[0], productId: bottomProductId.toString(), role: 'bottom' },
+        { ...createJobInput.selectedItems[0], productId: shoesProductId.toString(), role: 'shoes' },
       ],
     });
 
@@ -800,6 +924,11 @@ describe('virtualTryOnService image validation', () => {
   });
 
   it('creates the job with a body-suitability warning for the selected role', async () => {
+    mockedProduct.find.mockResolvedValueOnce([{
+      ...product,
+      name: 'Giày sneaker trắng',
+      category_id: { name: 'Giày thể thao' },
+    }]);
     process.env.IMAGE_VALIDATION_PROVIDER = 'custom_model';
     process.env.IMAGE_VALIDATION_CUSTOM_MODEL_URL = 'http://127.0.0.1:7001/validate-image';
     mockedAxios.post.mockResolvedValue({

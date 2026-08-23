@@ -72,6 +72,22 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.negativePrompt).toContain('changed pants or shoes when only top is selected');
   });
 
+  it('preserves separate pieces for a catalog outfit set instead of treating it as a dress', () => {
+    const result = buildVirtualTryOnPrompt({
+      preset: 'none',
+      outfitMode: 'single',
+      garments: [
+        garment({ role: 'dress', name: 'Bộ quần áo thể thao nữ', color: 'black white' }),
+      ],
+    });
+
+    expect(result.prompt).toContain('single catalog outfit try-on');
+    expect(result.prompt).toContain('preserve every separate upper and lower piece');
+    expect(result.prompt).toContain('do not merge the set into a one-piece dress');
+    expect(result.prompt).not.toContain('the selected one-piece dress');
+    expect(result.negativePrompt).toContain('selected outfit pieces incorrectly merged or split');
+  });
+
   it('replaces the background for a scene preset without conflicting single-item instructions', () => {
     const result = buildVirtualTryOnPrompt({
       preset: 'work',
@@ -167,7 +183,7 @@ describe('buildVirtualTryOnPrompt', () => {
     expect(result.prompt).toContain('treat it as the main body garment');
     expect(result.prompt).toContain('make it sit above the top or dress');
     expect(result.prompt).toContain('place them naturally without covering the face');
-    expect(result.negativePrompt).toContain('dress split into separate top and bottom');
+    expect(result.negativePrompt).toContain('selected outfit pieces incorrectly merged or split');
     expect(result.negativePrompt).toContain('accessory floating');
   });
 });

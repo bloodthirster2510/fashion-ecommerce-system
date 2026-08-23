@@ -176,8 +176,8 @@ const allowedRoles = new Set<VirtualTryOnItemRole>([
 ]);
 const roleDisplayLabels: Record<VirtualTryOnItemRole, string> = {
   top: 'áo chính',
-  bottom: 'quần',
-  dress: 'váy/đầm',
+  bottom: 'quần/chân váy',
+  dress: 'váy/đầm/bộ đồ',
   shoes: 'giày/dép',
   accessory: 'phụ kiện',
   outerwear: 'áo khoác',
@@ -190,7 +190,7 @@ const normalizeVirtualTryOnRuleText = (value: string) =>
     .replace(/Đ/g, 'd')
     .toLowerCase();
 const fullOutfitProductPattern =
-  /(^|[\s/.-])(full set|bo do|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
+  /(^|[\s/.-])(full set|bo do|do bo|bo the thao|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
 const exactFullOutfitCategoryPattern = /^(bo|set|combo|outfit|full set)$/;
 const getProductCategoryNameForTryOn = (product: IProduct) => {
   const category = product.category_id as unknown;
@@ -211,6 +211,32 @@ const isVirtualTryOnFullOutfitCategoryText = (value: string) => {
 const isVirtualTryOnFullOutfitProduct = (product: IProduct) =>
   isVirtualTryOnFullOutfitText(product.name) ||
   isVirtualTryOnFullOutfitCategoryText(getProductCategoryNameForTryOn(product));
+const hasAnyVirtualTryOnKeyword = (value: string, keywords: string[]) =>
+  keywords.some((keyword) => value.includes(keyword));
+const inferVirtualTryOnProductRole = (product: IProduct): VirtualTryOnItemRole => {
+  if (isVirtualTryOnFullOutfitProduct(product)) return 'dress';
+
+  const haystack = normalizeVirtualTryOnRuleText(
+    `${product.name} ${getProductCategoryNameForTryOn(product)}`,
+  );
+  if (hasAnyVirtualTryOnKeyword(haystack, [
+    'giay', 'dep', 'sandal', 'sneaker', 'boot', 'loafer', 'high heel',
+  ])) return 'shoes';
+  if (hasAnyVirtualTryOnKeyword(haystack, [
+    'chan vay', 'quan', 'jean', 'short', 'pants', 'trouser', 'kaki',
+  ])) return 'bottom';
+  if (hasAnyVirtualTryOnKeyword(haystack, ['vay', 'dam', 'dress', 'gown'])) return 'dress';
+  if (hasAnyVirtualTryOnKeyword(haystack, [
+    'tui xach', 'handbag', 'backpack', 'mu ', 'non ', 'khan', 'that lung',
+    'kinh', 'dong ho', 'day chuyen', 'trang suc', 'phu kien',
+  ])) return 'accessory';
+  if (hasAnyVirtualTryOnKeyword(haystack, [
+    'ao khoac', 'khoac', 'blazer', 'jacket', 'cardigan', 'coat', 'outerwear', 'bomber',
+  ])) return 'outerwear';
+
+  // Hoodie / áo nỉ trong catalog hiện tại là áo mặc chính, không mặc định là lớp khoác.
+  return 'top';
+};
 const allowedOutfitModes = new Set<VirtualTryOnOutfitMode>(['single', 'top_bottom', 'full_set']);
 const allowedContextPresets = new Set<VirtualTryOnContextPreset>([
   'none',
@@ -1921,6 +1947,65 @@ const getSelectedItemRolesForValidation = (items: Array<Pick<CreateVirtualTryOnI
   return roles;
 };
 
+const assertSelectionMatchesOutfitMode = (
+  outfitMode: VirtualTryOnOutfitMode,
+  roles: VirtualTryOnItemRole[],
+) => {
+  if (outfitMode === 'single') {
+    if (roles.length !== 1) {
+      throw new VirtualTryOnServiceError(
+        'Chế độ thử một sản phẩm chỉ nhận đúng 1 món.',
+        400,
+        'OUTFIT_MODE_ITEM_COUNT',
+      );
+    }
+    return;
+  }
+
+  if (outfitMode === 'top_bottom') {
+    const upperCount = roles.filter((role) => role === 'top' || role === 'outerwear').length;
+    const bottomCount = roles.filter((role) => role === 'bottom').length;
+    if (roles.length !== 2 || upperCount !== 1 || bottomCount !== 1) {
+      throw new VirtualTryOnServiceError(
+        'Chế độ áo + quần cần đúng 1 áo và 1 quần hoặc chân váy.',
+        400,
+        'OUTFIT_MODE_ROLE_MISMATCH',
+      );
+    }
+    return;
+  }
+
+  if (roles.length < 2) {
+    throw new VirtualTryOnServiceError(
+      'Chế độ phối full set cần ít nhất 2 món. Bộ đồ bán sẵn hãy dùng chế độ một sản phẩm.',
+      400,
+      'OUTFIT_MODE_ITEM_COUNT',
+    );
+  }
+
+  const slotByRole: Partial<Record<VirtualTryOnItemRole, string>> = {
+    top: 'upper',
+    outerwear: 'upper',
+    bottom: 'main-outfit',
+    dress: 'main-outfit',
+    shoes: 'shoes',
+    accessory: 'accessory',
+  };
+  const seenSlots = new Set<string>();
+  for (const role of roles) {
+    const slot = slotByRole[role];
+    if (!slot) continue;
+    if (seenSlots.has(slot)) {
+      throw new VirtualTryOnServiceError(
+        'Mỗi vị trí trong bản phối full set chỉ nhận 1 sản phẩm.',
+        400,
+        'DUPLICATE_ITEM_SLOT',
+      );
+    }
+    seenSlots.add(slot);
+  }
+};
+
 const resolveSelectedItem = (
   input: CreateVirtualTryOnItemInput,
   product: IProduct,
@@ -1949,14 +2034,22 @@ const resolveSelectedItem = (
     }
   }
 
-  const isFullOutfit = isVirtualTryOnFullOutfitProduct(product);
+  const resolvedRole = inferVirtualTryOnProductRole(product);
+  if (input.role !== resolvedRole) {
+    throw new VirtualTryOnServiceError(
+      `Loại sản phẩm không khớp: ${product.name} phải được xử lý là ${roleDisplayLabels[resolvedRole]}.`,
+      400,
+      'ITEM_ROLE_MISMATCH',
+      { receivedRole: input.role, expectedRole: resolvedRole, productId: product._id.toString() },
+    );
+  }
 
   return {
     productId: product._id,
     variantId: variant._id,
     colorVariantId: color._id,
     ...(normalizedSize ? { size: normalizedSize } : {}),
-    role: isFullOutfit ? 'dress' : input.role,
+    role: resolvedRole,
     nameSnapshot: product.name,
     colorSnapshot: color.color,
     imageSnapshot: color.image || product.product_image,
@@ -2320,6 +2413,7 @@ const validateAsset = async (
   await ensureVirtualTryOnAccountEnabled(toObjectId(userId, 'user id'));
   const sourceAsset = await findSourceAssetForUser(userId, assetId);
   const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
+  assertSelectionMatchesOutfitMode(input.outfitMode, itemRoles);
   return getSourceImageSuitabilityResult(sourceAsset, input.outfitMode, itemRoles);
 };
 
@@ -2376,6 +2470,8 @@ const createJob = async (
   const userObjectId = toObjectId(userId, 'user id');
   const runtimeSettings = await virtualTryOnSettingsService.getRuntimeSettings();
   const normalized = validateCreateJobInput(input, runtimeSettings);
+  const submittedItemRoles = getSelectedItemRolesForValidation(input.selectedItems);
+  assertSelectionMatchesOutfitMode(input.outfitMode, submittedItemRoles);
   assertRuntimeEnabled(runtimeSettings);
   await ensureVirtualTryOnAccountEnabled(userObjectId);
 
@@ -2406,10 +2502,14 @@ const createJob = async (
   }
 
   const sourceAsset = await findSourceAssetForUser(userId, input.sourceAssetId);
-  const itemRoles = getSelectedItemRolesForValidation(input.selectedItems);
-  const sourceImageValidationResult = await warnSourceImageForJob(sourceAsset, input.outfitMode, itemRoles);
-
   const selectedItems = await resolveSelectedItems(input.selectedItems);
+  const resolvedItemRoles = selectedItems.map((item) => item.role);
+  assertSelectionMatchesOutfitMode(input.outfitMode, resolvedItemRoles);
+  const sourceImageValidationResult = await warnSourceImageForJob(
+    sourceAsset,
+    input.outfitMode,
+    resolvedItemRoles,
+  );
 
   const job = await VirtualTryOnJob.create({
     userId: userObjectId,
