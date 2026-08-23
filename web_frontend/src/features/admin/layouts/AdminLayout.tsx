@@ -786,7 +786,7 @@ const getNavNotificationBadge = (
       ? { count: summary.expiringCoupons, tone: 'warning', label: `${summary.expiringCoupons} voucher sắp hết hạn`, dot: true }
       : undefined,
     support: summary.supportOpen > 0
-      ? { count: summary.supportOpen, tone: 'danger', label: `${summary.supportOpen} ticket chờ phản hồi` }
+      ? { count: summary.supportOpen, tone: 'danger', label: `${summary.supportOpen} yêu cầu chờ phản hồi` }
       : undefined,
     reviews: summary.reviewsPending > 0
       ? { count: summary.reviewsPending, tone: 'warning', label: `${summary.reviewsPending} đánh giá chờ duyệt` }
@@ -856,7 +856,7 @@ const buildNotificationItems = (summary: NotificationSummary | null) => {
       key: 'support-open',
       routeId: 'support' as NavId,
       title: 'Ticket chờ phản hồi',
-      detail: `${summary.supportOpen} ticket khách hàng đang chờ xử lý`,
+      detail: `${summary.supportOpen} yêu cầu khách hàng đang chờ xử lý`,
       count: summary.supportOpen,
       tone: 'danger' as NotificationTone,
     } : null,

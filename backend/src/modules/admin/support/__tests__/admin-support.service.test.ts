@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { FaqArticle, SupportTicket, User } from '../../../../database/models';
-import { createFaq, reorderFaqs, updateAdminTicket } from '../admin-support.service';
+import { createFaq, getSupportAnalytics, reorderFaqs, updateAdminTicket } from '../admin-support.service';
 
 jest.mock('../../../audit-logs/audit-log.service', () => ({
   auditLogService: { recordAuditLogBestEffort: jest.fn().mockResolvedValue(undefined) },
@@ -96,6 +96,39 @@ describe('admin support ticket updates', () => {
       requiresReply: true,
     });
     expect(spamTicket.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let staff restore a spam ticket', async () => {
+    findTicketSpy.mockResolvedValueOnce({
+      _id: new Types.ObjectId(ticketId),
+      status: 'spam',
+      priority: 'normal',
+      category: 'other',
+      assignedTo: null,
+      lastMessageSender: 'customer',
+      save: jest.fn(),
+    } as never);
+
+    await expect(updateAdminTicket(
+      ticketId,
+      { userId: actorId, role: 'staff' },
+      { status: 'in_progress' },
+    )).rejects.toMatchObject({
+      message: 'Only admin can restore a spam ticket',
+      statusCode: 403,
+    });
+  });
+});
+
+describe('admin support analytics validation', () => {
+  it('rejects a reversed date range before querying data', async () => {
+    const aggregateSpy = jest.spyOn(SupportTicket, 'aggregate');
+
+    await expect(getSupportAnalytics('2026-08-24', '2026-08-23'))
+      .rejects.toMatchObject({ message: 'dateFrom must not be after dateTo', statusCode: 400 });
+
+    expect(aggregateSpy).not.toHaveBeenCalled();
+    aggregateSpy.mockRestore();
   });
 });
 

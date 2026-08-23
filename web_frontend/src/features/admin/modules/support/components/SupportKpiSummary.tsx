@@ -24,7 +24,7 @@ export function SupportKpiSummary({ summary, activeView, onSelectKpi }: SupportK
           type="button"
           className={`admin-support-kpi-card is-all${activeView === 'all' ? ' is-active' : ''}`}
           onClick={() => onSelectKpi?.('all')}
-          title="Xem tất cả ticket đang mở"
+          title="Xem tất cả yêu cầu đang mở"
         >
           <div className="admin-support-kpi-card__icon">
             <Inbox aria-hidden="true" />
@@ -40,7 +40,7 @@ export function SupportKpiSummary({ summary, activeView, onSelectKpi }: SupportK
           type="button"
           className={`admin-support-kpi-card is-urgent${waitingAdmin > 0 ? ' has-alert' : ''}${activeView === 'reply' ? ' is-active' : ''}`}
           onClick={() => onSelectKpi?.('reply')}
-          title="Xem danh sách ticket cần nhân viên phản hồi"
+          title="Xem các yêu cầu cần nhân viên phản hồi"
         >
           <div className="admin-support-kpi-card__icon">
             <Flame aria-hidden="true" />
@@ -56,7 +56,7 @@ export function SupportKpiSummary({ summary, activeView, onSelectKpi }: SupportK
           type="button"
           className={`admin-support-kpi-card is-unassigned${unassigned > 0 ? ' has-pending' : ''}${activeView === 'unassigned' ? ' is-active' : ''}`}
           onClick={() => onSelectKpi?.('unassigned')}
-          title="Xem danh sách ticket chưa được phân công"
+          title="Xem các yêu cầu chưa được phân công"
         >
           <div className="admin-support-kpi-card__icon">
             <UserCheck aria-hidden="true" />
@@ -72,7 +72,7 @@ export function SupportKpiSummary({ summary, activeView, onSelectKpi }: SupportK
           type="button"
           className={`admin-support-kpi-card is-overdue${overdue > 0 ? ' has-danger' : ''}${activeView === 'overdue' ? ' is-active' : ''}`}
           onClick={() => onSelectKpi?.('overdue')}
-          title="Xem danh sách ticket quá hạn 24 giờ"
+          title="Xem các yêu cầu quá 24 giờ chưa được phản hồi"
         >
           <div className="admin-support-kpi-card__icon">
             {overdue > 0 ? <AlertCircle aria-hidden="true" /> : <Clock aria-hidden="true" />}
@@ -81,7 +81,7 @@ export function SupportKpiSummary({ summary, activeView, onSelectKpi }: SupportK
             <span className="admin-support-kpi-card__label">Quá 24 giờ</span>
             <strong className="admin-support-kpi-card__value">{overdue}</strong>
           </div>
-          <span className="admin-support-kpi-card__sub">Cảnh báo SLA</span>
+          <span className="admin-support-kpi-card__sub">Cần xử lý sớm</span>
         </button>
       </div>
     </section>

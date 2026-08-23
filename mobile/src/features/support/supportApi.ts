@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import type { ApiResponse } from '../auth/types';
 import type {
   FaqArticle,
+  FaqVoteValue,
   SupportCategory,
   SupportImage,
   SupportMessage,
@@ -42,16 +43,16 @@ const appendImages = (form: FormData, images: SupportImage[]) => images.forEach(
 });
 
 export const supportApi = {
-  listFaqs: (search = '', category?: string, query: PageQuery = {}) => {
+  listFaqs: (search = '', category?: string, query: PageQuery = {}, token?: string) => {
     const params = new URLSearchParams({
       page: String(query.page ?? 1),
       limit: String(query.limit ?? 20),
     });
     if (search.trim()) params.set('search', search.trim());
     if (category) params.set('category', category);
-    return request<Pagination<FaqArticle>>(`/support/faqs?${params.toString()}`);
+    return request<Pagination<FaqArticle>>(`/support/faqs?${params.toString()}`, token);
   },
-  voteFaq: (token: string, id: string, value: 'helpful' | 'not_helpful') =>
+  voteFaq: (token: string, id: string, value: FaqVoteValue) =>
     request<FaqArticle>(`/support/faqs/${id}/vote`, token, { method: 'POST', body: JSON.stringify({ value }) }),
   listTickets: (token: string, query: PageQuery = {}) => {
     const params = new URLSearchParams({

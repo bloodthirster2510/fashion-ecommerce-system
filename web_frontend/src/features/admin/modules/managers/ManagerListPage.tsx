@@ -34,8 +34,8 @@ const pageSize = 10
 
 const roleFilterLabels: Record<RoleFilter, string> = {
   all: 'Tất cả nội bộ',
-  admin: 'Admin',
-  staff: 'Staff',
+  admin: 'Quản trị viên',
+  staff: 'Nhân viên',
 }
 
 const statusFilterLabels: Record<StatusFilter, string> = {
@@ -303,7 +303,7 @@ export function ManagerListPage() {
           <strong>{totalItems}</strong>
         </div>
         <div>
-          <span>Staff đang hiển thị</span>
+          <span>Nhân viên đang hiển thị</span>
           <strong>{staffCount}</strong>
         </div>
         <div>
@@ -427,7 +427,7 @@ export function ManagerListPage() {
                             <small>{account.phone || 'Chưa có số điện thoại'}</small>
                           </div>
                         </td>
-                        <td>{account.role === 'admin' ? 'Admin' : 'Staff'}</td>
+                        <td>{account.role === 'admin' ? 'Quản trị viên' : 'Nhân viên'}</td>
                         <td>
                           <span className={`admin-status-pill ${account.isActive ? 'is-active' : 'is-blocked'}`}>
                             {account.isActive ? 'Hoạt động' : 'Bị khóa'}
@@ -456,7 +456,7 @@ export function ManagerListPage() {
                               disabled={!canManageStaff || actionLoading}
                               onClick={() => openResetDialog(account)}
                             >
-                              Reset MK
+                              Đặt lại mật khẩu
                             </button>
                             <button
                               className={account.isActive ? 'admin-danger-link' : 'admin-link-button'}
@@ -557,7 +557,7 @@ export function ManagerListPage() {
       {dialog?.type === 'permissions' ? (
         <div className="admin-confirm-layer" role="dialog" aria-modal="true" aria-labelledby="admin-account-permissions-title">
           <div className="admin-account-dialog">
-            <h2 id="admin-account-permissions-title">Phân quyền staff</h2>
+            <h2 id="admin-account-permissions-title">Phân quyền nhân viên</h2>
             <p className="admin-muted-text">{getAccountTitle(dialog.account)}</p>
             <PermissionEditor
               selectedPermissions={editingPermissions}

@@ -1,4 +1,5 @@
 import type { FaqCategory, FaqPayload, SupportCategory } from '../support.types'
+import { Button, Field, Modal } from '../../../components/ui'
 
 type FaqEditorDialogProps = {
   isEditing: boolean
@@ -20,17 +21,51 @@ export function FaqEditorDialog({
   onSave,
 }: FaqEditorDialogProps) {
   return (
-    <div className="admin-support-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className="admin-support-dialog" role="dialog" aria-modal="true" aria-labelledby="faq-editor-title">
-        <header><h2 id="faq-editor-title">{isEditing ? 'Chỉnh sửa FAQ' : 'Thêm FAQ'}</h2><button type="button" onClick={onClose}>×</button></header>
-        <label>Câu hỏi<input value={form.question} onChange={(event) => onFormChange({ ...form, question: event.target.value })} /></label>
-        <label>Câu trả lời<textarea rows={7} value={form.answer} onChange={(event) => onFormChange({ ...form, answer: event.target.value })} /></label>
-        <label>Chủ đề<select value={form.category} onChange={(event) => onFormChange({ ...form, category: event.target.value as FaqCategory })}>{Object.entries(categoryLabels).filter(([key]) => !['product', 'app_website', 'service'].includes(key)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label>Từ khóa<input value={form.keywords.join(', ')} onChange={(event) => onFormChange({ ...form, keywords: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="đơn hàng, giao hàng" /></label>
-        <label>Thứ tự hiển thị<input type="number" min={0} max={100000} value={form.sortOrder} onChange={(event) => onFormChange({ ...form, sortOrder: Number(event.target.value) || 0 })} /></label>
-        <label className="admin-support-check"><input type="checkbox" checked={form.isPublished} onChange={(event) => onFormChange({ ...form, isPublished: event.target.checked })} /> Xuất bản cho khách hàng</label>
-        <footer><button type="button" onClick={onClose}>Hủy</button><button type="button" disabled={submitting || form.question.trim().length < 5 || form.answer.trim().length < 10} onClick={() => void onSave()}>{submitting ? 'Đang lưu...' : 'Lưu FAQ'}</button></footer>
-      </section>
-    </div>
+    <Modal
+      title={isEditing ? 'Sửa bài hướng dẫn' : 'Thêm bài hướng dẫn'}
+      description="Nội dung đã xuất bản sẽ hiển thị ngay trên trang hỗ trợ của khách hàng."
+      className="admin-support-faq-modal"
+      isOpen
+      onClose={onClose}
+      actions={(
+        <>
+          <Button variant="secondary" type="button" disabled={submitting} onClick={onClose}>Hủy</Button>
+          <Button
+            variant="primary"
+            type="button"
+            disabled={submitting || form.question.trim().length < 5 || form.answer.trim().length < 10}
+            onClick={() => void onSave()}
+          >
+            {submitting ? 'Đang lưu...' : 'Lưu bài'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="admin-support-faq-form">
+        <Field label="Câu hỏi">
+          <input maxLength={300} value={form.question} onChange={(event) => onFormChange({ ...form, question: event.target.value })} />
+        </Field>
+        <Field label="Câu trả lời">
+          <textarea maxLength={5000} rows={7} value={form.answer} onChange={(event) => onFormChange({ ...form, answer: event.target.value })} />
+        </Field>
+        <div className="admin-support-faq-form__row">
+          <Field label="Chủ đề">
+            <select value={form.category} onChange={(event) => onFormChange({ ...form, category: event.target.value as FaqCategory })}>
+              {Object.entries(categoryLabels).filter(([key]) => !['product', 'app_website', 'service'].includes(key)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="Thứ tự hiển thị">
+            <input type="number" min={0} max={100000} value={form.sortOrder} onChange={(event) => onFormChange({ ...form, sortOrder: Number(event.target.value) || 0 })} />
+          </Field>
+        </div>
+        <Field label="Từ khóa">
+          <input value={form.keywords.join(', ')} onChange={(event) => onFormChange({ ...form, keywords: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="đơn hàng, giao hàng" />
+        </Field>
+        <label className="admin-support-check">
+          <input type="checkbox" checked={form.isPublished} onChange={(event) => onFormChange({ ...form, isPublished: event.target.checked })} />
+          <span>Xuất bản cho khách hàng</span>
+        </label>
+      </div>
+    </Modal>
   )
 }

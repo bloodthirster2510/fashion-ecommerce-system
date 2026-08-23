@@ -104,6 +104,7 @@ export const listFaqs = async ({
   category,
   search,
   publishedOnly = true,
+  viewerUserId,
   ...paginationInput
 }: ListFaqInput) => {
   const pagination = normalizePagination(paginationInput);
@@ -130,8 +131,27 @@ export const listFaqs = async ({
     FaqArticle.countDocuments(filter),
   ]);
 
+  if (!publishedOnly) {
+    return {
+      items,
+      pagination: { ...pagination, totalItems, totalPages: Math.ceil(totalItems / pagination.limit) },
+    };
+  }
+
+  const voteByFaqId = new Map<string, VoteFaqInput['value']>();
+  if (viewerUserId && items.length > 0) {
+    const votes = await FaqVote.find({
+      faqId: { $in: items.map((faq) => faq._id) },
+      userId: assertObjectId(viewerUserId, 'userId'),
+    }).select('faqId value').lean();
+    votes.forEach((vote) => voteByFaqId.set(vote.faqId.toString(), vote.value));
+  }
+
   return {
-    items,
+    items: items.map((faq) => ({
+      ...faq,
+      userVote: voteByFaqId.get(faq._id.toString()) ?? null,
+    })),
     pagination: { ...pagination, totalItems, totalPages: Math.ceil(totalItems / pagination.limit) },
   };
 };
@@ -139,15 +159,17 @@ export const listFaqs = async ({
 export const voteFaq = async (faqId: string, userId: string, input: VoteFaqInput) => {
   const faqObjectId = assertObjectId(faqId, 'faqId');
   const userObjectId = assertObjectId(userId, 'userId');
-  if (!['helpful', 'not_helpful'].includes(input.value)) throw new SupportServiceError('Vote value is invalid');
+  if (!['helpful', 'not_helpful'].includes(input.value)) throw new SupportServiceError('Lựa chọn đánh giá không hợp lệ.');
   const faq = await FaqArticle.findOne({ _id: faqObjectId, isPublished: true });
-  if (!faq) throw new SupportServiceError('FAQ not found', 404);
+  if (!faq) throw new SupportServiceError('Không tìm thấy câu hỏi này.', 404);
 
   let vote;
   try {
     vote = await FaqVote.create({ faqId: faqObjectId, userId: userObjectId, value: input.value });
   } catch (error) {
-    if ((error as { code?: number }).code === 11000) throw new SupportServiceError('You already voted for this FAQ', 409);
+    if ((error as { code?: number }).code === 11000) {
+      throw new SupportServiceError('Bạn đã đánh giá câu trả lời này rồi.', 409);
+    }
     throw error;
   }
 
@@ -159,9 +181,9 @@ export const voteFaq = async (faqId: string, userId: string, input: VoteFaqInput
   ).select(PUBLIC_FAQ_FIELDS.join(' ')).lean();
   if (!updated) {
     await FaqVote.deleteOne({ _id: vote._id });
-    throw new SupportServiceError('FAQ is no longer available', 409);
+    throw new SupportServiceError('Câu hỏi này không còn khả dụng.', 409);
   }
-  return updated;
+  return { ...updated, userVote: input.value };
 };
 
 const createTicketDocument = async (payload: Record<string, unknown>) => {

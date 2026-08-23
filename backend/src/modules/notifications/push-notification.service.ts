@@ -100,14 +100,14 @@ export const registerPushToken = async (
   userId: string,
   input: { token?: string; platform?: string; preferences?: unknown } | null | undefined,
 ) => {
-  if (!Types.ObjectId.isValid(userId)) throw Object.assign(new Error('Invalid user'), { statusCode: 400 });
+  if (!Types.ObjectId.isValid(userId)) throw Object.assign(new Error('Người dùng không hợp lệ'), { statusCode: 400 });
   if (!input || typeof input !== 'object') {
-    throw Object.assign(new Error('Push token payload is required'), { statusCode: 400 });
+    throw Object.assign(new Error('Thiếu thông tin đăng ký nhận thông báo'), { statusCode: 400 });
   }
   const token = input.token?.trim() ?? '';
-  if (!expoTokenPattern.test(token)) throw Object.assign(new Error('Invalid Expo push token'), { statusCode: 400 });
+  if (!expoTokenPattern.test(token)) throw Object.assign(new Error('Thông tin nhận thông báo không hợp lệ'), { statusCode: 400 });
   if (!input.platform || !['ios', 'android'].includes(input.platform)) {
-    throw Object.assign(new Error('Invalid push platform'), { statusCode: 400 });
+    throw Object.assign(new Error('Thiết bị không được hỗ trợ'), { statusCode: 400 });
   }
 
   return PushToken.findOneAndUpdate(
@@ -127,11 +127,11 @@ export const registerPushToken = async (
 
 export const unregisterPushToken = async (userId: string, token: string) => {
   if (!Types.ObjectId.isValid(userId)) {
-    throw Object.assign(new Error('Invalid user'), { statusCode: 400 });
+    throw Object.assign(new Error('Người dùng không hợp lệ'), { statusCode: 400 });
   }
   const normalizedToken = token?.trim() ?? '';
   if (!expoTokenPattern.test(normalizedToken)) {
-    throw Object.assign(new Error('Invalid Expo push token'), { statusCode: 400 });
+    throw Object.assign(new Error('Thông tin nhận thông báo không hợp lệ'), { statusCode: 400 });
   }
   const result = await PushToken.updateOne(
     { userId: new Types.ObjectId(userId), token: normalizedToken },
@@ -148,7 +148,7 @@ export const sendSupportReplyPush = async (input: {
   messageId?: string;
 }) => {
   if (!Types.ObjectId.isValid(input.userId)) return { sent: 0 };
-  const title = `Phản hồi ${input.ticketCode}`;
+  const title = `Shop đã phản hồi ${input.ticketCode}`;
   const body = input.subject;
   const data = { type: 'support_reply', ticketId: input.ticketId };
 
@@ -185,8 +185,16 @@ export const sendPaymentDeadlineWarningPush = async (input: {
   paymentDeadlineAt: Date;
 }) => {
   if (!Types.ObjectId.isValid(input.userId)) return { sent: 0 };
-  const title = `Đơn ${input.orderCode} sắp tự hủy`;
-  const body = 'Thanh toán ngay trong 24 giờ tới để giữ hàng.';
+  const title = `Đơn ${input.orderCode} sắp bị hủy`;
+  const deadline = input.paymentDeadlineAt.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const body = `Thanh toán trước ${deadline} để giữ hàng.`;
   const data = {
     type: 'payment_deadline',
     orderId: input.orderId,
@@ -218,20 +226,20 @@ export type ShippingPushMilestone = 'picked' | 'shipping' | 'delivered' | 'faile
 
 const shippingPushCopy: Record<ShippingPushMilestone, { title: string; body: string }> = {
   picked: {
-    title: 'Đơn đã được lấy hàng',
-    body: 'Đơn hàng của bạn đã được bàn giao cho đơn vị vận chuyển.',
+    title: 'Đơn vị vận chuyển đã lấy hàng',
+    body: 'Đơn hàng của bạn đã rời shop.',
   },
   shipping: {
-    title: 'Đơn đang trên đường',
-    body: 'Tài xế đang giao đơn hàng đến bạn.',
+    title: 'Đơn đang được giao',
+    body: 'Đơn hàng đang trên đường đến bạn.',
   },
   delivered: {
-    title: 'Đơn đã giao đến bạn',
-    body: 'Kiểm tra đơn và xác nhận đã nhận hàng trong 7 ngày nhé.',
+    title: 'Đã giao hàng',
+    body: 'Bạn kiểm tra và xác nhận đã nhận hàng trong 7 ngày nhé.',
   },
   failed: {
-    title: 'Giao hàng chưa thành công',
-    body: 'Shop sẽ theo dõi và liên hệ với bạn để hỗ trợ giao lại.',
+    title: 'Chưa giao được hàng',
+    body: 'Shop sẽ theo dõi và hỗ trợ giao lại.',
   },
 };
 
@@ -256,7 +264,7 @@ export const sendShippingUpdatePush = async (input: {
     type: 'shipping_update',
     title,
     body: copy.body,
-    action: { type: 'order_detail', label: 'Theo dõi đơn', entityId: input.orderId },
+    action: { type: 'order_detail', label: 'Xem hành trình', entityId: input.orderId },
     data: { ...data, orderCode: input.orderCode },
     dedupeKey: `order:${input.orderId}:shipping:${input.milestone}`,
   });

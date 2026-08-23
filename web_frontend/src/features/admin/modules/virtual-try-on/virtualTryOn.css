@@ -13,7 +13,7 @@
 }
 .admin-vto-ops-copy { min-width: 0; display: grid; gap: 2px; }
 .admin-vto-ops-copy > span { color: #7a8897; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-.admin-vto-ops-copy > strong { color: var(--admin-text); font-size: 15px; line-height: 1.2; }
+.admin-vto-ops-copy > h1 { margin: 0; color: var(--admin-text); font-size: 15px; line-height: 1.2; }
 .admin-vto-ops-copy > p { margin: 0; color: #718091; font-size: 12px; font-weight: 750; }
 .admin-vto-ops-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .admin-vto-auto-refresh { display: inline-flex; align-items: center; gap: 7px; color: #5f6f80; font-size: 12px; font-weight: 800; white-space: nowrap; }

@@ -33,8 +33,8 @@ export function SupportFaqPanel({
         <label className="admin-support-toolbar-search">
           <Search aria-hidden="true" />
           <input
-            aria-label="Tìm kiếm FAQ"
-            placeholder="Tìm câu hỏi FAQ hoặc nội dung giải đáp..."
+            aria-label="Tìm bài hướng dẫn"
+            placeholder="Tìm câu hỏi hoặc nội dung giải đáp..."
             value={faqSearch}
             onChange={(event) => onSearchChange(event.target.value)}
           />
@@ -42,7 +42,7 @@ export function SupportFaqPanel({
 
         <select
           className="admin-support-toolbar-select"
-          aria-label="Lọc danh mục FAQ"
+          aria-label="Lọc danh mục hướng dẫn"
           value={faqCategory}
           onChange={(event) => onCategoryChange(event.target.value as FaqCategory | 'all')}
         >
@@ -56,7 +56,7 @@ export function SupportFaqPanel({
 
         <Button variant="primary" onClick={onCreate}>
           <Plus aria-hidden="true" />
-          Thêm câu hỏi FAQ
+          Thêm bài hướng dẫn
         </Button>
       </div>
 
@@ -70,7 +70,7 @@ export function SupportFaqPanel({
                   <StatusBadge tone={faq.isPublished ? 'success' : 'neutral'}>
                     {faq.isPublished ? 'Đang hiển thị' : 'Bản nháp'}
                   </StatusBadge>
-                  <span className="admin-support-faq-order">Thứ tự: #{faq.sortOrder}</span>
+                  <span className="admin-support-faq-order">Thứ tự {faq.sortOrder + 1}</span>
                 </div>
 
                 <h3 className="admin-support-faq-card__question">{faq.question}</h3>
@@ -122,15 +122,15 @@ export function SupportFaqPanel({
 
                 <Button variant="danger" onClick={() => void onDelete(faq._id)}>
                   <Trash2 aria-hidden="true" />
-                  Ẩn / Xóa
+                  Gỡ bài
                 </Button>
               </aside>
             </article>
           ))
         ) : (
           <EmptyState
-            title="Không tìm thấy câu hỏi FAQ"
-            description="Thử đổi từ khóa tìm kiếm hoặc bấm 'Thêm câu hỏi FAQ' để tạo nội dung mới."
+            title="Không tìm thấy bài hướng dẫn"
+            description="Thử đổi từ khóa hoặc thêm bài hướng dẫn mới."
           />
         )}
       </div>

@@ -65,7 +65,12 @@ const MAX_LIST_LIMIT = 50;
 
 const toObjectId = (value: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(value)) {
-    throw new CustomerNotificationServiceError(`Invalid ${fieldName}`, 400);
+    const label = {
+      userId: 'Người dùng',
+      cursor: 'Mốc phân trang',
+      notificationId: 'Thông báo',
+    }[fieldName] ?? 'Dữ liệu';
+    throw new CustomerNotificationServiceError(`${label} không hợp lệ`, 400);
   }
   return new Types.ObjectId(value);
 };
@@ -73,7 +78,8 @@ const toObjectId = (value: string, fieldName: string) => {
 const normalizeText = (value: string, fieldName: string, maxLength: number) => {
   const normalized = value.trim().replace(/\s+/g, ' ');
   if (!normalized || normalized.length > maxLength) {
-    throw new CustomerNotificationServiceError(`Invalid ${fieldName}`, 400);
+    const label = fieldName === 'title' ? 'Tiêu đề' : 'Nội dung';
+    throw new CustomerNotificationServiceError(`${label} thông báo không hợp lệ`, 400);
   }
   return normalized;
 };
@@ -81,7 +87,7 @@ const normalizeText = (value: string, fieldName: string, maxLength: number) => {
 const clampLimit = (value?: number) => {
   if (value === undefined) return DEFAULT_LIST_LIMIT;
   if (!Number.isInteger(value) || value < 1) {
-    throw new CustomerNotificationServiceError('Invalid limit', 400);
+    throw new CustomerNotificationServiceError('Số lượng thông báo không hợp lệ', 400);
   }
   return Math.min(value, MAX_LIST_LIMIT);
 };
@@ -101,7 +107,7 @@ export const createCustomerNotification = async (input: CreateCustomerNotificati
   const dedupeKey = input.dedupeKey?.trim() || null;
 
   if (dedupeKey && dedupeKey.length > 180) {
-    throw new CustomerNotificationServiceError('Invalid dedupeKey', 400);
+    throw new CustomerNotificationServiceError('Mã chống trùng thông báo không hợp lệ', 400);
   }
 
   const payload = {
@@ -158,7 +164,7 @@ export const listCustomerNotifications = async (input: {
   if (input.cursor) filter._id = { $lt: toObjectId(input.cursor, 'cursor') };
   if (input.category) {
     if (!isCategory(input.category)) {
-      throw new CustomerNotificationServiceError('Invalid category', 400);
+      throw new CustomerNotificationServiceError('Loại thông báo không hợp lệ', 400);
     }
     filter.category = input.category;
   }
@@ -207,7 +213,7 @@ export const markCustomerNotificationRead = async (userId: string, notificationI
   ).lean();
 
   if (!notification) {
-    throw new CustomerNotificationServiceError('Notification not found', 404);
+    throw new CustomerNotificationServiceError('Không tìm thấy thông báo', 404);
   }
   return notification;
 };
@@ -224,7 +230,7 @@ export const markAllCustomerNotificationsRead = async (userId: string) => {
 export const deleteVirtualTryOnJobNotifications = async (userId: string, jobId: string) => {
   const normalizedJobId = jobId.trim();
   if (!normalizedJobId) {
-    throw new CustomerNotificationServiceError('Invalid jobId', 400);
+    throw new CustomerNotificationServiceError('Yêu cầu phối đồ không hợp lệ', 400);
   }
 
   const result = await CustomerNotification.deleteMany({
@@ -241,7 +247,7 @@ export const deleteVirtualTryOnJobNotifications = async (userId: string, jobId: 
 
 const orderAction = (orderId: string) => ({
   type: 'order_detail' as const,
-  label: 'Xem đơn hàng',
+  label: 'Xem đơn',
   entityId: orderId,
 });
 
@@ -250,8 +256,8 @@ export const recordOrderCreatedNotification = (input: OrderNotificationInput) =>
     ...input,
     category: 'order',
     type: 'order_status',
-    title: 'Đặt hàng thành công',
-    body: `Đơn ${input.orderCode} đã được tiếp nhận và đang chờ xử lý.`,
+    title: 'Shop đã nhận đơn hàng',
+    body: `Đơn ${input.orderCode} đang chờ shop xác nhận.`,
     action: orderAction(input.orderId),
     data: { orderId: input.orderId, orderCode: input.orderCode, status: 'confirmed' },
     dedupeKey: `order:${input.orderId}:created`,
@@ -262,28 +268,36 @@ const orderStatusCopy: Partial<Record<string, {
   body: (code: string, context?: { shopName: string }) => string;
 }>> = {
   packed: {
-    title: 'Đơn hàng đã được đóng gói',
-    body: (code) => `Đơn ${code} đã sẵn sàng để bàn giao cho đơn vị vận chuyển.`,
+    title: 'Đơn đã đóng gói',
+    body: (code) => `Đơn ${code} đang chờ bàn giao cho đơn vị vận chuyển.`,
   },
   completed: {
     title: 'Đơn hàng đã hoàn tất',
     body: (code, context) => `Đơn ${code} đã hoàn tất. Cảm ơn bạn đã mua sắm cùng ${context?.shopName || 'CDShop'}.`,
   },
   cancelled: {
-    title: 'Đơn hàng đã hủy',
-    body: (code) => `Đơn ${code} đã được hủy. Mở chi tiết đơn để xem thêm thông tin.`,
+    title: 'Đơn hàng đã bị hủy',
+    body: (code) => `Đơn ${code} đã bị hủy. Xem chi tiết để biết lý do.`,
+  },
+  payment_expired: {
+    title: 'Đơn đã bị hủy',
+    body: (code) => `Đơn ${code} đã bị hủy vì quá hạn thanh toán.`,
   },
   return_requested: {
     title: 'Đã gửi yêu cầu trả hàng',
-    body: (code) => `Yêu cầu trả hàng cho đơn ${code} đang được xem xét.`,
+    body: (code) => `Shop đang xem yêu cầu trả hàng của đơn ${code}.`,
   },
   return_approved: {
-    title: 'Yêu cầu trả hàng được chấp nhận',
-    body: (code) => `Yêu cầu trả hàng cho đơn ${code} đã được chấp nhận.`,
+    title: 'Shop đã duyệt yêu cầu trả hàng',
+    body: (code) => `Xem chi tiết đơn ${code} để biết bước tiếp theo.`,
+  },
+  return_rejected: {
+    title: 'Shop chưa thể duyệt yêu cầu trả hàng',
+    body: (code) => `Xem chi tiết đơn ${code} để biết lý do.`,
   },
   returned: {
-    title: 'Trả hàng hoàn tất',
-    body: (code) => `Quy trình trả hàng của đơn ${code} đã hoàn tất.`,
+    title: 'Đã trả hàng xong',
+    body: (code) => `Đơn ${code} đã hoàn tất trả hàng.`,
   },
 };
 
@@ -311,16 +325,16 @@ export const recordOrderStatusNotification = async (input: OrderNotificationInpu
 
 const paymentStatusCopy: Partial<Record<string, { title: string; body: (code: string) => string }>> = {
   paid: {
-    title: 'Thanh toán thành công',
-    body: (code) => `Thanh toán cho đơn ${code} đã được xác nhận.`,
+    title: 'Đã thanh toán',
+    body: (code) => `Shop đã xác nhận thanh toán cho đơn ${code}.`,
   },
   failed: {
-    title: 'Thanh toán chưa thành công',
-    body: (code) => `Thanh toán cho đơn ${code} chưa thành công. Bạn có thể thử lại trong chi tiết đơn.`,
+    title: 'Chưa thanh toán được',
+    body: (code) => `Bạn có thể thử thanh toán lại đơn ${code} trong phần chi tiết.`,
   },
   refunded: {
-    title: 'Hoàn tiền thành công',
-    body: (code) => `Khoản thanh toán của đơn ${code} đã được hoàn lại.`,
+    title: 'Đã hoàn tiền',
+    body: (code) => `Tiền của đơn ${code} đã được hoàn lại.`,
   },
 };
 
@@ -354,7 +368,7 @@ export const recordLoyaltyEarnedNotification = (
     type: 'loyalty',
     title: `Bạn vừa nhận ${input.points.toLocaleString('vi-VN')} điểm`,
     body: `Điểm thành viên từ đơn ${input.orderCode} đã được cộng vào tài khoản.`,
-    action: { type: 'membership', label: 'Xem hạng thành viên' },
+    action: { type: 'membership', label: 'Xem điểm' },
     data: { orderId: input.orderId, orderCode: input.orderCode, points: input.points },
     dedupeKey: `order:${input.orderId}:loyalty:${input.points}`,
   });
@@ -366,43 +380,43 @@ const virtualTryOnOutcomeCopy = (input: VirtualTryOnOutcomeNotificationInput) =>
       return input.outputMode === 'image_and_video'
         ? {
             type: 'virtual_try_on_completed' as const,
-            title: 'Ảnh và video phối đồ đã sẵn sàng',
-            body: 'Mở kết quả để xem, lưu hoặc chia sẻ bộ phối của bạn.',
+            title: 'Ảnh và video phối đồ đã xong',
+            body: 'Xem kết quả để lưu hoặc chia sẻ.',
           }
         : {
             type: 'virtual_try_on_completed' as const,
-            title: 'Bộ ảnh phối đồ đã sẵn sàng',
+            title: 'Ảnh phối đồ đã xong',
             body: input.generatedImageCount > 1
-              ? `${input.generatedImageCount} ảnh gợi ý phối đồ đã được tạo xong.`
-              : 'Ảnh gợi ý phối đồ của bạn đã được tạo xong.',
+              ? `Đã tạo ${input.generatedImageCount} ảnh phối đồ cho bạn.`
+              : 'Ảnh phối đồ của bạn đã xong.',
           };
     case 'partial_video_failed':
       return {
         type: 'virtual_try_on_partial' as const,
-        title: 'Bộ ảnh đã sẵn sàng, video chưa hoàn tất',
+        title: 'Ảnh đã xong, video chưa tạo được',
         body: input.retryable
-          ? 'Bạn vẫn có thể xem bộ ảnh và thử lại riêng bước tạo video.'
-          : 'Video không thể xử lý, nhưng bộ ảnh phối đồ vẫn được giữ lại.',
+          ? 'Bạn vẫn có thể xem ảnh và thử tạo lại video.'
+          : 'Video chưa tạo được nhưng ảnh vẫn được giữ lại.',
       };
     case 'policy_blocked':
       return {
         type: 'virtual_try_on_policy' as const,
-        title: 'Yêu cầu phối đồ không thể hoàn tất',
-        body: 'Hãy chọn ảnh hoặc sản phẩm phù hợp hơn rồi tạo lại yêu cầu.',
+        title: 'Chưa thể tạo ảnh phối đồ',
+        body: 'Bạn hãy chọn ảnh hoặc sản phẩm khác rồi thử lại.',
       };
     case 'admin_canceled':
       return {
         type: 'virtual_try_on_failed' as const,
-        title: input.generatedImageCount > 0 ? 'Video phối đồ đã được dừng' : 'Yêu cầu phối đồ đã được dừng',
+        title: input.generatedImageCount > 0 ? 'Video phối đồ đã dừng' : 'Yêu cầu phối đồ đã dừng',
         body: input.generatedImageCount > 0
-          ? 'Bộ ảnh đã tạo vẫn được giữ lại trong lịch sử phối đồ.'
-          : 'Hệ thống đã dừng yêu cầu này. Bạn có thể tạo một yêu cầu mới.',
+          ? 'Ảnh đã tạo vẫn được giữ trong lịch sử phối đồ.'
+          : 'Bạn có thể tạo một yêu cầu mới.',
       };
     default:
       return {
         type: 'virtual_try_on_failed' as const,
-        title: 'Chưa tạo được bộ ảnh phối đồ',
-        body: 'Có lỗi khi xử lý yêu cầu. Bạn có thể mở lại để thử thêm lần nữa.',
+        title: 'Chưa tạo được ảnh phối đồ',
+        body: 'Có lỗi khi xử lý. Bạn có thể mở lại và thử lần nữa.',
       };
   }
 };
@@ -427,7 +441,7 @@ export const recordVirtualTryOnOutcomeNotification = async (
     imageUrl: opensResult ? input.imageUrl : null,
     action: {
       type: opensResult ? 'virtual_try_on_result' : 'virtual_try_on_processing',
-      label: opensResult ? 'Xem kết quả' : input.retryable ? 'Mở để thử lại' : 'Xem chi tiết',
+      label: opensResult ? 'Xem kết quả' : input.retryable ? 'Thử lại' : 'Xem chi tiết',
       entityId: input.jobId,
     },
     data: {
@@ -460,17 +474,17 @@ export const recordVirtualTryOnAccessNotification = (input: {
 }) => {
   const copy = input.state === 'unlocked'
     ? {
-        title: 'Phòng phối đồ đã được mở lại',
-        body: 'Bạn có thể tiếp tục tạo các bộ ảnh phối đồ mới.',
+        title: 'Bạn có thể phối đồ trở lại',
+        body: 'Tính năng phối đồ đã được mở lại.',
       }
     : input.state === 'prompt_blocked' && input.blockedUntil
       ? {
-          title: 'Phòng phối đồ đang tạm khóa',
-          body: `Bạn có thể sử dụng lại tính năng sau ${formatVirtualTryOnBlockUntil(input.blockedUntil)}.`,
+          title: 'Tạm khóa tính năng phối đồ',
+          body: `Bạn có thể dùng lại sau ${formatVirtualTryOnBlockUntil(input.blockedUntil)}.`,
         }
       : {
-          title: 'Phòng phối đồ đang tạm khóa',
-          body: 'Tính năng phối đồ ảo trên tài khoản của bạn hiện đang bị tạm khóa.',
+          title: 'Tạm khóa tính năng phối đồ',
+          body: 'Tài khoản của bạn đang tạm thời chưa dùng được tính năng này.',
         };
 
   return createCustomerNotificationBestEffort({

@@ -36,6 +36,7 @@ import {
 } from '../../components/ui'
 import './promotion.css'
 import { CouponBulkDeleteDialog, CouponDeleteDialog } from './components/CouponDeleteDialogs'
+import { CampaignAnalyticsPanel } from './components/CampaignAnalyticsPanel'
 import { CouponDetailDialog } from './components/CouponDetailDialog'
 import { CouponFormDialog } from './components/CouponFormDialog'
 import { CouponTablePanel } from './components/CouponTablePanel'
@@ -1464,6 +1465,8 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
         isDisabled={isLoading}
         onPageChange={setPage}
       />
+
+      <CampaignAnalyticsPanel currentUser={currentUser} />
 
       {dialog?.type === 'detail' ? (
         <CouponDetailDialog

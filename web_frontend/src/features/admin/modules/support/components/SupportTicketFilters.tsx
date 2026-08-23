@@ -70,7 +70,7 @@ export function SupportTicketFilters({
       ...old,
       page: 1,
       assignedTo: view === 'mine' ? currentUserId : view === 'unassigned' ? 'unassigned' : 'all',
-      requiresReply: view === 'reply' ? true : 'all',
+      requiresReply: view === 'reply' || view === 'unassigned' ? true : 'all',
     }))
   }
 
@@ -116,8 +116,8 @@ export function SupportTicketFilters({
           <label className="admin-support-search-input">
             <Search aria-hidden="true" />
             <input
-              aria-label="Tìm kiếm ticket"
-              placeholder="Tìm mã ticket, tên khách, email, mã đơn..."
+              aria-label="Tìm yêu cầu hỗ trợ"
+              placeholder="Tìm mã yêu cầu, tên khách, email, mã đơn..."
               value={filters.search ?? ''}
               onChange={(event) => onFiltersChange((old) => ({ ...old, search: event.target.value, page: 1 }))}
             />

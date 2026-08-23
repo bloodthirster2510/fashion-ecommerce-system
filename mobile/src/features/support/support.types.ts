@@ -1,6 +1,7 @@
 export type SupportTicketType = 'question' | 'issue' | 'complaint' | 'feedback' | 'suggestion';
 export type SupportCategory = 'orders' | 'shipping' | 'returns' | 'payments' | 'promotions' | 'loyalty' | 'account' | 'product' | 'app_website' | 'service' | 'other';
 export type SupportTicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'resolved' | 'closed';
+export type FaqVoteValue = 'helpful' | 'not_helpful';
 
 export type FaqArticle = {
   _id: string;
@@ -9,6 +10,7 @@ export type FaqArticle = {
   category: string;
   helpfulCount: number;
   notHelpfulCount: number;
+  userVote: FaqVoteValue | null;
 };
 
 export type SupportTicket = {

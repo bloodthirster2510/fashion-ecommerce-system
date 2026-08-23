@@ -688,7 +688,7 @@ const OrderDetailScreen = () => {
         <View style={styles.returnModal}>
           <View style={styles.invoiceHeader}>
             <View>
-              <Text style={styles.invoiceEyebrow}>CANCEL ORDER</Text>
+              <Text style={styles.invoiceEyebrow}>HỦY ĐƠN HÀNG</Text>
               <Text style={styles.invoiceTitle}>Lý do hủy đơn</Text>
             </View>
             <TouchableOpacity

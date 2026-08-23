@@ -2,6 +2,7 @@ import {
   buildActiveCoverageProductFilter,
   calculateAnalyticsChangePercent,
   calculateAnalyticsRate,
+  disambiguateCoverageRows,
   normalizeRecommendationAnalyticsQuery,
   recommendationAnalyticsDayExpression,
   toMetricSnapshot,
@@ -74,6 +75,18 @@ describe('recommendation analytics helpers', () => {
       'product.isActive': true,
       'product.brand_id': { $exists: true, $ne: null },
     });
+  });
+
+  it('adds gender only when category names would be ambiguous', () => {
+    expect(disambiguateCoverageRows([
+      { id: 'male-polo', name: 'Áo polo', gender: 'male', recommendedCount: 9, requestCount: 4 },
+      { id: 'female-polo', name: 'áo polo', gender: 'female', recommendedCount: 6, requestCount: 3 },
+      { id: 'shirt', name: 'Áo sơ mi', gender: 'male', recommendedCount: 5, requestCount: 2 },
+    ])).toEqual([
+      { id: 'male-polo', name: 'Nam / Áo polo', recommendedCount: 9, requestCount: 4 },
+      { id: 'female-polo', name: 'Nữ / áo polo', recommendedCount: 6, requestCount: 3 },
+      { id: 'shirt', name: 'Áo sơ mi', recommendedCount: 5, requestCount: 2 },
+    ]);
   });
 
   it('separates legacy order creation from paid and net attribution', () => {

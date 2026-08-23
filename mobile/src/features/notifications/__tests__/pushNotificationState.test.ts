@@ -46,6 +46,6 @@ describe('push notification state', () => {
 
   it('only offers device settings for permission errors', () => {
     expect(shouldOpenDeviceNotificationSettings('Quyền thông báo chưa được bật')).toBe(true);
-    expect(shouldOpenDeviceNotificationSettings('Không thể cập nhật push token')).toBe(false);
+    expect(shouldOpenDeviceNotificationSettings('Chưa cập nhật được thông tin nhận thông báo')).toBe(false);
   });
 });

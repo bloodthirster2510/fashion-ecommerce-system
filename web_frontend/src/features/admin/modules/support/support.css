@@ -47,10 +47,54 @@
   text-decoration: underline;
 }
 
+.admin-ui-modal.admin-support-faq-modal {
+  width: min(100%, 620px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+.admin-support-faq-form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-support-faq-form__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 12px;
+}
+
+.admin-support-faq-form input,
+.admin-support-faq-form select,
+.admin-support-faq-form textarea {
+  width: 100%;
+}
+
+.admin-support-faq-form textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.admin-support-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--admin-text, #0f172a);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-support-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 /* ==========================================================================
    1. MAIN WORKSPACE CONTAINER (MAXIMUM HEIGHT & FLUID 3-PANE)
    ========================================================================== */
 .admin-support-workspace {
+  position: relative;
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 0px;
   height: calc(100vh - 134px);
@@ -175,6 +219,59 @@
   margin: 0 10px 8px;
   background: #f1f5f9;
   border-radius: 8px;
+}
+
+.admin-support-queue-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.admin-support-queue-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-support-queue-filters label.is-wide,
+.admin-support-queue-filters > button {
+  grid-column: 1 / -1;
+}
+
+.admin-support-queue-filters label span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-support-queue-filters select {
+  width: 100%;
+  height: 32px;
+  padding: 0 26px 0 8px;
+  border: 1px solid #dbe3ec;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-support-queue-filters > button {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .admin-support-queue-tab {
@@ -1884,15 +1981,30 @@
    6. RESPONSIVE BREAKPOINTS
    ========================================================================== */
 @media (max-width: 992px) {
-  .admin-support-workspace {
-    grid-template-columns: 1fr;
-    height: auto;
+  .admin-support-workspace,
+  .admin-support-workspace.is-inspector-open {
+    grid-template-columns: 220px minmax(0, 1fr);
+    height: calc(100vh - 134px);
     min-height: 580px;
   }
   .admin-support-queue {
-    max-height: 260px;
-    border-right: 0;
-    border-bottom: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 0;
+  }
+  .admin-support-inspector {
+    position: absolute;
+    z-index: 20;
+    inset: 0 0 0 auto;
+    width: min(320px, 100%);
+    box-shadow: -12px 0 28px rgba(15, 23, 42, 0.14);
+  }
+  .admin-support-chat-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .admin-support-chat-header__right {
+    width: 100%;
+    flex-wrap: wrap;
   }
   .admin-support-canned-workspace,
   .admin-support-analytics-grid {
@@ -1904,15 +2016,18 @@
 }
 
 @media (max-width: 768px) {
-  .admin-support-chat-header {
-    flex-direction: column;
-    align-items: flex-start;
+  .admin-support-workspace,
+  .admin-support-workspace.is-inspector-open {
+    grid-template-columns: 200px minmax(0, 1fr);
   }
   .admin-support-chat-header__right {
     width: 100%;
     justify-content: space-between;
   }
   .admin-support-analytics-kpis {
+    grid-template-columns: 1fr;
+  }
+  .admin-support-faq-form__row {
     grid-template-columns: 1fr;
   }
 }

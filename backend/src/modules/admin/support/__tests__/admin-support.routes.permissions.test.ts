@@ -76,7 +76,7 @@ describe('admin support route permissions', () => {
     await expect(request('/tickets')).resolves.toMatchObject({ status: 204 });
     await expect(request('/assignees')).resolves.toMatchObject({ status: 204 });
     await expect(request('/analytics')).resolves.toMatchObject({ status: 403 });
-    await expect(request('/canned-responses')).resolves.toMatchObject({ status: 403 });
+    await expect(request('/canned-responses')).resolves.toMatchObject({ status: 204 });
     await expect(request('/faqs')).resolves.toMatchObject({ status: 403 });
   });
 

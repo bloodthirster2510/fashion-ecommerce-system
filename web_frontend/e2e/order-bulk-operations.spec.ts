@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { enterDemoAdmin } from './helpers/admin'
+import { enterDemoAdmin, installDemoAdminAuth } from './helpers/admin'
 
 const order = {
   _id: '665000000000000000000901',
@@ -115,7 +115,7 @@ const refundBankAccount = {
 test('admin selects orders, performs a bulk status update, exports Excel, and opens labels', async ({ page }) => {
   let bulkPayload: Record<string, unknown> | null = null
 
-  await page.route('http://localhost:5000/api/admin/orders**', async (route) => {
+  await page.route('**/api/admin/orders**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
 
@@ -209,27 +209,16 @@ test('admin selects orders, performs a bulk status update, exports Excel, and op
 
 test('staff without payments.adjust can inspect but cannot reconcile or refund VNPay', async ({ page }) => {
   let protectedPaymentRequestCount = 0
-
-  await page.route('http://localhost:5000/api/auth/admin/login', async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { ...corsHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        data: {
-          accessToken: 'demo-admin-access-token',
-          user: {
-            _id: 'demo-staff-orders',
-            name: 'Staff vận hành',
-            email: 'staff-orders@fashion.test',
-            role: 'staff',
-            permissions: ['orders.read', 'orders.update', 'customers.read'],
-          },
-        },
-      }),
-    })
+  await installDemoAdminAuth(page, {
+    _id: 'demo-staff-orders',
+    name: 'Nhân viên vận hành',
+    email: 'staff-orders@fashion.test',
+    role: 'staff',
+    permissions: ['orders.read', 'orders.update', 'customers.read'],
+    mustChangePassword: false,
   })
 
-  await page.route('http://localhost:5000/api/admin/audit-logs**', async (route) => {
+  await page.route('**/api/admin/audit-logs**', async (route) => {
     await route.fulfill({
       status: 200,
       headers: { ...corsHeaders, 'content-type': 'application/json' },
@@ -242,7 +231,7 @@ test('staff without payments.adjust can inspect but cannot reconcile or refund V
     })
   })
 
-  await page.route('http://localhost:5000/api/admin/orders**', async (route) => {
+  await page.route('**/api/admin/orders**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
 
@@ -321,7 +310,7 @@ test('admin verifies a refund account and records a manual COD refund with an au
   let paymentMethodPayload: Record<string, unknown> | null = null
   let paymentStatusPayload: Record<string, unknown> | null = null
 
-  await page.route('http://localhost:5000/api/admin/orders**', async (route) => {
+  await page.route('**/api/admin/orders**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
 
@@ -367,7 +356,7 @@ test('admin verifies a refund account and records a manual COD refund with an au
     })
   })
 
-  await page.route(`http://localhost:5000/api/admin/users/${codRefundOrder.user_id}/payment-methods`, async (route) => {
+  await page.route(`**/api/admin/users/${codRefundOrder.user_id}/payment-methods`, async (route) => {
     await route.fulfill({
       status: 200,
       headers: { ...corsHeaders, 'content-type': 'application/json' },
@@ -377,7 +366,7 @@ test('admin verifies a refund account and records a manual COD refund with an au
     })
   })
 
-  await page.route('http://localhost:5000/api/admin/payment-methods/**', async (route) => {
+  await page.route('**/api/admin/payment-methods/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
 
@@ -409,7 +398,7 @@ test('admin verifies a refund account and records a manual COD refund with an au
     })
   })
 
-  await page.route(`http://localhost:5000/api/admin/payments/orders/${codRefundOrder._id}/payment-status`, async (route) => {
+  await page.route(`**/api/admin/payments/orders/${codRefundOrder._id}/payment-status`, async (route) => {
     if (route.request().method() === 'OPTIONS') {
       await route.fulfill({ status: 204, headers: corsHeaders })
       return
@@ -426,7 +415,7 @@ test('admin verifies a refund account and records a manual COD refund with an au
     })
   })
 
-  await page.route('http://localhost:5000/api/admin/audit-logs**', async (route) => {
+  await page.route('**/api/admin/audit-logs**', async (route) => {
     await route.fulfill({
       status: 200,
       headers: { ...corsHeaders, 'content-type': 'application/json' },

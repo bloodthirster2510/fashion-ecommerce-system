@@ -1,19 +1,21 @@
 import { expect, test } from '@playwright/test'
 import { enterDemoAdmin } from './helpers/admin'
 
-test('voucher wizard supports templates, advanced options and cost preview', async ({ page }) => {
+test('voucher wizard supports quick setup, advanced options and cost preview', async ({ page }) => {
   await enterDemoAdmin(page)
   await page.getByRole('button', { name: /^Khuyến mãi:/ }).click()
   await page.getByRole('button', { name: /Tạo voucher$/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Tạo voucher' })
-  await dialog.getByRole('button', { name: /Chào mừng khách mới/ }).click()
+  await dialog.getByRole('textbox', { name: /Mã voucher/ }).fill('CHAO_MUNG10')
+  await dialog.getByLabel('Tên voucher').fill('Chào mừng khách mới')
   await expect(dialog.getByLabel('Tên voucher')).toHaveValue('Chào mừng khách mới')
   await expect(dialog.getByText('Ước tính trên đơn mẫu')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Hiện tùy chọn nâng cao' }).click()
+  await expect(dialog.getByText('Đối tượng và phạm vi áp dụng đang hiển thị.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Ẩn tùy chọn nâng cao' }).click()
   await dialog.getByRole('button', { name: 'Hiện tùy chọn nâng cao' }).click()
-  await expect(dialog.getByText('Giới hạn lượt, đối tượng và phạm vi đang hiển thị.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Tiếp tục' }).click()
-  await expect(dialog.getByText('Thời gian và lượt dùng')).toBeVisible()
+  await expect(dialog.getByText('Thời gian hiển thị')).toBeVisible()
 })
 
 test('tier dialog validates inline and confirms discarding dirty edits', async ({ page }) => {

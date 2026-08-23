@@ -47,7 +47,7 @@ export function SupportCannedResponsesPanel({
             <MessageSquarePlus aria-hidden="true" />
             <h3>{editingCannedId ? 'Chỉnh sửa mẫu trả lời' : 'Tạo mẫu trả lời nhanh'}</h3>
           </div>
-          <p>Lưu sẵn các câu trả lời chuẩn để nhân viên CSKH phản hồi nhanh chỉ với 1 click.</p>
+          <p>Lưu sẵn nội dung thường dùng để nhân viên phản hồi nhanh.</p>
         </header>
 
         <form
@@ -60,7 +60,7 @@ export function SupportCannedResponsesPanel({
           <Field label="Tiêu đề mẫu">
             <input
               aria-label="Tiêu đề mẫu"
-              placeholder="VD: Chào khách hàng, Hướng dẫn đổi trả..."
+              placeholder="Ví dụ: Chào khách hàng, Hướng dẫn đổi trả..."
               value={cannedForm.title}
               onChange={(event) => onFormChange({ ...cannedForm, title: event.target.value })}
               required

@@ -125,9 +125,9 @@ const NotificationSettingsScreen = () => {
             <MaterialCommunityIcons name="bell-ring-outline" size={27} color={colors.brand} />
           </View>
           <View style={styles.infoCopy}>
-            <Text style={styles.infoTitle}>Thông báo đẩy trên thiết bị</Text>
+            <Text style={styles.infoTitle}>Thông báo trên thiết bị</Text>
             <Text style={styles.infoText}>
-              Lịch sử thông báo trong ứng dụng và cập nhật realtime vẫn hoạt động khi bạn tắt mục này.
+              Lịch sử thông báo và cập nhật trực tiếp vẫn hoạt động khi bạn tắt mục này.
             </Text>
           </View>
           {loading ? (
@@ -186,7 +186,7 @@ const NotificationSettingsScreen = () => {
         </View>
 
         <Text style={styles.footerNote}>
-          Ứng dụng tự làm mới push token khi thiết bị hoặc Expo thay đổi token. Bạn không cần đăng ký lại thủ công.
+          Ứng dụng sẽ tự cập nhật thông tin nhận thông báo. Bạn không cần đăng ký lại.
         </Text>
       </ScrollView>
     </SafeAreaView>

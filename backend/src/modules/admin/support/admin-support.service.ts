@@ -161,15 +161,34 @@ export const listAdminTickets = async (input: AdminTicketQuery = {}) => {
     ];
   }
 
-  const [items, totalItems] = await Promise.all([
-    SupportTicket.find(filter)
-      .sort({ requiresReply: -1, priority: -1, lastMessageAt: 1 })
-      .skip((normalized.page - 1) * normalized.limit)
-      .limit(normalized.limit)
-      .populate('userId', 'name email phone avatarImage')
-      .populate('assignedTo', 'name email')
-      .lean(),
+  const [rawItems, totalItems] = await Promise.all([
+    SupportTicket.aggregate([
+      { $match: filter },
+      {
+        $addFields: {
+          supportPriorityRank: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$priority', 'urgent'] }, then: 4 },
+                { case: { $eq: ['$priority', 'high'] }, then: 3 },
+                { case: { $eq: ['$priority', 'normal'] }, then: 2 },
+                { case: { $eq: ['$priority', 'low'] }, then: 1 },
+              ],
+              default: 0,
+            },
+          },
+        },
+      },
+      { $sort: { requiresReply: -1, supportPriorityRank: -1, lastMessageAt: 1 } },
+      { $skip: (normalized.page - 1) * normalized.limit },
+      { $limit: normalized.limit },
+      { $unset: 'supportPriorityRank' },
+    ]),
     SupportTicket.countDocuments(filter),
+  ]);
+  const items = await SupportTicket.populate(rawItems, [
+    { path: 'userId', select: 'name email phone avatarImage' },
+    { path: 'assignedTo', select: 'name email' },
   ]);
   return { items, pagination: { ...normalized, totalItems, totalPages: Math.ceil(totalItems / normalized.limit) } };
 };
@@ -322,6 +341,9 @@ export const updateAdminTicket = async (
       throw new SupportServiceError(`Cannot transition ticket from ${ticket.status} to ${input.status}`, 409);
     }
     if (input.status === 'spam' && actor.role !== 'admin') throw new SupportServiceError('Only admin can mark spam', 403);
+    if (currentStatus === 'spam' && actor.role !== 'admin') {
+      throw new SupportServiceError('Only admin can restore a spam ticket', 403);
+    }
     if (input.status === 'waiting_customer' && ticket.lastMessageSender !== 'staff') {
       throw new SupportServiceError('Reply to the customer before setting waiting customer', 409);
     }
@@ -443,6 +465,9 @@ const dateRange = (dateFrom?: string, dateTo?: string) => {
     if (Number.isNaN(value.getTime())) throw new SupportServiceError('dateTo is invalid');
     value.setHours(23, 59, 59, 999);
     createdAt.$lte = value;
+  }
+  if (createdAt.$gte && createdAt.$lte && createdAt.$gte > createdAt.$lte) {
+    throw new SupportServiceError('dateFrom must not be after dateTo');
   }
   return { status: { $ne: 'pending_verification' }, ...(Object.keys(createdAt).length ? { createdAt } : {}) };
 };

@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  SlidersHorizontal,
   UserCheck,
   X,
 } from 'lucide-react'
@@ -40,7 +41,6 @@ type SupportInboxPanelProps = {
   loading: boolean
   detailLoading: boolean
   submitting: boolean
-  canManage: boolean
   canMarkSpam: boolean
   currentUserId: string
   assignees: SupportPerson[]
@@ -85,7 +85,6 @@ export function SupportInboxPanel({
   loading,
   detailLoading,
   submitting,
-  canManage,
   canMarkSpam,
   currentUserId,
   assignees,
@@ -117,15 +116,26 @@ export function SupportInboxPanel({
   const [isSpamConfirmOpen, setIsSpamConfirmOpen] = useState(false)
   // Mặc định đóng inspector để khung chat rộng tối đa
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const stickToBottomRef = useRef(true)
   const selectedTicket = detail?.ticket
 
   useEffect(() => {
     const thread = threadRef.current
-    if (!thread) return
+    if (!thread || !stickToBottomRef.current) return
     thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' })
-  }, [customerTypingTicketId, detail?.messages.length, selectedId])
+  }, [customerTypingTicketId, detail?.messages.length])
+
+  useEffect(() => {
+    stickToBottomRef.current = true
+    const frame = requestAnimationFrame(() => {
+      const thread = threadRef.current
+      if (thread) thread.scrollTo({ top: thread.scrollHeight, behavior: 'auto' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [selectedId])
 
   const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
     open: ['open', 'in_progress', 'resolved', 'closed', ...(canMarkSpam ? ['spam' as const] : [])],
@@ -173,7 +183,7 @@ export function SupportInboxPanel({
       ...old,
       page: 1,
       assignedTo: view === 'mine' ? currentUserId : view === 'unassigned' ? 'unassigned' : 'all',
-      requiresReply: view === 'reply' ? true : 'all',
+      requiresReply: view === 'reply' || view === 'unassigned' ? true : 'all',
     }))
   }
 
@@ -186,7 +196,7 @@ export function SupportInboxPanel({
           <div className="admin-support-queue-search">
             <Search aria-hidden="true" />
             <input
-              placeholder="Tìm khách, mã ticket..."
+              placeholder="Tìm khách, mã yêu cầu..."
               value={filters.search ?? ''}
               onChange={(e) => onFiltersChange((old) => ({ ...old, search: e.target.value, page: 1 }))}
               aria-label="Tìm kiếm cuộc hội thoại"
@@ -212,6 +222,16 @@ export function SupportInboxPanel({
           >
             <RefreshCw aria-hidden="true" />
           </button>
+          <button
+            type="button"
+            className={`admin-support-refresh-icon-btn${filtersOpen ? ' is-active' : ''}`}
+            title="Lọc danh sách"
+            aria-label="Lọc danh sách"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+          >
+            <SlidersHorizontal aria-hidden="true" />
+          </button>
         </header>
 
         {/* BỘ LỌC NHANH: TẤT CẢ / CẦN TRẢ LỜI / CỦA TÔI / CHƯA NHẬN */}
@@ -220,26 +240,26 @@ export function SupportInboxPanel({
             type="button"
             className={`admin-support-queue-tab${activeView === 'all' ? ' is-active' : ''}`}
             onClick={() => selectView('all')}
-            title="Tất cả ticket"
+            title="Tất cả yêu cầu"
           >
             <span>Tất cả</span>
-            {ticketPagination.totalItems > 0 ? <b>{ticketPagination.totalItems}</b> : null}
+            {activeView === 'all' && ticketPagination.totalItems > 0 ? <b>{ticketPagination.totalItems}</b> : null}
           </button>
           <button
             type="button"
             className={`admin-support-queue-tab is-urgent${activeView === 'reply' ? ' is-active' : ''}`}
             onClick={() => selectView('reply')}
-            title="Ticket cần phản hồi"
+            title="Yêu cầu cần phản hồi"
           >
             <Flame aria-hidden="true" />
-            <span>Cần trả lời</span>
+            <span>Cần phản hồi</span>
             {summary?.waitingAdmin ? <b>{summary.waitingAdmin}</b> : null}
           </button>
           <button
             type="button"
             className={`admin-support-queue-tab${activeView === 'mine' ? ' is-active' : ''}`}
             onClick={() => selectView('mine')}
-            title="Ticket được giao cho tôi"
+            title="Yêu cầu được giao cho tôi"
           >
             <span>Của tôi</span>
           </button>
@@ -247,12 +267,55 @@ export function SupportInboxPanel({
             type="button"
             className={`admin-support-queue-tab${activeView === 'unassigned' ? ' is-active' : ''}`}
             onClick={() => selectView('unassigned')}
-            title="Ticket chưa phân công"
+            title="Yêu cầu chưa phân công"
           >
             <span>Chưa nhận</span>
             {summary?.unassigned ? <b>{summary.unassigned}</b> : null}
           </button>
         </div>
+
+        {filtersOpen ? (
+          <div className="admin-support-queue-filters">
+            <label>
+              <span>Trạng thái</span>
+              <select
+                value={filters.status ?? 'all'}
+                onChange={(event) => onFiltersChange((old) => ({ ...old, status: event.target.value as SupportFilters['status'], page: 1 }))}
+              >
+                <option value="all">Tất cả</option>
+                {Object.entries(statusLabels)
+                  .filter(([value]) => canMarkSpam || value !== 'spam')
+                  .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Ưu tiên</span>
+              <select
+                value={filters.priority ?? 'all'}
+                onChange={(event) => onFiltersChange((old) => ({ ...old, priority: event.target.value as SupportFilters['priority'], page: 1 }))}
+              >
+                <option value="all">Tất cả</option>
+                {Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label className="is-wide">
+              <span>Danh mục</span>
+              <select
+                value={filters.category ?? 'all'}
+                onChange={(event) => onFiltersChange((old) => ({ ...old, category: event.target.value as SupportFilters['category'], page: 1 }))}
+              >
+                <option value="all">Tất cả</option>
+                {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => onFiltersChange(() => ({ page: 1, status: 'all' }))}
+            >
+              Xóa bộ lọc
+            </button>
+          </div>
+        ) : null}
 
         {/* DANH SÁCH TICKET TINH GỌN */}
         <div className="admin-support-queue-list">
@@ -297,7 +360,7 @@ export function SupportInboxPanel({
                       {isNeedsReply ? (
                         <span className="admin-support-badge is-warning">
                           <span className="admin-support-dot is-orange" />
-                          Cần trả lời
+                          Cần phản hồi
                         </span>
                       ) : (
                         <span className={`admin-support-badge tone-${statusTones[ticket.status]}`}>
@@ -316,7 +379,7 @@ export function SupportInboxPanel({
           ) : (
             <EmptyState
               title="Không có cuộc hội thoại"
-              description="Không tìm thấy ticket nào trong mục này."
+              description="Không tìm thấy yêu cầu nào trong mục này."
             />
           )}
         </div>
@@ -404,7 +467,15 @@ export function SupportInboxPanel({
             </header>
 
             {/* VÙNG TIN NHẮN (CHAT THREAD) RỘNG RÃI */}
-            <div className="admin-support-thread" ref={threadRef} aria-live="polite">
+            <div
+              className="admin-support-thread"
+              ref={threadRef}
+              aria-live="polite"
+              onScroll={(event) => {
+                const thread = event.currentTarget
+                stickToBottomRef.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80
+              }}
+            >
               {detail.messages.map((message) => {
                 const isCustomer = message.senderType === 'customer'
                 const isStaff = message.senderType === 'staff' && !message.isInternal
@@ -471,17 +542,19 @@ export function SupportInboxPanel({
                 <div className="admin-support-closed-banner__text">
                   <Info aria-hidden="true" />
                   <span>
-                    Ticket đang ở trạng thái <b>{statusLabels[selectedTicket.status]}</b>.
+                    Yêu cầu đang ở trạng thái <b>{statusLabels[selectedTicket.status]}</b>.
                   </span>
                 </div>
-                <Button
-                  variant="secondary"
-                  disabled={submitting}
-                  onClick={() => void onMutateTicket({ status: 'in_progress' })}
-                >
-                  <RotateCcw aria-hidden="true" />
-                  Mở lại ticket
-                </Button>
+                {selectedTicket.status !== 'spam' || canMarkSpam ? (
+                  <Button
+                    variant="secondary"
+                    disabled={submitting}
+                    onClick={() => void onMutateTicket({ status: 'in_progress' })}
+                  >
+                    <RotateCcw aria-hidden="true" />
+                    Mở lại yêu cầu
+                  </Button>
+                ) : null}
               </div>
             ) : (
               <div className={`admin-support-composer${isInternal ? ' is-note-mode' : ''}`}>
@@ -506,14 +579,14 @@ export function SupportInboxPanel({
                     </button>
                   </div>
 
-                  {canManage ? (
+                  {cannedResponses.length > 0 ? (
                     <select
                       className="admin-support-canned-dropdown"
                       value={selectedCannedId}
                       onChange={(e) => onCannedChange(e.target.value)}
                       aria-label="Chọn mẫu trả lời nhanh"
                     >
-                      <option value="">⚡ Chọn mẫu trả lời nhanh...</option>
+                      <option value="">Chọn mẫu trả lời nhanh...</option>
                       {cannedResponses
                         .filter((item) => item.isActive && (!item.category || item.category === selectedTicket.category))
                         .map((item) => (
@@ -539,7 +612,7 @@ export function SupportInboxPanel({
                   }}
                   placeholder={
                     isInternal
-                      ? 'Nhập ghi chú nội bộ (Chỉ nhân viên & admin nhìn thấy)...'
+                      ? 'Nhập ghi chú nội bộ (chỉ nhân viên và quản trị viên nhìn thấy)...'
                       : 'Nhập nội dung phản hồi cho khách hàng...'
                   }
                   maxLength={3000}
@@ -557,7 +630,7 @@ export function SupportInboxPanel({
                           type="button"
                           className="admin-support-file-remove"
                           onClick={() => handleRemoveFile(idx)}
-                          aria-label={`Bỏ file ${file.name}`}
+                          aria-label={`Bỏ ảnh ${file.name}`}
                         >
                           <X aria-hidden="true" />
                         </button>
@@ -615,7 +688,7 @@ export function SupportInboxPanel({
           <div className="admin-support-empty-view">
             <MessageSquareText aria-hidden="true" />
             <h3>Chưa chọn cuộc hội thoại</h3>
-            <p>Chọn một ticket ở danh sách bên trái để xem tin nhắn và phản hồi khách hàng.</p>
+            <p>Chọn một yêu cầu ở danh sách bên trái để xem và phản hồi khách hàng.</p>
           </div>
         )}
       </main>
@@ -814,8 +887,8 @@ export function SupportInboxPanel({
 
       {/* MODAL XÁC NHẬN SPAM */}
       <Modal
-        title="Đánh dấu ticket là Spam?"
-        description={selectedTicket ? `${selectedTicket.ticketCode} sẽ bị khóa vĩnh viễn.` : undefined}
+        title="Đánh dấu là thư rác?"
+        description={selectedTicket ? `${selectedTicket.ticketCode} sẽ được đưa khỏi hàng đợi xử lý.` : undefined}
         isOpen={isSpamConfirmOpen}
         onClose={() => {
           if (!submitting) setIsSpamConfirmOpen(false)
@@ -826,14 +899,14 @@ export function SupportInboxPanel({
               Hủy
             </Button>
             <Button variant="danger" disabled={submitting} onClick={() => void handleConfirmSpam()}>
-              {submitting ? 'Đang xử lý…' : 'Xác nhận Spam'}
+              {submitting ? 'Đang xử lý…' : 'Đánh dấu thư rác'}
             </Button>
           </>
         )}
       >
         <div className="admin-support-spam-dialog">
           <AlertTriangle aria-hidden="true" />
-          <p>Ticket spam sẽ bị đóng vĩnh viễn và loại bỏ khỏi danh sách xử lý.</p>
+          <p>Yêu cầu sẽ không nhận thêm tin nhắn. Quản trị viên có thể khôi phục nếu đánh dấu nhầm.</p>
         </div>
       </Modal>
     </div>

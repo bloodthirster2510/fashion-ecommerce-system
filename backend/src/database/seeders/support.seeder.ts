@@ -1,4 +1,10 @@
-import { FaqArticle, User, type FaqCategory } from '../models';
+import {
+  FaqArticle,
+  SupportCannedResponse,
+  User,
+  type FaqCategory,
+  type SupportCategory,
+} from '../models';
 
 const defaultFaqs: Array<{ question: string; answer: string; category: FaqCategory; keywords: string[] }> = [
   {
@@ -45,7 +51,7 @@ const defaultFaqs: Array<{ question: string; answer: string; category: FaqCatego
   },
   {
     question: 'Tại sao mã voucher không sử dụng được?',
-    answer: 'Voucher có thể chưa đến thời gian áp dụng, đã hết hạn hoặc hết lượt, chưa đạt giá trị đơn tối thiểu, không áp dụng cho sản phẩm trong giỏ hoặc không dành cho tài khoản của bạn. Hãy kiểm tra điều kiện voucher và nhập đúng mã; nếu vẫn lỗi, gửi mã voucher cho shop qua trang Hỗ trợ.',
+    answer: 'Mã giảm giá có thể chưa đến thời gian áp dụng, đã hết hạn hoặc hết lượt, chưa đạt giá trị đơn tối thiểu, không áp dụng cho sản phẩm trong giỏ hoặc không dành cho tài khoản của bạn. Hãy kiểm tra điều kiện và nhập đúng mã; nếu vẫn lỗi, gửi mã giảm giá cho shop qua trang Hỗ trợ.',
     category: 'promotions',
     keywords: ['voucher', 'mã giảm giá', 'không áp dụng', 'hết hạn', 'đơn tối thiểu'],
   },
@@ -63,7 +69,7 @@ const defaultFaqs: Array<{ question: string; answer: string; category: FaqCatego
   },
   {
     question: 'Tôi nên làm gì khi nhận sai, thiếu hoặc hàng bị hư hỏng?',
-    answer: 'Hãy giữ nguyên tem nhãn, chụp ảnh sản phẩm và kiện hàng, sau đó mở chi tiết đơn để gửi yêu cầu trả hàng trong vòng 7 ngày. Bạn cũng có thể gửi ticket Hỗ trợ kèm mã đơn và tối đa 3 ảnh để shop đối soát.',
+    answer: 'Hãy giữ nguyên tem nhãn, chụp ảnh sản phẩm và kiện hàng, sau đó mở chi tiết đơn để gửi yêu cầu trả hàng trong vòng 7 ngày. Bạn cũng có thể gửi yêu cầu hỗ trợ kèm mã đơn và tối đa 3 ảnh để shop đối soát.',
     category: 'returns',
     keywords: ['giao sai', 'giao thiếu', 'hàng hư hỏng', 'hàng lỗi', 'ảnh minh chứng'],
   },
@@ -72,6 +78,38 @@ const defaultFaqs: Array<{ question: string; answer: string; category: FaqCatego
     answer: 'Bạn mở Tài khoản, chọn Thông tin cá nhân rồi thêm, sửa hoặc đặt một địa chỉ làm mặc định trong phần địa chỉ giao hàng. Việc thay đổi địa chỉ mặc định không làm thay đổi địa chỉ của đơn đã đặt; hãy liên hệ Hỗ trợ nếu cần kiểm tra đơn hiện tại.',
     category: 'account',
     keywords: ['địa chỉ giao hàng', 'địa chỉ mặc định', 'thêm địa chỉ', 'sửa địa chỉ'],
+  },
+];
+
+const defaultCannedResponses: Array<{
+  title: string;
+  body: string;
+  category: SupportCategory | null;
+}> = [
+  {
+    title: 'Chào khách và tiếp nhận yêu cầu',
+    body: 'Chào bạn, shop đã nhận được yêu cầu và đang kiểm tra thông tin. Shop sẽ phản hồi ngay khi có kết quả. Cảm ơn bạn đã chờ.',
+    category: null,
+  },
+  {
+    title: 'Kiểm tra trạng thái đơn hàng',
+    body: 'Shop đang kiểm tra trạng thái đơn hàng với bộ phận vận hành. Bạn vui lòng gửi giúp shop mã đơn nếu yêu cầu chưa được liên kết với đơn hàng.',
+    category: 'orders',
+  },
+  {
+    title: 'Hướng dẫn gửi yêu cầu trả hàng',
+    body: 'Bạn vui lòng mở chi tiết đơn, chọn Yêu cầu trả hàng và gửi kèm ảnh sản phẩm, tem nhãn cùng kiện hàng. Shop sẽ kiểm tra và cập nhật kết quả trong yêu cầu này.',
+    category: 'returns',
+  },
+  {
+    title: 'Kiểm tra thanh toán VNPay',
+    body: 'Shop đang đối soát giao dịch VNPay của đơn hàng. Bạn không cần tạo đơn mới trong lúc chờ; shop sẽ cập nhật trạng thái ngay khi nhận được kết quả đối soát.',
+    category: 'payments',
+  },
+  {
+    title: 'Xác nhận đã giải quyết',
+    body: 'Yêu cầu của bạn đã được xử lý. Nếu vẫn cần hỗ trợ, bạn có thể phản hồi lại trong thời hạn mở lại yêu cầu. Cảm ơn bạn đã liên hệ shop.',
+    category: null,
   },
 ];
 
@@ -90,6 +128,22 @@ export const seedSupportFaqs = async () => {
           publishedAt: new Date(),
           helpfulCount: 0,
           notHelpfulCount: 0,
+          createdBy: admin._id,
+          updatedBy: admin._id,
+        },
+      },
+      { upsert: true },
+    );
+  }
+
+  for (const response of defaultCannedResponses) {
+    await SupportCannedResponse.updateOne(
+      { title: response.title },
+      {
+        $setOnInsert: {
+          ...response,
+          isActive: true,
+          useCount: 0,
           createdBy: admin._id,
           updatedBy: admin._id,
         },

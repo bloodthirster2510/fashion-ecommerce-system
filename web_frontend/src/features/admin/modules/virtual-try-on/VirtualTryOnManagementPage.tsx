@@ -862,7 +862,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
       <header className="admin-vto-ops-bar">
         <div className="admin-vto-ops-copy">
           <span>Phối đồ ảo</span>
-          <strong>Vận hành và kiểm soát</strong>
+          <h1>Vận hành và kiểm soát</h1>
           <p>Theo dõi lượt tạo, kết quả, nội dung và giới hạn sử dụng.</p>
         </div>
         <div className="admin-vto-ops-actions">
@@ -1420,7 +1420,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       </label>
                     </fieldset>
                   </div>
-                  <p>Đổi workflow chỉ áp dụng cho yêu cầu mới. Các job đang chạy tiếp tục dùng workflow đã được ghi nhận khi tạo.</p>
+                  <p>Đổi quy trình chỉ áp dụng cho yêu cầu mới. Các lượt đang chạy tiếp tục dùng quy trình đã được ghi nhận khi tạo.</p>
                 </section>
                 <div className="admin-vto-settings-fields">
                   <label>

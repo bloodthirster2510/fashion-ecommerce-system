@@ -32,6 +32,7 @@ export type ListFaqInput = PaginationQuery & {
   category?: FaqCategory;
   search?: string;
   publishedOnly?: boolean;
+  viewerUserId?: string;
 };
 
 export type VoteFaqInput = { value: FaqVoteValue };

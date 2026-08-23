@@ -71,7 +71,7 @@ export function SupportAnalyticsPanel({
             <MessageSquare aria-hidden="true" />
           </div>
           <div className="admin-support-analytics-kpi-card__content">
-            <span>Tổng số ticket</span>
+            <span>Tổng yêu cầu</span>
             <strong>{totalTickets}</strong>
             <small>Tất cả yêu cầu gửi về</small>
           </div>
@@ -93,7 +93,7 @@ export function SupportAnalyticsPanel({
             <Clock aria-hidden="true" />
           </div>
           <div className="admin-support-analytics-kpi-card__content">
-            <span>Phản hồi đầu TB</span>
+            <span>Phản hồi đầu trung bình</span>
             <strong>{formatDuration(analytics?.tickets.avgFirstResponseMs)}</strong>
             <small>Tốc độ tiếp nhận</small>
           </div>
@@ -104,7 +104,7 @@ export function SupportAnalyticsPanel({
             <FileCheck aria-hidden="true" />
           </div>
           <div className="admin-support-analytics-kpi-card__content">
-            <span>Thời gian xử lý TB</span>
+            <span>Thời gian xử lý trung bình</span>
             <strong>{formatDuration(analytics?.tickets.avgResolutionMs)}</strong>
             <small>Đến khi giải quyết xong</small>
           </div>
@@ -130,7 +130,7 @@ export function SupportAnalyticsPanel({
         />
 
         <ReportBreakdownCard
-          title="Lượng ticket theo ngày"
+          title="Số yêu cầu theo ngày"
           items={(analytics?.dailyVolume ?? []).map((item) => ({
             label: item.date,
             count: item.count,
@@ -140,14 +140,14 @@ export function SupportAnalyticsPanel({
         <article className="admin-support-analytics-card is-faq-card">
           <div className="admin-support-analytics-card__header">
             <HelpCircle aria-hidden="true" />
-            <h3>Hiệu quả bài viết FAQ</h3>
+            <h3>Hiệu quả bài hướng dẫn</h3>
           </div>
           <div className="admin-support-faq-metric">
             <strong className="admin-support-faq-metric__percent">{faqHelpfulRate}%</strong>
             <span className="admin-support-faq-metric__label">Tỷ lệ khách đánh giá hữu ích</span>
             <p className="admin-support-faq-metric__details">
               Đã ghi nhận <b>{analytics?.faq.helpful ?? 0}</b> lượt đánh giá tốt trên tổng số{' '}
-              <b>{analytics?.faq.totalVotes ?? 0}</b> lượt vote từ khách hàng.
+              <b>{analytics?.faq.totalVotes ?? 0}</b> lượt đánh giá từ khách hàng.
             </p>
           </div>
         </article>
@@ -183,7 +183,7 @@ function ReportBreakdownCard({
                   <div
                     className="admin-support-breakdown-bar"
                     style={{ width: `${percentage}%` }}
-                    title={`${item.count} ticket (${percentage}%)`}
+                    title={`${item.count} yêu cầu (${percentage}%)`}
                   />
                 </div>
                 <strong className="admin-support-breakdown-count">{item.count}</strong>

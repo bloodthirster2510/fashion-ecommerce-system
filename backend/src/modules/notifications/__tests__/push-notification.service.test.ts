@@ -160,7 +160,7 @@ describe('push notification service', () => {
 
   it('rejects an empty registration payload instead of throwing an internal error', async () => {
     await expect(registerPushToken(userId, null)).rejects.toMatchObject({
-      message: 'Push token payload is required',
+      message: 'Thiếu thông tin đăng ký nhận thông báo',
       statusCode: 400,
     });
     expect(mockedPushToken.findOneAndUpdate).not.toHaveBeenCalled();
