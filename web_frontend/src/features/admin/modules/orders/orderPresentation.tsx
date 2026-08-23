@@ -16,6 +16,7 @@ import type {
   ShippingSimulationStatus,
   ShippingUpdateDialogValues,
 } from './orderTypes'
+import { formatAdminDateTime } from '../../utils/dateTime'
 
 export const pageSize = 10
 export const returnWindowDays = 7
@@ -387,11 +388,6 @@ export const currencyFormatter = new Intl.NumberFormat('vi-VN', {
   maximumFractionDigits: 0,
 })
 
-export const dateFormatter = new Intl.DateTimeFormat('vi-VN', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-})
-
 export const formatCurrency = (value: number) => currencyFormatter.format(value)
 
 export const formatDate = (value?: string | null) => {
@@ -400,7 +396,7 @@ export const formatDate = (value?: string | null) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Chưa có'
 
-  return dateFormatter.format(date)
+  return formatAdminDateTime(date)
 }
 
 export const getReturnWindowDeadline = (order: AdminOrder) => {

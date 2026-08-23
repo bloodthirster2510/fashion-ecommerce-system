@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { deletePendingReview, getModerationRules, listAdminReviews, replyToReview, setManyReviewStatuses } from './review.service'
 import type { AdminReview, ModerationRules, ReviewFilters, ReviewListResponse, ReviewStatus } from './review.types'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
+import { formatAdminDateTime } from '../../utils/dateTime'
 import './review.css'
 
 const initialFilters: ReviewFilters = {
@@ -17,9 +18,7 @@ const statusMeta: Record<ReviewStatus, { label: string; className: string }> = {
   hidden: { label: 'Đã ẩn', className: 'is-blocked' },
 }
 
-const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-}).format(new Date(value))
+const formatDate = (value: string) => formatAdminDateTime(value)
 
 const formatOrderItemVariant = (item?: NonNullable<AdminReview['order']>['item']) => {
   if (!item) return ''

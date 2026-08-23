@@ -1,4 +1,5 @@
 import { requestAdmin } from '../../services/adminHttp'
+import { formatAdminDateInput } from '../../utils/dateTime'
 import type {
   RecommendationAnalytics,
   RecommendationContext,
@@ -111,10 +112,7 @@ const normalizeOptionalDate = (value: unknown, label: string) => {
   return value.trim()
 }
 
-const toLocalDateInput = (date: Date) => {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 10)
-}
+const toLocalDateInput = (date: Date) => formatAdminDateInput(date)
 
 export const buildDefaultRecommendationAnalyticsFilters = (
   now = new Date(),

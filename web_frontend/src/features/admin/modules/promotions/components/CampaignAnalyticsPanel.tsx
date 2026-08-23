@@ -16,17 +16,20 @@ import type {
   PromotionCampaignPayload,
 } from '../promotion.types'
 import { useToast } from '../../../notifications/notification-context'
+import {
+  formatAdminDate,
+  formatAdminDateInput,
+  formatAdminDateTimeInput,
+  parseAdminDateTimeInput,
+} from '../../../utils/dateTime'
 
 type Props = { currentUser: AdminUser }
 type CampaignFieldErrors = Partial<Record<'code' | 'name' | 'startAt' | 'endAt' | 'couponIds' | 'maxCouponsPerOrder', string>>
 const campaignDraftKey = 'fashionista.admin.campaign-draft'
 
-const toDateTimeInput = (date: Date) => {
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
-}
+const toDateTimeInput = (date: Date) => formatAdminDateTimeInput(date)
 
-const toDateInput = (date: Date) => toDateTimeInput(date).slice(0, 10)
+const toDateInput = (date: Date) => formatAdminDateInput(date)
 
 const createInitialForm = (): PromotionCampaignPayload => ({
   code: '',
@@ -59,7 +62,7 @@ const formatCurrency = (value = 0) => new Intl.NumberFormat('vi-VN', {
 }).format(value)
 
 const formatRange = (analytics: PromotionAnalytics | null) => analytics
-  ? `${new Intl.DateTimeFormat('vi-VN').format(new Date(analytics.range.from))} – ${new Intl.DateTimeFormat('vi-VN').format(new Date(analytics.range.to))}`
+  ? `${formatAdminDate(analytics.range.from)} – ${formatAdminDate(analytics.range.to)}`
   : 'giai đoạn hiện tại'
 
 const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'
@@ -71,8 +74,8 @@ const validateCampaignForm = (form: PromotionCampaignPayload): CampaignFieldErro
   const errors: CampaignFieldErrors = {}
   if (!/^[A-Z0-9_-]{2,40}$/.test(form.code.trim().toUpperCase())) errors.code = 'Mã gồm 2–40 ký tự in hoa, số, “_” hoặc “-”.'
   if (form.name.trim().length < 2) errors.name = 'Tên chiến dịch cần ít nhất 2 ký tự.'
-  const startAt = new Date(form.startAt)
-  const endAt = new Date(form.endAt)
+  const startAt = parseAdminDateTimeInput(form.startAt)
+  const endAt = parseAdminDateTimeInput(form.endAt)
   if (Number.isNaN(startAt.getTime())) errors.startAt = 'Thời gian bắt đầu không hợp lệ.'
   if (Number.isNaN(endAt.getTime()) || (!errors.startAt && endAt <= startAt)) errors.endAt = 'Thời gian kết thúc phải sau thời gian bắt đầu.'
   if (!form.couponIds.length) errors.couponIds = 'Chọn ít nhất một voucher.'
@@ -213,8 +216,8 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitAttempted(true)
-    const startAt = new Date(form.startAt)
-    const endAt = new Date(form.endAt)
+    const startAt = parseAdminDateTimeInput(form.startAt)
+    const endAt = parseAdminDateTimeInput(form.endAt)
     if (Object.keys(formErrors).length) {
       setFormError('Kiểm tra lại các trường được đánh dấu.')
       return
@@ -331,8 +334,8 @@ export function CampaignAnalyticsPanel({ currentUser }: Props) {
           {formError ? <p className="admin-form-error admin-campaign-form-error" role="alert">{formError}</p> : null}
           <label><span>Mã chiến dịch</span><input className={(submitAttempted || form.code.length > 0) && formErrors.code ? 'is-invalid' : ''} value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value.toUpperCase() })} required pattern="[A-Z0-9_-]{2,40}" />{(submitAttempted || form.code.length > 0) && formErrors.code ? <small className="admin-field-error">{formErrors.code}</small> : null}</label>
           <label><span>Tên chiến dịch</span><input className={(submitAttempted || form.name.length > 0) && formErrors.name ? 'is-invalid' : ''} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required minLength={2} />{(submitAttempted || form.name.length > 0) && formErrors.name ? <small className="admin-field-error">{formErrors.name}</small> : null}</label>
-          <label><span>Bắt đầu</span><input className={formErrors.startAt ? 'is-invalid' : ''} type="datetime-local" value={form.startAt} onChange={(event) => setForm({ ...form, startAt: event.target.value })} required />{formErrors.startAt ? <small className="admin-field-error">{formErrors.startAt}</small> : null}</label>
-          <label><span>Kết thúc</span><input className={formErrors.endAt ? 'is-invalid' : ''} type="datetime-local" value={form.endAt} min={form.startAt} onChange={(event) => setForm({ ...form, endAt: event.target.value })} required />{formErrors.endAt ? <small className="admin-field-error">{formErrors.endAt}</small> : null}</label>
+          <label><span>Bắt đầu (giờ VN)</span><input className={formErrors.startAt ? 'is-invalid' : ''} type="datetime-local" value={form.startAt} onChange={(event) => setForm({ ...form, startAt: event.target.value })} required />{formErrors.startAt ? <small className="admin-field-error">{formErrors.startAt}</small> : null}</label>
+          <label><span>Kết thúc (giờ VN)</span><input className={formErrors.endAt ? 'is-invalid' : ''} type="datetime-local" value={form.endAt} min={form.startAt} onChange={(event) => setForm({ ...form, endAt: event.target.value })} required />{formErrors.endAt ? <small className="admin-field-error">{formErrors.endAt}</small> : null}</label>
           <label><span>Cho phép dùng nhiều voucher</span><input type="checkbox" checked={form.allowCouponStacking} onChange={(event) => setForm({ ...form, allowCouponStacking: event.target.checked, maxCouponsPerOrder: event.target.checked ? 2 : 1 })} /></label>
           <label><span>Tối đa voucher/đơn</span><input className={formErrors.maxCouponsPerOrder ? 'is-invalid' : ''} type="number" min={form.allowCouponStacking ? 2 : 1} max={3} disabled={!form.allowCouponStacking} value={form.maxCouponsPerOrder} onChange={(event) => setForm({ ...form, maxCouponsPerOrder: Number(event.target.value) })} /><small>Tối đa N voucher/đơn nghĩa là khách chỉ được áp N voucher trong số đã chọn.</small>{formErrors.maxCouponsPerOrder ? <small className="admin-field-error">{formErrors.maxCouponsPerOrder}</small> : null}</label>
           <fieldset>

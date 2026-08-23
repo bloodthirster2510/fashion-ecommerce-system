@@ -26,6 +26,7 @@ import type { AdminUser } from '../auth/adminSession'
 import { useNotificationSummary } from '../../notifications/notification-summary-context'
 import type { NotificationSummary } from '../../notifications/notification-summary.types'
 import { notifyAdminNavigation } from '../../services/adminNavigation'
+import { formatAdminDate, formatAdminDateTime } from '../../utils/dateTime'
 import { getAdminDashboardOverview } from './dashboard.service'
 import {
   buildDashboardAttentionItems,
@@ -72,13 +73,8 @@ const formatCompactCurrency = (value: number) => {
   return formatNumber(Math.round(value))
 }
 const formatPercent = (value = 0) => `${(value * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%`
-const formatDateLabel = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit',
-  month: '2-digit',
-}).format(new Date(`${value}T00:00:00+07:00`))
-const formatUpdatedAt = (value?: string) => value
-  ? new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-  : '--:--'
+const formatDateLabel = (value: string) => formatAdminDate(`${value}T00:00:00+07:00`, '—')
+const formatUpdatedAt = (value?: string) => formatAdminDateTime(value, '—')
 
 const getGreeting = () => {
   const hour = new Date().getHours()

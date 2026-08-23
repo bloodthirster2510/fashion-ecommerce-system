@@ -1,6 +1,7 @@
 import type { Content, TableCell, TDocumentDefinitions } from 'pdfmake/interfaces'
 import type { StorefrontSettings } from '../../../../storefront-settings/storefrontSettings.types'
 import { formatCurrency, paymentMethodLabels, paymentStatusLabels } from '../orderPresentation'
+import { formatAdminDateTime } from '../../../utils/dateTime'
 
 export type InvoiceOrder = {
   _id: string
@@ -42,11 +43,6 @@ export type InvoiceOrder = {
   updatedAt: string
 }
 
-const invoiceDateFormatter = new Intl.DateTimeFormat('vi-VN', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-})
-
 const safeDate = (value?: string | null) => {
   if (!value) return null
   const date = new Date(value)
@@ -61,7 +57,7 @@ export const getInvoiceIssuedAt = (order: InvoiceOrder) =>
 
 export const formatInvoiceDate = (value?: string | null) => {
   const date = safeDate(value)
-  return date ? invoiceDateFormatter.format(date) : 'Chưa có'
+  return date ? formatAdminDateTime(date) : 'Chưa có'
 }
 
 export const getInvoiceDiscountTotal = (order: InvoiceOrder) =>

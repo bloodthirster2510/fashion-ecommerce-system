@@ -1,4 +1,5 @@
 import { requestAdmin } from '../../services/adminHttp'
+import { formatAdminDateInput } from '../../utils/dateTime'
 import { getAdminSession } from '../auth/adminSession'
 import type { AdminDashboardOverview } from './dashboard.types'
 
@@ -82,7 +83,7 @@ const getDemoDashboard = (days: number): AdminDashboardOverview => {
     const paidOrders = Math.max(1, Math.round(8 * weekdayFactor * growthFactor))
 
     return {
-      date: date.toISOString().slice(0, 10),
+      date: formatAdminDateInput(date),
       paidOrders,
       paidRevenue: paidOrders * 547_000,
     }

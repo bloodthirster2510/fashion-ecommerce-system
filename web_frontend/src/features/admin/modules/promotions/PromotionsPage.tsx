@@ -1,6 +1,12 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { AdminUser } from '../auth/adminSession'
 import { useDialogAccessibility } from '../../hooks/useDialogAccessibility'
+import {
+  formatAdminDateInput,
+  formatAdminDateTime,
+  formatAdminDateTimeInput,
+  parseAdminDateTimeInput,
+} from '../../utils/dateTime'
 import { listMembershipRankings } from '../loyalty/loyalty.service'
 import type { MembershipRanking } from '../loyalty/loyalty.types'
 import {
@@ -157,44 +163,12 @@ const formatDateTime = (value: string) => {
     return value
   }
 
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return formatAdminDateTime(date)
 }
 
-const toDateTimeInputValue = (date: Date) => {
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return localDate.toISOString().slice(0, 16)
-}
+const toDateTimeInputValue = (date: Date) => formatAdminDateTimeInput(date)
 
-const parseDateTimeInputValue = (value: string) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
-  if (!match) return new Date(Number.NaN)
-
-  const date = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-  )
-
-  if (
-    date.getFullYear() !== Number(match[1]) ||
-    date.getMonth() !== Number(match[2]) - 1 ||
-    date.getDate() !== Number(match[3]) ||
-    date.getHours() !== Number(match[4]) ||
-    date.getMinutes() !== Number(match[5])
-  ) {
-    return new Date(Number.NaN)
-  }
-
-  return date
-}
+const parseDateTimeInputValue = (value: string) => parseAdminDateTimeInput(value)
 
 const createEmptyCouponForm = (): CouponFormState => {
   const startDate = new Date()
@@ -982,10 +956,9 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
 
   const handleDurationPreset = (days: number) => {
     setCouponForm((form) => {
-      const startDate = new Date(form.startAt)
+      const startDate = parseDateTimeInputValue(form.startAt)
       const safeStartDate = Number.isNaN(startDate.getTime()) ? new Date() : startDate
-      const endDate = new Date(safeStartDate)
-      endDate.setDate(endDate.getDate() + days)
+      const endDate = new Date(safeStartDate.getTime() + days * 24 * 60 * 60 * 1000)
 
       return {
         ...form,
@@ -1330,11 +1303,12 @@ export function PromotionsPage({ currentUser }: PromotionsPageProps) {
   const setStartNow = () => setCouponForm((form) => ({ ...form, startAt: toDateTimeInputValue(new Date()) }))
 
   const setFullDay = () => setCouponForm((form) => {
-    const start = new Date(form.startAt || Date.now())
-    const end = new Date(form.endAt || start)
-    start.setHours(0, 0, 0, 0)
-    end.setHours(23, 59, 0, 0)
-    if (end <= start) end.setDate(end.getDate() + 1)
+    const fallback = toDateTimeInputValue(new Date())
+    const startDate = parseDateTimeInputValue(form.startAt || fallback)
+    const endDate = parseDateTimeInputValue(form.endAt || fallback)
+    const start = parseDateTimeInputValue(`${formatAdminDateInput(startDate)}T00:00`)
+    let end = parseDateTimeInputValue(`${formatAdminDateInput(endDate)}T23:59`)
+    if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000)
     return { ...form, startAt: toDateTimeInputValue(start), endAt: toDateTimeInputValue(end) }
   })
 

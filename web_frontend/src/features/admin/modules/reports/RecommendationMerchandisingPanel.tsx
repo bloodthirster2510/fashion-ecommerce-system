@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, CalendarClock, Pin, Plus, Save, Search, Trash2 } from 'lucide-react'
 import { Button, EmptyState } from '../../components/ui'
 import { useToast } from '../../notifications/notification-context'
+import { formatAdminDateTimeInput, toAdminISOString } from '../../utils/dateTime'
 import { listManagedProducts } from '../catalog/products/product.service'
 import type { ManagedProduct } from '../catalog/products/product.types'
 import type { RecommendationContext } from './recommendationAnalytics.types'
@@ -20,14 +21,10 @@ const contexts: Array<{ value: RecommendationContext; label: string; helper: str
 ]
 
 const toDateTimeLocal = (value: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
+  return formatAdminDateTimeInput(value)
 }
 
-const toIsoDate = (value: string) => value ? new Date(value).toISOString() : null
+const toIsoDate = (value: string) => toAdminISOString(value)
 
 const fromProduct = (product: ManagedProduct, position: number): PinnedRecommendationProduct => ({
   productId: product._id,
@@ -156,8 +153,8 @@ export function RecommendationMerchandisingPanel({ canManage }: { canManage: boo
               <input type="checkbox" checked={activeRule.enabled} disabled={!canManage} onChange={(event) => updateActiveRule((rule) => ({ ...rule, enabled: event.target.checked }))} />
               <span><strong>Đang áp dụng</strong><small>Tắt để tạm dừng mà không mất thứ tự đã chọn.</small></span>
             </label>
-            <label><span><CalendarClock aria-hidden="true" /> Bắt đầu</span><input type="datetime-local" disabled={!canManage} value={toDateTimeLocal(activeRule.startsAt)} onChange={(event) => updateActiveRule((rule) => ({ ...rule, startsAt: event.target.value }))} /></label>
-            <label><span><CalendarClock aria-hidden="true" /> Kết thúc</span><input type="datetime-local" disabled={!canManage} value={toDateTimeLocal(activeRule.endsAt)} onChange={(event) => updateActiveRule((rule) => ({ ...rule, endsAt: event.target.value }))} /></label>
+            <label><span><CalendarClock aria-hidden="true" /> Bắt đầu (giờ VN)</span><input type="datetime-local" disabled={!canManage} value={toDateTimeLocal(activeRule.startsAt)} onChange={(event) => updateActiveRule((rule) => ({ ...rule, startsAt: event.target.value }))} /></label>
+            <label><span><CalendarClock aria-hidden="true" /> Kết thúc (giờ VN)</span><input type="datetime-local" disabled={!canManage} value={toDateTimeLocal(activeRule.endsAt)} onChange={(event) => updateActiveRule((rule) => ({ ...rule, endsAt: event.target.value }))} /></label>
           </div>
 
           <div className="admin-merchandising-grid">

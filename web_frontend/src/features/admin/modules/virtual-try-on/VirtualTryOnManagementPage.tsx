@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToast } from '../../notifications/notification-context'
+import { formatAdminDateTime } from '../../utils/dateTime'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
 import {
   cancelVirtualTryOnJob,
@@ -249,13 +250,7 @@ const initialAccountLockFilters: AdminVirtualTryOnAccountLockFilters = {
   locked: 'true',
 }
 
-const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-}).format(new Date(value))
+const formatDate = (value: string) => formatAdminDateTime(value)
 
 const formatPrice = (value: number) => `${Math.round(value).toLocaleString('vi-VN')}đ`
 

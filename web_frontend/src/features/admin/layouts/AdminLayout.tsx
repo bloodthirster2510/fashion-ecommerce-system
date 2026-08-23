@@ -33,6 +33,7 @@ import {
 } from '../config/adminRoutes'
 import { NotificationProvider } from '../notifications/NotificationProvider'
 import { NotificationSummaryProvider } from '../notifications/NotificationSummaryProvider'
+import { formatAdminDateTime } from '../utils/dateTime'
 import { useNotificationSummary } from '../notifications/notification-summary-context'
 import type { NotificationSummary } from '../notifications/notification-summary.types'
 import { CommandMenu, type CommandMenuItem } from '../components/ui'
@@ -758,9 +759,7 @@ type NavNotificationBadge = {
 const formatBadgeCount = (count: number) => count > 99 ? '99+' : String(count)
 
 const formatUpdatedAt = (value: string) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'vừa xong'
-  return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' }).format(date)
+  return formatAdminDateTime(value, 'vừa xong')
 }
 
 const getNavNotificationBadge = (

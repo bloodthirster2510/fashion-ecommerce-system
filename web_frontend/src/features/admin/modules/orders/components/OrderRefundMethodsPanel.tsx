@@ -20,16 +20,11 @@ import {
   getRefundTransferContent,
 } from '../utils/refundRecommend'
 import { getVNPayRefundDisplayStatus } from '../utils/vnpayReconcile'
+import { formatAdminDateTime } from '../../../utils/dateTime'
 
 const isVNPaySandbox = String(import.meta.env.VITE_VNPAY_ENV ?? 'sandbox').toLowerCase() !== 'production'
 const formatRefundUpdatedAt = (value?: string | null) => value
-  ? new Intl.DateTimeFormat('vi-VN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(value))
+  ? formatAdminDateTime(value)
   : 'Chưa có'
 
 type OrderRefundMethodsPanelProps = {
