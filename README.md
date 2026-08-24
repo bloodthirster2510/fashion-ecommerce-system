@@ -44,12 +44,8 @@ Web Admin is the operations portal for administrators and store staff.
 
 ## System Architecture
 
-> Insert the overall architecture diagram here.
 ><img width="1185" height="804" alt="image" src="https://github.com/user-attachments/assets/0bd77512-4c96-434e-9478-72a0f2f5188c" />
 
-> Suggested file: `docs/assets/architecture.png`
-
-<!-- ![System architecture](docs/assets/architecture.png) -->
 
 Main system flow:
 
