@@ -974,7 +974,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <span /><span /><span /><span />
               </div>
             ) : orderedJobs.length ? (
-              <table className="admin-vto-table">
+              <table className="admin-vto-table admin-vto-jobs-table">
                 <thead>
                   <tr>
                     <th>Lượt xử lý</th>
@@ -1062,8 +1062,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           </div>
 
           {pagination && pagination.totalPages > 1 ? (
-            <footer className="admin-table-footer">
-              <span>Trang {pagination.page}/{pagination.totalPages} · {pagination.totalItems} lượt</span>
+            <footer className="admin-table-footer admin-vto-jobs-footer">
+              <span>
+                Hiển thị {(pagination.page - 1) * pagination.limit + 1}–{Math.min(pagination.page * pagination.limit, pagination.totalItems)} / {pagination.totalItems} lượt
+              </span>
               <div>
                 <button type="button" disabled={pagination.page <= 1} onClick={() => updateFilter('page', pagination.page - 1)}>Trước</button>
                 <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => updateFilter('page', pagination.page + 1)}>Sau</button>
