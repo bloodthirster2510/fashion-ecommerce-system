@@ -174,7 +174,11 @@ couponSchema.path('discountValue').validate(function validateDiscountValue(this:
 }, 'Invalid discountValue for discountType');
 
 couponSchema.path('endAt').validate(function validateDateRange(this: ICoupon, value: Date) {
-  return value > this.startAt;
+  // During findOneAndUpdate, Mongoose runs this validator on the query.
+  // Read the pending startAt value when present; the service validates patches
+  // against the stored document when startAt is omitted.
+  const startAt = this.get('startAt') as Date | undefined ?? this.startAt;
+  return !startAt || value > startAt;
 }, 'endAt must be after startAt');
 
 couponSchema.path('usedCount').validate(function validateUsageLimit(this: ICoupon, value: number) {

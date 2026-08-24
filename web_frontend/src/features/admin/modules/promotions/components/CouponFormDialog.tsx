@@ -410,6 +410,7 @@ export function CouponFormDialog({
                   <input
                     type="datetime-local"
                     value={couponForm.endAt}
+                    min={couponForm.startAt}
                     onChange={(event) => setCouponForm((form) => ({ ...form, endAt: event.target.value }))}
                     required
                   />
