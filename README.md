@@ -1,69 +1,69 @@
 # CDShop Fashion E-commerce System
 
-Fashion E-commerce System là nền tảng thương mại điện tử thời trang gồm Mobile App, Web bán hàng và Web Admin, dùng chung một backend commerce và các service AI cho tìm kiếm hình ảnh, gợi ý sản phẩm và phối đồ ảo.
+Fashion E-commerce System is a fashion retail platform composed of a Mobile App, Customer Web, and Web Admin, all powered by a shared commerce backend and AI services for visual search, product recommendation, and virtual try-on.
 
-Dự án tập trung giải quyết bài toán bán lẻ thời trang end-to-end: khách hàng cần tìm đúng sản phẩm, mua hàng nhanh và theo dõi đơn rõ ràng; đội vận hành cần quản lý catalog, tồn kho, đơn hàng, khuyến mãi, hỗ trợ và dữ liệu kinh doanh trong một hệ thống thống nhất.
+The project targets an end-to-end fashion e-commerce workflow: customers need to discover relevant products, purchase quickly, and track orders clearly; store operators need one system to manage catalog, inventory, orders, promotions, support, and business data.
 
-## Bài toán giải quyết
+## Problem Statement
 
-- Rút ngắn hành trình mua sắm thời trang: tìm kiếm, lọc sản phẩm, xem chi tiết, giỏ hàng, checkout, thanh toán, theo dõi đơn và đánh giá sau mua.
-- Tăng khả năng khám phá sản phẩm bằng recommendation, lịch sử tương tác, visual search và virtual try-on.
-- Chuẩn hóa vận hành sau bán: quản lý đơn, kho, coupon, loyalty, đánh giá, hỗ trợ khách hàng, thông báo và báo cáo.
-- Tách rõ trải nghiệm khách hàng và công cụ quản trị nhưng vẫn dùng chung dữ liệu, API, quyền truy cập và luồng realtime.
+- Shorten the fashion shopping journey: search, filtering, product detail, cart, checkout, payment, order tracking, and post-purchase review.
+- Improve product discovery through recommendations, interaction history, visual search, and virtual try-on.
+- Standardize post-sale operations: orders, inventory, coupons, loyalty, reviews, customer support, notifications, and reporting.
+- Separate customer-facing experiences from internal operations while keeping shared data, APIs, permissions, and realtime flows.
 
-## Phạm vi sản phẩm
+## Product Scope
 
 ### Mobile
 
-Mobile app được xây bằng Expo/React Native, tập trung vào trải nghiệm mua sắm thường xuyên trên điện thoại.
+The mobile app is built with Expo/React Native and focuses on frequent shopping flows on phone screens.
 
-- Trang chủ, danh mục, tìm kiếm, bộ lọc, chi tiết sản phẩm và gợi ý sản phẩm.
-- Giỏ hàng, checkout, áp dụng voucher, COD/VNPay, quản lý đơn hàng và trạng thái giao hàng.
-- Tài khoản, địa chỉ, phương thức thanh toán, hạng thành viên, yêu thích, đánh giá và thông báo đẩy.
-- Trung tâm hỗ trợ gồm FAQ, tạo ticket, theo dõi ticket và realtime socket.
-- Virtual try-on: chọn sản phẩm, tải ảnh người dùng, theo dõi hàng đợi xử lý, xem kết quả và lịch sử phối đồ.
+- Home, categories, search, filters, product detail, and recommendation rails.
+- Cart, checkout, voucher application, COD/VNPay payment, order management, and delivery status.
+- Account, addresses, payment methods, membership tier, favorites, reviews, and push notifications.
+- Support center with FAQ, ticket creation, ticket tracking, and realtime socket updates.
+- Virtual try-on: product selection, user photo upload, processing queue, result view, and try-on history.
 
 ### Web
 
-Web customer được xây bằng React/Vite, là kênh bán hàng trên trình duyệt cho khách mua sắm và quản lý tài khoản.
+The customer web app is built with React/Vite and serves as the browser-based shopping channel.
 
-- Trang chủ, catalog, trang sản phẩm, giỏ hàng, checkout, đơn hàng, review, chính sách và hỗ trợ.
-- Đồng bộ authentication, cart, coupon, payment, shipping và profile với backend.
-- Tích hợp recommendation/interaction tracking để phục vụ gợi ý sản phẩm và phân tích hành vi.
-- Thiết kế tách layout khách hàng khỏi admin, giúp cùng một frontend repo nhưng không trộn vai trò người dùng.
+- Home, catalog, product detail, cart, checkout, orders, reviews, policies, and support.
+- Shared authentication, cart, coupon, payment, shipping, and profile flows through the backend.
+- Recommendation and interaction tracking for product discovery and behavior analysis.
+- A customer layout separated from the admin area, keeping user roles clear within the same frontend repository.
 
 ### Web Admin
 
-Web Admin là cổng vận hành cho quản trị viên và nhân sự cửa hàng.
+Web Admin is the operations portal for administrators and store staff.
 
-- Dashboard doanh thu, đơn paid, giá trị đơn trung bình, khách quay lại, tồn kho rủi ro và việc cần xử lý.
-- Quản lý sản phẩm, biến thể, danh mục, thương hiệu, visual search index và tồn kho.
-- Vận hành đơn hàng, tra cứu hóa đơn, thanh toán, giao hàng, hoàn trả và đối soát.
-- Quản lý khách hàng, tài khoản quản trị, phân quyền, loyalty, coupon, campaign và storefront settings.
-- Kiểm duyệt review, xử lý support ticket, theo dõi notification summary, virtual try-on và báo cáo recommendation/search.
+- Dashboard for revenue, paid orders, average order value, returning customers, inventory risk, and pending operational tasks.
+- Product, variant, category, brand, visual search index, and inventory management.
+- Order operations, invoice lookup, payment, delivery, return, and reconciliation flows.
+- Customer, admin account, permission, loyalty, coupon, campaign, and storefront settings management.
+- Review moderation, support ticket handling, notification summary, virtual try-on monitoring, and recommendation/search reporting.
 
-## Kiến trúc tổng quan
+## System Architecture
 
-> Chèn hình architecture tổng thể tại đây.
+> Insert the overall architecture diagram here.
 >
-> Gợi ý file: `docs/assets/architecture.png`
+> Suggested file: `docs/assets/architecture.png`
 
-<!-- ![Architecture tổng thể](docs/assets/architecture.png) -->
+<!-- ![System architecture](docs/assets/architecture.png) -->
 
-Luồng chính của hệ thống:
+Main system flow:
 
-- `mobile/` và `web_frontend/` gọi API qua backend Express/TypeScript.
-- `backend/` quản lý auth, catalog, cart, order, payment, shipping, promotion, support, notification, recommendation, visual search và virtual try-on.
-- MongoDB lưu dữ liệu nghiệp vụ; Redis/BullMQ phục vụ job bất đồng bộ; Socket.IO dùng cho realtime order/support/try-on/notification.
-- `ai_services/visual_search` tạo embedding ảnh/text cho visual search bằng CLIP/FashionCLIP.
-- `ai_services/image-validation` kiểm tra chất lượng ảnh người dùng trước khi try-on.
-- `ai_services/garment-processing` tách vùng sản phẩm và ghép garment collage trước khi gửi sang workflow try-on.
+- `mobile/` and `web_frontend/` call APIs through the Express/TypeScript backend.
+- `backend/` owns auth, catalog, cart, order, payment, shipping, promotion, support, notification, recommendation, visual search, and virtual try-on logic.
+- MongoDB stores business data; Redis/BullMQ handles asynchronous jobs; Socket.IO supports realtime order/support/try-on/notification updates.
+- `ai_services/visual_search` generates image/text embeddings for visual search with CLIP/FashionCLIP.
+- `ai_services/image-validation` validates user image quality before try-on.
+- `ai_services/garment-processing` extracts garment regions and composes garment collages before sending them into the try-on workflow.
 
-## Giao diện chính
+## Key Screens
 
-> Chèn một vài ảnh màn hình tiêu biểu tại đây.
+> Insert a few representative screenshots here.
 >
-> Gợi ý: ưu tiên 1 ảnh Mobile, 1 ảnh Web customer, 1 ảnh Web Admin dashboard và 1 ảnh tính năng AI.
+> Suggestion: include one Mobile screen, one Customer Web screen, one Web Admin dashboard screen, and one AI feature screen.
 
 <!--
 ![Mobile app](docs/assets/screens/mobile-home.png)
@@ -72,43 +72,43 @@ Luồng chính của hệ thống:
 ![Virtual try-on](docs/assets/screens/virtual-try-on.png)
 -->
 
-## Điểm kỹ thuật nổi bật
+## Technical Highlights
 
-- Full-stack TypeScript ở backend và web frontend; mobile dùng React Native/Expo.
-- Backend module hóa theo nghiệp vụ: auth, catalog, inventory, cart, orders, payments, shipping, promotions, reviews, support, notifications, users, recommendations, visual search và virtual try-on.
-- Admin có phân quyền, audit log, notification summary, dashboard KPI và các màn hình vận hành thực tế.
-- AI service tách riêng bằng FastAPI để dễ scale độc lập với commerce backend.
-- Có test cho nhiều lớp: Jest backend, Playwright web, Jest Expo mobile, pytest cho AI services và benchmark offline cho recommendation/visual search.
-- Docker Compose gom backend, web và các AI services để chạy môi trường tích hợp.
+- Full-stack TypeScript across the backend and web frontend; React Native/Expo for mobile.
+- Business-oriented backend modules: auth, catalog, inventory, cart, orders, payments, shipping, promotions, reviews, support, notifications, users, recommendations, visual search, and virtual try-on.
+- Admin portal with permissions, audit logs, notification summaries, KPI dashboard, and real operational screens.
+- AI services separated with FastAPI so they can scale independently from the commerce backend.
+- Test coverage across multiple layers: backend Jest, web Playwright, Expo/Jest mobile tests, pytest for AI services, and offline benchmarks for recommendation/visual search.
+- Docker Compose combines the backend, web app, and AI services into an integrated local environment.
 
-## Hướng phát triển
+## Roadmap
 
-- Hoàn thiện production readiness: CI/CD, observability, backup, rate limit, hardening bảo mật và phân quyền chi tiết hơn.
-- Mở rộng recommendation/visual search bằng dữ liệu hành vi thật, A/B testing và dashboard đo CTR/conversion.
-- Tối ưu virtual try-on cho production: GPU inference, queue monitoring, threshold theo từng loại ảnh và benchmark catalog lớn hơn.
-- Bổ sung báo cáo vận hành: dự báo tồn kho, hiệu quả campaign, cohort khách hàng và phân tích lợi nhuận theo sản phẩm.
-- Tách rõ deployment cho customer web, admin web và mobile release nếu hệ thống đi vào vận hành thật.
+- Improve production readiness: CI/CD, observability, backups, rate limiting, security hardening, and more granular permissions.
+- Expand recommendation and visual search with real behavior data, A/B testing, and CTR/conversion dashboards.
+- Optimize virtual try-on for production: GPU inference, queue monitoring, image-type thresholds, and larger catalog benchmarks.
+- Add deeper operational reporting: inventory forecasting, campaign performance, customer cohorts, and product-level profitability.
+- Split deployment paths for Customer Web, Web Admin, and mobile releases if the system moves into real operation.
 
-## Công nghệ sử dụng
+## Tech Stack
 
-| Phần | Công nghệ chính |
+| Area | Main Technologies |
 | --- | --- |
-| Mobile | Expo, React Native, React Navigation, Socket.IO client |
+| Mobile | Expo, React Native, React Navigation, Socket.IO Client |
 | Web / Admin | React, Vite, Redux Toolkit, TanStack Query, Ant Design, Playwright |
 | Backend | Node.js, Express, TypeScript, Mongoose, JWT, BullMQ, Redis, Socket.IO |
 | AI services | FastAPI, OpenCLIP/FashionCLIP, YOLO Pose, Grounding DINO, SAM |
-| Tích hợp | VNPay, GHN shipping, Cloudinary, email, Docker Compose |
+| Integrations | VNPay, GHN Shipping, Cloudinary, email, Docker Compose |
 
-## Cấu trúc thư mục
+## Repository Structure
 
 ```text
-mobile/        Mobile app cho khách hàng
-web_frontend/  Web customer và Web Admin
-backend/       API, nghiệp vụ commerce, workers và scripts
+mobile/        Customer mobile app
+web_frontend/  Customer Web and Web Admin
+backend/       API, commerce logic, workers, and scripts
 ai_services/   Visual search, image validation, garment processing
-evaluation/    Benchmark recommendation và visual search
-docs/          Tài liệu phân hệ và kế hoạch triển khai
-ops/           Script triển khai và systemd service
+evaluation/    Recommendation and visual search benchmarks
+docs/          Module documentation and implementation plans
+ops/           Deployment scripts and systemd services
 ```
 
 ## Try-on development
