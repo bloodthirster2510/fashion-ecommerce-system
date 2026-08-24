@@ -1,4 +1,4 @@
-# Fashion E-commerce System
+# CDShop Fashion E-commerce System
 
 Fashion E-commerce System là nền tảng thương mại điện tử thời trang gồm Mobile App, Web bán hàng và Web Admin, dùng chung một backend commerce và các service AI cho tìm kiếm hình ảnh, gợi ý sản phẩm và phối đồ ảo.
 
