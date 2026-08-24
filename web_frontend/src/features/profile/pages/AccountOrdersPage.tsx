@@ -136,7 +136,7 @@ const getReviewableOrderItems = (order: CustomerOrder) => (
   order.status === 'completed' && order.paymentStatus === 'paid' ? order.order_list : []
 )
 
-const getOrderAlert = (order: CustomerOrder) => {
+const getOrderAlert = (order: CustomerOrder, shopPhone: string) => {
   if (orderNeedsPaymentAction(order)) {
     return {
       type: order.paymentStatus === 'failed' ? 'error' : 'warning',
@@ -163,7 +163,7 @@ const getOrderAlert = (order: CustomerOrder) => {
   if (order.status === 'cancelled' && order.paymentStatus === 'paid') {
     return {
       type: 'warning',
-      message: 'Đơn đã hủy sau khi thanh toán. Shop sẽ đối soát và xử lý hoàn tiền theo chính sách.',
+      message: `Đơn đã hủy sau khi thanh toán. Shop sẽ đối soát và xử lý hoàn tiền theo chính sách. Nếu quý khách không nhận được tiền hoàn trong vòng 3 ngày làm việc, vui lòng liên hệ số ${shopPhone}.`,
     } as const
   }
 
@@ -707,7 +707,7 @@ function AccountOrdersContent() {
               ) : (
                 <div className="account-order-list">
                   {orders.map((order) => {
-                    const alert = getOrderAlert(order)
+                    const alert = getOrderAlert(order, storefrontSettings.contact.phone)
                     const reviewableItems = getReviewableOrderItems(order)
 
                     return (
