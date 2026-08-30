@@ -24,6 +24,7 @@ ROLE_PROMPTS: dict[GarmentRole, list[str]] = {
         "blouse",
         "sweater",
         "sweatshirt",
+        "hoodie",
         "tank top",
         "upper body garment",
     ],
@@ -48,6 +49,10 @@ ROLE_PROMPTS: dict[GarmentRole, list[str]] = {
         "gown",
         "jumpsuit",
         "one piece garment",
+        "matching clothing set",
+        "two piece outfit",
+        "tracksuit",
+        "complete suit",
     ],
     "shoes": [
         "shoe",

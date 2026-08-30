@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Button,
   DataTable,
@@ -58,6 +59,8 @@ export function CouponTablePanel({
   onStatusChange,
   onOpenDelete,
 }: CouponTablePanelProps) {
+  const [openCouponId, setOpenCouponId] = useState<string | null>(null)
+
   const couponColumns: Array<DataTableColumn<AdminCoupon>> = [
     {
       key: 'select',
@@ -165,20 +168,30 @@ export function CouponTablePanel({
             <Button className="admin-promotion-view-button" variant="secondary" disabled={actionLoading} onClick={() => void onOpenDetail(coupon)}>
               Xem
             </Button>
-            <details className="admin-action-menu">
+            <details
+              className="admin-action-menu"
+              open={openCouponId === coupon._id}
+              onToggle={(event) => {
+                const isOpen = event.currentTarget.open
+                setOpenCouponId((currentId) => {
+                  if (isOpen) return coupon._id
+                  return currentId === coupon._id ? null : currentId
+                })
+              }}
+            >
               <summary aria-label={`Thao tác với ${coupon.code}`}>•••</summary>
               <div>
-                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => onOpenEdit(coupon)}>Sửa</button>
-                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => onOpenDuplicate(coupon)}>Nhân bản</button>
+                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => { setOpenCouponId(null); onOpenEdit(coupon) }}>Sửa</button>
+                <button type="button" disabled={!canManagePromotions || actionLoading} onClick={() => { setOpenCouponId(null); onOpenDuplicate(coupon) }}>Nhân bản</button>
                 <button
                   type="button"
                   disabled={!canManagePromotions || actionLoading || !canToggleCouponStatus}
                   title={canToggleCouponStatus ? undefined : 'Không thể đổi trạng thái voucher chưa bắt đầu hoặc đã hết hạn'}
-                  onClick={() => void onStatusChange(coupon, !coupon.isActive)}
+                  onClick={() => { setOpenCouponId(null); void onStatusChange(coupon, !coupon.isActive) }}
                 >
                   {coupon.isActive ? 'Tắt' : 'Bật'}
                 </button>
-                <button className="is-danger" type="button" disabled={!canManagePromotions || actionLoading} onClick={() => void onOpenDelete(coupon)}>Xóa</button>
+                <button className="is-danger" type="button" disabled={!canManagePromotions || actionLoading} onClick={() => { setOpenCouponId(null); void onOpenDelete(coupon) }}>Xóa</button>
               </div>
             </details>
           </div>

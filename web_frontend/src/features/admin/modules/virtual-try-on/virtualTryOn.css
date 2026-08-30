@@ -191,6 +191,24 @@
 .admin-vto-table tbody tr:hover { background: #f9fbfc; }
 .admin-vto-table tbody tr.needs-attention { background: #fffaf4; box-shadow: inset 3px 0 #d4923f; }
 
+/* The job queue is scanned frequently, so keep its rows and footer denser than
+   the policy tables without changing those shared table variants. */
+.admin-vto-jobs-table th,
+.admin-vto-jobs-table td { padding: 8px 12px; }
+.admin-vto-jobs-table .admin-vto-job-preview { width: 44px; height: 56px; }
+.admin-vto-jobs-footer {
+  min-height: 50px;
+  margin-top: 0;
+  padding: 8px 12px;
+  border-top: 1px solid #edf1f4;
+  background: #fbfcfd;
+}
+.admin-vto-jobs-footer button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
 .admin-vto-job-link { width: 100%; display: flex; align-items: center; gap: 9px; border: 0; padding: 0; color: var(--admin-text); background: transparent; cursor: pointer; text-align: left; }
 .admin-vto-job-preview { width: 48px; height: 62px; flex: 0 0 auto; overflow: hidden; border: 1px solid #dce4ea; border-radius: 7px; background: #eef3f6; }
 .admin-vto-job-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }

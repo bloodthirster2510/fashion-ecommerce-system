@@ -451,6 +451,56 @@ const getImageExtension = (mimeType?: string) =>
 const shouldFailOpenGarmentProcessing = () =>
   process.env.VIRTUAL_TRY_ON_GARMENT_PROCESSING_FAIL_OPEN === 'true';
 
+const blockingGarmentProcessingWarnings = new Set([
+  'ambiguous_foreground',
+  'low_confidence',
+]);
+
+const nonBypassableGarmentProcessingErrors = new Set([
+  'GARMENT_PROCESSING_ITEM_UNUSABLE',
+  'GARMENT_PROCESSING_ITEM_MISMATCH',
+  'GARMENT_PROCESSING_ITEM_LOW_QUALITY',
+]);
+
+export const validateGarmentProcessingItems = (
+  garments: VirtualTryOnProviderGarment[],
+  extractedItems: NonNullable<GarmentProcessingResponse['extractedItems']>,
+) => {
+  if (
+    extractedItems.length !== garments.length
+    || extractedItems.some((item, index) => (
+      !item?.imageBase64
+      || item.role !== garments[index]?.role
+    ))
+  ) {
+    throw new VirtualTryOnProviderError(
+      'Garment processing returned items that do not match the selected garments',
+      502,
+      'GARMENT_PROCESSING_ITEM_MISMATCH',
+    );
+  }
+
+  if (extractedItems.some((item) => item?.isUsable !== true)) {
+    throw new VirtualTryOnProviderError(
+      'Garment processing could not extract one or more selected items',
+      422,
+      'GARMENT_PROCESSING_ITEM_UNUSABLE',
+    );
+  }
+
+  const warnings = extractedItems.flatMap((item) => item?.warnings || []);
+  const blockingWarnings = warnings.filter((warning) => blockingGarmentProcessingWarnings.has(warning));
+  if (blockingWarnings.length) {
+    throw new VirtualTryOnProviderError(
+      `Garment processing quality is too low: ${[...new Set(blockingWarnings)].join(', ')}`,
+      422,
+      'GARMENT_PROCESSING_ITEM_LOW_QUALITY',
+    );
+  }
+
+  return warnings;
+};
+
 const getCollageLayout = (input: VirtualTryOnProviderInput) => {
   if (input.outfitMode === 'single') return 'single';
   if (input.outfitMode === 'top_bottom') return 'top_bottom';
@@ -564,23 +614,12 @@ const prepareGarmentAssets = async (
     const collageBuffer = Buffer.from(response.data.imageBase64, 'base64');
     await saveGarmentProcessingDebugImages(input, response.data, collageBuffer);
 
-    const unusableItems = (response.data.extractedItems || [])
-      .filter((item) => item?.isUsable === false);
-    if (unusableItems.length) {
-      throw new VirtualTryOnProviderError(
-        'Garment processing could not extract one or more selected items',
-        422,
-        'GARMENT_PROCESSING_ITEM_UNUSABLE',
-      );
-    }
-
-    const warnings = (response.data.extractedItems || [])
-      .flatMap((item) => item?.warnings || []);
+    const extractedItems = response.data.extractedItems || [];
+    const warnings = validateGarmentProcessingItems(input.garments, extractedItems);
     if (warnings.length) {
       console.warn('Garment processing warnings:', [...new Set(warnings)].join(', '));
     }
 
-    const extractedItems = response.data.extractedItems || [];
     return {
       collage: {
         buffer: collageBuffer,
@@ -594,6 +633,12 @@ const prepareGarmentAssets = async (
       })),
     };
   } catch (error) {
+    if (
+      error instanceof VirtualTryOnProviderError
+      && nonBypassableGarmentProcessingErrors.has(error.errorCode)
+    ) {
+      throw error;
+    }
     if (shouldFailOpenGarmentProcessing()) {
       console.warn('Garment processing failed open:', error);
       return null;

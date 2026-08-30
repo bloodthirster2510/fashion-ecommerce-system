@@ -1,7 +1,7 @@
 export type VirtualTryOnJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled'
 export type VirtualTryOnVideoStatus = 'not_requested' | 'queued' | 'processing' | 'succeeded' | 'failed' | 'canceled'
 export type VirtualTryOnProcessingStage = 'queued' | 'image_generation' | 'image_persisting' | 'video_generation' | 'video_persisting' | 'completed'
-export type VideoWorkflowProfile = 'fast' | 'balanced' | 'quality'
+export type VideoWorkflowProfile = 'budget' | 'fast' | 'balanced' | 'quality'
 
 export type AdminVirtualTryOnJob = {
   _id: string
@@ -119,6 +119,12 @@ export type AdminVirtualTryOnSettings = {
       label: string
       description: string
       model: string
+      performance: {
+        speedLabel: string
+        costLabel: string
+        estimatedCostUsd: number
+        estimateBasis: string
+      }
       defaults: {
         durationSeconds: number
         resolution: string

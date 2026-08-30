@@ -125,7 +125,7 @@ export const contextPresetPreviews: VirtualTryOnContextPresetPreview[] = [
 const roleLabels: Record<VirtualTryOnItemRole, string> = {
   top: 'upper-body garment such as shirt, blouse, polo, sweater, or t-shirt',
   bottom: 'lower-body garment such as pants, jeans, skirt, or shorts',
-  dress: 'one-piece dress or long one-piece garment',
+  dress: 'full-body garment such as a dress, jumpsuit, or complete matching outfit set',
   shoes: 'footwear, matching pair of shoes or sandals',
   outerwear: 'outerwear layer such as jacket, blazer, coat, or cardigan',
   accessory: 'fashion accessory such as bag, hat, scarf, belt, glasses, or watch',
@@ -134,7 +134,7 @@ const roleLabels: Record<VirtualTryOnItemRole, string> = {
 const rolePromptDetails: Record<VirtualTryOnItemRole, string> = {
   top: 'align neckline, shoulders, sleeves, chest fit, armholes, side seams, tucked or untucked hem, and visible print placement',
   bottom: 'align waistband, belt loops, hips, rise, crotch area, leg shape, inseam, cuffs, and hem length',
-  dress: 'align neckline, shoulders, waistline, skirt fall, hem length, side seams, and continuous one-piece silhouette',
+  dress: 'align neckline, shoulders, waist transition, hip fit, leg or skirt fall, hem length, side seams, and the original one-piece or matching-set construction',
   shoes: 'place the complete matching pair on both feet with correct left-right pairing, sole contact, shadows, scale, and perspective',
   outerwear: 'layer over the inner outfit with correct lapels, collar, shoulder line, sleeve length, cuffs, closure, opening, and drape',
   accessory: 'place the accessory with correct scale, orientation, hand or body contact, strap path, occlusion, and natural shadow',
@@ -236,7 +236,7 @@ const roleNegativePrompts: Record<VirtualTryOnItemRole, string[]> = {
     'wrong waistband, missing legs, duplicated pants, skirt turned into pants, changed shirt or shoes when only bottom is selected',
   ],
   dress: [
-    'dress split into separate top and bottom, pants added under dress unless selected, broken waistline, unnatural skirt fall',
+    'selected outfit pieces incorrectly merged or split, unselected pants added under a dress, broken waist transition, unnatural skirt or trouser fall',
   ],
   shoes: [
     'bare feet, socks only, missing footwear, shoes on wrong feet, extra pair of shoes, distorted soles, shoes floating above ground',
@@ -258,7 +258,23 @@ const uniqueRoles = (garments: VirtualTryOnProviderGarment[]) => {
 
 const hasRole = (roles: VirtualTryOnItemRole[], role: VirtualTryOnItemRole) => roles.includes(role);
 
-const getSingleRolePrompt = (role?: VirtualTryOnItemRole) => {
+const normalizeGarmentName = (value: string) => value
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd')
+  .replace(/Đ/g, 'd')
+  .toLowerCase();
+
+const fullOutfitGarmentPattern =
+  /(^|[\s/.-])(full set|bo do|do bo|bo the thao|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
+
+const isFullOutfitGarment = (garment?: VirtualTryOnProviderGarment) =>
+  Boolean(garment && fullOutfitGarmentPattern.test(normalizeGarmentName(garment.name)));
+
+const getSingleRolePrompt = (
+  role?: VirtualTryOnItemRole,
+  garment?: VirtualTryOnProviderGarment,
+) => {
   switch (role) {
     case 'top':
       return [
@@ -273,6 +289,14 @@ const getSingleRolePrompt = (role?: VirtualTryOnItemRole) => {
         'make the waistband sit on the hips or waist with correct rise, leg opening, and body perspective',
       ];
     case 'dress':
+      if (isFullOutfitGarment(garment)) {
+        return [
+          'single catalog outfit try-on: replace the visible outfit with the complete selected matching set',
+          'preserve every separate upper and lower piece shown in the catalog image; do not merge the set into a one-piece dress',
+          'keep the original color, fabric, pattern, waist transition, sleeve shape, trouser or skirt silhouette, and coordinated construction of the set',
+          'preserve the person, legs, shoes, hands, and hair where they remain visible',
+        ];
+      }
       return [
         'single dress try-on: replace the visible outfit with the selected one-piece dress',
         'the dress must read as one continuous garment from upper body to hem',
@@ -348,8 +372,9 @@ const getFullSetPrompt = (roles: VirtualTryOnItemRole[]) => {
 const getOutfitModePrompts = (
   outfitMode: VirtualTryOnOutfitMode,
   roles: VirtualTryOnItemRole[],
+  garments: VirtualTryOnProviderGarment[],
 ) => {
-  if (outfitMode === 'single') return getSingleRolePrompt(roles[0]);
+  if (outfitMode === 'single') return getSingleRolePrompt(roles[0], garments[0]);
   if (outfitMode === 'top_bottom') return getTopBottomPrompt(roles);
   return getFullSetPrompt(roles);
 };
@@ -385,7 +410,7 @@ export const buildVirtualTryOnPrompt = (input: {
   const contextScenePromptParts = getContextScenePromptParts(input.preset, contextPrompt);
   const outfitMode = input.outfitMode
     || (input.garments.length >= 3 ? 'full_set' : input.garments.length === 2 ? 'top_bottom' : 'single');
-  const outfitPrompts = getOutfitModePrompts(outfitMode, roles);
+  const outfitPrompts = getOutfitModePrompts(outfitMode, roles, input.garments);
 
   const prompt = [
     ...(input.sourceImageProfile ? getSourceFramingPromptParts(input.sourceImageProfile) : basePromptParts),

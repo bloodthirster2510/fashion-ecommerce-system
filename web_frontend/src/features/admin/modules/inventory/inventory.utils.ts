@@ -7,6 +7,7 @@ import type {
   ReceiptSummary,
 } from './inventory.view-types'
 import { lowStockThreshold } from '../../utils/stock'
+import { formatAdminDateInput, formatAdminDateTime } from '../../utils/dateTime'
 
 export { lowStockThreshold }
 export { loadAllPages as listAllInventoryPages } from '../../utils/pagination'
@@ -17,13 +18,9 @@ export const formatNumber = (value: number) => value.toLocaleString('vi-VN')
 export const formatPrice = (value: number) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
 
-export const formatDate = (value: string) =>
-  new Intl.DateTimeFormat('vi-VN', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(value))
+export const formatDate = (value: string) => formatAdminDateTime(value)
 
-export const formatInputDate = (date: Date) => date.toISOString().slice(0, 10)
+export const formatInputDate = (date: Date) => formatAdminDateInput(date)
 
 export const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Không thể xử lý yêu cầu'

@@ -30,6 +30,7 @@ import type {
   RecommendationSegment,
 } from './recommendationAnalytics.types'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
+import { formatAdminDate, formatAdminDateInput, formatAdminDateTime } from '../../utils/dateTime'
 import { RecommendationMerchandisingPanel } from './RecommendationMerchandisingPanel'
 import './recommendationReports.css'
 
@@ -54,10 +55,7 @@ const contextLabels: Record<RecommendationContext, string> = {
   cart: 'Giỏ hàng',
 }
 
-const toDateInput = (date: Date) => {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 10)
-}
+const toDateInput = (date: Date) => formatAdminDateInput(date)
 
 const formatNumber = (value = 0) => new Intl.NumberFormat('vi-VN').format(value)
 
@@ -75,18 +73,9 @@ const formatChange = (value: number | null | undefined) => {
   return `${value > 0 ? '+' : ''}${value.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%`
 }
 
-const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit',
-  month: '2-digit',
-}).format(new Date(value))
+const formatDate = (value: string) => formatAdminDate(value, '—')
 
-const formatDateTime = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-}).format(new Date(value))
+const formatDateTime = (value: string) => formatAdminDateTime(value)
 
 const widthStyle = (value: number): CssVars => ({
   '--width': `${Math.max(3, Math.min(100, Math.round(value * 100)))}%`,

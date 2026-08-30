@@ -1,14 +1,12 @@
 import { emptyTierForm, tierPalettePresets } from './loyalty.constants'
 import type { LoyaltyPointHistory, MembershipRanking, MembershipRankingPayload } from './loyalty.types'
 import type { TierFieldErrors, TierFormState } from './components/TierDialog'
+import { formatAdminDateTime } from '../../utils/dateTime'
 
 export const formatNumber = (value: number | null | undefined) =>
   typeof value === 'number' ? new Intl.NumberFormat('vi-VN').format(value) : 'Không giới hạn'
 
-export const formatHistoryDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-}).format(new Date(value))
+export const formatHistoryDate = (value: string) => formatAdminDateTime(value)
 
 export const getHistoryActor = (history: LoyaltyPointHistory) => {
   if (history.actorId && typeof history.actorId === 'object') {

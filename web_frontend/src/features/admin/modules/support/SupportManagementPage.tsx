@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { requestAdminNotificationRefresh } from '../../notifications/notification-summary-events'
+import { formatAdminDateTime } from '../../utils/dateTime'
 import {
   createAdminFaq,
   createCannedResponse,
@@ -117,9 +118,7 @@ const getSupportErrorMessage = (caught: unknown, fallback: string) => {
   return caught.message
 }
 
-const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-}).format(new Date(value))
+const formatDate = (value: string) => formatAdminDateTime(value)
 
 const formatDuration = (value = 0) => value <= 0
   ? '—'
@@ -128,7 +127,7 @@ const formatDuration = (value = 0) => value <= 0
     : value < 60 * 60 * 1000
       ? `${Math.round(value / 60000)} phút`
       : value < 24 * 60 * 60 * 1000
-        ? `${(value / 3600000).toFixed(1)} giờ`
+        ? `${(value / 3600000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giờ`
         : `${(value / (24 * 60 * 60 * 1000)).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} ngày`
 
 const getPersonName = (ticket: SupportTicket) => {

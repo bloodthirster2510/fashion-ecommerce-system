@@ -61,7 +61,7 @@ const hasAnyKeyword = (value: string, keywords: string[]) =>
   keywords.some((keyword) => value.includes(keyword));
 
 const fullOutfitPattern =
-  /(^|[\s/.-])(full set|bo do|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
+  /(^|[\s/.-])(full set|bo do|do bo|bo the thao|bo mac|bo ao|bo quan|bo ao quan|bo vest|bo suit|set|combo|outfit|suit|tracksuit|jumpsuit|romper|playsuit|two piece|2 piece)([\s/.-]|$)/;
 const exactFullOutfitCategoryPattern = /^(bo|set|combo|outfit|full set)$/;
 
 export const isFullOutfitText = (value: string) => fullOutfitPattern.test(normalizeRoleText(value));
@@ -179,7 +179,11 @@ export const inferRole = (product: {
   if (hasAnyKeyword(haystack, ['giay', 'dep', 'sandal', 'sneaker', 'boot', 'loafer'])) return 'shoes';
   if (hasAnyKeyword(haystack, ['chan vay', 'quan', 'jean', 'short', 'pants', 'trouser'])) return 'bottom';
   if (hasAnyKeyword(haystack, ['vay', 'dam', 'dress'])) return 'dress';
-  if (hasAnyKeyword(haystack, ['khoac', 'blazer', 'jacket', 'cardigan', 'hoodie', 'coat', 'outerwear'])) return 'outerwear';
+  if (hasAnyKeyword(haystack, [
+    'tui xach', 'handbag', 'backpack', 'mu ', 'non ', 'khan', 'that lung',
+    'kinh', 'dong ho', 'day chuyen', 'trang suc', 'phu kien',
+  ])) return 'accessory';
+  if (hasAnyKeyword(haystack, ['khoac', 'blazer', 'jacket', 'cardigan', 'coat', 'outerwear', 'bomber'])) return 'outerwear';
   return 'top';
 };
 

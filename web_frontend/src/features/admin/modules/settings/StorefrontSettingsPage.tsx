@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Button, PageHeader } from '../../components/ui'
 import { useToast } from '../../notifications/notification-context'
+import { formatAdminDateTime } from '../../utils/dateTime'
 import {
   storefrontSocialPlatforms,
   type StorefrontSettings,
@@ -304,7 +305,7 @@ export function StorefrontSettingsPage() {
         <span className={draft.configured ? 'is-configured' : 'is-default'}>
           {draft.configured ? `Đã lưu · phiên bản ${draft.version}` : 'Đang dùng dữ liệu mặc định · chưa lưu vào hệ thống'}
         </span>
-        {draft.updatedAt ? <time>Cập nhật {new Date(draft.updatedAt).toLocaleString('vi-VN')}</time> : null}
+        {draft.updatedAt ? <time>Cập nhật {formatAdminDateTime(draft.updatedAt)}</time> : null}
         {dirty ? <strong>Có thay đổi chưa lưu</strong> : null}
       </div>
 

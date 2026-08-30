@@ -11,7 +11,10 @@ from app.providers.grounded_sam import (
 def test_role_prompts_cover_mobile_garment_roles():
     assert {"top", "bottom", "dress", "shoes", "outerwear", "accessory"}.issubset(ROLE_PROMPTS)
     assert "polo shirt" in ROLE_PROMPTS["top"]
+    assert "hoodie" in ROLE_PROMPTS["top"]
     assert "jeans" in ROLE_PROMPTS["bottom"]
+    assert "matching clothing set" in ROLE_PROMPTS["dress"]
+    assert "two piece outfit" in ROLE_PROMPTS["dress"]
     assert "sandal" in ROLE_PROMPTS["shoes"]
     assert {"glasses", "watch", "backpack", "jewelry"}.issubset(ROLE_PROMPTS["accessory"])
 

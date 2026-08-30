@@ -15,6 +15,7 @@ import {
   shippingSimulationActions,
 } from '../orderPresentation'
 import { Copy } from 'lucide-react'
+import { formatAdminDate } from '../../../utils/dateTime'
 
 type OrderShippingPanelProps = {
   canUpdateOrders: boolean
@@ -116,7 +117,7 @@ export function OrderShippingPanel({
             <strong>{mappingReady ? 'Mapping GHN đã xác minh' : 'Cần xác minh mapping GHN'}</strong>
             <span>
               {mappingReady
-                ? `${order.shippingAddress.ghnMappingConfidence} · ${new Date(order.shippingAddress.ghnMappingVerifiedAt!).toLocaleDateString('vi-VN')}`
+                ? `${order.shippingAddress.ghnMappingConfidence} · ${formatAdminDate(order.shippingAddress.ghnMappingVerifiedAt)}`
                 : 'Đơn đang dùng phí tạm tính; hệ thống sẽ không gọi tạo vận đơn GHN.'}
             </span>
           </div>

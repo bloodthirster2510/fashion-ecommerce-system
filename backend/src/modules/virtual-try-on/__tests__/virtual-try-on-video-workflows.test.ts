@@ -9,16 +9,18 @@ describe('virtual try-on video workflow profiles', () => {
   it('ships a readable workflow and map for every admin option', () => {
     const workflows = getVideoWorkflowOptions();
 
-    expect(workflows.map((workflow) => workflow.id)).toEqual(['fast', 'balanced', 'quality']);
+    expect(workflows.map((workflow) => workflow.id)).toEqual(['budget', 'fast', 'balanced', 'quality']);
     workflows.forEach((workflow) => {
       expect(existsSync(workflow.workflowPath)).toBe(true);
       expect(existsSync(workflow.workflowMapPath)).toBe(true);
       expect(workflow.model).toBeTruthy();
+      expect(workflow.performance.estimatedCostUsd).toBeGreaterThan(0);
     });
   });
 
   it('keeps legacy jobs on the current quality workflow', () => {
     expect(inferVideoWorkflowProfile(undefined, 'kling-v3-omni')).toBe('quality');
+    expect(inferVideoWorkflowProfile(undefined, 'viduq2-pro-fast')).toBe('budget');
     expect(inferVideoWorkflowProfile(undefined, 'viduq2-turbo')).toBe('fast');
     expect(inferVideoWorkflowProfile(undefined, 'kling-v2-5-turbo')).toBe('balanced');
   });

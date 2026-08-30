@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useToast } from '../../notifications/notification-context'
+import { formatAdminDateTime } from '../../utils/dateTime'
 import { hasPermission, type AdminUser } from '../auth/adminSession'
 import {
   cancelVirtualTryOnJob,
@@ -249,13 +250,7 @@ const initialAccountLockFilters: AdminVirtualTryOnAccountLockFilters = {
   locked: 'true',
 }
 
-const formatDate = (value: string) => new Intl.DateTimeFormat('vi-VN', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-}).format(new Date(value))
+const formatDate = (value: string) => formatAdminDateTime(value)
 
 const formatPrice = (value: number) => `${Math.round(value).toLocaleString('vi-VN')}đ`
 
@@ -979,7 +974,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                 <span /><span /><span /><span />
               </div>
             ) : orderedJobs.length ? (
-              <table className="admin-vto-table">
+              <table className="admin-vto-table admin-vto-jobs-table">
                 <thead>
                   <tr>
                     <th>Lượt xử lý</th>
@@ -1067,8 +1062,10 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
           </div>
 
           {pagination && pagination.totalPages > 1 ? (
-            <footer className="admin-table-footer">
-              <span>Trang {pagination.page}/{pagination.totalPages} · {pagination.totalItems} lượt</span>
+            <footer className="admin-table-footer admin-vto-jobs-footer">
+              <span>
+                Hiển thị {(pagination.page - 1) * pagination.limit + 1}–{Math.min(pagination.page * pagination.limit, pagination.totalItems)} / {pagination.totalItems} lượt
+              </span>
               <div>
                 <button type="button" disabled={pagination.page <= 1} onClick={() => updateFilter('page', pagination.page - 1)}>Trước</button>
                 <button type="button" disabled={pagination.page >= pagination.totalPages} onClick={() => updateFilter('page', pagination.page + 1)}>Sau</button>
@@ -1324,7 +1321,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                           })}
                         >
                           {settings.modelOptions.videoProviders.map((provider) => (
-                            <option key={provider} value={provider}>{provider === 'comfy_kling' ? 'ComfyUI / Kling' : provider === 'mock' ? 'Mô phỏng' : 'Tắt'}</option>
+                            <option key={provider} value={provider}>{provider === 'comfy_kling' ? 'ComfyUI Video (Vidu / Kling)' : provider === 'mock' ? 'Mô phỏng' : 'Tắt'}</option>
                           ))}
                         </select>
                       </label>
@@ -1358,6 +1355,17 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <small>{settings.modelOptions.videoWorkflowProfiles.find(
                           (workflow) => workflow.id === settingsDraft.videoWorkflowProfile,
                         )?.description}</small>
+                        {(() => {
+                          const performance = settings.modelOptions.videoWorkflowProfiles.find(
+                            (workflow) => workflow.id === settingsDraft.videoWorkflowProfile,
+                          )?.performance
+                          return performance ? (
+                            <small>
+                              Tốc độ: {performance.speedLabel} · Chi phí: {performance.costLabel}
+                              {' '}— khoảng ${performance.estimatedCostUsd.toFixed(2)} ({performance.estimateBasis})
+                            </small>
+                          ) : null
+                        })()}
                       </label>
                       <label>
                         <span>Mô hình AI</span>
@@ -1397,7 +1405,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                         <span>Tỷ lệ video</span>
                         <select
                           value={settingsDraft.videoAspectRatio}
-                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || settingsDraft.videoWorkflowProfile === 'fast'}
+                          disabled={settingsDraft.videoProvider !== 'comfy_kling' || ['budget', 'fast'].includes(settingsDraft.videoWorkflowProfile)}
                           onChange={(event) => setSettingsDraft((current) => current
                             ? { ...current, videoAspectRatio: event.target.value }
                             : current)}
@@ -1420,7 +1428,7 @@ export function VirtualTryOnManagementPage({ currentUser }: { currentUser: Admin
                       </label>
                     </fieldset>
                   </div>
-                  <p>Đổi quy trình chỉ áp dụng cho yêu cầu mới. Các lượt đang chạy tiếp tục dùng quy trình đã được ghi nhận khi tạo.</p>
+                  <p>Đổi quy trình chỉ áp dụng cho yêu cầu mới. Các lượt đang chạy tiếp tục dùng quy trình đã được ghi nhận khi tạo. Giá hiển thị là ước tính theo bảng giá Comfy Cloud và có thể thay đổi.</p>
                 </section>
                 <div className="admin-vto-settings-fields">
                   <label>

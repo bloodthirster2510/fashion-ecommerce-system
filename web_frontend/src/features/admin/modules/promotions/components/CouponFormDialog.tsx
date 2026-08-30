@@ -396,7 +396,7 @@ export function CouponFormDialog({
 
               <div className="admin-account-form-grid">
                 <label>
-                  <span>Bắt đầu</span>
+                  <span>Bắt đầu (giờ VN)</span>
                   <input
                     type="datetime-local"
                     value={couponForm.startAt}
@@ -406,10 +406,11 @@ export function CouponFormDialog({
                   {showCouponErrors && couponErrors.startAt ? <small className="admin-field-error">{couponErrors.startAt}</small> : null}
                 </label>
                 <label>
-                  <span>Kết thúc</span>
+                  <span>Kết thúc (giờ VN)</span>
                   <input
                     type="datetime-local"
                     value={couponForm.endAt}
+                    min={couponForm.startAt}
                     onChange={(event) => setCouponForm((form) => ({ ...form, endAt: event.target.value }))}
                     required
                   />

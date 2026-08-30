@@ -136,6 +136,32 @@ describe('virtualTryOnSelection', () => {
     expect(inferRole({ name: 'Dam du tiec', category: { name: 'vay dam' } })).toBe('dress');
   });
 
+  it.each([
+    ['Áo giữ nhiệt', 'top'],
+    ['Áo hai dây', 'top'],
+    ['Áo len', 'top'],
+    ['Áo polo', 'top'],
+    ['Áo sơ mi', 'top'],
+    ['Áo thun', 'top'],
+    ['Hoodie / Áo nỉ', 'top'],
+    ['Quần baggy', 'bottom'],
+    ['Quần âu', 'bottom'],
+    ['Quần jeans', 'bottom'],
+    ['Quần kaki', 'bottom'],
+    ['Quần thể thao', 'bottom'],
+    ['Chân váy', 'bottom'],
+    ['Đầm', 'dress'],
+    ['Bộ thể thao', 'dress'],
+    ['Đồ bộ', 'dress'],
+    ['Giày cao gót', 'shoes'],
+    ['Giày lười', 'shoes'],
+    ['Giày thể thao', 'shoes'],
+    ['Sandal', 'shoes'],
+    ['Giày / Dép khác', 'shoes'],
+  ] as const)('maps the current catalog category %s to %s', (categoryName, expectedRole) => {
+    expect(inferRole({ name: 'Sản phẩm catalog', category: { name: categoryName } })).toBe(expectedRole);
+  });
+
   it('infers footwear from the full category hierarchy when a leaf name is generic', () => {
     const categories = [
       { _id: 'female', name: 'Thời trang nữ', gender: 'female' as const },

@@ -7,7 +7,7 @@ export interface IVirtualTryOnRuntimeConfiguration {
   imageAspectRatio: string;
   imageResolution: string;
   videoProvider: 'mock' | 'comfy_kling' | 'disabled';
-  videoWorkflowProfile: 'fast' | 'balanced' | 'quality';
+  videoWorkflowProfile: 'budget' | 'fast' | 'balanced' | 'quality';
   videoModel: string;
   videoDurationSeconds: number;
   videoResolution: string;
@@ -65,7 +65,7 @@ const runtimeConfigurationFields = {
   },
   videoWorkflowProfile: {
     type: String,
-    enum: ['fast', 'balanced', 'quality'],
+    enum: ['budget', 'fast', 'balanced', 'quality'],
     required: true,
     default: 'quality',
   },

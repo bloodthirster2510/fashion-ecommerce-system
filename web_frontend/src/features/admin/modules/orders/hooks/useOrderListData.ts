@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { formatAdminDateInput } from '../../../utils/dateTime'
 import {
   listOrders,
   type AdminOrder,
@@ -28,8 +29,7 @@ const getUrlLookupKeyword = () =>
 const getDefaultLookupDateFrom = () => getRelativeDateInput(30)
 
 const formatDateInput = (date: Date) => {
-  const timezoneOffsetMs = date.getTimezoneOffset() * 60 * 1000
-  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 10)
+  return formatAdminDateInput(date)
 }
 
 const getRelativeDateInput = (daysAgo: number) => {
